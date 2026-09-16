@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "cam-main",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 4],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    },
+    {
+      "id": "cam-second",
+      "name": "Second Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 8],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    },
+    {
+      "id": "block",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [1, 1, 1],
+          "material": { "color": "#a0a0a0" }
+        }
+      }
+    }
+  ]
+}

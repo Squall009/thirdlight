@@ -1,0 +1,135 @@
+{
+  "contract": "docs/contracts/project-model.md",
+  "indexVersion": 1,
+  "notes": "Machine-readable fixture expectations for packet 05. `expectedCodes` lists error codes that must ALL be present in the validator result for an invalid fixture; unexpected additional codes are a contract/implementation bug to report. Valid fixtures must validate and normalize, and the normalized output must re-validate (round-trip). `path` is relative to fixtures/project-model/. A `project` entry references a directory containing project.json + scenes/main.json, validated with validateProject; document entries validate the single file.",
+  "entries": [
+    {
+      "path": "valid/demo-project",
+      "kind": "project",
+      "valid": true,
+      "notes": "Hierarchy (world > ground, world > player), local transforms, 45-degree yaw quaternion on player, box materials, single camera."
+    },
+    {
+      "path": "valid/demo-project/project.json",
+      "kind": "manifest",
+      "valid": true
+    },
+    {
+      "path": "valid/demo-project/scenes/main.json",
+      "kind": "scene",
+      "valid": true
+    },
+    {
+      "path": "valid/minimal-scene.json",
+      "kind": "scene",
+      "valid": true,
+      "notes": "Byte-equivalent in content to the default creation scene (contract section 15)."
+    },
+    {
+      "path": "valid/defaults-omitted.json",
+      "kind": "scene",
+      "valid": true,
+      "notes": "Every defaulted optional field omitted (empty transform/box/camera objects, absent name/parentId). Pins the lenient-input/strict-output rule: validator accepts, normalizer fills defaults."
+    },
+    {
+      "path": "invalid/duplicate-ids.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "id_duplicate"
+      ],
+      "notes": "Second occurrence at /entities/1/id; first occurrence wins."
+    },
+    {
+      "path": "invalid/hierarchy-cycle.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "hierarchy_cycle",
+        "order_parent_before_child"
+      ],
+      "notes": "Cycle a->b->a. Any cyclic document necessarily violates the parent-before-child array invariant, so both codes are expected."
+    },
+    {
+      "path": "invalid/missing-reference.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "reference_missing"
+      ],
+      "notes": "/entities/0/parentId references absent id 'ghost'."
+    },
+    {
+      "path": "invalid/invalid-numbers.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "field_type",
+        "number_out_of_range",
+        "quaternion_invalid"
+      ],
+      "notes": "Multiple independent violations in one document (zero quaternion, non-unit quaternion, negative scale, zero box size, string in position, out-of-range fovY and far) - validator must collect all errors, not fail fast. NaN/Infinity are NOT representable in JSON: see runtime/non-finite-cases.md."
+    },
+    {
+      "path": "invalid/unknown-component.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "component_unknown"
+      ],
+      "notes": "Unknown component 'light'; error must list known types [transform, box, camera]; no field-level errors inside the unknown component."
+    },
+    {
+      "path": "invalid/two-cameras.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "camera_count_invalid"
+      ]
+    },
+    {
+      "path": "invalid/missing-transform.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "component_missing"
+      ]
+    },
+    {
+      "path": "invalid/unsupported-version.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "schema_version_unsupported"
+      ],
+      "notes": "Future schemaVersion 2: exactly ONE error, no field-level validation, document retained untouched."
+    },
+    {
+      "path": "invalid/unsupported-version-past.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": [
+        "schema_version_unsupported"
+      ],
+      "notes": "Past schemaVersion 0: same single-error behavior; M1 has no migration path (no_migration_path on migrate attempts)."
+    },
+    {
+      "path": "invalid/non-strict-json.json",
+      "kind": "manifest",
+      "valid": false,
+      "expectedCodes": [
+        "json_parse_error"
+      ],
+      "notes": "INTENTIONALLY NOT STRICT JSON: contains NaN and Infinity tokens. Strict JSON.parse must reject it; original bytes retained. Do not 'fix' this file. Also documents that unknown-field checking is unreachable after a parse failure."
+    },
+    {
+      "path": "invalid/manifest-scene-mismatch",
+      "kind": "project",
+      "valid": false,
+      "expectedCodes": [
+        "manifest_scene_mismatch"
+      ],
+      "notes": "Both documents individually valid; manifest scenes[0].id 'scene-main' != scene sceneId 'scene-other'. Fails at validateProject level only."
+    }
+  ]
+}

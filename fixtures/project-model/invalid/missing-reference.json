@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "orphan",
+      "name": "Orphan",
+      "parentId": "ghost",
+      "components": {
+        "transform": {
+          "position": [0, 0, 1],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [0.5, 0.5, 0.5],
+          "material": { "color": "#c0c0c0" }
+        }
+      }
+    },
+    {
+      "id": "cam-main",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 4],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    }
+  ]
+}

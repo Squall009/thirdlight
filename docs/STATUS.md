@@ -1,6 +1,6 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
-Updated: 2026-09-16 (packet 00 complete).
+Updated: 2026-09-16 (packet 01 complete).
 
 Gate discipline (docs/planning/implementation-prompts.md): at each gate, stop
 dependent implementation until review findings are resolved. A contract change
@@ -21,7 +21,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | ID | Packet | Gate | Prerequisite | Status | Handoff |
 |----|--------|------|--------------|--------|---------|
 | 00 | Repository intake and environment | A | — | done (2026-09-16) | docs/handoffs/00.md |
-| 01 | Project data contract | A | 00 | pending | — |
+| 01 | Project data contract | A | 00 | done (2026-09-16) | docs/handoffs/01.md |
 | 02 | Commands, persistence, and conflict contract | A | 01 | pending | — |
 | 03 | Runtime, session, export, and dependency contracts | A | 02 | pending | — |
 | 04 | Minimal toolchain and dependency checks | B | Gate A accepted | pending | — |
@@ -50,3 +50,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 - No implementation has started. No dependencies installed. No services
   deployed. Git: initial commit + public remote created 2026-09-16 (owner
   decision; see handoff 00 revision note).
+- Packet 01 defined `docs/contracts/project-model.md` (schemaVersion 1:
+  manifest + single scene; Transform/box/camera; Y-up right-handed meters,
+  2.5D plane XY with depth Z) plus `fixtures/project-model/` with a
+  machine-readable `expected.json` index. Contract is unreviewed until Gate A.

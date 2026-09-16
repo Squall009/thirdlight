@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "world",
+      "name": "World",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "parentId": "world",
+      "components": {
+        "transform": {
+          "position": [0, -0.1, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [4, 0.2, 1],
+          "material": { "color": "#5c7a4b" }
+        }
+      }
+    },
+    {
+      "id": "player",
+      "name": "Player",
+      "parentId": "world",
+      "components": {
+        "transform": {
+          "position": [0, 0.25, 0],
+          "rotation": [0, 0.3826834323650898, 0, 0.9238795325112867],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [0.5, 0.5, 0.5],
+          "material": { "color": "#d94f3d" }
+        }
+      }
+    },
+    {
+      "id": "cam-main",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 4],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    }
+  ]
+}

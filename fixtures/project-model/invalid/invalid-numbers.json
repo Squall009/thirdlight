@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "e-zero-q",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 0],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "e-long-q",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [1, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "e-neg-scale",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [-1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "e-zero-size",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [2, 0, 1],
+          "material": { "color": "#a0a0a0" }
+        }
+      }
+    },
+    {
+      "id": "e-bad-type",
+      "components": {
+        "transform": {
+          "position": [0, "1", 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        }
+      }
+    },
+    {
+      "id": "e-bad-cam",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 4],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 200,
+          "near": 0.1,
+          "far": 2000000
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "root",
+      "components": {
+        "transform": {}
+      }
+    },
+    {
+      "id": "cube",
+      "parentId": "root",
+      "components": {
+        "transform": {},
+        "box": {}
+      }
+    },
+    {
+      "id": "cam-main",
+      "components": {
+        "transform": {},
+        "camera": {}
+      }
+    }
+  ]
+}

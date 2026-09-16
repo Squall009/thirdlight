@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "e-dup",
+      "name": "First",
+      "components": {
+        "transform": {
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [1, 1, 1],
+          "material": { "color": "#a0a0a0" }
+        }
+      }
+    },
+    {
+      "id": "e-dup",
+      "name": "Second",
+      "components": {
+        "transform": {
+          "position": [1, 0, 0],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "box": {
+          "size": [1, 1, 1],
+          "material": { "color": "#a0a0a0" }
+        }
+      }
+    },
+    {
+      "id": "cam-main",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [0, 0.5, 4],
+          "rotation": [0, 0, 0, 1],
+          "scale": [1, 1, 1]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    }
+  ]
+}
