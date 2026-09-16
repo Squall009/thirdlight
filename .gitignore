@@ -1,0 +1,11 @@
+# Dependencies / build output (no dependency stack installed yet; packet 04+)
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local environment / logs
+.env
+*.log
+
+# Game project data lives OUTSIDE this repository:
+# /home/dadmin/thirdlight/projects/<project-id>/ (decision 0001 §6)
