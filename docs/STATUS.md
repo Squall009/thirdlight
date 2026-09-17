@@ -1,9 +1,9 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
 Updated: 2026-09-17 (Gate A accepted 2026-09-17 with bounded follow-ups
-F1–F4 — see Notes; **F1–F4 applied 2026-09-17** — repair recorded in the
-handoff 03 "Gate A follow-up repair" section; React ruling and pre-review
-pass recorded in handoff 03).
+F1–F4 — see Notes; **F1–F4 applied 2026-09-17** (commit `b6422e4`) —
+repair recorded in the handoff 03 "Gate A follow-up repair" section;
+React ruling and pre-review pass recorded in handoff 03).
 
 Gate discipline (docs/planning/implementation-prompts.md): at each gate, stop
 dependent implementation until review findings are resolved. A contract change
