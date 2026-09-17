@@ -185,6 +185,57 @@ describe('R1 — checks 1/5/6 are build prerequisites (04-review R1)', () => {
     expect(existsSync(join(root, 'dist', 'preview', 'preview.js'))).toBe(false);
   }, 180000);
 
+  it.each([
+    "// 😀\nimport fs from 'fs'; export const app = fs;",
+    "const re = /`/;\nimport fs from 'fs'; export const app = fs;",
+    "import{ readFile }from 'fs'; export const app = readFile;",
+  ])('re-review F1 syntax cannot bypass the build: %s', (source) => {
+    setEntries('clean');
+    writeFileSync(join(root, EDITOR, 'src/index.tsx'), source);
+    const r = build();
+    expect(r.status).toBe(1);
+    expect(out(r)).toContain('[node-builtin-forbidden]');
+    expect(existsSync(join(root, 'dist/editor/main.js'))).toBe(false);
+    expect(existsSync(join(root, 'dist/preview/preview.js'))).toBe(false);
+  }, 180000);
+
+  it('re-review F3 production-to-test leakage stops the build before bundling', () => {
+    setEntries('clean');
+    const testFile = join(root, EDITOR, 'src/helper.test.ts');
+    writeFileSync(testFile, "import { expect } from 'vitest'; export const helper = expect;");
+    writeFileSync(join(root, EDITOR, 'src/index.tsx'),
+      "import { helper } from './helper.test'; export const app = helper;");
+    try {
+      const r = build();
+      expect(r.status).toBe(1);
+      expect(out(r)).toContain('[production-to-test]');
+      expect(out(r)).not.toContain('tsc --noEmit');
+      expect(existsSync(join(root, 'dist/editor/main.js'))).toBe(false);
+      expect(existsSync(join(root, 'dist/preview/preview.js'))).toBe(false);
+    } finally {
+      rmSync(testFile, { force: true });
+    }
+  }, 180000);
+
+  it('re-review F4 noCheck cannot make an invalid program build', () => {
+    setEntries('clean');
+    const config = join(root, EDITOR, 'tsconfig.json');
+    const original = readFileSync(config, 'utf8');
+    writeFileSync(config, JSON.stringify({
+      extends: '../../tsconfig.base.json', compilerOptions: { noCheck: true }, include: ['src'],
+    }));
+    writeFileSync(join(root, EDITOR, 'src/index.tsx'), 'export const app: number = "wrong";');
+    try {
+      const r = build();
+      expect(r.status).toBe(1);
+      expect(out(r)).toContain('noCheck');
+      expect(existsSync(join(root, 'dist/editor/main.js'))).toBe(false);
+      expect(existsSync(join(root, 'dist/preview/preview.js'))).toBe(false);
+    } finally {
+      writeFileSync(config, original);
+    }
+  }, 180000);
+
   it('a typecheck failure prevents bundle emission', () => {
     setEntries('typecheck');
     const r = build();

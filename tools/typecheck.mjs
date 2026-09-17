@@ -7,11 +7,10 @@
  *
  *   1. VALIDATES the package tsconfig (repaired per 04-review R7): it must
  *      extend the root `tsconfig.base.json` (directly or transitively — the
- *      extends chain is resolved explicitly) AND the EFFECTIVE compiler
- *      options (the TypeScript 5.9.3 config-resolution API, so per-package
- *      overrides are seen) must keep `strict: true`. A config that extends
- *      the base but sets `strict: false`, a standalone non-strict config, or
- *      a config that does not extend the base fails before tsc runs.
+ *      inheritance graph is resolved by TypeScript, including extends arrays)
+ *      AND the EFFECTIVE compiler options must keep `strict: true`, all its
+ *      sub-options, and declaration checking. Checking-disabling overrides
+ *      and configs that do not extend the base fail before tsc runs.
  *   2. runs the pinned TypeScript 5.9.3 `tsc --noEmit` over the package
  *      tsconfig. Any type error ⇒ non-zero exit, tsc's own
  *      `file(line,col): error TSxxxx` listing. The editor's TSX is
@@ -36,53 +35,43 @@ import ts from 'typescript'; // pinned devDependency (dependencies.md §7)
 
 const BASE_CONFIG = 'tsconfig.base.json';
 
-/**
- * Resolve the `extends` chain of a tsconfig file (TS semantics: a relative
- * target is resolved against the containing file; a target without a
- * `.json` extension is retried with `.json`). Returns { files, error } —
- * `files` is the config file plus every extends target, in order.
- */
+// All strictFlag options in pinned TypeScript 5.9.3. Unset sub-options inherit
+// `strict`; use the public parser API rather than internal option helpers.
+const STRICT_OPTIONS = [
+  'noImplicitAny', 'noImplicitThis', 'strictNullChecks', 'strictFunctionTypes',
+  'strictBindCallApply', 'strictPropertyInitialization',
+  'strictBuiltinIteratorReturn', 'useUnknownInCatchVariables', 'alwaysStrict',
+];
+const SKIP_CHECK_OPTIONS = ['noCheck', 'skipLibCheck', 'skipDefaultLibCheck'];
+
+function parseConfig(startPath) {
+  const path = resolve(startPath);
+  const source = ts.readJsonConfigFile(path, ts.sys.readFile);
+  const parsed = ts.parseJsonSourceFileConfigFileContent(
+    source, ts.sys, dirname(path), undefined, path,
+  );
+  // TsConfigSourceFile.extendedSourceFiles is public in 5.9.3's .d.ts.
+  // TS handles arrays (later bases win), package/absolute paths, diamonds,
+  // missing bases, and cycles; no parallel hand-written resolution rules.
+  return { parsed, files: [path, ...(source.extendedSourceFiles ?? [])] };
+}
+
+/** Config file plus its inherited files, using the same parser as validation. */
 export function extendsChain(startPath) {
-  const files = [startPath];
-  const seen = new Set();
-  let current = startPath;
-  for (let depth = 0; depth < 16; depth++) {
-    if (seen.has(current)) return { files, error: `extends cycle at '${current}'` };
-    seen.add(current);
-    const parsed = ts.readConfigFile(current, ts.sys.readFile);
-    if (parsed.error || parsed.config === undefined || parsed.config === null) {
-      return {
-        files,
-        error: `extends target '${current}' is not a readable JSON config`,
-      };
-    }
-    const ext = parsed.config.extends;
-    if (typeof ext !== 'string' || ext === '') break;
-    if (!ext.startsWith('.')) {
-      return {
-        files,
-        error: `extends value '${ext}' is not a relative path (package-name ` +
-          'extends is not supported by this check; use a relative path to ' +
-          `tsconfig.base.json)`,
-      };
-    }
-    let candidate = resolve(dirname(current), ext);
-    if (!existsSync(candidate) && !candidate.endsWith('.json')) {
-      candidate = `${candidate}.json`;
-    }
-    if (!existsSync(candidate)) {
-      return { files, error: `extends target '${ext}' not found (resolved: ${candidate})` };
-    }
-    files.push(candidate);
-    current = candidate;
-  }
-  return { files, error: null };
+  const { parsed, files } = parseConfig(startPath);
+  return {
+    files,
+    error: parsed.errors.length
+      ? parsed.errors.map((e) => ts.flattenDiagnosticMessageText(e.messageText, ' ')).join('; ')
+      : null,
+  };
 }
 
 /**
  * Validate one package tsconfig: it must extend the root tsconfig.base.json
  * (directly or transitively) and the effective compiler options must keep
- * `strict: true` (dependencies.md §5.5; decision 0001 §2/§3). Returns
+ * `strict: true` without disabling its sub-options or skipping checks
+ * (dependencies.md §5.5; decision 0001 §2/§3). Returns
  * violation strings (empty = OK).
  */
 export function validatePackageTsconfig(root, pkgName) {
@@ -98,48 +87,39 @@ export function validatePackageTsconfig(root, pkgName) {
   }
   // 1) required base inheritance (extends chain must include the root base).
   const base = resolve(root, BASE_CONFIG);
-  const chain = extendsChain(tsconfigPath);
-  if (chain.error) {
-    violations.push(`${label}: ${chain.error}`);
+  const { parsed, files } = parseConfig(tsconfigPath);
+  if (parsed.errors.length > 0) {
+    for (const e of parsed.errors.slice(0, 3)) {
+      violations.push(`${label}: ${ts.flattenDiagnosticMessageText(e.messageText, ' ')}`);
+    }
     return violations;
   }
-  if (!chain.files.includes(base)) {
+  if (!files.includes(base)) {
     violations.push(
       `${label} does not extend tsconfig.base.json — per-package tsconfigs must ` +
         'extend the strict base (dependencies.md §5.5; chain: ' +
-        chain.files.map((f) => f.replace(root, '.')).join(' → ') + ').'
+        files.map((f) => f.replace(root, '.')).join(' → ') + ').'
     );
     return violations;
   }
   // 2) effective strictness (full TS config resolution, overrides included).
-  const { config, error } = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
-  if (error) {
-    violations.push(
-      `${label}: invalid config — ${ts.flattenDiagnosticMessageText(error.messageText, ' ')}`,
-    );
-    return violations;
-  }
-  const host = {
-    useCaseSensitiveFileNames: true,
-    readDirectory: ts.sys.readDirectory,
-    fileExists: ts.sys.fileExists,
-    readFile: ts.sys.readFile,
-  };
-  const parsed = ts.parseJsonConfigFileContent(config, host, dirname(tsconfigPath), undefined, tsconfigPath);
-  if (parsed.errors.length > 0) {
-    for (const e of parsed.errors.slice(0, 3)) {
-      violations.push(
-        `${label}: ${ts.flattenDiagnosticMessageText(e.messageText, ' ')}`,
-      );
-    }
-    return violations;
-  }
   if (parsed.options.strict !== true) {
     violations.push(
       `${label}: effective \`strict\` is ${parsed.options.strict ?? 'unset'} — ` +
         'tsconfig.base.json requires strict: true and per-package configs must ' +
         'keep it (dependencies.md §5.5; decision 0001 §2/§3).',
     );
+  } else {
+    for (const option of STRICT_OPTIONS) {
+      if ((parsed.options[option] ?? parsed.options.strict) !== true) {
+        violations.push(`${label}: effective \`${option}\` is false — strict sub-options must stay enabled.`);
+      }
+    }
+  }
+  for (const option of SKIP_CHECK_OPTIONS) {
+    if (parsed.options[option] === true) {
+      violations.push(`${label}: effective \`${option}\` is true — skipping type checks is not allowed.`);
+    }
   }
   return violations;
 }

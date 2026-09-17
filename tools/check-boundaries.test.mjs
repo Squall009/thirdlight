@@ -6,16 +6,29 @@
  * negative fixture, and the §4.1 allowed edges have positive fixtures.
  */
 
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { checkWorkspace, extractSpecifiers, UNITS, NODE_SIDE_ALLOWED } from './check-boundaries.mjs';
+
+const roots = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 function makeRoot() {
   const root = mkdtempSync(join(tmpdir(), 'tl-boundaries-'));
+  roots.push(root);
   mkdirSync(join(root, 'packages'), { recursive: true });
   return root;
+}
+
+function runBoundaryCLI(root) {
+  return spawnSync(process.execPath, [fileURLToPath(new URL('./check-boundaries.mjs', import.meta.url))],
+    { cwd: root, encoding: 'utf8' });
 }
 
 /** Create a fixture package with an exports map, src files, and optional declared deps. */
@@ -47,6 +60,7 @@ function addPkg(
     ),
   );
   for (const [rel, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
     writeFileSync(join(dir, rel), content);
   }
 }
@@ -518,7 +532,7 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
     expect(vs[0].file).toBe('packages/backend/src/bad.ts');
   });
 
-  it('fails exporter → project-model/protocol/workspace value imports; allows type forms', () => {
+  it('restricts exporter → workspace to types; permits model/protocol value imports', () => {
     const root = makeRoot();
     addPkg(root, 'project-model');
     addPkg(root, 'protocol');
@@ -538,9 +552,10 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
       },
     });
     const vs = checkWorkspace(root).violations;
-    expect(vs).toHaveLength(3);
-    expect(vs.every((v) => v.rule === 'types-only-edge')).toBe(true);
-    expect(vs.every((v) => v.file.endsWith('bad.ts'))).toBe(true);
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('types-only-edge');
+    expect(vs[0].line).toBe(3);
+    expect(vs[0].message).toContain('exporter → workspace');
   });
 
   it('fails protocol → project-model/commands value imports (the §4.1 "(types; pure code, no I/O)" row — recorded interpretation)', () => {
@@ -697,7 +712,7 @@ describe('R5 — package-local test files (narrow vitest policy)', () => {
     expect(checkWorkspace(root).violations).toEqual([]);
   });
 
-  it('forbids vitest in production files (production imports of test helpers fail)', () => {
+  it('forbids direct vitest imports in production files', () => {
     const root = makeRoot();
     addPkg(root, 'project-model', {
       files: {
@@ -724,6 +739,159 @@ describe('R5 — package-local test files (narrow vitest policy)', () => {
     expect(vs).toHaveLength(1);
     expect(vs[0].rule).toBe('forbidden-edge');
     expect(vs[0].line).toBe(2);
+  });
+});
+
+describe('re-review F1/F2 — AST extraction and type-only classification', () => {
+  it.each([
+    ["// 😀\nimport { App } from '@thirdlight/editor';", 2],
+    ["const re = /`/;\nimport { App } from '@thirdlight/editor';", 2],
+    ["import{ App }from '@thirdlight/editor';", 1],
+    ["export{ App }from '@thirdlight/editor';", 1],
+    ["/* 😀 */\r\nimport '@thirdlight/editor';", 2],
+    ["import { 面板 } from '@thirdlight/editor';", 1],
+    [String.raw`import '@thirdlight/\u0065ditor';`, 1],
+    ["const p = import(`@thirdlight/editor`);", 1],
+    ["const text = `nested ${import('@thirdlight/editor')}`;", 1],
+  ])('rejects forbidden edge through valid syntax: %s', (source, line) => {
+    const root = makeRoot();
+    addPkg(root, 'editor');
+    addPkg(root, 'runtime', { files: { 'src/index.ts': source } });
+    expect(extractSpecifiers(source)).toEqual([
+      expect.objectContaining({ spec: '@thirdlight/editor', line, typeOnly: false }),
+    ]);
+    const result = runBoundaryCLI(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`packages/runtime/src/index.ts:${line}: [forbidden-edge]`);
+  });
+
+  it('does not invent imports in regex literals, strings, comments or TSX text', () => {
+    const src = `const pattern = /import('three')/;
+const prose = "import('three')";
+// import('three')
+const view = <div>import('three'){import('@thirdlight/runtime')}</div>;`;
+    expect(extractSpecifiers(src, 'view.tsx')).toEqual([
+      { spec: '@thirdlight/runtime', kind: 'dynamic-import', line: 4, typeOnly: false },
+    ]);
+    expect(extractSpecifiers('const f = <T>(v: T) => v; import "three";', 'generic.ts'))
+      .toEqual([expect.objectContaining({ spec: 'three' })]);
+  });
+
+  it.each([
+    ["import { type as apply } from '@thirdlight/commands'; apply();", false],
+    ["import { type } from '@thirdlight/commands';", false],
+    ["export { type as apply } from '@thirdlight/commands';", false],
+    ["export { type Command, type Result as R } from '@thirdlight/commands';", true],
+    ["export { type Command, apply } from '@thirdlight/commands';", false],
+    ["export {} from '@thirdlight/commands';", false],
+    ["type C = import('@thirdlight/commands').Command;", true],
+  ])('classifies and enforces contextual type bindings: %s', (source, typeOnly) => {
+    const root = makeRoot();
+    addPkg(root, 'commands');
+    addPkg(root, 'editor', { files: { 'src/index.ts': source } });
+    expect(extractSpecifiers(source)[0].typeOnly).toBe(typeOnly);
+    const result = runBoundaryCLI(root);
+    expect(result.status).toBe(typeOnly ? 0 : 1);
+    if (!typeOnly) expect(result.stderr).toContain('[types-only-edge]');
+  });
+
+  it('fails closed for nonliteral dynamic imports rather than bypassing the graph', () => {
+    const root = makeRoot();
+    addPkg(root, 'runtime', { files: {
+      'src/index.ts': "const target = 'three'; import(target); import(`three/${target}`);",
+    } });
+    const vs = checkWorkspace(root).violations;
+    expect(vs.map((v) => v.rule)).toEqual(['unresolved-import-target', 'unresolved-import-target']);
+    expect(runBoundaryCLI(root).status).toBe(1);
+  });
+});
+
+describe('re-review F3 — production cannot acquire the test-only tooling exception', () => {
+  it.each([
+    "import { helper } from './helper.test'; export { helper };",
+    "export { helper } from './helper.test.ts';",
+    "export * from './helper.test.js';",
+    "const helper = import('./helper.test');",
+    "export type { helper } from './helper.test';",
+  ])('rejects a resolved production-to-test edge: %s', (source) => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'src/index.ts': source,
+      'src/helper.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    const result = runBoundaryCLI(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('packages/project-model/src/index.ts:1: [production-to-test]');
+  });
+
+  it('rejects a production barrel that re-exports a test', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'src/index.ts': "export { helper } from './barrel';",
+      'src/barrel.ts': "export * from './helper.spec';",
+      'src/helper.spec.tsx': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    expect(checkWorkspace(root).violations).toEqual([
+      expect.objectContaining({ file: 'packages/project-model/src/barrel.ts', rule: 'production-to-test' }),
+    ]);
+  });
+
+  it('resolves directory package entry points to the actual test file', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'src/index.ts': "export * from './helpers';",
+      'src/helpers/package.json': JSON.stringify({ main: './index.test.ts' }),
+      'src/helpers/index.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    expect(checkWorkspace(root).violations[0]?.rule).toBe('production-to-test');
+  });
+
+  it('respects moduleSuffixes instead of assuming the spelling names a production file', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'tsconfig.json': JSON.stringify({ compilerOptions: {
+        moduleResolution: 'bundler', module: 'esnext', moduleSuffixes: ['.test', ''],
+      } }),
+      'src/index.ts': "export * from './helper';",
+      'src/helper.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    expect(checkWorkspace(root).violations[0]?.rule).toBe('production-to-test');
+  });
+
+  it('does not permit a production-named symlink to hide a test target', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'src/index.ts': "export * from './alias';",
+      'src/helper.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    symlinkSync('./helper.test.ts', join(root, 'packages/project-model/src/alias.ts'));
+    expect(checkWorkspace(root).violations).toEqual([
+      expect.objectContaining({ rule: 'production-to-test', file: 'packages/project-model/src/index.ts' }),
+    ]);
+  });
+
+  it.each([
+    { '.': './src/helper.test.ts' },
+    { '.': './src/index.ts', './helper': { types: './src/helper.test.ts', default: './src/index.ts' } },
+  ])('rejects public test exports, including self-reference/conditional paths', (exports) => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { exports, files: {
+      'src/index.ts': 'export const value = 1;',
+      'src/helper.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    expect(checkWorkspace(root).violations[0]?.rule).toBe('test-public-export');
+  });
+
+  it('keeps ordinary internal code and test-to-test imports legal', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', { files: {
+      'src/index.ts': "export * from './helper';",
+      'src/helper.ts': 'export const value = 1;',
+      'src/index.test.ts': "import { value } from './index'; import { helper } from './helper.test';",
+      'src/helper.test.ts': "import { expect } from 'vitest'; export const helper = expect;",
+    } });
+    expect(checkWorkspace(root).violations).toEqual([]);
+    expect(runBoundaryCLI(root).status).toBe(0);
   });
 });
 

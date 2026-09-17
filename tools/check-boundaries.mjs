@@ -15,9 +15,8 @@
  *                          table text: editor → project-model/commands
  *                          ("(types)"), backend → project-model
  *                          ("(types only — the snapshot document)"),
- *                          exporter → project-model/protocol/workspace
- *                          ("(types only — the service instance is
- *                          injected)"), protocol → project-model/commands
+ *                          exporter → workspace ("types only — the service
+ *                          instance is injected"), protocol → project-model/commands
  *                          ("(types; pure code, no I/O)").
  *   dependencies.md §4.3   forbidden edges (any plane) — `runtime → three`,
  *                          `runtime → Node builtins`, `editor → workspace |
@@ -50,48 +49,29 @@
  * test files unchanged, and a production file importing `vitest` fails
  * (`forbidden-external`). Tests are NOT exempt from boundary checking.
  *
- * Plain Node, no new dependency. Any violation ⇒ non-zero exit, each listed
- * as `file:line: [rule] message`.
+ * Plain Node using the already-pinned TypeScript compiler API; no new
+ * dependency. Any violation ⇒ non-zero exit, `file:line: [rule] message`.
  *
- * Specifier extraction (repaired per 04-review R2): the source is first
- * SCRUBBED — a small state machine blanks comments and string/template
- * literal contents (template `${…}` interpolations are treated as code)
- * while preserving delimiters, offsets, and line numbers 1:1 — and the
- * normative forms are matched against the scrubbed view:
- *   - every static import clause form: default, named (incl. multi-line),
- *     namespace, default+named, default+namespace, `import type …`
- *     variants, per-binding `type` modifiers, and comments between any
- *     tokens (an import with a comment between `import` and its clause)
- *   - side-effect `import 'spec'`
- *   - `export … from 'spec'` (incl. `export type …`)
- *   - dynamic `import('spec')` with or without an options argument
- *     (`import('spec', { … })`, multi-line options) — the call's parentheses
- *     are balanced in the scrubbed view
- * The specifier text is read from the raw source at the matched quote, so
- * file/line output stays accurate.
+ * Extraction uses the TS/TSX AST, preserving UTF-16 offsets and respecting
+ * comments, regex literals, JSX, templates, escaped strings, and contextual
+ * `type` bindings. Import/export declaration and binding isTypeOnly flags
+ * distinguish erased type edges from executable ones. Import-type queries
+ * are type-only; dynamic import calls are executable. Nonliteral dynamic
+ * targets fail closed because their dependency boundary cannot be checked.
+ * Production-to-test local imports/re-exports and public test exports fail;
+ * test files retain all other boundary rules.
  *
- * Type-only classification (for the §4.1 types-only edges): an
- * `import type` / `export type` statement, or an import clause whose named
- * bindings are all `type`-prefixed, counts as type-only. A default or
- * namespace binding, any plain named binding, a side-effect import, and
- * any dynamic `import()` count as value (executable) imports. Statically,
- * a plain `import { T } from …` of a types-only target fails even if T
- * happens to be a type — the conservative direction (fix: `import type`).
- *
- * Static-scan bounds (remaining limitations, recorded in handoff 04):
- * `require()` and `import = require()` are not scanned (the documented
- * exclusion); regex literals can mislead the comment/string scrubber (a
- * false positive is possible, not a false negative for the normative import
- * forms); `exports` subpath pattern syntax (`./x/*`) is not matched (M1
- * exports maps are flat tables — dependencies.md §3); the `globalThis`
- * assignment scan runs on the raw source (a commented-out assignment is
- * flagged for review — the conservative direction for this review rule).
+ * Bounds: `require()` / `import = require()` remain outside the contract's
+ * three scanned forms; M1 exports maps are flat (no wildcard patterns).
+ * The globalThis assignment review scan still runs on raw source (including
+ * commented-out assignments). These checks are not a hostile-code sandbox.
  */
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import ts from 'typescript'; // already pinned tooling, dependencies.md §7
 
 export const WORKSPACE_SCOPE = '@thirdlight/';
 
@@ -147,13 +127,13 @@ export const NODE_SIDE_ALLOWED = {
     node: ['http', 'fs', 'path', 'crypto'],
     typesOnly: { 'project-model': true },
   },
-  // §4.1 row: "project-model, protocol, workspace (types only — the
-  // service instance is injected, never constructed)".
+  // §4.1 explicitly reiterates "imports workspace types only"; the
+  // project-model/protocol value edges are not injection-only service edges.
   exporter: {
     packages: ['project-model', 'protocol', 'workspace'],
     external: ['esbuild'],
     node: [],
-    typesOnly: { 'project-model': true, protocol: true, workspace: true },
+    typesOnly: { workspace: true },
   },
   'mcp-adapter': {
     packages: ['protocol', 'backend'],
@@ -225,108 +205,9 @@ const DEP_SECTIONS = [
   'optionalDependencies',
 ];
 
-// --- comment/string scrub ---------------------------------------------------
-
-/**
- * Blank comments and string/template literal contents (spaces; delimiters,
- * newlines, and `${…}` interpolation code are kept) to build a code-only
- * view of the same length as `src`. Every offset and line number in the
- * result maps 1:1 to `src`. Regex literals are NOT recognized and can
- * mislead the scrubber (recorded limitation — false-positive direction).
- */
-export function scrubCommentsAndStrings(src) {
-  const out = Array.from(src);
-  const n = out.length;
-  const blank = (from, to) => {
-    for (let k = from; k < to && k < n; k++) if (out[k] !== '\n') out[k] = ' ';
-  };
-  // Frames: { mode: 'code' | 'str' | 'tpl', quote?, depth?, interp? }.
-  // A 'code' frame with interp=true is a template `${…}` interpolation; a
-  // brace at depth 0 there returns to the enclosing template.
-  const stack = [{ mode: 'code', depth: 0, interp: false }];
-  let i = 0;
-  while (i < n) {
-    const c = out[i];
-    const f = stack[stack.length - 1];
-    if (f.mode === 'code') {
-      if (c === '/' && out[i + 1] === '/') {
-        let j = i + 2;
-        while (j < n && out[j] !== '\n') j++;
-        blank(i, j); // delimiters included: leftovers would break clause matching
-        i = j;
-      } else if (c === '/' && out[i + 1] === '*') {
-        let j = i + 2;
-        while (j < n && !(out[j] === '*' && out[j + 1] === '/')) j++;
-        const end = j < n ? j + 2 : n;
-        blank(i, end); // delimiters included
-        i = end;
-      } else if (c === "'" || c === '"') {
-        stack.push({ mode: 'str', quote: c });
-        i++;
-      } else if (c === '`') {
-        stack.push({ mode: 'tpl' });
-        i++;
-      } else if (c === '{') {
-        f.depth += 1;
-        i++;
-      } else if (c === '}') {
-        if (f.depth > 0) f.depth -= 1;
-        else if (f.interp) stack.pop();
-        i++;
-      } else {
-        i++;
-      }
-    } else if (f.mode === 'str') {
-      if (c === '\\') {
-        blank(i + 1, Math.min(i + 2, n));
-        i += 2;
-      } else if (c === f.quote || c === '\n') {
-        stack.pop(); // unterminated at EOL: recover, don't poison the rest
-        i++;
-      } else {
-        blank(i, i + 1);
-        i++;
-      }
-    } else {
-      // template literal
-      if (c === '\\') {
-        blank(i + 1, Math.min(i + 2, n));
-        i += 2;
-      } else if (c === '$' && out[i + 1] === '{') {
-        stack.push({ mode: 'code', depth: 0, interp: true });
-        i += 2;
-      } else if (c === '`') {
-        stack.pop();
-        i++;
-      } else {
-        blank(i, i + 1);
-        i++;
-      }
-    }
-  }
-  return out.join('');
-}
-
 // --- specifier extraction ----------------------------------------------------
 
-const QUOTE = "(['\"])";
-// A static import clause: default, named (multi-line ok), namespace,
-// default+named, default+namespace. Per-binding `type` modifiers stay
-// inside the braces.
-const CLAUSE =
-  '(?:[\\w$]+|\\{[^}]*\\}|\\*\\s+as\\s+[\\w$]+)(?:\\s*,\\s*(?:\\*\\s+as\\s+[\\w$]+|\\{[^}]*\\}))?';
-const RE_IMPORT_FROM = new RegExp(
-  String.raw`\bimport\s+(type\s+)?(${CLAUSE})\s+from\s*${QUOTE}`,
-  'g',
-);
-const RE_SIDE_EFFECT = new RegExp(String.raw`\bimport\s*${QUOTE}`, 'g');
-const RE_EXPORT_FROM = new RegExp(
-  String.raw`\bexport\s+(type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s+from\s*${QUOTE}`,
-  'g',
-);
-const RE_DYNAMIC_IMPORT = new RegExp(String.raw`\bimport\s*\(\s*${QUOTE}`, 'g');
-
-/** `globalThis.x = …` / `globalThis['x'] = …` (plain `=`; `===`, `!=`, … excluded). */
+/** `globalThis.x = …` / `globalThis['x'] = …` (plain `=` only). */
 const RE_GLOBALTHIS =
   /globalThis\s*\.\s*[A-Za-z_$][\w$]*\s*=(?!=)|globalThis\s*\[\s*(['"])[A-Za-z_$][\w$.-]*\1\s*\]\s*=(?!=)/g;
 
@@ -336,108 +217,44 @@ function lineOf(src, index) {
   return line;
 }
 
-/** Balanced-close search for the opener at `openIndex` in a scrubbed view. */
-function matchingParen(code, openIndex) {
-  let depth = 0;
-  for (let i = openIndex; i < code.length; i++) {
-    const c = code[i];
-    if (c === '(' || c === '[' || c === '{') depth += 1;
-    else if (c === ')' || c === ']' || c === '}') {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
+function allTypeBindings(bindings) {
+  return bindings !== undefined &&
+    (ts.isNamedImports(bindings) || ts.isNamedExports(bindings)) &&
+    bindings.elements.length > 0 && bindings.elements.every((b) => b.isTypeOnly);
 }
 
-/**
- * True if the import clause imports no runtime values (type-only usage):
- * no default or namespace binding, and every named binding `type`-prefixed
- * (a binding literally named `type` counts as a value binding — the
- * contextual-keyword reading). An empty named clause (`import {} from`)
- * still executes the module: not type-only.
+/** Parse TS/TSX rather than duplicating its lexical grammar. Null spec means
+ * a dynamic target cannot be statically checked (reported, never ignored).
+ * References: TS Compiler API wiki; pinned 5.9.3 typescript.d.ts.
  */
-function importClauseIsTypeOnly(typeKw, clause) {
-  if (typeKw) return true;
-  if (clause.includes('*')) return false; // namespace import: a runtime value
-  if (!clause.startsWith('{')) return false; // a default binding (alone or +…): a runtime value
-  const inner = clause.slice(1, -1);
-  const bindings = inner.split(',').map((b) => b.trim()).filter((b) => b.length > 0);
-  if (bindings.length === 0) return false;
-  return bindings.every((b) => /^type\s+[\w$]/.test(b));
-}
-
-/**
- * Extract all import/export-from/dynamic-import specifiers with line
- * numbers and type-only classification.
- */
-export function extractSpecifiers(src) {
-  const code = scrubCommentsAndStrings(src);
+export function extractSpecifiers(src, fileName = 'source.ts') {
+  const source = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true);
   const found = [];
-  const readStr = (quotePos) => {
-    const q = src[quotePos];
-    let j = quotePos + 1;
-    while (j < src.length && src[j] !== q && src[j] !== '\n') {
-      if (src[j] === '\\') j += 1;
-      j += 1;
-    }
-    return j < src.length && src[j] === q ? src.slice(quotePos + 1, j) : null;
+  const add = (node, literal, kind, typeOnly) => {
+    found.push({
+      spec: literal && ts.isStringLiteralLike(literal) ? literal.text : null,
+      kind,
+      line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+      typeOnly,
+    });
   };
-
-  // import … from 'spec' (all clause forms; comments between tokens ok —
-  // the scrubbed view).
-  RE_IMPORT_FROM.lastIndex = 0;
-  let m;
-  while ((m = RE_IMPORT_FROM.exec(code)) !== null) {
-    const quotePos = m.index + m[0].length - 1;
-    const spec = readStr(quotePos);
-    if (spec === null) continue;
-    found.push({
-      spec,
-      kind: 'import',
-      line: lineOf(src, m.index),
-      typeOnly: importClauseIsTypeOnly(Boolean(m[1]), m[2] ?? ''),
-      index: m.index,
-    });
-  }
-
-  // side-effect import 'spec'.
-  RE_SIDE_EFFECT.lastIndex = 0;
-  while ((m = RE_SIDE_EFFECT.exec(code)) !== null) {
-    const quotePos = m.index + m[0].length - 1;
-    const spec = readStr(quotePos);
-    if (spec === null) continue;
-    found.push({ spec, kind: 'import', line: lineOf(src, m.index), typeOnly: false, index: m.index });
-  }
-
-  // export … from 'spec' (export type … is type-only).
-  RE_EXPORT_FROM.lastIndex = 0;
-  while ((m = RE_EXPORT_FROM.exec(code)) !== null) {
-    const quotePos = m.index + m[0].length - 1;
-    const spec = readStr(quotePos);
-    if (spec === null) continue;
-    found.push({
-      spec,
-      kind: 'export-from',
-      line: lineOf(src, m.index),
-      typeOnly: Boolean(m[1]),
-      index: m.index,
-    });
-  }
-
-  // dynamic import('spec') — with or without an options argument.
-  RE_DYNAMIC_IMPORT.lastIndex = 0;
-  while ((m = RE_DYNAMIC_IMPORT.exec(code)) !== null) {
-    const quotePos = m.index + m[0].length - 1;
-    const spec = readStr(quotePos);
-    if (spec === null) continue;
-    const open = code.lastIndexOf('(', quotePos - 1);
-    if (open === -1 || matchingParen(code, open) === -1) continue; // malformed call
-    found.push({ spec, kind: 'dynamic-import', line: lineOf(src, m.index), typeOnly: false, index: m.index });
-  }
-
-  found.sort((a, b) => a.index - b.index);
-  for (const f of found) delete f.index;
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause;
+      const typeOnly = Boolean(clause && (clause.isTypeOnly ||
+        (!clause.name && allTypeBindings(clause.namedBindings))));
+      add(node, node.moduleSpecifier, 'import', typeOnly);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      add(node, node.moduleSpecifier, 'export-from',
+        node.isTypeOnly || allTypeBindings(node.exportClause));
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      add(node, node.arguments[0], 'dynamic-import', false);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      add(node, node.argument.literal, 'import-type', true);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
   return found;
 }
 
@@ -513,6 +330,33 @@ function subpathExported(pkgJson, subpath) {
 function isInside(p, dir) {
   const r = relative(dir, p);
   return r === '' || (!r.startsWith('..') && !isAbsolute(r));
+}
+
+function canonicalPath(path) {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+function isTestSource(path) {
+  return RE_TEST_FILE.test(canonicalPath(path));
+}
+
+// Use the package's actual TS resolution options (including moduleSuffixes).
+// Typecheck owns config validation; fixture packages without configs use the
+// adopted bundler resolution. Unresolved imports still fail in typecheck.
+function resolutionOptions(pkgDir) {
+  const defaults = { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
+  const path = join(pkgDir, 'tsconfig.json');
+  const read = ts.readConfigFile(path, ts.sys.readFile);
+  if (read.error) return defaults;
+  return ts.parseJsonConfigFileContent(read.config, ts.sys, pkgDir).options;
+}
+
+// Every condition in an exports map must stay production-only. This also
+// blocks self-imports through a public subpath pointing at a test file.
+function exportTargets(value) {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object') return [];
+  return Object.values(value).flatMap(exportTargets);
 }
 
 /**
@@ -625,21 +469,36 @@ export function checkWorkspace(root) {
     // declared dependencies: no premature wiring (§2/§5.6), React scope (§7),
     // no web frameworks.
     checkDeclaredManifest(relPkgJson, pkg.name, pkg.pkgJson, pkgsByName, addV);
+    const options = resolutionOptions(pkg.pkgDir);
+    for (const target of exportTargets(pkg.pkgJson.exports)) {
+      if (isTestSource(resolve(pkg.pkgDir, target))) {
+        addV(relPkgJson, 0, 'test-public-export',
+          `exports target '${target}' exposes a test file — tests are not public production entry points (dependencies.md §3).`);
+      }
+    }
 
     // sources.
     for (const file of tsFiles(pkg.pkgDir)) {
       const src = readFileSync(file, 'utf8');
       const rel = relative(root, file);
-      const isTestFile = RE_TEST_FILE.test(file);
+      const isTestFile = isTestSource(file);
       filesScanned += 1;
 
-      for (const { spec, kind, line, typeOnly } of extractSpecifiers(src)) {
+      for (const { spec, kind, line, typeOnly } of extractSpecifiers(src, file)) {
         specifiersChecked += 1;
+        if (spec === null) {
+          addV(rel, line, 'unresolved-import-target',
+            `${kind} target must be a string literal so its dependency boundary can be checked (dependencies.md §5.1).`);
+          continue;
+        }
 
-        // relative / absolute file imports.
+        // Resolve actual local targets before checking isolation. Covers
+        // extensionless, .js-to-.ts, directory and symlink imports, not just
+        // filenames spelled with a test suffix at the import site.
         if (spec.startsWith('.') || spec.startsWith('/')) {
-          const abs = resolve(dirname(file), spec);
-          if (!isInside(abs, pkg.pkgDir)) {
+          const resolved = ts.resolveModuleName(spec, file, options, ts.sys).resolvedModule;
+          const abs = canonicalPath(resolved?.resolvedFileName ?? resolve(dirname(file), spec));
+          if (!isInside(abs, canonicalPath(pkg.pkgDir))) {
             addV(
               rel,
               line,
@@ -648,6 +507,9 @@ export function checkWorkspace(root) {
                 'files are unreachable; import the target via its exports subpath ' +
                 '(dependencies.md §3/§4.3)',
             );
+          } else if (!isTestFile && isTestSource(abs)) {
+            addV(rel, line, 'production-to-test',
+              `${kind} '${spec}' resolves to '${relative(root, abs)}' — production must not import test helpers or the test runner (R5 test-only tooling boundary).`);
           }
           continue;
         }

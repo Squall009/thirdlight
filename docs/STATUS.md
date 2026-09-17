@@ -27,7 +27,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | 01 | Project data contract | A | 00 | done; review corrections v0.2 (2026-09-17); Gate A accepted 2026-09-17 | docs/handoffs/01.md |
 | 02 | Commands, persistence, and conflict contract | A | 01 | done; contracts + fixtures v0.1 (2026-09-17); Gate A accepted 2026-09-17 (follow-up F4 touches commands.md/workspace.md) | docs/handoffs/02.md |
 | 03 | Runtime, session, export, and dependency contracts | A | 02 | done; contracts v0.1 + M1 acceptance plan (2026-09-17); Gate A pre-review pass 2026-09-17; Gate A accepted 2026-09-17 (follow-ups F1–F3 touch this packet's documents) | docs/handoffs/03.md |
-| 04 | Minimal toolchain and dependency checks | B | Gate A accepted | implemented; review 2026-09-17: changes required (R1–R7); **repaired 2026-09-17** — R1–R7 + 2 additional defects fixed, 81/81 tests, pending re-review (docs/handoffs/04-review.md) | docs/handoffs/04.md |
+| 04 | Minimal toolchain and dependency checks | B | Gate A accepted | re-repair 2026-09-17: re-review findings F1–F4 + 2 non-gating observations repaired; 141/141 tests pass; pending re-review (docs/handoffs/04.md, docs/handoffs/04-rereview.md) | docs/handoffs/04.md |
 | 05 | Project model implementation | B | 04 | pending | — |
 | 06 | Pure commands and history | B | 05 | pending | — |
 | 07 | Durable workspace service | B | 06 | pending | — |
