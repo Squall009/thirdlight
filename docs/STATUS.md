@@ -1,6 +1,7 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
-Updated: 2026-09-17 (packets 01–02 complete; React UI framework ruling recorded).
+Updated: 2026-09-17 (packets 01–03 complete; React UI framework ruling
+recorded; Gate A ready for review).
 
 Gate discipline (docs/planning/implementation-prompts.md): at each gate, stop
 dependent implementation until review findings are resolved. A contract change
@@ -11,7 +12,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 
 | Gate | Covers | Status |
 |------|--------|--------|
-| A | 00–03 | in progress — 00–02 done (Gate A acceptance pending); 03 pending |
+| A | 00–03 | ready for review — 00–03 done (2026-09-17); acceptance pending, not approved |
 | B | 04–07 | pending — prerequisite: Gate A accepted |
 | C | 08–12 | pending — prerequisite: Gate B accepted (for 08 onward) |
 | D | 13 | pending — prerequisite: Gate C accepted |
@@ -23,7 +24,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | 00 | Repository intake and environment | A | — | done (2026-09-16) | docs/handoffs/00.md |
 | 01 | Project data contract | A | 00 | done; review corrections v0.2 (2026-09-17), Gate A acceptance pending | docs/handoffs/01.md |
 | 02 | Commands, persistence, and conflict contract | A | 01 | done; contracts + fixtures v0.1 (2026-09-17), Gate A acceptance pending | docs/handoffs/02.md |
-| 03 | Runtime, session, export, and dependency contracts | A | 02 | pending | — |
+| 03 | Runtime, session, export, and dependency contracts | A | 02 | done; contracts v0.1 + M1 acceptance plan (2026-09-17), Gate A ready for review | docs/handoffs/03.md |
 | 04 | Minimal toolchain and dependency checks | B | Gate A accepted | pending | — |
 | 05 | Project model implementation | B | 04 | pending | — |
 | 06 | Pure commands and history | B | 05 | pending | — |
