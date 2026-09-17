@@ -28,7 +28,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | 02 | Commands, persistence, and conflict contract | A | 01 | done; contracts + fixtures v0.1 (2026-09-17); Gate A accepted 2026-09-17 (follow-up F4 touches commands.md/workspace.md) | docs/handoffs/02.md |
 | 03 | Runtime, session, export, and dependency contracts | A | 02 | done; contracts v0.1 + M1 acceptance plan (2026-09-17); Gate A pre-review pass 2026-09-17; Gate A accepted 2026-09-17 (follow-ups F1–F3 touch this packet's documents) | docs/handoffs/03.md |
 | 04 | Minimal toolchain and dependency checks | B | Gate A accepted | re-repair review 2026-09-17 (docs/handoffs/04-rereview2.md): **accepted** — packet 04 complete, 141/141 tests, no new P1 findings (2 non-gating P2 observations recorded); next: packet 05 | docs/handoffs/04.md |
-| 05 | Project model implementation | B | 04 | pending | — |
+| 05 | Project model implementation | B | 04 | implemented 2026-09-17 — package complete (strict byte parser, boundary validation, canonical serializer, migration entry point); 234/234 workspace tests (93 project-model), boundary/dep/typecheck/build all pass; awaiting review; next: packet 06 | docs/handoffs/05.md |
 | 06 | Pure commands and history | B | 05 | pending | — |
 | 07 | Durable workspace service | B | 06 | pending | — |
 | 08 | Runtime and three.js adapter | C | Gate B accepted | pending | — |

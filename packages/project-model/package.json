@@ -1,0 +1,10 @@
+{
+  "name": "@thirdlight/project-model",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight project data model (docs/contracts/project-model.md, M1 schemaVersion 1): strict byte parsing, validation, normalization, canonical serialization, migration entry points, and the fixed M1 component registry. Pure data/logic - no I/O, no three.js (dependencies.md §2/§4.1 leaf).",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
