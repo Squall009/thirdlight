@@ -1,6 +1,6 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
-Updated: 2026-09-17 (packets 01–02 complete).
+Updated: 2026-09-17 (packets 01–02 complete; React UI framework ruling recorded).
 
 Gate discipline (docs/planning/implementation-prompts.md): at each gate, stop
 dependent implementation until review findings are resolved. A contract change
@@ -37,6 +37,13 @@ during later work reopens the relevant review gate. Unrun packets stay
 
 ## Notes
 
+- Owner ruling 2026-09-17: **React 19.3.0** (`react`, `react-dom`,
+  `@types/react`, `@types/react-dom` — all registry-verified 2026-09-17) is
+  the M1 editor UI framework — panels only; three.js viewport/gizmo/picking
+  stays imperative and framework-free. Supersedes decision 0001's "no UI
+  framework" proposal (recorded as decision 0001 §10). Implementation-prompts
+  pack bumped to v0.1.1 with packets 04/10 clarified. No other stack changes;
+  nothing installed yet (first install is packet 04).
 - Packet 00 open items carried forward: TypeScript line RESOLVED — owner
   confirmed 5.9.3 (decision 0001 §3/§8). The one-time root action for
   `/etc/thirdlight` is withdrawn (data root moved to user home, 2026-09-16).

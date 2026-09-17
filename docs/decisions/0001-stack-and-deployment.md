@@ -1,10 +1,11 @@
 # Decision 0001 — Stack and Deployment
 
 Status: **proposed; owner-revised 2026-09-16** (no containerization; game
-data root moved to user home; see §5–6). Scope: M1 implementation stack,
-package workspace, MCP integration, deployment shape, remote access. Nothing
-was installed and no service was deployed in packet 00. Evidence for every
-measured/verified claim: `docs/environment.md`.
+data root moved to user home; see §5–6); **owner-revised 2026-09-17** (React
+added as the M1 editor UI framework; see §3, §9, §10). Scope: M1
+implementation stack, package workspace, MCP integration, deployment shape,
+remote access. Nothing was installed and no service was deployed in packet 00.
+Evidence for every measured/verified claim: `docs/environment.md`.
 
 ## 1. Confirmed decisions (from charter v0.1 — restated, not re-decided)
 
@@ -44,7 +45,7 @@ measured/verified claim: `docs/environment.md`.
 | Build / bundle | `esbuild@0.28.2` (dev) | registry-verified | proposed |
 | Tests | `vitest@5.0.1` (dev) | registry-verified | proposed |
 | MCP (backend side) | `@modelcontextprotocol/sdk@1.30.0` (node >= 18) | registry-verified | proposed |
-| UI framework | **none** for M1 — minimal DOM + three.js | charter §11: UI framework is a focused selection when its task becomes concrete | deliberately unselected |
+| UI framework | **React** for editor panels only: `react@19.3.0`, `react-dom@19.3.0`, `@types/react@19.3.0`, `@types/react-dom@19.3.0`. Three.js viewport/gizmo/picking code stays imperative and framework-free (boundaries in §10) | registry-verified 2026-09-17 | **owner ruling 2026-09-17** — supersedes the original "none for M1" proposal |
 | Physics | **none** (deferred to the bounded M2 evaluation) | charter §6; packet 00 instruction | explicitly unselected |
 
 **TypeScript line — CONFIRMED by owner 2026-09-16: 5.9.3.**
@@ -191,12 +192,53 @@ LXC (Ubuntu 26.04, this environment)
 
 ## 9. Rejected / deliberately not chosen (recorded so future sessions don't repeat them)
 
-- No physics engine, no advanced graphics/compute libraries, no UI framework,
-  no web framework: deferred to bounded evaluations when their packets become
-  concrete (charter §11; packet 00 instruction).
+- No physics engine, no advanced graphics/compute libraries, no web framework:
+  deferred to bounded evaluations when their packets become concrete (charter
+  §11; packet 00 instruction). (The former "no UI framework" clause was
+  superseded for editor UI by the owner ruling 2026-09-17 — see §10.)
 - No pnpm/bun install to "modernize" the package manager: npm is the only
   manager present; unrequested changes are forbidden.
 - No server-side GPU/browser assumptions; no headless browser automation in
   M1 (charter §7).
 - Containerized deployment (Docker/Podman, shared-mount containers): rejected
   by owner ruling 2026-09-16 — deployment is process-level inside the LXC.
+
+## 10. UI framework selection — owner ruling 2026-09-17 (supersedes "no UI framework")
+
+**Ruling (recorded 2026-09-17):** React is the M1 editor UI framework.
+Pinned per the registry-verification standard used for all stack items:
+`react@19.3.0`, `react-dom@19.3.0`, `@types/react@19.3.0`,
+`@types/react-dom@19.3.0` (all verified against the npm registry
+2026-09-17). Charter §11 makes the UI framework a focused selection when the
+editor task becomes concrete; the owner elected to make that selection by
+direct ruling before packet 10, so no vanilla-DOM editor code exists that a
+later framework addition would have to replace.
+
+**Recorded rationale:** the editor UI roadmap extends well beyond M1's
+minimal panels (timeline, node-graph tooling, many panels/forms). React's
+declarative rendering, composition model, and mature component ecosystem
+(e.g., react-flow for node graphs, dnd-kit for drag & drop) materially
+reduce roadmap cost at that scale. At M1's minimal panel count the vanilla
+DOM approach was defensible; the decision was made on the roadmap, not the
+M1 scope.
+
+**Boundaries (binding for all editor work):**
+
+- React owns the DOM panels: hierarchy/entity list, transform inspector,
+  toolbars, connection/save status, play controls (packet 10 scope).
+- The three.js scene graph, camera controls, gizmos, picking, and the play
+  preview stay **imperative three.js code, outside React rendering**. React
+  never instantiates or mutates Object3Ds; scene mutation flows only through
+  editing commands (no duplicate scene mutation paths).
+- Browser state remains a projection of backend state; commands are the only
+  mutation path (charter §6). Panels re-render from state; they do not cache
+  authoritative state in DOM nodes or module variables.
+- Build: esbuild handles TSX natively; this ruling adds no new build tool
+  and no web framework.
+- Scope guard: this ruling selects a framework; it does **not** expand the
+  editor UI beyond packet 10's scope ("no decorative dashboard, prefab
+  browser, graph editor, or unrelated panels").
+
+**Superseded:** the §3 row "UI framework — none for M1" and the §9 item
+"no UI framework" as they applied to editor UI. Backend web framework and
+physics remain unselected/rejected as recorded.

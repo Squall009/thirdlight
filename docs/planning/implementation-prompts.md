@@ -1,6 +1,10 @@
 # Thirdlight — Implementation Prompts
 
-Version 0.1 · 2026-09-16
+Version 0.1.1 · 2026-09-17
+
+Revision 2026-09-17: owner ruling added React to the M1 editor UI stack
+(decision 0001 §10). Packets 04 and 10 clarified accordingly; all other
+packets unchanged.
 
 ## Start here
 
@@ -235,8 +239,9 @@ Finish handoff 03 and mark Gate A ready for review, not approved. Stop here.
 Prerequisite: Gate A review is recorded as accepted in docs/STATUS.md.
 Read decision 0001, dependencies.md, and M1 acceptance criteria.
 Implement only the minimal workspace/toolchain: package manager lockfile, pinned
-toolchain policy, strict TypeScript, build/typecheck/test commands, and import
-boundary checks. Create package directories only as necessary, not empty systems.
+toolchain policy, strict TypeScript (including TSX — esbuild TSX loader for the
+`editor` package's React UI, decision 0001 §10), build/typecheck/test commands,
+and import boundary checks. Create package directories only as necessary, not empty systems.
 Use selected versions; if unavailable/incompatible, report a concrete decision
 change instead of substituting silently. Do not implement product features.
 
@@ -338,7 +343,9 @@ actual backend and a disposable workspace. Handoff 09.
 Read sessions.md, runtime.md, commands.md, protocol exports, and m1-acceptance.md.
 Implement a practical minimal editor: hierarchy, scene viewport, selection,
 transform inspector/gizmo, create/delete box, undo/redo, save status, connection
-status, and play/stop. Use the approved UI stack. No decorative dashboard, prefab
+status, and play/stop. Use the approved UI stack: React for the panels
+(decision 0001 §10); the three.js viewport, gizmos, and picking stay imperative
+and framework-free. No decorative dashboard, prefab
 browser, graph editor, or unrelated panels.
 
 Browser state is a projection of backend state. Gizmo gestures preview locally
