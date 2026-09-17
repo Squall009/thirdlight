@@ -118,6 +118,9 @@ the backend stopped (m1-acceptance §1, step 12; packet 12).
 The exporter runs, in order. Any failure ⇒ a structured error
 (`{ ok: false, error: { code, cls, … } }`, sessions.md §11.2 shape), the
 temp directory is removed, and the previous output (if any) is untouched.
+The bundle build itself is not a numbered step: it runs between steps 1 and
+2 (after the snapshot is frozen, before the step-2 revision re-read), and
+its defects surface at steps 4 and 5.
 
 | Step | Check | Failure code |
 |---|---|---|
@@ -205,8 +208,12 @@ Run over every emitted byte (all four files):
 | g | the substring `/mcp` | no MCP endpoint |
 | h | any `http://`, `https://`, or `file://` URL literal | no authoring URLs / absolute locators (project-model §4 forbids them in documents; the bundle is held to the same rule) |
 | i | any token material — the configured admin/authoring token **values** (the backend passes the current token set to the exporter for the scan) | no credentials |
+| j | the substrings `XMLHttpRequest` and `WebSocket` | no network mechanism other than the single relative `fetch` (§5.3) |
 
 Any hit ⇒ `export_bundle_forbidden_content` (the first ≤ 4 hits reported).
+A dynamic `import()` of remote or workspace content is enforced by the
+step-4 metafile graph check (every imported module appears in the graph)
+together with pattern h — not by a text pattern.
 **No silent exceptions:** if a pinned dependency (e.g., `three@0.186.0`)
 contains a hit pattern, the export fails and the contract must be changed
 through review with a recorded exception — a workaround that weakens the

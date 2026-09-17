@@ -1,6 +1,10 @@
 # Thirdlight — Project Data Contract
 
 Version: 0.2 (normative, pending Gate A acceptance) · Packet 01 · 2026-09-17
+Revision: pre-Gate A review alignment 2026-09-17 — §12.1 now declares the
+canonical byte serializer and constant exports that
+docs/contracts/dependencies.md §3 names as the public surface (see
+docs/handoffs/03.md, Gate A pre-review findings). No behavior change.
 Scope: M1 (single project manifest + single active scene).
 Companion fixtures: `fixtures/project-model/` (machine-readable index:
 `fixtures/project-model/expected.json`).
@@ -433,6 +437,17 @@ zero → `camera_count_invalid`; two or more → `camera_count_invalid`.
   **new** canonical document (§12.2). Never mutates the input.
 - `migrateManifest(doc, target)`, `migrateScene(doc, target)` — migration
   entry points (§12.4).
+- `serializeCanonical(doc) → Uint8Array` — emits the §12.2 canonical byte
+  form (fixed key order, UTF-8, LF, 2-space indent, one trailing newline,
+  no BOM) of a validated manifest or scene document. Pure and byte-stable
+  (idempotent in the §12.2 sense). This is the single canonical-bytes source
+  consumers compare for byte identity: the workspace envelope's embedded
+  scene (workspace.md §4.4), the export `snapshot.json` scene part
+  (export.md §3), and the runtime snapshot-integrity test (runtime.md
+  §2/§4).
+- Constants: `ERROR_CODES` (the §12.6 stable code set) and `KNOWN_VERSIONS`
+  (M1: `[1]`) — the single source of truth for consumers (workspace,
+  runtime, exporter, protocol — dependencies.md §3).
 - Validation is pure and total: same input → same result; it never reads or
   writes the filesystem and never throws on malformed data (errors are
   returned values).

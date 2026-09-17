@@ -79,7 +79,7 @@ cross-package internal imports).
 | `project-model` | `.` — the project-model.md §12.1 entry points: types, `parse*`, `validate*`, `normalize*`, `migrate*`, `serializeCanonical`, `ERROR_CODES`, `KNOWN_VERSIONS` |
 | `commands` | `.` — types (envelopes), the pure apply/inverse functions, the history model, `ERROR_CODES` |
 | `workspace` | `.` — `openWorkspaceService(config) → WorkspaceService` (types, `runCommand`, `query`, the operator operations per workspace.md §11, `ERROR_CODES`) |
-| `runtime` | `.` — `instantiateRuntime`, `createSimulationRegistry`, `BUILTIN_MODULES`, types (snapshot, diagnostics, module interfaces), `ERROR_CODES` (runtime.md §8) |
+| `runtime` | `.` — `instantiateRuntime`, `createSimulationRegistry`, `registerSimulationModule`, `BUILTIN_MODULES`, types (snapshot, diagnostics, module interfaces), `ERROR_CODES` (runtime.md §8) |
 | `three-adapter` | `.` — `createSceneAdapter(canvas, opts) → SceneAdapter { renderFrame, captureScreenshot(maxWidth), diagnostics, dispose }`, `ERROR_CODES` |
 | `protocol` | `.` — HTTP payload types + strict validators, WS event types + strict validators, bridge message types + strict validators (sessions.md §7/§13.5), ID syntax constants, allowlist constants |
 | `backend` | `.` — the server bootstrap (**not importable by any package — the entry point**); `/services` — the **application services** surface: the workspace-service instance wiring, the session registry, the play router, the command/query facades, the admin-operation facades (sessions.md §6) |
@@ -118,7 +118,7 @@ package's own compiled dependencies) and the **browser-bundle** graphs
 | `runtime` | `project-model` |
 | `three-adapter` | `runtime`, `three` (+ dev: `@types/three`) |
 | `protocol` | `project-model`, `commands` (types; pure code, no I/O) |
-| `backend` | `protocol`, `workspace`, `exporter` (+ `ws`; Node built-ins: `http`, `fs`, `path`, `crypto`) |
+| `backend` | `protocol`, `workspace`, `exporter`, `project-model` (types only — the snapshot document, sessions.md §10.1) (+ `ws`; Node built-ins: `http`, `fs`, `path`, `crypto`) |
 | `exporter` | `project-model`, `protocol`, `workspace` (types only — the service instance is **injected**, never constructed), `esbuild` (its runtime dependency, §7) |
 | `mcp-adapter` | `protocol`, `backend` (**the `/services` subpath only** — §4.3), `@modelcontextprotocol/sdk` |
 | `editor` | `protocol`, `runtime`, `three-adapter`, `three` (the imperative viewport is direct three.js — decision 0001 §10), `project-model` (types), `commands` (types), `react`, `react-dom` (+ dev: `@types/react`, `@types/react-dom`, `@types/three`) |

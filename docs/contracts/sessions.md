@@ -90,7 +90,8 @@ MCP (external harness) → backend MCP endpoint (decision 0001 §5; packet 11)
   static preview page** (a small HTML template + the preview bundle). It
   exposes no API endpoints, no WS, and no authenticated channel: the
   preview frame's only inputs are the static page, the injected config
-  (§13.3), and bridge messages from the verified authoring origin (§13.4).
+  (§13.2), and bridge messages from the verified authoring origin
+  (§13.3–§13.5).
 - **Preview frames receive no backend credentials, normatively** (charter
   §7): no authoring token, no connection token, no API URL, no origin that
   carries an API. The preview never talks to the backend. Packet 10
@@ -177,8 +178,10 @@ Request (strict):
   "clientInfo": { "kind": "browser", "label": "desktop-chrome" } }
 ```
 
-`clientInfo` is optional (`label` ≤ 128 chars, no control chars; display
-metadata for session listing only — never used for authorization).
+`clientInfo` is optional: `kind` exactly `"browser"` (the only M1 session
+kind — MCP and admin clients never establish sessions; any other `kind` ⇒
+`field_value`), `label` ≤ 128 chars, no control chars (display metadata for
+session listing only — never used for authorization).
 
 Result (strict):
 
@@ -194,9 +197,11 @@ Result (strict):
 - `scene` is the **full normalized scene document** (project-model §8) at
   the current revision; `manifest` is the normalized manifest. This full
   state is the initial projection and the resync payload (§8).
-- `workspace` mirrors commands.md §5.6 (while a pending external change
-  exists, queries — and this response — carry `writePaused: true` and the
-  `pendingChange` block).
+- `workspace` is exactly the commands.md §5.6 query `workspace` object:
+  `{ writePaused: false, pendingChange: null }` when clean; while an external
+  change is pending it carries `writePaused: true`,
+  `pauseReason: "external_change"`, and the `pendingChange` block (queries —
+  and this response — are affected alike).
 
 Outcomes:
 
@@ -312,6 +317,15 @@ counts it (the connection survives — robustness rule).
 | `screenshot.request` | `{ relayId, maxWidth? }` | relay step 3 (§12) |
 | `play.diagnostics.request` | `{ relayId }` | relay step 3 (§12) |
 | `error` | `{ code: "unknown_event" \| "protocol_error", frameHint? ≤ 64 chars }` | bounded protocol errors (§5.2) |
+
+- **One-shot delivery (`play.started`).** `play.started` is delivered exactly
+  once per play session, to the owner *session*. If the owner's connection is
+  down at that moment, the backend holds the event in the session's pending
+  queue (bounded: one event; the session outlives the connection, §5.2) and
+  delivers it on (re)attach; it is dropped if the play record is
+  stopped/expired first. The editor holds the snapshot this way before
+  initiating the bridge handshake (§13.4); the 15 s present timeout (§10.2)
+  bounds any such wait.
 
 ### 7.2 Client → server (the editor)
 
@@ -434,7 +448,7 @@ Result (to the requester, browser or MCP):
 
 plus the WS event `play.started` (with the full `snapshot`) delivered to the
 **owner editor**. The editor constructs the preview URL as
-`<playBase>?play=<playSessionId>` (§13.3). The snapshot in the
+`<playBase>?play=<playSessionId>` (§13.1/§13.2). The snapshot in the
 `play.started` payload is what the editor relays to the preview — whether
 the play was started by the editor's own button or by MCP (packet 11: the
 MCP "start play" tool routes into this endpoint; its response carries the
@@ -452,7 +466,7 @@ any → (owner session lost) → stop path (reason "session_lost")
 
 - `active`: created; no preview presented yet.
 - `presented`: the editor sent `play.preview.ready` (handshake + `tl.ready`
-  complete, §13.5). **Screenshot and diagnostics require `presented`**
+  complete, §13.4/§13.5). **Screenshot and diagnostics require `presented`**
   (§12).
 - `stopping`: a stop is in flight (§10.3).
 - `stopped`: terminal. The backend discards the play record (log entry kept,
@@ -551,7 +565,7 @@ sends WS `play.stopped.ack`; the backend marks `stopped` and broadcasts
 | `project_unavailable` | unavailable | `reason` (a workspace.md §11 code), `holder?`, `details?` | as in commands.md |
 | `play_already_active` | conflict | `activePlaySessionId` | second concurrent play for the project (§10.1) |
 | `play_not_found` | not_found | `playSessionId` | stop/screenshot/diagnostics for an unknown or stopped play |
-| `session_unavailable` | unavailable | `playSessionId?`, `hint` | no registered browser / owner WS not connected for a live action (§10.4) |
+| `session_unavailable` | unavailable | `playSessionId?`, `hint` | no registered browser / owner WS not connected / play not yet `presented`, for a live action (§10.4, §12) |
 | `screenshot_timeout` | unavailable | `relayId` | no `screenshot.ack` within 10 s (§12) |
 | `diagnostics_timeout` | unavailable | `relayId` | no `play.diagnostics.ack` within 10 s |
 | `relay_failed` | unavailable | `code?` (the preview/bridge cause) | the editor could not complete a relay (§7.2) |
@@ -607,14 +621,15 @@ downscale). No session data path returns an unbounded document (charter §7).
    `POST /api/v1/projects/:projectId/play/:playSessionId/screenshot`
    (body `{ "maxWidth": 1024 }`, optional, 256–2048) or
    `…/diagnostics` (body `{}`).
-2. The backend verifies: the play session exists and is `presented` (else
-   `play_not_found` / `session_unavailable`), and the owner WS is connected
-   (else `session_unavailable`).
+2. The backend verifies: the play session exists (unknown or already
+   `stopped` ⇒ `play_not_found`), is `presented` (still `active`/`stopping`
+   ⇒ `session_unavailable`, hint: the preview is not ready), and the owner WS
+   is connected (else `session_unavailable`).
 3. The backend allocates a `relayId` and sends WS `screenshot.request` /
    `play.diagnostics.request` to the owner session.
 4. The editor relays bridge `tl.screenshot.request` /
    `tl.diagnostics.request` to the preview (§13) — and **only** to the
-   verified preview (§13.4).
+   verified preview (§13.3).
 5. The preview: screenshot — capture the current frame's canvas, downscale
    to ≤ `maxWidth`, `canvas.toDataURL("image/png")` (same-origin canvas —
    the preview draws no cross-origin images, so the canvas is never
@@ -672,7 +687,9 @@ play" notice and processes no bridge messages.
 ### 13.3 Origin and source checks (normative)
 
 - **Editor → preview:** `iframe.contentWindow.postMessage(msg, O_P)` — the
-  exact `targetOrigin` string from the backend-configured value; **never
+  exact `targetOrigin` string: the configured `previewOrigin`, which the
+  editor obtains as the origin part (scheme + host + port, without the
+  trailing slash) of `playBase` from the play-start result (§10.1); **never
   `"*"`**.
 - **Editor receives:** only messages where `event.origin === O_P` **and**
   `event.source === iframe.contentWindow`.
@@ -687,9 +704,11 @@ play" notice and processes no bridge messages.
 
 ### 13.4 Session handshake (normative sequence)
 
-1. The editor's iframe `load` event fires ⇒ the editor sends
-   `tl.handshake` (carrying `nonce`, a fresh 16-hex value, and the `demo`
-   flag from the play-start result).
+1. The editor's iframe `load` event fires and the editor holds the retained
+   `play.started` snapshot (§7.1 one-shot delivery; if it has not arrived
+   yet, the editor waits — the 15 s present timeout bounds this) ⇒ the editor
+   sends `tl.handshake` (carrying `nonce`, a fresh 16-hex value, and the
+   `demo` flag from the play-start result).
 2. The preview verifies origin/source (§13.3) and `playSessionId` (must
    equal its `?play=` value) ⇒ replies `tl.handshake.ack` (echoing
    `nonce`). A nonce mismatch on a later `tl.snapshot` ⇒ the preview
