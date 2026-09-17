@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "cam-main",
+      "components": {
+        "transform": { "position": [1e400, -1e400, 0] },
+        "camera": {}
+      }
+    }
+  ]
+}

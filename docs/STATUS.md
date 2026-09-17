@@ -21,7 +21,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | ID | Packet | Gate | Prerequisite | Status | Handoff |
 |----|--------|------|--------------|--------|---------|
 | 00 | Repository intake and environment | A | — | done (2026-09-16) | docs/handoffs/00.md |
-| 01 | Project data contract | A | 00 | done (2026-09-16) | docs/handoffs/01.md |
+| 01 | Project data contract | A | 00 | done; review corrections v0.2 (2026-09-17), Gate A acceptance pending | docs/handoffs/01.md |
 | 02 | Commands, persistence, and conflict contract | A | 01 | pending | — |
 | 03 | Runtime, session, export, and dependency contracts | A | 02 | pending | — |
 | 04 | Minimal toolchain and dependency checks | B | Gate A accepted | pending | — |

@@ -1,7 +1,7 @@
 {
   "contract": "docs/contracts/project-model.md",
-  "indexVersion": 1,
-  "notes": "Machine-readable fixture expectations for packet 05. `expectedCodes` lists error codes that must ALL be present in the validator result for an invalid fixture; unexpected additional codes are a contract/implementation bug to report. Valid fixtures must validate and normalize, and the normalized output must re-validate (round-trip). `path` is relative to fixtures/project-model/. A `project` entry references a directory containing project.json + scenes/main.json, validated with validateProject; document entries validate the single file.",
+  "indexVersion": 2,
+  "notes": "Machine-readable fixture expectations for packet 05. All paths are relative to fixtures/project-model/. Document bytes use parseManifest/parseScene; project directories use the standalone interchange composition in contract section 13, NOT workspace envelope loading. Valid fixtures also run through value validation, repeated normalization, and serialized round-trip. expectedCodes is the exact set of error codes; optional expectedErrorCount pins multiplicity; optional expectedErrors pins the full ordered list by code/path/document (other error fields remain governed by the contract). expectedNormalized points to exact canonical UTF-8 output bytes. Constructed byte cases are in runtime/byte-input-cases.md.",
   "entries": [
     {
       "path": "valid/demo-project",
@@ -30,6 +30,39 @@
       "kind": "scene",
       "valid": true,
       "notes": "Every defaulted optional field omitted (empty transform/box/camera objects, absent name/parentId). Pins the lenient-input/strict-output rule: validator accepts, normalizer fills defaults."
+    },
+    {
+      "path": "valid/quaternion-round-trip.json",
+      "kind": "scene",
+      "valid": true,
+      "expectedNormalized": "expected/quaternion-round-trip.json",
+      "notes": "Preserve roundoff-sensitive q and -q, and accepted near-unit rotations on either side of 1. Canonicalize negative zero to zero; do not renormalize authoring quaternions."
+    },
+    {
+      "path": "invalid/duplicate-key.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": ["duplicate_key"],
+      "expectedErrorCount": 1,
+      "expectedErrors": [{ "code": "duplicate_key", "path": "/schemaVersion" }],
+      "notes": "Escaped duplicate name; parse fails before schema validation, without last-key-wins materialization. JSON.parse alone would incorrectly accept version 1."
+    },
+    {
+      "path": "invalid/numeric-overflow.json",
+      "kind": "scene",
+      "valid": false,
+      "expectedCodes": ["number_not_finite"],
+      "expectedErrorCount": 2,
+      "notes": "1e400 and -1e400 are valid JSON syntax but decode to positive/negative Infinity. Report number_not_finite at position/0 and position/1, not json_parse_error or number_out_of_range."
+    },
+    {
+      "path": "invalid/mixed-schema-versions",
+      "kind": "project",
+      "valid": false,
+      "expectedCodes": ["schema_version_unsupported"],
+      "expectedErrorCount": 1,
+      "expectedErrors": [{ "code": "schema_version_unsupported", "path": "/schemaVersion", "document": "scene" }],
+      "notes": "Valid v1 manifest and unknown v2 scene: version failure takes precedence over missing fields, unknown fields, and mismatched scene IDs. No mixed-version code exists in M1."
     },
     {
       "path": "invalid/duplicate-ids.json",

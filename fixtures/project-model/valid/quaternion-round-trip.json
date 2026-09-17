@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "cam-main",
+      "components": {
+        "transform": {
+          "position": [-0, 0, 0],
+          "rotation": [0.3779644730092272, 0.7559289460184544, 0.3779644730092272, 0.3779644730092272]
+        },
+        "camera": {}
+      }
+    },
+    {
+      "id": "negative-q",
+      "components": {
+        "transform": {
+          "rotation": [-0.3779644730092272, -0.7559289460184544, -0.3779644730092272, -0.3779644730092272]
+        }
+      }
+    },
+    {
+      "id": "near-unit-low",
+      "components": { "transform": { "rotation": [0, 0, 0, 0.99995] } }
+    },
+    {
+      "id": "near-unit-high",
+      "components": { "transform": { "rotation": [0, 0, 0, 1.00005] } }
+    }
+  ]
+}

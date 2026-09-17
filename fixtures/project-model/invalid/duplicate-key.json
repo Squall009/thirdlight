@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "\u0073chemaVersion": 1,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "cam-main",
+      "components": { "transform": {}, "camera": {} }
+    }
+  ]
+}

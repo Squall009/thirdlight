@@ -1,8 +1,8 @@
 # Runtime (non-JSON) validation cases — project-model
 
-Contract: `docs/contracts/project-model.md` §12.7. JSON cannot encode `NaN`
-or `±Infinity`, so these cases are specified separately from the JSON
-fixtures and must be exercised **in memory** by the packet 05 test suite
+Contract: `docs/contracts/project-model.md` §12.7. JSON has no literal `NaN`
+or `±Infinity` tokens. The directly constructed cases below must be exercised
+**in memory** by the packet 05 test suite
 (e.g. by building the document value directly and passing it to the
 validator). `path` values are shown for a scene where the offending entity
 is `entities[0]`; the code, not the exact index, is the binding expectation.
@@ -75,12 +75,12 @@ Covered by the JSON fixture `../invalid/non-strict-json.json`: strict parse
 fails → `json_parse_error`, original bytes retained. No field-level
 validation is attempted after a parse failure (contract §12.3).
 
-## Why these are runtime-only
+## Strict-JSON numeric overflow is a separate persisted-input case
 
-A strict `JSON.parse` (RFC 8259) cannot produce `NaN`/`±Infinity` from valid
-JSON — it rejects those tokens at parse time (that path is R6). Non-finite
-values therefore reach the validator only through in-memory construction:
-the runtime API, command application, or a future lenient parser. The
-validator's per-value `Number.isFinite`-style check on **every** numeric
-field is the boundary defense for all paths (contract §12.1: the validator
-does not trust the parser).
+`JSON.parse('1e400')` returns `Infinity`; `JSON.parse('-1e400')` returns
+`-Infinity`. These are valid JSON numeric tokens, unlike literal `Infinity`
+or `NaN`. The strict-JSON fixture `../invalid/numeric-overflow.json` therefore
+expects `number_not_finite` from **value validation after successful parsing**,
+not `json_parse_error`. NaN itself still requires in-memory construction.
+The per-value `Number.isFinite`-style check on every numeric field protects
+both persisted bytes and in-memory inputs. See also `byte-input-cases.md`.

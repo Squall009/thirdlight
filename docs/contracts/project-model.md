@@ -1,6 +1,6 @@
 # Thirdlight — Project Data Contract
 
-Version: 0.1 (normative) · Packet 01 · 2026-09-16
+Version: 0.2 (normative, pending Gate A acceptance) · Packet 01 · 2026-09-17
 Scope: M1 (single project manifest + single active scene).
 Companion fixtures: `fixtures/project-model/` (machine-readable index:
 `fixtures/project-model/expected.json`).
@@ -35,10 +35,10 @@ reviewed separately):
 - Command envelopes, revision checking, retry/dedup, undo/redo — packet 02
   (`docs/contracts/commands.md`).
 - Filesystem persistence, atomicity, recovery, external-change handling,
-  ownership — packet 02 (`docs/contracts/workspace.md`); note that M1
-  persistence places the manifest and the scene as described in §6, and that
-  packet 02's single atomic authoring-state envelope wraps the scene document
-  and its revision.
+  ownership — packet 02 (`docs/contracts/workspace.md`). The scene shape
+  below is a logical document, not the complete mutable on-disk state;
+  packet 02's single atomic authoring-state envelope embeds that document
+  (including its revision) and retry metadata. See §3.
 - Runtime snapshots, sessions, export, module boundaries — packet 03.
 
 Explicit non-goals for M1 (charter §3, packet 01 instruction): no full ECS,
@@ -70,9 +70,8 @@ no lights, no multi-scene projects.
 
 ## 3. Documents and layout
 
-A project is a directory under the workspace data root
-(`/home/dadmin/thirdlight/projects/<projectId>/`, decision 0001 §6) containing
-exactly these documents (schemaVersion 1):
+A project has exactly two **logical authoring documents** in schemaVersion 1.
+Their standalone **interchange/fixture layout** is:
 
 ```text
 <projectId>/
@@ -81,14 +80,29 @@ exactly these documents (schemaVersion 1):
     main.json            ← the single active scene (document type: "scene")
 ```
 
-- File names are **normative** for schemaVersion 1.
+- Logical document paths are **normative** for schemaVersion 1.
 - M1 supports exactly **one** active scene per project. The manifest lists it
   (length of `scenes` is exactly 1). Multi-scene support is a future contract
   change (packet 02 already anticipates that multi-scene transactions require
   a new persistence contract).
-- Documents are standalone strict-JSON files (UTF-8, no BOM, LF line
-  endings). The project-level view (manifest + scene validated together) is
-  defined in §13.
+- In interchange/fixtures, each path contains the standalone document shown
+  in §7–§8 (strict JSON, UTF-8, no BOM; canonical output uses LF). The
+  project-level logical view is defined in §13.
+- In the **active workspace** under
+  `/home/dadmin/thirdlight/projects/<projectId>/` (decision 0001 §6),
+  `project.json` contains the immutable manifest. `scenes/main.json` contains
+  the **single atomic authoring-state envelope**, not a bare scene. Packet 02
+  owns that envelope's exact fields and independent storage version, including
+  the embedded scene, its revision, and required retry metadata. The scene's
+  `revision` is the project revision; an independently mutable duplicate
+  revision is not permitted. There is no second authoritative bare scene file.
+- The workspace layer decodes/validates the envelope and passes its embedded
+  scene to `validateScene`; it must not pass the entire envelope to the scene
+  validator. A standalone scene parser is for interchange input, not an
+  envelope decoder. No auto-detection or fallback between formats is implied.
+- Workspace ownership records, temporary files, and recovery artifacts are
+  governed by packet 02, not prohibited by this logical-document contract.
+  The workspace contract must define their locations and validation policy.
 
 ## 4. General value rules
 
@@ -140,7 +154,7 @@ Examples: `demo-0001`, `scene-main`, `cam-main`, `ground-2`.
 | Reference | From | To | Form |
 |---|---|---|---|
 | `scenes[i].id` | manifest | scene document `sceneId` | ID string, equality |
-| `scenes[i].path` | manifest | scene document file | project-relative POSIX path; M1: exactly `"scenes/main.json"` |
+| `scenes[i].path` | manifest | logical scene location (§3: bare scene in interchange, envelope in workspace) | project-relative POSIX path; M1: exactly `"scenes/main.json"` |
 | `parentId` | entity | entity (same scene) | ID string or `null` (root) |
 
 Project-relative paths: POSIX separators, no leading `/`, no `..` segments, no
@@ -166,8 +180,10 @@ Rules:
 - `schemaVersion` and `engineVersion` coexist in the manifest; a future
   engine may read a document with an unknown `engineVersion` fine as long as
   `schemaVersion` is known.
-- A document pair whose manifest and scene `schemaVersion` differ →
-  `schema_mixed_versions` (§13).
+- Version support is checked per logical document before cross-document
+  checks (§13). A version-1/version-2 pair fails with the unsupported
+  document's `schema_version_unsupported`, not a second mixed-version error.
+  With M1 known versions `[1]`, every passing pair necessarily matches.
 - The runtime snapshot ID contains no timestamp, UUID, or machine-specific
   data, so the same revision in the same project always yields the same
   snapshot ID (reproducibility input for packet 12).
@@ -219,7 +235,9 @@ lives in the scene document.
 
 ## 8. Scene — `scenes/main.json`
 
-Document type: `scene`. Top-level shape (schemaVersion 1):
+Document type: `scene`. Top-level **logical** shape (schemaVersion 1):
+this is the whole interchange file, or the embedded scene value in the
+workspace envelope (§3), never the envelope's top-level shape.
 
 ```json
 {
@@ -294,7 +312,16 @@ Quaternion rules:
 - `q` and `−q` denote the same rotation; **both are accepted**; the
   normalizer does **not** sign-flip (no canonical sign).
 - A zero quaternion (`[0,0,0,0]`) fails `quaternion_invalid` (norm 0).
-- The normalizer renormalizes to unit length (divides by ‖q‖).
+- Authoring normalization **preserves all validated quaternion components**
+  (apart from negative zero becoming zero under §12.2). It must not divide
+  by the norm: repeated floating-point division can oscillate between double
+  values and violate byte-idempotence. The tolerance above defines accepted
+  authoring rotations, not a demand for an exactly representable unit norm.
+- Consumers requiring a unit quaternion (the three.js adapter, packet 08)
+  normalize a **derived copy** before composing/rendering transforms. That
+  numerical adjustment must never be written back to authoring state or its
+  immutable snapshot. This applies to near-unit values throughout the full
+  accepted tolerance, not only floating-point roundoff.
 - No other rotational representation (Euler angles, matrices) is persisted.
 
 Field-order canonicalization: `position`, `rotation`, `scale`.
@@ -389,10 +416,17 @@ zero → `camera_count_invalid`; two or more → `camera_count_invalid`.
 
 ### 12.1 Entry points (normative API shape; implementation in packet 05)
 
-- `validateManifest(doc)`, `validateScene(doc)` — pure check over a parsed
-  JSON value; the validator must **not** trust any parser's guarantees and
-  re-checks every rule at the boundary (charter §5; packet 05: types alone
-  are insufficient).
+- `parseManifest(bytes: Uint8Array)`, `parseScene(bytes: Uint8Array)` — pure
+  byte-input entry points owned by the project-model package. Run §12.3 pass 1,
+  then the corresponding value validator. Return the same result shape as
+  `validate*` (§12.5). Do not mutate or consume the caller's bytes; retaining
+  failed source bytes on disk is the caller/workspace's responsibility.
+- `validateManifest(doc: unknown)`, `validateScene(doc: unknown)` — pure
+  checks over in-memory values, starting at §12.3 pass 2. Re-check all value
+  rules, including finiteness: parsed values are not inherently safe. These
+  APIs cannot detect lost duplicate keys, encoding, or syntax; persisted or
+  interchange bytes must first use the appropriate strict byte parser.
+  No filesystem access or three.js dependency is introduced.
 - `validateProject(manifest, scene)` — both documents, then cross-document
   checks (§13).
 - `normalizeManifest(doc)`, `normalizeScene(doc)` — validate, then return a
@@ -409,10 +443,10 @@ The normalizer produces byte-stable output for a logical document:
 
 1. Fill missing optional fields with defaults (§7–§10); strip nothing
    else (unknown fields are errors, not stripped — §12.6).
-2. Renormalize quaternions to unit length (§10.1). No other numeric
-   re-expression (numbers are IEEE-754 doubles; serialized with the
-   platform's shortest round-trip decimal form, e.g. JavaScript
-   `JSON.stringify` semantics — deterministic per value).
+2. Preserve finite numeric values, including accepted near-unit quaternions
+   (§10.1); convert negative zero to zero. Numbers are IEEE-754 doubles,
+   serialized with JavaScript `JSON.stringify` shortest round-trip decimal
+   semantics. No quaternion renormalization, rounding, or quantization occurs.
 3. Lowercase `material.color` hex.
 4. Emit fixed key order:
    - manifest: `schemaVersion`, `engineVersion`, `id`, `name`,
@@ -429,13 +463,26 @@ The normalizer produces byte-stable output for a logical document:
 
 ### 12.3 Validation passes (normative order)
 
-Per document:
+Per document (`parse*` begins at pass 1; `validate*` begins at pass 2):
 
-1. **Parse** (strict JSON, RFC 8259): non-UTF-8 bytes, a BOM, duplicate
-   object keys, trailing garbage, or non-strict tokens (`NaN`, `Infinity`,
-   `undefined`) → `encoding_invalid` / `duplicate_key` / `json_parse_error`;
-   the original bytes are **retained** untouched (workspace recovery,
-   packet 07). No deeper validation follows a parse failure.
+1. **Parse bytes** (RFC 8259 syntax plus duplicate-key rejection):
+   - Decode UTF-8 without replacement of malformed bytes. Invalid UTF-8 or
+     a leading UTF-8 BOM → exactly one `encoding_invalid` at `""`.
+   - Check the complete JSON syntax. Trailing garbage or non-strict tokens
+     (`NaN`, `Infinity`, `undefined`) → exactly one `json_parse_error` at `""`.
+   - For syntactically valid JSON, reject repeated object member names after
+     JSON escape decoding, separately within each object. Return one
+     `duplicate_key` for the first repeated name in source order, at its
+     decoded, JSON-Pointer-escaped path. Equal names in different objects are
+     allowed. `JSON.parse` alone cannot perform this check; it discards all
+     but the last value. Do not materialize a last-key-wins value and then
+     attempt duplicate detection.
+   - This order is normative: encoding, syntax, duplicates, then value
+     validation. Parse failures stop deeper checks, even for unknown schema
+     versions. Original bytes remain untouched (workspace recovery, packet 07).
+   - Valid numeric tokens may overflow binary64 (`1e400` → `Infinity`).
+     Decode numbers with JavaScript `JSON.parse` semantics and let the
+     value validator return `number_not_finite`, not `json_parse_error`.
 2. Document root is a JSON object, else `field_type` at `""`.
 3. `schemaVersion` present and known. Unknown → **exactly one** error
    `schema_version_unsupported` (with `found`, `knownVersions: [1]`, and the
@@ -494,19 +541,23 @@ occurrence.
 Results:
 
 ```text
-{ "ok": true,  "normalized": <doc> }   ← validate*/normalize* success
+{ "ok": true,  "normalized": <doc> }   ← parse*/validate*/normalize* success
 { "ok": false, "errors": [ <error>, … ] }
 ```
+
+For `validateProject`, successful `normalized` is
+`{ "manifest": <normalized manifest>, "scene": <normalized scene> }`.
+Project errors additionally carry the `document` discriminator (§13);
+single-document errors do not.
 
 ### 12.6 Error codes (stable, normative for M1)
 
 | Code | Raised when |
 |---|---|
-| `encoding_invalid` | file is not valid UTF-8 or contains a BOM |
+| `encoding_invalid` | input bytes are not valid UTF-8 or have a leading UTF-8 BOM |
 | `json_parse_error` | strict JSON parse failure (incl. `NaN`/`Infinity` tokens, trailing garbage) |
 | `duplicate_key` | duplicate object key in the JSON text |
 | `schema_version_unsupported` | `schemaVersion` not in known versions `[1]` (single error, stops document validation) |
-| `schema_mixed_versions` | manifest and scene `schemaVersion` differ (§13) |
 | `field_missing` | required field absent |
 | `field_unexpected` | unknown field (strict: M1 silently drops nothing) |
 | `field_type` | wrong JSON type (e.g. string where a number is required) |
@@ -516,7 +567,7 @@ Results:
 | `reference_missing` | `parentId` does not resolve to an existing entity |
 | `hierarchy_cycle` | parent-chain cycle (§11.2) |
 | `order_parent_before_child` | an entity precedes its parent in the array |
-| `number_not_finite` | non-finite numeric value (runtime-only cases, §12.7) |
+| `number_not_finite` | non-finite numeric value (in-memory input or parsed numeric overflow, §12.7) |
 | `number_out_of_range` | finite value outside its range (§7–§10 constraints) |
 | `quaternion_invalid` | rotation not a finite unit quaternion within `1e-4` |
 | `component_unknown` | component key not in the registry (error lists known types) |
@@ -530,8 +581,9 @@ Results:
 
 ### 12.7 Runtime (non-JSON) validation cases
 
-JSON cannot encode `NaN` or `±Infinity`, so these cases are specified
-separately and exercised in memory (packet 05 tests), not as JSON fixtures:
+JSON has no literal `NaN` or `±Infinity` tokens. The directly constructed
+cases below exercise the in-memory boundary (packet 05 tests); R6 and numeric
+overflow separately exercise byte input:
 
 - **R1** — document value with `position: [NaN, 0, 0]` →
   `number_not_finite` at `/entities/…/position/0`.
@@ -550,25 +602,39 @@ separately and exercised in memory (packet 05 tests), not as JSON fixtures:
   `invalid/non-strict-json.json`) → strict parse fails →
   `json_parse_error`; bytes retained.
 
-Note: strict `JSON.parse` cannot produce `NaN` from valid JSON (it rejects
-those tokens), so R1–R3 arise from in-memory construction (runtime API,
-command application, future lenient parsers). The validator's per-value
-finiteness check is the boundary defense for all paths.
+Strict JSON has no literal `NaN` or `Infinity` tokens, but a valid numeric
+literal such as `1e400` or `-1e400` overflows to ±Infinity in `JSON.parse`.
+`invalid/numeric-overflow.json` pins that byte-input path: syntax succeeds,
+value validation returns `number_not_finite`. NaN still requires in-memory
+construction. The per-value finiteness check protects **both** byte-input
+and in-memory paths. Encoding and duplicate-key byte cases are specified in
+`fixtures/project-model/runtime/byte-input-cases.md`.
 
 ## 13. Cross-document (project-level) validation
 
-`validateProject(manifest, scene)` runs both single-document validations,
-then, only if both pass:
+`validateProject(manifest, scene)` accepts logical values and runs both
+single-document validations. If either fails, return their errors in manifest
+then scene order; do not run cross-document checks. Each project-level error
+adds `document: "manifest" | "scene"` to the §12.5 shape so its `path` remains
+relative to that document. An unknown version produces exactly one error for
+that document; independent errors in the other document are still returned.
+Both unsupported documents produce two errors, even if their versions match.
+
+Only if both pass:
 
 1. `manifest.scenes[0].id === scene.sceneId` — else
-   `manifest_scene_mismatch` (path `/scenes/0/id` in the manifest).
-2. `manifest.scenes[0].path === "scenes/main.json"` — else
-   `field_value` (covered by single-document validation; re-asserted here).
-3. `manifest.schemaVersion === scene.schemaVersion` — else
-   `schema_mixed_versions`.
-4. (Workspace-enforced, packet 07, stated here for completeness): project
-   directory name equals `manifest.id`; no other files exist in the M1
-   project directory.
+   `manifest_scene_mismatch` (`document: "manifest"`, path `/scenes/0/id`).
+2. Both versions are necessarily `1`; there is no M1 `schema_mixed_versions`
+   code. Supporting multiple known versions and compatibility between them
+   requires a future contract change.
+3. (Workspace-enforced, packet 07): project directory name equals
+   `manifest.id`; the workspace envelope/artifact rules are owned by packet 02
+   (§3), not by `validateProject`.
+
+For interchange project bytes, call both `parse*` entry points. If either
+fails, combine/tag their errors as above without cross-document checks;
+otherwise pass their logical normalized values to `validateProject`. This
+composition introduces no filesystem operation in the project-model package.
 
 ## 14. What is deliberately not in this contract
 
@@ -588,8 +654,9 @@ then, only if both pass:
 
 ## 15. Default scene (project-creation template, normative)
 
-Creating a project writes the manifest (§7) plus exactly this scene
-(revision `0`):
+Creating a project initializes the manifest (§7) and exactly this logical
+scene (revision `0`). In active storage, the scene is embedded in the atomic
+authoring-state envelope (§3); this template does not define that envelope:
 
 ```json
 {
@@ -626,6 +693,7 @@ consistent with the 2.5D XY movement plane. `fovY 60`, `near 0.1`, `far 100`.
 | `valid/demo-project/` (manifest + scene) | project | valid; demonstrates hierarchy, local vs world frames, non-identity quaternion, box materials, camera |
 | `valid/minimal-scene.json` | scene | valid; equals the §15 default scene |
 | `valid/defaults-omitted.json` | scene | valid; omits all defaulted optional fields — pins §12.2 rule 1 (defaults are filled on load; strict output always includes them) |
+| `valid/quaternion-round-trip.json` | scene | valid; roundoff-sensitive and near-unit rotations preserved; exact canonical output in `expected/quaternion-round-trip.json` |
 | `invalid/duplicate-ids.json` | scene | `id_duplicate` |
 | `invalid/hierarchy-cycle.json` | scene | `hierarchy_cycle` (a ↔ b) |
 | `invalid/missing-reference.json` | scene | `reference_missing` |
@@ -637,20 +705,33 @@ consistent with the 2.5D XY movement plane. `fovY 60`, `near 0.1`, `far 100`.
 | `invalid/unsupported-version-past.json` | scene | `schema_version_unsupported` (past version 0) |
 | `invalid/non-strict-json.json` | manifest | **intentionally not strict JSON** (`NaN`/`Infinity` tokens) → `json_parse_error`; see its README note |
 | `invalid/manifest-scene-mismatch/` | project | `manifest_scene_mismatch` |
+| `invalid/mixed-schema-versions/` | project | one `schema_version_unsupported` attributed to scene; no cross-document errors |
+| `invalid/duplicate-key.json` | scene bytes | `duplicate_key` before version checking; duplicate names are compared after escape decoding |
+| `invalid/numeric-overflow.json` | scene bytes | valid JSON syntax; ±Infinity from numeric overflow → `number_not_finite` |
 | `runtime/non-finite-cases.md` | runtime | R1–R6 cases from §12.7 (in-memory, not JSON fixtures) |
+| `runtime/byte-input-cases.md` | bytes | encoding, syntax/duplicate precedence, and project error attribution cases |
 
-Packet 05 must pass every valid fixture through validation + normalization
-(round-trip) and every invalid fixture through validation expecting exactly
-the listed codes (superset matching: all listed codes present; unexpected
-additional codes are a contract/implementation bug to report, not to paper
-over).
+Packet 05 must pass fixture bytes through `parse*` (project composition per
+§13), valid values through validation + normalization twice and a serialized
+round-trip, and invalid fixtures expecting exactly the listed **set** of
+codes. The index may also pin error count, paths, and document attribution.
+Compare canonical bytes to `expectedNormalized` golden files where supplied.
+Unexpected additional codes are a contract/implementation bug, not ignored.
+In-memory and constructed byte cases exercise their respective entry points.
 
 ## 17. Change rules
 
-- Any change that old readers could misinterpret (new required field, changed
-  meaning, new component type, new document) → new `schemaVersion` and a
-  reviewed contract diff (AGENTS.md: accepted contracts are binding).
+- After Gate A acceptance, any change that old readers could misinterpret
+  (new required field, changed meaning, new component type, new logical
+  document) → new `schemaVersion` and a reviewed contract diff (AGENTS.md:
+  accepted contracts are binding). Workspace envelope versions are owned
+  separately by packet 02 and never substitute for logical `schemaVersion`.
 - Additive, always-optional, always-defaulted fields are **not** permitted in
   M1 (strict `field_unexpected`); they become a version bump.
 - Fixtures are part of the contract: changing a fixture's expected codes
   requires the same review as the contract text.
+- Revision 0.2 is an explicit pre-acceptance correction of packet 01 review
+  findings: logical/storage separation, byte parser boundary, preservation of
+  accepted quaternions, and per-document version-error precedence. No accepted
+  schema or implemented reader exists yet; logical `schemaVersion` stays `1`.
+  Gate A remains pending; see `docs/handoffs/01.md` for evidence and limitations.
