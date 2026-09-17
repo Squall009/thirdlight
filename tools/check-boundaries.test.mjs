@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkWorkspace, extractSpecifiers, UNITS, NODE_SIDE_ALLOWED } from './check-boundaries.mjs';
@@ -358,6 +358,372 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     for (const u of UNITS) {
       expect(NODE_SIDE_ALLOWED[u], `edge table row for '${u}'`).toBeDefined();
     }
+  });
+});
+
+// --- 04-review repair regressions -------------------------------------------
+
+describe('R2 — extraction of the normative import forms (04-review R2)', () => {
+  it('extracts default + namespace import (import React, * as panels from …)', () => {
+    const specs = extractSpecifiers(
+      "import React, * as panels from '@thirdlight/editor';\n",
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0].spec).toBe('@thirdlight/editor');
+    expect(specs[0].kind).toBe('import');
+    expect(specs[0].line).toBe(1);
+    expect(specs[0].typeOnly).toBe(false);
+  });
+
+  it('extracts an import with a comment between tokens', () => {
+    const specs = extractSpecifiers(
+      "import /* note */ { App } from '@thirdlight/editor';\n",
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0].spec).toBe('@thirdlight/editor');
+    expect(specs[0].line).toBe(1);
+  });
+
+  it('extracts a dynamic import with an options argument (the R2 repro form)', () => {
+    const specs = extractSpecifiers(
+      "const p = import('@thirdlight/editor', {});\n",
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0].spec).toBe('@thirdlight/editor');
+    expect(specs[0].kind).toBe('dynamic-import');
+    expect(specs[0].typeOnly).toBe(false);
+  });
+
+  it('extracts a dynamic import with a multi-line options object', () => {
+    const specs = extractSpecifiers(
+      "const p = import('three', {\n  foo: { bar: 1 },\n});\n",
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0].spec).toBe('three');
+  });
+
+  it('ignores import-like text in comments and string literals', () => {
+    const specs = extractSpecifiers(
+      "// import 'commented-out';\n" +
+        "/* import { x } from 'commented-out-2'; */\n" +
+        "const s = 'import \"prose\" from nowhere';\n" +
+        "const t = `import 'tpl-prose'`\n" +
+        "import real from 'real';\n",
+    );
+    expect(specs.map((s) => s.spec)).toEqual(['real']);
+  });
+
+  it('classifies type-only vs value import/export forms', () => {
+    const cases = [
+      ["import type { T } from 's';", true],
+      ["import type T from 's';", true],
+      ["import type * as ns from 's';", true],
+      ["import { type A, type B } from 's';", true],
+      ["import { type A } from 's';", true],
+      ["import { T } from 's';", false],
+      ["import T from 's';", false],
+      ["import * as ns from 's';", false],
+      ["import T, { A } from 's';", false],
+      ["import T, * as ns from 's';", false],
+      ["import { type A, b } from 's';", false],
+      ["import {} from 's';", false],
+      ["import 's';", false],
+      ["export type { T } from 's';", true],
+      ["export type * from 's';", true],
+      ["export { T } from 's';", false],
+      ["export * from 's';", false],
+      ["const p = import('s');", false],
+    ];
+    for (const [src, typeOnly] of cases) {
+      const specs = extractSpecifiers(src);
+      expect(specs, src).toHaveLength(1);
+      expect(specs[0].typeOnly, src).toBe(typeOnly);
+    }
+  });
+
+  it('does not pass a runtime with default+namespace editor imports (the R2 repro)', () => {
+    const root = makeRoot();
+    addPkg(root, 'editor');
+    addPkg(root, 'runtime', {
+      files: {
+        'src/index.ts':
+          "import React, * as panels from '@thirdlight/editor';\nexport const x = [React, panels];\n",
+      },
+    });
+    const r = checkWorkspace(root);
+    expect(r.specifiersChecked).toBe(1);
+    const v = r.violations.find((v) => v.rule === 'forbidden-edge');
+    expect(v).toBeDefined();
+    expect(v.file).toBe('packages/runtime/src/index.ts');
+    expect(v.line).toBe(1);
+  });
+});
+
+describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
+  it('fails editor → commands value imports (the R3 repro)', () => {
+    const root = makeRoot();
+    addPkg(root, 'commands');
+    addPkg(root, 'editor', {
+      files: {
+        'src/index.ts':
+          "import { apply } from '@thirdlight/commands';\napply();\nexport const x = true;\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('types-only-edge');
+    expect(vs[0].file).toBe('packages/editor/src/index.ts');
+    expect(vs[0].line).toBe(1);
+  });
+
+  it('fails editor → project-model value imports; allows import type', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, 'editor', {
+      files: {
+        'src/bad.ts':
+          "import { serializeCanonical } from '@thirdlight/project-model';\nexport const x = serializeCanonical;\n",
+        'src/good.ts':
+          "import type { Snapshot } from '@thirdlight/project-model';\nexport type S = Snapshot;\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('types-only-edge');
+    expect(vs[0].file).toBe('packages/editor/src/bad.ts');
+    expect(vs[0].line).toBe(1);
+  });
+
+  it('fails backend → project-model value imports; keeps the other backend edges', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, 'protocol');
+    addPkg(root, 'workspace');
+    addPkg(root, 'exporter');
+    addPkg(root, 'backend', {
+      files: {
+        'src/bad.ts':
+          "import { parseProject } from '@thirdlight/project-model';\nexport const x = parseProject;\n",
+        'src/good.ts':
+          "import type { Snapshot } from '@thirdlight/project-model';\n" +
+          "import { validateWsEvent } from '@thirdlight/protocol';\n" +
+          "import { openWorkspaceService } from '@thirdlight/workspace';\n" +
+          "import { exportProject } from '@thirdlight/exporter';\n" +
+          "export const y = [Snapshot, validateWsEvent, openWorkspaceService, exportProject];\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('types-only-edge');
+    expect(vs[0].file).toBe('packages/backend/src/bad.ts');
+  });
+
+  it('fails exporter → project-model/protocol/workspace value imports; allows type forms', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, 'protocol');
+    addPkg(root, 'workspace');
+    addPkg(root, 'exporter', {
+      files: {
+        'src/bad.ts':
+          "import { serializeCanonical } from '@thirdlight/project-model';\n" +
+          "import { encodeWsEvent } from '@thirdlight/protocol';\n" +
+          "import { openWorkspaceService } from '@thirdlight/workspace';\n" +
+          "export const x = [serializeCanonical, encodeWsEvent, openWorkspaceService];\n",
+        'src/good.ts':
+          "import type { Project } from '@thirdlight/project-model';\n" +
+          "import type { WsEvent } from '@thirdlight/protocol';\n" +
+          "import type { WorkspaceService } from '@thirdlight/workspace';\n" +
+          "export type R = [Project, WsEvent, WorkspaceService];\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(3);
+    expect(vs.every((v) => v.rule === 'types-only-edge')).toBe(true);
+    expect(vs.every((v) => v.file.endsWith('bad.ts'))).toBe(true);
+  });
+
+  it('fails protocol → project-model/commands value imports (the §4.1 "(types; pure code, no I/O)" row — recorded interpretation)', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, 'commands');
+    addPkg(root, 'protocol', {
+      files: {
+        'src/bad.ts':
+          "import { validateProject } from '@thirdlight/project-model';\n" +
+          "import { apply } from '@thirdlight/commands';\n" +
+          "export const x = [validateProject, apply];\n",
+        'src/good.ts':
+          "import type { Project } from '@thirdlight/project-model';\n" +
+          "import type { Envelope } from '@thirdlight/commands';\n" +
+          "export type W = [Project, Envelope];\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(2);
+    expect(vs.every((v) => v.rule === 'types-only-edge')).toBe(true);
+    expect(vs.map((v) => v.line).sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  it('fails value re-exports and dynamic imports of types-only edges; allows export type', () => {
+    const root = makeRoot();
+    addPkg(root, 'commands');
+    addPkg(root, 'editor', {
+      files: {
+        'src/reexport.ts': "export { apply } from '@thirdlight/commands';\n",
+        'src/dynamic.ts': "const p = import('@thirdlight/commands', {});\nexport const x = p;\n",
+        'src/reexport-type.ts': "export type { CommandEnvelope } from '@thirdlight/commands';\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(2);
+    expect(vs.map((v) => v.file).sort()).toEqual([
+      'packages/editor/src/dynamic.ts',
+      'packages/editor/src/reexport.ts',
+    ]);
+    expect(vs.every((v) => v.rule === 'types-only-edge')).toBe(true);
+  });
+
+  it('does not restrict value imports on edges without the types-only qualifier', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, 'commands');
+    addPkg(root, 'workspace');
+    // commands → project-model and workspace → commands are value edges.
+    addPkg(root, 'commands', {
+      files: {
+        'src/index.ts':
+          "import { parseProject } from '@thirdlight/project-model';\nexport const p = parseProject;\n",
+      },
+    });
+    addPkg(root, 'workspace', {
+      files: {
+        'src/index.ts':
+          "import { apply } from '@thirdlight/commands';\nexport const a = apply;\n",
+      },
+    });
+    expect(checkWorkspace(root).violations).toEqual([]);
+  });
+});
+
+describe('R4 — React declaration scope (dependencies.md §7)', () => {
+  it('fails react/react-dom declared in a non-editor package (the R4 repro)', () => {
+    const root = makeRoot();
+    addPkg(root, 'three-adapter', {
+      dependencies: { react: '19.3.0', 'react-dom': '19.3.0' },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(2);
+    expect(vs.every((v) => v.rule === 'react-declared-outside-editor')).toBe(true);
+    expect(vs[0].file).toBe('packages/three-adapter/package.json');
+  });
+
+  it('fails the React type packages declared outside editor', () => {
+    const root = makeRoot();
+    addPkg(root, 'runtime', {
+      devDependencies: { '@types/react': '19.3.0', '@types/react-dom': '19.3.0' },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(2);
+    expect(vs.every((v) => v.rule === 'react-declared-outside-editor')).toBe(true);
+  });
+
+  it('allows react + type packages declared in editor (dependencies and devDependencies)', () => {
+    const root = makeRoot();
+    addPkg(root, 'editor', {
+      dependencies: { react: '19.3.0', 'react-dom': '19.3.0' },
+      devDependencies: {
+        '@types/react': '19.3.0',
+        '@types/react-dom': '19.3.0',
+        '@types/three': '0.186.0',
+      },
+    });
+    expect(checkWorkspace(root).violations).toEqual([]);
+  });
+
+  it('fails react declared in the root manifest (R4: declarations, not merely source use)', () => {
+    const root = makeRoot();
+    const rootPkg = {
+      name: 'thirdlight',
+      version: '0.0.0',
+      private: true,
+      devDependencies: { typescript: '5.9.3', react: '19.3.0' },
+    };
+    writeFileSync(join(root, 'package.json'), JSON.stringify(rootPkg, null, 2));
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('react-declared-outside-editor');
+    expect(vs[0].file).toBe('package.json');
+  });
+
+  it('fails a web framework declared in the root manifest', () => {
+    const root = makeRoot();
+    const rootPkg = {
+      name: 'thirdlight',
+      version: '0.0.0',
+      private: true,
+      dependencies: { express: '4.19.2' },
+    };
+    writeFileSync(join(root, 'package.json'), JSON.stringify(rootPkg, null, 2));
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('forbidden-framework');
+    expect(vs[0].file).toBe('package.json');
+  });
+});
+
+describe('R5 — package-local test files (narrow vitest policy)', () => {
+  it('allows vitest imports in designated package test files (the R5 repro)', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', {
+      files: {
+        'src/index.ts': 'export const ok = true;\n',
+        'src/index.test.ts':
+          "import { test, expect } from 'vitest';\n" +
+          "import { ok } from './index';\n" +
+          "test('ok', () => { expect(ok).toBe(true); });\n",
+      },
+    });
+    expect(checkWorkspace(root).violations).toEqual([]);
+  });
+
+  it('allows vitest subpath imports in .spec.tsx test files', () => {
+    const root = makeRoot();
+    addPkg(root, 'runtime', {
+      files: {
+        'src/step.spec.tsx': "import { defineConfig } from 'vitest/config';\nexport const x = defineConfig;\n",
+      },
+    });
+    expect(checkWorkspace(root).violations).toEqual([]);
+  });
+
+  it('forbids vitest in production files (production imports of test helpers fail)', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model', {
+      files: {
+        'src/index.ts': "import { expect } from 'vitest';\nexport const x = expect;\n",
+      },
+    });
+    const v = checkWorkspace(root).violations;
+    expect(v).toHaveLength(1);
+    expect(v[0].rule).toBe('forbidden-external');
+  });
+
+  it('keeps the cross-package edge rules for test files (tests are not exempt)', () => {
+    const root = makeRoot();
+    addPkg(root, 'commands');
+    addPkg(root, 'runtime', {
+      files: {
+        'src/step.test.ts':
+          "import { test } from 'vitest';\n" +
+          "import { apply } from '@thirdlight/commands';\n" +
+          "test('x', () => { apply(); });\n",
+      },
+    });
+    const vs = checkWorkspace(root).violations;
+    expect(vs).toHaveLength(1);
+    expect(vs[0].rule).toBe('forbidden-edge');
+    expect(vs[0].line).toBe(2);
   });
 });
 

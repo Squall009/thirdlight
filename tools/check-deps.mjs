@@ -5,11 +5,16 @@
  * One root lockfile (npm, decision 0001 §3). Package `dependencies` use exact
  * pinned versions (no ranges) from the dependencies.md §7 table. This check:
  *
- *   1. runs `npm ls --depth=0 --json` and compares every installed
- *      non-workspace package against the §7 pins — a version drift fails, and
- *      an installed package that is not a §7 pin at all fails (any addition
- *      is an owner-approved decision change — dependencies.md §9);
- *   2. fails on any invalid/UNMET entry in the npm tree;
+ *   1. runs `npm ls --depth=0 --json` and FAILS on npm execution or tree
+ *      errors before anything else — a non-zero npm exit (e.g. ELSPROBLEMS:
+ *      a package manifest added without `npm install`), any top-level
+ *      `problems`/`error` record, and any missing/invalid tree entry
+ *      (workspace packages INCLUDED — they are filtered only from the pin
+ *      comparison, never from error reporting);
+ *   2. compares every installed non-workspace package against the §7 pins —
+ *      a version drift fails, and an installed package that is not a §7 pin
+ *      at all fails (any addition is an owner-approved decision change —
+ *      dependencies.md §9);
  *   3. checks every declared dependency spec (root + workspace packages,
  *      all dep sections) is an exact version — no `^`, `~`, ranges, `*`,
  *      `file:`, `workspace:` — and, for pinned names, equals the pin;
@@ -23,9 +28,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 /** The approved M1 stack pins (dependencies.md §7; decision 0001 §3, incl. the 2026-09-17 React ruling). */
@@ -109,6 +114,108 @@ export function collectInstalled(nodeLsJson) {
   };
   walkEntry(nodeLsJson, '', undefined);
   return out.filter((e) => !e.name.startsWith('@thirdlight/'));
+}
+
+/**
+ * Report npm tree health: top-level `problems`/`error` records and
+ * missing/invalid entries — workspace packages INCLUDED (they are filtered
+ * only from the pin comparison, never from error reporting; 04-review R6).
+ */
+export function collectTreeIssues(tree) {
+  const issues = [];
+  const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const SECTION_KEYS = new Set([
+    'dependencies',
+    'devDependencies',
+    'peerDependencies',
+    'optionalDependencies',
+    'workspaceDependencies',
+    'node_modules',
+  ]);
+  if (Array.isArray(tree.problems)) {
+    for (const p of tree.problems) issues.push(`npm tree problem: ${String(p)}`);
+  }
+  if (isObj(tree.error)) {
+    const parts = [tree.error.code ?? 'ERROR'];
+    if (tree.error.summary) parts.push(`— ${tree.error.summary}`);
+    if (tree.error.detail) parts.push(`(${tree.error.detail})`);
+    issues.push(`npm tree error: ${parts.join(' ')}`);
+  }
+  const walkEntry = (o, where, name) => {
+    if (name !== undefined) {
+      if (o.missing === true) {
+        issues.push(
+          `missing npm tree entry: '${name}' at ${where || 'root'} (UNMET — the ` +
+            `manifest exists but the workspace link/install is missing; run \`npm install\`)`,
+        );
+      } else if (o.invalid === true) {
+        issues.push(
+          `invalid npm tree entry: '${name}' at ${where || 'root'} (invalid per npm ls)`,
+        );
+      }
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (!isObj(v)) continue;
+      if (SECTION_KEYS.has(k)) {
+        for (const [k2, entry] of Object.entries(v)) {
+          if (isObj(entry)) walkEntry(entry, where ? `${where}.${k}.${k2}` : `${k}.${k2}`, k2);
+        }
+      } else if (
+        typeof v.version === 'string' ||
+        typeof v.invalid === 'boolean' ||
+        typeof v.missing === 'boolean' ||
+        typeof v.resolved === 'string'
+      ) {
+        walkEntry(v, where ? `${where}.${k}` : k, k);
+      }
+    }
+  };
+  walkEntry(tree, '', undefined);
+  return issues;
+}
+
+/**
+ * Check 6, steps 1+2: npm execution/tree health (before pin filtering), then
+ * the pin comparison of the non-workspace installed tree. `ls`: the raw
+ * `{ status, stdout, stderr }` of `npm ls --depth=0 --json`.
+ */
+export function checkInstalledTree(ls, pins = PINS) {
+  const violations = [];
+  if (ls.status !== 0) {
+    const errs = (ls.stderr ?? '')
+      .split('\n')
+      .filter((l) => l.startsWith('npm ERR!'))
+      .filter((l) => !l.includes('complete log') && !l.includes('debug-0.log'))
+      .map((l) => l.replace(/^npm ERR!\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(' | ');
+    violations.push(
+      `npm ls --depth=0 --json exited with status ${ls.status} — the workspace ` +
+        'install is broken (a package manifest added without `npm install` is ' +
+        `the typical cause; dependencies.md §2); npm said: ${errs || '(no npm ERR output)'}`,
+    );
+  }
+  let tree = null;
+  try {
+    tree = JSON.parse(ls.stdout);
+  } catch {
+    if (ls.status === 0) {
+      violations.push(
+        'could not parse `npm ls --depth=0 --json` output as JSON (stdout head: ' +
+          `${String(ls.stdout).slice(0, 200).trim() || '(empty)'})`,
+      );
+    }
+    return { violations, installed: [], pending: Object.keys(pins).sort() };
+  }
+  // tree health (top-level problems/error records + missing/invalid entries,
+  // workspace packages included) is reported once by collectTreeIssues;
+  // the execution failure above is a distinct fact (npm's exit status).
+  violations.push(...collectTreeIssues(tree));
+  const installed = collectInstalled(tree);
+  const cmp = compareInstalled(installed, pins);
+  violations.push(...cmp.violations);
+  return { violations, installed, pending: cmp.pending };
 }
 
 /** Compare installed packages against the §7 pins. */
@@ -217,33 +324,13 @@ function readWorkspacePkgs(root) {
 
 function main() {
   const root = process.cwd();
-  const violations = [];
 
-  // 1+2: installed tree vs pins.
+  // 1+2: npm execution/tree health, then installed tree vs pins.
   const ls = spawnSync('npm', ['ls', '--depth=0', '--json'], {
     cwd: root,
     encoding: 'utf8',
   });
-  let tree;
-  try {
-    tree = JSON.parse(ls.stdout);
-  } catch {
-    violations.push(
-      `could not parse \`npm ls --depth=0 --json\` (npm exit ${ls.status}; stderr: ${ls.stderr?.trim() || '(empty)'})`,
-    );
-    finish(violations);
-    return;
-  }
-  const installed = collectInstalled(tree);
-  const { violations: drift, pending } = compareInstalled(installed);
-  violations.push(...drift);
-  for (const e of installed) {
-    if (e.invalid) {
-      violations.push(
-        `invalid npm tree entry: '${e.name}'@${e.version} at ${e.where || 'root'} (UNMET/invalid per npm ls)`,
-      );
-    }
-  }
+  const { violations, installed, pending } = checkInstalledTree(ls);
 
   // 3: declared exactness + pin agreement.
   violations.push(...checkDeclaredDeps(readWorkspacePkgs(root)));
@@ -269,14 +356,23 @@ function main() {
     }
   }
   console.log('  declared dependency specs: all exact versions (no ranges)');
+}
 
-  function finish(vs) {
-    console.error(`check-deps: FAIL — ${vs.length} violation(s):`);
-    for (const v of vs) console.error(`  ${v}`);
-    process.exit(1);
+// CLI guard — realpath-based, so it also works when the tool is invoked
+// through a symlinked or relative path. (The naive
+// `pathToFileURL(argv[1]) === import.meta.url` comparison silently skips
+// main() for symlinked tool paths — a silent no-op check, the exact
+// failure mode dependencies.md §9 forbids.)
+function isMain() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return realpathSync(invoked) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain()) {
   main();
 }

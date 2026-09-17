@@ -4,7 +4,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { compareInstalled, checkDeclaredDeps, PINS, collectInstalled } from './check-deps.mjs';
+import {
+  compareInstalled,
+  checkDeclaredDeps,
+  checkInstalledTree,
+  collectTreeIssues,
+  PINS,
+  collectInstalled,
+} from './check-deps.mjs';
 
 describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
   it('accepts the exact §7 pins and reports the rest as pending', () => {
@@ -128,5 +135,97 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       '@types/react': '19.3.0',
       '@types/react-dom': '19.3.0',
     });
+  });
+});
+
+describe('R6 — npm execution/tree errors fail before pin comparison (04-review R6)', () => {
+  /** The real `npm ls --depth=0 --json` shape from the R6 repro: a package
+   *  manifest added after `npm ci` without installing the workspace link. */
+  const brokenTree = {
+    version: '0.0.0',
+    name: 'thirdlight',
+    problems: [
+      'missing: @thirdlight/project-model@file:/tmp/x/packages/project-model, required by thirdlight@0.0.0',
+    ],
+    dependencies: {
+      '@thirdlight/project-model': {
+        required: 'file:/tmp/x/packages/project-model',
+        missing: true,
+        problems: [
+          'missing: @thirdlight/project-model@file:/tmp/x/packages/project-model, required by thirdlight@0.0.0',
+        ],
+      },
+      esbuild: { version: '0.28.2', resolved: 'https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz', overridden: false },
+      typescript: { version: '5.9.3', resolved: 'https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz', overridden: false },
+      vitest: { version: '5.0.1', resolved: 'https://registry.npmjs.org/vitest/-/vitest-5.0.1.tgz', overridden: false },
+    },
+    error: {
+      code: 'ELSPROBLEMS',
+      summary: 'missing: @thirdlight/project-model@file:/tmp/x/packages/project-model, required by thirdlight@0.0.0',
+      detail: '',
+    },
+  };
+
+  it('fails on a non-zero npm ls exit with a missing workspace link (the R6 repro)', () => {
+    const r = checkInstalledTree({
+      status: 1,
+      stdout: JSON.stringify(brokenTree),
+      stderr:
+        'npm ERR! code ELSPROBLEMS\nnpm ERR! missing: @thirdlight/project-model@file:/tmp/x/packages/project-model, required by thirdlight@0.0.0\n',
+    });
+    const all = r.violations.join('\n');
+    expect(all).toContain('exited with status 1');
+    expect(all).toContain('npm install');
+    expect(all).toContain("'@thirdlight/project-model'");
+    // the registry pins still compare (no silent skip): no drift here.
+    expect(all).not.toContain('version drift');
+  });
+
+  it('collectTreeIssues reports the missing workspace entry (workspace packages are NOT filtered from error reporting)', () => {
+    const issues = collectTreeIssues(brokenTree);
+    const all = issues.join('\n');
+    expect(all).toContain("missing npm tree entry: '@thirdlight/project-model'");
+    expect(all).toContain('ELSPROBLEMS');
+    expect(all).toContain('npm tree problem:');
+  });
+
+  it('reports an invalid (UNMET) registry entry the same way', () => {
+    const issues = collectTreeIssues({
+      name: 'thirdlight',
+      version: '0.0.0',
+      dependencies: { esbuild: { invalid: true, valid: false } },
+    });
+    expect(issues.join('\n')).toContain("invalid npm tree entry: 'esbuild'");
+  });
+
+  it('a healthy tree with a drifted version still fails the pin comparison (no regression)', () => {
+    const r = checkInstalledTree({
+      status: 0,
+      stdout: JSON.stringify({
+        name: 'thirdlight',
+        version: '0.0.0',
+        dependencies: { esbuild: { version: '0.28.3', resolved: 'x' } },
+      }),
+      stderr: '',
+    });
+    expect(r.violations.join('\n')).toContain('version drift');
+  });
+
+  it('a healthy pinned tree passes with the expected pending list', () => {
+    const r = checkInstalledTree({
+      status: 0,
+      stdout: JSON.stringify({
+        name: 'thirdlight',
+        version: '0.0.0',
+        dependencies: {
+          typescript: { version: '5.9.3', resolved: 'x' },
+          '@thirdlight/project-model': { version: '0.0.0', resolved: 'file:./packages/project-model' },
+        },
+      }),
+      stderr: '',
+    });
+    expect(r.violations).toEqual([]);
+    expect(r.pending).toContain('three');
+    expect(r.installed.map((e) => e.name)).toEqual(['typescript']);
   });
 });

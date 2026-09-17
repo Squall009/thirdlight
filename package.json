@@ -11,7 +11,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "node tools/build.mjs",
+    "build": "node tools/check-deps.mjs && node tools/check-boundaries.mjs && node tools/typecheck.mjs && node tools/build.mjs",
     "typecheck": "node tools/typecheck.mjs",
     "test": "vitest run",
     "check-deps": "node tools/check-deps.mjs",
