@@ -1,0 +1,145 @@
+[
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-50000000000000000000000000000001",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "rotation": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-50000000000000000000000000000001",
+      "error": {
+        "code": "quaternion_invalid",
+        "cls": "validation",
+        "detailDocument": "result-scene",
+        "details": [
+          {
+            "code": "quaternion_invalid",
+            "path": "/entities/1/components/transform/rotation",
+            "message": "rotation quaternion must have unit length within 1e-4",
+            "found": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "expected": "finite [x,y,z,w] with |norm - 1| <= 1e-4",
+            "hint": "identity rotation is [0, 0, 0, 1]"
+          }
+        ],
+        "detailCount": 1,
+        "message": "resulting scene failed validation; state unchanged",
+        "hint": "fix the request arguments and re-issue with a new requestId"
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-50000000000000000000000000000002",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "ghost-0001"
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-50000000000000000000000000000002",
+      "error": {
+        "code": "entity_not_found",
+        "cls": "validation",
+        "entityId": "ghost-0001",
+        "message": "entity 'ghost-0001' does not exist in the current scene",
+        "hint": "query the scene (queryEntities) for current IDs, then re-issue with a fresh requestId"
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-50000000000000000000000000000003",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "kind": "box",
+        "parentId": "ghost-0001"
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-50000000000000000000000000000003",
+      "error": {
+        "code": "reference_missing",
+        "cls": "validation",
+        "found": "ghost-0001",
+        "expected": "existing entity ID or null",
+        "message": "parentId does not resolve to an existing entity"
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-50000000000000000000000000000004",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            1.5,
+            0.25,
+            0
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-50000000000000000000000000000004",
+      "error": {
+        "code": "no_change",
+        "cls": "validation",
+        "message": "request would not change the scene",
+        "hint": "the scene already matches the requested values; nothing was recorded"
+      }
+    }
+  }
+]

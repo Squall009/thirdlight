@@ -1,0 +1,115 @@
+[
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 4,
+      "requestId": "req-30000000000000000000000000000001",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            0.75,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-30000000000000000000000000000001",
+      "error": {
+        "code": "revision_conflict",
+        "cls": "conflict",
+        "expectedRevision": 4,
+        "currentRevision": 5,
+        "message": "expected revision does not match the current project revision",
+        "hint": "re-read the project (queryProject) and re-issue the command with a fresh requestId and the current revision"
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-30000000000000000000000000000002",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            0.75,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-30000000000000000000000000000002",
+      "revision": 6,
+      "duplicated": false,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0001",
+        "previous": {
+          "position": [
+            1.5,
+            0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            0.75,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "position"
+        ]
+      },
+      "history": {
+        "undoDepth": 1,
+        "redoDepth": 0
+      }
+    }
+  }
+]

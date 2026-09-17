@@ -1,0 +1,574 @@
+[
+  {
+    "in": {
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 0,
+      "requestId": "req-20000000000000000000000000000001",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "kind": "box",
+        "name": "Ground"
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000001",
+      "revision": 1,
+      "duplicated": false,
+      "createdId": "box-0001",
+      "change": {
+        "type": "createEntity",
+        "id": "box-0001",
+        "entity": {
+          "id": "box-0001",
+          "name": "Ground",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "history": {
+        "undoDepth": 1,
+        "redoDepth": 0
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 1,
+      "requestId": "req-20000000000000000000000000000002",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            0,
+            0,
+            -0.5
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000002",
+      "revision": 2,
+      "duplicated": false,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0001",
+        "previous": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "position"
+        ]
+      },
+      "history": {
+        "undoDepth": 2,
+        "redoDepth": 0
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 2,
+      "requestId": "req-20000000000000000000000000000003",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "kind": "box",
+        "name": "Crate"
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000003",
+      "revision": 3,
+      "duplicated": false,
+      "createdId": "box-0002",
+      "change": {
+        "type": "createEntity",
+        "id": "box-0002",
+        "entity": {
+          "id": "box-0002",
+          "name": "Crate",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 0
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 3,
+      "requestId": "req-20000000000000000000000000000004",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0002"
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000004",
+      "revision": 4,
+      "duplicated": false,
+      "change": {
+        "type": "deleteEntity",
+        "rootId": "box-0002",
+        "deletedIds": [
+          "box-0002"
+        ]
+      },
+      "history": {
+        "undoDepth": 4,
+        "redoDepth": 0
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "undo",
+      "projectId": "demo-0001",
+      "expectedRevision": 4,
+      "requestId": "req-20000000000000000000000000000005",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {}
+    },
+    "out": {
+      "ok": true,
+      "op": "undo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000005",
+      "revision": 5,
+      "duplicated": false,
+      "change": {
+        "type": "restoreSubtree",
+        "rootId": "box-0002",
+        "entities": [
+          {
+            "id": "box-0002",
+            "name": "Crate",
+            "components": {
+              "transform": {
+                "position": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "box": {
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "material": {
+                  "color": "#b0b0b0"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "appliedOf": "req-20000000000000000000000000000004",
+      "originOfApplied": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 1
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "undo",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-20000000000000000000000000000006",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {}
+    },
+    "out": {
+      "ok": true,
+      "op": "undo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000006",
+      "revision": 6,
+      "duplicated": false,
+      "change": {
+        "type": "deleteEntity",
+        "rootId": "box-0002",
+        "deletedIds": [
+          "box-0002"
+        ]
+      },
+      "appliedOf": "req-20000000000000000000000000000003",
+      "originOfApplied": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "history": {
+        "undoDepth": 2,
+        "redoDepth": 2
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "redo",
+      "projectId": "demo-0001",
+      "expectedRevision": 6,
+      "requestId": "req-20000000000000000000000000000007",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {}
+    },
+    "out": {
+      "ok": true,
+      "op": "redo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000007",
+      "revision": 7,
+      "duplicated": false,
+      "change": {
+        "type": "createEntity",
+        "id": "box-0002",
+        "entity": {
+          "id": "box-0002",
+          "name": "Crate",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "appliedOf": "req-20000000000000000000000000000003",
+      "originOfApplied": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 1
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 7,
+      "requestId": "req-20000000000000000000000000000008",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            0,
+            0.25,
+            -0.5
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000008",
+      "revision": 8,
+      "duplicated": false,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0001",
+        "previous": {
+          "position": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            0,
+            0.25,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "position"
+        ]
+      },
+      "history": {
+        "undoDepth": 4,
+        "redoDepth": 0
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "undo",
+      "projectId": "demo-0001",
+      "expectedRevision": 8,
+      "requestId": "req-20000000000000000000000000000009",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {}
+    },
+    "out": {
+      "ok": true,
+      "op": "undo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000009",
+      "revision": 9,
+      "duplicated": false,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0001",
+        "previous": {
+          "position": [
+            0,
+            0.25,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            0,
+            0,
+            -0.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "position",
+          "rotation",
+          "scale"
+        ]
+      },
+      "appliedOf": "req-20000000000000000000000000000008",
+      "originOfApplied": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 1
+      }
+    }
+  }
+]

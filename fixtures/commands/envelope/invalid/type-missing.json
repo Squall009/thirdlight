@@ -1,0 +1,44 @@
+{
+  "storageVersion": 1,
+  "projectId": "demo-0001",
+  "scene": {
+    "schemaVersion": 1,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      }
+    ]
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}
