@@ -717,6 +717,14 @@ as operation results):
 | `no_pending_change` | resolve command with nothing pending (§7.3) |
 | `project_exists_invalid` | `createProject` onto an unloadable existing directory (§8.1) |
 
+**Permitted `project_unavailable.reason` values (normative):** the codes
+in this table **plus** the codes the §4.3 load pipeline surfaces from the
+strict parse and cross-document checks — `encoding_invalid`,
+`json_parse_error`, `duplicate_key`, `field_type`,
+`manifest_scene_mismatch` (project-model.md §12.3/§12.6/§13 codes) —
+since a project that exists on disk but cannot load is exactly what
+`project_unavailable` reports.
+
 `holder` in ownership errors: `{ backendId, pid, openedAt, lockEpoch,
 state }`.
 

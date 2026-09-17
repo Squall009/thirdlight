@@ -191,14 +191,14 @@ Result (strict):
   "manifest": { "…" },
   "scene": { "…" },
   "history": { "undoDepth": 3, "redoDepth": 0 },
-  "workspace": { "writePaused": false, "pendingChange": null } }
+  "workspace": { "writePaused": false } }
 ```
 
 - `scene` is the **full normalized scene document** (project-model §8) at
   the current revision; `manifest` is the normalized manifest. This full
   state is the initial projection and the resync payload (§8).
 - `workspace` is exactly the commands.md §5.6 query `workspace` object:
-  `{ writePaused: false, pendingChange: null }` when clean; while an external
+  `{ writePaused: false }` when clean; while an external
   change is pending it carries `writePaused: true`,
   `pauseReason: "external_change"`, and the `pendingChange` block (queries —
   and this response — are affected alike).
@@ -562,7 +562,7 @@ sends WS `play.stopped.ack`; the backend marks `stopped` and broadcasts
 | `unknown_event` | validation | `type` (clipped ≤ 64) | WS frame with an unknown `type` (§7) |
 | `protocol_error` | validation | — | malformed WS frame (§5.2) |
 | `project_not_found` | not_found | `projectId` | as in commands.md |
-| `project_unavailable` | unavailable | `reason` (a workspace.md §11 code), `holder?`, `details?` | as in commands.md |
+| `project_unavailable` | unavailable | `reason` (a permitted `project_unavailable.reason` value — workspace.md §11: its code table plus the §4.3 load-pipeline codes), `holder?`, `details?` | as in commands.md |
 | `play_already_active` | conflict | `activePlaySessionId` | second concurrent play for the project (§10.1) |
 | `play_not_found` | not_found | `playSessionId` | stop/screenshot/diagnostics for an unknown or stopped play |
 | `session_unavailable` | unavailable | `playSessionId?`, `hint` | no registered browser / owner WS not connected / play not yet `presented`, for a live action (§10.4, §12) |

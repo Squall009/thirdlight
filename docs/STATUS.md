@@ -1,7 +1,9 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
 Updated: 2026-09-17 (Gate A accepted 2026-09-17 with bounded follow-ups
-F1–F4 — see Notes; React ruling and pre-review pass recorded in handoff 03).
+F1–F4 — see Notes; **F1–F4 applied 2026-09-17** — repair recorded in the
+handoff 03 "Gate A follow-up repair" section; React ruling and pre-review
+pass recorded in handoff 03).
 
 Gate discipline (docs/planning/implementation-prompts.md): at each gate, stop
 dependent implementation until review findings are resolved. A contract change
@@ -12,7 +14,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 
 | Gate | Covers | Status |
 |------|--------|--------|
-| A | 00–03 | **accepted 2026-09-17** — architectural review: accept with bounded follow-ups (F1–F4, Notes); apply via the "Repair prompt" before packet 04 |
+| A | 00–03 | **accepted 2026-09-17** — architectural review: accept with bounded follow-ups (F1–F4, Notes); apply via the "Repair prompt" before packet 04 — **F1–F4 applied 2026-09-17** (handoff 03 "Gate A follow-up repair") |
 | B | 04–07 | pending — prerequisite: Gate A accepted |
 | C | 08–12 | pending — prerequisite: Gate B accepted (for 08 onward) |
 | D | 13 | pending — prerequisite: Gate C accepted |
@@ -73,7 +75,9 @@ during later work reopens the relevant review gate. Unrun packets stay
   fixes (one-shot `play.started`, `clientInfo.kind` pin, session code
   mapping, dependencies edge/export table, scan pattern j, demo-math test
   points, project-model §12.1 declarations). Bounded follow-ups (consistency
-  fixes, not new scope; apply via the "Repair prompt" **before packet 04**):
+  fixes, not new scope; apply via the "Repair prompt" **before packet 04** —
+  **applied 2026-09-17**; handoff 03 "Gate A follow-up repair" section;
+  both fixture verification suites re-run OK):
   - **F1 — export/preview scan vs pinned `three@0.186.0` (verified, larger
     than the handoff-03 risk note):** a default esbuild 0.28.2 bundle of the
     pinned three contains `fetch(` ×3 (two are real fetch calls in three's

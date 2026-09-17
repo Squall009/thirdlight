@@ -214,9 +214,14 @@ offending `file:line`). Packet 04 implements checks 1, 2, 5, 6; packets
    set. A forbidden package in a runtime bundle ⇒ the build fails (export
    instance: export.md §4 step 4, code `export_bundle_graph_forbidden`).
 4. **Forbidden-content scan** (packets 10/12, for the runtime bundles):
-   the export.md §5.4 patterns (authoring/preview origins, `/api/v1/`,
-   `node:`, `/mcp`, absolute URLs, the single-relative-`fetch` rule) over
-   the emitted preview and export bundles.
+   the export.md §5.4 patterns over the emitted play-preview (packet 10)
+   and export (packet 12) bundles. The export.md §5.4.1
+   recorded-exception table (pinned `three@0.186.0` identity + exact
+   counts under the export.md §5.3 pinned option set) applies to **both**
+   bundles under its binding conditions; a violation fails the build
+   (non-zero exit, offending pattern + context), and for the export
+   instance is reported as `export_bundle_forbidden_content` (export.md
+   §4 step 5).
 5. **Type-level strictness:** the root `tsconfig.base.json` is `strict:
    true` (decision 0001 §2/§3); per-package `tsconfig`s extend it; the
    root `typecheck` script runs `tsc --noEmit` across the workspace with

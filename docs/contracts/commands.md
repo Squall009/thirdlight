@@ -264,7 +264,7 @@ create↔delete, restore↔delete, setTransform is self-inverse with swapped
 | `invalid_request` | `validation` | `path`, `found`, `expected` | envelope-level schema failure of the request itself (bad `op`, bad `requestId` syntax, unknown field, etc.) |
 | `field_missing` / `field_unexpected` / `field_type` / `field_value` | `validation` | `path`, `found`/`expected` | `args` schema failure |
 | `project_not_found` | `not_found` | `projectId` | no project directory with a loadable manifest exists at the data root |
-| `project_unavailable` | `unavailable` | `reason` (a workspace.md §11 code), `holder?` (ownership reasons: the ownership record), `details?` | the project exists but cannot be used right now (load failure, ownership conflict, closed for maintenance, …) |
+| `project_unavailable` | `unavailable` | `reason` (a permitted `project_unavailable.reason` value — workspace.md §11: its code table plus the §4.3 load-pipeline codes), `holder?` (ownership reasons: the ownership record), `details?` | the project exists but cannot be used right now (load failure, ownership conflict, closed for maintenance, …) |
 | `workspace_closed` | `unavailable` | — | the project was explicitly released for external maintenance (workspace.md §9) |
 | `revision_conflict` | `conflict` | `expectedRevision`, `currentRevision` | `expectedRevision ≠ currentRevision` (stale client view) |
 | `request_id_reused` | `conflict` | `currentRevision` | same `requestId`, different content (§6.2) |
@@ -287,7 +287,10 @@ Workspace load-time and operation codes (`envelope_invalid`,
 `external_change_invalid`, `no_pending_change`,
 `project_exists_invalid`) are defined in workspace.md §11 and surface to
 clients through `project_unavailable.reason` or as results of the admin
-workspace operations.
+workspace operations; the §4.3 load-pipeline codes listed with them in
+workspace.md §11 (`encoding_invalid`, `json_parse_error`,
+`duplicate_key`, `field_type`, `manifest_scene_mismatch`) are likewise
+permitted `project_unavailable.reason` values.
 
 ### 5.5 Client policy per class (normative guidance)
 

@@ -140,8 +140,9 @@ Success result (bounded):
   "scanHits": 0 }
 ```
 
-(`files` values are byte sizes — measured, not estimated; `scanHits` must
-be 0 for a success.)
+(`files` values are byte sizes — measured, not estimated; `scanHits`
+counts hits **outside** the §5.4.1 recorded-exception scope and must be 0
+for a success.)
 
 ### 4.1 Stable error codes
 
@@ -181,17 +182,49 @@ bootstrap file), and any `node:` builtin (browser platform). The check
 runs at build time (packet 12) — this is the export instance of the
 dependencies.md §5.3 bundle graph check.
 
-### 5.3 Browser-only target
+### 5.3 Browser-only target — pinned build options (normative)
 
-- esbuild `platform: browser`, the pinned esbuild 0.28.2 (dependencies.md
-  §7), no sourcemaps, the default (unminified) output format is M1's
-  baseline — minification toggles are not M1 guarantees (§7).
+The export bundle is built with esbuild 0.28.2 (dependencies.md §7)
+using **exactly** this option set — every other option at its esbuild
+0.28.2 default; no additional CLI flags, `define`s, banners, loaders,
+aliases, or `external`s:
+
+```text
+bundle: true
+platform: "browser"
+format: "iife"
+treeShaking: false
+sourcemap: false
+minify: false
+```
+
+- `format: "iife"` is pinned **explicitly**: esbuild 0.28.2's default
+  output format is IIFE **even for ESM entries** (verified 2026-09-17 —
+  the default-flag and `format: "iife"` builds are byte-identical). The
+  IIFE payload is loaded by §3's `<script type="module">` tag (a valid
+  module script — no top-level `import`/`export` is required). Because
+  the format is IIFE, the bootstrap must **not** use top-level `await`
+  (esbuild rejects it in IIFE output): §5.5 step 1 uses a `.then()`
+  chain.
+- `treeShaking: false` is pinned so the pinned `three@0.186.0` content
+  appears in the emitted bundle verbatim: the §5.4.1 recorded-exception
+  counts are then **exact** (no tree-shaking slack). Bundle size is not
+  an M1 criterion (§8: one small supported scene).
+- The **same pinned option set applies to all three bundles** of
+  dependencies.md §4.2 (editor, play-preview, export): same pinned
+  esbuild version and flags, only the entry point and the allowed graph
+  differ (the editor bundle's `.tsx` files use esbuild's default TSX
+  loader — no option change).
 - No Node-only imports: no `node:*`, no `fs`/`path`/`process`/`__dirname`
   usage (covered by the scan, §5.4).
-- **No service dependency:** the bundle makes exactly **one** `fetch` —
-  the relative `./snapshot.json`. No other network call, no WebSocket, no
-  `XMLHttpRequest`, no `import()` of remote code, no authoring-service
-  call (charter §1: runs without the editor backend, MCP, or model service).
+- **No service dependency:** the bundle makes exactly **one `fetch`
+  initiated by engine code** — the bootstrap's relative `./snapshot.json`
+  (§5.5 step 1). Other `fetch(` occurrences may appear in the emitted
+  bytes only from the pinned three.js loader code and only as recorded in
+  the §5.4.1 recorded-exception table. No other network call initiated by
+  engine code, no engine WebSocket, no engine `XMLHttpRequest`, no
+  `import()` of remote code, no authoring-service call (charter §1: runs
+  without the editor backend, MCP, or model service).
 
 ### 5.4 Forbidden-content scan (normative patterns)
 
@@ -202,7 +235,7 @@ Run over every emitted byte (all four files):
 | a | the configured `authoringOrigin` string (sessions.md §13.7) | no authoring URL |
 | b | the configured `previewOrigin` string | no authoring URL |
 | c | the substring `/api/v1/` | no authoring-service calls |
-| d | `fetch(` — **exactly one** occurrence total, and its target must be the relative `./snapshot.json` | the §5.3 single-fetch rule |
+| d | `fetch(` — **exactly one initiated by engine code**: the export bootstrap's relative `./snapshot.json` (the preview bootstrap initiates none — its snapshot arrives via the checked bridge, sessions.md §13.4); occurrences inside the pinned three.js code are bound by the §5.4.1 recorded-exception table | the §5.3 single-fetch rule |
 | e | the substring `node:` | no Node-only imports |
 | f | `__dirname` or `process.` | no Node leaks |
 | g | the substring `/mcp` | no MCP endpoint |
@@ -210,15 +243,68 @@ Run over every emitted byte (all four files):
 | i | any token material — the configured admin/authoring token **values** (the backend passes the current token set to the exporter for the scan) | no credentials |
 | j | the substrings `XMLHttpRequest` and `WebSocket` | no network mechanism other than the single relative `fetch` (§5.3) |
 
-Any hit ⇒ `export_bundle_forbidden_content` (the first ≤ 4 hits reported).
-A dynamic `import()` of remote or workspace content is enforced by the
-step-4 metafile graph check (every imported module appears in the graph)
-together with pattern h — not by a text pattern.
-**No silent exceptions:** if a pinned dependency (e.g., `three@0.186.0`)
-contains a hit pattern, the export fails and the contract must be changed
-through review with a recorded exception — a workaround that weakens the
-scan is forbidden (AGENTS.md: no workaround that changes a contract's
-meaning).
+Any hit ⇒ `export_bundle_forbidden_content` (the first ≤ 4 hits reported)
+— except occurrences covered by the §5.4.1 recorded-exception table under
+its binding conditions. A dynamic `import()` of remote or workspace
+content is enforced by the step-4 metafile graph check (every imported
+module appears in the graph) together with pattern h — not by a text
+pattern.
+
+#### 5.4.1 Recorded-exception table — pinned `three@0.186.0` (normative; Gate A follow-up F1)
+
+The patterns are absolute for **engine code** (bootstrap, `runtime`,
+`three-adapter`, `project-model`, `protocol`). The pinned `three@0.186.0`
+carries inert occurrences of four patterns inside its own shipped code.
+Rather than weaken the scan, the contract records them as a
+**version-bound exception with exact counts**, re-measured 2026-09-17
+under the §5.3 pinned option set on the full-core three bundle (entry
+`import * as THREE from 'three';` — the `three` package resolves to
+`build/three.module.js`, which re-exports `build/three.core.js`; emitted
+1,777,857 bytes):
+
+| Pattern | Recorded count (pinned flags) | Content (verified inert, 2026-09-17) |
+|---|---|---|
+| d `fetch(` | 3 | two real fetch calls in three's loader code (`FileLoader`, `ImageBitmapLoader` — executable only if the engine requests a file load; the M1 engine never does) + one string literal in a `warn()` message |
+| f `process.` | 3 | two string literals in `warn`/`warnOnce` messages + one doc comment; `__dirname`: 0 |
+| h `http://` + `https://` | 3 + 23 = 26 | `http://`: one XHTML-namespace string literal (`createElementNS`) + two doc comments; `https://`: 23 doc-comment reference links (wikipedia.org, w3.org, khronos.org, developer.mozilla.org, github.com); `file://`: 0 |
+| j `XMLHttpRequest` | 3 | three doc comments (JSDoc `withCredentials` references); `WebSocket`: 0 |
+| a/b/c/e/g/i | 0 | absent — a/b/i are the configured origin/token values passed to the scan; all six patterns verified 0 hits in the pinned three measurement |
+
+**Binding (normative — the exception applies only when all hold):**
+
+1. **Identity:** the bundled `three` is exactly `three@0.186.0` — npm
+   tarball `three-0.186.0.tgz` SHA-256
+   `61eeff9d7616005c9a481c796f52287d81fbbbc0d55eaca5565322924252c1aa`
+   (registry integrity
+   `sha512-cr/fIM2ddMSVbYVgkfD4jLJv7Fh/8ZTjvo+7gQeSVGUZHxpx9FDwoL5iC7hUz/LiRA8wMbqfnb90xKfm1/HHkQ==`).
+   Any other version ⇒ the table is void and the unmodified scan applies
+   (a version change is an owner-approved decision change plus a contract
+   diff that re-measures this table — dependencies.md §9).
+2. **Flags:** the build uses exactly the §5.3 pinned option set.
+3. **Reference build:** a reference full-core three bundle (the entry
+   above, same pinned options) re-scans to exactly the table's counts —
+   re-verifying the record against the current install before the real
+   bundle is judged.
+4. **Real-bundle exact counts:** patterns a/b/c/e/g/i: 0; pattern d:
+   exactly 3 + the engine's one `./snapshot.json` fetch in the **export**
+   bundle (which must also contain the literal `fetch("./snapshot.json")`
+   exactly once) and exactly 3 + 0 in the **preview** bundle; patterns
+   f/h/j: exactly the table's counts. Any deviation ⇒
+   `export_bundle_forbidden_content` (export) / the bundle check fails
+   the build (preview).
+
+**No silent exceptions (unchanged rule):** a hit outside the binding
+conditions is a failure, not an exception; the table is re-measured and
+reviewed as a contract diff whenever the three pin or the pinned option
+set changes (AGENTS.md: no workaround that changes a contract's meaning;
+charter §10).
+
+*Measurement note (recorded 2026-09-17):* the Gate A review's initial
+measurement recorded `process.` ×27 for the same build; the re-measurement
+under the pinned option set shows the contract pattern `process.` (with
+the dot) occurs **3** times — the ×27 counts the substring `process`,
+which also matches doc-comment prose ("processing",
+"post-processing", …). This table binds the pattern as written in §5.4.
 
 ### 5.5 Bootstrap behavior (normative)
 
@@ -273,8 +359,9 @@ shape; readers reject extras).
 
 **In scope (guaranteed, normative):** two exports of the **same snapshot**
 (same `snapshotId`) built from the same engine source, with the same
-dependency versions (the `dependencies` block), the same esbuild version
-and build flags, on the same platform, produce:
+dependency versions (the `dependencies` block) — including the §5.4.1
+pinned `three` identity — and esbuild 0.28.2 with the **exact pinned
+option set of §5.3**, on the same platform, produce:
 
 - **byte-identical** `snapshot.json` (canonical serialization — project-
   model §12.2 rules) and **byte-identical** `js/main.js` (esbuild is
@@ -331,6 +418,6 @@ hostnames, users, or tokens) anywhere — the §5.4 scan enforces this.
   unknown major versions with an actionable message (the project-model
   §12.3 unknown-version discipline, applied to metadata).
 - The scan patterns (§5.4) are part of the contract: weakening them is a
-  contract change, and an unrecorded dependency hit is a failure, not an
-  exception (charter §10: a model must not silently edit adjacent
-  contracts to make its task pass).
+  contract change, and a hit outside the §5.4.1 binding conditions is a
+  failure, not an exception (charter §10: a model must not silently edit
+  adjacent contracts to make its task pass).
