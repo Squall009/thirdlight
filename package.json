@@ -1,0 +1,25 @@
+{
+  "name": "thirdlight",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Thirdlight — self-hosted browser game editor. M1 workspace root: npm workspaces, one lockfile, strict TypeScript (decision 0001 §3/§4; dependencies.md §2/§7). Units under packages/<name> are created only when implemented (packets 05–12).",
+  "engines": {
+    "node": "22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "typecheck": "node tools/typecheck.mjs",
+    "test": "vitest run",
+    "check-deps": "node tools/check-deps.mjs",
+    "check-boundaries": "node tools/check-boundaries.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}

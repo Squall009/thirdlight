@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "//": "Thirdlight strict base config (dependencies.md §5 check 5: strict: true, TypeScript 5.9.3 pinned; decision 0001 §2/§3). Per-package tsconfigs extend this file and are typechecked with `tsc --noEmit` (root `npm run typecheck`). jsx: react-jsx enables typechecking the editor's TSX (decision 0001 §10: React editor UI; esbuild's TSX loader builds it — no separate TSX tooling). Browser libs are in the base lib set because the browser packages (editor, three-adapter, runtime) are the majority; Node-side packages may narrow/extend `lib` and `types` in their own tsconfig.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": false,
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true
+  }
+}
