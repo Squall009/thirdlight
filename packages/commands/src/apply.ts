@@ -39,7 +39,7 @@ import type {
   MutationOp,
   MutationSuccess,
 } from './types';
-import { echoField, validateMutationRequest } from './validate-request';
+import { echoField, validateOpArgs, validateRequestEnvelope } from './validate-request';
 
 /** Fresh per-project command state (empty history, §9.2: a restart starts here). */
 export function createCommandState(scene: Scene): CommandState {
@@ -110,10 +110,14 @@ function success(
  * Execute one mutation request against the current per-project state.
  *
  * Pipeline (commands.md §6.1, the pure steps):
- * - request validation (§3/§3.1 — strict; `invalid_request`/`field_*`);
+ * - envelope validation (§3 — `invalid_request`; op/projectId/
+ *   expectedRevision/requestId/origin and `args`-is-an-object). Runs
+ *   FIRST: a malformed envelope is `invalid_request` even when stale;
  * - revision check BEFORE argument validation (§6.1 step 4: a stale
- *   request is reported as stale, not validated);
- * - `revision_exhausted` when the current revision is 2^53−1;
+ *   request is reported as stale, not validated) ⇒ `revision_conflict`;
+ * - `revision_exhausted` when the current revision is 2^53−1 (state-level,
+ *   so it also precedes argument validation);
+ * - per-op `args` schema validation (§3.1 — `field_*`);
  * - per-op preconditions and pure application on an in-memory copy, with
  *   project-model re-validation of the resulting scene (step 5);
  * - the uniform `no_change` check (step 6).
@@ -123,37 +127,49 @@ function success(
  * mutated; the success outcome carries the new state.
  */
 export function applyMutation(state: CommandState, request: unknown): ApplyOutcome {
-  const v = validateMutationRequest(request);
-  if (!v.ok) return { ok: false, result: failure(request, v.error) };
-  const req = v.request;
+  // Envelope pass (commands.md §3): op/projectId/expectedRevision/
+  // requestId/origin and `args`-is-an-object → `invalid_request`. Runs
+  // FIRST — a malformed envelope is `invalid_request` even when stale, and
+  // the revision check needs a parseable `expectedRevision`.
+  const env = validateRequestEnvelope(request);
+  if (!env.ok) return { ok: false, result: failure(request, env.error) };
+  const envelope = env.envelope;
   const { scene } = state;
 
-  // Step 4: revision check (precedes argument/op validation).
-  if (req.expectedRevision !== scene.revision) {
+  // Step 4: revision check — precedes argument validation (commands.md
+  // §6.1 step 4: a stale request is reported as stale, not validated).
+  if (envelope.expectedRevision !== scene.revision) {
     return {
       ok: false,
-      result: failure(request, revisionConflict(req.expectedRevision, scene.revision)),
+      result: failure(request, revisionConflict(envelope.expectedRevision, scene.revision)),
     };
   }
   // Revision exhaustion (commands.md §5.4): the matching revision is the
-  // maximum — +1 would overflow the safe-integer bound.
+  // maximum — +1 would overflow the safe-integer bound. A state-level
+  // condition, so it precedes argument validation as well.
   if (scene.revision >= MAX_REVISION) {
     return {
       ok: false,
       result: failure(request, revisionExhausted(scene.revision)),
     };
   }
-  const revision = req.expectedRevision + 1;
 
-  switch (req.op) {
+  // Step 5, args schema (commands.md §3.1): per-op `field_*` validation —
+  // AFTER the revision check, before op application.
+  const va = validateOpArgs(envelope.op, env.args);
+  if (!va.ok) return { ok: false, result: failure(request, va.error) };
+
+  const revision = envelope.expectedRevision + 1;
+
+  switch (va.validated.op) {
     case 'createEntity': {
-      const r = applyCreateEntity(scene, req.args);
+      const r = applyCreateEntity(scene, va.validated.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       const entry: HistoryEntry = {
         seq: state.history.seq,
-        requestId: req.requestId,
+        requestId: envelope.requestId,
         op: 'createEntity',
-        origin: req.origin,
+        origin: envelope.origin,
         appliedRevision: revision,
         change: r.op.change,
         inverse: r.op.inverse,
@@ -162,21 +178,28 @@ export function applyMutation(state: CommandState, request: unknown): ApplyOutco
       return {
         ok: true,
         state: { scene: r.op.scene, history },
-        result: success(req.op, req.projectId, req.requestId, revision, r.op.change, {
-          createdId: r.op.createdId,
-          undoDepth: history.cursor,
-          redoDepth: history.entries.length - history.cursor,
-        }),
+        result: success(
+          'createEntity',
+          envelope.projectId,
+          envelope.requestId,
+          revision,
+          r.op.change,
+          {
+            createdId: r.op.createdId,
+            undoDepth: history.cursor,
+            redoDepth: history.entries.length - history.cursor,
+          },
+        ),
       };
     }
     case 'setTransform': {
-      const r = applySetTransform(scene, req.args);
+      const r = applySetTransform(scene, va.validated.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       const entry: HistoryEntry = {
         seq: state.history.seq,
-        requestId: req.requestId,
+        requestId: envelope.requestId,
         op: 'setTransform',
-        origin: req.origin,
+        origin: envelope.origin,
         appliedRevision: revision,
         change: r.op.change,
         inverse: r.op.inverse,
@@ -185,20 +208,27 @@ export function applyMutation(state: CommandState, request: unknown): ApplyOutco
       return {
         ok: true,
         state: { scene: r.op.scene, history },
-        result: success(req.op, req.projectId, req.requestId, revision, r.op.change, {
-          undoDepth: history.cursor,
-          redoDepth: history.entries.length - history.cursor,
-        }),
+        result: success(
+          'setTransform',
+          envelope.projectId,
+          envelope.requestId,
+          revision,
+          r.op.change,
+          {
+            undoDepth: history.cursor,
+            redoDepth: history.entries.length - history.cursor,
+          },
+        ),
       };
     }
     case 'deleteEntity': {
-      const r = applyDeleteEntity(scene, req.args);
+      const r = applyDeleteEntity(scene, va.validated.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       const entry: HistoryEntry = {
         seq: state.history.seq,
-        requestId: req.requestId,
+        requestId: envelope.requestId,
         op: 'deleteEntity',
-        origin: req.origin,
+        origin: envelope.origin,
         appliedRevision: revision,
         change: r.op.change,
         inverse: r.op.inverse,
@@ -207,16 +237,23 @@ export function applyMutation(state: CommandState, request: unknown): ApplyOutco
       return {
         ok: true,
         state: { scene: r.op.scene, history },
-        result: success(req.op, req.projectId, req.requestId, revision, r.op.change, {
-          undoDepth: history.cursor,
-          redoDepth: history.entries.length - history.cursor,
-        }),
+        result: success(
+          'deleteEntity',
+          envelope.projectId,
+          envelope.requestId,
+          revision,
+          r.op.change,
+          {
+            undoDepth: history.cursor,
+            redoDepth: history.entries.length - history.cursor,
+          },
+        ),
       };
     }
     case 'undo':
     case 'redo': {
       const r =
-        req.op === 'undo'
+        va.validated.op === 'undo'
           ? executeUndo(state.history, scene)
           : executeRedo(state.history, scene);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -227,16 +264,24 @@ export function applyMutation(state: CommandState, request: unknown): ApplyOutco
       return {
         ok: true,
         state: { scene: r.scene, history: r.history },
-        result: success(req.op, req.projectId, req.requestId, revision, r.change, {
-          appliedOf: r.appliedOf,
-          originOfApplied: r.originOfApplied,
-          ...depths,
-        }),
+        result: success(
+          va.validated.op,
+          envelope.projectId,
+          envelope.requestId,
+          revision,
+          r.change,
+          {
+            appliedOf: r.appliedOf,
+            originOfApplied: r.originOfApplied,
+            ...depths,
+          },
+        ),
       };
     }
     default:
-      // Unreachable: `op` is strictly validated against the five ops
-      // before the switch; keep a safe, contract-shaped fallback.
+      // Unreachable: the envelope pass validated `op` against the five
+      // ops and `validateOpArgs` dispatched on the same value; keep a
+      // safe, contract-shaped fallback.
       return {
         ok: false,
         result: failure(

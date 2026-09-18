@@ -14,6 +14,16 @@
  * `invalid_request`; failures inside `args` are the `field_*` codes, with
  * `path` a JSON Pointer into the request.
  *
+ * Two passes, orchestrated by `applyMutation` (commands.md §6.1 step 4 —
+ * "revision checking precedes argument validation"): the ENVELOPE pass
+ * (`validateRequestEnvelope`: op/projectId/expectedRevision/requestId/
+ * origin and `args`-is-an-object → `invalid_request`) runs BEFORE the
+ * revision check; the per-op ARGS-SCHEMA pass (`validateOpArgs`: `field_*`)
+ * runs AFTER the revision check (`revision_conflict`) and the
+ * `revision_exhausted` check. `validateMutationRequest` composes both
+ * (envelope, then args) for callers that want full validation in one
+ * call; it does not itself implement the pipeline order.
+ *
  * Value constraints on transform/box numbers (vector length, finiteness,
  * ranges, quaternion norm, color syntax) are deliberately NOT re-implemented
  * here: they are enforced by the project-model validation of the RESULTING
@@ -132,6 +142,8 @@ export type RequestValidation =
 export interface EnvelopeOk {
   ok: true;
   envelope: Omit<ValidatedMutationRequest, 'args'>;
+  /** The raw `args` object (validated to be a plain object by the envelope pass). */
+  args: Record<string, unknown>;
 }
 
 function validateEnvelope(
@@ -308,6 +320,7 @@ function validateEnvelope(
       requestId: req['requestId'] as string,
       origin,
     },
+    args: req['args'] as Record<string, unknown>,
   };
 }
 
@@ -590,29 +603,104 @@ function validateUndoRedoArgs(op: 'undo' | 'redo', args: Record<string, unknown>
   return { ok: true, args: {} };
 }
 
-// ---- entry point -------------------------------------------------------------------
+// ---- entry points ------------------------------------------------------------------
 
 /**
- * Validate a raw mutation request (commands.md §3/§3.1). Envelope-level
- * failures are `invalid_request`; `args`-level failures are `field_*`.
- * Total: never throws.
+ * Envelope-only pass (commands.md §3): op/projectId/expectedRevision/
+ * requestId/origin and `args`-is-an-object. Failures are `invalid_request`.
+ * In `applyMutation` this runs BEFORE the revision check: a malformed
+ * envelope is `invalid_request` even when stale, and the revision check
+ * needs a parseable `expectedRevision`. Total: never throws.
  */
-export function validateMutationRequest(req: unknown): RequestValidation {
-  if (!isPlainObject(req)) {
+export function validateRequestEnvelope(
+  request: unknown,
+): { ok: false; error: CommandError } | EnvelopeOk {
+  if (!isPlainObject(request)) {
     return {
       ok: false,
       error: invalidRequest(
         '',
-        jsonType(req),
+        jsonType(request),
         'mutation request object { op, projectId, expectedRevision, requestId, origin?, args }',
         'request must be a JSON object',
       ),
     };
   }
-  const envResult = validateEnvelope(req);
+  return validateEnvelope(request);
+}
+
+/** Per-op validated `args`, discriminated by `op`. */
+export type ValidatedOpArgs =
+  | { op: 'createEntity'; args: CreateEntityArgs }
+  | { op: 'setTransform'; args: SetTransformArgs }
+  | { op: 'deleteEntity'; args: DeleteEntityArgs }
+  | { op: 'undo'; args: EmptyArgs }
+  | { op: 'redo'; args: EmptyArgs };
+
+export type ArgsValidation =
+  | { ok: true; validated: ValidatedOpArgs }
+  | { ok: false; error: CommandError };
+
+/**
+ * Per-op `args` schema pass (commands.md §3.1): failures are the `field_*`
+ * codes. In `applyMutation` this runs AFTER the revision check and the
+ * `revision_exhausted` check (commands.md §6.1 step 4: a stale request is
+ * reported as stale, not validated). Total: never throws.
+ */
+export function validateOpArgs(
+  op: MutationOp,
+  args: Record<string, unknown>,
+): ArgsValidation {
+  switch (op) {
+    case 'createEntity': {
+      const r = validateCreateArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'createEntity', args: r.args } };
+    }
+    case 'setTransform': {
+      const r = validateSetTransformArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setTransform', args: r.args } };
+    }
+    case 'deleteEntity': {
+      const r = validateDeleteArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'deleteEntity', args: r.args } };
+    }
+    case 'undo':
+    case 'redo': {
+      const r = validateUndoRedoArgs(op, args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op, args: r.args } };
+    }
+    default: {
+      // Unreachable: `op` was validated against the five ops by the
+      // envelope pass; keep a safe, contract-shaped fallback.
+      return {
+        ok: false,
+        error: invalidRequest(
+          '/op',
+          op,
+          EXPECT.op,
+          'op is not one of the five M1 mutation ops',
+        ),
+      };
+    }
+  }
+}
+
+/**
+ * Validate a raw mutation request (commands.md §3/§3.1) in full: envelope
+ * pass, then per-op `args` pass. Envelope-level failures are
+ * `invalid_request`; `args`-level failures are `field_*`. The pipeline
+ * order (the revision check between the two passes) is owned by
+ * `applyMutation`, not by this function. Total: never throws.
+ */
+export function validateMutationRequest(req: unknown): RequestValidation {
+  const envResult = validateRequestEnvelope(req);
   if (!envResult.ok) return envResult;
   const env = envResult.envelope;
-  const argsObj = req['args'] as Record<string, unknown>;
+  const argsObj = envResult.args;
   const base = {
     projectId: env.projectId,
     expectedRevision: env.expectedRevision,
