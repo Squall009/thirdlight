@@ -683,7 +683,7 @@ const zeroQuatModelError = {
   message: "rotation quaternion must have unit length within 1e-4",
   found: [0, 0, 0, 0],
   expected: "finite [x,y,z,w] with |norm - 1| <= 1e-4",
-  hint: "identity rotation is [0, 0, 0, 1]",
+  hint: "normalize to unit length; e.g. 45-degree yaw about Y is [0, 0.3826834323650898, 0, 0.9238795325112867]",
 };
 const d4errs = {
   zeroQuat: errObj("quaternion_invalid", "validation",

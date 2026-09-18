@@ -219,7 +219,7 @@ Fixed fields, in canonical key order (used for durable records, §7):
     "code": "quaternion_invalid",
     "cls": "validation",
     "detailDocument": "result-scene",
-    "details": [ { "code": "quaternion_invalid", "path": "/entities/1/components/transform/rotation", "message": "rotation quaternion must have unit length within 1e-4", "found": [0, 0, 0, 0], "expected": "finite [x,y,z,w] with |norm - 1| <= 1e-4", "hint": "identity rotation is [0, 0, 0, 1]" } ],
+    "details": [ { "code": "quaternion_invalid", "path": "/entities/1/components/transform/rotation", "message": "rotation quaternion must have unit length within 1e-4", "found": [0, 0, 0, 0], "expected": "finite [x,y,z,w] with |norm - 1| <= 1e-4", "hint": "normalize to unit length; e.g. 45-degree yaw about Y is [0, 0.3826834323650898, 0, 0.9238795325112867]" } ],
     "detailCount": 1,
     "message": "resulting scene failed validation; state unchanged",
     "hint": "fix the request arguments and re-issue with a new requestId"

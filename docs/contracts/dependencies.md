@@ -76,7 +76,7 @@ cross-package internal imports).
 
 | Unit | Public subpaths (M1) |
 |---|---|
-| `project-model` | `.` — the project-model.md §12.1 entry points: types, `parse*`, `validate*`, `normalize*`, `migrate*`, `serializeCanonical`, `ERROR_CODES`, `KNOWN_VERSIONS` |
+| `project-model` | `.` — the project-model.md §12.1 entry points: types, `parse*`, `validate*`, `normalize*`, `migrate*`, `serializeCanonical`, `ERROR_CODES`, `KNOWN_VERSIONS`, `parseDocumentBytes` (+ the `ByteParse` type) — the strict pass-1 byte parser (project-model §12.3 pass 1) consumed by the workspace's envelope/manifest/ownership loads (workspace.md §4.3 step 1) |
 | `commands` | `.` — types (envelopes), the pure apply/inverse functions, the history model, `ERROR_CODES` |
 | `workspace` | `.` — `openWorkspaceService(config) → WorkspaceService` (types, `runCommand`, `query`, the operator operations per workspace.md §11, `ERROR_CODES`) |
 | `runtime` | `.` — `instantiateRuntime`, `createSimulationRegistry`, `registerSimulationModule`, `BUILTIN_MODULES`, types (snapshot, diagnostics, module interfaces), `ERROR_CODES` (runtime.md §8) |

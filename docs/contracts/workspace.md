@@ -859,7 +859,12 @@ state while the backend is out of the way:
    session).
    Result: `{ ok: true, revision, retryCleared: true }`. While released,
    commands return `workspace_closed` and queries fail with
-   `project_unavailable { reason: "workspace_closed" }`.
+   `project_unavailable { reason: "workspace_closed" }`. Scoped precisely:
+   the **releasing backend's** queries — the process whose session released
+   the project — fail `project_unavailable { reason: "workspace_closed" }`
+   and never re-open the project, while **any** backend's on-demand open (a
+   query included, for a different/other backend identity) claims the
+   released record at `lockEpoch` + 1 with a new `openedAt` (per §6.1/§6.2).
 2. **External edit.** The operator edits `scenes/main.json` by hand (it is
    the envelope — edit `scene` only; keep `storageVersion`, `type`,
    `projectId`, the revision semantics, and `retry.records: []`). The
@@ -900,7 +905,7 @@ and claims no ownership.
 |---|---|---|---|
 | `createProject(projectId, name)` | operator | `{ ok, created, revision? }` | `field_*` (args), `project_exists_invalid` |
 | `releaseWorkspace(projectId)` | operator | `{ ok, revision, retryCleared }` | `project_not_found`, `project_unavailable`, `ownership_conflict` |
-| `takeoverWorkspace(projectId)` | operator (explicit, §6.4) | `{ ok, lockEpoch, backendId, pid }` | `ownership_conflict`, `stale_ownership`, `project_not_found` |
+| `takeoverWorkspace(projectId)` | operator (explicit, §6.4) | `{ ok, lockEpoch, backendId, pid }` | `ownership_conflict`, `stale_ownership`, `project_not_found`, `project_unavailable` (claim succeeded, the §4.3 scene/manifest load failed ⇒ the §7.5 block) |
 | `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
 | `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
 
