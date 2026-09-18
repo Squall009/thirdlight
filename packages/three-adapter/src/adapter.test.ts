@@ -117,6 +117,24 @@ describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
     runtime.dispose();
   });
 
+  it('captureScreenshot validates maxWidth BEFORE any render attempt (structured error, no side effects)', () => {
+    const { runtime, snapshot } = makeRuntime();
+    const adapter = createSceneAdapter(stubCanvas(), { runtime, snapshot });
+    for (const bad of [0, -5, NaN, 1.5, '1024' as unknown as number]) {
+      const res = adapter.captureScreenshot(bad);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        // Observed in Node where the render itself would be
+        // render_unsupported: the argument error must win (fail-fast,
+        // no render side effects).
+        expect(res.error.code).toBe('screenshot_failed');
+        expect(res.error.message.length).toBeLessThanOrEqual(256);
+      }
+    }
+    adapter.dispose();
+    runtime.dispose();
+  });
+
   it('a canvas without getContext ⇒ canvas_invalid', () => {
     const { runtime, snapshot } = makeRuntime();
     const adapter = createSceneAdapter({ width: 10, height: 10 }, { runtime, snapshot });

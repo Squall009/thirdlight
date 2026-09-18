@@ -229,6 +229,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function captureScreenshot(maxWidth: number = DEFAULT_SCREENSHOT_MAX_WIDTH):
     | { ok: true; result: ScreenshotResult }
     | { ok: false; error: AdapterError } {
+    // Argument validation FIRST (before any render attempt — no side
+    // effects on a bad argument; observable in Node-side tests where the
+    // render itself would be `render_unsupported`). The session layer
+    // passes integers per sessions.md §11.5 (default 1024, max 2048);
+    // this is the adapter's defensive bound on its own argument.
+    if (typeof maxWidth !== 'number' || !Number.isInteger(maxWidth) || maxWidth < 1) {
+      return {
+        ok: false,
+        error: adapterError('screenshot_failed', 'captureScreenshot: maxWidth must be a positive integer (width bound)'),
+      };
+    }
     const frame = renderFrame();
     if (!frame.ok) return { ok: false, error: frame.error };
     if (typeof canvasLike?.toDataURL !== 'function') {
