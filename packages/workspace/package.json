@@ -1,0 +1,17 @@
+{
+  "name": "@thirdlight/workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight durable workspace service (docs/contracts/workspace.md, M1): the sole command executor (runCommand \u2014 the full commands.md \u00a76.1 pipeline: project resolution, deduplication, pause check, applyMutation steps 4\u20136, durable write, publish, acknowledge), the atomic authoring-state envelope, the atomic write/recovery protocol (temp/flush/replace/directory-flush/verify), ownership (claim + verification re-read, stale detection, explicit takeover), unexpected-external-change handling (snapshot/pause/accept/discard), project creation, and the startup scan. Node-side only (dependencies.md \u00a74.1: @thirdlight/project-model, @thirdlight/commands, node:fs/path/crypto/os).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/commands": "0.1.0",
+    "@thirdlight/project-model": "0.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}
