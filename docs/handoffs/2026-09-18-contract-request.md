@@ -12,6 +12,10 @@ re-selected from (b) `flock` to **(a) the epoch-scoped `O_EXCL` claim file
 retained as evaluated-but-rejected with the review's reasons; the §3
 recommendation and §4/§5 are replaced. F4–F7 (section 7) are addressed by a
 subsequent repair step.
+**Repair history (round 2 — 2026-09-18):** per
+`docs/handoffs/2026-09-18-contract-rereview1.md` N1/N2 (P2), pre-record
+claim-file verification + residual-state clause (4.3) and non-ENOENT record
+read-failure clause (N2) added.
 **Scope note:** R9 in full; R1/R3 state addendum to follow as a separate
 section (section 7 — untouched in this repair step); nothing else in any
 contract changes; no implementation under this request. This is a proposal
@@ -447,7 +451,7 @@ primitive yields one winner" (line 457, §6.4) is replaced by hunk 4.5.
 **After:**
 
 ```
-| absent | — | claim (§6.3): acquire the epoch-0 claim file (`O_CREAT|O_EXCL` on `claim-0`), then write our record (`lockEpoch` 0) via `W` + verification re-read (record *and* claim file); EEXIST ⇒ re-read the record and re-evaluate (owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership`; absent/released/older-epoch ⇒ the §6.3 orphan-recovery rule — reclaim, or `claim_inconsistent`) |
+| absent | — | claim (§6.3): acquire the epoch-0 claim file (`O_CREAT|O_EXCL` on `claim-0`), then write our record (`lockEpoch` 0) via `W` + verification re-read (record *and* claim file); EEXIST ⇒ re-read the record and re-evaluate (owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership`; absent/released/older-epoch ⇒ the §6.3 orphan-recovery rule — reclaim, or `claim_inconsistent`; non-ENOENT record read failure ⇒ never treated as absence — orphan-recovery rule or `claim_inconsistent`) |
 | `state: "released"` | — | claimable: same claim procedure (§6.3) at `lockEpoch` = previous + 1 (the gate is `claim-(e+1)`; the superseded-epoch cleanup unlinks `claim-e`, §6.3; claim-file contention or an unresolvable orphan ⇒ `claim_inconsistent`) |
 | `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | **self-reclaim, not a re-claim (normative):** the session does not re-run `O_CREAT|O_EXCL` against its own claim file (it would fail EEXIST against itself); it re-verifies the claim file content matches its identity (`backendId` + `pid`); missing or foreign content ⇒ `ownership_conflict` (`holder` `null`) and the session must not serve |
 ```
@@ -530,14 +534,23 @@ Claim at `lockEpoch` e =
    record and re-evaluate: owned + live ⇒ `ownership_conflict`; owned +
    dead ⇒ `stale_ownership` (the takeover path, §6.4); record
    absent/released/older-epoch ⇒ the **orphan-recovery rule** below. There
-   is no retry loop.
+   is no retry loop. A non-ENOENT record read failure at the re-read is
+   never treated as absence — the record's state is unknown; the claim
+   proceeds only via the orphan-recovery rule (which requires parseable
+   claim-file content and a proven-dead holder) or fails
+   `claim_inconsistent`.
 2. **Stamp the claim file (durable)** — write the claimer's identity
    `{ backendId, pid, UTC timestamp }` (canonical serialization, the
    record's style) into claim-e and fsync it. A crash before this step
    leaves an empty/absent-content claim file (orphan, below).
-3. **Write the record** via `W(our-record, ownership.json)` (state
+3. **Pre-record verification — claim file, by path**: re-read `claim-e`
+   by path; its content must equal our step-2 identity (`backendId` +
+   `pid` + timestamp match). Foreign, unparseable, or missing content ⇒
+   the claim fails with `ownership_conflict` and **no record is written**
+   (abort; the session does not serve).
+4. **Write the record** via `W(our-record, ownership.json)` (state
    `owned`, our `backendId`/`pid`/`openedAt`, `lockEpoch` e).
-4. **Verification re-read — record and claim file**: the on-disk record
+5. **Verification re-read — record and claim file**: the on-disk record
    must contain our `backendId`, `pid`, and `lockEpoch`, and the on-disk
    claim-e must contain our step-2 identity (`backendId` + `pid` +
    timestamp match). A mismatch ⇒ a foreign actor unlinked/recreated or
@@ -545,7 +558,7 @@ Claim at `lockEpoch` e =
    claim fails with `ownership_conflict` and the session does not serve
    (this re-read closes the hostile unlink-recreate race for the claimant
    that lost its file).
-5. **Consistency** — the re-read record's `lockEpoch` must be e. While we
+6. **Consistency** — the re-read record's `lockEpoch` must be e. While we
    hold claim-e, the record's epoch can only advance through a claim at a
    higher epoch, which requires its own claim file; a re-read showing any
    other epoch ⇒ the record was changed outside the protocol ⇒ fail
@@ -553,15 +566,21 @@ Claim at `lockEpoch` e =
    the orphan-recovery rule or the next epoch's superseded-epoch cleanup)
    and `ownership_conflict` is reported with the fresh holder.
 
-Any failure at steps 2–5 **fails the claim** (the claimant holds no
+Any failure at steps 2–6 **fails the claim** (the claimant holds no
 ownership; its claim file may remain on disk and is recovered as
-described below).
+described below). If the final two-file verification (step 5, after the
+record `W`) detects foreign claim-file content, the residual on-disk
+state is `record@e` with the claimant's identity + foreign `claim-e`; the
+claimant holds no ownership and must not serve; the state resolves via
+the §6.2 liveness path (live ⇒ `ownership_conflict` until death; dead ⇒
+`stale_ownership` ⇒ e+1 takeover, whose superseded-epoch cleanup removes
+`claim-e`); the envelope is untouched.
 
 **Orphan recovery (the only liveness-referenced path, normative):** when
 step 1 fails EEXIST and the record is absent/released/older-epoch, the
 existing claim-e's content is read. The claimant may proceed (**reclaim**:
 rewrite claim-e with its own step-2 identity, fsync, and continue at step
-3; steps 4–5 then apply unchanged) **only** if the content is parseable
+4; steps 5–6 then apply unchanged) **only** if the content is parseable
 and its holder pid is proven dead under the §6.2 liveness rules (unknown
 ⇒ live ⇒ refuse). Otherwise the claim fails with **`claim_inconsistent`**
 (holder `null`; carries `projectId`, the claim file path, the holder
@@ -585,8 +604,9 @@ monotonic, so no future claim ever targets `claim-e` again.
 **Single-winner (normative):** `open(O_CREAT|O_EXCL)` is serialized by the
 kernel per path — at most one caller succeeds. In the interleaving of §1
 (the defect), the loser fails either at its own `O_EXCL` (EEXIST — the
-winner created claim-e first) or at the step-4 verification re-read (the
-record or claim-file content is not ours); the record rename arbitrates
+winner created claim-e first) or at the step-3 pre-record verification
+or the step-5 verification re-read (the record or claim-file content is
+not ours); the record rename arbitrates
 nothing. No interleaving of two claimers yields two active owners. A
 second re-read or any finite hash check cannot substitute for the
 exclusive creation: a post-hoc read certifies only the file's state at
@@ -901,10 +921,12 @@ processes — mocks alone do not establish integration success.
    refuses to serve — a mutation from it is refused end-to-end.
 6. **Hostile unlink-recreate.** A foreign process unlinks and recreates
    `claim-e` with foreign content between our `O_EXCL` and our record write
-   ⇒ our §6.3 step-4 verification re-read (record + claim file) finds the
-   claim file's content is not ours ⇒ the claim aborts with
-   `ownership_conflict` — no double writer (the hostile actor completed no
-   claim; exactly zero active writers until a clean claim succeeds).
+   ⇒ our §6.3 step-3 pre-record verification — or, if the foreign content
+   lands after that check, the step-5 final verification re-read (record +
+   claim file) — finds the claim file's content is not ours ⇒ the claim
+   aborts with `ownership_conflict` — no double writer (the hostile actor
+   completed no claim; exactly zero active writers until a clean claim
+   succeeds).
 
 ## 6. Verification and provenance
 
