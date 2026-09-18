@@ -1,6 +1,9 @@
 # Thirdlight — Status (packets 00–13, gates A–D)
 
-Updated: 2026-09-17 (Gate A accepted 2026-09-17 with bounded follow-ups
+Updated: 2026-09-18 (Gate B accepted 2026-09-18 with bounded follow-ups
+BF-1…BF-5 — docs/fixture consistency only, no source — see
+docs/handoffs/gate-b.md; apply via a repair step before packet 08.
+Gate A record below: accepted 2026-09-17 with bounded follow-ups
 F1–F4 — see Notes; **F1–F4 applied 2026-09-17** (commit `b6422e4`) —
 repair recorded in the handoff 03 "Gate A follow-up repair" section;
 React ruling and pre-review pass recorded in handoff 03).
@@ -15,7 +18,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | Gate | Covers | Status |
 |------|--------|--------|
 | A | 00–03 | **accepted 2026-09-17** — architectural review: accept with bounded follow-ups (F1–F4, Notes); apply via the "Repair prompt" before packet 04 — **F1–F4 applied 2026-09-17** (handoff 03 "Gate A follow-up repair") |
-| B | 04–07 | pending — prerequisite: Gate A accepted |
+| B | 04–07 | **accepted 2026-09-18** — architectural review (docs/handoffs/gate-b.md): accept with bounded follow-ups BF-1…BF-5 (consistency fixes: docs + fixture regeneration only, no source) — apply via a separate repair step **before packet 08** with the small docs re-checks noted per item; no blocking findings |
 | C | 08–12 | pending — prerequisite: Gate B accepted (for 08 onward) |
 | D | 13 | pending — prerequisite: Gate C accepted |
 
@@ -27,11 +30,11 @@ during later work reopens the relevant review gate. Unrun packets stay
 | 01 | Project data contract | A | 00 | done; review corrections v0.2 (2026-09-17); Gate A accepted 2026-09-17 | docs/handoffs/01.md |
 | 02 | Commands, persistence, and conflict contract | A | 01 | done; contracts + fixtures v0.1 (2026-09-17); Gate A accepted 2026-09-17 (follow-up F4 touches commands.md/workspace.md) | docs/handoffs/02.md |
 | 03 | Runtime, session, export, and dependency contracts | A | 02 | done; contracts v0.1 + M1 acceptance plan (2026-09-17); Gate A pre-review pass 2026-09-17; Gate A accepted 2026-09-17 (follow-ups F1–F3 touch this packet's documents) | docs/handoffs/03.md |
-| 04 | Minimal toolchain and dependency checks | B | Gate A accepted | re-repair review 2026-09-17 (docs/handoffs/04-rereview2.md): **accepted** — packet 04 complete, 141/141 tests, no new P1 findings (2 non-gating P2 observations recorded); next: packet 05 | docs/handoffs/04.md |
-| 05 | Project model implementation | B | 04 | implemented 2026-09-17; review 2026-09-17 (docs/handoffs/05-review.md): **accepted** — 234/234 (real tree + clean npm ci copy), 113 independent probes pass, no P1 findings (4 non-gating P2 observations recorded); next: packet 06 | docs/handoffs/05.md |
-| 06 | Pure commands and history | B | 05 | review 2026-09-17 (docs/handoffs/06-review.md): changes still required — 1 P1 (pipeline order vs §6.1 step 4), 3 non-gating P2s; repair (round 1) 2026-09-17 `b15786a`; **re-review 2026-09-18 (docs/handoffs/06-rereview.md): accepted** — F1 closed (independent 21-probe round incl. new ordering probes; 386/386 real tree + clean `npm ci` copy; fixtures 71/71); F2–F4 carried forward as recorded P2s (no code); next: packet 07 | docs/handoffs/06.md |
-| 07 | Durable workspace service | B | 06 | implemented 2026-09-18 (`be58767`, handoff `11ae4d3`, test fix `afd1467`): `packages/workspace` on the real FS (full §6.1 pipeline, ownership/takeover/release, durable retry records, atomic W + verification, recovery snapshots, scan/§8.3 completion, external-change pause/resolve); 52 new real tests (fixture-pinned scenarios 01–05/08/09, fault injection, 3 real-SIGKILL crash tests); **review 2026-09-18 (docs/handoffs/07-review.md): accepted** — 438/438 real tree + clean `npm ci` copy, 92 independent probes (exit 0), no P1 findings (5 non-gating P2s recorded); next: packet 08 (Gate B pending) | docs/handoffs/07.md |
-| 08 | Runtime and three.js adapter | C | Gate B accepted | pending | — |
+| 04 | Minimal toolchain and dependency checks | B | Gate A accepted | re-repair review 2026-09-17 (docs/handoffs/04-rereview2.md): **accepted** — packet 04 complete, 141/141 tests, no new P1 findings (2 non-gating P2 observations recorded); **Gate B accepted 2026-09-18** (gate-b.md; N1/N2 accounted: N1 limitation line + N2 carried forward, both in the BF set) | docs/handoffs/04.md |
+| 05 | Project model implementation | B | 04 | implemented 2026-09-17; review 2026-09-17 (docs/handoffs/05-review.md): **accepted** — 234/234 (real tree + clean npm ci copy), 113 independent probes pass, no P1 findings (4 non-gating P2 observations recorded); **Gate B accepted 2026-09-18** (gate-b.md; N1 → BF-4, N2/N3 carried forward, N4 → BF-5) | docs/handoffs/05.md |
+| 06 | Pure commands and history | B | 05 | review 2026-09-17 (docs/handoffs/06-review.md): changes still required — 1 P1 (pipeline order vs §6.1 step 4), 3 non-gating P2s; repair (round 1) 2026-09-17 `b15786a`; **re-review 2026-09-18 (docs/handoffs/06-rereview.md): accepted** — F1 closed (independent 21-probe round incl. new ordering probes; 386/386 real tree + clean `npm ci` copy; fixtures 71/71); F2–F4 carried forward as recorded P2s (no code); **Gate B accepted 2026-09-18** (gate-b.md; hint-drift contract-change request → BF-1, F2–F4 carried forward) | docs/handoffs/06.md |
+| 07 | Durable workspace service | B | 06 | implemented 2026-09-18 (`be58767`, handoff `11ae4d3`, test fix `afd1467`): `packages/workspace` on the real FS (full §6.1 pipeline, ownership/takeover/release, durable retry records, atomic W + verification, recovery snapshots, scan/§8.3 completion, external-change pause/resolve); 52 new real tests (fixture-pinned scenarios 01–05/08/09, fault injection, 3 real-SIGKILL crash tests); **review 2026-09-18 (docs/handoffs/07-review.md): accepted** — 438/438 real tree + clean `npm ci` copy, 92 independent probes (exit 0), no P1 findings (5 non-gating P2s recorded); **Gate B accepted 2026-09-18** (gate-b.md; F1 → BF-2/BF-5, F2 → BF-3, F3/F5 carried forward, F4 → BF-5; requests (1)/(7) → BF-2/BF-1) | docs/handoffs/07.md |
+| 08 | Runtime and three.js adapter | C | Gate B accepted | pending — prerequisite met (Gate B accepted 2026-09-18); blocked until the BF-1…BF-5 repair step (docs/fixture consistency) is recorded; not started, not auto-cleared | — |
 | 09 | Backend API and live session transport | C | 08 | pending | — |
 | 10 | Minimal visual editor and isolated play | C | 09 | pending | — |
 | 11 | MCP adapter for the external harness | C | 10 | pending | — |
