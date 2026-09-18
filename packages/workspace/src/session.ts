@@ -66,6 +66,8 @@ import {
   parseOwnershipRecord,
   readOwnershipRecordBytes,
   releaseOwnership,
+  reReadOwnershipHolder,
+  stillHoldsOwnership,
   utcSecond,
   type ClaimInconsistentInfo,
   type ClaimOutcome,
@@ -139,6 +141,20 @@ export interface ProjectSession {
   /** The ownership record this backend holds (owned) — or null while blocked. */
   ownership: OwnershipRecord | null;
   mode: 'open' | 'released' | 'blocked';
+  /**
+   * R4 (2026-09-18 review): set when a release attempt did NOT durably
+   * complete (a failed/incomplete record write left the session in mode
+   * 'open' — workspace.md §9 "no partial release"). The session must
+   * not act on the cached ownership: before serving any operation the
+   * ownership record AND the claim file are re-read from disk
+   * (`stillHoldsOwnership`); if the session no longer holds the project
+   * (record changed underneath us, or the claim file is gone/foreign)
+   * the session is dropped and every later operation is a fresh open
+   * re-evaluating from disk (the R4 split-brain bound: a failed or
+   * partially-applied release must not leave a live writer). Fresh
+   * sessions start `false`.
+   */
+  ownershipReverify: boolean;
   blocked: { reason: UnavailableReason; errors: readonly LoadDetail[]; count: number } | null;
   pendingChange: PendingChange | null;
 }
@@ -426,6 +442,7 @@ function makeSession(
     history: createCommandState(loaded.scene).history,
     ownership,
     mode: 'open',
+    ownershipReverify: false,
     blocked: null,
     pendingChange: null,
   };
@@ -456,6 +473,7 @@ function blockSession(
     history: createCommandState(defaultScene()).history,
     ownership,
     mode: 'blocked',
+    ownershipReverify: false,
     blocked,
     pendingChange: null,
   };
@@ -483,8 +501,29 @@ export function ensureSession(
 ): OpenOutcome {
   const existing = core.sessions.get(projectId);
   if (existing !== undefined) {
-    if (existing.mode === 'open') return { kind: 'open', session: existing };
-    if (existing.mode === 'released') {
+    if (existing.mode === 'open') {
+      // R4 (2026-09-18 review): a session that attempted a release which
+      // did not durably complete must not act on the cached ownership:
+      // before serving anything, re-read the ownership record AND the
+      // claim file from disk; if the session no longer holds the project
+      // (the record changed underneath us — released/foreign/other epoch/
+      // unreadable — or the claim file is gone/foreign) the session is a
+      // non-writer: its in-memory state is discarded and the session is
+      // dropped, so every later operation is a fresh open re-evaluating
+      // from disk (never a continuation of the old session — the R4
+      // split-brain bound). A session that still verifiably holds the
+      // project serves as usual (workspace.md §9: a release that failed
+      // before the record write leaves the old session still the writer).
+      if (
+        existing.ownershipReverify === true &&
+        existing.ownership !== null &&
+        !stillHoldsOwnership(existing.thirdlightDir, existing.ownership, core.ops)
+      ) {
+        core.sessions.delete(projectId); // fall through: the fresh open below
+      } else {
+        return { kind: 'open', session: existing };
+      }
+    } else if (existing.mode === 'released') {
       if (caller === 'query') return { kind: 'released' };
       core.sessions.delete(projectId); // fall through: the fresh open below
       // re-claims the released record at epoch + 1 (workspace.md §9.3).
@@ -1063,6 +1102,31 @@ export function acceptExternal(
     };
   }
   if (res.failed) {
+    if (res.failed.onDiskState === 'new-undurable') {
+      // R5/§5.1: the rename took effect — the accepted envelope is ON
+      // DISK (durability unproven). The intended state becomes the
+      // RUNNING state so the running system is self-consistent (the
+      // accepted revision/records/hash/history are published exactly as
+      // on the success path; `lastWrittenHash` is set to the intended
+      // hash on `new-undurable`, workspace.md §5.2) while the operation
+      // still reports the FAILURE for unproven durability (`write_failed
+      // { onDiskState: "new-undurable" }`, §5.1 — never a success ack).
+      // The foreign bytes are gone from disk (retained only in the
+      // recovery snapshot): the resolution is applied, so the pending
+      // change is cleared and writes unpaused (§7.3: "Resolving clears
+      // the pending state and unpauses writes").
+      s.scene = pc.externalScene;
+      s.revision = pc.externalScene.revision;
+      s.records = [];
+      s.recordMap = new Map();
+      s.envelopeBytes = newBytes;
+      s.lastWrittenHash = sha256Hex(newBytes);
+      s.history = createCommandState(pc.externalScene).history;
+      s.pendingChange = null;
+      return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
+    }
+    // `previous`: nothing was written — the pending state and the pause
+    // persist across the refusal (the re-issue re-reads and re-attempts).
     return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
   }
   // Publish (the accepted revision is whatever the external document
@@ -1153,6 +1217,24 @@ export function discardExternal(
     };
   }
   if (res.failed) {
+    if (res.failed.onDiskState === 'new-undurable') {
+      // R5/§5.1: the rename took effect — the LKG bytes are back ON DISK
+      // (durability unproven). The running state was already the LKG (the
+      // discard re-wrote exactly the last known good bytes; the
+      // `lastWrittenHash` is unchanged, workspace.md §5.2), so the only
+      // in-memory reconciliation is the boundary the successful discard
+      // publishes: history cleared (new boundary — the file was replaced
+      // externally, §7.3) and the pending change resolved (the foreign
+      // bytes are gone from disk — retained only in the recovery
+      // snapshot; unpaused, §7.3) — while the operation still reports the
+      // FAILURE for unproven durability (`write_failed { onDiskState:
+      // "new-undurable" }`, §5.1 — never a success ack).
+      s.history = createCommandState(s.scene!).history;
+      s.pendingChange = null;
+      return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
+    }
+    // `previous`: nothing was written — the pending state and the pause
+    // persist across the refusal (the re-issue re-reads and re-attempts).
     return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
   }
   // lastWrittenHash is unchanged (the same LKG bytes were re-written);
@@ -1180,18 +1262,34 @@ export function takeover(
 
   const existing = core.sessions.get(projectId);
   if (existing !== undefined && existing.mode === 'open') {
-    // We own it and our process is live: a live owner ⇒ conflict
-    // (workspace.md §6.2 — no takeover of a live owner, even our own).
-    const holder: Holder | null = existing.ownership
-      ? {
-          backendId: existing.ownership.backendId,
-          pid: existing.ownership.pid,
-          openedAt: existing.ownership.openedAt,
-          lockEpoch: existing.ownership.lockEpoch,
-          state: 'owned',
-        }
-      : null;
-    return { ok: false, error: ownershipConflict(holder) };
+    // R4 (2026-09-18 review): a session that attempted a release which
+    // did not durably complete must not claim "we own it" from the cached
+    // record: re-verify ownership from disk first (the record AND the
+    // claim file); if the session no longer holds the project, drop it
+    // and evaluate fresh below (the explicit takeover is exactly the
+    // remedy the disk state may call for — never act on cached
+    // ownership). A session that still verifiably holds the project is a
+    // live owner: no takeover of a live owner, even our own.
+    if (
+      existing.ownershipReverify === true &&
+      existing.ownership !== null &&
+      !stillHoldsOwnership(existing.thirdlightDir, existing.ownership, core.ops)
+    ) {
+      core.sessions.delete(projectId); // fall through: the fresh path below
+    } else {
+      // We own it and our process is live: a live owner ⇒ conflict
+      // (workspace.md §6.2 — no takeover of a live owner, even our own).
+      const holder: Holder | null = existing.ownership
+        ? {
+            backendId: existing.ownership.backendId,
+            pid: existing.ownership.pid,
+            openedAt: existing.ownership.openedAt,
+            lockEpoch: existing.ownership.lockEpoch,
+            state: 'owned',
+          }
+        : null;
+      return { ok: false, error: ownershipConflict(holder) };
+    }
   }
   if (existing !== undefined && existing.mode === 'blocked') {
     // We hold a blocked project (our record is live): not stale.
@@ -1438,9 +1536,25 @@ function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
  * `releaseWorkspace` (§9.1): the current state is already durable (every
  * acked command is written, §5.3) — rewrite the envelope with the same
  * scene/revision but retry.records: [] (a lost-ack retry of a pre-release
- * command must not replay across the boundary), then rewrite the ownership
- * record with state "released" (same W + verify primitive; the file is
- * never deleted), then discard the in-memory state.
+ * command must not replay across the boundary), then rewrite the
+ * ownership record with state "released" (the same W primitive; the file
+ * is never deleted), then unlink the owner's own claim file (verified by
+ * path — workspace.md §9 step 1) and discard the in-memory state.
+ *
+ * R4 (2026-09-18 review): every ownership-write outcome is handled
+ * explicitly (ok / failed / external / unreadable / new-undurable). The
+ * moment the released record is on disk (`ok` or `new-undurable` — the
+ * rename took effect) or foreign ownership is observed (`external`, or an
+ * unreadable record — fail closed), the session becomes a NON-WRITER: its
+ * in-memory state is discarded and, in the foreign-observation case, the
+ * session is dropped so every later operation is a fresh open
+ * re-evaluating from disk (never a continuation of the released session —
+ * the R4 split-brain bound). The failure for unproven durability is still
+ * reported (`write_failed { onDiskState: "new-undurable" }`, §5.1). A
+ * release that fails before the record write (`previous`) leaves the
+ * project owned with the old session still the writer (no partial
+ * release) — but the session is flagged so the next operation re-verifies
+ * ownership from disk first.
  */
 export function releaseProject(
   core: Core,
@@ -1488,7 +1602,8 @@ export function releaseProject(
   if (res.unreadable) {
     // §7.2 step 1: a non-ENOENT read failure — the on-disk bytes are
     // unknown, never absent: record the unreadable pending change and
-    // fail closed (no release; no state changes).
+    // fail closed (no release; no state changes). The pending pause gates
+    // every later operation until the bytes are readable again.
     setPendingUnreadable(s);
     return {
       ok: false,
@@ -1503,6 +1618,23 @@ export function releaseProject(
     };
   }
   if (res.failed) {
+    if (res.failed.onDiskState === 'new-undurable') {
+      // R5/§5.1: the records-cleared envelope is ON DISK (the rename took
+      // effect) — the in-memory state advances so the running system is
+      // self-consistent (the retry records are gone from memory exactly
+      // as from disk; a lost-ack retry of a pre-release command re-
+      // executes and fails revision_conflict, which is safe, §9) while the
+      // release still reports the failure for unproven durability.
+      s.records = [];
+      s.recordMap = new Map();
+      s.envelopeBytes = newBytes;
+      s.lastWrittenHash = newHash;
+    }
+    // R4: the release did not reach the record write — the project is
+    // still owned and this session is still the writer (workspace.md §9:
+    // no partial release), but the next operation re-verifies ownership
+    // from disk first (the old session must not act on cached ownership).
+    s.ownershipReverify = true;
     return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
   }
   // The durable envelope is now the records-cleared one: keep the in-
@@ -1517,29 +1649,57 @@ export function releaseProject(
     return { ok: false, error: ownershipConflict(null) };
   }
   const rel = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
-  if (!rel.ok) {
-    if (rel.failed?.external) {
-      // A foreign ownership writer raced: the project is still owned by us
-      // in memory; surface it for the operator (no takeover was attempted).
-      return { ok: false, error: ownershipConflict(null) };
-    }
-    if (rel.failed?.unreadable) {
-      // The ownership record on disk is unknown (a non-ENOENT read
-      // failure): no release write, no state change — the record is
-      // unreadable and a live foreign owner may hold the project.
-      return { ok: false, error: ownershipConflict(null) };
-    }
+  if (rel.ok) {
+    // (c) The released record is DURABLE: the release tail ran (the
+    // own-claim-file unlink with its by-path holder verification —
+    // workspace.md §9 step 1). Discard the in-memory state (history and
+    // record map): the session is a non-writer — any later command is a
+    // fresh open (workspace.md §9 step 3: "not a continuation of the
+    // released session"), and while released queries fail
+    // project_unavailable { reason: "workspace_closed" } (§9.1).
+    s.history = createCommandState(s.scene!).history;
+    s.ownership = { ...s.ownership, state: 'released' };
+    s.mode = 'released';
+    return { ok: true, revision: s.revision, retryCleared: true };
+  }
+  if (rel.failed?.onDiskState === 'new-undurable') {
+    // R4: the released record IS on disk (the rename took effect; the
+    // directory flush failed — durability unproven). The moment the
+    // released record is on disk the old session must not remain an
+    // active writer: the release tail completed (the own-claim-file
+    // unlink ran inside releaseOwnership) and the in-memory state is
+    // discarded — while the operation still reports the FAILURE for
+    // unproven durability (workspace.md §5.1: `write_failed
+    // { onDiskState: "new-undurable" }`; the R4 acceptance: "while still
+    // returning failure for unproven durability").
+    s.history = createCommandState(s.scene!).history;
+    s.ownership = { ...s.ownership, state: 'released' };
+    s.mode = 'released';
+    return { ok: false, error: writeFailed('new-undurable', rel.failed?.errno) };
+  }
+  if (rel.failed?.external !== undefined || rel.failed?.unreadable !== undefined) {
+    // R4: FOREIGN OWNERSHIP OBSERVED (the record W's `external` outcome —
+    // the record is no longer ours) or the record bytes are UNKNOWN
+    // (`unreadable` — a non-ENOENT read failure: fail closed). The old
+    // session becomes a non-writer immediately: its in-memory state is
+    // discarded and the session is dropped, so every later operation is
+    // a fresh open that re-evaluates ownership from disk (the old backend
+    // never acts on cached ownership; no further writes from this
+    // session). The release itself reports ownership_conflict (a
+    // releaseWorkspace failure code, workspace.md §11) carrying the
+    // foreign holder when the re-read finds a parseable owned record.
+    core.sessions.delete(s.projectId);
     return {
       ok: false,
-      error: writeFailed(rel.failed?.onDiskState ?? 'previous', rel.failed?.errno),
+      error: ownershipConflict(reReadOwnershipHolder(s.thirdlightDir, core.ops)),
     };
   }
-  // (c) Discard in-memory state (history and record map); the session
-  //     stays in this backend's map as released.
-  s.history = createCommandState(s.scene!).history;
-  s.ownership = { ...s.ownership, state: 'released' };
-  s.mode = 'released';
-  return { ok: true, revision: s.revision, retryCleared: true };
+  // res.failed 'previous': the record write did not take effect — the
+  // project is still owned and the old session is still the writer
+  // (workspace.md §9: no partial release). The next operation re-verifies
+  // ownership from disk first (R4 — no acting on cached ownership).
+  s.ownershipReverify = true;
+  return { ok: false, error: writeFailed('previous', rel.failed?.errno) };
 }
 
 // ---- query serving (commands.md §5.6) ------------------------------------------------

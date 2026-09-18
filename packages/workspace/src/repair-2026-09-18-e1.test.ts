@@ -151,6 +151,27 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/**
+ * Test-side L1 clock-window guard (group E2, 2026-09-18): a UTC second
+ * strictly AFTER this process's start (the liveness pid-reuse rule,
+ * workspace.md §6.2: `start > openedAt` ⇒ dead). These tests' records are
+ * stamped with floor-second `openedAt` by the real open/claim path; a
+ * stamp computed inside the same second as the vitest worker's start
+ * would be evaluated DEAD (the known false-dead L1 defect — group E3 (R8)
+ * owns the source path and is NOT modified here) and flip the asserted
+ * `ownership_conflict` into `stale_ownership` (observed twice in full-suite
+ * runs: T1(a)/(b)/(c) + T4). Waiting out the start second (≤ ~1 s, a no-op
+ * once the worker is older than one second) keeps the liveness outcome
+ * deterministic without touching `evaluateLiveness`.
+ */
+async function openedAtAfterProcessStart(): Promise<string> {
+  const startMs = Date.now() - process.uptime() * 1000;
+  while (Math.floor(Date.now() / 1000) * 1000 <= startMs) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 // ---- request shapes ------------------------------------------------------------
 
 /** The seeded project is at revision 0 (the created default scene). */
@@ -204,7 +225,10 @@ afterAll(() => {
 // =============================================================================
 
 describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winner)', () => {
-  it('T1(a): A acquires claim-0, B full-claims before A stamps ⇒ B claim_inconsistent (holder null); A owns; the loser is refused end-to-end', () => {
+  it('T1(a): A acquires claim-0, B full-claims before A stamps ⇒ B claim_inconsistent (holder null); A owns; the loser is refused end-to-end', async () => {
+    // L1 clock-window guard (above): A's record openedAt must be strictly
+    // after the worker's start or its own pid is misclassified dead.
+    await openedAtAfterProcessStart();
     const root = makeRoot('t1a');
     seedProject(root);
     const c0 = claimPath(root, 0);
@@ -265,7 +289,11 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
     svcB.dispose();
   }, 30000);
 
-  it('T1(b): A acquires + stamps, pauses before the record W ⇒ B refuses (contract: claim_inconsistent — the holder is not proven dead); A owns', () => {
+  it('T1(b): A acquires + stamps, pauses before the record W ⇒ B refuses (contract: claim_inconsistent — the holder is not proven dead); A owns', async () => {
+    // L1 clock-window guard (above): A's claim stamp's openedAt must be
+    // strictly after the worker's start or the stamp is misclassified
+    // dead (the holder would be proven dead ⇒ reclaim instead of refuse).
+    await openedAtAfterProcessStart();
     const root = makeRoot('t1b');
     seedProject(root);
     const c0 = claimPath(root, 0);
@@ -324,7 +352,10 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
     svcB.dispose();
   }, 30000);
 
-  it('T1(c): A completes fully before B attempts ⇒ B EEXISTs, the record is A (live) ⇒ ownership_conflict (holder A)', () => {
+  it('T1(c): A completes fully before B attempts ⇒ B EEXISTs, the record is A (live) ⇒ ownership_conflict (holder A)', async () => {
+    // L1 clock-window guard (above): A's record openedAt must be strictly
+    // after the worker's start (the "record is A (live)" premise).
+    await openedAtAfterProcessStart();
     const root = makeRoot('t1c');
     seedProject(root);
 
@@ -365,19 +396,28 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
 // =============================================================================
 
 describe('T4: superseded-epoch cleanup over a released@e + claim-e residue (workspace.md §6.3/§6.5)', () => {
-  it('a released record with its claim-file residue is claimed at e+1; claim-e is unlinked; the released session refuses', () => {
+  it('a released record with its claim-file residue is claimed at e+1; claim-e is unlinked; the released session refuses', async () => {
+    // L1 clock-window guard (above): A's and B's claim records are stamped
+    // floor-second; both must be strictly after the worker's start or
+    // the liveness check misclassifies the (test's own) pid dead.
+    await openedAtAfterProcessStart();
     const root = makeRoot('t4');
     const svcA = openWorkspaceService({ root, backendId: A_ID });
     expect(svcA.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
     expect(svcA.releaseWorkspace(PROJECT)).toEqual({ ok: true, revision: 0, retryCleared: true });
 
-    // The residue (the release-side claim-file unlink is group E2's scope —
-    // the real release leaves it): released@0 + claim-0.
+    // Group E2 (R4, 2026-09-18 review) amended workspace.md §9 step 1:
+    // the release now "unlinks the owner's own claim file (claim-<e>,
+    // §6.5)" — the real release removes its own claim-0 (verified by
+    // path), leaving released@0 with no residue. This assertion was
+    // flipped from `toBe(true)` (the pre-E2 residue, pinned here while
+    // the release-side unlink was deferred to group E2) to `toBe(false)`
+    // on that contract line; the assertion itself is retained.
     const rec0 = readRec(root);
     expect(rec0?.state).toBe('released');
     expect(rec0?.lockEpoch).toBe(0);
     expect(rec0?.backendId).toBe(A_ID);
-    expect(fileExists(claimPath(root, 0))).toBe(true);
+    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release (§9 step 1)
 
     // The next claim at epoch 1 succeeds and unlinks the superseded claim-0.
     const svcB = openWorkspaceService({ root, backendId: B_ID });

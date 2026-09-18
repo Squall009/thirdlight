@@ -781,17 +781,150 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
 }
 
 /**
+ * The own-claim-file unlink outcome at release (workspace.md §9 step 1:
+ * "unlinks the owner's own claim file (`claim-<e>`, §6.5)").
+ */
+export type ReleaseClaimUnlink =
+  | /** The claim file carried our identity (backendId + pid) and was unlinked. */
+  { kind: 'unlinked' }
+  | /** The claim file is absent (ENOENT) — recorded, not fatal. */
+  { kind: 'missing' }
+  | /**
+   * The holder bytes are not ours (foreign content, empty, or unparseable)
+   * — NOT unlinked (a live foreign holder's file is never removed by any
+   * backend path) — recorded, not fatal.
+   */
+  { kind: 'foreign' }
+  | /** A non-ENOENT read failure: the bytes are UNKNOWN — NOT unlinked — recorded, not fatal. */
+  { kind: 'unreadable' };
+
+/**
+ * The release's own-claim-file unlink (workspace.md §9 step 1). By-path
+ * verification (the same discipline as the claim's steps 3/5, 9f9eff2):
+ * the file's holder bytes are read and strict-parsed BEFORE the unlink —
+ * only a file that carries our identity (backendId + pid) is removed.
+ * A missing, foreign, empty, unparseable, or unreadable claim file is
+ * NOT unlinked and is NEVER fatal: the outcome is recorded in the return
+ * value (the release completes; the residue is inert — the epoch is
+ * monotonic, so no future claim ever targets `claim-<e>` again, and a
+ * claim at e+1's superseded-epoch cleanup removes any residue of a
+ * released record, §6.3/§6.5).
+ */
+export function unlinkOwnClaimFile(
+  thirdlightDir: string,
+  current: OwnershipRecord,
+  ops: WriteOps,
+): ReleaseClaimUnlink {
+  const p = join(thirdlightDir, claimFileName(current.lockEpoch));
+  let bytes: Uint8Array;
+  try {
+    bytes = ops.readFile(p);
+  } catch (e) {
+    return errnoOf(e) === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' };
+  }
+  const stamp = parseClaimStamp(bytes);
+  if (stamp === null || stamp.backendId !== current.backendId || stamp.pid !== current.pid) {
+    // Not our claim file: a foreign/empty/unparseable holder — do NOT
+    // unlink (the §6.3 safety bound: a live foreign holder's file is
+    // never removed or rewritten by any backend path).
+    return { kind: 'foreign' };
+  }
+  ops.removeFile(p); // best-effort (never throws)
+  return { kind: 'unlinked' };
+}
+
+/**
+ * R4 (2026-09-18 review): verify FROM DISK that this backend still holds
+ * the project's ownership after a failed (incomplete) release attempt —
+ * the old session must never act on the cached ownership. The record must
+ * be exactly ours (state `owned`, same `backendId` + `pid`, same
+ * `lockEpoch`) AND the claim file `claim-<e>` must carry our stamp
+ * (backendId + pid — the §6.2 self-reclaim row's identity check). Any
+ * deviation — absent or unreadable record, a record that is no longer
+ * ours (released / foreign / other epoch / unparseable), or a
+ * missing/foreign/unparseable/unreadable claim file ⇒ `false`: the
+ * caller must stop writing (the session becomes a non-writer and every
+ * later operation is a fresh open re-evaluating from disk — the R4
+ * split-brain bound).
+ */
+export function stillHoldsOwnership(
+  thirdlightDir: string,
+  current: OwnershipRecord,
+  ops: WriteOps,
+): boolean {
+  const r = readRecord(thirdlightDir, ops);
+  if (r.kind !== 'bytes') return false; // absent/unreadable: fail closed (never "still holds")
+  const rec = parseOwnershipRecord(r.bytes);
+  if (rec === null) return false;
+  if (
+    rec.state !== 'owned' ||
+    rec.backendId !== current.backendId ||
+    rec.pid !== current.pid ||
+    rec.lockEpoch !== current.lockEpoch
+  ) {
+    return false; // the record changed underneath us (or is released): no longer ours
+  }
+  const stamp = readClaimStamp(join(thirdlightDir, claimFileName(current.lockEpoch)), ops);
+  return stamp !== null && stamp.backendId === current.backendId && stamp.pid === current.pid;
+}
+
+/**
+ * R4 (2026-09-18 review): after a foreign ownership write is observed
+ * during a release (the record W's `external` outcome), re-read the
+ * record for the `ownership_conflict` holder (workspace.md §11: the
+ * holder is the identity object of the parseable owned record; `null`
+ * when no parseable owned record exists). A parseable OWNED record (any
+ * identity) ⇒ its holder shape; released / absent / unreadable /
+ * unparseable ⇒ null.
+ */
+export function reReadOwnershipHolder(thirdlightDir: string, ops: WriteOps): Holder | null {
+  const r = readRecord(thirdlightDir, ops);
+  if (r.kind !== 'bytes') return null;
+  const rec = parseOwnershipRecord(r.bytes);
+  if (rec === null || rec.state !== 'owned') return null;
+  return {
+    backendId: rec.backendId,
+    pid: rec.pid,
+    openedAt: rec.openedAt,
+    lockEpoch: rec.lockEpoch,
+    state: rec.state,
+  };
+}
+
+/**
  * Rewrite the ownership record with `state: "released"` (workspace.md §9.1)
  * — the same W + verification re-read as a claim, keeping the record's
  * identity (backendId/pid/openedAt/lockEpoch; only `state` changes). The
  * file is never deleted.
+ *
+ * R4 (2026-09-18 review): every ownership-write outcome is handled
+ * explicitly (ok / failed / external / unreadable / new-undurable):
+ * - `ok` and `new-undurable` — the released record REACHED DISK (the
+ *   rename took effect; `new-undurable`'s durability is unproven, §5.1):
+ *   the release tail runs — the own-claim-file unlink with its by-path
+ *   holder verification (workspace.md §9 step 1; "Once the released
+ *   record is durable, the old session must not issue further writes") —
+ *   and the caller discards the in-memory state. The caller reports
+ *   `ok` for `ok` and still reports the FAILURE
+ *   (`write_failed { onDiskState: "new-undurable" }`) for unproven
+ *   durability (the R4 acceptance: "while still returning failure for
+ *   unproven durability");
+ * - `failed/previous` — the release did not reach the record: the
+ *   project is still owned and the old session is still the writer
+ *   (workspace.md §9: no partial release); no claim unlink;
+ * - `external` — foreign ownership was observed (the record is no
+ *   longer ours): no claim unlink (the file, if any, is not verified as
+ *   ours); the caller must stop writing;
+ * - `unreadable` — the on-disk record bytes are UNKNOWN (a non-ENOENT
+ *   read failure): fail closed; no claim unlink; the caller must stop
+ *   writing.
  */
 export function releaseOwnership(
   thirdlightDir: string,
   current: OwnershipRecord,
   ops: WriteOps,
 ):
-  | { ok: true }
+  | { ok: true; claim: ReleaseClaimUnlink }
   | {
       ok: false;
       failed: {
@@ -801,6 +934,12 @@ export function releaseOwnership(
         onDiskState?: 'previous' | 'new-undurable';
         errno?: string;
       };
+      /**
+       * Set only when the released record reached disk (the W's `ok` /
+       * `new-undurable` outcome) and the release tail ran the
+       * own-claim-file unlink (workspace.md §9 step 1).
+       */
+      claim?: ReleaseClaimUnlink;
     } {
   const recPath = join(thirdlightDir, 'ownership.json');
   const released: OwnershipRecord = { ...current, state: 'released' };
@@ -812,10 +951,43 @@ export function releaseOwnership(
     previousHash: sha256Hex(buildOwnershipRecordBytes(current)),
     ops,
   });
-  if (res.ok) return { ok: true };
-  if (res.external) return { ok: false, failed: { external: true } };
-  if (res.unreadable) return { ok: false, failed: { unreadable: true } };
-  return { ok: false, failed: { onDiskState: res.failed?.onDiskState, errno: res.failed?.errno } };
+  if (res.ok) {
+    // The released record is durable: the release tail unlinks the
+    // owner's own claim file (verified by path — a missing/foreign file
+    // is recorded, never fatal) and the caller discards the in-memory
+    // state (the session becomes a non-writer, workspace.md §9).
+    return { ok: true, claim: unlinkOwnClaimFile(thirdlightDir, current, ops) };
+  }
+  if (res.failed !== undefined && res.failed.onDiskState === 'new-undurable') {
+    // The rename took effect: the released record IS on disk (durability
+    // unproven). R4/§9: once the released record is on disk the old
+    // session must not remain an active writer — the release tail
+    // proceeds (the own-claim-file unlink) while the caller still reports
+    // the failure for unproven durability (§5.1: `write_failed
+    // { onDiskState: "new-undurable" }`).
+    return {
+      ok: false,
+      failed: { onDiskState: 'new-undurable', errno: res.failed.errno },
+      claim: unlinkOwnClaimFile(thirdlightDir, current, ops),
+    };
+  }
+  if (res.unreadable !== undefined) {
+    // A non-ENOENT read failure: the on-disk record bytes are UNKNOWN —
+    // fail closed (no release, no claim unlink; a live foreign owner may
+    // hold the project). No other outcome may be produced from an
+    // unreadable read.
+    return { ok: false, failed: { unreadable: true, errno: res.unreadable.errno } };
+  }
+  if (res.external !== undefined) {
+    // A foreign ownership writer won (the record is no longer ours):
+    // foreign ownership is observed — the caller must stop writing. No
+    // claim unlink (the file, if any, is not verified as ours).
+    return { ok: false, failed: { external: true } };
+  }
+  // res.failed 'previous': the release did not reach the record — the
+  // project is still owned and the old session is still the writer
+  // (workspace.md §9: no partial release). No claim unlink.
+  return { ok: false, failed: { onDiskState: 'previous', errno: res.failed?.errno } };
 }
 
 /** A fresh per-backend-process identity (workspace.md §6.1). */

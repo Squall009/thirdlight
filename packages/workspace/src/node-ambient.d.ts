@@ -80,4 +80,12 @@ declare module 'node:os' {
 /** The Node process global (pid for records and temp names). */
 declare const process: {
   readonly pid: number;
+  /**
+   * Seconds this process has been running (test-side use only: the
+   * L1 clock-window guard in the E2 seam tests needs the process
+   * start time — the liveness pid-reuse start-time comparison,
+   * workspace.md §6.2, is group E3's (R8) to fix in the source path;
+   * the test side avoids the window using the process clock).
+   */
+  uptime(): number;
 };

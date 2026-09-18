@@ -342,10 +342,15 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
     const owner = openWorkspaceService({ root, backendId: OWNER_ID });
     expect(owner.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
     expect(owner.releaseWorkspace(PROJECT)).toEqual({ ok: true, revision: 0, retryCleared: true });
-    // The residue (the release-side claim-file unlink is group E2's
-    // scope — the real release leaves it): released@0 + claim-0.
+    // Group E2 (R4, 2026-09-18 review) amended workspace.md §9 step 1:
+    // the release now "unlinks the owner's own claim file (claim-<e>,
+    // §6.5)" — the real release removes its own claim-0 (verified by
+    // path), leaving released@0 with no residue. This assertion was
+    // flipped from `toBe(true)` (the pre-E2 residue, pinned here while
+    // the release-side unlink was deferred to group E2) to `toBe(false)`
+    // on that contract line; the assertion itself is retained.
     expect(readRec(root)?.state).toBe('released');
-    expect(fileExists(claimPath(root, 0))).toBe(true);
+    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release (§9 step 1)
     owner.dispose();
 
     const gate = join(root, 'gate');
