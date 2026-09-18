@@ -129,19 +129,31 @@ describe('createProject (§8)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('createProject while a live foreign owner holds the project ⇒ project_exists_invalid (not a takeover)', () => {
+  it('createProject while a live foreign owner holds the project ⇒ idempotent no-op, nothing written (not a takeover — R15)', () => {
     const root = makeRoot('create-4');
     // Seed the scenario-09 disk (owner A live in the fake /proc).
     const dir = seedProject(root, join(FIXTURES, 'scenarios', '09-second-backend-ownership', 'disk-before'), 'demo-0001');
+    const envBefore = readFileSync(join(dir, 'scenes', 'main.json'));
     const procRoot = buildFakeProc(root, { 5000: 'live' });
     const svc = openWorkspaceService({ root, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
+    // R15 (2026-09-18 review): the §8.1 idempotent create is READ-ONLY —
+    // a loadable existing project is a no-op regardless of who owns it;
+    // no session is opened and no claim is written (pre-fix this
+    // returned project_exists_invalid / ownership_conflict).
     const res = svc.createProject('demo-0001', 'Demo Project');
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.code).toBe('project_exists_invalid');
-    // The foreign record is untouched.
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.created).toBe(false);
+      expect(res.revision).toBe(7);
+    }
+    // The foreign record is untouched (no takeover, no re-claim) and the
+    // envelope bytes are identical.
     const rec = JSON.parse(readFileSync(join(dir, '.thirdlight', 'ownership.json'), 'utf8'));
+    expect(rec.backendId).toBe('tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(rec.pid).toBe(5000);
+    expect(rec.state).toBe('owned');
     expect(rec.lockEpoch).toBe(0);
+    expect(readFileSync(join(dir, 'scenes', 'main.json')).equals(envBefore)).toBe(true);
     svc.dispose();
     rmSync(root, { recursive: true, force: true });
   });

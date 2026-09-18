@@ -246,9 +246,11 @@ type LoadOutcome =
 /**
  * The §4.3 load pipeline over the on-disk envelope (steps 1–7), then the
  * manifest cross-document checks (step 8, against the manifest already
- * loaded at resolution). First failure wins.
+ * loaded at resolution). First failure wins. READ-ONLY: no session,
+ * no ownership, no writes — usable outside the on-demand open pipeline
+ * (the §8.1 idempotent createProject probe, R15).
  */
-function loadProjectDir(
+export function loadProjectDir(
   core: Core,
   dir: string,
   projectId: string,

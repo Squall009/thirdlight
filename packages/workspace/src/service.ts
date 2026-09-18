@@ -74,6 +74,7 @@ import {
   detectExternalChange,
   ensureSession,
   ENGINE_VERSION,
+  loadProjectDir,
   pendingInfo,
   releaseProject,
   serveQuery,
@@ -425,40 +426,49 @@ function buildService(core: Core): WorkspaceService {
     return convergeExisting(projectId);
   }
 
-  /** The existing-directory outcome of createProject (§8.1 idempotency). */
+  /** The existing-directory outcome of createProject (§8.1 idempotency).
+   * READ-ONLY (R15, 2026-09-18 review): a strict manifest + envelope load
+   * via the same loaders the query path uses — MINUS session creation,
+   * ownership evaluation/claim, and liveness side effects. Loadable ⇒ the
+   * idempotent no-op; unloadable ⇒ `project_exists_invalid` with the load
+   * errors; neither outcome writes anything (no ownership/claim file is
+   * created or rewritten, envelope bytes are untouched — §8.1: "nothing
+   * written"). */
   function convergeExisting(projectId: string): CreateProjectResult {
-    const o = ensureSession(core, projectId, 'query');
-    if (o.kind === 'open') return { ok: true, created: false, revision: o.session.revision };
-    if (o.kind === 'not-found') {
-      // The directory exists but is not a loadable project. Report the
-      // actual manifest load details (a garbage manifest is still an
-      // existing-invalid directory, workspace.md §8.1).
-      const dir = join(core.projectsRoot, projectId);
-      const details: LoadDetail[] = [];
-      const manPath = join(dir, 'project.json');
-      if (!core.ops.fileExists(manPath)) {
-        details.push({
-          code: 'manifest_invalid',
-          path: '/project.json',
-          message: 'the manifest is missing (a concurrent creation or deletion is in flight)',
-        });
-      } else {
-        try {
-          const parsed = parseDocumentBytes(core.ops.readFile(manPath));
-          if (!parsed.ok) {
-            details.push({ code: parsed.error.code, path: parsed.error.path, message: parsed.error.message });
-          } else {
-            const v = validateManifest(parsed.value);
-            if (!v.ok) {
-              for (const e of v.errors.slice(0, 10)) {
-                details.push({ code: e.code, path: e.path, message: e.message });
-              }
+    const dir = join(core.projectsRoot, projectId);
+
+    // Manifest loadability — report the actual manifest load details (a
+    // garbage manifest is still an existing-invalid directory, workspace.md
+    // §8.1). Nothing is written.
+    let manifest: Manifest | null = null;
+    const details: LoadDetail[] = [];
+    const manPath = join(dir, 'project.json');
+    if (!core.ops.fileExists(manPath)) {
+      details.push({
+        code: 'manifest_invalid',
+        path: '/project.json',
+        message: 'the manifest is missing (a concurrent creation or deletion is in flight)',
+      });
+    } else {
+      try {
+        const parsed = parseDocumentBytes(core.ops.readFile(manPath));
+        if (!parsed.ok) {
+          details.push({ code: parsed.error.code, path: parsed.error.path, message: parsed.error.message });
+        } else {
+          const v = validateManifest(parsed.value);
+          if (!v.ok) {
+            for (const e of v.errors.slice(0, 10)) {
+              details.push({ code: e.code, path: e.path, message: e.message });
             }
+          } else {
+            manifest = v.normalized;
           }
-        } catch {
-          details.push({ code: 'manifest_invalid', path: '/project.json', message: 'the manifest is unreadable' });
         }
+      } catch {
+        details.push({ code: 'manifest_invalid', path: '/project.json', message: 'the manifest is unreadable' });
       }
+    }
+    if (manifest === null) {
       if (details.length === 0) {
         details.push({
           code: 'manifest_invalid',
@@ -468,26 +478,32 @@ function buildService(core: Core): WorkspaceService {
       }
       return { ok: false, error: projectExistsInvalid(details) };
     }
-    const details: LoadDetail[] = [];
-    if (o.kind === 'unavailable') {
-      if (o.holder !== null) {
-        details.push({
-          code: o.reason,
-          path: '',
-          message: `ownership ${o.reason} (holder pid ${o.holder.pid}) — the existing project is not usable by this backend`,
-        });
-      }
-      for (const e of o.errors ?? []) details.push(e);
-    }
-    if (details.length === 0) {
-      details.push({
+
+    // The §4.3 envelope load — the same loader as the query path, without
+    // the session/ownership acquisition around it.
+    const l = loadProjectDir(core, dir, projectId, manifest);
+    if (l.kind === 'loaded') return { ok: true, created: false, revision: l.scene.revision };
+    const envDetails: LoadDetail[] =
+      l.kind === 'envelope-missing'
+        ? [
+            {
+              code: 'envelope_invalid',
+              path: '',
+              message:
+                'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
+              expected: 'a loadable authoring-state envelope',
+            },
+          ]
+        : [...l.errors];
+    if (envDetails.length === 0) {
+      envDetails.push({
         code: 'manifest_invalid',
         path: '',
         message: 'the project directory exists but is not a loadable project',
         expected: 'a loadable manifest + authoring-state envelope',
       });
     }
-    return { ok: false, error: projectExistsInvalid(details) };
+    return { ok: false, error: projectExistsInvalid(envDetails) };
   }
 
   /** Public `releaseWorkspace` (R10). */
