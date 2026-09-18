@@ -1,0 +1,16 @@
+{
+  "name": "@thirdlight/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M1 play/runtime core (docs/contracts/runtime.md, packet 08): the runtime snapshot input (strict shape, re-validated via @thirdlight/project-model validateScene, deep-frozen on receipt), the instantiate/start/stop/dispose lifecycle (single frame-driver owner, no duplicate loops, repeatable disposal), the separate mutable simulation state, fixed-step scheduling at 120 Hz with bounded catch-up (MAX_CATCHUP_STEPS 8, drop-and-resync), the render interpolation policy (position/scale lerp, quaternion slerp, read-only derivation), the built-in moving-box demonstration (thirdlight.demo:box-motion), and structured diagnostics. Pure core: no three.js, no Node built-ins, no I/O (dependencies.md §4.1: @thirdlight/project-model only).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/project-model": "0.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}
