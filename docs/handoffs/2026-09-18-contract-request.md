@@ -448,7 +448,7 @@ primitive yields one winner" (line 457, §6.4) is replaced by hunk 4.5.
 
 ```
 | absent | — | claim (§6.3): acquire the epoch-0 claim file (`O_CREAT|O_EXCL` on `claim-0`), then write our record (`lockEpoch` 0) via `W` + verification re-read (record *and* claim file); EEXIST ⇒ re-read the record and re-evaluate (owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership`; absent/released/older-epoch ⇒ the §6.3 orphan-recovery rule — reclaim, or `claim_inconsistent`) |
-| `state: "released"` | — | claimable: same claim procedure (§6.3) at `lockEpoch` = previous + 1 (the gate is `claim-(e+1)`; the superseded-epoch cleanup unlinks `claim-e`, §6.3) |
+| `state: "released"` | — | claimable: same claim procedure (§6.3) at `lockEpoch` = previous + 1 (the gate is `claim-(e+1)`; the superseded-epoch cleanup unlinks `claim-e`, §6.3; claim-file contention or an unresolvable orphan ⇒ `claim_inconsistent`) |
 | `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | **self-reclaim, not a re-claim (normative):** the session does not re-run `O_CREAT|O_EXCL` against its own claim file (it would fail EEXIST against itself); it re-verifies the claim file content matches its identity (`backendId` + `pid`); missing or foreign content ⇒ `ownership_conflict` (`holder` `null`) and the session must not serve |
 ```
 
@@ -1015,7 +1015,11 @@ foreign file**. Evidence (real permissions, unprivileged user, retained
 probe): `UNREADABLE_OVERWRITE {"pendingHash":"e3b0c44298fc…","snapshotBytes":0,
 "discard":true,"foreignLost":true}` — `e3b0c442…` is the SHA-256 of empty
 content; the "snapshot" holds zero bytes and discard overwrote the foreign
-content.
+content. This discard path — `allowAbsent: externalHash === EMPTY_HASH`
+(`write.ts:224–225`; the call site at `session.ts:735`) — plus the R1
+zero-byte snapshot above (probe line `UNREADABLE_OVERWRITE
+pendingHash=e3b0c4…` = SHA-256 of empty content) is exactly the
+fabrication this addendum closes.
 
 **R3 — a failed recovery snapshot is ignored; discard can succeed with zero
 evidence.** `detectExternalChange` discards the snapshot result:
@@ -1061,8 +1065,18 @@ Per-state behavior:
 | `paused-unreadable` | `external_change_unreadable` (§7.3); the mutation is not applied; **no snapshot exists** (certainly no zero-byte one) | `external_change_unreadable` (refused; nothing written) | `external_change_unreadable` (refused; nothing written) | `writePaused: true`; `pendingChange { snapshotState: "unreadable", externalHash: null, externalValid: null, externalErrors: null }` | operator restores readability ⇒ backend re-reads on the next command (mutation or resolution) ⇒ the real bytes are snapshotted + validated ⇒ `paused-snapshotted` ⇒ normal resolution. (If the restored bytes equal `lastWrittenHash`, the foreign state is gone: pending cleared, unpaused.) |
 | `paused-snapshot-failed` | `external_change_unresolved` with `pendingChange.snapshotState: "snapshot_failed"` (bytes were read and validated; the evidence gap is reported, not silent); the mutation is not applied | `external_change_evidence_missing` (refused; nothing written) | `external_change_evidence_missing` (refused; nothing written) | `writePaused: true`; `pendingChange { snapshotState: "snapshot_failed", externalHash: sha256(B), externalValid, externalErrors }` | fault cleared ⇒ operator re-issues accept/discard (or any command) ⇒ re-read confirms the unchanged pending bytes (hash == `externalHash`) ⇒ the snapshot is (re)taken and is durable ⇒ `paused-snapshotted` ⇒ the re-issued resolution completes in the same call |
 
+(From **any** paused state, file absent at the cross-state re-read (ENOENT)
+⇒ pending cleared, unpaused — in addition to each row's restore-readability
+/ fault-cleared paths above.)
+
 Cross-state re-read rules (while paused, every command — mutations and both
-resolutions — re-reads the target before acting): non-ENOENT read failure ⇒
+resolutions — re-reads the target before acting): file absent at re-read
+(ENOENT) ⇒ the foreign state is gone ⇒ pending cleared, unpaused — absence
+is a known state (ENOENT is the only read result that means absence); no
+snapshot is taken because there is no foreign content to preserve (a
+zero-byte snapshot must never stand for deletion); snapshots taken in the
+same detection cycle, if any, remain the evidence; the next write proceeds
+as a fresh write on the absent target per §5.2; non-ENOENT read failure ⇒
 (re)enter `paused-unreadable`, return `external_change_unreadable`; bytes
 == `lastWrittenHash` ⇒ the foreign state is gone ⇒ pending cleared,
 unpaused (a re-issued resolution then finds nothing pending ⇒
@@ -1127,10 +1141,14 @@ falsely reporting `previous`/`new-undurable` here.
 (§7.2 step 4) and the `pendingChange` carried by external-change errors and
 queries gain `snapshotState: "ok" | "unreadable" | "snapshot_failed"`;
 when `snapshotState` is `"unreadable"`, `externalHash` is `null` and
-`externalValid`/`externalErrors` are null (omitted from the wire when
-null). `external_change_unresolved` gains the same `snapshotState`
-discriminator (values `"ok"` or `"snapshot_failed"`). No other error
-changes; the ownership `holder` shape is untouched.
+`externalValid`/`externalErrors` are null. **Wire shape (normative — one
+convention):** the `pendingChange` fields `externalHash` / `externalValid`
+/ `externalErrors` are present as `null` on the wire when the state makes
+them inapplicable — strict validators must accept `null` in those
+positions — and the fields are never omitted. `external_change_unresolved`
+gains the same `snapshotState` discriminator (values `"ok"` or
+`"snapshot_failed"`). No other error changes; the ownership `holder` shape
+is untouched.
 
 **Read-failure and retry semantics (normative):** a mutation whose pre-write
 or post-write-classification READ fails (non-ENOENT) returns
@@ -1174,6 +1192,11 @@ at HEAD `af4881c` (every anchor verified against the file at this HEAD).
    zero-byte or fabricated snapshot may stand for the real content. A
    failed snapshot write pauses in `paused-snapshot-failed` (§7.2) and is
    reported by the triggering command and the queries — never silent.
+   Where the foreign file is absent (ENOENT), there is no foreign content
+   to snapshot (absence is a known, non-destructive state): the pending
+   change is cleared and the project unpaused without any snapshot — the
+   snapshot precondition above binds to the foreign **bytes**, not to the
+   paused state.
 ````
 
 #### 7.4(b) §7.2 steps 1–2 (lines 506–511) and the step-4 shape line (lines 516–517, forced by 7.3)
@@ -1203,6 +1226,11 @@ at HEAD `af4881c` (every anchor verified against the file at this HEAD).
    (`UTCstamp` = `YYYYMMDDTHHMMSSZ`; `sha8` = first 8 hex of the hash;
    pruning per §7.4). The original file is left **in place** —
    it is not overwritten or "fixed" until an operator resolves.
+   **Byte-binding (normative):** the snapshot is the bytes read in step 1
+   (in memory), never a re-read of the target; the artifact's `sha8` name
+   therefore matches the snapshot content; a concurrent change between
+   step 1 and step 2 does not alter the snapshot and is re-detected at the
+   next §5.2 check / 7.4(d) re-read.
    **If the snapshot cannot be written (normative):** the project pauses in
    `paused-snapshot-failed`; the triggering mutation returns
    `external_change_unresolved` with `pendingChange.snapshotState =
@@ -1301,7 +1329,11 @@ stays paused.
   and the pause persist across the refusal. Before answering, the command
   re-reads the file: bytes now readable ⇒ (re)establish the pending change
   from the real bytes (§7.2 steps 2–4), attempt the snapshot, and, once it
-  is durable, proceed with the resolution in the same call; bytes still
+  is durable, proceed with the resolution in the same call; file absent at
+  re-read (ENOENT) ⇒ the foreign state is gone — pending cleared, unpaused:
+  the paused project is unblocked, no operator action is needed, and no
+  destructive write occurred (absence is a known state; no snapshot is
+  taken, because there is no foreign content to preserve); bytes still
   unreadable (non-ENOENT) ⇒ `paused-unreadable`; other foreign bytes ⇒ the
   §7.2 protocol re-fires on them (a fresh detection cycle).
 ````
@@ -1416,12 +1448,14 @@ retained probe — all assertions are against real on-disk bytes):
 
 ### 7.6 Interaction notes, verification and provenance
 
-- **Section 3 (R9 session lock):** no interaction beyond all of this
-  running under it. The external-change states are a project-level write
-  state, orthogonal to ownership: a wedged `paused-unreadable` (or
-  `paused-snapshot-failed`) never blocks acquiring or releasing the session
-  lock, and the §6 protocol (section 4's diff) is unchanged by this
-  addendum.
+- **Section 3 (R9 — the O_EXCL claim file, mechanism (a)):** no
+  interaction beyond all of 7.2–7.5 running under an acquired claim file.
+  The external-change states are a project-level write state, and the two
+  concerns are orthogonal: a claim file can wedge `claim_inconsistent` but
+  never blocks resolution of external changes (and a wedged
+  `paused-unreadable` / `paused-snapshot-failed` never blocks acquiring or
+  releasing the claim file); the §6 protocol (section 4's diff) is
+  unchanged by this addendum.
 - **R5 (operator envelope writes):** accept/discard are operator write
   boundaries. The refused-resolution path must leave memory and disk
   consistent and return the structured error — nothing written, nothing
