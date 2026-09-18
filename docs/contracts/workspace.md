@@ -343,7 +343,20 @@ on the supported platform):**
 3. **No silent loss of foreign bytes:** any on-disk content the backend did
    not write is SHA-256-snapshotted into `.thirdlight/recovery/` before the
    project pauses (§7), and the original file is never overwritten until an
-   operator explicitly resolves (accept/discard).
+   operator explicitly resolves (accept/discard). A durable snapshot of the
+   exact foreign bytes is a **precondition of every destructive resolution**
+   (normative): while it is missing, accept/discard are refused
+   (`external_change_unreadable` / `external_change_evidence_missing`, §11).
+   A read failure other than ENOENT means the bytes are **unknown, never
+   absent**: the project pauses in `paused-unreadable` (§7.2) and no
+   zero-byte or fabricated snapshot may stand for the real content. A
+   failed snapshot write pauses in `paused-snapshot-failed` (§7.2) and is
+   reported by the triggering command and the queries — never silent.
+   Where the foreign file is absent (ENOENT), there is no foreign content
+   to snapshot (absence is a known, non-destructive state): the pending
+   change is cleared and the project unpaused without any snapshot — the
+   snapshot precondition above binds to the foreign **bytes**, not to the
+   paused state.
 4. The manifest is untouched by the editing path (immutable, §8).
 
 **G2 — durability of acked writes:**
@@ -405,9 +418,9 @@ record (if any) and evaluates:
 
 | Record state | Evaluation | Outcome |
 |---|---|---|
-| absent | — | claim: write our record (`lockEpoch` 0) via `W` + verification re-read (§6.3); on re-read mismatch re-evaluate (a concurrent claimer won) |
-| `state: "released"` | — | claimable: same claim procedure (`lockEpoch` = previous + 1) |
-| `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | claimable (same procedure) |
+| absent | — | claim (§6.3): acquire the epoch-0 claim file (`O_CREAT|O_EXCL` on `claim-0`), then write our record (`lockEpoch` 0) via `W` + verification re-read (record *and* claim file); EEXIST ⇒ re-read the record and re-evaluate (owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership`; absent/released/older-epoch ⇒ the §6.3 orphan-recovery rule — reclaim, or `claim_inconsistent`; non-ENOENT record read failure ⇒ never treated as absence — orphan-recovery rule or `claim_inconsistent`) |
+| `state: "released"` | — | claimable: same claim procedure (§6.3) at `lockEpoch` = previous + 1 (the gate is `claim-(e+1)`; the superseded-epoch cleanup unlinks `claim-e`, §6.3; claim-file contention or an unresolvable orphan ⇒ `claim_inconsistent`) |
+| `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | **self-reclaim, not a re-claim (normative):** the session does not re-run `O_CREAT|O_EXCL` against its own claim file (it would fail EEXIST against itself); it re-verifies the claim file content matches its identity (`backendId` + `pid`); missing or foreign content ⇒ `ownership_conflict` (`holder` `null`) and the session must not serve |
 | `owned`, `pid` **live** and plausibly our owner | see liveness rules | **`ownership_conflict`** — the open (and every command) fails; **no automatic takeover, ever** |
 | `owned`, `pid` **dead** (stale owner) | — | **`stale_ownership`** — open fails; the operator must explicitly `takeoverWorkspace` (§6.4) |
 
@@ -424,16 +437,119 @@ Liveness rules (conservative — ambiguity resolves to "live"):
   or any error reading `/proc` ⇒ **unknown ⇒ treated as live** (reject; the
   operator investigates). A conservative false "live" costs an operator
   check; a false "dead" costs split-brain risk.
+- **Liveness and the exclusion gate (normative).** For concurrent claimers,
+  liveness is reporting and classification only: it selects between
+  `ownership_conflict` and `stale_ownership` and what the operator is
+  shown. Exclusion never depends on it — the claim file's exclusive
+  creation (`O_CREAT|O_EXCL`, §6.3) is the only exclusion gate, and it is
+  enforced by the kernel: concurrent claimers are serialized by `O_EXCL`
+  alone. The **one** liveness-referenced path is the §6.3 orphan-recovery
+  rule: a claimant that finds an existing claim file at its target epoch
+  (record absent/released/older-epoch) may proceed only if the file's
+  content is parseable and its holder pid is proven dead under the rules
+  above (unknown ⇒ live ⇒ refuse, `claim_inconsistent`). That path
+  reclaims a *crashed* claimant's file — it is not a liveness safety gate:
+  it never arbitrates a live rival (a live holder's claim file is never
+  removed or rewritten by any backend path), and a false "live" here can
+  only delay or block a reclaim (operator-visible via
+  `claim_inconsistent`), never create a second active writer. Only proven
+  absence/death permits a claim/takeover: no automatic claim ever depends
+  on liveness to beat a live rival, and takeover is an explicit operator
+  command.
 
 ### 6.3 Claim primitive (the only ownership write)
 
-Claim = `W(our-record, ownership.json)` followed by a **verification
-re-read**: the on-disk record must contain *our* `backendId`, `pid`, and
-`lockEpoch`. If it doesn't, another claimer renamed over us; we re-read and
-re-evaluate that record (a live foreign owner ⇒ `ownership_conflict`). The
-rename + verify sequence means concurrent claimers converge to exactly one
-winner without any lock file or unlink: the loser observes the winner's
-live record and aborts.
+The exclusive gate is the **epoch-scoped claim file**:
+`.thirdlight/claim-<e>`, one per `lockEpoch` e, created with
+`O_CREAT|O_EXCL`. The record file (`ownership.json`) is the identity/audit
+layer: writing it does not confer ownership, and no read or re-read of it
+can arbitrate a claim.
+
+Claim at `lockEpoch` e =
+
+1. **Acquire the claim file** — `open(claim-e, O_CREAT|O_EXCL)` (on Node:
+   `fs.open(path, 'wx')` — the same primitive `openTempFile` uses).
+   Failure (EEXIST) ⇒ a different claimer holds epoch e: re-read the
+   record and re-evaluate: owned + live ⇒ `ownership_conflict`; owned +
+   dead ⇒ `stale_ownership` (the takeover path, §6.4); record
+   absent/released/older-epoch ⇒ the **orphan-recovery rule** below. There
+   is no retry loop. A non-ENOENT record read failure at the re-read is
+   never treated as absence — the record's state is unknown; the claim
+   proceeds only via the orphan-recovery rule (which requires parseable
+   claim-file content and a proven-dead holder) or fails
+   `claim_inconsistent`.
+2. **Stamp the claim file (durable)** — write the claimer's identity
+   `{ backendId, pid, UTC timestamp }` (canonical serialization, the
+   record's style) into claim-e and fsync it. A crash before this step
+   leaves an empty/absent-content claim file (orphan, below).
+3. **Pre-record verification — claim file, by path**: re-read `claim-e`
+   by path; its content must equal our step-2 identity (`backendId` +
+   `pid` + timestamp match). Foreign, unparseable, or missing content ⇒
+   the claim fails with `ownership_conflict` and **no record is written**
+   (abort; the session does not serve).
+4. **Write the record** via `W(our-record, ownership.json)` (state
+   `owned`, our `backendId`/`pid`/`openedAt`, `lockEpoch` e).
+5. **Verification re-read — record and claim file**: the on-disk record
+   must contain our `backendId`, `pid`, and `lockEpoch`, and the on-disk
+   claim-e must contain our step-2 identity (`backendId` + `pid` +
+   timestamp match). A mismatch ⇒ a foreign actor unlinked/recreated or
+   overwrote one of the files between our `O_EXCL` and this read ⇒ the
+   claim fails with `ownership_conflict` and the session does not serve
+   (this re-read closes the hostile unlink-recreate race for the claimant
+   that lost its file).
+6. **Consistency** — the re-read record's `lockEpoch` must be e. While we
+   hold claim-e, the record's epoch can only advance through a claim at a
+   higher epoch, which requires its own claim file; a re-read showing any
+   other epoch ⇒ the record was changed outside the protocol ⇒ fail
+   closed: the claim fails (the claim file is left on disk — recovered by
+   the orphan-recovery rule or the next epoch's superseded-epoch cleanup)
+   and `ownership_conflict` is reported with the fresh holder.
+
+Any failure at steps 2–6 **fails the claim** (the claimant holds no
+ownership; its claim file may remain on disk and is recovered as
+described below). If the final two-file verification (step 5, after the
+record `W`) detects foreign claim-file content, the residual on-disk
+state is `record@e` with the claimant's identity + foreign `claim-e`; the
+claimant holds no ownership and must not serve; the state resolves via
+the §6.2 liveness path (live ⇒ `ownership_conflict` until death; dead ⇒
+`stale_ownership` ⇒ e+1 takeover, whose superseded-epoch cleanup removes
+`claim-e`); the envelope is untouched.
+
+**Orphan recovery (the only liveness-referenced path, normative):** when
+step 1 fails EEXIST and the record is absent/released/older-epoch, the
+existing claim-e's content is read. The claimant may proceed (**reclaim**:
+rewrite claim-e with its own step-2 identity, fsync, and continue at step
+4; steps 5–6 then apply unchanged) **only** if the content is parseable
+and its holder pid is proven dead under the §6.2 liveness rules (unknown
+⇒ live ⇒ refuse). Otherwise the claim fails with **`claim_inconsistent`**
+(holder `null`; carries `projectId`, the claim file path, the holder
+content if parseable, and the liveness outcome) — the open fails; the
+operator confirms the holder is dead, removes the orphan claim file, and
+re-issues the open (an operator file operation — no backend command, §11).
+This path consults liveness to reclaim a *crashed* claimant's file; it is
+not a safety gate: concurrent claimers are serialized by `O_EXCL` alone,
+and a live holder's file is never removed or rewritten by any backend
+path.
+
+**Superseded-epoch cleanup (normative):** a successful claim at epoch e+1
+unlinks `claim-e` (best effort). This is safe because a claim at e+1
+occurs only against a record at e that is `released` or stale (dead
+holder): in both cases the session that created claim-e is no longer an
+active writer (a released session must not serve; a dead pid cannot), so
+claim-e excludes no live writer and its deletion removes no live
+claimant's token. A failed unlink leaves inert residue: the epoch is
+monotonic, so no future claim ever targets `claim-e` again.
+
+**Single-winner (normative):** `open(O_CREAT|O_EXCL)` is serialized by the
+kernel per path — at most one caller succeeds. In the interleaving of §1
+(the defect), the loser fails either at its own `O_EXCL` (EEXIST — the
+winner created claim-e first) or at the step-3 pre-record verification
+or the step-5 verification re-read (the record or claim-file content is
+not ours); the record rename arbitrates
+nothing. No interleaving of two claimers yields two active owners. A
+second re-read or any finite hash check cannot substitute for the
+exclusive creation: a post-hoc read certifies only the file's state at
+that instant, never that no concurrent rename follows.
 
 ### 6.4 Stale-owner recovery (explicit takeover)
 
@@ -449,30 +565,60 @@ live record and aborts.
   byte-identical to the one that evaluated stale (same holder, same epoch)
   — otherwise re-evaluate from scratch (a concurrent takeover may have
   landed). (2) Evaluate liveness again (it must still be dead). (3) Claim
-  (§6.3) with `lockEpoch` = previous + 1. (4) Load the project (§4.3).
+  (§6.3) with `lockEpoch` = previous + 1 — the `O_CREAT|O_EXCL` on
+  `claim-(e+1)` is the single-winner gate (a held claim file ⇒
+  `ownership_conflict` — the recorded owner is live, or a concurrent
+  takeover completed first); on success the superseded-epoch cleanup
+  unlinks `claim-e`. (4) Load the project (§4.3).
   Success result: `{ ok: true, lockEpoch, backendId, pid }`; failure:
-  `ownership_conflict` or `stale_ownership` (with the fresh holder).
+  `ownership_conflict` (including the held-claim-file case above) or
+  `stale_ownership` (with the fresh holder).
 - **Residual split-brain (honest bound):** two *simultaneous* takeovers of
   the same dead owner require two simultaneous operator actions; if both
-  race, the claim primitive yields one winner (loser sees the winner's live
-  record and aborts). The pathological remainder (a backend that believed
-  it owned before a record was stolen from under it) degrades safely: its
-  next envelope write's pre-write check (§5.2) finds foreign bytes,
-  pauses, and snapshots them — no silent corruption of the envelope, and
-  both envelopes involved are complete valid documents.
+  race, the `O_CREAT|O_EXCL` on `claim-(e+1)` yields exactly one winner
+  (the loser's open fails EEXIST, re-reads the winner's live record, and
+  aborts). A takeover of a *live* owner still rests on the same `/proc`
+  trust assumptions as the stale path: the conservative unknown⇒live rule
+  bounds it — a liveness misclassification can only delay or block a
+  reclaim (operator-visible via `claim_inconsistent`), never create a
+  second active writer, because a live holder's claim file still exists on
+  disk (its `O_EXCL` token), so a concurrent same-epoch claimer never
+  passes the gate, and the §6.3 verification re-read catches a foreign
+  overwrite of either file. The orphan-recovery path is the only
+  liveness-referenced path (§6.3) and is bounded by unknown⇒live. The only
+  remaining split-brain path is a bypassing actor that unlinks/recreates
+  the claim file or the record from under the owner (§7.1's explicit
+  non-claim class, the same exposure as today's direct ownership-file
+  tampering): the old owner's next envelope write's pre-write check (§5.2)
+  finds foreign bytes, pauses, and snapshots them — no silent corruption
+  of the envelope, and both envelopes involved are complete valid
+  documents.
 
 ### 6.5 Ownership lifecycle
 
 - Written on claim (§6.3); rewritten on release with `state: "released"`
   (§9) — **the file is never deleted** (deletion would reintroduce the
   absent-record race).
-- Owner crash: record persists with a dead pid ⇒ stale ⇒ explicit takeover
-  (the envelope is untouched by any of this; its validity is re-checked at
-  the new owner's open).
-- The ownership file is a workspace artifact, not authoring data: it is
-  excluded from logical reading, from external-change detection (§7
-  monitors the envelope only), and from G1's authoring guarantees (its own
-  writes use the same `W`, so it is torn-free too).
+- The claim file (`claim-<e>`, §6.3) is created at claim with the
+  claimer's identity content, and is **held for the session lifetime — it
+  is a file, not an fd**: a session does not need to hold an open
+  descriptor; the file's existence (with its content) is the token. It is
+  released at release by the owner's own unlink (§9), superseded by the
+  next epoch's successful claim (the superseded-epoch cleanup unlinks
+  `claim-e`, §6.3), and orphaned by a crash (recovered by the §6.3
+  orphan-recovery rule or the next epoch's cleanup). No fd-lifetime
+  discipline is needed — there is no descriptor to close early and drop
+  the token (the advantage over a session-lifetime lock fd).
+- Owner crash: the claim file persists (orphan, or a consistent pair with
+  the stale record); the record persists with a dead pid ⇒ stale ⇒
+  explicit takeover (the envelope is untouched by any of this; its
+  validity is re-checked at the new owner's open; the takeover's
+  superseded-epoch cleanup removes the old claim file).
+- The ownership file and the claim files are workspace artifacts, not
+  authoring data: they are excluded from logical reading, from
+  external-change detection (§7 monitors the envelope only), and from
+  G1's authoring guarantees (the record's own writes use the same `W`, so
+  it is torn-free too; claim-file writes are the §6.3 identity stamp).
 
 ## 7. Unexpected external modification
 
@@ -503,18 +649,38 @@ a foreign writer's bytes are never *atomically intermixed* with ours
 On detection (pre-write mismatch, or post-rename verification mismatch),
 the triggering mutation:
 
-1. Reads the on-disk bytes `B`; computes `sha256(B)`.
+1. Reads the on-disk bytes `B`; computes `sha256(B)`. **A read failure
+   other than ENOENT is not absence (normative):** the bytes are unknown,
+   not empty. The project pauses in `paused-unreadable` and the triggering
+   mutation returns `external_change_unreadable` (§11) — never
+   `external_change_unresolved` with a fabricated hash, and never a
+   zero-byte snapshot. ENOENT is the only read result that means absence.
 2. **Snapshots** `B` byte-for-byte to
    `.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json`
    (`UTCstamp` = `YYYYMMDDTHHMMSSZ`; `sha8` = first 8 hex of the hash;
-   oldest pruned to keep 16). The original file is left **in place** —
+   pruning per §7.4). The original file is left **in place** —
    it is not overwritten or "fixed" until an operator resolves.
+   **Byte-binding (normative):** the snapshot is the bytes read in step 1
+   (in memory), never a re-read of the target; the artifact's `sha8` name
+   therefore matches the snapshot content; a concurrent change between
+   step 1 and step 2 does not alter the snapshot and is re-detected at the
+   next §5.2 check / 7.4(d) re-read.
+   **If the snapshot cannot be written (normative):** the project pauses in
+   `paused-snapshot-failed`; the triggering mutation returns
+   `external_change_unresolved` with `pendingChange.snapshotState =
+   "snapshot_failed"`, and accept/discard are refused with
+   `external_change_evidence_missing` (§7.3/§11) until the snapshot is
+   durably written.
 3. Parses/validates `B` through the full §4.3 pipeline (strict parse,
    `storageVersion`, `type`, `projectId`, `validateScene`, retry block,
    cross-document). Result: `externalValid: true` or the error objects
    (≤ 10 reported).
-4. Sets the project's **pending change** state `{ externalHash, externalValid,
-   externalErrors }` and **pauses writes**:
+4. Sets the project's **pending change** state `{ snapshotState, externalHash,
+   externalValid, externalErrors }` and **pauses writes** (`snapshotState`:
+   `"ok"` — the step-2 snapshot is durable; `"snapshot_failed"` — the bytes
+   were read and validated but no snapshot is durable; `"unreadable"` —
+   step 1 failed with a non-ENOENT error, in which case `externalHash` is
+   `null` and `externalValid`/`externalErrors` are null):
    - Mutations ⇒ `external_change_unresolved` (with `pendingChange`).
    - Dedup replays still work (pure read, commands.md §6.1 step 2).
    - Queries are served from the **last known good** in-memory state with
@@ -526,13 +692,16 @@ the triggering mutation:
 **Invalid external bytes** (e.g. a corrupted or mid-edit file): the
 validation errors are reported through `pendingChange`, and only
 `discardExternalState` is possible (accepting invalid data is refused with
-`external_change_invalid`). The bytes are retained for repair; the project
+`external_change_invalid`); both resolutions remain subject to the §7.3
+evidence precondition (when unmet, the command reports
+`external_change_unreadable` / `external_change_evidence_missing` and
+nothing is written). The bytes are retained for repair; the project
 stays paused.
 
 ### 7.3 Resolution (operator commands)
 
 - **`acceptExternalState(projectId)`** — precondition: a pending change
-  exists and `externalValid` is true. Effect: the external scene becomes
+  exists, `snapshotState` is `"ok"`, and `externalValid` is true. Effect: the external scene becomes
   authoritative — the envelope is rewritten via `W` from the *parsed*
   external bytes, re-serialized canonically (§4.4; canonicalization is
   value-preserving per project-model §12.2) with `retry.records` set to
@@ -545,7 +714,8 @@ stays paused.
   the accepted revision. Result: `{ ok: true, revision, historyReset: true,
   retryCleared: true }`.
 - **`discardExternalState(projectId)`** — precondition: a pending change
-  exists. Effect: the last known good envelope bytes (verified against
+  exists and `snapshotState` is `"ok"` (a durable recovery snapshot of the
+  exact foreign bytes). Effect: the last known good envelope bytes (verified against
   `lastWrittenHash` before writing) are re-written via `W`, restoring the
   previous state exactly; the external bytes remain only in the recovery
   snapshot; history is cleared (new boundary — the file was replaced
@@ -553,6 +723,21 @@ stays paused.
   Result: `{ ok: true, revision, historyReset: true }`.
 - Re-issuing either with no pending change ⇒ `no_pending_change`.
   Resolving clears the pending state and unpauses writes.
+- **Refusal while evidence is missing or unreadable (normative):** while
+  `snapshotState` is not `"ok"`, both resolutions are refused — with
+  `external_change_unreadable` in `paused-unreadable`, with
+  `external_change_evidence_missing` in `paused-snapshot-failed` — and
+  nothing is written: memory and disk are unchanged, and the pending state
+  and the pause persist across the refusal. Before answering, the command
+  re-reads the file: bytes now readable ⇒ (re)establish the pending change
+  from the real bytes (§7.2 steps 2–4), attempt the snapshot, and, once it
+  is durable, proceed with the resolution in the same call; file absent at
+  re-read (ENOENT) ⇒ the foreign state is gone — pending cleared, unpaused:
+  the paused project is unblocked, no operator action is needed, and no
+  destructive write occurred (absence is a known state; no snapshot is
+  taken, because there is no foreign content to preserve); bytes still
+  unreadable (non-ENOENT) ⇒ `paused-unreadable`; other foreign bytes ⇒ the
+  §7.2 protocol re-fires on them (a fresh detection cycle).
 - M1 has **no automatic reconciliation, no timeout, and no
   auto-resolution**: the project stays paused until an operator resolves
   (charter §6: "pauses conflicting writes until a reload/reconciliation
@@ -565,6 +750,17 @@ backend's evidence + repair aid for external bytes. They are: never read
 automatically, never deleted except by the 16-oldest pruning, and **not a
 backup** (charter §4's backup policy is a later deliverable). Operators
 can compare a snapshot to `main.json` to see exactly what changed.
+
+**Pruning order and exemption (normative):** the snapshot of the current
+pending change — the snapshot whose content hash is the pending
+`externalHash` — is **exempt from pruning while that change is pending**
+and is retained until the change is resolved. Pruning keeps at most 16
+snapshots in total, always including the exempt one: the other retained
+snapshots are the newest by `UTCstamp`, and within one `UTCstamp` by full
+file name lexicographically (a same-timestamp tie is broken by name, never
+by guesswork, and no older-`UTCstamp` snapshot is pruned while a
+same-`UTCstamp` one survives). Pruning runs after each successful snapshot
+write and removes only non-exempt snapshots.
 
 ### 7.5 Corrupt envelope at open (no last known good)
 
@@ -646,9 +842,21 @@ state while the backend is out of the way:
      scene and revision but `retry.records: []`** (a lost-ack retry of a
      pre-release command must not replay across the boundary — it will
      instead fail `revision_conflict` if stale, which is safe), then
-   - rewrites the ownership record with `state: "released"` (same claim
-     primitive), and
+   - rewrites the ownership record with `state: "released"` via `W` — the
+     release record write does **not** re-attempt the §6.3 claim gate
+     (no `O_CREAT|O_EXCL`): the owner already holds its claim file, and
+     the gate is for claimants, not for the releasing owner, then
+   - **unlinks the owner's own claim file** (`claim-<e>`, §6.5), and
    - discards in-memory state (history and record map).
+   A release that fails before the record write leaves the project owned
+   with the old session still the writer — no partial release. A crash
+   between the record write and the unlink leaves the documented orphan
+   (`released@e` + `claim-e`), recovered by the next claim's
+   superseded-epoch cleanup at `e+1` (§6.3/§6.5). Once the released
+   record is durable, the old session **must not issue further writes**
+   (its in-memory state is discarded in the same procedure; any later
+   command is a fresh open — step 3 — not a continuation of the released
+   session).
    Result: `{ ok: true, revision, retryCleared: true }`. While released,
    commands return `workspace_closed` and queries fail with
    `project_unavailable { reason: "workspace_closed" }`.
@@ -656,8 +864,8 @@ state while the backend is out of the way:
    the envelope — edit `scene` only; keep `storageVersion`, `type`,
    `projectId`, the revision semantics, and `retry.records: []`). The
    manifest stays untouched (immutable, §8.2). The backend is not involved
-   and holds no lock — the released record is what lets a later open claim
-   the project.
+   and holds no claim file — the released record is what lets a later open
+   claim the project.
 3. **Reopen** — the next command (on-demand open) or an explicit open:
    §4.3 validation runs on the edited file; success loads the state (empty
    history — new boundary; commands.md §9.2), re-claims ownership
@@ -693,11 +901,24 @@ and claims no ownership.
 | `createProject(projectId, name)` | operator | `{ ok, created, revision? }` | `field_*` (args), `project_exists_invalid` |
 | `releaseWorkspace(projectId)` | operator | `{ ok, revision, retryCleared }` | `project_not_found`, `project_unavailable`, `ownership_conflict` |
 | `takeoverWorkspace(projectId)` | operator (explicit, §6.4) | `{ ok, lockEpoch, backendId, pid }` | `ownership_conflict`, `stale_ownership`, `project_not_found` |
-| `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `project_unavailable` |
-| `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `project_unavailable` |
+| `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
+| `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
 
 (Transport/auth for these operator commands is packet 09; in M1 they are
 admin-scoped — never exposed as browser/MCP mutation commands.)
+
+Stuck states and their resolution: a release that crashes after the
+released-record write but before the claim-file unlink (§9) leaves the
+documented orphan `released@e + claim-e` — recovered automatically by the
+next claim at `e+1` (superseded-epoch cleanup, §6.3): no new failure
+code, no operator step. An orphan claim file at the *target* epoch (a
+crash between claim-file creation and content write) fails the open with
+`claim_inconsistent` — resolved by an operator **file operation**
+(confirm the holder is dead, remove the orphan claim file, re-issue the
+open). **No new operation:** orphan resolution is deliberately not a
+backend command — the original draft's `resolveClaimFile(projectId)` is
+**not adopted** (fewer contract surface; the operator action is
+documented in the error hint).
 
 Workspace error codes (stable; surfaced via `project_unavailable.reason` or
 as operation results):
@@ -710,10 +931,13 @@ as operation results):
 | `scene_invalid` | embedded scene fails `validateScene` (carries ≤ 10 project-model errors) |
 | `retry_records_invalid` | retry block malformed / non-ascending / over retention / duplicate requestId |
 | `manifest_invalid` | manifest fails strict parse / `validateManifest` (carries ≤ 10 errors) |
-| `ownership_conflict` | live owner holds the project (§6.2; carries `holder`) |
+| `ownership_conflict` | live owner holds the project, or the claim file exists with foreign/absent content at the target epoch — incl. the self-reclaim refusal (§6.2/§6.3); carries `holder`, `null` when no parseable owned record exists |
+| `claim_inconsistent` | claim file exists at the target epoch but cannot be reclaimed: content unparseable, or holder pid not proven dead (§6.3 orphan recovery); `cls: "unavailable"`; carries `projectId`, the claim file path, the holder content if parseable, and the liveness outcome; hint: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command) |
 | `stale_ownership` | dead owner; explicit takeover required (§6.2/§6.4; carries `holder`) |
 | `workspace_closed` | project released for maintenance (§9) |
 | `external_change_invalid` | pending external change failed validation; `acceptExternalState` refused |
+| `external_change_unreadable` | scene file read failed with a non-ENOENT error: the on-disk bytes are unknown; `paused-unreadable` (§7.2); carries `projectId`, `snapshotState: "unreadable"`, `pendingChange` with `externalHash: null` |
+| `external_change_evidence_missing` | pending change readable but not durably snapshotted: `paused-snapshot-failed` (§7.2); accept/discard refused until the snapshot is durable; carries `projectId`, `snapshotState: "snapshot_failed"` |
 | `no_pending_change` | resolve command with nothing pending (§7.3) |
 | `project_exists_invalid` | `createProject` onto an unloadable existing directory (§8.1) |
 
@@ -726,7 +950,8 @@ since a project that exists on disk but cannot load is exactly what
 `project_unavailable` reports.
 
 `holder` in ownership errors: `{ backendId, pid, openedAt, lockEpoch,
-state }`.
+state }`, or `null` (no parseable owned record — the claim file exists
+with foreign/absent content, §6.3, incl. the self-reclaim refusal, §6.2).
 
 ## 12. What is deliberately not in M1 (normative non-goals)
 
