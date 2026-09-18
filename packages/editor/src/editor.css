@@ -1,0 +1,95 @@
+/* Thirdlight minimal editor — packet 10. Practical, unadorned styling for the
+ * React panels + the three.js viewport stage. No dashboard chrome, no
+ * decorative panels (decision 0001 §10 scope guard). */
+:root {
+  --bg: #14161c;
+  --panel: #1b1e26;
+  --panel-2: #20242f;
+  --border: #2b3040;
+  --text: #d7dce6;
+  --muted: #8a93a6;
+  --accent: #4f8cff;
+  --ok: #52d273;
+  --warn: #ffd166;
+  --err: #ff5252;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+#tl-root { height: 100vh; }
+
+.tl-app { display: flex; flex-direction: column; height: 100vh; }
+.tl-app__body { flex: 1; display: flex; min-height: 0; }
+.tl-app__stage { flex: 1; position: relative; min-width: 0; background: #0e1015; }
+.tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tl-app__preview { position: absolute; right: 12px; top: 12px; width: 380px; height: 260px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+.tl-app__preview-label { padding: 6px 10px; font-size: 11px; color: var(--muted);
+  border-bottom: 1px solid var(--border); background: var(--panel-2); }
+.tl-app__preview-frame { flex: 1; width: 100%; border: 0; background: #0e1015; }
+
+.tl-panel { width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; min-height: 0; }
+.tl-panel__title { padding: 10px 12px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; font-size: 11px; color: var(--muted);
+  border-bottom: 1px solid var(--border); }
+
+.tl-hierarchy { border-left: 0; }
+.tl-hierarchy__filter { margin: 8px 10px; padding: 6px 8px; background: var(--panel-2);
+  color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+.tl-hierarchy__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.tl-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer;
+  color: var(--text); white-space: nowrap; }
+.tl-row:hover { background: var(--panel-2); }
+.tl-row.is-selected { background: rgba(79,140,255,.16); }
+.tl-row--empty { color: var(--muted); cursor: default; }
+.tl-row__kind { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--panel-2);
+  color: var(--muted); }
+.tl-row__kind--box { color: #9ec5ff; }
+.tl-row__kind--camera { color: #ffe08a; }
+.tl-row__name { overflow: hidden; text-overflow: ellipsis; }
+
+.tl-inspector { width: 260px; border-right: 0; border-left: 1px solid var(--border); }
+.tl-inspector__modes { display: flex; gap: 6px; padding: 10px; }
+.tl-inspector__body { padding: 10px 12px; }
+.tl-inspector__name { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; }
+.tl-inspector__kind { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+.tl-inspector__empty { padding: 14px 12px; color: var(--muted); }
+.tl-inspector__hint { color: var(--muted); font-size: 11px; margin-top: 12px; }
+.tl-vec { margin-bottom: 8px; }
+.tl-vec__label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+.tl-vec__nums { display: flex; gap: 4px; }
+.tl-vec__num { flex: 1; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 4px; font-variant-numeric: tabular-nums; text-align: center; font-size: 12px; }
+
+.tl-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+.tl-toolbar__brand { font-weight: 700; letter-spacing: .03em; margin-right: 8px; }
+.tl-toolbar__group { display: flex; gap: 6px; }
+.tl-toolbar__spacer { flex: 1; }
+.tl-btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 5px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+.tl-btn:hover:not(:disabled) { border-color: var(--accent); }
+.tl-btn:disabled { opacity: .45; cursor: default; }
+.tl-btn.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tl-btn--small { padding: 3px 8px; font-size: 11px; }
+.tl-btn--play { background: rgba(82,210,115,.16); border-color: var(--ok); color: var(--ok); }
+.tl-btn--stop { background: rgba(255,82,82,.16); border-color: var(--err); color: var(--err); }
+
+.tl-statusbar { display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  background: var(--panel); border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+.tl-statusbar__spacer { flex: 1; }
+.tl-statusbar__rev { font-variant-numeric: tabular-nums; }
+.tl-statusbar__error { color: var(--err); }
+.tl-statusbar__conflict { color: var(--warn); }
+.tl-badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+.tl-badge--ok { background: rgba(82,210,115,.15); color: var(--ok); }
+.tl-badge--warn { background: rgba(255,209,102,.15); color: var(--warn); }
+.tl-badge--err { background: rgba(255,82,82,.15); color: var(--err); }
+.tl-badge--idle { background: var(--panel-2); color: var(--muted); }
+
+.tl-config-error { padding: 40px; max-width: 640px; margin: 40px auto; }
+.tl-config-error h1 { font-size: 20px; }
+.tl-config-error pre { background: var(--panel); border: 1px solid var(--border); padding: 12px;
+  border-radius: 6px; color: var(--err); overflow-x: auto; }

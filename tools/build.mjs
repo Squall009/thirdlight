@@ -18,11 +18,46 @@
  */
 
 import esbuild from 'esbuild';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 
 const root = process.cwd();
+
+/**
+ * The editor page config (sessions.md §13.2 analogue for the authoring page).
+ * `authoringOrigin` + the API base are derived at RUNTIME by the editor from
+ * `location.origin` (the editor is same-origin with the backend); the build
+ * injects `projectId`, `previewOrigin`, and the project-scoped `authoringToken`
+ * (deployment values — read from env so no secret is hardcoded in source).
+ */
+const editorConfig = {
+  v: 1,
+  projectId: process.env.THIRDLIGHT_PROJECT_ID ?? 'demo-0001',
+  previewOrigin: (process.env.THIRDLIGHT_PREVIEW_ORIGIN ?? 'http://127.0.0.1:8502').replace(/\/$/, ''),
+  authoringToken: process.env.THIRDLIGHT_EDITOR_TOKEN ?? '',
+};
+
+/** Emit dist/editor/index.html (static authoring page; loads ./main.js). */
+function emitEditorPage() {
+  const cssPath = join(root, 'packages/editor/src/editor.css');
+  const css = existsSync(cssPath) ? readFileSync(cssPath, 'utf8') : '';
+  const configJson = JSON.stringify(editorConfig).replace(/</g, '\\u003c');
+  const html =
+    '<!doctype html>\n<html>\n  <head>\n' +
+    '    <meta charset="utf-8" />\n' +
+    '    <meta name="viewport" content="width=device-width, initial-scale=1" />\n' +
+    '    <title>Thirdlight Editor</title>\n' +
+    '    <style>\n' + css + '\n    </style>\n' +
+    '  </head>\n  <body>\n' +
+    '    <div id="tl-root"></div>\n' +
+    `    <script>window.__thirdlightEditor = ${configJson};</script>\n` +
+    '    <script src="./main.js"></script>\n  </body>\n</html>\n';
+  const out = join(root, 'dist/editor/index.html');
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, html);
+  console.log(`build: editor page: -> ${join('dist/editor/index.html')}`);
+}
 
 /** export.md §5.3 pinned option set (normative — the same set for all three bundles). */
 const PINNED_OPTIONS = {
@@ -62,6 +97,10 @@ for (const b of BUNDLES) {
   await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS });
   console.log(`build: ${b.name}: ${b.entry} -> ${b.out}`);
   built += 1;
+}
+// The static authoring page (only when the editor entry exists — packet 10).
+if (existsSync(join(root, 'packages/editor/src/index.tsx'))) {
+  emitEditorPage();
 }
 if (built === 0) {
   console.log(

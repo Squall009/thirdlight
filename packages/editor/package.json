@@ -1,0 +1,27 @@
+{
+  "name": "@thirdlight/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight minimal visual editor (packet 10): React panels (decision 0001 \u00a710) + imperative framework-free three.js viewport/gizmos/picking; browser state is a projection of backend state; separate-origin isolated play preview.",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./bridge": "./src/preview/bridge.ts",
+    "./client": "./src/session/client.ts",
+    "./gesture": "./src/session/gesture.ts",
+    "./projection": "./src/session/projection.ts"
+  },
+  "dependencies": {
+    "@thirdlight/protocol": "0.1.0",
+    "@thirdlight/runtime": "0.1.0",
+    "@thirdlight/three-adapter": "0.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0"
+  }
+}

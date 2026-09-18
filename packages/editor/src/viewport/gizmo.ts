@@ -1,0 +1,213 @@
+/**
+ * Transform gizmo (packet 10) — imperative three.js, framework-free.
+ *
+ * A minimal, practical translate/rotate/scale gizmo. A drag PREVIEWs locally
+ * (the target Object3D's transform is updated live — no network traffic) and
+ * the gesture COMMITs as one command on release (the caller issues the single
+ * `setTransform`). The gizmo reports the current transform on every frame
+ * (for the projection's local preview + the inspector readout) and the final
+ * transform on end.
+ *
+ * The screen-space drag model (framework-free, no per-frame traffic):
+ *  - translate: pointer delta mapped to a camera-aligned screen plane
+ *    (dx → camera right, dy → camera up);
+ *  - rotate: horizontal delta → world-Y, vertical delta → world-X (arcball
+ *    lite);
+ *  - scale: horizontal delta → uniform multiplicative scale.
+ */
+
+import * as THREE from 'three';
+
+export type GizmoMode = 'translate' | 'rotate' | 'scale';
+
+export interface GizmoTransform {
+  position: number[];
+  rotation: number[];
+  scale: number[];
+}
+
+export interface GizmoCallbacks {
+  onFrame: (t: GizmoTransform) => void;
+  onEnd: (t: GizmoTransform) => void;
+}
+
+const AXIS_COLORS = { x: 0xff5252, y: 0x52d273, z: 0x5299ff } as const;
+
+/** Safe numeric component read (transforms are always 3/4-element). */
+const N = (v: number | undefined): number => v ?? 0;
+
+/**
+ * One gizmo, attached to a target Object3D. `attach` captures the target's
+ * current transform as the gesture base; `pointerDown/Move/Up` drive the
+ * local preview; the transform is always reported in world space (canonical
+ * position / quaternion / scale).
+ */
+export class Gizmo {
+  private readonly scene: THREE.Scene;
+  private readonly camera: THREE.PerspectiveCamera;
+  private readonly cb: GizmoCallbacks;
+  private target: THREE.Object3D | null = null;
+  private mode: GizmoMode = 'translate';
+  private active = false;
+  private base: GizmoTransform | null = null;
+  /** Visual gizmo helpers (rebuilt per attach). */
+  private helpers: THREE.Object3D[] = [];
+
+  constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, _renderer: THREE.WebGLRenderer, cb: GizmoCallbacks) {
+    this.scene = scene;
+    this.camera = camera;
+    this.cb = cb;
+  }
+
+  get targetId(): string | null {
+    return (this.target as { entityId?: string } | null)?.entityId ?? null;
+  }
+
+  /** Attach to a target at `mode`; captures the base transform. */
+  attach(target: THREE.Object3D, mode: GizmoMode): void {
+    this.target = target;
+    this.mode = mode;
+    this.base = this.readTransform();
+    this.buildHelpers();
+  }
+
+  detach(): void {
+    this.target = null;
+    this.active = false;
+    this.base = null;
+    this.clearHelpers();
+  }
+
+  setMode(mode: GizmoMode): void {
+    if (!this.target) return;
+    this.mode = mode;
+    this.base = this.readTransform();
+    this.clearHelpers();
+    this.buildHelpers();
+  }
+
+  private readTransform(): GizmoTransform {
+    const t = this.target as THREE.Object3D;
+    return {
+      position: [t.position.x, t.position.y, t.position.z],
+      rotation: [t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w],
+      scale: [t.scale.x, t.scale.y, t.scale.z],
+    };
+  }
+
+  private writeTransform(t: GizmoTransform): void {
+    const o = this.target as THREE.Object3D;
+    o.position.set(N(t.position[0]), N(t.position[1]), N(t.position[2]));
+    o.quaternion.set(N(t.rotation[0]), N(t.rotation[1]), N(t.rotation[2]), N(t.rotation[3]));
+    o.scale.set(N(t.scale[0]), N(t.scale[1]), N(t.scale[2]));
+  }
+
+  /** Begin a gesture (pointer down on the gizmo). Returns true if consumed. */
+  pointerDown(_e: PointerEvent): boolean {
+    if (!this.target || !this.base) return false;
+    this.active = true;
+    return true;
+  }
+
+  /** Advance the local preview (pointer delta). No commit. */
+  pointerMove(dx: number, dy: number): void {
+    if (!this.active || !this.target || !this.base) return;
+    const t = this.step(this.base, dx, dy);
+    this.writeTransform(t);
+    this.cb.onFrame(t);
+  }
+
+  /** End the gesture (pointer up). Reports the final transform once. */
+  pointerUp(): void {
+    if (!this.active || !this.target) return;
+    this.active = false;
+    this.cb.onEnd(this.readTransform());
+  }
+
+  private step(base: GizmoTransform, dx: number, dy: number): GizmoTransform {
+    const pos = [...base.position];
+    const quat = new THREE.Quaternion(base.rotation[0], base.rotation[1], base.rotation[2], base.rotation[3]);
+    const scl = [...base.scale];
+    const SENS = 0.01; // pixels → world units
+    if (this.mode === 'translate') {
+      // Camera-aligned screen plane: dx → right, dy → up.
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      const delta = new THREE.Vector3().addScaledVector(right, dx * SENS).addScaledVector(up, -dy * SENS);
+      pos[0] = N(pos[0]) + delta.x;
+      pos[1] = N(pos[1]) + delta.y;
+      pos[2] = N(pos[2]) + delta.z;
+    } else if (this.mode === 'rotate') {
+      const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dx * SENS * 0.5);
+      const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -dy * SENS * 0.5);
+      const nq = new THREE.Quaternion().multiply(qy).multiply(qx).multiply(quat);
+      return {
+        position: pos,
+        rotation: [nq.x, nq.y, nq.z, nq.w],
+        scale: scl,
+      };
+    } else {
+      // scale: horizontal delta → uniform multiplicative
+      const f = Math.max(0.05, 1 + dx * SENS * 0.5);
+      scl[0] = N(base.scale[0]) * f;
+      scl[1] = N(base.scale[1]) * f;
+      scl[2] = N(base.scale[2]) * f;
+    }
+    return { position: pos, rotation: [quat.x, quat.y, quat.z, quat.w], scale: scl };
+  }
+
+  /** Build the visual gizmo helpers for the current mode. */
+  private buildHelpers(): void {
+    this.clearHelpers();
+    if (!this.target) return;
+    const group = new THREE.Group();
+    const p = this.base?.position ?? [0, 0, 0];
+    group.position.set(N(p[0]), N(p[1]), N(p[2]));
+    if (this.mode === 'translate') {
+      const axes: Array<[THREE.Vector3, number]> = [
+        [new THREE.Vector3(1, 0, 0), AXIS_COLORS.x],
+        [new THREE.Vector3(0, 1, 0), AXIS_COLORS.y],
+        [new THREE.Vector3(0, 0, 1), AXIS_COLORS.z],
+      ];
+      for (const [dir, color] of axes) {
+        const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), 1.2, color, 0.18, 0.1);
+        group.add(arrow);
+      }
+    } else if (this.mode === 'scale') {
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(1.3, 1.3, 1.3),
+        new THREE.MeshBasicMaterial({ color: 0xffd166, wireframe: true }),
+      );
+      group.add(box);
+    } else {
+      // rotate: a ring around Y (practical single-ring gizmo)
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.9, 0.03, 8, 32),
+        new THREE.MeshBasicMaterial({ color: 0xffd166 }),
+      );
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+    }
+    this.scene.add(group);
+    this.helpers.push(group);
+  }
+
+  private clearHelpers(): void {
+    for (const h of this.helpers) {
+      this.scene.remove(h);
+      h.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mat = (m as { material?: THREE.Material | THREE.Material[] }).material;
+        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+        else if (mat) mat.dispose();
+      });
+    }
+    this.helpers = [];
+  }
+
+  dispose(): void {
+    this.clearHelpers();
+    this.target = null;
+  }
+}

@@ -1,0 +1,305 @@
+/**
+ * Authoring viewport (packet 10) — imperative three.js, framework-free.
+ *
+ * The three.js scene graph, camera controls, and picking live OUTSIDE React
+ * (decision 0001 §10: React never instantiates or mutates Object3Ds). The
+ * viewport renders the browser's PROJECTION of the backend scene; it never
+ * mutates the scene itself — scene mutation flows only through editing
+ * commands (the client). A gizmo gesture previews transforms locally (the
+ * Object3D moves under the drag) and the commit is ONE undoable command.
+ *
+ * Browser-only: uses the DOM (canvas, events) + WebGL via three.js.
+ */
+
+import * as THREE from 'three';
+import type { ProjectedEntity } from '../session/projection';
+import { Gizmo, type GizmoMode } from './gizmo';
+
+export interface ViewportCallbacks {
+  onPick: (entityId: string | null) => void;
+  onGestureBegin: (entityId: string) => void;
+  onGestureFrame: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
+  onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
+}
+
+const GROUND_SIZE = 20;
+
+/** Safe numeric component read (transforms are always 3/4-element). */
+const N = (v: number | undefined): number => v ?? 0;
+
+/**
+ * The authoring viewport. Owns a single three.js Scene/Camera/Renderer and a
+ * set of entity meshes synced from the projection. Selection + gizmo gestures
+ * are driven by pointer events; the commit is handed to the caller (the
+ * client) as one command.
+ */
+export class Viewport {
+  readonly scene = new THREE.Scene();
+  private readonly camera: THREE.PerspectiveCamera;
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly root: HTMLCanvasElement;
+  private readonly meshes = new Map<string, THREE.Object3D>();
+  private readonly cb: ViewportCallbacks;
+  private selectedId: string | null = null;
+  private gizmo: Gizmo;
+  private readonly ground: THREE.Mesh;
+  private readonly grid: THREE.GridHelper;
+
+  // Orbit state (a minimal, framework-free orbit control).
+  private orbitTheta = Math.PI / 4;
+  private orbitPhi = Math.PI / 3;
+  private orbitRadius = 8;
+  private orbitTarget = new THREE.Vector3(0, 0.5, 0);
+  private dragging = false;
+  private draggingGizmo = false;
+  private lastPointer = { x: 0, y: 0 };
+  private readonly raycaster = new THREE.Raycaster();
+
+  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks) {
+    this.root = canvas;
+    this.cb = cb;
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.scene.background = new THREE.Color(0x14161c);
+
+    this.ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
+      new THREE.MeshLambertMaterial({ color: 0x1c1f27, side: THREE.DoubleSide }),
+    );
+    this.ground.rotation.x = -Math.PI / 2;
+    this.scene.add(this.ground);
+    this.grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0x333844, 0x23262f);
+    this.scene.add(this.grid);
+
+    const key = new THREE.DirectionalLight(0xffffff, 1.0);
+    key.position.set(5, 10, 7);
+    this.scene.add(key);
+    this.scene.add(new THREE.AmbientLight(0x8899bb, 0.6));
+
+    this.gizmo = new Gizmo(this.scene, this.camera, this.renderer, {
+      onFrame: (t) => this.cb.onGestureFrame(this.gizmoTargetId ?? '', t),
+      onEnd: (t) => {
+        const id = this.gizmoTargetId;
+        this.draggingGizmo = false;
+        if (id) this.cb.onGestureEnd(id, t);
+      },
+    });
+    this.bindEvents();
+    this.applyOrbit();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private gizmoTargetId: string | null = null;
+
+  /** Sync the entity set from the projection (add/remove/update meshes). */
+  syncEntities(entities: ProjectedEntity[]): void {
+    const seen = new Set<string>();
+    for (const e of entities) {
+      seen.add(e.id);
+      let m = this.meshes.get(e.id);
+      if (!m) {
+        m = this.buildMesh(e);
+        this.meshes.set(e.id, m);
+        this.scene.add(m);
+      } else {
+        this.updateMesh(m, e);
+      }
+    }
+    // Remove meshes whose entities are gone.
+    for (const [id, m] of this.meshes) {
+      if (!seen.has(id)) {
+        this.scene.remove(m);
+        this.disposeMesh(m);
+        this.meshes.delete(id);
+        if (this.selectedId === id) this.setSelected(null);
+      }
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private buildMesh(e: ProjectedEntity): THREE.Object3D {
+    const group = new THREE.Group();
+    group.name = e.id;
+    (group as { entityId?: string }).entityId = e.id;
+    if (e.kind === 'box') {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ color: 0x4f8cff }),
+      );
+      mesh.name = e.id;
+      (mesh as { entityId?: string }).entityId = e.id;
+      group.add(mesh);
+    } else {
+      // Cameras render as a small frustum marker (non-pickable body + label cone).
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.3, 0.7, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffc857 }),
+      );
+      cone.rotation.x = Math.PI / 2;
+      cone.name = e.id;
+      (cone as { entityId?: string }).entityId = e.id;
+      group.add(cone);
+    }
+    this.updateMesh(group, e);
+    return group;
+  }
+
+  private updateMesh(obj: THREE.Object3D, e: ProjectedEntity): void {
+    obj.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
+    obj.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
+    obj.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
+  }
+
+  private disposeMesh(obj: THREE.Object3D): void {
+    obj.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as { material?: THREE.Material | THREE.Material[] }).material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else if (mat) mat.dispose();
+    });
+  }
+
+  /** Set the selected entity (drives the gizmo). */
+  setSelected(id: string | null, mode: GizmoMode = 'translate'): void {
+    this.selectedId = id;
+    for (const [eid, m] of this.meshes) {
+      this.setMeshHighlight(m, eid === id);
+    }
+    if (id && this.meshes.has(id)) {
+      this.gizmoTargetId = id;
+      this.gizmo.attach(this.meshes.get(id)!, mode);
+    } else {
+      this.gizmoTargetId = null;
+      this.gizmo.detach();
+    }
+  }
+
+  setGizmoMode(mode: GizmoMode): void {
+    if (this.gizmoTargetId) this.gizmo.attach(this.meshes.get(this.gizmoTargetId)!, mode);
+    this.gizmo.setMode(mode);
+  }
+
+  private setMeshHighlight(obj: THREE.Object3D, on: boolean): void {
+    obj.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
+      if (mat && 'emissive' in mat) {
+        mat.emissive.setHex(on ? 0x2a4a80 : 0x000000);
+      }
+    });
+  }
+
+  /** Pick the entity under a pointer position (client coords in the canvas). */
+  private pick(clientX: number, clientY: number): string | null {
+    const rect = this.root.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const pickables: THREE.Object3D[] = [];
+    for (const m of this.meshes.values()) pickables.push(m);
+    const hits = this.raycaster.intersectObjects(pickables, true);
+    for (const h of hits) {
+      let o: THREE.Object3D | null = h.object;
+      while (o) {
+        const id = (o as { entityId?: string }).entityId;
+        if (id && this.meshes.has(id)) return id;
+        o = o.parent;
+      }
+    }
+    return null;
+  }
+
+  private bindEvents(): void {
+    this.root.addEventListener('pointerdown', this.onPointerDown);
+    this.root.addEventListener('pointermove', this.onPointerMove);
+    this.root.addEventListener('pointerup', this.onPointerUp);
+    this.root.addEventListener('wheel', this.onWheel, { passive: false });
+    this.root.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private onPointerDown = (e: PointerEvent): void => {
+    this.lastPointer = { x: e.clientX, y: e.clientY };
+    if (this.gizmo.pointerDown(e)) {
+      this.draggingGizmo = true;
+      if (this.gizmoTargetId) this.cb.onGestureBegin(this.gizmoTargetId);
+      return;
+    }
+    this.dragging = true;
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    const dx = e.clientX - this.lastPointer.x;
+    const dy = e.clientY - this.lastPointer.y;
+    this.lastPointer = { x: e.clientX, y: e.clientY };
+    if (this.draggingGizmo) {
+      this.gizmo.pointerMove(dx, dy);
+      return;
+    }
+    if (this.dragging) {
+      this.orbitTheta -= dx * 0.01;
+      this.orbitPhi = Math.min(Math.PI - 0.05, Math.max(0.05, this.orbitPhi - dy * 0.01));
+      this.applyOrbit();
+    }
+  };
+
+  private onPointerUp = (e: PointerEvent): void => {
+    if (this.draggingGizmo) {
+      this.gizmo.pointerUp();
+      this.draggingGizmo = false;
+      return;
+    }
+    const wasDrag = this.dragging;
+    this.dragging = false;
+    // A click (not a drag) picks.
+    if (wasDrag) return;
+    const id = this.pick(e.clientX, e.clientY);
+    this.cb.onPick(id);
+  };
+
+  private onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    this.orbitRadius = Math.min(60, Math.max(1.5, this.orbitRadius * (1 + e.deltaY * 0.001)));
+    this.applyOrbit();
+  };
+
+  private applyOrbit(): void {
+    const { orbitTheta: t, orbitPhi: p, orbitRadius: r, orbitTarget: c } = this;
+    this.camera.position.set(
+      c.x + r * Math.sin(p) * Math.cos(t),
+      c.y + r * Math.cos(p),
+      c.x + r * Math.sin(p) * Math.sin(t),
+    );
+    this.camera.lookAt(c);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Fit the camera to the current content (called on resync). */
+  frameScene(): void {
+    this.orbitRadius = 8;
+    this.orbitTarget.set(0, 0.5, 0);
+    this.applyOrbit();
+  }
+
+  resize(): void {
+    const w = Math.max(1, this.root.clientWidth || this.root.width);
+    const h = Math.max(1, this.root.clientHeight || this.root.height);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h, false);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose(): void {
+    for (const m of this.meshes.values()) {
+      this.scene.remove(m);
+      this.disposeMesh(m);
+    }
+    this.meshes.clear();
+    this.gizmo.dispose();
+    this.disposeMesh(this.ground);
+    this.renderer.dispose();
+  }
+}
