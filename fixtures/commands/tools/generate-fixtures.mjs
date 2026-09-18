@@ -321,6 +321,14 @@ function ownershipObj({ state, backendId, pid, openedAt, lockEpoch }) {
   return { storageVersion: 1, state, backendId, pid, openedAt, lockEpoch };
 }
 
+// Exclusive claim file (workspace.md §6.3, 2026-09-18 amended): the token an
+// ACTIVE owner holds for the life of the session. Key order matches the
+// canonical stamp bytes the workspace package writes (backendId, pid,
+// openedAt).
+function claimObj({ backendId, pid, openedAt }) {
+  return { backendId, pid, openedAt };
+}
+
 function queryProjectResult({ projectId, manifest, scene, revision, history, workspace }) {
   return {
     ok: true,
@@ -938,6 +946,10 @@ put(sc("08-external-modification", "disk-before/project.json"), canonJson(MAIN))
 put(sc("08-external-modification", "disk-before/scenes/main.json"), t7EnvelopeBytes);
 put(sc("08-external-modification", "disk-before/.thirdlight/ownership.json"),
   canonJson(ownershipObj({ state: "owned", ...ownerA })));
+// Owner A's active session holds its exclusive claim file (the 2026-09-18
+// amended §6.2 self-reclaim row re-verifies it before serving).
+put(sc("08-external-modification", "disk-before/.thirdlight/claim-0"),
+  canonJson(claimObj(ownerA)));
 put(sc("08-external-modification", "disk-external/scenes/main.json"), extEnvelopeBytes);
 {
   const messages = [
@@ -982,6 +994,9 @@ put(sc("09-second-backend-ownership", "disk-before/project.json"), canonJson(MAI
 put(sc("09-second-backend-ownership", "disk-before/scenes/main.json"), t7EnvelopeBytes);
 put(sc("09-second-backend-ownership", "disk-before/.thirdlight/ownership.json"),
   canonJson(ownershipObj({ state: "owned", ...ownerA })));
+// Owner A's active session holds its exclusive claim file (see 08).
+put(sc("09-second-backend-ownership", "disk-before/.thirdlight/claim-0"),
+  canonJson(claimObj(ownerA)));
 {
   const holderA = { backendId: ownerA.backendId, pid: ownerA.pid, openedAt: ownerA.openedAt, lockEpoch: ownerA.lockEpoch, state: "owned" };
   const messages = [

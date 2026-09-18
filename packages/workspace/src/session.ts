@@ -45,6 +45,7 @@ import {
   projectUnavailable,
   staleOwnership,
   ownershipConflict,
+  claimInconsistent,
   writeFailed,
   type Holder,
   type LoadDetail,
@@ -66,6 +67,7 @@ import {
   readOwnershipRecordBytes,
   releaseOwnership,
   utcSecond,
+  type ClaimInconsistentInfo,
   type ClaimOutcome,
   type Liveness,
   type OwnershipEval,
@@ -577,17 +579,32 @@ export function ensureSession(
       return evalToUnavailable(ev);
     }
     ensureThirdlightDir(thirdlightDir, core.ops);
-    const c = claimOwnership(
+    const c = claimOwnership({
       thirdlightDir,
-      core.self,
-      ev.lockEpoch,
-      livenessFn(core),
-      core.ops,
-      () => core.utcNow(),
-      recBytes,
-    );
+      self: core.self,
+      lockEpoch: ev.lockEpoch,
+      liveness: livenessFn(core),
+      ops: core.ops,
+      previousRecord: recBytes,
+      openedAt: () => core.utcNow(),
+    });
     if (c.ok) {
       claim = c;
+    } else if ('inconsistent' in c) {
+      // The §6.3 orphan-recovery rule cannot resolve the claim file at
+      // the target epoch (content unparseable/unreadable, or the holder
+      // not proven dead): the documented stuck state — the open fails
+      // with claim_inconsistent (holder null; nothing was claimed). The
+      // operator confirms the holder is dead, removes the orphan claim
+      // file, and re-issues the open (an operator file operation — no
+      // backend command).
+      return {
+        kind: 'unavailable',
+        reason: 'claim_inconsistent',
+        holder: null,
+        errors: [claimInconsistentDetail(c.inconsistent)],
+        count: 1,
+      };
     } else if (c.eval.action === 'claim') {
       continue; // the record moved (concurrent claimer / transient I/O): retry
     } else {
@@ -674,6 +691,24 @@ function evalToUnavailable(ev: OwnershipEval): OpenOutcome {
   // A 'claim' eval here is unreachable (callers claim or continue), but
   // fail closed as a conflict without a holder.
   return { kind: 'unavailable', reason: 'ownership_conflict', holder: null };
+}
+
+/**
+ * The `claim_inconsistent` payload carried by the open-path error
+ * (workspace.md §11: carries the claim file path, the holder content if
+ * parseable, and the liveness outcome — mapped into the `project_
+ * unavailable` detail fields the open path surfaces).
+ */
+function claimInconsistentDetail(info: ClaimInconsistentInfo): LoadDetail {
+  return {
+    code: 'claim_inconsistent',
+    path: info.claimFile,
+    message:
+      info.holderContent === null
+        ? `the claim file ${info.claimFile} exists at the target epoch but its content is unparseable or unreadable — it cannot be reclaimed`
+        : `the claim file ${info.claimFile}'s holder (${info.holderContent.backendId}, pid ${info.holderContent.pid}) is not proven dead (liveness: ${info.liveness}) — the orphan cannot be reclaimed`,
+    found: info.holderContent,
+  };
 }
 
 /** Ensure the project's VERIFIED `.thirdlight` directory exists (0755)
@@ -1213,8 +1248,30 @@ export function takeover(
     const lv = staleRec === null ? 'unknown' : lf(staleRec.pid, staleRec.openedAt);
     if (lv !== 'dead') continue;
     // (3) claim with lockEpoch = previous + 1.
-    const claim = claimOwnership(thirdlightDir, core.self, staleRec!.lockEpoch + 1, lf, core.ops, () => core.utcNow(), recBytes);
+    const claim = claimOwnership({
+      thirdlightDir,
+      self: core.self,
+      lockEpoch: staleRec!.lockEpoch + 1,
+      liveness: lf,
+      ops: core.ops,
+      previousRecord: recBytes,
+      openedAt: () => core.utcNow(),
+    });
     if (!claim.ok) {
+      if ('inconsistent' in claim) {
+        // The §6.3 orphan-recovery rule cannot resolve the claim file at
+        // the target epoch: claim_inconsistent (holder null; nothing was
+        // claimed) — the operator removes the orphan file and re-issues.
+        return {
+          ok: false,
+          error: claimInconsistent(
+            projectId,
+            claim.inconsistent.claimFile,
+            claim.inconsistent.holderContent,
+            claim.inconsistent.liveness,
+          ),
+        };
+      }
       const e2 = claim.eval;
       if (e2.action === 'claim') continue; // the record moved: re-evaluate
       return {
@@ -1304,10 +1361,32 @@ function performClaimAndLoad(
   let claim: ClaimOutcome | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     ensureThirdlightDir(thirdlightDir, core.ops);
-    const c = claimOwnership(thirdlightDir, core.self, lockEpoch, lf, core.ops, () => core.utcNow(), existingBytes);
+    const c = claimOwnership({
+      thirdlightDir,
+      self: core.self,
+      lockEpoch,
+      liveness: lf,
+      ops: core.ops,
+      previousRecord: existingBytes,
+      openedAt: () => core.utcNow(),
+    });
     if (c.ok) {
       claim = c;
       break;
+    }
+    if ('inconsistent' in c) {
+      // The §6.3 orphan-recovery rule cannot resolve the claim file at
+      // the target epoch: claim_inconsistent (holder null; nothing was
+      // claimed).
+      return {
+        ok: false,
+        error: claimInconsistent(
+          projectId,
+          c.inconsistent.claimFile,
+          c.inconsistent.holderContent,
+          c.inconsistent.liveness,
+        ),
+      };
     }
     if (c.eval.action === 'claim') continue; // the record moved: retry
     return {

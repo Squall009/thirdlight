@@ -31,6 +31,7 @@ export const WORKSPACE_ERROR_CODES = [
   'retry_records_invalid',
   'manifest_invalid',
   'ownership_conflict',
+  'claim_inconsistent',
   'stale_ownership',
   'workspace_closed',
   'external_change_invalid',
@@ -74,6 +75,7 @@ export type UnavailableReason =
   | 'retry_records_invalid'
   | 'envelope_invalid'
   | 'ownership_conflict'
+  | 'claim_inconsistent'
   | 'stale_ownership'
   | 'workspace_closed'
   | 'external_change_unresolved'
@@ -85,6 +87,10 @@ function reasonHint(reason: UnavailableReason): string {
     case 'ownership_conflict':
       // Pinned by fixtures/commands/scenarios/09 (messages.json step 1).
       return 'another live backend owns this project; stop it or wait for an operator takeover';
+    case 'claim_inconsistent':
+      // workspace.md §11 hint (the §6.3 stuck state: the claim file is
+      // unresolvable — operator file operation, no backend command).
+      return 'the claim file at the target epoch cannot be reclaimed: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
     case 'stale_ownership':
       // Pinned by fixtures/commands/scenarios/09 (messages.json step 2).
       return 'run takeoverWorkspace to take over the stale ownership record (explicit operator action; never automatic)';
@@ -318,7 +324,11 @@ export function projectExistsInvalid(
   return e as unknown as CommandError;
 }
 
-/** Operator-result error: `ownership_conflict` (workspace.md §6.2/§11). */
+/** Operator-result error: `ownership_conflict` (workspace.md §6.2/§11).
+ * Carries `holder` — the identity object of the parseable owned record —
+ * or omits it when no parseable owned record exists (§11: `holder` is
+ * `null` in that case, e.g. the claim file exists with foreign/absent
+ * content at the target epoch, incl. the self-reclaim refusal). */
 export function ownershipConflict(holder: Holder | null): CommandError {
   const e: Record<string, unknown> = {
     code: 'ownership_conflict',
@@ -330,6 +340,39 @@ export function ownershipConflict(holder: Holder | null): CommandError {
       ? 'the ownership record is unreadable; another writer may hold the project — no takeover was performed'
       : 'another live backend owns this project; no automatic takeover is performed';
   e['hint'] = 'stop the other backend, or wait until its record becomes stale, then re-issue';
+  return e as unknown as CommandError;
+}
+
+/** Operator-result error: `claim_inconsistent` (workspace.md §6.3/§11).
+ * The claim file exists at the target epoch but cannot be reclaimed:
+ * its content is unparseable/unreadable, or its holder's pid is not
+ * proven dead under the §6.2 liveness rules (the §6.3 orphan-recovery
+ * rule — the only liveness-referenced path). `cls: "unavailable"`;
+ * carries `projectId`, the claim file path, the holder content if
+ * parseable, and the liveness outcome; nothing is claimed. The operator
+ * confirms the holder is dead, removes the orphan claim file, and
+ * re-issues the open (an operator file operation — no backend
+ * command). */
+export function claimInconsistent(
+  projectId: string,
+  claimFile: string,
+  holderContent: { backendId: string; pid: number; openedAt: string } | null,
+  livenessOutcome: 'dead' | 'live' | 'unknown' | null,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'claim_inconsistent',
+    cls: 'unavailable',
+    projectId,
+    claimFile,
+  };
+  if (holderContent !== null) e['holderContent'] = holderContent;
+  if (livenessOutcome !== null) e['livenessOutcome'] = livenessOutcome;
+  e['message'] =
+    holderContent === null
+      ? 'the claim file exists at the target epoch but its content is unparseable or unreadable — it cannot be reclaimed; nothing was claimed'
+      : `the claim file's holder (${holderContent.backendId}, pid ${holderContent.pid}) is not proven dead (liveness: ${livenessOutcome}) — it cannot be reclaimed; nothing was claimed`;
+  e['hint'] =
+    'confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
   return e as unknown as CommandError;
 }
 
