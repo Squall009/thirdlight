@@ -1,15 +1,25 @@
 # Contract change request — exclusive ownership claim (review finding R9)
 
-**Date:** 2026-09-18
+**Date:** 2026-09-18 (repair round 1: 2026-09-18)
 **Authority:** owner-requested review `docs/reviews/2026-09-18-commits.md`,
 finding **R9** (P1, CONTRACT BLOCKER: "rename plus verification does not
 establish exclusive ownership"), and its **Suggested orchestration work order,
 step 1** ("Record a contract decision for R9's actual exclusivity mechanism").
+**Repair history (round 1 — 2026-09-18):** per
+`docs/handoffs/2026-09-18-contract-review.md` F1/F2/F3, the mechanism is
+re-selected from (b) `flock` to **(a) the epoch-scoped `O_EXCL` claim file
+(dep-free)**; the §4 diff and §5 tests are redone for (a); §2(b)/(c) are
+retained as evaluated-but-rejected with the review's reasons; the §3
+recommendation and §4/§5 are replaced. F4–F7 (section 7) are addressed by a
+subsequent repair step.
 **Scope note:** R9 in full; R1/R3 state addendum to follow as a separate
-section; nothing else in any contract changes; no implementation under this
-request. This is a proposal for the independent architectural review step —
-no reviewer approval is claimed or implied. Working state: HEAD `ed714c2`,
-clean tree; docs only — no source, test, fixture, or contract-document change.
+section (section 7 — untouched in this repair step); nothing else in any
+contract changes; no implementation under this request. This is a proposal
+for the independent architectural review step — no reviewer approval is
+claimed or implied. Working state: HEAD `44f0a49`; uncommitted: the review
+file (`docs/handoffs/2026-09-18-contract-review.md`, left untouched) and the
+orchestrator log (`docs/orchestration.md`, out of scope); docs only — no
+source, test, fixture, or contract-document change.
 
 ## 1. The defect (precise)
 
@@ -50,93 +60,209 @@ Platform: local Linux ext4, self-hosted, single host (contract §2/§12 exclude
 network filesystems); the code already has a `procRoot` seam for `/proc`
 liveness. For each mechanism: (i) single-winner proof for the §1
 interleaving (this request); (ii) SIGKILL crash behavior; (iii)
-absent/released/stale transitions; (iv) exact §6.2/§6.4/§6.5/§11 table rows
-added/changed/removed (existing table style); (v) new `WriteOps` primitives
-(against the current `WriteOps` at `write.ts:59`); (vi) operational risks.
+absent/released/stale transitions; (iv) exact §6.2/§6.3/§6.4/§6.5/§9/§11
+text rows added/changed/removed (existing table style); (v) new `WriteOps`
+primitives (against the current `WriteOps` at `write.ts:59`); (vi)
+operational risks.
 
-### (a) Epoch-scoped atomic claim file (`O_CREAT|O_EXCL`)
+### (a) Epoch-scoped atomic claim file (`O_CREAT|O_EXCL`) — recommended (round 1)
 
-The record file is unchanged (identity/epoch/openedAt, written via `W` after
-the claim). New: a per-epoch claim file `.thirdlight/claim-<lockEpoch>`,
-created with `O_CREAT|O_EXCL`; the claimer's identity (backendId, pid,
-openedAt, epoch) is stamped into it before the record write; claim files are
-never deleted (past-epoch files are **tombstones**); liveness stays the
-conservative unknown⇒live rule for record evaluation; operator takeover
-advances the epoch. Claim at epoch e = (1) `open(claim-e, O_CREAT|O_EXCL)` —
-the exclusive gate; EEXIST ⇒ a different claimer holds epoch e: re-read the
-record and re-evaluate (owned+live ⇒ conflict; owned+dead at e ⇒ stale at e;
-record absent/released/older-epoch ⇒ **orphan state** below — the open fails,
-never auto-resolved); (2) stamp identity into claim-e, fsync, close; (3)
-`W` the record (owned, our identity, e) + verification re-read; (4)
-consistency: the re-read record's epoch must be e — while we hold claim-e and
-the record's epoch is < e, no protocol write can advance the record past
-e−1 (any advance requires a claim at that epoch, which requires its own claim
-file; an advance to e requires claim-e itself, which we exclusively hold), so
-a foreign epoch ⇒ out-of-protocol tampering ⇒ fail closed, release. Any
-failure before step 4 completes ⇒ no ownership.
+The record file is unchanged in content (identity/epoch/openedAt, written
+via `W` after the claim). New: a per-epoch claim file
+`.thirdlight/claim-<lockEpoch>`, created with `O_CREAT|O_EXCL` (on Node:
+`fs.open(path, 'wx')` — `O_WRONLY|O_CREAT|O_EXCL`, the same primitive
+`openTempFile` at write.ts:61 already uses); **after** the exclusive create,
+the claimer's identity `{ backendId, pid, UTC timestamp }` (canonical
+serialization, the record's style) is written into it **durably** (write +
+fsync) — a crash before the content write leaves an empty/absent-content
+claim file (orphan, below). Claim files are unlinked by the protocol in
+exactly two cases — the owner's own release (§9) and the next epoch's
+successful claim (superseded-epoch cleanup, (iii) below); a crash orphans
+the file (recovered by the orphan-recovery rule). Liveness stays the
+conservative unknown⇒live rule for record evaluation. Claim at epoch e =
+(1) `open(claim-e, O_CREAT|O_EXCL)` — the exclusive gate; EEXIST ⇒ a
+different claimer holds epoch e: re-read the record and re-evaluate
+(owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership` — the
+takeover path advances to e+1; record absent/released/older-epoch ⇒ the
+**orphan-recovery rule** below); (2) stamp the identity into claim-e,
+fsync, close; (3) `W` the record (owned, our identity, e); (4)
+**verification re-read of both files** — the re-read record must contain
+our `backendId`/`pid`/`lockEpoch`, and the re-read claim-e must contain our
+step-2 content (`backendId`+`pid`+timestamp match): this re-read closes the
+hostile/foreign unlink-recreate race for the claimant that lost its file;
+(5) consistency: the re-read record's epoch must be e — while we hold
+claim-e and the record's epoch is < e, no protocol write can advance the
+record past e−1 (any advance requires a claim at that epoch, which requires
+its own claim file; an advance to e requires claim-e itself, which we
+exclusively hold), so a foreign epoch ⇒ out-of-protocol tampering ⇒ fail
+closed (the claim fails; the claim file is left on disk and is recovered as
+described below). Any failure before step 5 completes ⇒ no ownership.
 
 **(i) Single-winner proof.** A and B both read the record absent ⇒ both
 target epoch 0 ⇒ both target the *same path* `claim-0`.
-`open(O_CREAT|O_EXCL)` is serialized by the kernel (ext4 inode lock): at most
-one caller succeeds. If A pauses before its open: B's open succeeds, B
-completes the claim (record 0, B live); A's open ⇒ EEXIST ⇒ A re-reads the
-record (B's owned, live) ⇒ `ownership_conflict`. If A paused after its own
-successful open: B's open ⇒ EEXIST; the record is still absent (A mid-claim)
-⇒ B fails (in-flight holder — no claim either way). Ownership is conferred by
-the exclusive creation, not by the record write; no interleaving yields two
-holders of `claim-0`, and only the holder can write the record at epoch 0. ∎
+`open(O_CREAT|O_EXCL)` is serialized by the kernel (ext4): at most one
+caller succeeds. If A pauses before its open: B's open succeeds, B stamps
+the content, writes the record (0, B live), and verifies both files; A's
+open ⇒ EEXIST ⇒ A re-reads the record (B's owned, live) ⇒
+`ownership_conflict`. If A pauses after its own successful open, before the
+content write: B's open ⇒ EEXIST; the record is still absent (A mid-claim)
+and A's claim-file content is absent/unparseable ⇒ A's holder identity is
+unknown ⇒ treated as live ⇒ B fails (`claim_inconsistent`, the liveness
+outcome reported) — no claim either way. If A pauses after the content
+write, before the record write: B's open ⇒ EEXIST; the record is still
+absent; A's content is parseable with A's pid — while A is live, B fails
+(`claim_inconsistent`, a live holder mid-claim); only if A is *proven
+dead* may B reclaim — and then A is not a live rival (it cannot complete
+its claim). In every branch the winner is the unique `O_EXCL` success at
+`claim-0` (or the unique reclaimant of a proven-dead holder's file); no
+interleaving yields two holders of `claim-0`, and only the holder can write
+the record at epoch 0 with a passing two-file verification. ∎
 
 **(ii) SIGKILL crash behavior.** Crash points: (1) before the claim file —
-nothing on disk, plain absent. (2) Claim file created, identity stamp
-partial/absent — claim-e present with unparseable identity ⇒ holder unknown
-⇒ conservatively treated as in-flight/live ⇒ the open fails; evidence = the
-raw claim-e bytes, reported to the operator. (3) Claim file complete, record
-not (yet) written — **orphan state**: record absent/older + claim-e present.
-*No process may write next automatically*: the next claimant at epoch e hits
-EEXIST, sees record epoch < e, and fails with a structured inconsistent
-error. An **operator** resolves explicitly: the resolution adopts the record
-from the claim file's identity (record becomes owned-e, dead holder) — no
-unlink — after which the normal stale-takeover path (epoch e+1; claim-(e+1)
-is free) proceeds. (4) After the record write — the ordinary stale state
-(record owned, dead pid, claim-e a consistent tombstone pair).
+nothing on disk, plain absent. (2) Claim file created, identity content not
+(yet) written — claim-e present with absent/unparseable content ⇒ no holder
+identity ⇒ unknown ⇒ treated as live ⇒ the next open fails with
+`claim_inconsistent` (the documented stuck state; the raw claim-e bytes are
+reported as evidence; the operator confirms the holder is dead and removes
+the file — an operator file operation, no backend command). (3)
+Claim-file content complete, record not (yet) written — **orphan state**:
+record absent/older + claim-e present with a holder identity ⇒ the next
+claimant at epoch e reclaims once the holder is proven dead
+(orphan-recovery rule) and succeeds — no operator step; operator file
+resolution only when the liveness outcome is not "dead". (4) After the
+record write — the ordinary stale state (record owned, dead pid, claim-e
+the consistent pair; the next takeover at e+1 removes claim-e via the
+superseded-epoch cleanup).
 
-**(iii) Transitions.** absent ⇒ claim 0 (claim-0 must be free; else orphan
-failure). released-e ⇒ claim e+1. owned+live ⇒ `ownership_conflict`.
-owned+dead ⇒ `stale_ownership` ⇒ explicit takeover ⇒ e+1. Own-record reopen
-⇒ no write. One tombstone file per epoch ever used; never deleted.
+**(iii) Transitions.** absent ⇒ claim 0 (the claim-0 gate; an existing
+claim-0 ⇒ the orphan-recovery rule or `claim_inconsistent`). released-e ⇒
+claim e+1 (claim-(e+1) is free; the superseded-epoch cleanup unlinks
+claim-e — **safe because** a claim at e+1 occurs only against a record at e
+that is released or stale (dead holder): in both cases the session that
+created claim-e is no longer an active writer (a released session must not
+serve; a dead pid cannot), so claim-e excludes no live writer and removing
+it deletes no live claimant's token). owned+live ⇒ `ownership_conflict`.
+owned+dead ⇒ `stale_ownership` ⇒ explicit takeover ⇒ e+1 (claim-e unlinked
+by the cleanup). Own-record reopen ⇒ **self-reclaim** (not a re-claim): the
+session does not re-run `O_EXCL` against its own claim file; it re-verifies
+the claim file content matches its identity (`backendId`+`pid`); missing or
+foreign content ⇒ `ownership_conflict` (holder `null`) and the session must
+not serve. One claim file per epoch ever used; each is removed by the next
+successful claim or by the owner's release (round 1 supersedes the original
+(a) never-deleted-tombstone rule; a failed best-effort unlink leaves an
+inert file no future claim targets — the epoch is monotonic).
 
 **(iv) Rows.**
-- §6.2 table: row `absent` **changed**: "claim: create `claim-0` via
-  `O_CREAT|O_EXCL` (§6.3), then write the record via `W` + verification
-  re-read; EEXIST ⇒ re-read the record and re-evaluate (a concurrent claimer
-  won, or orphan/inconsistent state — the open fails)". Row **added**:
-  `| record epoch < highest existing claim-file epoch (record absent while a claim file exists) | crash between claim-file creation and record write (or a bypassing act) | **`claim_inconsistent`** — open fails; operator resolution required (§6.4) |`. Liveness block **changed**: add "liveness is reporting/classification only; the exclusion gate is the claim-file creation (§6.3)".
-- §6.4: procedure step (3) **changed**: "Claim (§6.3) with `lockEpoch` = previous + 1 (the `O_CREAT|O_EXCL` on `claim-(e+1)` is the single-winner gate; a held claim file ⇒ `ownership_conflict`)". Bullet **added** (orphan resolution, operator command, explicit, liveness reported as evidence, never automatic). Residual split-brain paragraph **unchanged** — a takeover of a *live* owner is still possible (the gate arbitrates only concurrent same-epoch claimers, not a sequential false-dead takeover of a live holder).
-- §6.5: bullet **added**: "Claim files are never deleted (tombstones); they are workspace artifacts like the record". Owner-crash bullet **changed**: "…⇒ stale ⇒ explicit takeover (claim-e persists as a tombstone)". Artifact bullet **changed** to cover claim files.
-- §11 operations table: row **added**:
-  `| `resolveClaimFile(projectId)` | operator (explicit, §6.4) | `{ ok, lockEpoch, holder }` | `claim_inconsistent`, `ownership_conflict`, `project_not_found` |`.
-  §11 error-code table: row **added**:
-  `| `claim_inconsistent` | record and claim files disagree (orphan claim file); operator resolution required (§6.4) |`.
+- §6.2 table: rows `absent`, `released`, and own-record **changed**: claim
+  = acquire the claim file (`O_CREAT|O_EXCL`, §6.3) + write the record via
+  `W` + verification re-read of the record *and* the claim file;
+  claim-file contention/orphan ⇒ the new `claim_inconsistent` code (or
+  `ownership_conflict` when a live owner is identified); own-record row:
+  the self-reclaim rule (no re-run of `O_EXCL` against the own claim file;
+  the content is re-verified against `backendId`+`pid`; missing/foreign ⇒
+  `ownership_conflict`, the session must not serve). Liveness block
+  **changed**: add the normative bullet — for concurrent claimers liveness
+  is reporting/classification only (the `O_EXCL` claim-file creation, §6.3,
+  is the only exclusion gate); the one liveness-referenced path is the
+  orphan-recovery rule (proceed only on parseable content + a proven-dead
+  pid; unknown ⇒ live ⇒ refuse, `claim_inconsistent`) — it reclaims a
+  crashed claimant's file and is never a gate on a live rival (a live
+  holder's file is never removed by a backend path).
+- §6.3: **full replacement** (claim = `O_EXCL` claim-<e> → durable content
+  write → `W` record → two-file verification re-read; the O_EXCL
+  single-winner statement replaces the falsified "concurrent claimers
+  converge" sentence; the orphan-recovery rule, `claim_inconsistent`, and
+  the superseded-epoch cleanup are defined here).
+- §6.4: procedure step (3) **changed** (claim at e+1 — the
+  `O_CREAT|O_EXCL` on `claim-(e+1)` is the single-winner gate; a held claim
+  file ⇒ `ownership_conflict`). Residual split-brain bullet **changed**
+  (rewritten for (a): the orphan-recovery path is the only
+  liveness-referenced path, bounded by unknown⇒live — a misclassification
+  can delay or block a reclaim (operator-visible) but cannot create a
+  second active writer; hostile unlink/recreate of the claim file or the
+  record is the §7.1 non-claim class).
+- §6.5: **changed** (claim-file lifecycle: created at claim with the
+  identity content; held for the session lifetime — a file, not an fd: its
+  existence is the token, no open descriptor is held; released by the
+  owner's own unlink at release (§9); superseded-epoch cleanup unlinks
+  claim-e at a successful claim at e+1; orphaned at crash; no
+  fd-lifetime discipline needed — the advantage over (b)).
+- §9: **new hunk** (the F3 fix): the release procedure gains an explicit
+  step — after the released record is durably written, unlink the
+  claimer's own claim file; no partial release (a failure before the record
+  write leaves the project owned with the old session still the writer); a
+  crash between the record write and the unlink leaves the documented
+  orphan (`released@e` + `claim-e`), recovered by the superseded-epoch
+  cleanup of the next claim at e+1; the old session must not issue further
+  writes once the released record is durable; the release record write does
+  not re-attempt the claim gate.
+- §11 operations table: the `releaseWorkspace` outcome row **unchanged**,
+  plus the new stuck-state note (the release-crash orphan is auto-recovered
+  at e+1; the target-epoch orphan is `claim_inconsistent`, resolved by an
+  operator **file operation** — **no new operation**: the original draft's
+  `resolveClaimFile(projectId)` command is **not adopted** — fewer contract
+  surface; the operator action is documented in the error hint). §11
+  error-code table: row **added** `claim_inconsistent` (cls `unavailable`;
+  carries `projectId`, the claim file path, the holder content if
+  parseable, and the liveness outcome; hint: confirm the holder is dead,
+  remove the orphan claim file, re-issue the open); row **changed**
+  `ownership_conflict` (holder may be `null` when the claim file exists
+  with foreign/absent content); `holder` shape line **changed** (the
+  `null` case added).
 
 **(v) New WriteOps primitives: none.** The existing `openTempFile`
 (write.ts:61, `O_WRONLY|O_CREAT|O_EXCL` at 0644, throws on EEXIST) *is* the
 claim-file gate; `writeAll`/`fsyncFile`/`closeFile` stamp and close the
-identity. Fault injection reaches the gate through the existing seam.
+identity; `removeFile` (write.ts, best-effort unlink, never throws)
+performs the release unlink and the superseded-epoch cleanup (a failed
+unlink leaves inert residue — the epoch is monotonic, so no future claim
+ever targets a lower-epoch claim file; the residue gates nothing). Fault
+injection reaches the gate through the existing seam.
 
-**(vi) Operational risks.** **Orphan stuck state**: a crash between
-claim-file creation and record write leaves the project un-openable until an
-operator resolution (a new error code + a new operator procedure — failure
-modes the current system does not have). **False-dead takeover of a live
-owner still splits the brain** (the O_EXCL gate does not block a sequential
-takeover at a higher epoch — the current §6.4 residual bound persists
-unchanged). NFS: cross-client `O_CREAT|O_EXCL` is not a reliable atomicity
-guarantee (M1 excludes network FS per §2/§12 — consistent, but the mechanism
-does not port). Two operators: racing takeovers arbitrate to one winner
-(EEXIST), but a confused operator can still take over a live owner
-(unblocked). Tombstone files accumulate (one per epoch; harmless but
-unbounded in principle).
+**(vi) Operational risks.** **Orphan stuck state (narrower than the
+original draft):** a crash between the claim-file create and the content
+write leaves an empty claim file; the next open fails with
+`claim_inconsistent` until the operator confirms the holder is dead and
+removes the file (a new error code + an operator file procedure — failure
+modes the current system does not have). A crash *after* the content write
+self-recovers: the next claimant reclaims once the holder is proven dead.
+**False-dead takeover of a live owner still splits the brain** (the O_EXCL
+gate arbitrates only concurrent same-epoch claimers, not a sequential
+false-dead takeover of a live holder at a higher epoch — the current §6.4
+residual bound persists unchanged; the conservative unknown⇒live rule
+bounds it exactly as it bounds the stale path today). NFS: cross-client
+`O_CREAT|O_EXCL` is not a reliable atomicity guarantee (M1 excludes network
+FS per §2/§12 — consistent, but the mechanism does not port). Two
+operators: racing takeovers arbitrate to one winner (EEXIST on
+claim-(e+1)), but a confused operator can still take over a live owner
+(unblocked — the same bound as today). **Best-effort unlink residue:** a
+failed release/cleanup unlink leaves an inert claim file (no future claim
+targets the lower epoch) — harmless, documented.
 
-### (b) Advisory exclusive lock (`flock`) held for the session lifetime
+### (b) Advisory exclusive lock (`flock`) held for the session lifetime — evaluated, not adopted (review F1)
+
+> **Evaluated, not adopted (round 1 — review F1/F2).** (1) The requested
+> mechanism has no implementation on the pinned toolchain: pinned Node 22
+> (host v22.22.1, dependencies.md §7) exposes no flock(2) binding —
+> `Object.keys(require('node:fs')).filter(/lock/i)` ⇒ `[]` (review F1's
+> recorded evidence) — so the requested `lockExclusiveNonBlocking` default
+> has no real implementation. The alternatives are outside the dependency
+> pins: a new native flock(2) dependency requires a recorded owner decision
+> + a dependencies.md §7 pin (dependencies.md §4.1 `workspace` edges:
+> `fs`, `path`, `crypto`, `os`), and a `child_process`-spawned `flock(1)`
+> holder violates §4.1 (no `child_process` for `workspace`) and inverts
+> the mechanism's central crash-safety claim — the lock is held by the
+> *child*, not the backend, so on backend SIGKILL the child is orphaned
+> (reparented to init) and **keeps holding the lock** while the parent's
+> cleanup handlers never run. (2) Even with a real flock(2) binding, the
+> §2(b)(iii) self-conflict claim is false per-OFD: a second
+> `open`+`flock(LOCK_EX|LOCK_NB)` on the same path fails with EWOULDBLOCK
+> while the first fd is open — *including in the same process* — so any (b)
+> contract text would require an explicit fd-reuse self-reclaim rule (the
+> session reuses its already-held lock fd; a fresh open that cannot lock ⇒
+> `ownership_conflict`), and the unamended §6.2 own-record row would
+> self-conflict on its own record. Retained below as the evaluated design;
+> see the §3 recorded-alternative note.
 
 The existing record file is unchanged in content (identity/epoch/openedAt,
 written via `W` after lock acquisition — an identity/audit layer, **no
@@ -178,13 +304,15 @@ lock). owned+dead ⇒ `stale_ownership` ⇒ explicit takeover: flock (free —
 kernel-released) + record e+1. Own-record reopen ⇒ (re)acquire the lock (same
 process: the flock transfers to the new fd; no self-conflict) + record
 unchanged. No tombstones, no orphan states, no new stuck states.
+*(The "no self-conflict" sentence is the F2 error: flock locks are per
+open-file-description; the same-process second open+flock fails with
+EWOULDBLOCK while the first fd is open. Recorded here for the audit trail.)*
 
 **(iv) Rows.**
 - §6.2 table: row `absent` **changed**: "claim (§6.3): acquire the session lock, then write our record (`lockEpoch` 0) via `W` + verification re-read; lock held ⇒ `ownership_conflict` (`holder` = the record's owner, or `null` when the record is absent/unreadable)". Row **added**: none (lock contention is discovered at claim time, not record evaluation). Liveness block **changed**: add one normative bullet — liveness is reporting/classification only; exclusivity is enforced by the kernel-held session lock (§6.3); a liveness error can misclassify but cannot create a second active writer (claim and takeover both require the lock).
 - §6.4: procedure bullet **changed** (step (3) note: the claim includes the session-lock acquisition, the single-winner gate; failure line: `ownership_conflict` *including when the session lock is held* — the recorded owner is live or a concurrent takeover completed first — or `stale_ownership` with the fresh holder). Residual split-brain bullet **changed**: racing takeovers yield exactly one winner via the session lock; a takeover of a *live* owner now fails mechanically (the live owner holds the lock for its session lifetime ⇒ `ownership_conflict`) — the false-dead split-brain path is removed; the only remaining split-brain path is a bypassing actor deleting/recreating the lock file from under the owner (§7.1 non-claim class), degrading safely via the §5.2 pre-write check as before.
 - §6.5: bullet **added**: the session lock is acquired on claim, held for the owner session's lifetime, released on release (§9) or process death (kernel release on death — no orphan exclusive state); the lock file is never deleted by the backend (a deleted-and-recreated lock file is a different inode — §7.1 non-claim for bypassing writers); the session holds the lock fd open until release, no code path closes it earlier. Owner-crash bullet **changed**: "Owner crash: the kernel releases the session lock; the record persists with a dead pid ⇒ stale ⇒ explicit takeover (…)". Artifact bullet **changed** to cover the lock file.
-- §11 operations table: **no rows added/changed/removed** (`takeoverWorkspace`/`releaseWorkspace` keep their signatures and codes; a held-lock failure maps to the existing `ownership_conflict`). §11 error-code table: row **changed**:
-  `| `ownership_conflict` | live owner holds the project **or the session lock is held** (§6.2/§6.3; carries `holder`, `null` when the record is absent/unreadable) |`. `holder` shape line **changed**: add "or `null` (the session lock is held but no parseable owned record exists — a concurrent claimer is mid-claim, §6.3)".
+- §11 operations table: **no rows added/changed/removed** (`takeoverWorkspace`/`releaseWorkspace` keep their signatures and codes; a held-lock failure maps to the existing `ownership_conflict`). §11 error-code table: row **changed**: `ownership_conflict` gains "or the session lock is held" and `holder` may be `null` (the session lock is held but no parseable owned record exists — a concurrent claimer is mid-claim, §6.3).
 
 **(v) New WriteOps primitives** (against the current `WriteOps`, write.ts:59):
 - `openLockFile(path: string): number` — open `.thirdlight/lock` with
@@ -195,6 +323,8 @@ unchanged. No tombstones, no orphan states, no new stuck states.
   blocks).
 - Release reuses the existing `closeFile(fd)` (close ⇒ lock released).
   Two new primitives; the record `W` + verification re-read is unchanged.
+  *(Review F1: `lockExclusiveNonBlocking` has no real implementation on the
+  pinned toolchain — no flock(2) binding in Node 22.22.1 `node:fs`.)*
 
 **(vi) Operational risks.** **Wedged-but-alive owner blocks takeover** — a
 live process holds the lock indefinitely; an operator who believes it dead
@@ -215,7 +345,15 @@ record still says owned; the contract states the fd lifetime normatively in
 §6.5 — an implementation invariant, same class as the current R4-style
 session-state hazards).
 
-### (c) Hybrid: (a) + (b)
+### (c) Hybrid: (a) + (b) — evaluated, not adopted (inherits (b)'s rejection)
+
+> **Evaluated, not adopted (round 1 — review F1).** (c) conjuncts the (a)
+> gate with the (b) session-lock gate, so it inherits (b)'s rejection in
+> full (no flock(2) binding on the pinned toolchain; the per-OFD
+> self-conflict error of F2), and it adds (b)'s failure modes (wedged-live
+> blocker, fd-lifetime discipline, a second inode to protect) to (a)'s with
+> no additional exclusion — the (a) gate alone is already single-winner.
+> Retained below as the evaluated design.
 
 Claim = `O_CREAT|O_EXCL` on `claim-<e>` **and** a session-lifetime flock on
 `.thirdlight/lock`; both gates must pass; the record is written as in (a);
@@ -240,68 +378,83 @@ state.
 orphan row (`claim_inconsistent`) + liveness bullet; §6.4 step (3) + orphan
 resolution + the improved residual bound (the lock removes the false-dead
 path); §6.5 lock bullet + tombstone bullet; §11 `claim_inconsistent` row +
-`resolveClaimFile` row + the `ownership_conflict` row change + `holder` line.
+the `ownership_conflict` row change + `holder` line.
 
 **(v) New WriteOps primitives.** `openLockFile` + `lockExclusiveNonBlocking`
 (as (b)); the claim-file gate reuses `openTempFile` (as (a)).
 
 **(vi) Operational risks.** The union of both: the orphan stuck state **and**
 the wedged-live blocker **and** hostile deletion of either file (two inodes
-to protect) **and** the doubled operator-resolution surface (orphan
-resolution *and* the lock-held error path). Strictly more moving parts than
-(b) with no additional exclusion.
+to protect) **and** the doubled operator-resolution surface. Strictly more
+moving parts than (b) with no additional exclusion.
 
 ## 3. Recommendation
 
-**Exactly one mechanism: (b) — a session-lifetime advisory exclusive
-`flock` on a dedicated per-project lock file `.thirdlight/lock`, with the
-existing record file kept as the identity/epoch/openedAt audit layer.**
+**Exactly one mechanism: (a) — the epoch-scoped `O_CREAT|O_EXCL` claim
+file.**
 
 Justification (≤200 words):
 
-Single-winner: the flock is kernel-serialized per inode, held for the
-session lifetime, not per write. In the §1 interleaving the loser is refused
-at lock acquisition at every pause point; the record rename arbitrates
-nothing. No interleaving yields two active owners — proven in §2(b)(i), not
-asserted. Crash safety without a pid-liveness safety gate: the kernel
-releases the lock on holder death at every crash point; no orphan exclusive
-state exists, no liveness check gates automatic claims, and the stale path
-is the existing explicit operator takeover. Liveness only classifies
-`ownership_conflict` vs `stale_ownership` (reporting/UX). R9 acceptance fit:
-the seam interleaving yields one winner; two-process barriers
-(absent/released/stale) yield one active writer; SIGKILL ⇒ no false
-liveness, no orphan state. Why the runner-up (a) was not chosen: it is
-single-winner too (O_EXCL atomicity) and needs no new WriteOps primitives,
-but it retains the false-dead split brain of taking over a live owner (its
-gate arbitrates only concurrent same-epoch claimers) and adds the
-orphan-claim-file stuck state plus a new operator-resolution command — new
-contract surface, operator burden, and exactly the orphan state R9's
-acceptance prefers not to exist. (c) is dominated by (b): it unions the
-failure modes, adding no safety.
+Single-winner: `open(O_CREAT|O_EXCL)` is serialized by the kernel per path —
+at most one caller succeeds; in the §1 interleaving the loser fails at its
+own O_EXCL (EEXIST) or at the §6.3 verification re-read (the record or
+claim-file content is not ours); the record rename arbitrates nothing.
+Dep-free: `fs.open(path, 'wx')` is `O_WRONLY|O_CREAT|O_EXCL` on POSIX — the
+same primitive `openTempFile` (write.ts:61) already uses; no new `WriteOps`
+primitive, no new dependency (dependencies.md §4.1/§7). Crash semantics: a
+claim file left without content is a documented stuck state
+(`claim_inconsistent`, operator file resolution); an orphan with a
+proven-dead holder is reclaimed by the orphan-recovery rule; a crash before
+the release unlink is recovered by the superseded-epoch cleanup at e+1. R9
+acceptance fit: the seam interleaving ⇒ one winner; two-process barriers
+(absent/released/stale) ⇒ one active writer; SIGKILL ⇒ no false liveness
+(unknown ⇒ live), and only proven absence/death permits a claim/takeover.
+(b)/(c) remain evaluated-but-rejected (§2): the requested flock is not
+implementable on the pinned toolchain (review F1/F2).
+
+**Recorded alternative, not adopted.** A native `flock(2)` dependency (an
+N-API wrapper) remains a possible *future owner decision*: it would
+implement mechanism (b) with kernel auto-release on death and remove the
+orphan stuck state. It is **not a pin** and is not adopted or developed
+here: adopting it requires a recorded owner decision, a dependencies.md §7
+pin and §5.6 check-deps update, and the full failure-mode analysis of
+review F1 (holder lifetime, orphaned-holder after SIGKILL, self-reclaim
+under per-OFD semantics). Recorded only so the round-1 re-selection to (a)
+is traceable.
 
 ## 4. Exact contract diff for `docs/contracts/workspace.md`
 
-Before/after blocks. Current text quoted verbatim at HEAD `ed714c2`.
-**Not applied** in this step. Section numbers and wording style preserved;
-minimal — no unrelated rewrites.
+Before/after blocks. Current text quoted VERBATIM at HEAD `44f0a49` (every
+anchor re-verified in this repair step — see §6). **Not applied** in this
+step. Section numbers and wording style preserved; minimal — no unrelated
+rewrites. Hunk set for mechanism (a): 4.1–4.3 (§6.2/§6.3), 4.4–4.5 (§6.4),
+4.6 (§6.5), 4.7 (§9 — the F3 fix, new hunk), 4.8 (§11). Grep of the current
+contract for the superseded sentences ("concurrent claimers converge",
+"without any lock file or unlink", "exactly one winner"): every occurrence
+is at lines 434–435 (§6.3 — fully replaced by hunk 4.3); "the claim
+primitive yields one winner" (line 457, §6.4) is replaced by hunk 4.5.
 
-### 4.1 §6.2 — open-time evaluation: row `absent` (line 408)
+### 4.1 §6.2 — open-time evaluation: rows `absent`, `released`, own-record (lines 408–410)
 
 **Before:**
 
 ```
 | absent | — | claim: write our record (`lockEpoch` 0) via `W` + verification re-read (§6.3); on re-read mismatch re-evaluate (a concurrent claimer won) |
+| `state: "released"` | — | claimable: same claim procedure (`lockEpoch` = previous + 1) |
+| `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | claimable (same procedure) |
 ```
 
 **After:**
 
 ```
-| absent | — | claim (§6.3): acquire the session lock, then write our record (`lockEpoch` 0) via `W` + verification re-read; lock held ⇒ `ownership_conflict` (`holder` = the record's owner, or `null` when the record is absent/unreadable) |
+| absent | — | claim (§6.3): acquire the epoch-0 claim file (`O_CREAT|O_EXCL` on `claim-0`), then write our record (`lockEpoch` 0) via `W` + verification re-read (record *and* claim file); EEXIST ⇒ re-read the record and re-evaluate (owned+live ⇒ `ownership_conflict`; owned+dead ⇒ `stale_ownership`; absent/released/older-epoch ⇒ the §6.3 orphan-recovery rule — reclaim, or `claim_inconsistent`) |
+| `state: "released"` | — | claimable: same claim procedure (§6.3) at `lockEpoch` = previous + 1 (the gate is `claim-(e+1)`; the superseded-epoch cleanup unlinks `claim-e`, §6.3) |
+| `owned`, same `backendId` + `pid` as self | the same process re-opening (e.g. in-memory state was discarded) | **self-reclaim, not a re-claim (normative):** the session does not re-run `O_CREAT|O_EXCL` against its own claim file (it would fail EEXIST against itself); it re-verifies the claim file content matches its identity (`backendId` + `pid`); missing or foreign content ⇒ `ownership_conflict` (`holder` `null`) and the session must not serve |
 ```
 
-(The `released`, own-record, live, and stale rows are unchanged: "same claim
-procedure" now refers to the §6.3 procedure; lock contention is discovered
-at claim time, not record evaluation.)
+(The `live` and `stale` rows are unchanged: "same claim procedure" now
+refers to the §6.3 procedure; claim-file contention is discovered at claim
+time, not record evaluation.)
 
 ### 4.2 §6.2 — liveness rules block (after line 426)
 
@@ -321,15 +474,25 @@ at claim time, not record evaluation.)
   or any error reading `/proc` ⇒ **unknown ⇒ treated as live** (reject; the
   operator investigates). A conservative false "live" costs an operator
   check; a false "dead" costs split-brain risk.
-- **Liveness is reporting and classification only (normative).** It selects
-  between `ownership_conflict` and `stale_ownership` and what the operator
-  is shown. Exclusivity never depends on it: the session lock (§6.3) is the
-  only exclusion gate, and it is enforced by the kernel. A liveness error can
-  misclassify (a live owner reported stale), but it cannot create a second
-  active writer — claim and takeover both require the lock, which a live
-  owner holds for its session lifetime. Only proven absence/death permits a
-  claim/takeover: no automatic claim ever consults liveness, and takeover is
-  an explicit operator command.
+- **Liveness and the exclusion gate (normative).** For concurrent claimers,
+  liveness is reporting and classification only: it selects between
+  `ownership_conflict` and `stale_ownership` and what the operator is
+  shown. Exclusion never depends on it — the claim file's exclusive
+  creation (`O_CREAT|O_EXCL`, §6.3) is the only exclusion gate, and it is
+  enforced by the kernel: concurrent claimers are serialized by `O_EXCL`
+  alone. The **one** liveness-referenced path is the §6.3 orphan-recovery
+  rule: a claimant that finds an existing claim file at its target epoch
+  (record absent/released/older-epoch) may proceed only if the file's
+  content is parseable and its holder pid is proven dead under the rules
+  above (unknown ⇒ live ⇒ refuse, `claim_inconsistent`). That path
+  reclaims a *crashed* claimant's file — it is not a liveness safety gate:
+  it never arbitrates a live rival (a live holder's claim file is never
+  removed or rewritten by any backend path), and a false "live" here can
+  only delay or block a reclaim (operator-visible via
+  `claim_inconsistent`), never create a second active writer. Only proven
+  absence/death permits a claim/takeover: no automatic claim ever depends
+  on liveness to beat a live rival, and takeover is an explicit operator
+  command.
 ```
 
 ### 4.3 §6.3 — claim primitive (full replacement, lines 428–436)
@@ -353,48 +516,84 @@ live record and aborts.
 ```
 ### 6.3 Claim primitive (the only ownership write)
 
-The exclusive gate is the **session lock**: a per-project lock file
-`.thirdlight/lock` (an empty file, created with `O_RDWR|O_CREAT` at 0644,
-never deleted by the backend; its content carries no meaning) held under an
-exclusive advisory `flock` for the **owner session's lifetime**. The record
-file (`ownership.json`) is the identity/audit layer: writing it does not
-confer ownership, and no read or re-read of it can arbitrate a claim.
+The exclusive gate is the **epoch-scoped claim file**:
+`.thirdlight/claim-<e>`, one per `lockEpoch` e, created with
+`O_CREAT|O_EXCL`. The record file (`ownership.json`) is the identity/audit
+layer: writing it does not confer ownership, and no read or re-read of it
+can arbitrate a claim.
 
 Claim at `lockEpoch` e =
 
-1. **Acquire the session lock** — `flock(LOCK_EX|LOCK_NB)` on
-   `.thirdlight/lock`. Failure (held) ⇒ the claim fails with
-   `ownership_conflict` (`holder` = the record's owner when the record is a
-   parseable owned record, else `null` — a concurrent claimer is mid-claim,
-   or a live holder holds the lock); the open fails, the operator retries.
-   There is no retry loop.
-2. **Write the record** via `W(our-record, ownership.json)` (state `owned`,
-   our `backendId`/`pid`/`openedAt`, `lockEpoch` e) with the verification
-   re-read: the on-disk record must contain our `backendId`, `pid`, and
-   `lockEpoch`.
-3. **Consistency** — the re-read record's `lockEpoch` must be e. The epoch
-   can only advance through claim/takeover, and each advance requires the
-   session lock; while we hold it, no other backend can advance the
-   record's epoch. A re-read showing any other epoch ⇒ the record was
-   changed outside the protocol ⇒ fail closed: release the lock, report
-   `ownership_conflict` with the fresh holder.
+1. **Acquire the claim file** — `open(claim-e, O_CREAT|O_EXCL)` (on Node:
+   `fs.open(path, 'wx')` — the same primitive `openTempFile` uses).
+   Failure (EEXIST) ⇒ a different claimer holds epoch e: re-read the
+   record and re-evaluate: owned + live ⇒ `ownership_conflict`; owned +
+   dead ⇒ `stale_ownership` (the takeover path, §6.4); record
+   absent/released/older-epoch ⇒ the **orphan-recovery rule** below. There
+   is no retry loop.
+2. **Stamp the claim file (durable)** — write the claimer's identity
+   `{ backendId, pid, UTC timestamp }` (canonical serialization, the
+   record's style) into claim-e and fsync it. A crash before this step
+   leaves an empty/absent-content claim file (orphan, below).
+3. **Write the record** via `W(our-record, ownership.json)` (state
+   `owned`, our `backendId`/`pid`/`openedAt`, `lockEpoch` e).
+4. **Verification re-read — record and claim file**: the on-disk record
+   must contain our `backendId`, `pid`, and `lockEpoch`, and the on-disk
+   claim-e must contain our step-2 identity (`backendId` + `pid` +
+   timestamp match). A mismatch ⇒ a foreign actor unlinked/recreated or
+   overwrote one of the files between our `O_EXCL` and this read ⇒ the
+   claim fails with `ownership_conflict` and the session does not serve
+   (this re-read closes the hostile unlink-recreate race for the claimant
+   that lost its file).
+5. **Consistency** — the re-read record's `lockEpoch` must be e. While we
+   hold claim-e, the record's epoch can only advance through a claim at a
+   higher epoch, which requires its own claim file; a re-read showing any
+   other epoch ⇒ the record was changed outside the protocol ⇒ fail
+   closed: the claim fails (the claim file is left on disk — recovered by
+   the orphan-recovery rule or the next epoch's superseded-epoch cleanup)
+   and `ownership_conflict` is reported with the fresh holder.
 
-Any failure at steps 2–3 **releases the session lock** (a failed claimant
-holds no ownership). On success the lock is held until release (§9) or
-process death — the kernel releases it on death, so a crashed owner leaves
-no orphan exclusive state.
+Any failure at steps 2–5 **fails the claim** (the claimant holds no
+ownership; its claim file may remain on disk and is recovered as
+described below).
 
-**Single-winner (normative):** `flock` is serialized by the kernel — at most
-one process holds the exclusive lock, and it is held for the session
-lifetime, not per write. A concurrent claimer either (a) reads the record
-before our rename and is refused at step 1 (we hold the lock), or (b) reads
-it after and evaluates a live owner ⇒ `ownership_conflict`. No interleaving
-of two claimers yields two active owners. A second re-read or any finite
-hash check cannot substitute for the lock: a post-hoc read certifies only
-the file's state at that instant, never that no concurrent rename follows.
+**Orphan recovery (the only liveness-referenced path, normative):** when
+step 1 fails EEXIST and the record is absent/released/older-epoch, the
+existing claim-e's content is read. The claimant may proceed (**reclaim**:
+rewrite claim-e with its own step-2 identity, fsync, and continue at step
+3; steps 4–5 then apply unchanged) **only** if the content is parseable
+and its holder pid is proven dead under the §6.2 liveness rules (unknown
+⇒ live ⇒ refuse). Otherwise the claim fails with **`claim_inconsistent`**
+(holder `null`; carries `projectId`, the claim file path, the holder
+content if parseable, and the liveness outcome) — the open fails; the
+operator confirms the holder is dead, removes the orphan claim file, and
+re-issues the open (an operator file operation — no backend command, §11).
+This path consults liveness to reclaim a *crashed* claimant's file; it is
+not a safety gate: concurrent claimers are serialized by `O_EXCL` alone,
+and a live holder's file is never removed or rewritten by any backend
+path.
+
+**Superseded-epoch cleanup (normative):** a successful claim at epoch e+1
+unlinks `claim-e` (best effort). This is safe because a claim at e+1
+occurs only against a record at e that is `released` or stale (dead
+holder): in both cases the session that created claim-e is no longer an
+active writer (a released session must not serve; a dead pid cannot), so
+claim-e excludes no live writer and its deletion removes no live
+claimant's token. A failed unlink leaves inert residue: the epoch is
+monotonic, so no future claim ever targets `claim-e` again.
+
+**Single-winner (normative):** `open(O_CREAT|O_EXCL)` is serialized by the
+kernel per path — at most one caller succeeds. In the interleaving of §1
+(the defect), the loser fails either at its own `O_EXCL` (EEXIST — the
+winner created claim-e first) or at the step-4 verification re-read (the
+record or claim-file content is not ours); the record rename arbitrates
+nothing. No interleaving of two claimers yields two active owners. A
+second re-read or any finite hash check cannot substitute for the
+exclusive creation: a post-hoc read certifies only the file's state at
+that instant, never that no concurrent rename follows.
 ```
 
-### 4.4 §6.4 — stale-owner takeover: procedure bullet (lines 447–454)
+### 4.4 §6.4 — stale-owner takeover: procedure bullet (lines 448–454)
 
 **Before:**
 
@@ -415,11 +614,13 @@ the file's state at that instant, never that no concurrent rename follows.
   byte-identical to the one that evaluated stale (same holder, same epoch)
   — otherwise re-evaluate from scratch (a concurrent takeover may have
   landed). (2) Evaluate liveness again (it must still be dead). (3) Claim
-  (§6.3) with `lockEpoch` = previous + 1 — including the session-lock
-  acquisition, which is the single-winner gate. (4) Load the project (§4.3).
+  (§6.3) with `lockEpoch` = previous + 1 — the `O_CREAT|O_EXCL` on
+  `claim-(e+1)` is the single-winner gate (a held claim file ⇒
+  `ownership_conflict` — the recorded owner is live, or a concurrent
+  takeover completed first); on success the superseded-epoch cleanup
+  unlinks `claim-e`. (4) Load the project (§4.3).
   Success result: `{ ok: true, lockEpoch, backendId, pid }`; failure:
-  `ownership_conflict` (including when the session lock is held — the
-  recorded owner is live or a concurrent takeover completed first) or
+  `ownership_conflict` (including the held-claim-file case above) or
   `stale_ownership` (with the fresh holder).
 ```
 
@@ -443,20 +644,27 @@ the file's state at that instant, never that no concurrent rename follows.
 ```
 - **Residual split-brain (honest bound):** two *simultaneous* takeovers of
   the same dead owner require two simultaneous operator actions; if both
-  race, the session lock yields exactly one winner (the loser's lock
-  acquisition fails and the takeover aborts). A takeover of a *live* owner
-  no longer splits the brain: a live owner holds the session lock for its
-  session lifetime, so the takeover's lock acquisition fails with
-  `ownership_conflict` — the false-dead split-brain path is removed. The
-  only remaining split-brain path is a bypassing actor that deletes and
-  recreates the lock file from under the owner (§7.1's explicit non-claim
-  class, the same exposure as today's direct ownership-file tampering): the
-  old owner's next envelope write's pre-write check (§5.2) finds foreign
-  bytes, pauses, and snapshots them — no silent corruption of the envelope,
-  and both envelopes involved are complete valid documents.
+  race, the `O_CREAT|O_EXCL` on `claim-(e+1)` yields exactly one winner
+  (the loser's open fails EEXIST, re-reads the winner's live record, and
+  aborts). A takeover of a *live* owner still rests on the same `/proc`
+  trust assumptions as the stale path: the conservative unknown⇒live rule
+  bounds it — a liveness misclassification can only delay or block a
+  reclaim (operator-visible via `claim_inconsistent`), never create a
+  second active writer, because a live holder's claim file still exists on
+  disk (its `O_EXCL` token), so a concurrent same-epoch claimer never
+  passes the gate, and the §6.3 verification re-read catches a foreign
+  overwrite of either file. The orphan-recovery path is the only
+  liveness-referenced path (§6.3) and is bounded by unknown⇒live. The only
+  remaining split-brain path is a bypassing actor that unlinks/recreates
+  the claim file or the record from under the owner (§7.1's explicit
+  non-claim class, the same exposure as today's direct ownership-file
+  tampering): the old owner's next envelope write's pre-write check (§5.2)
+  finds foreign bytes, pauses, and snapshots them — no silent corruption
+  of the envelope, and both envelopes involved are complete valid
+  documents.
 ```
 
-### 4.6 §6.5 — ownership lifecycle (lines 464–477)
+### 4.6 §6.5 — ownership lifecycle (lines 466–475)
 
 **Before:**
 
@@ -479,32 +687,120 @@ the file's state at that instant, never that no concurrent rename follows.
 - Written on claim (§6.3); rewritten on release with `state: "released"`
   (§9) — **the file is never deleted** (deletion would reintroduce the
   absent-record race).
-- The session lock (§6.3) is acquired on claim, **held for the owner
-  session's lifetime**, and released on release (§9) or process death — the
-  kernel releases it on death, so a crashed owner leaves no orphan exclusive
-  state. The lock file is never deleted by the backend (a deleted-and-
-  recreated lock file is a different inode; see §7.1's non-claim for
-  bypassing writers). The session holds the lock fd open until release; no
-  code path closes it earlier.
-- Owner crash: the kernel releases the session lock; the record persists
-  with a dead pid ⇒ stale ⇒ explicit takeover (the envelope is untouched by
-  any of this; its validity is re-checked at the new owner's open).
-- The ownership file and the lock file are workspace artifacts, not
+- The claim file (`claim-<e>`, §6.3) is created at claim with the
+  claimer's identity content, and is **held for the session lifetime — it
+  is a file, not an fd**: a session does not need to hold an open
+  descriptor; the file's existence (with its content) is the token. It is
+  released at release by the owner's own unlink (§9), superseded by the
+  next epoch's successful claim (the superseded-epoch cleanup unlinks
+  `claim-e`, §6.3), and orphaned by a crash (recovered by the §6.3
+  orphan-recovery rule or the next epoch's cleanup). No fd-lifetime
+  discipline is needed — there is no descriptor to close early and drop
+  the token (the advantage over a session-lifetime lock fd).
+- Owner crash: the claim file persists (orphan, or a consistent pair with
+  the stale record); the record persists with a dead pid ⇒ stale ⇒
+  explicit takeover (the envelope is untouched by any of this; its
+  validity is re-checked at the new owner's open; the takeover's
+  superseded-epoch cleanup removes the old claim file).
+- The ownership file and the claim files are workspace artifacts, not
   authoring data: they are excluded from logical reading, from
-  external-change detection (§7 monitors the envelope only), and from G1's
-  authoring guarantees (the record's own writes use the same `W`, so it is
-  torn-free too).
+  external-change detection (§7 monitors the envelope only), and from
+  G1's authoring guarantees (the record's own writes use the same `W`, so
+  it is torn-free too; claim-file writes are the §6.3 identity stamp).
 ```
 
-(§9's release procedure performs the lock release; the normative statement
-lives in §6.5. §9 itself is outside this request's diff scope.)
+### 4.7 §9 — release procedure (NEW hunk — the F3 fix)
 
-### 4.7 §11 — operations and error codes
+**4.7a. Step 1 effect list (lines 644–651).**
 
-**Operations table (lines 690–697): no rows added/changed/removed.**
-`takeoverWorkspace` and `releaseWorkspace` keep their kind, success results,
-and failure codes — a held-lock failure maps to the existing
-`ownership_conflict`.
+**Before:**
+
+```
+   - The current state is already durable (every command acked ⇒ written,
+     §5.3); the backend rewrites the envelope via `W` with the **same
+     scene and revision but `retry.records: []`** (a lost-ack retry of a
+     pre-release command must not replay across the boundary — it will
+     instead fail `revision_conflict` if stale, which is safe), then
+   - rewrites the ownership record with `state: "released"` (same claim
+     primitive), and
+   - discards in-memory state (history and record map).
+```
+
+**After:**
+
+```
+   - The current state is already durable (every command acked ⇒ written,
+     §5.3); the backend rewrites the envelope via `W` with the **same
+     scene and revision but `retry.records: []`** (a lost-ack retry of a
+     pre-release command must not replay across the boundary — it will
+     instead fail `revision_conflict` if stale, which is safe), then
+   - rewrites the ownership record with `state: "released"` via `W` — the
+     release record write does **not** re-attempt the §6.3 claim gate
+     (no `O_CREAT|O_EXCL`): the owner already holds its claim file, and
+     the gate is for claimants, not for the releasing owner, then
+   - **unlinks the owner's own claim file** (`claim-<e>`, §6.5), and
+   - discards in-memory state (history and record map).
+   A release that fails before the record write leaves the project owned
+   with the old session still the writer — no partial release. A crash
+   between the record write and the unlink leaves the documented orphan
+   (`released@e` + `claim-e`), recovered by the next claim's
+   superseded-epoch cleanup at `e+1` (§6.3/§6.5). Once the released
+   record is durable, the old session **must not issue further writes**
+   (its in-memory state is discarded in the same procedure; any later
+   command is a fresh open — step 3 — not a continuation of the released
+   session).
+```
+
+**4.7b. Step 2 sentence (lines 659–660) — the "lock" wording no longer
+applies (mechanism (a) has no lock).**
+
+**Before:**
+
+```
+   and holds no lock — the released record is what lets a later open claim
+   the project.
+```
+
+**After:**
+
+```
+   and holds no claim file — the released record is what lets a later open
+   claim the project.
+```
+
+### 4.8 §11 — operations and error codes
+
+**Operations table (lines 691–697): no rows added/changed/removed.**
+`takeoverWorkspace`/`releaseWorkspace` keep their kind, success results,
+and failure codes — the new states map to the codes below. One new
+**stuck-state note** (added after the table):
+
+**Before:**
+
+```
+(Transport/auth for these operator commands is packet 09; in M1 they are
+admin-scoped — never exposed as browser/MCP mutation commands.)
+```
+
+**After (original paragraph unchanged; one paragraph added):**
+
+```
+(Transport/auth for these operator commands is packet 09; in M1 they are
+admin-scoped — never exposed as browser/MCP mutation commands.)
+
+Stuck states and their resolution: a release that crashes after the
+released-record write but before the claim-file unlink (§9) leaves the
+documented orphan `released@e + claim-e` — recovered automatically by the
+next claim at `e+1` (superseded-epoch cleanup, §6.3): no new failure
+code, no operator step. An orphan claim file at the *target* epoch (a
+crash between claim-file creation and content write) fails the open with
+`claim_inconsistent` — resolved by an operator **file operation**
+(confirm the holder is dead, remove the orphan claim file, re-issue the
+open). **No new operation:** orphan resolution is deliberately not a
+backend command — the original draft's `resolveClaimFile(projectId)` is
+**not adopted** (fewer contract surface; the operator action is
+documented in the error hint).
+```
 
 **Error-code table, row `ownership_conflict` (line 713).**
 
@@ -517,7 +813,14 @@ and failure codes — a held-lock failure maps to the existing
 **After:**
 
 ```
-| `ownership_conflict` | live owner holds the project **or the session lock is held** (§6.2/§6.3; carries `holder`, `null` when the record is absent/unreadable) |
+| `ownership_conflict` | live owner holds the project, or the claim file exists with foreign/absent content at the target epoch — incl. the self-reclaim refusal (§6.2/§6.3); carries `holder`, `null` when no parseable owned record exists |
+```
+
+**Error-code table — new row `claim_inconsistent` (inserted after the
+`ownership_conflict` row, line 713; existing style).**
+
+```
+| `claim_inconsistent` | claim file exists at the target epoch but cannot be reclaimed: content unparseable, or holder pid not proven dead (§6.3 orphan recovery); `cls: "unavailable"`; carries `projectId`, the claim file path, the holder content if parseable, and the liveness outcome; hint: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command) |
 ```
 
 **`holder` shape line (lines 728–729).**
@@ -533,83 +836,139 @@ state }`.
 
 ```
 `holder` in ownership errors: `{ backendId, pid, openedAt, lockEpoch,
-state }`, or `null` (the session lock is held but no parseable owned record
-exists — a concurrent claimer is mid-claim, §6.3).
+state }`, or `null` (no parseable owned record — the claim file exists
+with foreign/absent content, §6.3, incl. the self-reclaim refusal, §6.2).
 ```
 
 ## 5. Mandatory implementation tests implied by the mechanism
 
 For the later implementation step (after the contract diff is accepted and
-the architectural gate reopens):
+the architectural gate reopens). All tests assert against real on-disk
+bytes on the pinned host; fault/crash timing is injected through the public
+`WriteOps` seam (the `openTempFile` gate) and real `SIGKILL` of real
+processes — mocks alone do not establish integration success.
 
-1. **Deterministic interleaving through the public seam ⇒ exactly one
-   winner.** The retained probe's interleaving (A evaluates the record as
-   absent and pauses before its claim completes; B claims fully) must now
-   yield exactly one winner: with A's lock held, B's
-   `lockExclusiveNonBlocking` throws EWOULDBLOCK ⇒ B's open fails
-   (`ownership_conflict`); A owns. The inverse schedule (A pauses after
-   lock acquisition, before the record write; B attempts) ⇒ B fails; A
-   owns. Assert: exactly one `ok:true` claim; the on-disk record is the
-   winner's; the loser session is not open and writes nothing. The probe's
-   `CLAIM_RACE {a:true,b:true}` shape becomes the failing regression
-   (expected `{a:true,b:false}` or `{a:false,b:true}`, never both true).
+1. **Deterministic seam interleaving through the public `WriteOps` (the
+   `O_EXCL` hook) ⇒ exactly one winner.** Retain the §1 interleaving
+   through the seam's `openTempFile` hook: (a) A passes the
+   `O_CREAT|O_EXCL` on `claim-0`, then the hook runs B's full claim before
+   A writes its content ⇒ B's `openTempFile` fails EEXIST, B re-reads the
+   record (A's, live) ⇒ B's open fails `ownership_conflict` with `holder`
+   = A's identity; A stamps + writes + verifies ⇒ A owns. (b) The inverse
+   schedule: A pauses after its successful `O_EXCL`, before its content
+   write; B attempts ⇒ B's `openTempFile` fails EEXIST; the record is
+   absent and A's claim-file content is absent/unparseable ⇒ B fails
+   `claim_inconsistent` (holder `null`, the liveness outcome reported); A
+   completes ⇒ A owns. (c) A completes fully before B attempts ⇒ B's
+   `openTempFile` fails EEXIST, the record is A's (live) ⇒ B fails
+   `ownership_conflict` (holder = A). Assert in every schedule: exactly one
+   `ok:true` open; the on-disk record is the winner's; the loser session is
+   not open and its mutation is refused end-to-end (never both-opens-true:
+   the probe's `CLAIM_RACE {a:true,b:true}` shape becomes the failing
+   regression — expected `{a:true,b:false}` or `{a:false,b:true}`).
 2. **Real two-process barrier tests** (two node processes, gated by a
-   file/signal so both act after the gate; not mocks): for each of
-   **absent claim** (fresh project, record absent), **released claim**
-   (owner released), and **stale claim** (owner SIGKILLed, then both
-   processes issue `takeoverWorkspace` after the gate) — exactly one active
-   writer: the winner's claim/takeover succeeds and its mutation reaches
-   revision 1 (a second mutation confirms the lock did not flap); the
-   loser's open/mutation fails with `ownership_conflict` /
-   `stale_ownership`; the on-disk record is the winner's.
-3. **SIGKILL crash tests.** (a) Claim → SIGKILL the owner (after the record
-   write) → a second identity reopens: the open reports `stale_ownership`
-   with the dead holder — **no false liveness** (the crashed pid is never
-   reported as a live holder) — the operator takeover succeeds; exactly one
-   writer. (b) Claim interrupted **before** the record write (crash between
-   lock acquisition and rename, via the fault seam or a SIGKILL timing
-   gate) → reopen: the state is directly claimable — the lock is
-   kernel-released and the record still shows the previous
-   absent/released state — **no orphan exclusive state, no liveness-gated
-   lock, no operator step required** (a plain claim succeeds). (c) Assert
-   the on-disk evidence after each crash: record bytes and lock file as
-   defined by §6.3/§6.5, nothing else.
+   file/signal so both act after the gate; a shared disposable root; not
+   mocks): for each of the **absent claim** (fresh project, record absent),
+   the **released claim** (owner released), and the **stale claim** (owner
+   SIGKILLed, then both processes issue `takeoverWorkspace` after the gate)
+   — exactly one active writer: the winner's claim/takeover succeeds and its
+   mutation reaches revision 1 (a second mutation confirms the claim did not
+   flap); the loser's open fails (`ownership_conflict` /
+   `stale_ownership`), and a concurrent mutation issued from the loser is
+   refused end-to-end; the on-disk record and claim files are the winner's.
+3. **SIGKILL crash tests** (real processes, `kill -9` at gated points):
+   (a) Kill between the `O_EXCL` and the content write ⇒ an empty orphan
+   `claim-e` ⇒ the next claim ⇒ `claim_inconsistent` (content unparseable,
+   holder `null`, the liveness outcome reported) — the documented stuck
+   state; after the operator removes the orphan file, the re-issued open
+   succeeds. (b) Kill after the content write (before the record write) ⇒
+   an orphan with a dead pid ⇒ the next claim reclaims (the holder is proven
+   dead under the §6.2 rules) and succeeds — no operator step. (c) Kill
+   mid-record-write after the claim ⇒ the record is absent (or stale at the
+   previous epoch) ⇒ the normal claim path (reclaim or fresh claim)
+   succeeds. After each crash, assert the on-disk evidence (record bytes,
+   claim files) as defined by §6.3/§6.5 — nothing else.
+4. **Release crash.** Kill between the released-record write and the
+   claim-file unlink ⇒ on disk: `released@e` + `claim-e` ⇒ the next claim at
+   `e+1` unlinks the superseded `claim-e` (the superseded-epoch cleanup) and
+   succeeds; assert the residue (no `claim-e`) and exactly one active
+   writer.
+5. **Self-reclaim.** A same-process reopen of its own owned record does not
+   fail on its own claim file (no self-conflict; the record is unchanged;
+   the session serves). Tampered/foreign claim-file content (the content
+   rewritten to a different `backendId`/`pid`, or the file deleted) ⇒ the
+   reopen fails with `ownership_conflict` (holder `null`) and the session
+   refuses to serve — a mutation from it is refused end-to-end.
+6. **Hostile unlink-recreate.** A foreign process unlinks and recreates
+   `claim-e` with foreign content between our `O_EXCL` and our record write
+   ⇒ our §6.3 step-4 verification re-read (record + claim file) finds the
+   claim file's content is not ours ⇒ the claim aborts with
+   `ownership_conflict` — no double writer (the hostile actor completed no
+   claim; exactly zero active writers until a clean claim succeeds).
 
 ## 6. Verification and provenance
 
-Commands actually run at HEAD `ed714c2` (clean tree), docs-only step.
+Commands actually run at HEAD `44f0a49` (tree clean except the uncommitted
+review file and the orchestrator log), docs-only repair step. Sections 1–6
+reworked for mechanism (a); section 7 untouched (byte-identical — the
+section-7 tail, line 627 to EOF, diffed before/after the rewrite: identical,
+md5 `3563255b162d8d0b85f46a1a7c4df97b` both sides); no contract applied; no
+push.
 
-**1. Retained path-ownership probe (read-only run of the review's retained
-harness; it writes only under disposable `~/.tl07-focus-*` mkdtemp roots on
-ext4 and removes them in `finally` — no leftovers remained after the run):**
+**1. Working state (before the rewrite):**
 
 ```
-$ node_modules/.bin/esbuild docs/reviews/2026-09-18-path-ownership-probes.ts \
-    --bundle --platform=node --format=esm --outfile=/tmp/tl07-contract-review.mjs
-/tmp/tl07-contract-review.mjs  169.6kb
-⚡ Done in 6ms
-$ node /tmp/tl07-contract-review.mjs
-...
-CLAIM_RACE {"a":true,"b":true,"bStillOpen":true,"owner":"tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-...
+$ git status --short
+ M docs/orchestration.md          # pre-existing uncommitted orchestrator log — left untouched
+?? docs/handoffs/2026-09-18-contract-review.md
+$ git rev-parse HEAD
+44f0a499bb25eb9209ed5d9ba2181b320c2976f2
+$ node --version
+v22.22.1
+```
+
+**2. `O_EXCL` gate probe (disposable /tmp; verifies the mechanism (a)
+primitive on the pinned host — two sequential opens, the second must fail
+EEXIST):**
+
+```
+$ node -e 'const fs=require("node:fs");const p="/tmp/tl-oexcl-"+process.pid;try{fs.openSync(p,"wx",0o644);console.log("first open: created")}catch(e){console.log("first open FAILED:",e.code)};try{fs.openSync(p,"wx",0o644);console.log("second open: UNEXPECTED success")}catch(e){console.log("second open: rejected",e.code)};fs.rmSync(p)'
+first open: created
+second open: rejected EEXIST
 exit 0
 ```
 
-Key line: `CLAIM_RACE {"a":true,"b":true,"bStillOpen":true,"owner":"tb-aaa…"}`
-— the R9 interleaving reproduces: both claimers end up open (current buggy
-behavior, pinned by the probe). Companion lines from the same run:
-`UNREADABLE_OWNER {"result":{"ok":true,...},"owner":"tb-bbb…","firstStillOpen":true}`,
-`PROC_EACCES {"query":{...,"reason":"stale_ownership",...},"takeover":{"ok":true,...},"realOwnerStillAlive":true}`
-(R8 context, unchanged here).
+**3. Verbatim-anchor verification (every §4 "Before" block must appear
+verbatim in the current `docs/contracts/workspace.md`; disposable python3
+script over the reworked document):**
 
-**2. Full test suite:**
+```
+$ python3 /tmp/tl-anchor-check.py docs/handoffs/2026-09-18-contract-request.md docs/contracts/workspace.md
+4.1 rows absent/released/own-record (408-410): OK
+4.2 liveness final bullet (423-426): OK
+4.3 §6.3 claim primitive (428-436): OK
+4.4 §6.4 procedure bullet (448-454): OK
+4.5 §6.4 residual bullet (455-462): OK
+4.6 §6.5 lifecycle bullets (466-475): OK
+4.7a §9 step-1 effect list (644-651): OK
+4.7b §9 step-2 sentence (659-660): OK
+4.8 §11 transport note (699-700): OK
+4.8 §11 ownership_conflict row (713): OK
+4.8 §11 holder shape line (728-729): OK
+11/11 OK, 0 MISS
+```
+
+**4. Full test suite** (baseline only):
 
 ```
 $ npm test
 > vitest run
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
  Test Files  27 passed (27)
       Tests  438 passed (438)
-   Duration  21.38s
+   Duration  21.34s (tests 93%, import 4%, transform 3%)
 exit 0
 ```
 
