@@ -98,6 +98,38 @@ for (const b of BUNDLES) {
   console.log(`build: ${b.name}: ${b.entry} -> ${b.out}`);
   built += 1;
 }
+
+/**
+ * The MCP stdio server (mcp-adapter, packet 11; decision 0001 §5): a Node
+ * PROCESS (not a browser bundle), so it uses Node options, distinct from the
+ * browser PINNED_OPTIONS above. The `@modelcontextprotocol/sdk` is bundled in
+ * (packages: 'bundle') so `node dist/mcp-adapter/mcp.mjs` is self-contained;
+ * the harness spawns it and speaks MCP over stdin/stdout.
+ */
+const MCP_ENTRY = 'packages/mcp-adapter/src/index.ts';
+const MCP_OUT = 'dist/mcp-adapter/mcp.mjs';
+if (existsSync(join(root, MCP_ENTRY))) {
+  const out = join(root, MCP_OUT);
+  mkdirSync(dirname(out), { recursive: true });
+  await esbuild.build({
+    entryPoints: [join(root, MCP_ENTRY)],
+    outfile: out,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: false,
+    sourcemap: false,
+    minify: false,
+  });
+  console.log(`build: mcp-adapter (stdio server): ${MCP_ENTRY} -> ${MCP_OUT}`);
+  built += 1;
+} else {
+  // Absent mcp-adapter source (e.g. the disposable build-tooling workspace) is
+  // NOT counted in the browser-bundle built/skipped tally — it is a separate
+  // optional Node artifact, not one of the dependencies.md §4.2 browser bundles.
+  console.log(`build: mcp-adapter: entry not present (${MCP_ENTRY}) — not built (packet 11)`);
+}
 // The static authoring page (only when the editor entry exists — packet 10).
 if (existsSync(join(root, 'packages/editor/src/index.tsx'))) {
   emitEditorPage();

@@ -1,0 +1,15 @@
+{
+  "name": "@thirdlight/mcp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M1 MCP adapter (decision 0001 S5, charter S7, packet 11): the MCP server tools (bounded project/entity inspection, command submission, session listing, play start/stop, bounded diagnostics, screenshot from the selected connected browser) routed into the backend application services over the same /api/v1 surface the browser uses - never a second mutation engine. Pure Node library (no Node builtins - dependencies.md S4.3 node: []): global fetch for the backend HTTP client, stdio transport for the harness. Edges (dependencies.md S4.1/S4.3): protocol, backend (the /services subpath only), @modelcontextprotocol/sdk.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/protocol": "0.1.0",
+    "@thirdlight/backend": "0.1.0",
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}
