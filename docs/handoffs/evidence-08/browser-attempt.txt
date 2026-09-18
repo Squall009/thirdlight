@@ -1,0 +1,18 @@
+Packet 08 browser-verification attempt — 2026-09-18 (container: Ubuntu 26.04 "resolute", user dadmin, no root)
+
+1. `npx playwright install chromium` (npx playwright 1.62.1): SUCCESS
+   - Chrome Headless Shell 151.0.7922.34 (chromium-headless-shell v1234) downloaded to
+     /home/dadmin/.cache/ms-playwright/chromium_headless_shell-1234
+2. `npm install -D playwright@1.59.1` (dependencies.md root pin): installed; however
+   `node_modules/.bin/playwright install chromium` FAILS:
+   "ERROR: Playwright does not support chromium on ubuntu26.04-x64"
+3. Launch attempt (playwright 1.62.1 + build-1234 headless shell, fixture: rAF driver +
+   WebGL adapter against a live canvas, /tmp/p08-browser/): FAILS at browser launch:
+   chrome-headless-shell: error while loading shared libraries: libnspr4.so:
+   cannot open shared object file: No such file or directory
+   (dpkg: libnspr4/libnss3 not installed; `sudo` requires interactive auth → cannot apt-get)
+
+CONCLUSION: visual verification UNVERIFIED (missing system libraries, no root).
+Node-side mock tests + independent esbuild-bundle probes cover all non-visual contract
+behavior; the WebGL render path (renderFrame/screenshot/diagnostics.renderBackend in a
+real browser) remains to be re-verified where a browser can run (M1 gate review box).
