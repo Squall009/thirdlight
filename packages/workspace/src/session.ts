@@ -82,6 +82,16 @@ export interface PendingChange {
 export interface ProjectSession {
   projectId: string;
   dir: string;
+  /**
+   * The VERIFIED child artifact directories (R7, 2026-09-18 review):
+   * resolved + containment-checked at open with `resolveContained` (a
+   * symlink escaping the data root ⇒ the project is not a project of
+   * this backend ⇒ the not-found outcome). All subsequent path building
+   * for this project (envelope W, ownership, recovery) uses these —
+   * never a re-join from the raw project id.
+   */
+  sceneDir: string;
+  thirdlightDir: string;
   manifest: Manifest;
   /** Published (last acknowledged) scene; null while blocked. */
   scene: Scene | null;
@@ -129,7 +139,6 @@ export type OpenOutcome =
       count?: number;
     };
 
-const SCENE_REL = join('scenes', 'main.json');
 const MANIFEST_REL = 'project.json';
 
 function livenessFn(core: Core): (pid: number, openedAt: string) => Liveness {
@@ -166,32 +175,76 @@ export function defaultScene(): Scene {
 }
 
 /**
+ * The ONE containment policy (R7, 2026-09-18 review): `projectsRoot` +
+ * `segs` is a project of this backend only if every component exists and
+ * the realpath of the FULL path stays inside the realpath of the data
+ * root — any symlink component escaping the data root makes the path NOT
+ * a project of this backend. It is verified BEFORE any content-acting
+ * read or any write; a hostile unlink-replace race AFTER verification is
+ * the workspace.md §7.1 bypassing-actor class (documented bound, not
+ * solved by checking only the outer directory).
+ */
+export function resolveContained(
+  core: Core,
+  ...segs: string[]
+): { ok: true; dir: string } | { ok: false } {
+  if (segs.length === 0) return { ok: false };
+  let p = core.projectsRoot;
+  for (const seg of segs) {
+    p = join(p, seg);
+    if (!core.ops.dirExists(p)) return { ok: false };
+  }
+  const dir = p;
+  let realRoot: string;
+  let realFull: string;
+  try {
+    realRoot = realpathSync(core.projectsRoot);
+    realFull = realpathSync(dir);
+  } catch {
+    return { ok: false };
+  }
+  const inside =
+    realFull === realRoot || realFull.startsWith(realRoot.endsWith(sep) ? realRoot : realRoot + sep);
+  return inside ? { ok: true, dir } : { ok: false };
+}
+
+/**
+ * Verify a project's child artifact path for a project whose directory
+ * already passed `resolveProjectDir` (R7, 2026-09-18 review):
+ * - the final component ABSENT ⇒ `absent` — nothing can escape, and the
+ *   existing open behavior applies (a missing envelope blocks until the
+ *   scan completes it, workspace.md §8.3/§10; an absent ownership record
+ *   is claimed, creating the directory, §6.2);
+ * - present but escaping the data root (a symlink component outside the
+ *   data root) ⇒ `escape` — NOT a project of this backend;
+ * - present and contained ⇒ `ok` with the verified path (all later path
+ *   building uses it — no re-join from the raw name).
+ */
+export function verifyChildDir(
+  core: Core,
+  ...segs: string[]
+): { kind: 'ok'; dir: string } | { kind: 'absent' } | { kind: 'escape' } {
+  let p = core.projectsRoot;
+  for (const seg of segs) p = join(p, seg);
+  if (!core.ops.dirExists(p)) return { kind: 'absent' };
+  const res = resolveContained(core, ...segs);
+  return res.ok ? { kind: 'ok', dir: res.dir } : { kind: 'escape' };
+}
+
+/**
  * Resolve a project directory inside the configured data root, enforcing
  * the supported policy: the project ID is the only addressing (charter §4 —
  * arbitrary absolute paths are never accepted), the ID syntax excludes
- * traversal by construction, and a realpath containment check rejects
- * symlink escapes out of the data root (an escaped directory is not a
- * project of this backend ⇒ `project_not_found`).
+ * traversal by construction, and the single containment check
+ * (`resolveContained`) rejects symlink escapes out of the data root (an
+ * escaped directory is not a project of this backend ⇒ `project_not_found`).
  */
 export function resolveProjectDir(
   core: Core,
   projectId: string,
 ): { ok: true; dir: string } | { ok: false } {
   if (!ID_RE.test(projectId)) return { ok: false };
-  if (!core.ops.dirExists(core.projectsRoot)) return { ok: false };
-  const dir = join(core.projectsRoot, projectId);
-  if (!core.ops.dirExists(dir)) return { ok: false };
-  let realRoot: string;
-  let realDir: string;
-  try {
-    realRoot = realpathSync(core.projectsRoot);
-    realDir = realpathSync(dir);
-  } catch {
-    return { ok: false };
-  }
-  const inside =
-    realDir === realRoot || realDir.startsWith(realRoot.endsWith(sep) ? realRoot : realRoot + sep);
-  return inside ? { ok: true, dir } : { ok: false };
+  return resolveContained(core, projectId);
 }
 
 // ---- manifest + envelope loading -----------------------------------------------
@@ -252,11 +305,13 @@ type LoadOutcome =
  */
 export function loadProjectDir(
   core: Core,
-  dir: string,
+  sceneDir: string,
   projectId: string,
   manifest: Manifest,
 ): LoadOutcome {
-  const p = join(dir, SCENE_REL);
+  // R7: the caller passes the VERIFIED scenes directory — no re-join from
+  // the raw project id (the open pipeline verifies containment first).
+  const p = join(sceneDir, 'main.json');
   if (!core.ops.fileExists(p)) return { kind: 'envelope-missing' };
   let bytes: Uint8Array;
   try {
@@ -320,12 +375,16 @@ function makeSession(
   loaded: Extract<LoadOutcome, { kind: 'loaded' }>,
   manifest: Manifest,
   ownership: OwnershipRecord,
+  sceneDir: string,
+  thirdlightDir: string,
 ): ProjectSession {
   const recordMap = new Map<string, RetryRecord>();
   for (const r of loaded.records) recordMap.set(r.requestId, r);
   return {
     projectId,
     dir,
+    sceneDir,
+    thirdlightDir,
     manifest,
     scene: loaded.scene,
     revision: loaded.scene.revision,
@@ -348,10 +407,14 @@ function blockSession(
   manifest: Manifest,
   ownership: OwnershipRecord | null,
   blocked: { reason: UnavailableReason; errors: readonly LoadDetail[]; count: number },
+  sceneDir: string,
+  thirdlightDir: string,
 ): ProjectSession {
   return {
     projectId,
     dir,
+    sceneDir,
+    thirdlightDir,
     manifest,
     scene: null,
     revision: 0,
@@ -404,9 +467,18 @@ export function ensureSession(
       // longer a loadable project.
       return { kind: 'not-found' };
     }
-    const l = loadProjectDir(core, existing.dir, projectId, man.manifest);
+    const l = loadProjectDir(core, existing.sceneDir, projectId, man.manifest);
     if (l.kind === 'loaded') {
-      const s = makeSession(core, existing.dir, projectId, l, man.manifest, existing.ownership ?? releasedRecord(core));
+      const s = makeSession(
+        core,
+        existing.dir,
+        projectId,
+        l,
+        man.manifest,
+        existing.ownership ?? releasedRecord(core),
+        existing.sceneDir,
+        existing.thirdlightDir,
+      );
       s.mode = 'open';
       s.blocked = null;
       s.pendingChange = null;
@@ -444,6 +516,23 @@ export function ensureSession(
   if (!res.ok) return { kind: 'not-found' };
   const dir = res.dir;
 
+  // R7 (2026-09-18 review): the child artifact directories are verified
+  // with the SAME containment policy BEFORE any read/write through them —
+  // a PRESENT scenes/.thirdlight that escapes the data root (symlink)
+  // ⇒ the project is not a project of this backend ⇒ the same not-found
+  // outcome a top-level escape produces (queries/mutations report
+  // `project_not_found`). An ABSENT child keeps the existing behavior
+  // (blocked-until-scan / claim-creates-the-dir). The verified dirs are
+  // stored on the session; no later path building re-joins from the raw
+  // name.
+  const scenesCheck = verifyChildDir(core, projectId, 'scenes');
+  const thirdCheck = verifyChildDir(core, projectId, '.thirdlight');
+  if (scenesCheck.kind === 'escape' || thirdCheck.kind === 'escape') {
+    return { kind: 'not-found' };
+  }
+  const sceneDir = scenesCheck.kind === 'ok' ? scenesCheck.dir : join(dir, 'scenes');
+  const thirdlightDir = thirdCheck.kind === 'ok' ? thirdCheck.dir : join(dir, '.thirdlight');
+
   // Manifest loadability (commands.md §5.4: a directory without a loadable
   // manifest is not a project ⇒ project_not_found).
   const man = loadManifest(core, dir);
@@ -453,14 +542,14 @@ export function ensureSession(
   // evaluation: a claim that fails against a MOVED record re-evaluates.
   let claim: ClaimOutcome | null = null;
   for (let round = 0; round < 3 && claim === null; round++) {
-    const recBytes = readOwnershipRecordBytes(dir, core.ops);
+    const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
     const ev = evaluateOwnership(recBytes, core.self, livenessFn(core));
     if (ev.action !== 'claim') {
       return evalToUnavailable(ev);
     }
-    ensureThirdlightDir(dir, core.ops);
+    ensureThirdlightDir(thirdlightDir, core.ops);
     const c = claimOwnership(
-      dir,
+      thirdlightDir,
       core.self,
       ev.lockEpoch,
       livenessFn(core),
@@ -481,10 +570,10 @@ export function ensureSession(
   }
 
   // §5.4: the owner cleans leftover temps on open, before any command.
-  cleanLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
+  cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
 
-  // The §4.3 load.
-  const l = loadProjectDir(core, dir, projectId, man.manifest);
+  // The §4.3 load (through the VERIFIED scenes directory).
+  const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
   if (l.kind === 'envelope-missing') {
     // An interrupted creation is completed by the startup scan (§8.3/§10).
     // At on-demand open the project is blocked until that completion has
@@ -507,6 +596,8 @@ export function ensureSession(
         ],
         count: 1,
       },
+      sceneDir,
+      thirdlightDir,
     );
     core.sessions.set(projectId, s);
     return {
@@ -518,11 +609,20 @@ export function ensureSession(
     };
   }
   if (l.kind === 'blocked') {
-    const s = blockSession(core, dir, projectId, man.manifest, claim.record, {
-      reason: l.reason,
-      errors: l.errors,
-      count: l.count,
-    });
+    const s = blockSession(
+      core,
+      dir,
+      projectId,
+      man.manifest,
+      claim.record,
+      {
+        reason: l.reason,
+        errors: l.errors,
+        count: l.count,
+      },
+      sceneDir,
+      thirdlightDir,
+    );
     core.sessions.set(projectId, s);
     return {
       kind: 'unavailable',
@@ -532,7 +632,7 @@ export function ensureSession(
       count: l.count,
     };
   }
-  const s = makeSession(core, dir, projectId, l, man.manifest, claim.record);
+  const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
   core.sessions.set(projectId, s);
   return { kind: 'open', session: s };
 }
@@ -547,11 +647,10 @@ function evalToUnavailable(ev: OwnershipEval): OpenOutcome {
   return { kind: 'unavailable', reason: 'ownership_conflict', holder: null };
 }
 
-/** Ensure the project's `.thirdlight` directory exists (0755) before the
- * first ownership write (fresh-open claim; the release/takeover paths find
- * it already present next to the record). */
-function ensureThirdlightDir(dir: string, ops: WriteOps): void {
-  const p = join(dir, '.thirdlight');
+/** Ensure the project's VERIFIED `.thirdlight` directory exists (0755)
+ * before the first ownership write (it is containment-checked at open,
+ * R7 — this only closes the post-verification creation race). */
+function ensureThirdlightDir(p: string, ops: WriteOps): void {
   if (ops.dirExists(p)) return;
   try {
     mkdirSync(p, { mode: 0o755 });
@@ -592,7 +691,7 @@ export function detectExternalChange(
   foreign: { bytes: Uint8Array; hash: string },
 ): void {
   // Step 2 — snapshot BEFORE the pause (the original file stays in place).
-  snapshotForeignBytes(s.dir, foreign.bytes, core.ops, core.stamp);
+  snapshotForeignBytes(s.thirdlightDir, foreign.bytes, core.ops, core.stamp);
   // Step 3 — the full §4.3 pipeline over the foreign bytes.
   const envRes = validateEnvelope(foreign.bytes, s.projectId);
   let externalValid = false;
@@ -684,8 +783,8 @@ export function acceptExternal(
   // with retry.records = [] (new retry boundary), ownership unchanged.
   const newBytes = buildEnvelopeBytes(s.projectId, pc.externalScene, []);
   const res = writeAtomic({
-    dir: join(s.dir, 'scenes'),
-    target: join(s.dir, SCENE_REL),
+    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
+    target: join(s.sceneDir, 'main.json'),
     bytes: newBytes,
     allowedPreHashes: [s.lastWrittenHash, pc.externalHash],
     allowAbsent: pc.externalHash === EMPTY_HASH,
@@ -730,8 +829,8 @@ export function discardExternal(
   // against lastWrittenHash — the resolution pre-write check accepts LKG
   // or the pending externalHash; any other value re-fires the protocol).
   const res = writeAtomic({
-    dir: join(s.dir, 'scenes'),
-    target: join(s.dir, SCENE_REL),
+    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
+    target: join(s.sceneDir, 'main.json'),
     bytes: s.envelopeBytes,
     allowedPreHashes: [s.lastWrittenHash, pc.externalHash],
     allowAbsent: pc.externalHash === EMPTY_HASH,
@@ -804,13 +903,26 @@ export function takeover(
     };
   }
 
+  // R7 (2026-09-18 review): the fresh-takeover path reads/writes the
+  // ownership record and the envelope — verify the child artifact
+  // directories with the containment policy FIRST (a PRESENT child that
+  // escapes the data root ⇒ the project is not a project of this backend
+  // ⇒ `project_not_found`; an absent child keeps the existing behavior).
+  const scenesCheck = verifyChildDir(core, projectId, 'scenes');
+  const thirdCheck = verifyChildDir(core, projectId, '.thirdlight');
+  if (scenesCheck.kind === 'escape' || thirdCheck.kind === 'escape') {
+    return { ok: false, error: projectNotFound(projectId) };
+  }
+  const sceneDir = scenesCheck.kind === 'ok' ? scenesCheck.dir : join(dir, 'scenes');
+  const thirdlightDir = thirdCheck.kind === 'ok' ? thirdCheck.dir : join(dir, '.thirdlight');
+
   // Fresh (or released-session) takeover: the §6.4 procedure.
   const lf = livenessFn(core);
   for (let round = 0; round < 3; round++) {
-    const recBytes = readOwnershipRecordBytes(dir, core.ops);
+    const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
     const ev = evaluateOwnership(recBytes, core.self, lf);
     if (ev.action === 'claim') {
-      const out = performClaimAndLoad(core, dir, projectId, man.manifest, ev.lockEpoch, recBytes);
+      const out = performClaimAndLoad(core, dir, projectId, man.manifest, ev.lockEpoch, sceneDir, thirdlightDir, recBytes);
       if (out.ok) return out;
       return { ok: false, error: out.error };
     }
@@ -821,14 +933,14 @@ export function takeover(
     // (1) re-read: byte-identical to the record that evaluated stale,
     //     otherwise re-evaluate from scratch (a concurrent takeover may
     //     have landed).
-    const reread = readOwnershipRecordBytes(dir, core.ops);
+    const reread = readOwnershipRecordBytes(thirdlightDir, core.ops);
     if (!bytesEqual(reread, recBytes)) continue;
     // (2) liveness again — it must still be dead.
     const staleRec = parseOwnershipRecord(recBytes);
     const lv = staleRec === null ? 'unknown' : lf(staleRec.pid, staleRec.openedAt);
     if (lv !== 'dead') continue;
     // (3) claim with lockEpoch = previous + 1.
-    const claim = claimOwnership(dir, core.self, staleRec!.lockEpoch + 1, lf, core.ops, () => core.utcNow(), recBytes);
+    const claim = claimOwnership(thirdlightDir, core.self, staleRec!.lockEpoch + 1, lf, core.ops, () => core.utcNow(), recBytes);
     if (!claim.ok) {
       const e2 = claim.eval;
       if (e2.action === 'claim') continue; // the record moved: re-evaluate
@@ -841,10 +953,10 @@ export function takeover(
       };
     }
     // (4) load the project (§4.3) — plus the owner temp cleanup (§5.4).
-    cleanLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
-    const l = loadProjectDir(core, dir, projectId, man.manifest);
+    cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+    const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
     if (l.kind === 'loaded') {
-      const s = makeSession(core, dir, projectId, l, man.manifest, claim.record);
+      const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
       core.sessions.set(projectId, s);
       return {
         ok: true,
@@ -867,7 +979,7 @@ export function takeover(
             },
           ],
           count: 1,
-        }),
+        }, sceneDir, thirdlightDir),
       );
       return {
         ok: false,
@@ -887,7 +999,7 @@ export function takeover(
         reason: l.reason,
         errors: l.errors,
         count: l.count,
-      }),
+      }, sceneDir, thirdlightDir),
     );
     return {
       ok: false,
@@ -896,7 +1008,7 @@ export function takeover(
   }
   // The bounded re-evaluation loop did not converge (oscillating external
   // writer): report the current evaluation.
-  const recBytes = readOwnershipRecordBytes(dir, core.ops);
+  const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
   const ev = evaluateOwnership(recBytes, core.self, lf);
   if (ev.action === 'stale') return { ok: false, error: staleOwnership(ev.holder) };
   return {
@@ -911,13 +1023,15 @@ function performClaimAndLoad(
   projectId: string,
   manifest: Manifest,
   lockEpoch: number,
+  sceneDir: string,
+  thirdlightDir: string,
   existingBytes?: Uint8Array | null,
 ): { ok: true; lockEpoch: number; backendId: string; pid: number } | { ok: false; error: CommandError } {
   const lf = livenessFn(core);
   let claim: ClaimOutcome | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
-    ensureThirdlightDir(dir, core.ops);
-    const c = claimOwnership(dir, core.self, lockEpoch, lf, core.ops, () => core.utcNow(), existingBytes);
+    ensureThirdlightDir(thirdlightDir, core.ops);
+    const c = claimOwnership(thirdlightDir, core.self, lockEpoch, lf, core.ops, () => core.utcNow(), existingBytes);
     if (c.ok) {
       claim = c;
       break;
@@ -931,10 +1045,10 @@ function performClaimAndLoad(
   if (claim === null || !claim.ok) {
     return { ok: false, error: ownershipConflict(null) };
   }
-  cleanLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
-  const l = loadProjectDir(core, dir, projectId, manifest);
+  cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+  const l = loadProjectDir(core, sceneDir, projectId, manifest);
   if (l.kind === 'loaded') {
-    const s = makeSession(core, dir, projectId, l, manifest, claim.record);
+    const s = makeSession(core, dir, projectId, l, manifest, claim.record, sceneDir, thirdlightDir);
     core.sessions.set(projectId, s);
     return {
       ok: true,
@@ -952,10 +1066,10 @@ function performClaimAndLoad(
         expected: 'a loadable authoring-state envelope',
       },
     ];
-    core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: 'envelope_invalid', errors, count: 1 }));
+    core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: 'envelope_invalid', errors, count: 1 }, sceneDir, thirdlightDir));
     return { ok: false, error: projectUnavailable('envelope_invalid', null, errors) };
   }
-  core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: l.reason, errors: l.errors, count: l.count }));
+  core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: l.reason, errors: l.errors, count: l.count }, sceneDir, thirdlightDir));
   return { ok: false, error: projectUnavailable(l.reason, null, l.errors) };
 }
 
@@ -1005,8 +1119,8 @@ export function releaseProject(
   const newBytes = buildEnvelopeBytes(s.projectId, s.scene!, []);
   const newHash = sha256Hex(newBytes);
   const res = writeAtomic({
-    dir: join(s.dir, 'scenes'),
-    target: join(s.dir, SCENE_REL),
+    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
+    target: join(s.sceneDir, 'main.json'),
     bytes: newBytes,
     allowedPreHashes: [s.lastWrittenHash],
     previousHash: s.lastWrittenHash,
@@ -1033,7 +1147,7 @@ export function releaseProject(
   if (s.ownership === null) {
     return { ok: false, error: ownershipConflict(null) };
   }
-  const rel = releaseOwnership(s.dir, s.ownership, core.ops);
+  const rel = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
   if (!rel.ok) {
     if (rel.failed?.external) {
       // A foreign ownership writer raced: the project is still owned by us

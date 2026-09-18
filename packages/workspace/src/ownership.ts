@@ -106,12 +106,14 @@ export function parseOwnershipRecord(bytes: Uint8Array | null): OwnershipRecord 
   };
 }
 
-/** Read the ownership record bytes (null when absent or unreadable). */
+/** Read the ownership record bytes from the project's VERIFIED
+ * `.thirdlight` directory (R7: callers pass the containment-checked
+ * directory — null when absent or unreadable). */
 export function readOwnershipRecordBytes(
-  projectDir: string,
+  thirdlightDir: string,
   ops: WriteOps,
 ): Uint8Array | null {
-  const p = join(projectDir, '.thirdlight', 'ownership.json');
+  const p = join(thirdlightDir, 'ownership.json');
   if (!ops.fileExists(p)) return null;
   try {
     return ops.readFile(p);
@@ -255,7 +257,7 @@ export type ClaimOutcome =
   | { ok: false; eval: OwnershipEval };
 
 export function claimOwnership(
-  projectDir: string,
+  thirdlightDir: string,
   self: SelfIdentity,
   lockEpoch: number,
   liveness: (pid: number, openedAt: string) => Liveness,
@@ -278,8 +280,8 @@ export function claimOwnership(
       return { ok: true, record: rec };
     }
   }
-  const recPath = join(projectDir, '.thirdlight', 'ownership.json');
-  const recDir = join(projectDir, '.thirdlight');
+  const recPath = join(thirdlightDir, 'ownership.json');
+  const recDir = thirdlightDir;
   for (let round = 0; round < 4; round++) {
     const record: OwnershipRecord = {
       storageVersion: OWNERSHIP_STORAGE_VERSION,
@@ -300,7 +302,7 @@ export function claimOwnership(
     });
     if (res.ok) {
       // Verification re-read (§6.3).
-      const reread = readOwnershipRecordBytes(projectDir, ops);
+      const reread = readOwnershipRecordBytes(thirdlightDir, ops);
       const rec2 = reread === null ? null : parseOwnershipRecord(reread);
       if (
         rec2 !== null &&
@@ -327,7 +329,7 @@ export function claimOwnership(
       // directory flush is unproven. Read back: if we own it, the running
       // system is self-consistent and we continue as owner (the gap is
       // observable at the next open); otherwise evaluate the foreign state.
-      const reread = readOwnershipRecordBytes(projectDir, ops);
+      const reread = readOwnershipRecordBytes(thirdlightDir, ops);
       const rec2 = reread === null ? null : parseOwnershipRecord(reread);
       if (
         rec2 !== null &&
@@ -342,13 +344,13 @@ export function claimOwnership(
     // "previous": the prior record is untouched on disk. If it still
     // supports our claim (absent/released/own-record, same epoch), retry
     // the claim; otherwise return the evaluation.
-    const reread = readOwnershipRecordBytes(projectDir, ops);
+    const reread = readOwnershipRecordBytes(thirdlightDir, ops);
     const ev = evaluateOwnership(reread, self, liveness);
     if (ev.action === 'claim' && ev.lockEpoch === lockEpoch) continue;
     return { ok: false, eval: ev };
   }
   // Unreachable: the bounded loop above always returns.
-  const reread = readOwnershipRecordBytes(projectDir, ops);
+  const reread = readOwnershipRecordBytes(thirdlightDir, ops);
   return { ok: false, eval: evaluateOwnership(reread, self, liveness) };
 }
 
@@ -359,7 +361,7 @@ export function claimOwnership(
  * file is never deleted.
  */
 export function releaseOwnership(
-  projectDir: string,
+  thirdlightDir: string,
   current: OwnershipRecord,
   ops: WriteOps,
 ):
@@ -372,10 +374,10 @@ export function releaseOwnership(
         errno?: string;
       };
     } {
-  const recPath = join(projectDir, '.thirdlight', 'ownership.json');
+  const recPath = join(thirdlightDir, 'ownership.json');
   const released: OwnershipRecord = { ...current, state: 'released' };
   const res = writeAtomic({
-    dir: join(projectDir, '.thirdlight'),
+    dir: thirdlightDir,
     target: recPath,
     bytes: buildOwnershipRecordBytes(released),
     allowedPreHashes: [],

@@ -46,14 +46,16 @@ function ensureDir(dir: string, ops: WriteOps): void {
  * caller via the write_failed/external outcomes of the triggering command).
  */
 export function snapshotForeignBytes(
-  projectDir: string,
+  thirdlightDir: string,
   bytes: Uint8Array,
   ops: WriteOps,
   stamp: () => string = utcStamp,
 ): string | null {
-  const recoveryDir = join(projectDir, '.thirdlight', 'recovery');
+  // R7: the caller passes the project's VERIFIED `.thirdlight` directory
+  // (containment-checked at open) — no re-join from the raw project id.
+  const recoveryDir = join(thirdlightDir, 'recovery');
   try {
-    ensureDir(join(projectDir, '.thirdlight'), ops);
+    ensureDir(thirdlightDir, ops);
     ensureDir(recoveryDir, ops);
   } catch {
     return null;

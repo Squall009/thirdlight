@@ -34,6 +34,8 @@ declare module 'node:fs' {
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   /** Cheap existence check (test assertions). */
   export function existsSync(path: string): boolean;
+  /** Create a directory symlink (R7 regression tests: symlink escapes). */
+  export function symlinkSync(target: string, path: string, type?: string): void;
   export function readdirSync(path: string): string[];
   /** Whole-file read (Buffer is a Uint8Array). */
   export function readFileSync(path: string): Uint8Array;

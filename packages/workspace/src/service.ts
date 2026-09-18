@@ -77,10 +77,12 @@ import {
   loadProjectDir,
   pendingInfo,
   releaseProject,
+  resolveContained,
   serveQuery,
   takeover,
   type Core,
   type ProjectSession,
+  verifyChildDir,
 } from './session';
 import type {
   AcceptResult,
@@ -250,8 +252,8 @@ function buildService(core: Core): WorkspaceService {
     const records = appendRecord(s.records, newRecord);
     const envBytes = buildEnvelopeBytes(pid, outcome.state.scene, records);
     const res = writeAtomic({
-      dir: join(s.dir, 'scenes'),
-      target: join(s.dir, SCENE_REL),
+      dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
+      target: join(s.sceneDir, 'main.json'),
       bytes: envBytes,
       allowedPreHashes: [s.lastWrittenHash],
       previousHash: s.lastWrittenHash,
@@ -355,6 +357,22 @@ function buildService(core: Core): WorkspaceService {
     }
     const dir = join(core.projectsRoot, projectId);
     if (core.ops.dirExists(dir)) {
+      // R7 (2026-09-18 review): the containment gate BEFORE any read or
+      // converge (a symlinked or unresolvable directory is not a project
+      // of this backend — no writes anywhere).
+      if (!resolveContained(core, projectId).ok) {
+        return {
+          ok: false,
+          error: projectExistsInvalid([
+            {
+              code: 'manifest_invalid',
+              path: '',
+              message:
+                'the project directory is a symlink escape or an unresolvable path — not a project of this backend',
+            },
+          ]),
+        };
+      }
       // Existing directory (§8.1): loadable ⇒ idempotent no-op; otherwise
       // project_exists_invalid with the load errors. Nothing is written.
       return convergeExisting(projectId);
@@ -481,7 +499,9 @@ function buildService(core: Core): WorkspaceService {
 
     // The §4.3 envelope load — the same loader as the query path, without
     // the session/ownership acquisition around it.
-    const l = loadProjectDir(core, dir, projectId, manifest);
+    // R15/R7: read-only probe; the caller's containment gate verified the
+    // project directory (the scenes child is read here, never written).
+    const l = loadProjectDir(core, join(dir, 'scenes'), projectId, manifest);
     if (l.kind === 'loaded') return { ok: true, created: false, revision: l.scene.revision };
     const envDetails: LoadDetail[] =
       l.kind === 'envelope-missing'
@@ -648,13 +668,23 @@ function scanEntry(core: Core, name: string): ScanEntry {
     entry.note = 'directory absent (vanished during the scan)';
     return entry;
   }
+  // R7 (2026-09-18 review): the containment gate BEFORE any read or write
+  // through the entry (the §8.3 completion write included) — a symlinked
+  // or unresolvable project directory is not a project of this backend:
+  // reported as an orphan, not completed, not modified.
+  if (!resolveContained(core, name).ok) {
+    entry.kind = 'orphan';
+    entry.note =
+      'directory is not a contained project of this backend (symlink escape or missing path) — not completed, not modified';
+    return entry;
+  }
   // Leftover temps — reported, not cleaned (workspace.md §10).
   const temps = listLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
   if (temps.length > 0) entry.leftoverTemps = temps.length;
 
   // Ownership: a stale (dead-pid) record is reported; no action is taken
   // (a live record means another backend is working: untouched).
-  const recBytes = readOwnershipRecordBytes(dir, core.ops);
+  const recBytes = readOwnershipRecordBytes(join(dir, '.thirdlight'), core.ops);
   const rec = recBytes === null ? null : parseOwnershipRecord(recBytes);
   let stale = false;
   if (rec !== null && rec.state === 'owned') {
@@ -695,6 +725,21 @@ function scanEntry(core: Core, name: string): ScanEntry {
   // Envelope.
   const envelopeExists = core.ops.fileExists(join(dir, SCENE_REL));
   if (!envelopeExists) {
+    // R7 (2026-09-18 review): the completion write is the scan's ONLY
+    // write and it goes through the scenes directory — a PRESENT scenes
+    // dir that escapes the data root is kept for the operator, never
+    // completed through a symlink. (An ABSENT scenes dir keeps the
+    // pre-fix path: the write attempt fails and the state is kept.)
+    if (verifyChildDir(core, name, 'scenes').kind === 'escape') {
+      entry.kind = 'project';
+      entry.completion = 'kept';
+      entry.loadable = false;
+      entry.code = 'envelope_invalid';
+      entry.note = stale
+        ? 'interrupted creation (kept — the scenes directory is not a contained path of this backend); stale ownership reported'
+        : 'interrupted creation (kept — the scenes directory is not a contained path of this backend)';
+      return entry;
+    }
     // Interrupted creation: the scan's only sanctioned write — the
     // deterministic §8.3 completion.
     entry.kind = 'project';
