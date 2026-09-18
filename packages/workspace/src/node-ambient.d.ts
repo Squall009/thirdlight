@@ -32,6 +32,8 @@ declare module 'node:fs' {
   /** Whole-file read (Buffer is a Uint8Array). */
   export function readFileSync(path: string): Uint8Array;
   export function readFileSync(path: string, encoding: 'utf8'): string;
+  /** Whole-file write (src tests: corrupt/simulate foreign bytes). */
+  export function writeFileSync(path: string, data: string | Uint8Array): void;
   export function statSync(path: string): {
     isDirectory(): boolean;
     isFile(): boolean;

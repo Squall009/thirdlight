@@ -171,8 +171,9 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
     };
   }
   const scene = sceneRes.normalized;
-  // 7. Retry block.
-  const retryRes = validateRetryBlock(root['retry'], scene);
+  // 7. Retry block (validated against the envelope's projectId: record
+  //    result payloads must belong to THIS project — R13).
+  const retryRes = validateRetryBlock(root['retry'], scene, pid);
   if (!retryRes.ok) {
     return { ok: false, reason: 'retry_records_invalid', errors: [retryRes.error], count: 1 };
   }
@@ -202,10 +203,14 @@ function bounded(v: unknown): unknown {
  * commands.md §5.1); `appliedRevision` strictly ascending and ≤
  * `scene.revision`; `requestId` values unique; ≤ 128 records (over the
  * retention bound ⇒ malformed — the project is blocked, never "repaired").
+ * Every discriminator is validated as a PRIMITIVE before any coercion
+ * (R12: a JSON object such as `{"toString":0}` used to make `String()`
+ * throw a TypeError and abort the whole load).
  */
 function validateRetryBlock(
   retry: unknown,
   scene: Scene,
+  projectId: string,
 ): { ok: true; records: RetryRecord[] } | { ok: false; error: LoadDetail } {
   if (!isPlainObject(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
@@ -284,7 +289,7 @@ function validateRetryBlock(
       );
     }
     prev = applied;
-    const resultErr = validateRecordResult(r['result'], rid, applied);
+    const resultErr = validateRecordResult(r['result'], rid, applied, projectId);
     if (resultErr !== null) {
       return { ok: false, error: resultErr };
     }
@@ -322,13 +327,19 @@ function validateRecordResult(
   result: unknown,
   recordRequestId: string,
   recordAppliedRevision: number,
+  envelopeProjectId: string,
 ): LoadDetail | null {
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
-  // The exact §5.1 field set per op.
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
-  let op: string | null = typeof result['op'] === 'string' ? result['op'] : null;
-  if (op !== null && !MUTATION_OPS.includes(op)) op = null;
+  // R12: the op discriminator must be a primitive string BEFORE any
+  // coercion — a JSON object such as `{"toString":0}` is corrupt shape,
+  // not a valid op.
+  const opRaw = result['op'];
+  if (typeof opRaw !== 'string' || !MUTATION_OPS.includes(opRaw)) {
+    return rerr('recorded result op is not one of the five M1 mutation ops', opRaw, '/result/op');
+  }
+  const op = opRaw;
   let allowed: string[];
   if (op === 'createEntity') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
@@ -342,17 +353,23 @@ function validateRecordResult(
     if (!(k in result)) return rerr(`recorded result is missing required field '${k}'`, undefined, k, `/result/${k}`);
   }
   if (result['ok'] !== true) return rerr('recorded result ok must be true', result['ok'], '/result/ok');
-  if (!MUTATION_OPS.includes(String(result['op']))) {
-    return rerr('recorded result op is not one of the five M1 mutation ops', result['op'], '/result/op');
-  }
-  op = String(result['op']);
-  if (typeof result['projectId'] !== 'string' || !ID_RE.test(String(result['projectId']))) {
+  if (typeof result['projectId'] !== 'string' || !ID_RE.test(result['projectId'])) {
     return rerr('recorded result projectId must use the project-model ID syntax', result['projectId'], '/result/projectId');
   }
-  if (typeof result['requestId'] !== 'string' || !REQUEST_ID_RE.test(String(result['requestId']))) {
+  // R13: enclosing-project consistency — the recorded result must belong
+  // to the project this envelope belongs to (a record replayed into another
+  // project is malformed, not foreign input to trust).
+  if (result['projectId'] !== envelopeProjectId) {
+    return rerr(
+      'record result projectId must equal the envelope projectId (enclosing-project consistency)',
+      result['projectId'],
+      '/result/projectId',
+    );
+  }
+  if (typeof result['requestId'] !== 'string' || !REQUEST_ID_RE.test(result['requestId'])) {
     return rerr('recorded result requestId must be req- plus 32 hex chars', result['requestId'], '/result/requestId');
   }
-  if (String(result['requestId']) !== recordRequestId) {
+  if (result['requestId'] !== recordRequestId) {
     return rerr('record result requestId does not match the enclosing record', result['requestId'], '/result/requestId');
   }
   if (!isSafeInt(result['revision']) || (result['revision'] as number) < 0) {
@@ -376,7 +393,7 @@ function validateRecordResult(
     }
   }
   if (op === 'undo' || op === 'redo') {
-    if (typeof result['appliedOf'] !== 'string' || !REQUEST_ID_RE.test(String(result['appliedOf']))) {
+    if (typeof result['appliedOf'] !== 'string' || !REQUEST_ID_RE.test(result['appliedOf'])) {
       return rerr('appliedOf must be the original command requestId (undo/redo only)', result['appliedOf'], '/result/appliedOf');
     }
     const oo = result['originOfApplied'];
@@ -388,7 +405,9 @@ function validateRecordResult(
       for (const k of okeys) {
         if (k !== 'kind' && k !== 'clientId') return rerr('unknown field in originOfApplied', k, k, `/result/originOfApplied/${k}`);
       }
-      if (!['browser', 'mcp', 'admin'].includes(String(oo['kind']))) {
+      // R12: the kind discriminator must be a primitive string before
+      // coercion.
+      if (typeof oo['kind'] !== 'string' || !['browser', 'mcp', 'admin'].includes(oo['kind'])) {
         return rerr('originOfApplied kind must be browser|mcp|admin', oo['kind'], '/result/originOfApplied/kind');
       }
       if (typeof oo['clientId'] !== 'string') {
@@ -429,7 +448,9 @@ function rerr(
 function validateChangeShape(change: unknown, op: string): LoadDetail | null {
   if (!isPlainObject(change)) return rerr('recorded change must be an object', undefined, '/result/change');
   const t = change['type'];
-  if (!['createEntity', 'setTransform', 'deleteEntity', 'restoreSubtree'].includes(String(t))) {
+  // R12: the change-type discriminator must be a primitive string BEFORE
+  // any coercion (a JSON object such as `{"toString":0}` is corrupt shape).
+  if (typeof t !== 'string' || !['createEntity', 'setTransform', 'deleteEntity', 'restoreSubtree'].includes(t)) {
     return rerr('recorded change type is not a known change type', t, '/result/change/type');
   }
   // op ↔ change.type correspondence (commands.md §5.3/§8.4).
@@ -442,14 +463,18 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
   if (op === 'deleteEntity' && t !== 'deleteEntity') {
     return rerr('deleteEntity result must carry a deleteEntity change', t, '/result/change/type');
   }
-  switch (String(t)) {
+  switch (t) {
     case 'createEntity': {
       if (!sameKeys(change, ['type', 'id', 'entity'])) return rerr('createEntity change keys must be type,id,entity', undefined, '/result/change');
       if (typeof change['id'] !== 'string') return rerr('createEntity change id must be a string', undefined, '/result/change/id');
       const ent = change['entity'];
-      if (!isPlainObject(ent) || typeof ent['id'] !== 'string') {
+      // R13: the recorded entity must be the COMPLETE entity value per the
+      // model authority (strict schema) — not just an id.
+      if (!isPlainObject(ent)) {
         return rerr('createEntity change entity must be the full entity value', undefined, '/result/change/entity');
       }
+      const entErr = validateHistoricalEntities([ent], '/result/change/entity');
+      if (entErr !== null) return entErr;
       if (ent['id'] !== change['id']) return rerr('createEntity change entity id must equal change id', ent['id'], '/result/change/entity/id');
       return null;
     }
@@ -457,7 +482,9 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
       if (!sameKeys(change, ['type', 'id', 'previous', 'next', 'changedFields'])) {
         return rerr('setTransform change keys must be type,id,previous,next,changedFields', undefined, '/result/change');
       }
-      if (typeof change['id'] !== 'string') return rerr('setTransform change id must be a string', undefined, '/result/change/id');
+      if (typeof change['id'] !== 'string' || !ID_RE.test(change['id'])) {
+        return rerr('setTransform change id must use the project-model ID syntax', change['id'], '/result/change/id');
+      }
       const prevErr = fullTransformError(change['previous'], '/result/change/previous');
       if (prevErr !== null) return prevErr;
       const nextErr = fullTransformError(change['next'], '/result/change/next');
@@ -480,10 +507,12 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
       if (!sameKeys(change, ['type', 'rootId', 'deletedIds'])) {
         return rerr('deleteEntity change keys must be type,rootId,deletedIds', undefined, '/result/change');
       }
-      if (typeof change['rootId'] !== 'string') return rerr('deleteEntity change rootId must be a string', undefined, '/result/change/rootId');
+      if (typeof change['rootId'] !== 'string' || !ID_RE.test(change['rootId'])) {
+        return rerr('deleteEntity change rootId must use the project-model ID syntax', change['rootId'], '/result/change/rootId');
+      }
       const ids = change['deletedIds'];
-      if (!Array.isArray(ids) || ids.length === 0 || !ids.every((x) => typeof x === 'string')) {
-        return rerr('deletedIds must be a non-empty string array (pre-deletion array order)', undefined, '/result/change/deletedIds');
+      if (!Array.isArray(ids) || ids.length === 0 || !ids.every((x) => typeof x === 'string' && ID_RE.test(x))) {
+        return rerr('deletedIds must be non-empty project-model entity ids (pre-deletion array order)', undefined, '/result/change/deletedIds');
       }
       return null;
     }
@@ -491,16 +520,84 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
       if (!sameKeys(change, ['type', 'rootId', 'entities'])) {
         return rerr('restoreSubtree change keys must be type,rootId,entities', undefined, '/result/change');
       }
-      if (typeof change['rootId'] !== 'string') return rerr('restoreSubtree change rootId must be a string', undefined, '/result/change/rootId');
-      const ents = change['entities'];
-      if (!Array.isArray(ents) || ents.length === 0 || !ents.every((e) => isPlainObject(e) && typeof e['id'] === 'string')) {
-        return rerr('restoreSubtree change entities must be the restored entity values (non-empty)', undefined, '/result/change/entities');
+      if (typeof change['rootId'] !== 'string' || !ID_RE.test(change['rootId'])) {
+        return rerr('restoreSubtree change rootId must use the project-model ID syntax', change['rootId'], '/result/change/rootId');
       }
+      const ents = change['entities'];
+      if (!Array.isArray(ents) || ents.length === 0) {
+        return rerr('restoreSubtree change entities must be a non-empty array (the restored subtree)', undefined, '/result/change/entities');
+      }
+      // R13: every restored entity is a COMPLETE entity value per the model
+      // authority (historical entities need not exist in the current scene).
+      const setErr = validateHistoricalEntities(ents, '/result/change/entities');
+      if (setErr !== null) return setErr;
       return null;
     }
     default:
       return null;
   }
+}
+
+/**
+ * R13 (2026-09-18 review): strict validation of historical entity payload(s)
+ * using the MODEL AUTHORITY (`validateScene` — project-model §9/§10: known
+ * entity fields only, `components` present with validated component shapes,
+ * cross-entity reference/cycle/order rules). Historical entities need NOT
+ * exist in the current scene (they may have been deleted or undone since the
+ * record was written), so reference-existence is validated against a
+ * synthetic scene instead: a synthetic camera (the scene must carry exactly
+ * one) plus one minimal placeholder parent per referenced-but-missing parent
+ * id. A placeholder is itself a model-valid entity (transform-only). The
+ * payload is rejected on ANY model error; nothing is rewritten — a load
+ * failure blocks the project per workspace.md §7.5.
+ */
+const ZERO_TRANSFORM = {
+  position: [0, 0, 0],
+  rotation: [0, 0, 0, 1],
+  scale: [1, 1, 1],
+} as const;
+
+function validateHistoricalEntities(
+  ents: readonly unknown[],
+  base: string,
+): LoadDetail | null {
+  // Ids already present in the payload: a parent that is part of the payload
+  // is present; every other referenced parent id gets a placeholder.
+  const present = new Set<string>();
+  for (const e of ents) {
+    if (isPlainObject(e) && typeof e['id'] === 'string') present.add(e['id']);
+  }
+  const placeholders: Record<string, unknown>[] = [];
+  for (const e of ents) {
+    if (!isPlainObject(e)) continue; // the model check below reports the shape.
+    const pid = e['parentId'];
+    if (typeof pid === 'string' && !present.has(pid) && !placeholders.some((p) => p['id'] === pid)) {
+      placeholders.push({ id: pid, components: { transform: ZERO_TRANSFORM } });
+    }
+  }
+  const used = new Set(present);
+  for (const p of placeholders) used.add(String(p['id']));
+  let camId = 'histcam';
+  while (used.has(camId)) camId = `${camId}x`;
+  const res = validateScene({
+    schemaVersion: 1,
+    sceneId: 'scene-main',
+    revision: 0,
+    entities: [
+      { id: camId, components: { transform: ZERO_TRANSFORM, camera: {} } },
+      ...placeholders,
+      ...ents,
+    ],
+  });
+  if (res.ok) return null;
+  const first = res.errors[0];
+  if (first === undefined) return null; // unreachable: a failure carries ≥ 1 error
+  return {
+    code: 'retry_records_invalid',
+    path: base,
+    message: `historical entity payload is not a complete project-model entity: ${first.message}`,
+    expected: 'a complete entity value (project-model §9/§10: id, optional name, optional parentId, components)',
+  };
 }
 
 /** Sorted comma-joined key list (unknown/missing fields both fail shape). */

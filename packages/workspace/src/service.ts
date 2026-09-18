@@ -156,6 +156,30 @@ function buildService(core: Core): WorkspaceService {
   }
 
   function runCommandImpl(request: unknown): MutationResult {
+    // Step 0 (R11, 2026-09-18 review) — canonicalizability gate: the request
+    // must be a JSON value under the digest's canonical rules (commands.md
+    // §6.6 — the same canonical-bytes semantics the model's serialization
+    // relies on: plain objects/arrays, finite numbers, strings, booleans,
+    // null; no undefined/BigInt/Symbol/function, no exotic objects such as
+    // Date, no cycles). Non-canonicalizable requests fail here with a
+    // structured validation error BEFORE project resolution, deduplication
+    // and any record construction or write. Previously the digest came back
+    // null and the null was written into the envelope's record (the `D!`
+    // site), poisoning the envelope with a `null` digest its own loader
+    // rejects (`retry_records_invalid` at reopen).
+    const issue = canonicalIssue(request);
+    if (issue !== null) {
+      return failRequest(
+        request,
+        invalidRequest(
+          issue.path,
+          issue.value,
+          issue.expected,
+          issue.message,
+          'request values must be JSON values: the digest\'s canonical bytes must exist (drop the offending field or replace it with a JSON value)',
+        ),
+      );
+    }
     // Step 1 — resolve the project. The request envelope's projectId is the
     // only addressing (charter §4); a syntactically invalid ID cannot exist
     // inside the root, so it is an envelope-level schema failure.
@@ -173,10 +197,25 @@ function buildService(core: Core): WorkspaceService {
     // a retried request carries its ORIGINAL expectedRevision, which is
     // stale by definition after the original application).
     const rid = envelopeRequestId(request);
-    const D = requestDigest(request); // null when the value is not JSON-safe
+    const D = requestDigest(request);
+    // R11: step 0's gate guarantees the canonical bytes exist, so the
+    // digest is non-null. A null here would mean the gate was bypassed:
+    // fail closed — a null digest must never reach a record (that was the
+    // NULL_DIGEST failure: `"digest": null` on disk).
+    if (D === null) {
+      return failRequest(
+        request,
+        invalidRequest(
+          '',
+          undefined,
+          'SHA-256 hex digest of the canonical request bytes',
+          'the request digest must be computable: the request must be a JSON value (the canonicalizability gate)',
+        ),
+      );
+    }
     if (rid !== null && s.recordMap.has(rid)) {
       const rec = s.recordMap.get(rid)!;
-      if (D !== null && rec.digest === D) {
+      if (rec.digest === D) {
         // Identical retry: replay the recorded result (a pure read of the
         // record map — served even while writes are paused, §6.1 step 2).
         // No revision is consumed, no state changes, no write.
@@ -199,10 +238,11 @@ function buildService(core: Core): WorkspaceService {
     // Step 7 — durability write. The new envelope carries BOTH the new
     // scene (revision+1) and the new record (one atomic replacement —
     // commands.md §7.2: no window where the revision advanced but the
-    // record is missing).
+    // record is missing). D is non-null (step 0's gate + step 2's check),
+    // so the record's digest is always a real digest (R11: no `D!`).
     const newRecord: RetryRecord = {
       requestId: envelopeRequestId(request)!,
-      digest: D!,
+      digest: D,
       appliedRevision: outcome.result.revision,
       result: outcome.result,
     };
@@ -750,6 +790,101 @@ function envelopeRequestId(request: unknown): string | null {
   if (typeof request !== 'object' || request === null || Array.isArray(request)) return null;
   const v = (request as Record<string, unknown>)['requestId'];
   return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/**
+ * R11 (2026-09-18 review): the first non-canonicalizable part of the request
+ * value, or null when the ENTIRE value is a JSON value under the digest's
+ * canonical rules (commands.md §6.6 — the same canonical-bytes semantics the
+ * model's canonical serialization relies on: plain objects, arrays, finite
+ * numbers, strings, booleans, null). Reports the first offending field with
+ * a JSON-pointer-style path (first key order, then array order).
+ */
+interface CanonicalIssue {
+  path: string;
+  value: unknown;
+  expected: string;
+  message: string;
+}
+
+function canonicalIssue(value: unknown): CanonicalIssue | null {
+  const stack = new Set<object>();
+  const walk = (v: unknown, path: string): CanonicalIssue | null => {
+    if (v === null) return null;
+    if (typeof v === 'string' || typeof v === 'boolean') return null;
+    if (typeof v === 'number') {
+      return Number.isFinite(v)
+        ? null
+        : {
+            path,
+            value: v,
+            expected: 'finite number',
+            message: 'non-finite number is not a JSON value',
+          };
+    }
+    if (
+      typeof v === 'undefined' ||
+      typeof v === 'bigint' ||
+      typeof v === 'symbol' ||
+      typeof v === 'function'
+    ) {
+      return {
+        path,
+        value: v,
+        expected: 'JSON value (string, number, boolean, null, array or object)',
+        message: `${typeof v} is not a JSON value`,
+      };
+    }
+    // From here on v is an object (array or non-array object).
+    if (stack.has(v)) {
+      return {
+        path,
+        value: '[circular]',
+        expected: 'acyclic JSON value',
+        message: 'self-referencing value is not a JSON value',
+      };
+    }
+    if (Array.isArray(v)) {
+      stack.add(v);
+      for (let i = 0; i < v.length; i += 1) {
+        const issue = walk(v[i], `${path}/${i}`);
+        if (issue !== null) return issue;
+      }
+      stack.delete(v);
+      return null;
+    }
+    const tag = Object.prototype.toString.call(v);
+    if (tag !== '[object Object]') {
+      // Date, Map, Set, typed arrays, … — not plain JSON objects. (The
+      // digest's canonicalizer would silently fold an empty-keyed Date into
+      // `{}` — bytes that disagree with the JSON wire form — so these are
+      // rejected here, before any digest is computed.)
+      return {
+        path,
+        value: tag.slice(8, -1),
+        expected: 'plain object (JSON object)',
+        message: `${tag.slice(8, -1)} is not a plain JSON object`,
+      };
+    }
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) {
+      return {
+        path,
+        value: 'Object',
+        expected: 'plain object (JSON object)',
+        message: 'class instance is not a plain JSON object',
+      };
+    }
+    const rec = v as Record<string, unknown>;
+    stack.add(v);
+    for (const k of Object.keys(rec)) {
+      const issue = walk(rec[k], `${path}/${k}`);
+      if (issue !== null) return issue;
+    }
+    stack.delete(v);
+    return null;
+  };
+  return walk(value, '');
 }
 
 /** A §5.2 failure payload with the parseable echo fields (commands.md §5.2:
