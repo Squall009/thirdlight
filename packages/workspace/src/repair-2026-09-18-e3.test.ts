@@ -267,14 +267,13 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
 
     // On-demand open (query): REFUSED — the record's state is unknown ⇒
     // the §6.2 conservative rule resolves it to live ⇒ no claim (a claim
-    // would overwrite unknown bytes). §11: ownership_conflict carries
-    // holder null (no parseable owned record exists) — the wire shape
-    // omits the holder field when it is null.
+    // would overwrite unknown bytes). §11 line 934: ownership_conflict
+    // carries holder — strict null when no parseable owned record exists.
     const e = queryErr(b);
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
     expect(e?.reason).toBe('ownership_conflict');
-    expect(e?.holder).toBeUndefined(); // holder null (omitted on the wire)
+    expect(e?.holder).toBeNull(); // holder: strict null on the wire (T5 pins it)
 
     // Explicit takeover: REFUSED the same way (no stale_ownership — the
     // record cannot be evaluated at all; only PROVEN death permits a
@@ -310,7 +309,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     expect(e).not.toBeNull(); // pre-fix: e === null (the open SUCCEEDED)
     expect(e?.code).toBe('project_unavailable');
     expect(e?.reason).toBe('ownership_conflict');
-    expect(e?.holder).toBeUndefined(); // holder null (omitted on the wire)
+    expect(e?.holder).toBeNull(); // holder: strict null on the wire (T5 pins it)
 
     const to = b.takeoverWorkspace(PROJECT);
     expect(to.ok).toBe(false); // pre-fix: the takeover SUCCEEDED
@@ -338,7 +337,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
     expect(e?.reason).toBe('ownership_conflict');
-    expect(e?.holder).toBeUndefined(); // holder null (omitted on the wire)
+    expect(e?.holder).toBeNull(); // holder: strict null on the wire (T5 pins it)
 
     chmodSync(thirdlightDir(root), 0o755);
     expect(bytesEqual(readFileSync(recPath(root)), recBefore)).toBe(true);
@@ -622,6 +621,56 @@ describe('T4: scan — an unreadable ownership record is never reported stale (w
     expect(entry?.staleOwnership).toBe(true);
     expect(bytesEqual(readFileSync(recPath(root)), recBefore)).toBe(true);
     svc.dispose();
+    dropRoot(root);
+  });
+});
+
+// =============================================================================
+// T5 — residual (spot-check round 2): unreadable record ⇒ `holder` is a
+// STRICT `null` on both refusal surfaces (workspace.md §11 line 934:
+// `ownership_conflict` "carries `holder`, `null` when no parseable owned
+// record exists")
+// =============================================================================
+
+describe('T5: §11 line 934 — unreadable-record refusal carries holder: strict null (spot-check round 2)', () => {
+  it('T5: owner live, record chmod 000 ⇒ the query envelope AND the direct takeover error both carry the `holder` field as strict null (pre-fix: field omitted ⇒ undefined)', () => {
+    const root = makeRoot('t5');
+    seedScenario09(root);
+    // The owner (pid 5000) is LIVE under the procRoot seam; the record is
+    // made unreadable (the R8a repro — same as T1(a)).
+    const procRoot = join(root, 'proc');
+    writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
+    chmodSync(recPath(root), 0o000);
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
+
+    // Surface 1 — the query envelope `project_unavailable {
+    // reason: "ownership_conflict" }`: the `holder` field is PRESENT and
+    // strict null (parity with the parseable case, where the envelope
+    // carries the holder object — pinned by T2(a): `e.holder.pid === A_PID`).
+    const e = queryErr(b);
+    expect(e).not.toBeNull();
+    expect(e?.code).toBe('project_unavailable');
+    expect(e?.reason).toBe('ownership_conflict');
+    if (e !== null) {
+      expect('holder' in e).toBe(true); // the field is present…
+      expect(Object.is(e.holder, null)).toBe(true); // …as strict null (pre-fix: absent ⇒ undefined)
+    }
+
+    // Surface 2 — the direct `takeoverWorkspace` error `{ code:
+    // "ownership_conflict" }`: the `holder` field is PRESENT and strict
+    // null (pre-fix: absent ⇒ undefined).
+    const to = b.takeoverWorkspace(PROJECT);
+    expect(to.ok).toBe(false);
+    if (!to.ok) {
+      expect(to.error.code).toBe('ownership_conflict');
+      const err = to.error as unknown as Record<string, unknown>;
+      expect('holder' in err).toBe(true);
+      expect(Object.is(err['holder'], null)).toBe(true);
+    }
+
+    // Nothing was written (record/claim untouched — the T1(a) invariant).
+    chmodSync(recPath(root), 0o644);
+    b.dispose();
     dropRoot(root);
   });
 });

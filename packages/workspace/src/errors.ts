@@ -140,13 +140,16 @@ export function projectUnavailable(
   details: readonly LoadDetail[],
 ): CommandError {
   // Key order (fixture-pinned for ownership reasons): code, cls, reason,
-  // holder?, details?, detailCount?, message, hint.
+  // holder?, details?, detailCount?, message, hint. For
+  // ownership_conflict the `holder` field is ALWAYS present — the holder
+  // object when a parseable owned record exists, strict `null` when it
+  // does not (workspace.md §11 line 934).
   const e: Record<string, unknown> = {
     code: 'project_unavailable',
     cls: 'unavailable',
     reason,
   };
-  if (holder !== null) e['holder'] = holder;
+  if (holder !== null || reason === 'ownership_conflict') e['holder'] = holder;
   if (details.length > 0) {
     e['details'] = details.slice(0, 10);
     e['detailCount'] = details.length;
@@ -326,15 +329,16 @@ export function projectExistsInvalid(
 
 /** Operator-result error: `ownership_conflict` (workspace.md §6.2/§11).
  * Carries `holder` — the identity object of the parseable owned record —
- * or omits it when no parseable owned record exists (§11: `holder` is
- * `null` in that case, e.g. the claim file exists with foreign/absent
- * content at the target epoch, incl. the self-reclaim refusal). */
+ * or strict `null` when no parseable owned record exists (§11 line 934:
+ * `holder` is `null` in that case, e.g. the unreadable-record refusal,
+ * the claim file existing with foreign/absent content at the target
+ * epoch, incl. the self-reclaim refusal). The field is always present. */
 export function ownershipConflict(holder: Holder | null): CommandError {
   const e: Record<string, unknown> = {
     code: 'ownership_conflict',
     cls: 'unavailable',
   };
-  if (holder !== null) e['holder'] = holder;
+  e['holder'] = holder; // strict null when absent (§11 line 934)
   e['message'] =
     holder === null
       ? 'the ownership record is unreadable; another writer may hold the project — no takeover was performed'
