@@ -14,7 +14,10 @@
  *   THIRDLIGHT_AUTHORING_ORIGINS  comma-separated exact Origin allowlist
  *   THIRDLIGHT_EDITOR_DIR         the editor static bundle dir
  *   THIRDLIGHT_PREVIEW_DIR        the preview static bundle dir
- *   THIRDLIGHT_TOKENS             comma-separated `scope:token` pairs
+ *   THIRDLIGHT_TOKENS             comma-separated `scope:token` pairs (the
+ *                                 split is on the LAST colon — the
+ *                                 `authoring:<projectId>` scope contains a
+ *                                 colon; tokens must not contain ':')
  *   THIRDLIGHT_EXPORT_ROOT        optional; the export root
  *   THIRDLIGHT_ENGINE_ROOT        optional; the engine installation root (required for the export route)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
@@ -40,7 +43,9 @@ const tokens: BackendTokenEntry[] = required('THIRDLIGHT_TOKENS')
   .map((s) => s.trim())
   .filter((s) => s.length > 0)
   .map((pair) => {
-    const sep = pair.indexOf(':');
+    // Split on the LAST colon: the `authoring:<projectId>` scope itself
+    // contains a colon. (Convention: the token itself contains no ':'.)
+    const sep = pair.lastIndexOf(':');
     if (sep <= 0) fail(`THIRDLIGHT_TOKENS pair "${pair}" must be scope:token`);
     return { scope: pair.slice(0, sep), token: pair.slice(sep + 1) };
   });

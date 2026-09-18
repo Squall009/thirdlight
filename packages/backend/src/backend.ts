@@ -1401,8 +1401,8 @@ export function createBackend(
       };
       authoringServer.once('error', fail);
       previewServer.once('error', fail);
-      authoringServer.listen(0, bindHost(config.authoringBind), () => {
-        previewServer.listen(0, bindHost(config.previewBind), () => {
+      authoringServer.listen(bindPort(config.authoringBind), bindHost(config.authoringBind), () => {
+        previewServer.listen(bindPort(config.previewBind), bindHost(config.previewBind), () => {
           authoringServer.off('error', fail);
           previewServer.off('error', fail);
           logStartup('listening: both origins bound');
@@ -1454,6 +1454,12 @@ export function createBackend(
 function bindHost(bind: string): string {
   const idx = bind.lastIndexOf(':');
   return idx === -1 ? bind : bind.slice(0, idx);
+}
+
+/** The configured port (port 0 ⇒ ephemeral — test behavior, sessions.md §13.7). */
+function bindPort(bind: string): number {
+  const idx = bind.lastIndexOf(':');
+  return idx === -1 ? 0 : Number(bind.slice(idx + 1));
 }
 
 /** Build the preview template (exposed for packet 10 tests). */

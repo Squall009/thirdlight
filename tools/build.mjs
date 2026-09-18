@@ -130,6 +130,48 @@ if (existsSync(join(root, MCP_ENTRY))) {
   // optional Node artifact, not one of the dependencies.md §4.2 browser bundles.
   console.log(`build: mcp-adapter: entry not present (${MCP_ENTRY}) — not built (packet 11)`);
 }
+
+/**
+ * The backend deployment bundle (packet 13 local deployment; decision 0001
+ * §6): a Node PROCESS (not a browser bundle), the same Node options as the
+ * mcp-adapter artifact above. The workspace packages + `ws` are bundled in
+ * (packages: 'bundle') so `node dist/backend/backend.mjs` is self-contained;
+ * the `node:*` builtins stay external (platform: 'node'). Absent backend
+ * source is NOT counted in the browser-bundle tally (separate optional Node
+ * artifact, not a dependencies.md §4.2 browser bundle).
+ */
+const BACKEND_ENTRY = 'packages/backend/src/index.ts';
+const BACKEND_OUT = 'dist/backend/backend.mjs';
+if (existsSync(join(root, BACKEND_ENTRY))) {
+  const out = join(root, BACKEND_OUT);
+  mkdirSync(dirname(out), { recursive: true });
+  await esbuild.build({
+    entryPoints: [join(root, BACKEND_ENTRY)],
+    outfile: out,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: false,
+    sourcemap: false,
+    minify: false,
+    // esbuild (the exporter's bundler dependency) must stay EXTERNAL: its
+    // JS API dynamically resolves the platform binary relative to its own
+    // file location (__filename), which a bundled ESM context lacks
+    // ("__filename is not defined" at export time). From the deployment
+    // checkout it resolves from node_modules as usual. The artifact is
+    // therefore run from the engine checkout (documented in the
+    // deployment docs; the mcp-adapter bundle stays fully self-contained).
+    external: ['esbuild'],
+    banner: {
+      js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
+    },
+  });
+  console.log(`build: backend (deployment bundle): ${BACKEND_ENTRY} -> ${BACKEND_OUT}`);
+  built += 1;
+} else {
+  console.log(`build: backend: entry not present (${BACKEND_ENTRY}) — not built (packet 13)`);
+}
 // The static authoring page (only when the editor entry exists — packet 10).
 if (existsSync(join(root, 'packages/editor/src/index.tsx'))) {
   emitEditorPage();

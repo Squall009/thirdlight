@@ -3,6 +3,7 @@
  * sessions.md §2/§13.2/§13.7 (packet 09 acceptance).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -163,6 +164,47 @@ describe('startup checks (sessions.md §13.7)', () => {
     expect(badBind.ok).toBe(false);
     const noTokens = createBackend({ ...base, authoringOrigins: [AUTHORING_ORIGIN], tokens: [] });
     expect(noTokens.ok).toBe(false);
+  });
+
+  it('a configured (non-zero) bind port is actually bound — a second backend on the same port fails listen (packet 13 deployment fix)', async () => {
+    const { root, editorDir, previewDir } = tempStaticDirs();
+    // Take a free port deterministically (bind :0, read it, release it).
+    const probe = createServer();
+    await new Promise<void>((res, rej) => {
+      probe.once('error', rej);
+      probe.listen(0, '127.0.0.1', () => res());
+    });
+    const port = probe.address().port;
+    await new Promise<void>((res) => probe.close(() => res()));
+    const base = {
+      dataRoot: join(root, 'data'),
+      authoringOrigin: AUTHORING_ORIGIN,
+      previewOrigin: PREVIEW_ORIGIN,
+      authoringOrigins: [AUTHORING_ORIGIN],
+      editorStaticDir: editorDir,
+      previewStaticDir: previewDir,
+      tokens: [{ token: hex(8), scope: 'admin' }],
+    };
+    const first = createBackend({ ...base, authoringBind: `127.0.0.1:${port}`, previewBind: '127.0.0.1:0' });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    try {
+      await first.backend.ready;
+      expect(first.backend.portAuthoring).toBe(port);
+      const second = createBackend({
+        ...base,
+        dataRoot: join(root, 'data2'),
+        authoringBind: `127.0.0.1:${port}`,
+        previewBind: '127.0.0.1:0',
+      });
+      expect(second.ok).toBe(true); // config is valid — the failure is at listen time
+      if (second.ok) {
+        await expect(second.backend.ready).rejects.toThrow(/EADDRINUSE/);
+        await second.backend.close().catch(() => undefined);
+      }
+    } finally {
+      await first.backend.close();
+    }
   });
 });
 
