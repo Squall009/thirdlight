@@ -150,6 +150,9 @@ describe('queries (§5.6)', () => {
     expect(linked.ok).toBe(false);
     expect(linked.error?.code).toBe('project_not_found');
     svc.dispose();
+    // Remove the symlink first: rmSync(recursive) must not have to
+    // decide whether to follow it.
+    rmSync(join(root, 'projects', 'linked'), { force: true });
     rmSync(root, { recursive: true, force: true });
   });
 });
