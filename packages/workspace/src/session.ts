@@ -64,7 +64,7 @@ import {
   evaluateLiveness,
   evaluateOwnership,
   parseOwnershipRecord,
-  readOwnershipRecordBytes,
+  readOwnershipRecord,
   releaseOwnership,
   reReadOwnershipHolder,
   stillHoldsOwnership,
@@ -612,7 +612,17 @@ export function ensureSession(
   // evaluation: a claim that fails against a MOVED record re-evaluates.
   let claim: ClaimOutcome | null = null;
   for (let round = 0; round < 3 && claim === null; round++) {
-    const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
+    const recRead = readOwnershipRecord(thirdlightDir, core.ops);
+    if (recRead.kind === 'unreadable') {
+      // R8a (2026-09-18 review; workspace.md §6.2/§11): a non-ENOENT
+      // ownership read failure — the record's state is UNKNOWN, never
+      // absent ⇒ the conservative rule resolves it to live ⇒ REFUSE
+      // (no claim — a claim would overwrite unknown bytes; a live foreign
+      // owner may hold the project). §11: `ownership_conflict` carries
+      // holder null when no parseable owned record exists.
+      return { kind: 'unavailable', reason: 'ownership_conflict', holder: null };
+    }
+    const recBytes = recRead.kind === 'absent' ? null : recRead.bytes;
     const ev = evaluateOwnership(recBytes, core.self, livenessFn(core));
     if (ev.action !== 'claim') {
       return evalToUnavailable(ev);
@@ -1325,7 +1335,15 @@ export function takeover(
   // Fresh (or released-session) takeover: the §6.4 procedure.
   const lf = livenessFn(core);
   for (let round = 0; round < 3; round++) {
-    const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
+    const recRead = readOwnershipRecord(thirdlightDir, core.ops);
+    if (recRead.kind === 'unreadable') {
+      // R8a (2026-09-18 review; workspace.md §6.2/§11): the record's
+      // state is UNKNOWN, never absent ⇒ it cannot evaluate stale; the
+      // conservative rule resolves it to live ⇒ REFUSE (no takeover —
+      // only PROVEN death permits one, §6.4). §11: holder null.
+      return { ok: false, error: ownershipConflict(null) };
+    }
+    const recBytes = recRead.kind === 'absent' ? null : recRead.bytes;
     const ev = evaluateOwnership(recBytes, core.self, lf);
     if (ev.action === 'claim') {
       const out = performClaimAndLoad(core, dir, projectId, man.manifest, ev.lockEpoch, sceneDir, thirdlightDir, recBytes);
@@ -1338,8 +1356,11 @@ export function takeover(
     // stale — the §6.4 procedure:
     // (1) re-read: byte-identical to the record that evaluated stale,
     //     otherwise re-evaluate from scratch (a concurrent takeover may
-    //     have landed).
-    const reread = readOwnershipRecordBytes(thirdlightDir, core.ops);
+    //     have landed). An unreadable re-read is NOT byte-identical (the
+    //     state moved / is unknown) — the next round re-evaluates (and
+    //     refuses if it is still unreadable).
+    const rereadRead = readOwnershipRecord(thirdlightDir, core.ops);
+    const reread = rereadRead.kind === 'record' ? rereadRead.bytes : null;
     if (!bytesEqual(reread, recBytes)) continue;
     // (2) liveness again — it must still be dead.
     const staleRec = parseOwnershipRecord(recBytes);
@@ -1436,8 +1457,13 @@ export function takeover(
   }
   // The bounded re-evaluation loop did not converge (oscillating external
   // writer): report the current evaluation.
-  const recBytes = readOwnershipRecordBytes(thirdlightDir, core.ops);
-  const ev = evaluateOwnership(recBytes, core.self, lf);
+  const recRead = readOwnershipRecord(thirdlightDir, core.ops);
+  if (recRead.kind === 'unreadable') {
+    // R8a (workspace.md §6.2/§11): unknown record state ⇒ refuse
+    // (never absent — §11: holder null).
+    return { ok: false, error: ownershipConflict(null) };
+  }
+  const ev = evaluateOwnership(recRead.kind === 'absent' ? null : recRead.bytes, core.self, lf);
   if (ev.action === 'stale') return { ok: false, error: staleOwnership(ev.holder) };
   return {
     ok: false,

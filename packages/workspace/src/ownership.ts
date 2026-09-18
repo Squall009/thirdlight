@@ -118,20 +118,45 @@ export function parseOwnershipRecord(bytes: Uint8Array | null): OwnershipRecord 
   };
 }
 
-/** Read the ownership record bytes from the project's VERIFIED
- * `.thirdlight` directory (R7: callers pass the containment-checked
- * directory — null when absent or unreadable). */
-export function readOwnershipRecordBytes(
+/**
+ * The three-state result of an ownership-record read (R8a, 2026-09-18
+ * review): `absent` (ENOENT — the ONLY read result that means absence),
+ * `unreadable` (a non-ENOENT read failure: the on-disk bytes are UNKNOWN,
+ * never absent — the §6.2 conservative rule resolves unknown to "live":
+ * the caller REFUSES; no claim/takeover may overwrite or re-evaluate
+ * unknown bytes as empty), or `record` (the bytes plus the strict parse —
+ * `record` null for known-but-corrupt bytes, which the evaluator rejects
+ * conservatively). The errno of the read failure is carried when
+ * obtainable. There is NO `fileExists` pre-check: absence is classified
+ * on the read itself (ENOENT), so a read error is never reported as "not
+ * exists" (R8c).
+ */
+export type OwnershipRecordRead =
+  | { kind: 'absent' }
+  | { kind: 'unreadable'; errno?: string }
+  | { kind: 'record'; bytes: Uint8Array; record: OwnershipRecord | null };
+
+/**
+ * Read the ownership record from the project's VERIFIED `.thirdlight`
+ * directory, preserving the absent / unreadable / record distinction
+ * through to the caller (R8a — workspace.md §6.2/§6.3):
+ * - `absent` (ENOENT) ⇒ the normal claim flow;
+ * - `unreadable` (any other read failure) ⇒ the caller REFUSES (unknown
+ *   record state resolves to live — `ownership_conflict` with holder
+ *   null, §11: "carries `holder`, `null` when no parseable owned record
+ *   exists");
+ * - `record` ⇒ bytes + strict parse (the evaluator decides).
+ */
+export function readOwnershipRecord(
   thirdlightDir: string,
   ops: WriteOps,
-): Uint8Array | null {
-  const p = join(thirdlightDir, 'ownership.json');
-  if (!ops.fileExists(p)) return null;
-  try {
-    return ops.readFile(p);
-  } catch {
-    return null;
+): OwnershipRecordRead {
+  const r = readRecord(thirdlightDir, ops);
+  if (r.kind === 'absent') return { kind: 'absent' };
+  if (r.kind === 'unreadable') {
+    return { kind: 'unreadable', ...(r.errno === undefined ? {} : { errno: r.errno }) };
   }
+  return { kind: 'record', bytes: r.bytes, record: parseOwnershipRecord(r.bytes) };
 }
 
 export type Liveness = 'dead' | 'live' | 'unknown';
@@ -140,13 +165,24 @@ export type Liveness = 'dead' | 'live' | 'unknown';
  * Conservative liveness rules (workspace.md §6.2 — ambiguity resolves to
  * "live"; a false "dead" costs split-brain risk, a false "live" costs an
  * operator check):
- * - `/proc/<pid>` absent ⇒ dead;
+ * - `/proc/<pid>` absent (ENOENT on the entry) ⇒ dead — the ONLY
+ *   proven-dead-by-absence signal;
  * - present, but the process start time (`/proc/<pid>/stat` field 22,
- *   clock ticks since boot) is AFTER `openedAt` ⇒ pid reuse ⇒ dead;
+ *   clock ticks since boot) is strictly after `openedAt` + 1 s ⇒ pid
+ *   reuse ⇒ dead (the original owner is gone). The +1 s boundary (L1,
+ *   2026-09-18 orchestrator spot-check): `openedAt` is second-
+ *   truncated, so a start inside the SAME truncated second as the claim
+ *   (startMs ≤ openedAtMs + 1000) is AMBIGUOUS — the live owner may have
+ *   started and claimed within that second ⇒ unknown ⇒ live. A reused
+ *   pid necessarily starts after the true claim time C, and C <
+ *   floor(C) + 1 s, so startMs > openedAtMs + 1000 is conclusive;
  * - present, started before `openedAt`, and `/proc/<pid>/cmdline` argv[0]
  *   contains the configured process marker ⇒ live;
  * - present, started before `openedAt`, but the cmdline is unreadable or
- *   mismatched, or any `/proc` read error ⇒ unknown (treated as live).
+ *   mismatched, the proc table is unavailable (procRoot missing or not a
+ *   directory), the entry is present but the `stat` file is missing or
+ *   unreadable, or ANY other `/proc` I/O error (EACCES, EIO, ENOTDIR, …)
+ *   ⇒ unknown (treated as live) (R8b — an I/O error is never death).
  */
 export function evaluateLiveness(
   pid: number,
@@ -154,57 +190,73 @@ export function evaluateLiveness(
   procRoot: string,
   marker: string,
 ): Liveness {
-  const statPath = join(procRoot, String(pid), 'stat');
-  if (!statPathExists(statPath)) {
-    // /proc/<pid> (or its stat) absent ⇒ the process is gone.
-    return 'dead';
+  const procEntry = join(procRoot, String(pid));
+  // R8b (2026-09-18 review): the proc table itself — if <procRoot> cannot
+  // be stat'ed or is not a directory, the table is unavailable: nothing
+  // is provable ⇒ unknown ⇒ live (an unavailable proc table is not a
+  // proven-absent proc entry; only ENOENT on the entry is death).
+  try {
+    if (!statSync(procRoot).isDirectory()) return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+  // The proc entry: ENOENT ⇒ the entry is gone ⇒ dead (the ONLY
+  // death-by-absence signal); any other stat error (EACCES, EIO, …) or a
+  // non-directory entry ⇒ unknown ⇒ live.
+  try {
+    if (!statSync(procEntry).isDirectory()) return 'unknown';
+  } catch (e) {
+    return errnoOf(e) === 'ENOENT' ? 'dead' : 'unknown';
+  }
+  // The `stat` file: the entry is PRESENT (the pid is allocated), but the
+  // start time is missing/unreadable ⇒ unknown ⇒ live (a missing stat
+  // file is not proven death — R8b).
+  let statText: string;
+  try {
+    statText = readFileSync(join(procEntry, 'stat'), 'utf8');
+  } catch {
+    return 'unknown';
   }
   const openedAtMs = Date.parse(openedAt);
   if (Number.isNaN(openedAtMs)) return 'unknown';
+  // Fields 1–2 are `pid (comm)`; comm may contain spaces/parens, so
+  // split after the LAST ')'. Field 22 (1-based) is the start time.
+  const rest = statText.slice(statText.lastIndexOf(')') + 1).trim().split(/\s+/);
+  const starttime = Number(rest[22 - 3]);
+  if (!Number.isFinite(starttime)) return 'unknown';
+  // Boot wall time from `btime` in <procRoot>/stat (the host kernel's
+  // epoch boot time) — the same clock the jiffies-based `starttime`
+  // counts from. (/proc/uptime and os.uptime() can be masked in
+  // containers and are NOT consistent with per-process jiffies.)
+  let btime: number;
   try {
-    const stat = readFileSync(statPath, 'utf8');
-    // Fields 1–2 are `pid (comm)`; comm may contain spaces/parens, so
-    // split after the LAST ')'. Field 22 (1-based) is the start time.
-    const rest = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
-    const starttime = Number(rest[22 - 3]);
-    if (!Number.isFinite(starttime)) return 'unknown';
-    // Boot wall time from `btime` in <procRoot>/stat (the host kernel's
-    // epoch boot time) — the same clock the jiffies-based `starttime`
-    // counts from. (/proc/uptime and os.uptime() can be masked in
-    // containers and are NOT consistent with per-process jiffies.)
-    let btime: number;
-    try {
-      const statTxt = readFileSync(join(procRoot, 'stat'), 'utf8');
-      const line = statTxt.split('\n').find((l) => l.startsWith('btime '));
-      btime = line === undefined ? NaN : Number(line.trim().split(/\s+/)[1]);
-    } catch {
-      btime = NaN;
-    }
-    if (!Number.isFinite(btime)) return 'unknown'; // cannot verify ⇒ live
-    const startMs = btime * 1000 + (starttime / CLK_TCK) * 1000;
-    if (startMs > openedAtMs) return 'dead'; // pid reuse
+    const statTxt = readFileSync(join(procRoot, 'stat'), 'utf8');
+    const line = statTxt.split('\n').find((l) => l.startsWith('btime '));
+    btime = line === undefined ? NaN : Number(line.trim().split(/\s+/)[1]);
   } catch {
-    return 'unknown'; // any /proc read error ⇒ unknown ⇒ live
+    btime = NaN;
   }
+  if (!Number.isFinite(btime)) return 'unknown'; // cannot verify ⇒ live
+  const startMs = btime * 1000 + (starttime / CLK_TCK) * 1000;
+  // L1 (2026-09-18 orchestrator spot-check): `openedAt` is second-
+  // truncated, so a reused pid is proven to have started after the true
+  // claim time C only when its start is strictly after the whole second
+  // `openedAt` covers. Conclusive pid reuse requires
+  // `startMs > openedAtMs + 1000`; `startMs <= openedAtMs + 1000` is
+  // ambiguous (the live owner may have started and claimed within that
+  // same second) ⇒ falls through to the cmdline check (§6.2: ambiguity
+  // resolves to live — costs an operator check, never split-brain).
+  if (startMs > openedAtMs + 1000) return 'dead'; // conclusive pid reuse
   try {
-    const raw = readFileSync(join(procRoot, String(pid), 'cmdline'));
+    const raw = readFileSync(join(procEntry, 'cmdline'));
     const argv0 = raw.subarray(0, raw.indexOf(0) === -1 ? raw.length : raw.indexOf(0));
     if (new TextDecoder('utf-8', { fatal: false }).decode(argv0).includes(marker)) {
       return 'live';
     }
   } catch {
-    return 'unknown';
+    return 'unknown'; // unreadable cmdline ⇒ unknown ⇒ live
   }
   return 'unknown'; // cmdline mismatch ⇒ unknown ⇒ treated as live
-}
-
-function statPathExists(p: string): boolean {
-  try {
-    statSync(p);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -550,6 +602,15 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
   // is byte-identical, no write); missing/foreign ⇒ ownership_conflict
   // (holder null), refuse to serve.
   const selfRead = readRecord(thirdlightDir, ops);
+  if (selfRead.kind === 'unreadable') {
+    // R8a (2026-09-18 review; workspace.md §6.2/§6.3): the record's state
+    // is UNKNOWN (a non-ENOENT read failure) — never treated as absence:
+    // a fresh claim here would overwrite unknown bytes (a live foreign
+    // owner may hold the project). Refuse — no claim, no serve
+    // (ownership_conflict; holder null — no parseable owned record
+    // exists, §11).
+    return { ok: false, eval: { action: 'conflict', holder: null } };
+  }
   if (selfRead.kind === 'bytes') {
     const selfRec = parseOwnershipRecord(selfRead.bytes);
     if (

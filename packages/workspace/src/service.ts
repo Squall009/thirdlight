@@ -63,8 +63,7 @@ import {
   DEFAULT_PROC_ROOT,
   evaluateLiveness,
   newSelfIdentity,
-  parseOwnershipRecord,
-  readOwnershipRecordBytes,
+  readOwnershipRecord,
   utcSecond,
   utcStamp,
 } from './ownership';
@@ -708,8 +707,12 @@ function scanEntry(core: Core, name: string): ScanEntry {
 
   // Ownership: a stale (dead-pid) record is reported; no action is taken
   // (a live record means another backend is working: untouched).
-  const recBytes = readOwnershipRecordBytes(join(dir, '.thirdlight'), core.ops);
-  const rec = recBytes === null ? null : parseOwnershipRecord(recBytes);
+  // R8a (2026-09-18 review): the read keeps the absent/unreadable/record
+  // distinction — an UNREADABLE record is unknown, never absent, and
+  // never proven dead: no `staleOwnership` flag (only a parseable owned
+  // record with a proven-dead pid is reported; the scan claims nothing).
+  const recRead = readOwnershipRecord(join(dir, '.thirdlight'), core.ops);
+  const rec = recRead.kind === 'record' ? recRead.record : null;
   let stale = false;
   if (rec !== null && rec.state === 'owned') {
     if (evaluateLiveness(rec.pid, rec.openedAt, core.procRoot, core.processMarker) === 'dead') {
