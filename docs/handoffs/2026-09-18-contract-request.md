@@ -623,3 +623,500 @@ involved. No new dependencies installed; nothing pushed.
 *Proposal for the independent architectural review step (work order step 1:
 reopen packet 07/Gate B, record the contract decision, review before
 implementing). No reviewer approval is claimed or implied by this document.*
+
+## 7. Addendum — R1/R3: unknown-I/O and evidence-failure states (2026-09-18 review)
+
+**Scope:** work-order step 1 for findings **R1** and **R3** (plus R16's
+contract-side aspect) of `docs/reviews/2026-09-18-commits.md`: "Record a
+contract decision for … R1/R3's unknown-I/O/evidence-failure states. Review
+any needed error/state/artifact changes before implementation." This section
+records DECISIONS and a proposed contract diff for the independent review
+step — no reviewer approval is claimed. Sections 1–6 (the R9 mechanism) are
+final and unchanged. All line anchors below were verified verbatim against
+`docs/contracts/workspace.md` and the source files at HEAD `af4881c` (clean
+tree). No source, test, fixture, or contract change under this request.
+
+### 7.1 Defect summary (current behavior, with file:line evidence)
+
+**R1 — every read failure is classified as absence.** `writeAtomic`'s
+pre-write check swallows *every* read error into `null` (absence):
+`write.ts:212–217` (`try { pre = ops.readFile(target) } catch { pre = null;
+}`); `write.ts:224–225` (`pre === null` ⇒ `ok = allowAbsent`);
+`write.ts:233–234` (mismatch ⇒ `external { bytes: pre ?? EMPTY_BYTES, ... }`
+— for an unreadable file this manufactures **zero bytes** carrying the
+SHA-256 of the empty string; `EMPTY_BYTES`/`EMPTY_HASH`, `write.ts:47–48`).
+The final post-retry classification does the same: `write.ts:279–284`
+(read failure ⇒ `onDisk = null`) and `write.ts:300–303` (target "existed
+before" ⇒ `external { EMPTY_BYTES, EMPTY_HASH }` — a fabricated deletion).
+Downstream, the discard path passes
+`allowAbsent: pc.externalHash === EMPTY_HASH` (`session.ts:735`, in the
+write at `session.ts:730–738`), so the same EACCES read is again treated as
+absence, the pre-check passes, and the rename **destroys the unreadable
+foreign file**. Evidence (real permissions, unprivileged user, retained
+probe): `UNREADABLE_OVERWRITE {"pendingHash":"e3b0c44298fc…","snapshotBytes":0,
+"discard":true,"foreignLost":true}` — `e3b0c442…` is the SHA-256 of empty
+content; the "snapshot" holds zero bytes and discard overwrote the foreign
+content.
+
+**R3 — a failed recovery snapshot is ignored; discard can succeed with zero
+evidence.** `detectExternalChange` discards the snapshot result:
+`session.ts:593` (`snapshotForeignBytes(...)` — the `string | null` return
+is dropped); the pending change + pause are then set unconditionally
+(`session.ts:621–626`). `snapshotForeignBytes` returns `null` on any
+`ensureDir`/write failure (`recovery.ts:48–60`), and its JSDoc
+(`recovery.ts:40–47`) claims "a write failure here is reported by the
+caller via the write_failed/external outcomes of the triggering command" —
+the caller reports nothing; the pause proceeds as if the snapshot succeeded.
+Evidence (ENOSPC on recovery-file creation via the public `WriteOps` seam):
+`SNAPSHOT_FAILURE {"error":"external_change_unresolved","discard":true,
+"snapshots":0,"foreignLost":true}` — the ordinary unresolved code, no
+evidence-failure signal, and discard destroyed the only foreign bytes on
+disk with zero snapshots. This contradicts G1.3 (`workspace.md:343–346` —
+"SHA-256-snapshotted into `.thirdlight/recovery/` before the project
+pauses"), §7.2 step 2 (normative snapshot before the pause,
+`workspace.md:507–511`), and §7.4 (snapshots are the evidence).
+
+**R16's contract-side aspect.** §7.2 step 2 (`workspace.md:507–511`) says
+"oldest pruned to keep 16", but the artifact name is
+`scene-<UTCstamp>-<sha8>.json` and `pruneSnapshots` (`recovery.ts:105–115`)
+sorts names lexicographically, so within one second the "newest first" order
+is by `<sha8>` — **hash, not age** — and nothing exempts the snapshot of the
+current pending change. Review-recorded probe: `RECOVERY_NEWEST_PRUNED
+newestRetained:false` (path-ownership probe; not re-run in this step).
+
+### 7.2 The decision: external-change pipeline state table
+
+A detected external change is in exactly one of three states (normative):
+
+| State | Meaning |
+|---|---|
+| `paused-snapshotted` | the foreign bytes `B` were read and ≥1 durable snapshot of exactly those bytes exists (today's §7.2 behavior, named) |
+| `paused-unreadable` | the read failed with a **non-ENOENT** error (EACCES, EIO, ENOSPC, …); the on-disk bytes are **unknown** — not absent, not empty |
+| `paused-snapshot-failed` | the bytes were read (and validated) but no snapshot is durable (the snapshot write failed) |
+
+Per-state behavior:
+
+| State | Triggering mutation returns | `acceptExternalState` | `discardExternalState` | Queries show | Transition out (exact) |
+|---|---|---|---|---|---|
+| `paused-snapshotted` | `external_change_unresolved` (carries `pendingChange`, `snapshotState: "ok"`); the mutation is not applied | if `externalValid`: success `{ ok: true, revision, historyReset: true, retryCleared: true }`; if invalid: `external_change_invalid` | success `{ ok: true, revision, historyReset: true }` | `writePaused: true`; `pendingChange { snapshotState: "ok", externalHash: sha256(B), externalValid, externalErrors }` | operator resolution completes ⇒ pending cleared, unpaused; a new foreign write ⇒ a fresh detection cycle |
+| `paused-unreadable` | `external_change_unreadable` (§7.3); the mutation is not applied; **no snapshot exists** (certainly no zero-byte one) | `external_change_unreadable` (refused; nothing written) | `external_change_unreadable` (refused; nothing written) | `writePaused: true`; `pendingChange { snapshotState: "unreadable", externalHash: null, externalValid: null, externalErrors: null }` | operator restores readability ⇒ backend re-reads on the next command (mutation or resolution) ⇒ the real bytes are snapshotted + validated ⇒ `paused-snapshotted` ⇒ normal resolution. (If the restored bytes equal `lastWrittenHash`, the foreign state is gone: pending cleared, unpaused.) |
+| `paused-snapshot-failed` | `external_change_unresolved` with `pendingChange.snapshotState: "snapshot_failed"` (bytes were read and validated; the evidence gap is reported, not silent); the mutation is not applied | `external_change_evidence_missing` (refused; nothing written) | `external_change_evidence_missing` (refused; nothing written) | `writePaused: true`; `pendingChange { snapshotState: "snapshot_failed", externalHash: sha256(B), externalValid, externalErrors }` | fault cleared ⇒ operator re-issues accept/discard (or any command) ⇒ re-read confirms the unchanged pending bytes (hash == `externalHash`) ⇒ the snapshot is (re)taken and is durable ⇒ `paused-snapshotted` ⇒ the re-issued resolution completes in the same call |
+
+Cross-state re-read rules (while paused, every command — mutations and both
+resolutions — re-reads the target before acting): non-ENOENT read failure ⇒
+(re)enter `paused-unreadable`, return `external_change_unreadable`; bytes
+== `lastWrittenHash` ⇒ the foreign state is gone ⇒ pending cleared,
+unpaused (a re-issued resolution then finds nothing pending ⇒
+`no_pending_change`); other foreign bytes ⇒ a fresh detection cycle (the
+pending change is replaced, a new snapshot is attempted). Dedup replays and
+queries are unaffected by the state (pure reads); the query `workspace`
+block carries the state's `pendingChange` shape.
+
+**Fail-closed rule (normative):** while the exact foreign bytes are not
+durably snapshotted, NO destructive resolution (accept/discard) is
+permitted and no replacement write may be based on a failed read. ENOENT is
+the only read result that means absence; any other read error means the
+on-disk bytes are **unknown**, and unknown bytes are never snapshotted,
+hashed, validated, or overwritten — they are reported as
+`paused-unreadable`. A failed snapshot (bytes known but not durable)
+likewise refuses both resolutions until the snapshot is durable.
+
+### 7.3 Error semantics decision
+
+Exactly one new code per new state. `write_failed`
+(`onDiskState: "new-undurable" | "previous"`) is **not** overloaded for
+these: those classify the on-disk state after a failed *write* attempt,
+while these are *read/evidence* failures, and R1's repair explicitly forbids
+falsely reporting `previous`/`new-undurable` here.
+
+- **`paused-unreadable` ⇒ `external_change_unreadable`** — `cls:
+  "unavailable"` (operator-gated state, the same class as
+  `external_change_unresolved`; not `validation` — no operator precondition
+  is wrong — not `internal` — the I/O fault is external to the backend).
+  Field set (key order per the `errors.ts` convention: `code`, `cls`, then
+  code-specific, `message`/`hint` last):
+  - `code: "external_change_unreadable"`, `cls: "unavailable"`,
+    `projectId: <string>`, `snapshotState: "unreadable"`,
+    `pendingChange: { snapshotState: "unreadable", externalHash: null,
+    externalValid: null, externalErrors: null }`
+  - `message: "the scene file could not be read (a read error other than
+    absence); the on-disk bytes are unknown and no snapshot exists"`
+  - `hint: "restore read access to scenes/main.json (permissions or I/O),
+    then re-issue; the file is left untouched and writes stay paused"`
+  Returned by the triggering mutation whose read failed, and by both
+  accept/discard while `paused-unreadable`.
+- **`paused-snapshot-failed` ⇒ `external_change_evidence_missing`** —
+  `cls: "unavailable"` (a pause awaiting operator action, not an internal
+  invariant breach). Field set:
+  - `code: "external_change_evidence_missing"`, `cls: "unavailable"`,
+    `projectId: <string>`, `snapshotState: "snapshot_failed"`,
+    `pendingChange: { snapshotState: "snapshot_failed", externalHash:
+    sha256(B), externalValid, externalErrors }`
+  - `message: "the pending external change has no durable recovery
+    snapshot; destructive resolution is refused (G1.3)"`
+  - `hint: "clear the recovery-directory fault (space, permissions, I/O),
+    then re-issue; the snapshot is retried and, once durable, the
+    resolution proceeds"`
+  Returned by `acceptExternalState` and `discardExternalState` while
+  `paused-snapshot-failed`. The triggering mutation for this state keeps
+  returning `external_change_unresolved` (the bytes were read and
+  validated; the pause report is unchanged) carrying the new
+  `snapshotState` discriminator — the state is unambiguous without a third
+  code and without overloading any existing one.
+
+**`pendingChange` shape change (normative):** the pending-change state
+(§7.2 step 4) and the `pendingChange` carried by external-change errors and
+queries gain `snapshotState: "ok" | "unreadable" | "snapshot_failed"`;
+when `snapshotState` is `"unreadable"`, `externalHash` is `null` and
+`externalValid`/`externalErrors` are null (omitted from the wire when
+null). `external_change_unresolved` gains the same `snapshotState`
+discriminator (values `"ok"` or `"snapshot_failed"`). No other error
+changes; the ownership `holder` shape is untouched.
+
+**Read-failure and retry semantics (normative):** a mutation whose pre-write
+or post-write-classification READ fails (non-ENOENT) returns
+`external_change_unreadable` — never `external_change_unresolved` with a
+fabricated empty hash, and never a zero-byte or deletion snapshot. A retry
+of the same mutation after the operator restores readability re-detects the
+real bytes, snapshots them, and proceeds through the normal pause/resolution
+path (the retry now returns `external_change_unresolved` with the true
+`pendingChange` and does not apply the mutation); the same read-then-resolve
+rule applies to a re-issued accept/discard.
+
+### 7.4 Exact contract diff for `docs/contracts/workspace.md`
+
+Before/after blocks in the style of section 4. Current text quoted VERBATIM
+at HEAD `af4881c` (every anchor verified against the file at this HEAD).
+**Not applied** in this step. Line numbers are the verified current anchors.
+
+#### 7.4(a) §5.5 G1.3 (line 343) — snapshot-before-destructive-resolution becomes normative; failure behavior named
+
+**Before:**
+
+````
+3. **No silent loss of foreign bytes:** any on-disk content the backend did
+   not write is SHA-256-snapshotted into `.thirdlight/recovery/` before the
+   project pauses (§7), and the original file is never overwritten until an
+   operator explicitly resolves (accept/discard).
+````
+
+**After:**
+
+````
+3. **No silent loss of foreign bytes:** any on-disk content the backend did
+   not write is SHA-256-snapshotted into `.thirdlight/recovery/` before the
+   project pauses (§7), and the original file is never overwritten until an
+   operator explicitly resolves (accept/discard). A durable snapshot of the
+   exact foreign bytes is a **precondition of every destructive resolution**
+   (normative): while it is missing, accept/discard are refused
+   (`external_change_unreadable` / `external_change_evidence_missing`, §11).
+   A read failure other than ENOENT means the bytes are **unknown, never
+   absent**: the project pauses in `paused-unreadable` (§7.2) and no
+   zero-byte or fabricated snapshot may stand for the real content. A
+   failed snapshot write pauses in `paused-snapshot-failed` (§7.2) and is
+   reported by the triggering command and the queries — never silent.
+````
+
+#### 7.4(b) §7.2 steps 1–2 (lines 506–511) and the step-4 shape line (lines 516–517, forced by 7.3)
+
+**Before (steps 1–2):**
+
+````
+1. Reads the on-disk bytes `B`; computes `sha256(B)`.
+2. **Snapshots** `B` byte-for-byte to
+   `.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json`
+   (`UTCstamp` = `YYYYMMDDTHHMMSSZ`; `sha8` = first 8 hex of the hash;
+   oldest pruned to keep 16). The original file is left **in place** —
+   it is not overwritten or "fixed" until an operator resolves.
+````
+
+**After:**
+
+````
+1. Reads the on-disk bytes `B`; computes `sha256(B)`. **A read failure
+   other than ENOENT is not absence (normative):** the bytes are unknown,
+   not empty. The project pauses in `paused-unreadable` and the triggering
+   mutation returns `external_change_unreadable` (§11) — never
+   `external_change_unresolved` with a fabricated hash, and never a
+   zero-byte snapshot. ENOENT is the only read result that means absence.
+2. **Snapshots** `B` byte-for-byte to
+   `.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json`
+   (`UTCstamp` = `YYYYMMDDTHHMMSSZ`; `sha8` = first 8 hex of the hash;
+   pruning per §7.4). The original file is left **in place** —
+   it is not overwritten or "fixed" until an operator resolves.
+   **If the snapshot cannot be written (normative):** the project pauses in
+   `paused-snapshot-failed`; the triggering mutation returns
+   `external_change_unresolved` with `pendingChange.snapshotState =
+   "snapshot_failed"`, and accept/discard are refused with
+   `external_change_evidence_missing` (§7.3/§11) until the snapshot is
+   durably written.
+````
+
+**Before (step 4, lines 516–517):**
+
+````
+4. Sets the project's **pending change** state `{ externalHash, externalValid,
+   externalErrors }` and **pauses writes**:
+````
+
+**After:**
+
+````
+4. Sets the project's **pending change** state `{ snapshotState, externalHash,
+   externalValid, externalErrors }` and **pauses writes** (`snapshotState`:
+   `"ok"` — the step-2 snapshot is durable; `"snapshot_failed"` — the bytes
+   were read and validated but no snapshot is durable; `"unreadable"` —
+   step 1 failed with a non-ENOENT error, in which case `externalHash` is
+   `null` and `externalValid`/`externalErrors` are null):
+````
+
+(The remaining step-4 bullets, unchanged, apply as written in the
+`paused-snapshotted` state; for the other two states the step 1/2 results
+above and the §7.3 refusal bullet govern. The "oldest pruned to keep 16"
+wording moves to §7.4 as diffed in 7.4(e).)
+
+#### 7.4(c) §7.2 invalid-bytes paragraph (lines 526–530) — minimal adjustment, forced by 7.3
+
+**Before:**
+
+````
+**Invalid external bytes** (e.g. a corrupted or mid-edit file): the
+validation errors are reported through `pendingChange`, and only
+`discardExternalState` is possible (accepting invalid data is refused with
+`external_change_invalid`). The bytes are retained for repair; the project
+stays paused.
+````
+
+**After:**
+
+````
+**Invalid external bytes** (e.g. a corrupted or mid-edit file): the
+validation errors are reported through `pendingChange`, and only
+`discardExternalState` is possible (accepting invalid data is refused with
+`external_change_invalid`); both resolutions remain subject to the §7.3
+evidence precondition (when unmet, the command reports
+`external_change_unreadable` / `external_change_evidence_missing` and
+nothing is written). The bytes are retained for repair; the project
+stays paused.
+````
+
+#### 7.4(d) §7.3 both precondition lines (lines 534–535, 547–548) + new refusal bullet
+
+**Before (accept):**
+
+````
+- **`acceptExternalState(projectId)`** — precondition: a pending change
+  exists and `externalValid` is true.
+````
+
+**After (accept):**
+
+````
+- **`acceptExternalState(projectId)`** — precondition: a pending change
+  exists, `snapshotState` is `"ok"`, and `externalValid` is true.
+````
+
+**Before (discard):**
+
+````
+- **`discardExternalState(projectId)`** — precondition: a pending change
+  exists.
+````
+
+**After (discard):**
+
+````
+- **`discardExternalState(projectId)`** — precondition: a pending change
+  exists and `snapshotState` is `"ok"` (a durable recovery snapshot of the
+  exact foreign bytes).
+````
+
+**New bullet** (added after the `no_pending_change` bullet, lines 554–555):
+
+````
+- **Refusal while evidence is missing or unreadable (normative):** while
+  `snapshotState` is not `"ok"`, both resolutions are refused — with
+  `external_change_unreadable` in `paused-unreadable`, with
+  `external_change_evidence_missing` in `paused-snapshot-failed` — and
+  nothing is written: memory and disk are unchanged, and the pending state
+  and the pause persist across the refusal. Before answering, the command
+  re-reads the file: bytes now readable ⇒ (re)establish the pending change
+  from the real bytes (§7.2 steps 2–4), attempt the snapshot, and, once it
+  is durable, proceed with the resolution in the same call; bytes still
+  unreadable (non-ENOENT) ⇒ `paused-unreadable`; other foreign bytes ⇒ the
+  §7.2 protocol re-fires on them (a fresh detection cycle).
+````
+
+#### 7.4(e) §7.4 pruning (lines 561–566) — the contract-level fix for R16; artifact name unchanged
+
+**Before:**
+
+````
+`.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json` files are the
+backend's evidence + repair aid for external bytes. They are: never read
+automatically, never deleted except by the 16-oldest pruning, and **not a
+backup** (charter §4's backup policy is a later deliverable). Operators
+can compare a snapshot to `main.json` to see exactly what changed.
+````
+
+**After** (original paragraph unchanged; one normative paragraph added):
+
+````
+`.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json` files are the
+backend's evidence + repair aid for external bytes. They are: never read
+automatically, never deleted except by the 16-oldest pruning, and **not a
+backup** (charter §4's backup policy is a later deliverable). Operators
+can compare a snapshot to `main.json` to see exactly what changed.
+
+**Pruning order and exemption (normative):** the snapshot of the current
+pending change — the snapshot whose content hash is the pending
+`externalHash` — is **exempt from pruning while that change is pending**
+and is retained until the change is resolved. Pruning keeps at most 16
+snapshots in total, always including the exempt one: the other retained
+snapshots are the newest by `UTCstamp`, and within one `UTCstamp` by full
+file name lexicographically (a same-timestamp tie is broken by name, never
+by guesswork, and no older-`UTCstamp` snapshot is pruned while a
+same-`UTCstamp` one survives). Pruning runs after each successful snapshot
+write and removes only non-exempt snapshots.
+````
+
+(The `scene-<UTCstamp>-<sha8>.json` name is kept — no artifact rename, no
+schema change.)
+
+#### 7.4(f) §11 operations and error codes
+
+**Operations table — failure-code cells of the two resolution rows (lines
+696–697);** the minimal consistency consequence of the new codes, since
+these cells enumerate the codes the operation can return; no other
+operations-table row changes.
+
+**Before:**
+
+````
+| `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `project_unavailable` |
+| `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `project_unavailable` |
+````
+
+**After:**
+
+````
+| `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
+| `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
+````
+
+**Error-code table — two new rows** (inserted after the
+`external_change_invalid` row, line 716; existing style):
+
+````
+| `external_change_unreadable` | scene file read failed with a non-ENOENT error: the on-disk bytes are unknown; `paused-unreadable` (§7.2); carries `projectId`, `snapshotState: "unreadable"`, `pendingChange` with `externalHash: null` |
+| `external_change_evidence_missing` | pending change readable but not durably snapshotted: `paused-snapshot-failed` (§7.2); accept/discard refused until the snapshot is durable; carries `projectId`, `snapshotState: "snapshot_failed"` |
+````
+
+The `holder` shape line (lines 728–729) is **unchanged** — 7.3 requires no
+ownership-shape change. The "Permitted `project_unavailable.reason`
+values" block needs no change: it admits every code in this table. No other
+contract text changes.
+
+### 7.5 Mandatory implementation tests implied
+
+For the later implementation step (after this diff is accepted); each is a
+regression test using real faults, run as the unprivileged user (chmod
+faults are meaningless as root; ENOSPC/EACCES/fsync faults on the recovery
+write are injected through the existing public `WriteOps` seam, as in the
+retained probe — all assertions are against real on-disk bytes):
+
+1. **Unreadable scene file (chmod 000, directory writable).** Foreign bytes
+   written, `chmod 000` on `scenes/main.json`, mutate ⇒ the mutation
+   returns `external_change_unreadable` (`pendingChange.externalHash` is
+   `null`); the recovery directory contains **no** snapshot (certainly no
+   zero-byte one); `discardExternalState` is refused
+   (`external_change_unreadable`); the foreign bytes on disk are
+   byte-identical to what was written.
+2. **Restore ⇒ retry ⇒ normal pause ⇒ both resolutions work (two separate
+   projects).** Restore the permission and retry the same mutation ⇒
+   ordinary pause (`external_change_unresolved`) with a real snapshot
+   (byte-identical to the foreign bytes); on project A
+   `acceptExternalState` succeeds; on project B (a fresh repro)
+   `discardExternalState` succeeds, restoring the LKG bytes exactly.
+3. **Recovery-write fault (ENOSPC, then EACCES, then fsync failure).**
+   With the fault on recovery-file creation and foreign envelope bytes
+   present, mutate ⇒ the mutation pauses in `paused-snapshot-failed`
+   (`external_change_unresolved` with `snapshotState: "snapshot_failed"`);
+   accept AND discard are both refused
+   (`external_change_evidence_missing`); the foreign bytes are retained on
+   disk.
+4. **Fault removed ⇒ re-issued discard recovers.** Remove the fault;
+   the operator re-issues `discardExternalState` ⇒ the snapshot is then
+   taken (durable) and the discard succeeds in the same call: history
+   reset, on-disk bytes exactly the LKG envelope.
+5. **17 same-second detection/resolution cycles on distinct foreign
+   values.** 17 cycles with a fixed/identical UTC stamp ⇒ in every cycle
+   the current pending change's snapshot is retained; ≤16 older snapshots
+   are pruned; after the 17th cycle the 17th snapshot is still on disk and
+   the discard succeeds with its evidence intact.
+
+### 7.6 Interaction notes, verification and provenance
+
+- **Section 3 (R9 session lock):** no interaction beyond all of this
+  running under it. The external-change states are a project-level write
+  state, orthogonal to ownership: a wedged `paused-unreadable` (or
+  `paused-snapshot-failed`) never blocks acquiring or releasing the session
+  lock, and the §6 protocol (section 4's diff) is unchanged by this
+  addendum.
+- **R5 (operator envelope writes):** accept/discard are operator write
+  boundaries. The refused-resolution path must leave memory and disk
+  consistent and return the structured error — nothing written, nothing
+  published — and the pending state persists across the refusal. R5's
+  reconciliation requirement applies to the success path (where a write may
+  land as `new-undurable`); the refusal path writes nothing by definition,
+  and its fault tests must cover a refused resolution issued while a write
+  fault is active.
+- **R9 / section 4's §6 diff:** no change. The two diffs are independent (the
+  §6 claim mechanism; the §7 external-change states); both contribute rows
+  to the §11 error-code table and apply cleanly together.
+
+**Verification and provenance.** Commands actually run at HEAD `af4881c`
+(clean tree), docs-only step, as the unprivileged user `dadmin` (uid 1000):
+
+1. **Retained main probe** (read-only run; it writes only under disposable
+   `~/.thirdlight-audit-*` roots and removes them in `finally`; after the
+   run `ls -d ~/.thirdlight-audit-*` matched nothing — no leftovers):
+
+   ```
+   $ node docs/reviews/2026-09-18-probes.mjs
+   RETRY_OVERWRITE {"result":true,"foreignLost":true,"snapshots":0}
+   UNREADABLE_OVERWRITE {"pendingHash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","snapshotBytes":0,"discard":true,"foreignLost":true}
+   SNAPSHOT_FAILURE {"error":"external_change_unresolved","discard":true,"snapshots":0,"foreignLost":true}
+   CLOSE_FAILURE_ACK {"ok":true,"revision":1}
+   ACCEPT_DIVERGENCE {"error":"new-undurable","diskRevision":10,"memoryRevision":1,"diskRetry":0}
+   RELEASE_ENVELOPE_DIVERGENCE {"error":"new-undurable","diskRetry":0,"memoryReplay":true}
+   RELEASE_OWNERSHIP_SPLIT {"release":"new-undurable","newOwner":true,"oldOwnerStillWrites":true,"newOwnerRevision":0,"oldOwnerRevision":1}
+   NULL_DIGEST {"ok":true,"digest":null,"reopen":"retry_records_invalid"}
+   QUERY_ALIAS non-command name edit persisted by unrelated command
+   ACK_ALIAS mutating returned history corrupts retry records on next write
+   STARTUP_THROW JSON change.type={toString:0} throws TypeError from openWorkspaceService
+   INVALID_RECORD_REPLAY {"projectId":"another-project","entity":{"id":"box-0001"}}
+   ERROR_JSON BigInt found in query validation error prevents JSON serialization
+   exit 0
+   ```
+
+   Key lines for this addendum: `UNREADABLE_OVERWRITE` (R1 — zero-byte
+   "snapshot" carrying the empty string's SHA-256, discard destroys the
+   foreign bytes) and `SNAPSHOT_FAILURE` (R3 — zero evidence, discard
+   succeeds). The R16 line `RECOVERY_NEWEST_PRUNED newestRetained:false`
+is quoted from the review's recorded path-ownership-probe output; that
+   probe was not re-run in this step (outside this addendum's scope).
+2. **Full test suite** (baseline only):
+
+   ```
+   $ npm test
+    Test Files  27 passed (27)
+         Tests  438 passed (438)
+      Duration  21.53s
+   exit 0
+   ```
+
+No other verification is claimed for this docs-only step. This addendum is
+a proposal for the independent review step — no reviewer approval is
+claimed or implied. No source, test, fixture, or contract document was
+changed; nothing was pushed.
