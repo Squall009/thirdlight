@@ -1,0 +1,17 @@
+{
+  "name": "@thirdlight/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M1 backend (docs/contracts/sessions.md, packet 09): the authoring HTTP API + WS transport (sessions.md §4–§8), play session state machine + screenshot/diagnostics relay (§10–§12), bounded session logs and errors (§11), the separate-origin static preview listener with the checked message bridge config (§13), and the admin operations (§6.3; export route lands with the exporter in packet 12). All persistent changes delegate to the workspace service (the sole command executor — dependencies.md §4.3); the transport never mutates files independently. Edges (dependencies.md §4.1): protocol, workspace, project-model (types only), ws, node:http/fs/path/crypto.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./services": "./src/services/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/protocol": "0.1.0",
+    "@thirdlight/project-model": "0.1.0",
+    "@thirdlight/workspace": "0.1.0",
+    "ws": "8.21.3"
+  }
+}

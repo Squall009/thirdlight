@@ -1,0 +1,14 @@
+{
+  "name": "@thirdlight/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M1 wire protocol (docs/contracts/sessions.md §3/§4/§5/§7/§11/§13; dependencies.md §3 surface row): HTTP payload types + strict parsers/validators, WS event types + strict validators/builders (the exhaustive §7 catalog), bridge message types + strict validators (the exhaustive §13.5 allowlist), and the ID syntax constants. Pure: no I/O, no Node built-ins, no DOM (dependencies.md §4.1: project-model values + commands types only).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/commands": "0.1.0",
+    "@thirdlight/project-model": "0.1.0"
+  }
+}
