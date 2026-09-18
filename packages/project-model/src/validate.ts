@@ -76,6 +76,21 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/**
+ * RFC 6901 escaping of one JSON Pointer reference token (G3 — Gate B
+ * re-review round 1; project-model.md §12.5: `path` is a JSON Pointer to
+ * the offending value). DYNAMIC keys (unknown fields) are interpolated
+ * into `path` ONLY through this helper: `~` → `~0` FIRST, then `/` →
+ * `~1`. Static segment names (`entities`, `components`, `position`, …) and
+ * numeric indices never need escaping. Deliberate duplication of the same
+ * two-line pure helper (commands' `pointerSegment`, parse-bytes' exported
+ * `escapePointer`): the dependency direction (dependencies.md §4.1) keeps
+ * validate.ts module-local, and neither helper is a public export.
+ */
+function pointerSegment(segment: string): string {
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 function fail(errors: ModelError[]): { ok: false; errors: readonly ModelError[] } {
   return { ok: false, errors };
 }
@@ -95,18 +110,77 @@ function jsonSafe(v: unknown, depth: number): boolean {
 }
 
 /**
+ * G1/G2 (Gate B re-review round 1, 2026-09-18): the traversal bound of the
+ * `found` mapper. A value used as `found` may be ANY in-process value
+ * (project-model.md §12.1: validation is pure and total — it never throws
+ * on malformed data), so the recursion over nested values must be bounded
+ * by construction. The per-level caps below (string ≤ 256 chars, array ≤
+ * 16 elements) are WIDTH caps, not a recursion bound: a length-1 nested
+ * chain still recursed one stack frame per level, so a persisted
+ * 4000-level chain used as `found` overflowed the stack (RangeError)
+ * through the public `validate*` entry points. Now, per `found` mapping
+ * (fresh budget per error):
+ *
+ *   - depth <= 64 (root = depth 0; children of a depth-64 value are not
+ *     processed — they degrade to the marker);
+ *   - <= 4096 visited nodes (each processed value consumes one node).
+ *
+ * Overflow-impossibility (any value shape, arrays, objects, mixed):
+ * `mapFound` recurses at most 66 levels deep (depths 0..65), and each
+ * array level adds at most one extra frame (the `map` callback), so the
+ * call chain is <= ~137 frames plus the object branch's jsonSafe depth
+ * (<= 5, its own depth cap of 4). Node's default stack holds orders of
+ * magnitude more frames; with the depth cap, overflow is impossible by
+ * construction.
+ *
+ * Deliberate duplication of the commands O1 helper (packages/commands/src/
+ * errors.ts, 69b1a17): the dependency direction (dependencies.md §4.1 —
+ * project-model is the leaf; commands depends on it) forbids importing
+ * that module-local pure helper.
+ */
+const BOUNDED_FOUND_MAX_DEPTH = 64;
+const BOUNDED_FOUND_MAX_NODES = 4096;
+
+/** The `found` marker emitted where the traversal bound is hit — the
+ * commands O1 marker text verbatim: this file's existing markers are the
+ * long-string / long-array summaries, which do not cover the bound case. */
+const BOUNDED_FOUND_MARKER =
+  '[truncated: exceeds bounded diagnostic traversal (depth <= 64, nodes <= 4096)]';
+
+interface FoundBudget {
+  nodes: number;
+  hit: boolean;
+}
+
+/**
  * Bound a `found` value (§12.5: "present when it exists and is bounded"):
  * long strings are truncated, long arrays summarized, non-JSON-safe values
- * omitted (the error keeps code/path/message/expected). Primitives —
- * including NaN/±Infinity, which JSON.stringify maps to `null`, never to a
- * NaN/Infinity token — pass through.
+ * omitted (the error keeps code/path/message/expected), and the whole
+ * traversal is bounded (G1/G2). Where the bound is hit ANYWHERE in the
+ * value the whole `found` degrades to the marker — a complete, JSON-safe
+ * string (the same "degrade to a summary" convention as the long-string /
+ * long-array cases); the error's `path` (built from complete field
+ * segments) is unaffected and stays a complete, valid JSON Pointer.
+ * Primitives — including NaN/±Infinity, which JSON.stringify maps to
+ * `null`, never to a NaN/Infinity token — pass through.
  */
 function boundedFound(v: unknown): unknown {
+  const budget: FoundBudget = { nodes: 0, hit: false };
+  const out = mapFound(v, 0, budget);
+  return budget.hit ? BOUNDED_FOUND_MARKER : out;
+}
+
+function mapFound(v: unknown, depth: number, budget: FoundBudget): unknown {
+  if (depth > BOUNDED_FOUND_MAX_DEPTH || budget.nodes >= BOUNDED_FOUND_MAX_NODES) {
+    budget.hit = true;
+    return BOUNDED_FOUND_MARKER;
+  }
+  budget.nodes += 1;
   if (typeof v === 'string') {
     return v.length <= 256 ? v : `${v.slice(0, 256)}… (truncated, ${v.length} chars total)`;
   }
   if (Array.isArray(v)) {
-    return v.length <= 16 ? v.map(boundedFound) : `[${v.length} elements]`;
+    return v.length <= 16 ? v.map((x) => mapFound(x, depth + 1, budget)) : `[${v.length} elements]`;
   }
   if (v !== null && typeof v === 'object') {
     return jsonSafe(v, 0) ? v : undefined;
@@ -392,7 +466,7 @@ function validateTransform(t: unknown, path: string, errors: ModelError[]): void
   checkQuaternion(t['rotation'], `${path}/rotation`, errors);
   checkVector(t['scale'], `${path}/scale`, 3, { positive: true, absMax: MAX_LEN }, `each 0 < v <= ${MAX_LEN}`, errors);
   for (const k of Object.keys(t)) {
-    if (!KNOWN_TRANSFORM_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${k}`, k, 'position, rotation, scale'));
+    if (!KNOWN_TRANSFORM_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'position, rotation, scale'));
   }
 }
 
@@ -418,12 +492,12 @@ function validateBox(b: unknown, path: string, errors: ModelError[]): void {
         }
       }
       for (const k of Object.keys(mat)) {
-        if (!KNOWN_MATERIAL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/material/${k}`, k, 'color'));
+        if (!KNOWN_MATERIAL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/material/${pointerSegment(k)}`, k, 'color'));
       }
     }
   }
   for (const k of Object.keys(b)) {
-    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${k}`, k, 'size, material'));
+    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material'));
   }
 }
 
@@ -457,7 +531,7 @@ function validateCamera(c: unknown, path: string, errors: ModelError[]): void {
     checkFiniteNumber(c['far'], `${path}/far`, { minExcl: effectiveNear, absMax: MAX_LEN }, `near < v <= ${MAX_LEN} meters`, errors);
   }
   for (const k of Object.keys(c)) {
-    if (!KNOWN_CAMERA_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${k}`, k, 'type, fovY, near, far'));
+    if (!KNOWN_CAMERA_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, fovY, near, far'));
   }
 }
 
@@ -476,7 +550,7 @@ function validateComponents(comps: Record<string, unknown>, path: string, errors
         withFound(
           {
             code: 'component_unknown',
-            path: `${path}/${k}`,
+            path: `${path}/${pointerSegment(k)}`,
             message: 'component is not in the M1 registry',
             expected: 'known component types: transform, box, camera',
             hint: 'adding a component type requires a new schemaVersion (project-model.md §10)',
@@ -576,7 +650,7 @@ function validateEntity(
     validateComponents(comps, `${base}/components`, errors);
   }
   for (const k of Object.keys(e)) {
-    if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${k}`, k, 'id, name, parentId, components'));
+    if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, components'));
   }
 }
 
@@ -801,13 +875,13 @@ function validateManifestValue(
         );
       }
       for (const k of Object.keys(ref)) {
-        if (k !== 'id' && k !== 'path') errors.push(unexpectedField(`/scenes/0/${k}`, k, 'id, path'));
+        if (k !== 'id' && k !== 'path') errors.push(unexpectedField(`/scenes/0/${pointerSegment(k)}`, k, 'id, path'));
       }
     }
   }
   // Unknown top-level fields (§7.1 strict).
   for (const k of Object.keys(doc)) {
-    if (!KNOWN_MANIFEST_FIELDS.has(k)) errors.push(unexpectedField(`/${k}`, k, 'schemaVersion, engineVersion, id, name, createdAt, scenes'));
+    if (!KNOWN_MANIFEST_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, engineVersion, id, name, createdAt, scenes'));
   }
   if (errors.length > 0) return { errors };
   // All checks passed: build the canonical document (§12.2). The value
@@ -978,7 +1052,7 @@ function validateSceneValue(
   // Unknown top-level fields (§8.1 strict) — always checked, independent of
   // the entity-level errors collected above.
   for (const k of Object.keys(doc)) {
-    if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${k}`, k, 'schemaVersion, sceneId, revision, entities'));
+    if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, sceneId, revision, entities'));
   }
   if (errors.length > 0) return { errors };
   return { errors, doc: canonicalScene(doc, entities as unknown[]) };

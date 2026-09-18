@@ -604,10 +604,23 @@ export function ensureSession(
   const sceneDir = scenesCheck.kind === 'ok' ? scenesCheck.dir : join(dir, 'scenes');
   const thirdlightDir = thirdCheck.kind === 'ok' ? thirdCheck.dir : join(dir, '.thirdlight');
 
-  // Manifest loadability (commands.md §5.4: a directory without a loadable
-  // manifest is not a project ⇒ project_not_found).
+  // Manifest loadability. An ABSENT manifest ⇒ the directory is not a
+  // project at all (commands.md §5.4: `project_not_found` = "no project
+  // directory with a loadable manifest exists at the data root"). A
+  // manifest that EXISTS but fails to load is a project that exists on
+  // disk yet cannot load ⇒ the workspace.md §7.5 block with the §4.3
+  // step-8 code: `project_unavailable { reason: 'manifest_invalid' }`
+  // (workspace.md §11: `manifest_invalid` is a permitted
+  // `project_unavailable.reason`; "a project that exists on disk but
+  // cannot load is exactly what project_unavailable reports"). Never a
+  // throw — the model's `validateManifest` is pure and total
+  // (project-model.md §12.1), so `loadManifest` always returns structured
+  // errors (Gate B re-review round 1, G2).
   const man = loadManifest(core, dir);
-  if (!man.ok) return { kind: 'not-found' };
+  if (!man.ok) {
+    if (!core.ops.fileExists(join(dir, MANIFEST_REL))) return { kind: 'not-found' };
+    return { kind: 'unavailable', reason: 'manifest_invalid', holder: null, errors: man.errors };
+  }
 
   // Ownership evaluation + claim (workspace.md §6.2/§6.3) — bounded re-
   // evaluation: a claim that fails against a MOVED record re-evaluates.

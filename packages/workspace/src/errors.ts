@@ -65,7 +65,12 @@ export interface Holder {
 /**
  * `project_unavailable.reason` values this service raises: every
  * load-failure code (workspace.md §4.3 — the model error codes plus the
- * envelope-level codes) and the availability/ownership codes.
+ * envelope-level codes) and the availability/ownership codes. `manifest_invalid`
+ * is the §4.3 step-8 load-failure code for a manifest that exists on disk
+ * but fails strict parse / `validateManifest` (workspace.md §11 lists it
+ * in the code table and permits it as a `project_unavailable.reason` —
+ * "a project that exists on disk but cannot load is exactly what
+ * project_unavailable reports", §7.5 block semantics).
  */
 export type UnavailableReason =
   | ErrorCode
@@ -74,6 +79,7 @@ export type UnavailableReason =
   | 'scene_invalid'
   | 'retry_records_invalid'
   | 'envelope_invalid'
+  | 'manifest_invalid'
   | 'ownership_conflict'
   | 'claim_inconsistent'
   | 'stale_ownership'

@@ -79,6 +79,7 @@ contract).
     .main.json.tmp-<pid>-<nonce>   temp file, exists only during one write sequence; cleaned on open (§5.4)
   .thirdlight/
     ownership.json                 ownership record (§6)
+    claim-<e>                      claim file (claim gate, §6.3/§6.5) — one per epoch; unlinked on release (§9)
     recovery/
       scene-<UTCstamp>-<sha8>.json recovery snapshots of external/foreign bytes (§7) — at most 16 kept, oldest pruned
 ```
