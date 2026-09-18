@@ -96,6 +96,18 @@ export interface PendingChange {
   externalScene: Scene | null;
 }
 
+/**
+ * A pending change established over READABLE bytes (§7.2 steps 2–4):
+ * the step-2 snapshot is either durable ("ok") or failed
+ * ("snapshot_failed") — never "unreadable" (that state is
+ * `setPendingUnreadable`, step 1). The §11 `external_change_unresolved`
+ * payload carries this narrower `snapshotState` (the bytes were read —
+ * the real `externalHash` is always present).
+ */
+type ReadablePendingChange = PendingChange & {
+  snapshotState: 'ok' | 'snapshot_failed';
+};
+
 export interface ProjectSession {
   projectId: string;
   dir: string;
@@ -706,9 +718,14 @@ export function detectExternalChange(
   core: Core,
   s: ProjectSession,
   foreign: { bytes: Uint8Array; hash: string },
-): void {
-  // Step 2 — snapshot BEFORE the pause (the original file stays in place).
-  snapshotForeignBytes(s.thirdlightDir, foreign.bytes, core.ops, core.stamp);
+): ReadablePendingChange {
+  // Step 2 — snapshot BEFORE the pause (the original file stays in
+  // place). A FAILED snapshot write is the §7.2 step-2 normative state
+  // (R3): the pending change records `snapshotState: "snapshot_failed"`
+  // — the pause stays fail-closed and the §7.3 resolutions are refused
+  // with `external_change_evidence_missing` until a durable snapshot
+  // exists. The failure is reported, never swallowed.
+  const snapshotName = snapshotForeignBytes(s.thirdlightDir, foreign.bytes, core.ops, core.stamp);
   // Step 3 — the full §4.3 pipeline over the foreign bytes.
   const envRes = validateEnvelope(foreign.bytes, s.projectId);
   let externalValid = false;
@@ -736,18 +753,18 @@ export function detectExternalChange(
     externalErrors = envRes.errors;
   }
   // Step 4 — pending change + pause (queries serve the last known good).
-  // The detection path records `snapshotState: "ok"` (the step-2 snapshot
-  // write above). A FAILED snapshot write is reported by this producer as
-  // `snapshot_failed` once group D lands (R3/R16); until then the
-  // misreporting ("ok") is exactly what group D repairs — the §7.3
-  // refusal clause below already handles the `snapshot_failed` state.
-  s.pendingChange = {
-    snapshotState: 'ok',
+  // `snapshotState` records the step-2 outcome truthfully (R3): "ok" when
+  // the snapshot is durable, "snapshot_failed" when it could not be
+  // written (the §7.3 refusal clause below handles both states).
+  const pending: ReadablePendingChange = {
+    snapshotState: snapshotName === null ? 'snapshot_failed' : 'ok',
     externalHash: foreign.hash,
     externalValid,
     externalErrors,
     externalScene,
   };
+  s.pendingChange = pending;
+  return pending;
 }
 
 /**
@@ -767,12 +784,14 @@ export function setPendingUnreadable(s: ProjectSession): void {
   };
 }
 
-export function pendingInfo(pc: PendingChange): {
+export function pendingInfo<T extends PendingChange>(pc: T): {
+  snapshotState: T['snapshotState'];
   externalHash: string | null;
   externalValid: boolean | null;
   externalErrorCount: number | null;
 } {
   return {
+    snapshotState: pc.snapshotState,
     externalHash: pc.externalHash,
     externalValid: pc.externalValid,
     externalErrorCount: pc.externalErrors === null ? null : pc.externalErrors.length,
@@ -804,7 +823,7 @@ export function workspaceBlock(s: ProjectSession):
 
 /** The outcome of the §7.3 refusal-clause re-read (before answering). */
 type RereadOutcome =
-  | { kind: 'proceed' | 'refired'; pc: PendingChange }
+  | { kind: 'proceed' | 'refired'; pc: ReadablePendingChange }
   | { kind: 'absent' }
   | { kind: 'unreadable' };
 
@@ -845,15 +864,18 @@ function rereadSceneForResolution(core: Core, s: ProjectSession): RereadOutcome 
   const pending = s.pendingChange!;
   if (pending.externalHash !== null && pending.externalHash !== hash) {
     // Other foreign bytes (readable, different hash): a fresh detection
-    // cycle on the real bytes; the resolution fails with
-    // external_change_unresolved and the operator re-resolves.
-    detectExternalChange(core, s, { bytes, hash });
-    return { kind: 'refired', pc: s.pendingChange! };
+    // cycle on the real bytes (the step-2 snapshot is RETRIED here — the
+    // detection is the same call the triggering mutation used); the
+    // resolution fails with external_change_unresolved and the operator
+    // re-resolves.
+    const pc = detectExternalChange(core, s, { bytes, hash });
+    return { kind: 'refired', pc };
   }
   // (Re)establish the pending change from the REAL bytes (§7.2 steps 2–4:
-  // snapshot byte-for-byte, validate, pause).
-  detectExternalChange(core, s, { bytes, hash });
-  return { kind: 'proceed', pc: s.pendingChange! };
+  // snapshot byte-for-byte — RETRIED for a `snapshot_failed` pending
+  // change — validate, pause).
+  const pc = detectExternalChange(core, s, { bytes, hash });
+  return { kind: 'proceed', pc };
 }
 
 /** The LKG restore W of the §7.3 ENOENT re-read branch. */
@@ -890,7 +912,7 @@ function restoreLkgAfterAbsentReread(
 ):
   | { kind: 'restored' }
   | { kind: 'writeFailed'; onDiskState: 'previous' | 'new-undurable'; errno?: string }
-  | { kind: 'refired' }
+  | { kind: 'refired'; pc: ReadablePendingChange }
   | { kind: 'unreadable' } {
   const res = restoreLkg(core, s);
   if (res.ok) {
@@ -908,8 +930,8 @@ function restoreLkgAfterAbsentReread(
   if (res.external) {
     // A readable appearance raced in between the re-read and the W
     // pre-check: the §7.2 protocol re-fires on the real bytes.
-    detectExternalChange(core, s, res.external);
-    return { kind: 'refired' };
+    const pc = detectExternalChange(core, s, res.external);
+    return { kind: 'refired', pc };
   }
   if (res.unreadable) {
     // An unreadable appearance raced in: the bytes are unknown, never
@@ -952,7 +974,7 @@ export function acceptExternal(
         return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
       }
       if (out.kind === 'refired') {
-        return { ok: false, error: externalChangeUnresolved(pendingInfo(s.pendingChange!)) };
+        return { ok: false, error: externalChangeUnresolved(pendingInfo(out.pc)) };
       }
       if (out.kind === 'unreadable') {
         return { ok: false, error: externalChangeUnreadable(s.projectId) };
@@ -997,11 +1019,12 @@ export function acceptExternal(
   }
   if (res.external) {
     // A new foreign value appeared during the resolution: the protocol
-    // fires again on the new bytes; the operator re-resolves.
-    detectExternalChange(core, s, res.external);
+    // fires again on the new bytes (the step-2 snapshot is taken/retried
+    // by the same detection call); the operator re-resolves.
+    const pc = detectExternalChange(core, s, res.external);
     return {
       ok: false,
-      error: externalChangeUnresolved(pendingInfo(s.pendingChange!)),
+      error: externalChangeUnresolved(pendingInfo(pc)),
     };
   }
   if (res.failed) {
@@ -1043,7 +1066,7 @@ export function discardExternal(
         return { ok: true, revision: s.revision, historyReset: true };
       }
       if (out.kind === 'refired') {
-        return { ok: false, error: externalChangeUnresolved(pendingInfo(s.pendingChange!)) };
+        return { ok: false, error: externalChangeUnresolved(pendingInfo(out.pc)) };
       }
       if (out.kind === 'unreadable') {
         return { ok: false, error: externalChangeUnreadable(s.projectId) };
@@ -1085,10 +1108,13 @@ export function discardExternal(
     return { ok: false, error: externalChangeUnreadable(s.projectId) };
   }
   if (res.external) {
-    detectExternalChange(core, s, res.external);
+    // A new foreign value appeared during the resolution: the protocol
+    // fires again on the new bytes (the step-2 snapshot is taken/retried
+    // by the same detection call); the operator re-resolves.
+    const pc = detectExternalChange(core, s, res.external);
     return {
       ok: false,
-      error: externalChangeUnresolved(pendingInfo(s.pendingChange!)),
+      error: externalChangeUnresolved(pendingInfo(pc)),
     };
   }
   if (res.failed) {

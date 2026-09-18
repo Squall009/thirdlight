@@ -25,10 +25,12 @@ retry block copied). The backend is not told.
 1. `in`: a fresh mutation — `setTransform box-0004 { position: [0,1,0] }`
    (`requestId req-6…01`, `expectedRevision 7`).
    `out`: `error` `external_change_unresolved` (`cls: "unavailable"`) with
-   `pendingChange { externalHash, externalValid: true, externalErrorCount:
-   0 }`. The pre-write hash check (workspace.md §5.2) found foreign bytes
-   **before** any temp file was written; the foreign bytes were parsed
-   (valid envelope) and snapshotted; writes are paused. No state change.
+   `pendingChange { snapshotState: "ok", externalHash, externalValid: true,
+   externalErrorCount: 0 }`. The pre-write hash check (workspace.md §5.2)
+   found foreign bytes **before** any temp file was written; the foreign
+   bytes were parsed (valid envelope) and durably snapshotted
+   (`snapshotState: "ok"` — workspace.md §7.2 step 2); writes are paused.
+   No state change.
 2. `in`: `queryProject`. `out`: served from the **last known good**
    in-memory state — `revision: 7` (the original color),
    `workspace.writePaused: true`, `pauseReason: "external_change"`,

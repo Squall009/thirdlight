@@ -238,7 +238,13 @@ function buildService(core: Core): WorkspaceService {
         // mutation while the state is unreadable.
         return failRequest(request, externalChangeUnreadable(pid));
       }
-      return failRequest(request, externalChangeUnresolved(pendingInfo(s.pendingChange)));
+      // A readable pending state (a durable or failed step-2 snapshot,
+      // §7.2 step 2): the §11 payload carries the real `snapshotState`
+      // (R3 — the snapshot failure is reported, not swallowed).
+      return failRequest(request, externalChangeUnresolved({
+        ...pendingInfo(s.pendingChange),
+        snapshotState: s.pendingChange.snapshotState,
+      }));
     }
 
     // Steps 4–6 — revision check, validation + pure application, no-change
@@ -278,10 +284,11 @@ function buildService(core: Core): WorkspaceService {
     }
     if (res.external) {
       // A foreign writer won (pre-write check or the verification read):
-      // snapshot + pause (the §7.2 protocol); the triggering command
+      // snapshot + pause (the §7.2 protocol — the step-2 snapshot is
+      // taken/retried by the same detection call); the triggering command
       // fails; no state, no record, no revision change.
-      detectExternalChange(core, s, res.external);
-      return failRequest(request, externalChangeUnresolved(pendingInfo(s.pendingChange!)));
+      const pc = detectExternalChange(core, s, res.external);
+      return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
     }
     if (res.failed) {
       if (res.failed.onDiskState === 'previous') {

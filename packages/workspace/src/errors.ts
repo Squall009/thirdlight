@@ -172,11 +172,19 @@ export function requestIdReused(currentRevision: number): CommandError {
 }
 
 /** `external_change_unresolved` (commands.md §5.4; payload pinned by scenario 08).
- * The `pendingChange` fields are nullable because the pending state carries
- * them as nulls in the `snapshot_failed` producer's future payloads; every
- * call site today passes the readable (non-null) shape, and the emitted
- * object is identical for non-null values. */
+ * `pendingChange.snapshotState` is the §7.2 step-2 outcome of the
+ * detection that set the pending change — "ok" (the recovery snapshot is
+ * durable; the scenario-08 pinning) or "snapshot_failed" (the bytes were
+ * read and validated but no snapshot is durable, workspace.md §7.2 step 2
+ * / §11 `paused-snapshot-failed`). Every call site passes a pending change
+ * established over READABLE bytes (the `external_change_unreadable` code
+ * covers the step-1 failure), so the narrower state type holds. The
+ * `externalHash`/`externalValid`/`externalErrorCount` fields are nullable
+ * because the pending state carries them as nulls in the `snapshot_failed`
+ * producer's payloads; every call site today passes the readable (non-null)
+ * shape, and the emitted object is identical for non-null values. */
 export function externalChangeUnresolved(pending: {
+  snapshotState: 'ok' | 'snapshot_failed';
   externalHash: string | null;
   externalValid: boolean | null;
   externalErrorCount: number | null;
@@ -185,6 +193,7 @@ export function externalChangeUnresolved(pending: {
     code: 'external_change_unresolved',
     cls: 'unavailable',
     pendingChange: {
+      snapshotState: pending.snapshotState,
       externalHash: pending.externalHash,
       externalValid: pending.externalValid,
       externalErrorCount: pending.externalErrorCount,

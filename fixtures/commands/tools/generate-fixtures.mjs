@@ -719,7 +719,10 @@ const e8result = s8proj.mutation(e8req, { op: "setTransform", historyEntry: { ar
 s8proj.snapshot("S8AFTER");
 const s8FinalEnvelope = envelopeObj({ projectId: P, scene: s8proj.scene, records: s8proj.records });
 
-const pendingChange = { externalHash: extHash, externalValid: true, externalErrorCount: 0 };
+// The error payload's pendingChange carries the §7.2 step-2 snapshot
+// state (snapshotState: "ok" — the scenario-08 snapshot is durable),
+// matching the service's emitted key order (workspace.md §7.2/§11).
+const pendingChange = { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0 };
 const e8pauseReq = req("setTransform", P, 7, E(1), mcpOrigin, { entityId: "box-0004", transform: { position: [0, 1, 0] } });
 
 const ownerA = { backendId: "tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", pid: 5000, openedAt: "2026-09-17T09:00:00Z", lockEpoch: 0 };

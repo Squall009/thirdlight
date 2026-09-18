@@ -758,7 +758,11 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       expect(m.ok).toBe(false);
       const e = (m as unknown as { ok: false; error: Record<string, unknown> }).error;
       expect(e['code']).toBe('external_change_unresolved');
+      // (group D, 2026-09-18: the §7.2 step-2 `snapshotState` joined the
+      // pendingChange payload — "ok" for this readable, durably-snapshotted
+      // foreign change; the pre-fix shape pinned here no longer exists.)
       expect(e['pendingChange']).toEqual({
+        snapshotState: 'ok',
         externalHash: FOREIGN_HASH,
         externalValid: false,
         externalErrorCount: expect.any(Number),

@@ -38,12 +38,16 @@ function ensureDir(dir: string, ops: WriteOps): void {
 }
 
 /**
- * Snapshot foreign bytes (byte-for-byte) and prune to the newest 16.
- * Returns the snapshot file name (basename) actually written, or `null`
- * when the snapshot could not be written (the pause still proceeds — the
- * contract's guarantee is "snapshotted before the project pauses" for the
- * bytes the backend can write; a write failure here is reported by the
- * caller via the write_failed/external outcomes of the triggering command).
+ * Snapshot foreign bytes (byte-for-byte) and prune to the newest 16 (the
+ * just-written snapshot is the §7.4 exempt one). Returns the snapshot file
+ * name (basename) actually written, or `null` when the snapshot could not
+ * be durably written. A `null` result is the §7.2 step-2 failure state —
+ * it is NEVER silent: the caller (`detectExternalChange`) records the
+ * pending change with `snapshotState: "snapshot_failed"` (the fail-closed
+ * `paused-snapshot-failed` pause: the triggering command fails
+ * `external_change_unresolved` with that state, and the operator
+ * resolutions are refused with `external_change_evidence_missing` until a
+ * durable snapshot exists, workspace.md §7.2/§7.3/§11).
  */
 export function snapshotForeignBytes(
   thirdlightDir: string,
@@ -99,19 +103,73 @@ export function snapshotForeignBytes(
     ops,
   });
   if (!res.ok) return null;
-  pruneSnapshots(recoveryDir, ops);
+  // §7.4 exemption: the snapshot just written is the pending change's
+  // evidence — it is exempt from its own pruning (its content hash equals
+  // the pending externalHash; the original bytes are never re-read).
+  pruneSnapshots(recoveryDir, ops, hash);
   return name;
 }
 
-/** Keep the newest 16 snapshots (by name order: the UTCstamp is fixed-width, so lexicographic = chronological). */
-export function pruneSnapshots(recoveryDir: string, ops: WriteOps): number {
+/**
+ * Prune the recovery snapshots to at most `RECOVERY_MAX` total — always
+ * including the exempt one (workspace.md §7.4, normative).
+ *
+ * `exemptHash` is the content SHA-256 of the pending change's snapshot
+ * (the pending `externalHash` — the bytes were snapshotted byte-for-byte
+ * and never re-read). The exempt artifact is identified as the file whose
+ * CONTENT hash equals it: only the candidates whose name carries the 8-hex
+ * prefix `exemptHash.slice(0, 8)` are read (the name format is
+ * `scene-<UTCstamp>-<sha8>[-n].json` and the UTCstamp contains no dashes,
+ * so normally ≤ a handful of small reads; the content check disambiguates
+ * suffix-collision siblings). This read is PRUNING BOOKKEEPING — it is not
+ * the §7.4 "never read automatically" evidence path, which is about never
+ * auto-LOADING recovery bytes as scene state (snapshots never re-establish
+ * the running state; they are only compared by an operator).
+ *
+ * The NON-EXEMPT names are sorted lexicographically DESCENDING (newest
+ * first — the UTCstamp is fixed-width, so lexicographic = chronological;
+ * within one UTCstamp by full file name, and no older-UTCstamp snapshot is
+ * pruned while a same-UTCstamp one survives) and the rest are removed:
+ * keep the first 15 non-exempt (an exempt exists) or the first 16 (none).
+ * Returns the number of snapshots removed. The exempt file is never
+ * removed.
+ */
+export function pruneSnapshots(
+  recoveryDir: string,
+  ops: WriteOps,
+  exemptHash: string | null = null,
+): number {
   const names = ops
     .listDir(recoveryDir)
-    .filter((n) => n.startsWith(SNAPSHOT_PREFIX) && n.endsWith('.json'))
-    .sort()
-    .reverse(); // newest first
+    .filter((n) => n.startsWith(SNAPSHOT_PREFIX) && n.endsWith('.json'));
+  let exemptName: string | null = null;
+  if (exemptHash !== null) {
+    // Candidate names carry the marker `-<sha8>` (followed by `.json` or a
+    // numeric suffix `-<n>`); the UTCstamp has no dashes, so the marker is
+    // unambiguous. A candidate whose content cannot be read is never
+    // exempt (its content cannot be verified) — pruning may still remove
+    // it as an ordinary non-exempt snapshot.
+    const pfx = exemptHash.slice(0, 8);
+    const candidates = names
+      .filter((n) => n.includes(`-${pfx}.json`) || n.includes(`-${pfx}-`))
+      .sort();
+    for (const n of candidates) {
+      let content: Uint8Array | null = null;
+      try {
+        content = ops.readFile(join(recoveryDir, n));
+      } catch {
+        content = null;
+      }
+      if (content !== null && sha256Hex(content) === exemptHash) {
+        exemptName = n;
+        break;
+      }
+    }
+  }
+  const nonExempt = names.filter((n) => n !== exemptName).sort().reverse(); // newest first
+  const keep = exemptName === null ? RECOVERY_MAX : RECOVERY_MAX - 1;
   let pruned = 0;
-  for (const n of names.slice(RECOVERY_MAX)) {
+  for (const n of nonExempt.slice(keep)) {
     ops.removeFile(join(recoveryDir, n));
     pruned += 1;
   }
