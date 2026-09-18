@@ -16,6 +16,7 @@
  *   THIRDLIGHT_PREVIEW_DIR        the preview static bundle dir
  *   THIRDLIGHT_TOKENS             comma-separated `scope:token` pairs
  *   THIRDLIGHT_EXPORT_ROOT        optional; the export root
+ *   THIRDLIGHT_ENGINE_ROOT        optional; the engine installation root (required for the export route)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
  */
 import { parseBackendConfig, type BackendTokenEntry } from './config';
@@ -55,6 +56,7 @@ const config = parseBackendConfig({
   editorStaticDir: required('THIRDLIGHT_EDITOR_DIR'),
   previewStaticDir: required('THIRDLIGHT_PREVIEW_DIR'),
   exportRoot: env.THIRDLIGHT_EXPORT_ROOT,
+  engineRoot: env.THIRDLIGHT_ENGINE_ROOT,
   tokens,
 });
 if (!config.ok) {

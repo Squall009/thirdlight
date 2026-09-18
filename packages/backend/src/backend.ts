@@ -17,10 +17,11 @@
  * bootstrap (the owner-deployment entry point).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve as pathResolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import {
   isProjectId,
   makeAttached,
@@ -1104,6 +1105,89 @@ export function createBackend(
     sendError(res, workspaceError(result.error), statusFor(result.error.cls));
   };
 
+  // ---------- export (sessions.md §6.3; export.md §2/§4) ----------
+
+  /**
+   * The export IO facade (export.md §2 dependency injection — the exporter
+   * package's own edge set has no Node builtins; the backend, which is
+   * allowed `node:fs`/`node:path`, supplies the facade).
+   */
+  const exportFs: ExportFs = {
+    join: (...parts) => join(...parts),
+    realpath: (p) => realpathSync(p),
+    isDirectory: (p) => existsSync(p) && statSync(p).isDirectory(),
+    exists: (p) => existsSync(p),
+    mkdir: (p) => mkdirSync(p, { recursive: true }),
+    write: (p, data) => writeFileSync(p, data),
+    rename: (from, to) => renameSync(from, to),
+    rm: (p) => rmSync(p, { recursive: true, force: true }),
+    mkdtemp: (prefix) => mkdtempSync(prefix),
+    read: (p) => readFileSync(p),
+  };
+
+  /**
+   * POST /api/v1/admin/projects/:projectId/export (sessions.md §6.3) —
+   * exportProject via the INJECTED workspace service (the same service the
+   * authoring routes use — the exporter never opens a second authority).
+   * Admin scope only; never a browser command, not an MCP tool (M1).
+   */
+  const adminExportRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, true);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const noArgs = parseAdminNoArgsBody(strict.value);
+    if (!noArgs.ok) {
+      sendError(res, noArgs.error);
+      return;
+    }
+    if (config.exportRoot === undefined) {
+      sendError(res, sessionError('invalid_request', 'unavailable', 'export is not configured on this backend (missing exportRoot)'));
+      return;
+    }
+    if (config.engineRoot === undefined) {
+      sendError(res, sessionError('invalid_request', 'unavailable', 'export is not configured on this backend (missing engineRoot — the engine installation root)'));
+      return;
+    }
+    const engineRoot = config.engineRoot;
+    const result = await exportProject({
+      projectId,
+      service,
+      fs: exportFs,
+      exportRoot: config.exportRoot,
+      repoRoot: engineRoot,
+      authoringRoot: config.dataRoot,
+      authoringOrigin: config.authoringOrigin,
+      previewOrigin: config.previewOrigin,
+      tokenValues: config.tokens.map((t) => t.token),
+      bootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap.ts'),
+      threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
+      typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
+      lockfile: join(engineRoot, 'package-lock.json'),
+    });
+    if (result.ok) {
+      sendJson(res, 200, result);
+      return;
+    }
+    const e = result.error;
+    const errorBody: Record<string, unknown> = { code: e.code, cls: e.cls, message: e.message };
+    if (e.detail !== undefined) {
+      for (const [k, v] of Object.entries(e.detail)) errorBody[k] = v;
+    }
+    sendJson(res, statusFor(e.cls), { ok: false, error: errorBody });
+  };
+
   // ---------- static ----------
 
   const serveStatic = (res: ServerResponse, dir: string, urlPath: string): void => {
@@ -1249,6 +1333,10 @@ export function createBackend(
           }
           if (op === 'release' || op === 'takeover' || op === 'accept-external' || op === 'discard-external') {
             await adminProjectOp(req, res, op, parts[4]!);
+            return;
+          }
+          if (op === 'export') {
+            await adminExportRoute(req, res, parts[4]!);
             return;
           }
           sendError(res, sessionError('invalid_request', 'not_found', 'unknown route'));

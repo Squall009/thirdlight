@@ -174,6 +174,22 @@ export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
   'angular',
 ]);
 
+/**
+ * dependencies.md §4.2: the browser-bundle entry files live in their app
+ * packages ("one source for the bridge wiring"); their import edges are the
+ * §4.2 bundle graph, not the §4.1 node-side table. The TRANSITIVE graph is
+ * enforced by the esbuild `--metafile` check (the export instance runs at
+ * export time — export.md §4 step 4); here the entry file's direct edges are
+ * checked against the §4.2 "Allowed graph (exact)" column.
+ */
+const BUNDLE_ENTRY_EDGES = {
+  'packages/exporter/src/export-bootstrap.ts': {
+    packages: ['runtime', 'three-adapter', 'project-model'],
+    external: ['three'],
+    node: [],
+  },
+};
+
 /** React is scoped to `editor` only (dependencies.md §7 React scope rules). */
 const REACT_EDITOR_ONLY = new Set(['react', 'react-dom']);
 
@@ -483,6 +499,9 @@ export function checkWorkspace(root) {
       const rel = relative(root, file);
       const isTestFile = isTestSource(file);
       filesScanned += 1;
+      // The §4.2 bundle-entry override (if any) replaces the §4.1 node-side
+      // edges for this file's direct imports.
+      const fileAllowed = BUNDLE_ENTRY_EDGES[rel] ?? allowed;
 
       for (const { spec, kind, line, typeOnly } of extractSpecifiers(src, file)) {
         specifiersChecked += 1;
@@ -517,7 +536,7 @@ export function checkWorkspace(root) {
         // Node builtins.
         if (spec.startsWith('node:')) {
           const b = spec.slice(5);
-          if (!allowed.node.includes(b)) {
+          if (!fileAllowed.node.includes(b)) {
             addV(
               rel,
               line,
@@ -531,7 +550,7 @@ export function checkWorkspace(root) {
 
         const { pkgName, subpath } = splitPackageSpec(spec);
         if (NODE_BUILTINS.has(pkgName)) {
-          if (!allowed.node.includes(pkgName)) {
+          if (!fileAllowed.node.includes(pkgName)) {
             addV(
               rel,
               line,
@@ -588,7 +607,7 @@ export function checkWorkspace(root) {
             continue;
           }
           if (unit === pkg.name) continue; // self-reference through own public subpath: internal
-          if (!allowed.packages.includes(unit)) {
+          if (!fileAllowed.packages.includes(unit)) {
             addV(
               rel,
               line,
@@ -598,7 +617,7 @@ export function checkWorkspace(root) {
             );
             continue;
           }
-          const sub = allowed.subpaths?.[unit];
+          const sub = fileAllowed.subpaths?.[unit];
           if (sub && !sub.includes(subpath)) {
             addV(
               rel,
@@ -611,7 +630,7 @@ export function checkWorkspace(root) {
           // §4.1 types-only qualifiers: a value import of these edges is an
           // executable import (for editor → commands/project-model this is the
           // second mutation path §4.3 forbids).
-          if (allowed.typesOnly?.[unit] && !typeOnly) {
+          if (fileAllowed.typesOnly?.[unit] && !typeOnly) {
             addV(
               rel,
               line,
@@ -650,7 +669,7 @@ export function checkWorkspace(root) {
           );
           continue;
         }
-        if (!allowed.external.includes(pkgName)) {
+        if (!fileAllowed.external.includes(pkgName)) {
           addV(
             rel,
             line,

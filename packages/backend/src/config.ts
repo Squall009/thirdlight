@@ -41,6 +41,14 @@ export interface BackendConfig {
   editorStaticDir: string;
   previewStaticDir: string;
   exportRoot?: string;
+  /**
+   * Optional. The engine installation root (the repository/install tree that
+   * holds `packages/` + `node_modules/`). Used ONLY by the export route
+   * (export.md §3 step 3 containment + §5.4.1 identity/reference paths).
+   * Proposed sessions.md §13.7 contract diff (packet 12 handoff) — additive,
+   * optional; without it the export route reports `unavailable`.
+   */
+  engineRoot?: string;
   tokens: BackendTokenEntry[];
   /** Test-only seam (§11.5 constants stand in production). */
   timeouts?: Partial<BackendTimeouts>;
@@ -61,6 +69,7 @@ export function parseBackendConfig(value: unknown):
     'dataRoot', 'backendId', 'processMarker',
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
+    'engineRoot',
     'tokens', 'timeouts',
   ]);
   for (const k of Object.keys(obj)) {
@@ -111,6 +120,8 @@ export function parseBackendConfig(value: unknown):
   if (previewStaticDir.e) return { ok: false, error: previewStaticDir.e };
   const exportRoot = str('exportRoot', false);
   if (exportRoot.e) return { ok: false, error: exportRoot.e };
+  const engineRoot = str('engineRoot', false);
+  if (engineRoot.e) return { ok: false, error: engineRoot.e };
   // authoringOrigins: non-empty exact allowlist, no wildcards (§4.2).
   const ao = obj.authoringOrigins;
   if (!Array.isArray(ao) || ao.length === 0) {
@@ -185,6 +196,7 @@ export function parseBackendConfig(value: unknown):
   if (backendId.v !== undefined) config.backendId = backendId.v;
   if (processMarker.v !== undefined) config.processMarker = processMarker.v;
   if (exportRoot.v !== undefined) config.exportRoot = exportRoot.v;
+  if (engineRoot.v !== undefined) config.engineRoot = engineRoot.v;
   if (Object.keys(timeouts).length > 0) config.timeouts = timeouts;
   return { ok: true, config };
 }

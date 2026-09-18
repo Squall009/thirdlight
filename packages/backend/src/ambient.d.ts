@@ -135,3 +135,7 @@ declare const process: {
   uptime(): number;
   on(event: 'exit' | 'SIGINT' | 'SIGTERM', cb: (code: number | string) => void): void;
 };
+declare module 'node:url' {
+  /** Convert a `file://` URL (e.g. `import.meta.url`) to a filesystem path. */
+  export function fileURLToPath(url: string): string;
+}
