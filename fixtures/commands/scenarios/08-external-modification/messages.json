@@ -73,6 +73,7 @@
         "writePaused": true,
         "pauseReason": "external_change",
         "pendingChange": {
+          "snapshotState": "ok",
           "externalHash": "5923fe48ce29b0b9bb3f7e8a00057823910e931a06cad46d7593dfb27e40215f",
           "externalValid": true,
           "externalErrorCount": 0,

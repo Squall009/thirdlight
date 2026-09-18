@@ -323,6 +323,16 @@ export function claimOwnership(
         eval: evaluateOwnership(res.external.bytes, self, liveness),
       };
     }
+    if (res.unreadable) {
+      // A non-ENOENT read failure in the final classification: the
+      // on-disk record bytes are UNKNOWN, never absent. Retrying the
+      // claim would overwrite unknown bytes (the R1 destructive path),
+      // and they must never be classified `previous`/`new-undurable`
+      // either: fail closed with the same conservative conflict refusal
+      // the code applies to an unreadable record (a live foreign owner
+      // may hold the project). No claim, no write.
+      return { ok: false, eval: { action: 'conflict', holder: null } };
+    }
     // Bounded retries exhausted (write_failed).
     if (res.failed && res.failed.onDiskState === 'new-undurable') {
       // Our bytes are on disk (the rename took effect); durability of the
@@ -370,6 +380,8 @@ export function releaseOwnership(
       ok: false;
       failed: {
         external?: true;
+        /** The on-disk record bytes are UNKNOWN (a non-ENOENT read failure) — never classified. */
+        unreadable?: true;
         onDiskState?: 'previous' | 'new-undurable';
         errno?: string;
       };
@@ -386,6 +398,7 @@ export function releaseOwnership(
   });
   if (res.ok) return { ok: true };
   if (res.external) return { ok: false, failed: { external: true } };
+  if (res.unreadable) return { ok: false, failed: { unreadable: true } };
   return { ok: false, failed: { onDiskState: res.failed?.onDiskState, errno: res.failed?.errno } };
 }
 

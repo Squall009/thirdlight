@@ -34,6 +34,8 @@ export const WORKSPACE_ERROR_CODES = [
   'stale_ownership',
   'workspace_closed',
   'external_change_invalid',
+  'external_change_unreadable',
+  'external_change_evidence_missing',
   'no_pending_change',
   'project_exists_invalid',
 ] as const;
@@ -74,7 +76,8 @@ export type UnavailableReason =
   | 'ownership_conflict'
   | 'stale_ownership'
   | 'workspace_closed'
-  | 'external_change_unresolved';
+  | 'external_change_unresolved'
+  | 'external_change_unreadable';
 
 /** Reason-specific recovery advice (workspace.md semantics). */
 function reasonHint(reason: UnavailableReason): string {
@@ -168,11 +171,15 @@ export function requestIdReused(currentRevision: number): CommandError {
   };
 }
 
-/** `external_change_unresolved` (commands.md §5.4; payload pinned by scenario 08). */
+/** `external_change_unresolved` (commands.md §5.4; payload pinned by scenario 08).
+ * The `pendingChange` fields are nullable because the pending state carries
+ * them as nulls in the `snapshot_failed` producer's future payloads; every
+ * call site today passes the readable (non-null) shape, and the emitted
+ * object is identical for non-null values. */
 export function externalChangeUnresolved(pending: {
-  externalHash: string;
-  externalValid: boolean;
-  externalErrorCount: number;
+  externalHash: string | null;
+  externalValid: boolean | null;
+  externalErrorCount: number | null;
 }): CommandError {
   return {
     code: 'external_change_unresolved',
@@ -185,6 +192,63 @@ export function externalChangeUnresolved(pending: {
     message: 'an unexpected external modification is pending resolution; writes are paused',
     hint: 'an operator must resolve the pending change (acceptExternalState or discardExternalState); dedup replays and queries remain available',
   };
+}
+
+/** `external_change_unreadable` (workspace.md §11; the §7.2 step-1 payload).
+ * Carries `projectId`, `snapshotState: "unreadable"`, and `pendingChange`
+ * with `externalHash: null` (the bytes were never read — nothing was
+ * snapshotted). Mirrors the `externalChangeUnresolved` wrapper/pendingChange
+ * shape with the §11 additions (`snapshotState` is not on the commands
+ * `CommandError` interface — the record-and-cast convention the other
+ * workspace-level constructors use). */
+export function externalChangeUnreadable(projectId: string): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'external_change_unreadable',
+    cls: 'unavailable',
+    projectId,
+    snapshotState: 'unreadable',
+    pendingChange: {
+      externalHash: null,
+      externalValid: null,
+      externalErrorCount: null,
+    },
+  };
+  e['message'] =
+    'the scene file could not be read (a non-ENOENT read error); the on-disk bytes are unknown and no snapshot was taken; writes are paused';
+  e['hint'] =
+    'make the scene file readable and re-issue the command, or re-issue the resolution (acceptExternalState / discardExternalState) once the bytes are readable';
+  return e as unknown as CommandError;
+}
+
+/** `external_change_evidence_missing` (workspace.md §11; the §7.2 step-2
+ * payload). The pending change is readable (the real `pendingChange` info is
+ * carried) but not durably snapshotted: `paused-snapshot-failed`; accept/
+ * discard are refused until the snapshot is durable. Carries `projectId` and
+ * `snapshotState: "snapshot_failed"`. */
+export function externalChangeEvidenceMissing(
+  projectId: string,
+  pending: {
+    externalHash: string | null;
+    externalValid: boolean | null;
+    externalErrorCount: number | null;
+  },
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'external_change_evidence_missing',
+    cls: 'unavailable',
+    projectId,
+    snapshotState: 'snapshot_failed',
+    pendingChange: {
+      externalHash: pending.externalHash,
+      externalValid: pending.externalValid,
+      externalErrorCount: pending.externalErrorCount,
+    },
+  };
+  e['message'] =
+    'the pending external change has no durable recovery snapshot; the resolution is refused until the snapshot is durable';
+  e['hint'] =
+    're-issue the resolution once the recovery snapshot is durable (the pending state and the pause persist)';
+  return e as unknown as CommandError;
 }
 
 /** `write_failed` (commands.md §5.4/§7.3: cls internal). */

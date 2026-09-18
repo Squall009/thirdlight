@@ -37,6 +37,7 @@ import {
   type RetryRecord,
 } from './envelope';
 import {
+  externalChangeUnreadable,
   externalChangeUnresolved,
   fieldTypeError,
   fieldValueType,
@@ -79,6 +80,7 @@ import {
   releaseProject,
   resolveContained,
   serveQuery,
+  setPendingUnreadable,
   takeover,
   type Core,
   type ProjectSession,
@@ -230,6 +232,12 @@ function buildService(core: Core): WorkspaceService {
 
     // Step 3 — pause check.
     if (s.pendingChange !== null) {
+      if (s.pendingChange.snapshotState === 'unreadable') {
+        // The on-disk bytes are unknown (a non-ENOENT read failure
+        // paused the project): the same §11 error stands for every
+        // mutation while the state is unreadable.
+        return failRequest(request, externalChangeUnreadable(pid));
+      }
       return failRequest(request, externalChangeUnresolved(pendingInfo(s.pendingChange)));
     }
 
@@ -259,6 +267,15 @@ function buildService(core: Core): WorkspaceService {
       previousHash: s.lastWrittenHash,
       ops: core.ops,
     });
+    if (res.unreadable) {
+      // §7.2 step 1: a non-ENOENT read failure — the on-disk bytes are
+      // UNKNOWN, never absent. No snapshot is taken (nothing was read):
+      // the pending change records the unknown state and the triggering
+      // mutation fails external_change_unreadable (§11). No state, no
+      // record, no revision change.
+      setPendingUnreadable(s);
+      return failRequest(request, externalChangeUnreadable(pid));
+    }
     if (res.external) {
       // A foreign writer won (pre-write check or the verification read):
       // snapshot + pause (the §7.2 protocol); the triggering command

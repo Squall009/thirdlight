@@ -80,13 +80,20 @@ export interface WorkspaceServiceConfig {
 // ---- pending external change (workspace.md §7.2) -------------------------------
 
 export interface PendingChangeInfo {
-  /** SHA-256 (lowercase hex) of the foreign on-disk bytes. */
-  externalHash: string;
-  /** Whether the foreign bytes pass the full §4.3 validation pipeline. */
-  externalValid: boolean;
-  /** The true total number of validation errors. */
-  externalErrorCount: number;
-  /** The error objects (≤ 10 reported). */
+  /**
+   * §7.2 step 4: the recovery snapshot's durable state — "ok" (durable),
+   * "snapshot_failed" (the bytes were read and validated but no snapshot
+   * is durable), "unreadable" (step 1 failed with a non-ENOENT error: the
+   * bytes were never read).
+   */
+  snapshotState: 'ok' | 'snapshot_failed' | 'unreadable';
+  /** SHA-256 (lowercase hex) of the foreign on-disk bytes; null while unreadable. */
+  externalHash: string | null;
+  /** Whether the foreign bytes pass the full §4.3 validation pipeline; null while unreadable. */
+  externalValid: boolean | null;
+  /** The true total number of validation errors; null while unreadable. */
+  externalErrorCount: number | null;
+  /** The error objects (≤ 10 reported; none while unreadable). */
   externalErrors: readonly LoadDetail[];
 }
 

@@ -954,7 +954,7 @@ put(sc("08-external-modification", "disk-external/scenes/main.json"), extEnvelop
         history: { undoDepth: 0, redoDepth: 0 },
         workspace: {
           writePaused: true, pauseReason: "external_change",
-          pendingChange: { externalHash: extHash, externalValid: true, externalErrorCount: 0, externalErrors: [] },
+          pendingChange: { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0, externalErrors: [] },
         },
       }),
     },

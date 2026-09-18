@@ -29,7 +29,9 @@ import {
 } from './envelope';
 import {
   entityNotFound,
+  externalChangeEvidenceMissing,
   externalChangeInvalid,
+  externalChangeUnreadable,
   externalChangeUnresolved,
   fieldMissing,
   fieldTypeError,
@@ -48,7 +50,14 @@ import {
   type LoadDetail,
   type UnavailableReason,
 } from './errors';
-import { EMPTY_BYTES, EMPTY_HASH, cleanLeftoverTemps, writeAtomic, type WriteOps } from './write';
+import {
+  EMPTY_BYTES,
+  EMPTY_HASH,
+  cleanLeftoverTemps,
+  errnoOf,
+  writeAtomic,
+  type WriteOps,
+} from './write';
 import {
   claimOwnership,
   evaluateLiveness,
@@ -65,16 +74,24 @@ import {
 } from './ownership';
 import { sha256Hex } from './digest';
 import { snapshotForeignBytes } from './recovery';
-import type { QueryResult } from './types';
+import type { PendingChangeInfo, QueryResult } from './types';
 
 // ---- internal state ------------------------------------------------------------
 
 /** A pending external change (workspace.md §7.2 step 4). */
 export interface PendingChange {
-  externalHash: string;
-  externalValid: boolean;
-  /** All validation errors (the public shape reports ≤ 10 + the count). */
-  externalErrors: readonly LoadDetail[];
+  /**
+   * §7.2 step 4: the recovery snapshot's durable state — "ok" (the step-2
+   * snapshot is durable), "snapshot_failed" (the bytes were read and
+   * validated but no snapshot is durable), "unreadable" (step 1 failed
+   * with a non-ENOENT error: the bytes were never read — externalHash /
+   * externalValid / externalErrors are null).
+   */
+  snapshotState: 'ok' | 'snapshot_failed' | 'unreadable';
+  externalHash: string | null;
+  externalValid: boolean | null;
+  /** All validation errors (the public shape reports ≤ 10 + the count); null while unreadable. */
+  externalErrors: readonly LoadDetail[] | null;
   /** The parsed external scene (canonical) when the bytes are valid. */
   externalScene: Scene | null;
 }
@@ -719,7 +736,13 @@ export function detectExternalChange(
     externalErrors = envRes.errors;
   }
   // Step 4 — pending change + pause (queries serve the last known good).
+  // The detection path records `snapshotState: "ok"` (the step-2 snapshot
+  // write above). A FAILED snapshot write is reported by this producer as
+  // `snapshot_failed` once group D lands (R3/R16); until then the
+  // misreporting ("ok") is exactly what group D repairs — the §7.3
+  // refusal clause below already handles the `snapshot_failed` state.
   s.pendingChange = {
+    snapshotState: 'ok',
     externalHash: foreign.hash,
     externalValid,
     externalErrors,
@@ -727,15 +750,32 @@ export function detectExternalChange(
   };
 }
 
+/**
+ * §7.2 step 1 (a non-ENOENT read failure): the on-disk bytes are UNKNOWN,
+ * never absent. No snapshot is taken (nothing was read); the pending
+ * change records the unknown state (`paused-unreadable`) and writes stay
+ * paused. Nothing is fabricated — `externalHash`/`externalValid` /
+ * `externalErrors` are null.
+ */
+export function setPendingUnreadable(s: ProjectSession): void {
+  s.pendingChange = {
+    snapshotState: 'unreadable',
+    externalHash: null,
+    externalValid: null,
+    externalErrors: null,
+    externalScene: null,
+  };
+}
+
 export function pendingInfo(pc: PendingChange): {
-  externalHash: string;
-  externalValid: boolean;
-  externalErrorCount: number;
+  externalHash: string | null;
+  externalValid: boolean | null;
+  externalErrorCount: number | null;
 } {
   return {
     externalHash: pc.externalHash,
     externalValid: pc.externalValid,
-    externalErrorCount: pc.externalErrors.length,
+    externalErrorCount: pc.externalErrors === null ? null : pc.externalErrors.length,
   };
 }
 
@@ -745,24 +785,146 @@ export function workspaceBlock(s: ProjectSession):
   | {
       writePaused: true;
       pauseReason: 'external_change';
-      pendingChange: {
-        externalHash: string;
-        externalValid: boolean;
-        externalErrorCount: number;
-        externalErrors: readonly LoadDetail[];
-      };
+      pendingChange: PendingChangeInfo;
     } {
   if (s.pendingChange === null) return { writePaused: false };
+  const pc = s.pendingChange;
   return {
     writePaused: true,
     pauseReason: 'external_change',
     pendingChange: {
-      externalHash: s.pendingChange.externalHash,
-      externalValid: s.pendingChange.externalValid,
-      externalErrorCount: s.pendingChange.externalErrors.length,
-      externalErrors: s.pendingChange.externalErrors.slice(0, 10),
+      snapshotState: pc.snapshotState,
+      externalHash: pc.externalHash,
+      externalValid: pc.externalValid,
+      externalErrorCount: pc.externalErrors === null ? null : pc.externalErrors.length,
+      externalErrors: (pc.externalErrors ?? []).slice(0, 10),
     },
   };
+}
+
+/** The outcome of the §7.3 refusal-clause re-read (before answering). */
+type RereadOutcome =
+  | { kind: 'proceed' | 'refired'; pc: PendingChange }
+  | { kind: 'absent' }
+  | { kind: 'unreadable' };
+
+/**
+ * The §7.3 refusal-clause re-read: while `snapshotState` is not "ok",
+ * the resolution is refused — but BEFORE answering, the command re-reads
+ * the scene file (the answer is never based on a stale read; the blind
+ * `allowAbsent` W is gone). Outcomes:
+ * - `unreadable` — a non-ENOENT read error: the bytes are still unknown
+ *   (`paused-unreadable`; the pending change is the unreadable shape);
+ * - `absent` — ENOENT: the foreign state is gone (the caller durably
+ *   restores the LKG envelope via W);
+ * - `refired` — readable bytes with a hash DIFFERENT from the pending
+ *   `externalHash` (a new foreign state while paused): the §7.2 protocol
+ *   re-fires on the real bytes (a fresh detection cycle — snapshot,
+ *   validate, pause); the caller fails the resolution with
+ *   `external_change_unresolved` and the operator re-resolves;
+ * - `proceed` — readable bytes establishing the (real) pending change via
+ *   the §7.2 detection path (steps 2–4: snapshot byte-for-byte, validate):
+ *   the same foreign bytes for a `snapshot_failed` pending change (the
+ *   snapshot is re-attempted) or any readable bytes for an `unreadable`
+ *   pending change (the hash was unknown). The caller proceeds with the
+ *   resolution in the same call once the snapshot is durable.
+ */
+function rereadSceneForResolution(core: Core, s: ProjectSession): RereadOutcome {
+  const target = join(s.sceneDir, 'main.json');
+  let bytes: Uint8Array;
+  try {
+    bytes = core.ops.readFile(target);
+  } catch (e) {
+    if (errnoOf(e) === 'ENOENT') return { kind: 'absent' };
+    // Bytes still unreadable (non-ENOENT): the unreadable pending state
+    // stands (the pending state and the pause persist across the refusal).
+    setPendingUnreadable(s);
+    return { kind: 'unreadable' };
+  }
+  const hash = sha256Hex(bytes);
+  const pending = s.pendingChange!;
+  if (pending.externalHash !== null && pending.externalHash !== hash) {
+    // Other foreign bytes (readable, different hash): a fresh detection
+    // cycle on the real bytes; the resolution fails with
+    // external_change_unresolved and the operator re-resolves.
+    detectExternalChange(core, s, { bytes, hash });
+    return { kind: 'refired', pc: s.pendingChange! };
+  }
+  // (Re)establish the pending change from the REAL bytes (§7.2 steps 2–4:
+  // snapshot byte-for-byte, validate, pause).
+  detectExternalChange(core, s, { bytes, hash });
+  return { kind: 'proceed', pc: s.pendingChange! };
+}
+
+/** The LKG restore W of the §7.3 ENOENT re-read branch. */
+function restoreLkg(core: Core, s: ProjectSession) {
+  return writeAtomic({
+    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
+    target: join(s.sceneDir, 'main.json'),
+    bytes: s.envelopeBytes,
+    // Creation-style check: the target must stay absent (it was just
+    // re-read as absent); a readable appearance racing in re-fires §5.2.
+    allowedPreHashes: null,
+    // The target did not exist before THIS write: a failed sequence
+    // classifies `previous` (nothing on disk changed; the in-memory LKG
+    // is unchanged and retrying re-executes fresh).
+    previousHash: null,
+    ops: core.ops,
+  });
+}
+
+/**
+ * The §7.3 ENOENT re-read branch (shared by accept and discard): the file
+ * is absent at re-read — the foreign state is gone. The last known good
+ * envelope is durably restored via W (creation-style check), the pending
+ * change is cleared and the project unpaused, and history is cleared
+ * (new boundary — the file was replaced externally, M1 performs no
+ * reconciliation). The in-memory records are kept: they match the restored
+ * LKG bytes (the running system stays self-consistent with disk). Nothing
+ * is cleared on a `previous`-classified failure (nothing was written —
+ * the pending state and the pause persist across the refusal).
+ */
+function restoreLkgAfterAbsentReread(
+  core: Core,
+  s: ProjectSession,
+):
+  | { kind: 'restored' }
+  | { kind: 'writeFailed'; onDiskState: 'previous' | 'new-undurable'; errno?: string }
+  | { kind: 'refired' }
+  | { kind: 'unreadable' } {
+  const res = restoreLkg(core, s);
+  if (res.ok) {
+    s.pendingChange = null;
+    s.history = createCommandState(s.scene!).history;
+    return { kind: 'restored' };
+  }
+  if (res.failed && res.failed.onDiskState === 'new-undurable') {
+    // The LKG bytes are on disk (the rename took effect); durability is
+    // unproven. The foreign state is gone either way: clear the pending
+    // change and un-pause (memory already equals the restored bytes).
+    s.pendingChange = null;
+    s.history = createCommandState(s.scene!).history;
+  }
+  if (res.external) {
+    // A readable appearance raced in between the re-read and the W
+    // pre-check: the §7.2 protocol re-fires on the real bytes.
+    detectExternalChange(core, s, res.external);
+    return { kind: 'refired' };
+  }
+  if (res.unreadable) {
+    // An unreadable appearance raced in: the bytes are unknown, never
+    // absent — the unreadable pending state is recorded.
+    setPendingUnreadable(s);
+    return { kind: 'unreadable' };
+  }
+  if (res.failed) {
+    // Nothing was written (`previous`): the pending state and the pause
+    // persist; the write failure is reported (a re-issue re-reads and
+    // re-attempts the restore).
+    return { kind: 'writeFailed', onDiskState: res.failed.onDiskState, errno: res.failed.errno };
+  }
+  // Unreachable: exactly one of ok/failed/external/unreadable is set.
+  return { kind: 'writeFailed', onDiskState: 'previous' };
 }
 
 // ---- operator resolutions (workspace.md §7.3/§6.4/§9) ----------------------------
@@ -775,7 +937,42 @@ export function acceptExternal(
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
-  const pc = s.pendingChange;
+  let pc = s.pendingChange;
+  if (pc.snapshotState !== 'ok') {
+    // §7.3 refusal: while evidence is missing or unreadable, the
+    // resolution is refused — but before answering, the command re-reads
+    // the file (nothing is answered from a stale read).
+    const rr = rereadSceneForResolution(core, s);
+    if (rr.kind === 'unreadable') {
+      return { ok: false, error: externalChangeUnreadable(s.projectId) };
+    }
+    if (rr.kind === 'absent') {
+      const out = restoreLkgAfterAbsentReread(core, s);
+      if (out.kind === 'restored') {
+        return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
+      }
+      if (out.kind === 'refired') {
+        return { ok: false, error: externalChangeUnresolved(pendingInfo(s.pendingChange!)) };
+      }
+      if (out.kind === 'unreadable') {
+        return { ok: false, error: externalChangeUnreadable(s.projectId) };
+      }
+      return { ok: false, error: writeFailed(out.onDiskState, out.errno) };
+    }
+    if (rr.kind === 'refired') {
+      // A new foreign state while paused: the §7.2 protocol re-fired on
+      // the fresh bytes — the resolution fails; the operator re-resolves.
+      return { ok: false, error: externalChangeUnresolved(pendingInfo(rr.pc)) };
+    }
+    // 'proceed': the pending change is (re)established from the real
+    // bytes. Proceed with the resolution in the SAME call only once the
+    // snapshot is durable — otherwise the refusal stands (nothing
+    // written; the pending state and the pause persist).
+    if (rr.pc.snapshotState !== 'ok') {
+      return { ok: false, error: externalChangeEvidenceMissing(s.projectId, pendingInfo(rr.pc)) };
+    }
+    pc = rr.pc;
+  }
   if (!pc.externalValid || pc.externalScene === null) {
     return { ok: false, error: externalChangeInvalid() };
   }
@@ -786,11 +983,18 @@ export function acceptExternal(
     dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
     target: join(s.sceneDir, 'main.json'),
     bytes: newBytes,
-    allowedPreHashes: [s.lastWrittenHash, pc.externalHash],
+    allowedPreHashes: [s.lastWrittenHash, pc.externalHash!],
     allowAbsent: pc.externalHash === EMPTY_HASH,
     previousHash: s.lastWrittenHash,
     ops: core.ops,
   });
+  if (res.unreadable) {
+    // A non-ENOENT read failure during the resolution W: the on-disk
+    // bytes are unknown, never absent — the unreadable pending state
+    // stands; the operator retries once the bytes are readable.
+    setPendingUnreadable(s);
+    return { ok: false, error: externalChangeUnreadable(s.projectId) };
+  }
   if (res.external) {
     // A new foreign value appeared during the resolution: the protocol
     // fires again on the new bytes; the operator re-resolves.
@@ -824,7 +1028,43 @@ export function discardExternal(
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
-  const pc = s.pendingChange;
+  let pc = s.pendingChange;
+  if (pc.snapshotState !== 'ok') {
+    // §7.3 refusal: while evidence is missing or unreadable, the
+    // resolution is refused — but before answering, the command re-reads
+    // the file (nothing is answered from a stale read).
+    const rr = rereadSceneForResolution(core, s);
+    if (rr.kind === 'unreadable') {
+      return { ok: false, error: externalChangeUnreadable(s.projectId) };
+    }
+    if (rr.kind === 'absent') {
+      const out = restoreLkgAfterAbsentReread(core, s);
+      if (out.kind === 'restored') {
+        return { ok: true, revision: s.revision, historyReset: true };
+      }
+      if (out.kind === 'refired') {
+        return { ok: false, error: externalChangeUnresolved(pendingInfo(s.pendingChange!)) };
+      }
+      if (out.kind === 'unreadable') {
+        return { ok: false, error: externalChangeUnreadable(s.projectId) };
+      }
+      return { ok: false, error: writeFailed(out.onDiskState, out.errno) };
+    }
+    if (rr.kind === 'refired') {
+      // A new foreign state while paused: the §7.2 protocol re-fired on
+      // the fresh bytes — the resolution fails; the operator re-resolves.
+      return { ok: false, error: externalChangeUnresolved(pendingInfo(rr.pc)) };
+    }
+    // 'proceed': the pending change is (re)established from the real
+    // bytes. Proceed with the resolution in the SAME call only once the
+    // snapshot is durable — otherwise the refusal stands (nothing
+    // written; the pending state and the pause persist). (Discard has no
+    // validity gate: the last known good state is restored regardless.)
+    if (rr.pc.snapshotState !== 'ok') {
+      return { ok: false, error: externalChangeEvidenceMissing(s.projectId, pendingInfo(rr.pc)) };
+    }
+    pc = rr.pc;
+  }
   // Re-write the last known good envelope bytes exactly (they are verified
   // against lastWrittenHash — the resolution pre-write check accepts LKG
   // or the pending externalHash; any other value re-fires the protocol).
@@ -832,11 +1072,18 @@ export function discardExternal(
     dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
     target: join(s.sceneDir, 'main.json'),
     bytes: s.envelopeBytes,
-    allowedPreHashes: [s.lastWrittenHash, pc.externalHash],
+    allowedPreHashes: [s.lastWrittenHash, pc.externalHash!],
     allowAbsent: pc.externalHash === EMPTY_HASH,
     previousHash: s.lastWrittenHash,
     ops: core.ops,
   });
+  if (res.unreadable) {
+    // A non-ENOENT read failure during the resolution W: the on-disk
+    // bytes are unknown, never absent — the unreadable pending state
+    // stands; the operator retries once the bytes are readable.
+    setPendingUnreadable(s);
+    return { ok: false, error: externalChangeUnreadable(s.projectId) };
+  }
   if (res.external) {
     detectExternalChange(core, s, res.external);
     return {
@@ -1108,11 +1355,18 @@ export function releaseProject(
     };
   }
   if (s.pendingChange !== null) {
-    // The on-disk bytes are foreign: the operator must resolve the pending
-    // change before the project can be handed out for maintenance.
+    // The on-disk bytes are foreign (or unknown — the unreadable pending
+    // state): the operator must resolve the pending change before the
+    // project can be handed out for maintenance.
     return {
       ok: false,
-      error: projectUnavailable('external_change_unresolved', null, []),
+      error: projectUnavailable(
+        s.pendingChange.snapshotState === 'unreadable'
+          ? 'external_change_unreadable'
+          : 'external_change_unresolved',
+        null,
+        [],
+      ),
     };
   }
   // (a) Rewrite the envelope (records cleared) via W.
@@ -1126,6 +1380,16 @@ export function releaseProject(
     previousHash: s.lastWrittenHash,
     ops: core.ops,
   });
+  if (res.unreadable) {
+    // §7.2 step 1: a non-ENOENT read failure — the on-disk bytes are
+    // unknown, never absent: record the unreadable pending change and
+    // fail closed (no release; no state changes).
+    setPendingUnreadable(s);
+    return {
+      ok: false,
+      error: projectUnavailable('external_change_unreadable', null, []),
+    };
+  }
   if (res.external) {
     detectExternalChange(core, s, res.external);
     return {
@@ -1152,6 +1416,12 @@ export function releaseProject(
     if (rel.failed?.external) {
       // A foreign ownership writer raced: the project is still owned by us
       // in memory; surface it for the operator (no takeover was attempted).
+      return { ok: false, error: ownershipConflict(null) };
+    }
+    if (rel.failed?.unreadable) {
+      // The ownership record on disk is unknown (a non-ENOENT read
+      // failure): no release write, no state change — the record is
+      // unreadable and a live foreign owner may hold the project.
       return { ok: false, error: ownershipConflict(null) };
     }
     return {
