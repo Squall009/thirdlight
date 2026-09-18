@@ -20,7 +20,7 @@ during later work reopens the relevant review gate. Unrun packets stay
 | A | 00–03 | **accepted 2026-09-17** — architectural review: accept with bounded follow-ups (F1–F4, Notes); apply via the "Repair prompt" before packet 04 — **F1–F4 applied 2026-09-17** (handoff 03 "Gate A follow-up repair") |
 | B | 04–07 | **accepted 2026-09-18** — architectural review (docs/handoffs/gate-b.md): accept with bounded follow-ups BF-1…BF-5 (consistency fixes: docs + fixture regeneration only, no source) — apply via a separate repair step **before packet 08** with the small docs re-checks noted per item; no blocking findings |
 | C | 08–12 | **accepted 2026-09-18** (single-session mode, same session as impl post-compact) — architectural review (docs/handoffs/gate-c.md): ACCEPT with bounded follow-ups CF-1…CF-4 (CF-1 browser visual/WebGL UNVERIFIED — settled by packet 13's browser-verification step; CF-2/CF-3 documented contract-change requests — sessions.md §13.7 optional `engineRoot`, export.md §5.4.1 reference-entry interpretation under pinned esbuild — awaiting owner disposition, implemented fail-closed; CF-4 open playwright pin request from packet 08) — no blockers for packet 13 |
-| D | 13 | **ready for review 2026-09-18** (prerequisite: Gate C accepted) — M1 acceptance evidence: docs/acceptance/m1-report.md + deployment.md + handoff 13 |
+| D | 13 | **ready for review 2026-09-18** (prerequisite: Gate C accepted) — M1 acceptance evidence: docs/acceptance/m1-report.md (v0.2 incl. §1B owner real-browser observations, recorded 2026-09-18) + deployment.md + handoff 13 |
 
 ## Packets
 

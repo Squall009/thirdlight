@@ -1,6 +1,8 @@
 # Thirdlight — M1 acceptance report
 
-Version 0.1 · Packet 13 · 2026-09-18. Executes the normative 14-step scenario
+Version 0.2 · Packet 13 · 2026-09-18 (v0.2 adds §1B — the owner's
+real-browser observations — and updates §2, §5, U-1). Executes the
+normative 14-step scenario
 (`docs/planning/m1-acceptance.md` §1) on a **disposable project** `demo-m1`
 against the **real deployment bundle** (`dist/backend/backend.mjs`, started as
 a separate process with the environment in
@@ -58,7 +60,10 @@ GET ws://127.0.0.1:8501/api/v1/ws?sessionId=…&wsToken=…  → `attached {conn
 Full state returned at attach (sessions.md §5.1); the attach revision/scene
 match the on-disk envelope. **UNVERIFIED (manual):** viewport render of the
 default scene, WebGL 2 renderer-backend report, clean browser console — no
-browser here. Evidence: `ws-events.jsonl` (establish + ws.open + attached).
+browser here. Post-run real-browser confirmation (2026-09-18, §1B-2): a real
+browser loaded the page, attached over WS, and committed edits; the
+pixel-level items remain unconfirmed. Evidence: `ws-events.jsonl`
+(establish + ws.open + attached).
 
 ### Step 3 — create a box (Create → Box) — **PASS (command level) / UNVERIFIED (UI)**
 
@@ -70,8 +75,9 @@ POST /api/v1/projects/demo-m1/commands
 ```
 The connected session received `mutation.applied {requestId, revision:1, change}`
 over WS (the hierarchy would update from it — sessions.md §6.2). The UI click
-path is UNVERIFIED (no browser); the command surface is exactly what the UI
-sends (same envelope, protocol-validated). Evidence: `out/s3-createEntity.txt`.
+path is UNVERIFIED (no browser) — post-run, real-browser UI commits are
+confirmed at transport level (§1B-2); the command surface is exactly what the
+UI sends (same envelope, protocol-validated). Evidence: `out/s3-createEntity.txt`.
 
 ### Step 4 — gizmo drag ⇒ one commit on release — **PASS (commit semantics) / UNVERIFIED (drag network)**
 
@@ -82,8 +88,9 @@ setTransform {entityId:"box-0001", transform:{position:[0.75,0,0]}} @ expectedRe
 Exactly one command advanced the revision (the release commit); the gesture
 logic (≤ 1 undoable commit, one auto-rebase, second conflict surfaced) is
 established by packet 10's gesture unit tests. **UNVERIFIED (manual):** "zero
-`/commands` requests mid-drag" in a browser network panel. Evidence:
-`out/s4-setTransform.txt`.
+`/commands` requests mid-drag" in a browser network panel — real-browser UI
+commits are confirmed at transport level (§1B-2); the network-panel
+assertion itself remains unconfirmed. Evidence: `out/s4-setTransform.txt`.
 
 ### Step 5 — undo, redo, redo-truncation — **PASS**
 
@@ -132,7 +139,9 @@ POST /api/v1/projects/demo-m1/play {}  (authoring token, connected session)
 
 **UNVERIFIED (manual):** the preview iframe actually rendering the oscillating
 box (±0.5 m, 120 Hz fixed-step) in WebGL 2, the `demo-m1@r5` HUD line,
-t≈0/t≈2 s screenshots, clean console. Evidence: `out/s7-*.txt`, ws-events.
+t≈0/t≈2 s screenshots, clean console. Post-run: a real-browser Play round trip
+(start → stop) is confirmed at transport level (§1B-2); the render/HUD items
+remain unconfirmed. Evidence: `out/s7-*.txt`, ws-events.
 
 ### Step 8 — stop play; repeat cycle — **PASS (lifecycle, incl. failure modes)**
 
@@ -150,7 +159,9 @@ HTTP stop 200 → WS `play.stop.request {reason:"request"}` → client
 
 **UNVERIFIED (manual):** the preview disposing its runtime/adapter in a real
 browser (runtime.md §3.4) — "no leaked loop / no stale GPU state" pixel-level.
-Evidence: `out/s8*.txt` (start/stop acks + full WS sequences).
+Post-run real-browser stop cycle confirmed at transport level (§1B-2);
+pixel-level disposal remains unconfirmed. Evidence: `out/s8*.txt` (start/stop
+acks + full WS sequences).
 
 ### Step 9 — MCP edit through the external harness — **PASS (convergence proven at event level) / UNVERIFIED (hierarchy paint)**
 
@@ -201,7 +212,7 @@ play is not yet presented"); stop on that play ⇒ **503
 bounded, no error dump, no hang (charter §7). Evidence: `out/s11-*.txt`,
 ws-events (relay pair).
 
-### Step 12 — export + independence + reproducibility — **PASS (artifact + serving) / UNVERIFIED (game render in a browser)**
+### Step 12 — export + independence + reproducibility — **PASS (artifact + serving) / CONFIRMED (game render in a real browser — §1B-1)**
 
 ```
 POST /api/v1/admin/projects/demo-m1/export {} → 200
@@ -224,10 +235,13 @@ POST /api/v1/admin/projects/demo-m1/export {} → 200
   `[thirdlight.demo:box-motion]`}) + scene {entityCount:3, cameraId,
   boxCount:2}.
 
-**UNVERIFIED (manual):** the exported page running the demo (box oscillation,
-WebGL 2 backend, HUD line, zero requests to the authoring origin in a real
-network panel, clean console). Evidence: `out/s12-*.txt` (export results,
-static-server log + scan, reproducibility diff, tree copies).
+**UNVERIFIED (manual) — PARTIALLY RESOLVED 2026-09-18 (§1B-1):** the owner
+ran a served export page (a different export, `demo-0001@r1`, no backend) and
+confirmed the demo box oscillation verbatim; its engine bundle is
+code-identical to this step's `demo-m1@r8` bundle (only esbuild banner
+source-path comments differ — §1B-1). The WebGL-2/HUD/network-panel/console
+assertions of this step remain unconfirmed. Evidence: `out/s12-*.txt`
+(export results, static-server log + scan, reproducibility diff, tree copies).
 
 One transient fault during this step is recorded honestly: the first export
 attempt against one backend process returned
@@ -287,6 +301,63 @@ Evidence: `out/s13a-*.txt`, `out/s13b-*.txt`, recovery snapshot.
 
 Evidence: `out/s14-*.txt`.
 
+## 1B. Real-browser observations (owner, recorded 2026-09-18, post-run)
+
+Observed by the owner (user) in a real desktop browser that can reach the
+container IP `10.0.10.223`. Reported verbatim; the transport-level evidence
+below is backend-side and stands independently of what the browser displayed.
+
+**B-1 — Export page (S12; charter §9 clause "exported scene runs without
+backend") — CONFIRMED by a real browser.**
+- Setup: the static tree `/home/dadmin/thirdlight/exports/demo-0001@r1`
+  (exported 2026-09-18T21:02:57Z by the deployment bundle's export route;
+  scene: `cam-main` + 1 box) served by `python3 -m http.server 8765 --bind
+  0.0.0.0` — **no backend process running** (8501/8502 free at the time).
+- The owner opened `http://10.0.10.223:8765/` and reported (verbatim):
+  **"I see the demo box moving back and forth on the x axis"** — the demo
+  module's x-axis sine motion running in a real WebGL context with zero
+  backend.
+- Bundle cross-link (fresh hashes): served `js/main.js` (sha256
+  `977a031d…0f38025`, 1,859,113 B) vs the acceptance export
+  `demo-m1@r8/js/main.js` (sha256 `26e85c0d…a6de83a`, 1,859,797 B): the
+  **only** byte differences are esbuild section-banner source-path comments
+  (relative vs absolute — derived from the build process's cwd; the
+  acceptance run executed from `/tmp/tl-m1`, so its banners read
+  `../../home/dadmin/…`); the engine code is identical, and both
+  `meta.json` record the same pinned set (three 0.186.0, typescript 5.9.3,
+  esbuild 0.28.2, runtime {fixedStepHz:120, modules
+  `[thirdlight.demo:box-motion]`}).
+- Not individually confirmed by the owner (remain UNVERIFIED, §5 item 5):
+  the network-panel zero-request assertion, a clean console, and the HUD
+  line. The owner's report noted no errors.
+
+**B-2 — Editor + isolated play (S2/S3/S7/S8) — real-browser transport
+CONFIRMED; visual details reported qualitatively.**
+- Setup: deployment-bundle backend (authoring `0.0.0.0:8501`, preview
+  `0.0.0.0:8502`, origin `http://10.0.10.223:8501`, data root
+  `/home/dadmin/thirdlight/projects`); project `demo-0001` created fresh
+  (r0) + one box `box-0001` (r1); editor statics from `dist/editor`.
+- The owner's browser loaded `http://10.0.10.223:8501/`. Backend session
+  log (verbatim, `GET /api/v1/sessions/sess-d085ff…/log`, 7 entries,
+  22:25:38–22:28:00Z): `registered` → play `started` (r1) → play
+  `stop_requested` → play stop (`request`) → `command` r2 → `command` r3 →
+  `detached`.
+- Established from the real browser: the editor page loads; the session
+  client establishes and attaches over WS; the toolbar's Play drives the
+  full isolated-play round trip (start → presented → stop request →
+  stop); two edits are committed through the UI (revision 1→3, durable on
+  disk).
+- The owner's only substantive report (verbatim):
+  **"…is this supposed to be missing nearly all of the functionality?"** —
+  a qualitative scope assessment: the UI rendered and the feature set was
+  evaluable. The feature set is exactly the M1 scope by design (charter
+  §9: primitives, transform/undo/redo, save/reopen, isolated play, simple
+  export; assets, materials/lights, gameplay are M2–M4).
+- Not individually confirmed (remain UNVERIFIED, §5 items 1–2): pixel-level
+  viewport detail (WebGL backend report, HUD), the zero-`/commands`-
+  mid-drag assertion, the preview HUD line, and the preview-disposal
+  console check.
+
 ---
 
 ## 2. Verdict
@@ -294,12 +365,21 @@ Evidence: `out/s14-*.txt`.
 **14/14 steps PASS at the protocol/HTTP/WS/process level** (against the real
 deployment artifact: process restarts, real files, real stdio MCP, real
 esbuild builds). The browser-visual portions of steps 2, 4, 7, 8, 9, 11, 12
-are **UNVERIFIED** (no browser in this environment) with manual steps in §5.
-The charter §9 M1 evidence clauses are each covered: *browser edit and AI
-edit converge* (S9 events), *restart retains data* (S6 byte-identical
-envelope), *stale writes rejected* (S10 conflict), *exported scene runs
-without backend* (S12 static serving; the in-browser run is the one clause
-pending a real browser).
+were **UNVERIFIED** at run time (no browser in this environment) with manual
+steps in §5. The charter §9 M1 evidence clauses are each covered: *browser
+edit and AI edit converge* (S9 events), *restart retains data* (S6
+byte-identical envelope), *stale writes rejected* (S10 conflict), *exported
+scene runs without backend* (S12 static serving).
+
+**Post-acceptance, 2026-09-18 (§1B):** the owner's real-browser observations
+closed the remaining clause — *exported scene runs without backend* now has
+a real-browser render confirmation (B-1, verbatim quote). The editor/Play
+clauses gained real-browser **transport** confirmation (B-2: page load, WS
+attach, full Play round trip, two UI-committed edits) plus the owner's
+qualitative scope report. Still UNVERIFIED (the owner did not individually
+confirm; §5, U-1): the pixel/WebGL details — renderer-backend report, clean
+console, network-panel zero-traffic assertions, preview HUD, and real
+screenshot capture (S11).
 
 ## 3. Defects found and fixed by this packet (bounded)
 
@@ -343,6 +423,12 @@ deployment bundle), 0 skipped.
 Run on a desktop with a WebGL-capable browser (Chrome/Firefox/Edge), with the
 backend started per `docs/acceptance/deployment.md` and a project created:
 
+**Status (2026-09-18, §1B):** item 5 (export) — performed by the owner,
+confirmed (B-1). Items 1–2 (editor, play) — partially performed by the owner
+(B-2): page load, attach, Play round trip, two UI edits at transport level;
+the per-item assertions remain unconfirmed. Items 3–4 (MCP convergence, real
+screenshot) — not performed.
+
 1. **Editor render (S2/S3/S4):** open `http://<host>:8501/`; expect the
    viewport to render the default scene (Main Camera at [0,0.5,4]), DevTools
    console clean; create a box via the toolbar; drag its gizmo — the network
@@ -365,9 +451,16 @@ backend started per `docs/acceptance/deployment.md` and a project created:
 
 ## 6. Unresolved issues / bounded follow-ups
 
-- **U-1 (browser verification):** §5 manual steps — the pixel/WebGL layer is
-  unverified in this container (no browser; missing `libnspr4`/`libnss3`, no
-  root). This is the same standing constraint as packets 08–12.
+- **U-1 (browser verification) — PARTIALLY RESOLVED 2026-09-18 (§1B):**
+  owner real-browser observations recorded: the export-page demo run is
+  confirmed (B-1, verbatim quote; the observed bundle is code-identical to
+  the acceptance export's), and the editor session attach + Play round trip
+  + two UI edits are confirmed at transport level (B-2, session log).
+  Still UNVERIFIED: the §5 pixel/WebGL details (renderer-backend report,
+  clean console, network-panel zero-traffic assertions, preview HUD, real
+  screenshot capture S11). The container constraint (no browser; missing
+  `libnspr4`/`libnss3`, no root) is unchanged; the owner's desktop browser is
+  the available real-browser path.
 - **U-2 (transient export build fault):** one first-attempt
   `__filename is not defined` esbuild failure in a fresh process (S12 note;
   fails closed, no artifacts). Root cause unproven (suspected service-worker
