@@ -56,6 +56,7 @@ import {
   writeAtomic,
   type WriteOps,
 } from './write';
+import { deepFreeze } from './isolate';
 import {
   DEFAULT_PROCESS_MARKER,
   DEFAULT_PROC_ROOT,
@@ -141,7 +142,20 @@ function buildService(core: Core): WorkspaceService {
 
   // ---- mutation pipeline (commands.md §6.1) ------------------------------
 
+  /**
+   * Public `runCommand` (R10, 2026-09-18 review): the result may alias
+   * authoritative state — the fresh ack shares its `change`/`history`
+   * containers with the durable record and the history entries, and a
+   * replayed ack shares the persisted record's nested objects — so the
+   * returned value is deep-frozen at the boundary. The single mutation
+   * path stays `runCommand` itself; the freeze only removes every OTHER
+   * path a caller could take through a returned reference.
+   */
   function runCommand(request: unknown): MutationResult {
+    return deepFreeze(runCommandImpl(request));
+  }
+
+  function runCommandImpl(request: unknown): MutationResult {
     // Step 1 — resolve the project. The request envelope's projectId is the
     // only addressing (charter §4); a syntactically invalid ID cannot exist
     // inside the root, so it is an envelope-level schema failure.
@@ -254,7 +268,14 @@ function buildService(core: Core): WorkspaceService {
 
   // ---- queries --------------------------------------------------------------
 
+  /** Public `query` (R10): results expose the published scene entities,
+   * the manifest, the pause state's error details and the error payload
+   * by reference — deep-freeze at the boundary. */
   function query(request: unknown): QueryResult {
+    return deepFreeze(queryImpl(request));
+  }
+
+  function queryImpl(request: unknown): QueryResult {
     const env = validateQueryRequest(request);
     if (!env.ok) {
       return {
@@ -269,7 +290,13 @@ function buildService(core: Core): WorkspaceService {
 
   // ---- operator operations (workspace.md §11) --------------------------------
 
+  /** Public `createProject` (R10): operator results carry error payloads
+   * (and `details`) that may alias loaded/validation data. */
   function createProject(projectId: string, name: string): CreateProjectResult {
+    return deepFreeze(createProjectImpl(projectId, name));
+  }
+
+  function createProjectImpl(projectId: string, name: string): CreateProjectResult {
     if (typeof projectId !== 'string' || projectId.length === 0) {
       return { ok: false, error: fieldTypeError('/projectId', projectId, 'string') };
     }
@@ -423,7 +450,12 @@ function buildService(core: Core): WorkspaceService {
     return { ok: false, error: projectExistsInvalid(details) };
   }
 
+  /** Public `releaseWorkspace` (R10). */
   function releaseWorkspace(projectId: string): ReleaseResult {
+    return deepFreeze(releaseWorkspaceImpl(projectId));
+  }
+
+  function releaseWorkspaceImpl(projectId: string): ReleaseResult {
     const o = ensureSession(core, projectId, 'query');
     if (o.kind === 'not-found') return { ok: false, error: projectNotFound(projectId) };
     if (o.kind === 'released') {
@@ -435,11 +467,17 @@ function buildService(core: Core): WorkspaceService {
     return releaseProject(core, o.session);
   }
 
+  /** Public `takeoverWorkspace` (R10). */
   function takeoverWorkspace(projectId: string): TakeoverResult {
-    return takeover(core, projectId);
+    return deepFreeze(takeover(core, projectId));
   }
 
+  /** Public `acceptExternalState` (R10). */
   function acceptExternalState(projectId: string): AcceptResult {
+    return deepFreeze(acceptExternalStateImpl(projectId));
+  }
+
+  function acceptExternalStateImpl(projectId: string): AcceptResult {
     const o = ensureSession(core, projectId, 'query');
     if (o.kind === 'not-found') return { ok: false, error: projectNotFound(projectId) };
     if (o.kind === 'unavailable') {
@@ -462,7 +500,12 @@ function buildService(core: Core): WorkspaceService {
     return acceptExternal(core, s);
   }
 
+  /** Public `discardExternalState` (R10). */
   function discardExternalState(projectId: string): DiscardResult {
+    return deepFreeze(discardExternalStateImpl(projectId));
+  }
+
+  function discardExternalStateImpl(projectId: string): DiscardResult {
     const o = ensureSession(core, projectId, 'query');
     if (o.kind === 'not-found') return { ok: false, error: projectNotFound(projectId) };
     if (o.kind === 'unavailable') {
@@ -527,7 +570,9 @@ function runScan(core: Core): ScanReport {
       if (entries.length < 100) entries.push(scanEntry(core, name));
     }
   }
-  return { entries, total, truncated: total > entries.length };
+  // R10: the report is also published through the `lastScan` getter and
+  // `scan()` — freeze it at construction (single site for both).
+  return deepFreeze({ entries, total, truncated: total > entries.length });
 }
 
 /**

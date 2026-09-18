@@ -285,7 +285,7 @@ export function invalidRequest(
     cls: 'validation',
     path,
   };
-  if (found !== undefined) e['found'] = found;
+  if (found !== undefined) e['found'] = diagnosticFound(found);
   e['expected'] = expected;
   e['message'] = message;
   if (hint !== undefined) e['hint'] = hint;
@@ -308,7 +308,7 @@ export function fieldUnexpected(path: string, key: string, known: string): Comma
     code: 'field_unexpected',
     cls: 'validation',
     path,
-    found: key,
+    found: diagnosticFound(key),
     message: 'unknown field is not permitted (strict M1 schema drops nothing)',
     expected: `known fields: ${known}`,
   };
@@ -322,7 +322,7 @@ export function fieldTypeError(path: string, found: unknown, expected: string): 
     message: `value must be of type ${expected}`,
     expected,
   };
-  if (found !== undefined) e['found'] = found;
+  if (found !== undefined) e['found'] = diagnosticFound(found);
   return e as unknown as CommandError;
 }
 
@@ -332,14 +332,15 @@ export function fieldValueType(
   expected: string,
   message: string,
 ): CommandError {
-  return {
+  const e: Record<string, unknown> = {
     code: 'field_value',
     cls: 'validation',
     path,
-    found,
-    message,
-    expected,
   };
+  if (found !== undefined) e['found'] = diagnosticFound(found);
+  e['message'] = message;
+  e['expected'] = expected;
+  return e as unknown as CommandError;
 }
 
 /** `entity_not_found` for queries (commands.md §5.4: cls validation). */
@@ -351,6 +352,90 @@ export function entityNotFound(entityId: string): CommandError {
     message: `entity '${entityId}' does not exist in the current scene`,
     hint: 'query the scene (queryEntities) for current IDs',
   };
+}
+
+// ---- bounded, JSON-safe diagnostic conversion (2026-09-18 review, R17) ------
+//
+// Public-input validation failures echo the offending value in `found`.
+// The public API accepts arbitrary in-process values (BigInt, functions,
+// self-referencing objects, class instances); echoing one raw makes the
+// result unserializable (`JSON.stringify` throws on BigInt and on cycles),
+// so the validator would manufacture the very protocol error it reports.
+// Every `found` payload constructed in this module goes through the
+// conversion below, which is always JSON-serializable and always bounded:
+//   - depth limit: 8 container levels (deeper ⇒ marker string);
+//   - node cap: 64 total nodes (containers + leaves; exhausted ⇒ marker);
+//   - strings (values AND object keys): 200 chars, longer ⇒ truncated
+//     with a total-length marker; at most 64 keys per object (the rest ⇒
+//     a summary key);
+//   - cycles: an identity seen-set ⇒ marker string;
+//   - unsupported primitives (BigInt / Function / Symbol / undefined) and
+//     exotic objects (Date / Map / Set / typed arrays / class instances)
+//     ⇒ their type name as a string, never the raw value;
+//   - non-finite numbers (NaN / ±Infinity) ⇒ their string form.
+// Serialized-size bound: 64 nodes × ≤ ~240 chars + 64 keys × ≤ ~210 chars
+// ≈ 30 KB for any caller input.
+
+const DIAG_DEPTH_LIMIT = 8;
+const DIAG_NODE_LIMIT = 64;
+const DIAG_STRING_LIMIT = 200;
+const DIAG_KEY_LIMIT = 64;
+
+function truncateDiagnostic(s: string): string {
+  return s.length <= DIAG_STRING_LIMIT
+    ? s
+    : `${s.slice(0, DIAG_STRING_LIMIT)}… (truncated, ${s.length} chars total)`;
+}
+
+function diagnosticValue(
+  v: unknown,
+  seen: Set<object>,
+  budget: { nodes: number },
+  depth: number,
+): unknown {
+  if (v === null) return null;
+  if (typeof v === 'string') return truncateDiagnostic(v);
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') {
+    return Number.isFinite(v) ? v : v > 0 ? 'Infinity' : v < 0 ? '-Infinity' : 'NaN';
+  }
+  if (typeof v === 'bigint') return 'BigInt';
+  if (typeof v === 'function') return 'Function';
+  if (typeof v === 'symbol') return 'Symbol';
+  if (typeof v === 'undefined') return 'undefined';
+  // Objects from here on.
+  if (seen.has(v)) return '[circular]';
+  if (depth > DIAG_DEPTH_LIMIT) return '[depth limit]';
+  if (budget.nodes <= 0) return '[truncated]';
+  if (Array.isArray(v)) {
+    budget.nodes -= 1;
+    seen.add(v);
+    const out: unknown[] = [];
+    for (const item of v) out.push(diagnosticValue(item, seen, budget, depth + 1));
+    return out;
+  }
+  const tag = Object.prototype.toString.call(v); // '[object X]'
+  if (tag === '[object Date]') return 'Date';
+  if (tag !== '[object Object]') return tag.slice(8, -1); // Map/Set/typed arrays/instances
+  if (!isPlainObject(v)) return 'Object';
+  budget.nodes -= 1;
+  seen.add(v);
+  const out: Record<string, unknown> = {};
+  const keys = Object.keys(v);
+  const kept = Math.min(keys.length, DIAG_KEY_LIMIT);
+  for (let i = 0; i < kept; i += 1) {
+    const k = keys[i]!;
+    out[truncateDiagnostic(k)] = diagnosticValue(v[k], seen, budget, depth + 1);
+  }
+  if (keys.length > DIAG_KEY_LIMIT) {
+    out[`[+${keys.length - DIAG_KEY_LIMIT} more keys]`] = null;
+  }
+  return out;
+}
+
+/** The bounded, JSON-safe `found` payload (see the block above). */
+function diagnosticFound(v: unknown): unknown {
+  return diagnosticValue(v, new Set<object>(), { nodes: DIAG_NODE_LIMIT }, 0);
 }
 
 /** Plain-object check (same convention as the commands layer). */

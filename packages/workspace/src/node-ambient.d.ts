@@ -26,6 +26,8 @@ declare module 'node:fs' {
   export function renameSync(oldPath: string, newPath: string): void;
   export function unlinkSync(path: string): void;
   export function mkdirSync(path: string, options?: { mode?: number; recursive?: boolean }): void;
+  /** Remove an empty directory (test-root cleanup). */
+  export function rmdirSync(path: string): void;
   export function readdirSync(path: string): string[];
   /** Whole-file read (Buffer is a Uint8Array). */
   export function readFileSync(path: string): Uint8Array;
