@@ -602,12 +602,18 @@ function buildService(core: Core): WorkspaceService {
 // ---- scan implementation (workspace.md §10) ------------------------------------------
 
 function runScan(core: Core): ScanReport {
+  // R14 (2026-09-18 review): the §10 cap bounds the LOG, not the work —
+  // scanEntry must visit EVERY entry (the deterministic §8.3 completion
+  // and the corruption/stale reporting run on all of them); only the
+  // report's entries are capped at 100. `total` counts all visited,
+  // `truncated` now means "more than 100 entries visited".
   const entries: ScanEntry[] = [];
   let total = 0;
   if (core.ops.dirExists(core.projectsRoot)) {
     for (const name of core.ops.listDir(core.projectsRoot).sort()) {
       total += 1;
-      if (entries.length < 100) entries.push(scanEntry(core, name));
+      const entry = scanEntry(core, name);
+      if (entries.length < 100) entries.push(entry);
     }
   }
   // R10: the report is also published through the `lastScan` getter and

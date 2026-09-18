@@ -28,6 +28,12 @@ declare module 'node:fs' {
   export function mkdirSync(path: string, options?: { mode?: number; recursive?: boolean }): void;
   /** Remove an empty directory (test-root cleanup). */
   export function rmdirSync(path: string): void;
+  /** Create a unique temporary directory (test data roots). */
+  export function mkdtempSync(prefix: string): string;
+  /** Remove a file tree (test-root cleanup). */
+  export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
+  /** Cheap existence check (test assertions). */
+  export function existsSync(path: string): boolean;
   export function readdirSync(path: string): string[];
   /** Whole-file read (Buffer is a Uint8Array). */
   export function readFileSync(path: string): Uint8Array;
@@ -65,6 +71,8 @@ declare module 'node:crypto' {
 declare module 'node:os' {
   /** Seconds since boot (liveness start-time math, workspace.md §6.2). */
   export function uptime(): number;
+  /** The OS temp directory (test data roots). */
+  export function tmpdir(): string;
 }
 
 /** The Node process global (pid for records and temp names). */
