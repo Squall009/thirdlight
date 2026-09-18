@@ -45,6 +45,7 @@ import {
   projectExistsInvalid,
   projectNotFound,
   projectUnavailable,
+  pointerSegment,
   requestIdReused,
   workspaceClosed as workspaceClosedError,
   writeFailed,
@@ -972,7 +973,7 @@ function canonicalIssue(value: unknown): CanonicalIssue | null {
     const rec = v as Record<string, unknown>;
     stack.add(v);
     for (const k of Object.keys(rec)) {
-      const issue = walk(rec[k], `${path}/${k}`);
+      const issue = walk(rec[k], `${path}/${pointerSegment(k)}`);
       if (issue !== null) return issue;
     }
     stack.delete(v);
@@ -1033,7 +1034,7 @@ function validateQueryRequest(request: unknown):
     if (!['op', 'projectId', 'args'].includes(k)) {
       return {
         ok: false,
-        error: invalidRequest(`/${k}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
+        error: invalidRequest(`/${pointerSegment(k)}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
       };
     }
   }

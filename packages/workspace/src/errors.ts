@@ -569,3 +569,15 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 export function isSafeInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER;
 }
+
+/**
+ * RFC 6901 escaping of one JSON Pointer reference token (2026-09-18 repair,
+ * packet 07 O2 — workspace audit; commands.md §3: error `path` values are
+ * "a JSON Pointer into the request"/envelope; RFC 6901 is the JSON Pointer
+ * standard). `~` → `~0` FIRST, then `/` → `~1`. Every DYNAMIC key
+ * interpolated into a `path` goes through this helper; static segment
+ * names and numeric indices never need escaping.
+ */
+export function pointerSegment(segment: string): string {
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}

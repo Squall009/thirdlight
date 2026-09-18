@@ -317,3 +317,159 @@ describe('failure payload echo rules (§5.2)', () => {
     expect(found && (found as string).endsWith('(truncated, 300 chars total)')).toBe(true);
   });
 });
+
+// ---- O1 + O2 (2026-09-18 repair, inherited from packet 06) ---------------------
+//
+// O1: the diagnostic `found` mapper's recursion over nested values was
+// unbounded (errors.ts:82–89), so a JSON-parsed 12,000-level nested array
+// as `found` threw RangeError (stack overflow) out of the public
+// `applyMutation` — violating the contract's total claim (commands.md §6.1
+// / §3: validation is total, never throws). Pre-fix RED: RangeError escapes
+// the public call.
+//
+// O2: dynamic unknown keys were interpolated into the `path` (a JSON
+// Pointer into the request, commands.md §3) without RFC 6901 escaping, so
+// a key `a/b` reported `/args/a/b` instead of `/args/a~1b`. Pre-fix RED:
+// the unescaped pointer shape.
+
+/** Fresh, never-mutated state (the O1/O2 requests all fail validation). */
+const ST_O = createCommandState(scene(0, [cameraEntity()]));
+
+/** Apply a malformed request to ST_O; return the structured error. */
+function errO(request: unknown): CommandError {
+  const r = applyMutation(ST_O, request);
+  if (r.ok) throw new Error('malformed request should not succeed');
+  return r.result.ok === false ? r.result.error : ({} as never);
+}
+
+/**
+ * Parse an RFC 6901 pointer; throws on a malformed or truncated pointer
+ * (missing leading slash, dangling `~`, invalid escape sequence).
+ */
+function parsePointer(p: string): string[] {
+  if (p === '') return [];
+  if (!p.startsWith('/')) throw new Error(`not a JSON Pointer: ${JSON.stringify(p)}`);
+  return p.slice(1).split('/').map((s) => {
+    if (/~(?!0|1)/.test(s)) {
+      throw new Error(`invalid escape in pointer segment: ${JSON.stringify(s)}`);
+    }
+    return s.replace(/~1/g, '/').replace(/~0/g, '~');
+  });
+}
+
+describe('O1 (2026-09-18 repair): bounded diagnostic traversal — total applyMutation', () => {
+  /** The review's exact construction: a 12,000-level nested JSON array. */
+  const DEEP = JSON.parse('['.repeat(12000) + '0' + ']'.repeat(12000));
+
+  /** The bounded-`found` marker errors.ts emits where the traversal bound is hit. */
+  const MARKER =
+    '[truncated: exceeds bounded diagnostic traversal (depth <= 64, nodes <= 4096)]';
+
+  it('undo args = 12,000-level nested array ⇒ structured invalid_request, no throw (RED: RangeError)', () => {
+    // Pre-fix: applyMutation throws RangeError (stack overflow) at this call.
+    const r = applyMutation(ST_O, req('undo', DEEP));
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.result.ok).toBe(false);
+    if (r.result.ok) throw new Error('unreachable');
+    const e = r.result.error;
+    expect(e.code).toBe('invalid_request');
+    expect(e.cls).toBe('validation');
+    // `path` is a complete, valid JSON Pointer (parses; no truncated segment).
+    expect(e.path).toBe('/args');
+    expect(() => parsePointer(String(e.path))).not.toThrow();
+    // The offending value degrades to the bounded marker — never the raw
+    // 12,000-deep value, never a throw.
+    expect(e.found).toBe(MARKER);
+    expect(e.expected).toBe('object (op-specific, strict)');
+  });
+
+  it('delete args.entityId = 12,000-level nested array ⇒ structured field_type, no throw (RED: RangeError)', () => {
+    // Pre-fix: applyMutation throws RangeError (stack overflow) at this call.
+    const r = applyMutation(ST_O, req('deleteEntity', { entityId: DEEP }));
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.result.ok).toBe(false);
+    if (r.result.ok) throw new Error('unreachable');
+    const e = r.result.error;
+    expect(e.code).toBe('field_type');
+    expect(e.cls).toBe('validation');
+    expect(e.path).toBe('/args/entityId');
+    expect(() => parsePointer(String(e.path))).not.toThrow();
+    expect(e.found).toBe(MARKER);
+    expect(e.expected).toBe('string (entity ID)');
+  });
+});
+
+describe('O2 (2026-09-18 repair): RFC 6901 escaping of dynamic JSON Pointer segments', () => {
+  it('fresh undo args {"a/b": 1} ⇒ field_unexpected at /args/a~1b (review case; pre-fix /args/a/b)', () => {
+    const e = errO(req('undo', { 'a/b': 1 }));
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/a~1b');
+    expect(e.found).toBe('a/b');
+  });
+
+  it('transform key "a~b" ⇒ segment a~0b (review case; pre-fix a~b)', () => {
+    const e = errO(req('createEntity', { kind: 'box', transform: { 'a~b': [1] } }));
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/transform/a~0b');
+    expect(e.found).toBe('a~b');
+  });
+
+  it('combined key "~/x" ⇒ segment ~0~1x (both ~ and / in one key)', () => {
+    const e = errO(req('deleteEntity', { entityId: 'cam-main', '~/x': 1 }));
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/~0~1x');
+    expect(e.found).toBe('~/x');
+  });
+
+  it('unknown top-level field "a/b~c" ⇒ invalid_request at /a~1b~0c (top-level case)', () => {
+    const e = errO({ ...req('createEntity', VALID_ARGS), 'a/b~c': 1 });
+    expect(e.code).toBe('invalid_request');
+    expect(e.path).toBe('/a~1b~0c');
+    expect(e.found).toBe('a/b~c');
+  });
+
+  it('origin unknown field "a/b" ⇒ invalid_request at /origin/a~1b (origin case)', () => {
+    const origin = { kind: 'browser' as const, clientId: 'x', 'a/b': 1 };
+    const e = errO(req('createEntity', VALID_ARGS, { origin }));
+    expect(e.code).toBe('invalid_request');
+    expect(e.path).toBe('/origin/a~1b');
+  });
+
+  it('box unknown field "x/y" ⇒ field_unexpected at /args/box/x~1y (box case)', () => {
+    const e = errO(req('createEntity', { kind: 'box', box: { 'x/y': 1 } }));
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/box/x~1y');
+  });
+
+  it('material unknown field "a/b" ⇒ field_unexpected at /args/box/material/a~1b (material case)', () => {
+    const e = errO(req('createEntity', { kind: 'box', box: { material: { 'a/b': 1 } } }));
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/box/material/a~1b');
+  });
+
+  it('setTransform unknown args field "a/b" ⇒ field_unexpected at /args/a~1b', () => {
+    const e = errO(
+      req('setTransform', { entityId: 'cam-main', transform: { position: [1, 0, 0] }, 'a/b': 1 }),
+    );
+    expect(e.code).toBe('field_unexpected');
+    expect(e.path).toBe('/args/a~1b');
+  });
+
+  it('every O2-emitted path parses as a valid RFC 6901 pointer (complete segments)', () => {
+    const cases: unknown[] = [
+      req('undo', { 'a/b': 1 }),
+      req('createEntity', { kind: 'box', transform: { 'a~b': [1] } }),
+      req('deleteEntity', { entityId: 'cam-main', '~/x': 1 }),
+      { ...req('createEntity', VALID_ARGS), 'a/b~c': 1 },
+      req('createEntity', { kind: 'box', box: { 'x/y': 1 } }),
+      req('createEntity', { kind: 'box', box: { material: { 'a/b': 1 } } }),
+      req('setTransform', { entityId: 'cam-main', transform: { position: [1, 0, 0] }, 'a/b': 1 }),
+    ];
+    for (const c of cases) {
+      const e = errO(c);
+      expect(() => parsePointer(String(e.path)), `path ${JSON.stringify(e.path)}`).not.toThrow();
+    }
+  });
+});

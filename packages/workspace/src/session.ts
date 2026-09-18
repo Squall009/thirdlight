@@ -40,6 +40,7 @@ import {
   invalidRequest,
   isPlainObject,
   isSafeInt,
+  pointerSegment,
   noPendingChange,
   projectNotFound,
   projectUnavailable,
@@ -1752,7 +1753,7 @@ function validateQueryEnvelope(req: unknown):
     if (!['op', 'projectId', 'args'].includes(k)) {
       return {
         ok: false,
-        error: invalidRequest(`/${k}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
+        error: invalidRequest(`/${pointerSegment(k)}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
       };
     }
   }
@@ -1819,7 +1820,7 @@ function validateQueryArgs(
       for (const k of Object.keys(args)) {
         return {
           ok: false,
-          error: fieldUnexpected(`/args/${k}`, k, 'queryProject takes no args (field absent or {})'),
+          error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'queryProject takes no args (field absent or {})'),
         };
       }
     }
@@ -1835,7 +1836,7 @@ function validateQueryArgs(
   if (op === 'queryEntity') {
     for (const k of Object.keys(args)) {
       if (k !== 'entityId' && k !== 'includeSubtree') {
-        return { ok: false, error: fieldUnexpected(`/args/${k}`, k, 'entityId, includeSubtree') };
+        return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entityId, includeSubtree') };
       }
     }
     if (args['entityId'] === undefined) {
@@ -1856,7 +1857,7 @@ function validateQueryArgs(
   // queryEntities
   for (const k of Object.keys(args)) {
     if (k !== 'limit' && k !== 'offset') {
-      return { ok: false, error: fieldUnexpected(`/args/${k}`, k, 'limit, offset') };
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset') };
     }
   }
   let limit = 100;

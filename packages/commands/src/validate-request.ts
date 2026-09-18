@@ -91,6 +91,18 @@ const EXPECT = {
 
 export const TOP_FIELDS_EXPECTED = 'known fields: op, projectId, expectedRevision, requestId, origin (optional), args';
 
+/**
+ * RFC 6901 escaping of one JSON Pointer reference token (commands.md §3:
+ * every field error carries `path` — "a JSON Pointer into the request";
+ * RFC 6901 is the JSON Pointer standard). DYNAMIC keys (unknown fields at
+ * any nesting level) are interpolated into `path` ONLY through this helper:
+ * `~` → `~0` FIRST, then `/` → `~1`. Static segment names (`op`, `args`,
+ * `position`, …) and numeric indices never need escaping.
+ */
+function pointerSegment(segment: string): string {
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 export type ValidatedMutationRequest =
   | {
       op: 'createEntity';
@@ -158,7 +170,7 @@ function validateEnvelope(
       return {
         ok: false,
         error: invalidRequest(
-          `/${key}`,
+          `/${pointerSegment(key)}`,
           key,
           TOP_FIELDS_EXPECTED,
           'unknown field is not permitted (strict M1 request drops nothing)',
@@ -267,7 +279,7 @@ function validateEnvelope(
         return {
           ok: false,
           error: invalidRequest(
-            `/origin/${key}`,
+            `/origin/${pointerSegment(key)}`,
             key,
             'known fields: kind, clientId',
             'unknown field is not permitted (strict M1 origin)',
@@ -334,7 +346,7 @@ function validateTransformArgs(
     if (!(TRANSFORM_FIELDS as readonly string[]).includes(key)) {
       return {
         error: fieldUnexpected(
-          `${path}/${key}`,
+          `${path}/${pointerSegment(key)}`,
           key,
           'position, rotation, scale',
         ),
@@ -377,7 +389,7 @@ function validateBoxArgs(
   }
   for (const key of Object.keys(box)) {
     if (key !== 'size' && key !== 'material') {
-      return { error: fieldUnexpected(`${path}/${key}`, key, 'size, material') };
+      return { error: fieldUnexpected(`${path}/${pointerSegment(key)}`, key, 'size, material') };
     }
   }
   const out: BoxArgs = {};
@@ -394,7 +406,7 @@ function validateBoxArgs(
     }
     for (const key of Object.keys(m)) {
       if (key !== 'color') {
-        return { error: fieldUnexpected(`${path}/material/${key}`, key, 'color') };
+        return { error: fieldUnexpected(`${path}/material/${pointerSegment(key)}`, key, 'color') };
       }
     }
     const material: { color?: string } = {};
@@ -421,7 +433,7 @@ function validateCreateArgs(args: Record<string, unknown>):
       key !== 'transform' &&
       key !== 'box'
     ) {
-      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN) };
     }
   }
   if (args['kind'] === undefined) {
@@ -526,7 +538,7 @@ function validateSetTransformArgs(args: Record<string, unknown>):
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
     if (key !== 'entityId' && key !== 'transform') {
-      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'entityId, transform') };
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId, transform') };
     }
   }
   if (args['entityId'] === undefined) {
@@ -574,7 +586,7 @@ function validateDeleteArgs(args: Record<string, unknown>):
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
     if (key !== 'entityId') {
-      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'entityId') };
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId') };
     }
   }
   if (args['entityId'] === undefined) {
@@ -593,7 +605,7 @@ function validateUndoRedoArgs(op: 'undo' | 'redo', args: Record<string, unknown>
     return {
       ok: false,
       error: fieldUnexpected(
-        `/args/${key}`,
+        `/args/${pointerSegment(key)}`,
         key,
         '(none)',
         `${op} takes no arguments (args must be exactly {})`,

@@ -22,7 +22,7 @@ import type { LoadDetail, UnavailableReason } from './errors';
 import { parseDocumentBytes, validateScene } from '@thirdlight/project-model';
 import type { MutationSuccess } from '@thirdlight/commands';
 
-import { isPlainObject, isSafeInt } from './errors';
+import { isPlainObject, isSafeInt, pointerSegment } from './errors';
 
 /** The envelope's storageVersion known to M1 (workspace.md §4.2). */
 export const ENVELOPE_STORAGE_VERSION = 1;
@@ -151,7 +151,7 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
       return fail('envelope_invalid', [
         {
           code: 'field_unexpected',
-          path: `/${k}`,
+          path: `/${pointerSegment(k)}`,
           message: 'unknown field is not permitted in the envelope (strict M1 schema drops nothing)',
           found: k,
           expected: 'known fields: storageVersion, type, projectId, scene, retry',
@@ -217,7 +217,7 @@ function validateRetryBlock(
   }
   for (const k of Object.keys(retry)) {
     if (k !== 'retention' && k !== 'records') {
-      return bad('unknown field in retry block', k, 'known fields: retention, records', `/retry/${k}`);
+      return bad('unknown field in retry block', k, 'known fields: retention, records', `/retry/${pointerSegment(k)}`);
     }
   }
   const retention = retry['retention'];
@@ -253,7 +253,7 @@ function validateRetryBlock(
     const keys = Object.keys(r);
     for (const k of keys) {
       if (!['requestId', 'digest', 'appliedRevision', 'result'].includes(k)) {
-        return bad('unknown field in retry record', k, 'known fields: requestId, digest, appliedRevision, result', `${at}/${k}`);
+        return bad('unknown field in retry record', k, 'known fields: requestId, digest, appliedRevision, result', `${at}/${pointerSegment(k)}`);
       }
     }
     const rid = r['requestId'];
@@ -346,7 +346,7 @@ function validateRecordResult(
   else allowed = base;
   for (const k of keys) {
     if (!allowed.includes(k)) {
-      return rerr('unknown field in recorded result', k, `${k}`, `/result/${k}`);
+      return rerr('unknown field in recorded result', k, `${k}`, `/result/${pointerSegment(k)}`);
     }
   }
   for (const k of base) {
@@ -403,7 +403,7 @@ function validateRecordResult(
       }
       const okeys = Object.keys(oo);
       for (const k of okeys) {
-        if (k !== 'kind' && k !== 'clientId') return rerr('unknown field in originOfApplied', k, k, `/result/originOfApplied/${k}`);
+        if (k !== 'kind' && k !== 'clientId') return rerr('unknown field in originOfApplied', k, k, `/result/originOfApplied/${pointerSegment(k)}`);
       }
       // R12: the kind discriminator must be a primitive string before
       // coercion.
@@ -419,7 +419,7 @@ function validateRecordResult(
   if (!isPlainObject(h)) return rerr('recorded result history must be an object', undefined, '/result/history');
   const hkeys = Object.keys(h);
   for (const k of hkeys) {
-    if (k !== 'undoDepth' && k !== 'redoDepth') return rerr('unknown field in recorded history', k, k, `/result/history/${k}`);
+    if (k !== 'undoDepth' && k !== 'redoDepth') return rerr('unknown field in recorded history', k, k, `/result/history/${pointerSegment(k)}`);
   }
   if (!isSafeInt(h['undoDepth']) || (h['undoDepth'] as number) < 0) {
     return rerr('history.undoDepth must be a non-negative safe integer', h['undoDepth'], '/result/history/undoDepth');
@@ -615,7 +615,7 @@ function fullTransformError(v: unknown, path: string): LoadDetail | null {
   if (!isPlainObject(v)) return rerr('transform must be an object', undefined, path);
   const want: Record<string, number> = { position: 3, rotation: 4, scale: 3 };
   for (const k of Object.keys(v)) {
-    if (!(k in want)) return rerr(`unknown field in transform: ${k}`, k, `${path}/${k}`);
+    if (!(k in want)) return rerr(`unknown field in transform: ${k}`, k, `${path}/${pointerSegment(k)}`);
   }
   for (const [k, n] of Object.entries(want)) {
     const a = v[k];
