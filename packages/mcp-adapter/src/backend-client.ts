@@ -100,6 +100,11 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/commands`, body);
   }
 
+  /** GET the project's recent problems (bounded). */
+  problems(projectId: string): Promise<BackendResponse> {
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/problems`);
+  }
+
   /** GET the (bounded) session list, optionally filtered to one project. */
   listSessions(projectId?: string): Promise<BackendResponse> {
     const q = projectId !== undefined ? `?projectId=${encodeURIComponent(projectId)}` : '';

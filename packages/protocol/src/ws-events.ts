@@ -56,6 +56,8 @@ export const CLIENT_EVENT_TYPES = [
   // sessions.md §7.2/§20.1 (packet 42 promoted; packet 48 implements).
   'game.control.ack',
   'game.observe.ack',
+  // The editor's current selection (so tools can inspect "what is selected").
+  'selection.changed',
 ] as const;
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 
@@ -123,12 +125,15 @@ export function makePlayStarted(payload: {
   playSessionId: string;
   startedBy: Origin | null;
   snapshot: RuntimeSnapshotDoc;
+  /** The play-content locator, so an editor can present a play another client started. */
+  playContent?: { contentId: string; buildId: string; path: string };
 }): string {
   return emit({
     type: 'play.started',
     playSessionId: payload.playSessionId,
     startedBy: payload.startedBy,
     snapshot: payload.snapshot,
+    ...(payload.playContent !== undefined ? { playContent: payload.playContent } : {}),
   });
 }
 
@@ -204,6 +209,7 @@ export function makeErrorEvent(
 
 export type InboundEvent =
   | { type: 'ping' }
+  | { type: 'selection.changed'; entityIds: readonly string[] }
   | { type: 'play.preview.ready'; playSessionId: string }
   | { type: 'play.preview.failed'; playSessionId: string; code: string; message?: string }
   | { type: 'play.stopped.ack'; playSessionId: string }
@@ -290,6 +296,15 @@ export function parseInboundEvent(value: unknown):
       const s = checkShape(obj, '', new Map([['type', '"ping"']]), ['type']);
       if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
       return { ok: true, event: { type: 'ping' } };
+    }
+    case 'selection.changed': {
+      const s = checkShape(obj, '', new Map([['type', '"selection.changed"'], ['entityIds', 'array of ≤ 64 entity IDs']]), ['type', 'entityIds']);
+      if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
+      const ids = s.value.entityIds;
+      if (!Array.isArray(ids) || ids.length > 64 || !ids.every((id) => typeof id === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(id))) {
+        return { ok: false, kind: 'protocol_error', error: { code: 'protocol_error', cls: 'validation', message: 'entityIds must be ≤ 64 entity IDs', path: '/entityIds' } };
+      }
+      return { ok: true, event: { type: 'selection.changed', entityIds: ids as string[] } };
     }
     case 'play.preview.ready':
     case 'play.stopped.ack': {

@@ -99,7 +99,7 @@ for (const b of BUNDLES) {
  * (packages: 'bundle') so `node dist/mcp-adapter/mcp.mjs` is self-contained;
  * the harness spawns it and speaks MCP over stdin/stdout.
  */
-const MCP_ENTRY = 'packages/mcp-adapter/src/index.ts';
+const MCP_ENTRY = 'packages/mcp-adapter/src/bin.ts';
 const MCP_OUT = 'dist/mcp-adapter/mcp.mjs';
 if (existsSync(join(root, MCP_ENTRY))) {
   const out = join(root, MCP_OUT);

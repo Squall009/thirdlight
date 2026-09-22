@@ -35,9 +35,9 @@ describe('catalog constants (sessions.md §7 + packet-35 input relay + packet-42
       ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request'].sort(),
     );
   });
-  it('client → server: exactly the §7.2 set + input.result + the §20 relay acks', () => {
+  it('client → server: exactly the §7.2 set + input.result + the §20 relay acks + selection.changed', () => {
     expect([...CLIENT_EVENT_TYPES].sort()).toEqual(
-      ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack'].sort(),
+      ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed'].sort(),
     );
   });
 });

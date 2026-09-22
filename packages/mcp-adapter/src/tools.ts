@@ -72,11 +72,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Bounded, read-only inspection of the project. target="project" returns counts and IDs only; ' +
       'target="entity" returns one entity (plus subtree only if includeSubtree=true); ' +
-      'target="entities" returns a paged list (limit ≤ 1024, default 100). Never mutates.',
+      'target="entities" returns a paged list (limit ≤ 1024, default 100); ' +
+      'target="selection" returns the entities selected in the connected editor. Never mutates.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['project', 'entity', 'entities'] },
+        target: { type: 'string', enum: ['project', 'entity', 'entities', 'selection'] },
         entityId: { type: 'string' },
         includeSubtree: { type: 'boolean' },
         limit: { type: 'integer', minimum: 1, maximum: 1024 },
@@ -252,10 +253,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Start a play session for the project from the current revision. Requires a connected editor ' +
       'browser (an active authoring session); with none, returns the structured session_unavailable ' +
-      'error. Returns playSessionId + the frozen snapshotId/revision on success.',
+      'error. Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
+      'playSessionId + the frozen snapshotId/revision on success.',
     inputSchema: {
       type: 'object',
-      properties: { demo: { type: 'boolean' } },
+      properties: { demo: { type: 'boolean' }, sessionId: { type: 'string', pattern: '^sess-[0-9a-f]{32}$' } },
       additionalProperties: false,
     },
   },
@@ -272,12 +274,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_diagnostics',
     description:
-      'Fetch bounded runtime diagnostics (≤ 16 KiB) from a play session\'s connected preview. Fails ' +
-      'structurally if the play is not presented or the editor browser is not connected.',
+      'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
+      'export failures, external file edits) and whether editing is paused. With playSessionId: bounded ' +
+      'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview.',
     inputSchema: {
       type: 'object',
       properties: { playSessionId: { type: 'string' } },
-      required: ['playSessionId'],
       additionalProperties: false,
     },
   },
@@ -368,8 +370,9 @@ export async function handleToolCall(
 
 async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const target = a.target;
+  if (target === 'selection') return inspectSelection(ctx);
   if (target !== 'project' && target !== 'entity' && target !== 'entities') {
-    return toolError('target must be "project", "entity", or "entities"');
+    return toolError('target must be "project", "entity", "entities", or "selection"');
   }
   let op: string;
   let argsOut: Record<string, unknown>;
@@ -427,6 +430,21 @@ async function command(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
+/** The entities selected in the project's connected editor (≤ 64). */
+async function inspectSelection(ctx: McpContext): Promise<CallToolResult> {
+  const list = await ctx.client.listSessions(ctx.projectId);
+  if (!isObj(list.body) || list.body.ok !== true) return surfaceBackendError(list);
+  const all = (list.body.sessions as Array<{ sessionId: string; connected: boolean; selection?: string[] }>) ?? [];
+  const session = all.find((s) => s.connected);
+  if (session === undefined) return toolError('no editor browser is connected for this project (nothing is selected)');
+  const entities: unknown[] = [];
+  for (const entityId of session.selection ?? []) {
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryEntity', args: { entityId } });
+    if (isObj(res.body) && res.body.ok === true) entities.push(res.body.entity);
+  }
+  return toolOk({ ok: true, sessionId: session.sessionId, selection: session.selection ?? [], entities });
+}
+
 async function sessions(ctx: McpContext): Promise<CallToolResult> {
   const res = await ctx.client.listSessions(ctx.projectId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
@@ -440,6 +458,10 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
     if (typeof a.demo !== 'boolean') return toolError('demo must be a boolean');
     body.options = { demo: a.demo };
   }
+  if (a.sessionId !== undefined) {
+    if (typeof a.sessionId !== 'string') return toolError('sessionId must be a string');
+    body.sessionId = a.sessionId;
+  }
   const res = await ctx.client.startPlay(ctx.projectId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
@@ -451,7 +473,14 @@ async function playStop(ctx: McpContext, a: Record<string, unknown>): Promise<Ca
 }
 
 async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
-  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
+  if (a.playSessionId === undefined) {
+    const problems = await ctx.client.problems(ctx.projectId);
+    if (!isObj(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
+    const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
+    const workspace = isObj(project.body) && project.body.ok === true ? project.body.workspace : null;
+    return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems });
+  }
+  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
   const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }

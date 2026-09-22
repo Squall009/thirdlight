@@ -356,10 +356,13 @@ function EditorApp(): JSX.Element {
           snapshot: r.snapshot,
           snapshotId: r.snapshotId,
           revision: r.revision,
-          contentId: p?.contentId ?? null,
-          buildId: p?.buildId ?? null,
-          contentPath: p?.contentPath ?? null,
+          contentId: r.playContent?.contentId ?? p?.contentId ?? null,
+          buildId: r.playContent?.buildId ?? p?.buildId ?? null,
+          contentPath: r.playContent?.path ?? p?.contentPath ?? null,
         }));
+      },
+      onPlayStopRequested: (playSessionId) => {
+        bridgeRef.current?.requestStop(playSessionId);
       },
       onPlayStopped: () => {
         setPlaying(false);
@@ -631,10 +634,13 @@ function EditorApp(): JSX.Element {
     };
   }, []);
 
-  // Selection → gizmo.
+  // Selection → gizmo, and to the backend (tools can inspect the selection).
   useEffect(() => {
     viewportRef.current?.setSelected(selectedId, gizmoMode);
   }, [selectedId, gizmoMode]);
+  useEffect(() => {
+    clientRef.current?.setSelection(selectedId === null ? [] : [selectedId]);
+  }, [selectedId]);
 
   // ---- the isolated play preview (separate-origin iframe + bridge) --------
   useEffect(() => {

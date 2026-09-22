@@ -85,10 +85,13 @@ export function parseEstablishRequest(value: unknown):
 
 export interface PlayStartRequest {
   demo: boolean;
+  /** Optional: the authoring session (browser) the play must run in. */
+  sessionId?: string;
 }
 
 const PLAY_START_FIELDS = new Map([
   ['options', '{ demo?: boolean }'],
+  ['sessionId', 'sess- + 32 hex (optional: the browser session to play in)'],
 ]);
 const PLAY_OPTIONS_FIELDS = new Map([['demo', 'boolean (default true)']]);
 
@@ -109,7 +112,11 @@ export function parsePlayStartRequest(value: unknown):
     if (!dv.ok) return { ok: false, error: dv.error };
     demo = dv.value as boolean;
   }
-  return { ok: true, request: { demo } };
+  const sid = shape.value.sessionId;
+  if (sid !== undefined && !isSessionId(sid)) {
+    return { ok: false, error: sessionError('invalid_request', 'validation', 'sessionId must be sess- + 32 hex', { path: '/sessionId' }) };
+  }
+  return { ok: true, request: typeof sid === 'string' ? { demo, sessionId: sid } : { demo } };
 }
 
 // ---- POST …/play/:playSessionId/screenshot (sessions.md §12) -----------------

@@ -59,6 +59,8 @@ export interface SessionRecord {
   log: LogEntry[];
   /** ms timestamps of recent protocol errors (the 10/60 s window). */
   protocolErrorTimes: number[];
+  /** The editor's current selection (entity IDs), as last reported. */
+  selection: string[];
 }
 
 export interface WsToken {
@@ -134,6 +136,7 @@ export class SessionRegistry {
       playSessionId: null,
       log: [],
       protocolErrorTimes: [],
+      selection: [],
     };
     this.byProject.set(projectId, session);
     this.bySessionId.set(sessionId, session);

@@ -313,3 +313,4 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-assets__preview-canvas { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--border);
   border-radius: 4px; margin: 6px 0; }
 .tl-row__kind--light { color: #ffe08a; }
+.tl-problem__source--import, .tl-problem__source--compile { color: var(--warn); }

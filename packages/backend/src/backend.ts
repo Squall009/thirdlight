@@ -139,6 +139,8 @@ export interface SessionView {
   connected: boolean;
   lastActivityAt: number;
   playSessionId?: string;
+  /** The editor's current selection. */
+  selection: string[];
 }
 
 export interface Backend {
@@ -318,6 +320,7 @@ export function createBackend(
     sendError,
     requireAuth,
     log: logStartup,
+    onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
   });
 
 
@@ -470,6 +473,7 @@ export function createBackend(
       connId: s.connId,
       connected: s.connected,
       lastActivityAt: s.lastActivityAt,
+      selection: [...s.selection],
     };
     if (s.playSessionId !== null) v.playSessionId = s.playSessionId;
     return v;
@@ -503,7 +507,7 @@ export function createBackend(
   interface Problem {
     seq: number;
     at: string;
-    source: 'command' | 'play' | 'export' | 'workspace';
+    source: 'command' | 'import' | 'compile' | 'play' | 'export' | 'workspace';
     code: string;
     message: string;
   }
@@ -638,6 +642,9 @@ export function createBackend(
     switch (inbound.type) {
       case 'ping':
         ws.send(makePong());
+        return;
+      case 'selection.changed':
+        session.selection = [...inbound.entityIds];
         return;
       case 'play.preview.ready':
       case 'play.preview.failed':
@@ -982,6 +989,10 @@ export function createBackend(
       sendError(res, unavailableError(undefined, 'connect the editor browser: no registered authoring session for this project'), 503);
       return;
     }
+    if (parsedReq.request.sessionId !== undefined && parsedReq.request.sessionId !== session.sessionId) {
+      sendError(res, sessionError('session_not_found', 'not_found', 'that browser session is not the active session for this project', { activeSessionId: session.sessionId }), 404);
+      return;
+    }
     const active = plays.activeFor(projectId);
     if (active !== undefined) {
       sendError(
@@ -1146,7 +1157,12 @@ export function createBackend(
     // surface).
     const startedBy: OriginDoc | null =
       scope === 'admin' ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
-    const payload = makePlayStarted({ playSessionId, startedBy, snapshot });
+    const payload = makePlayStarted({
+      playSessionId,
+      startedBy,
+      snapshot,
+      playContent: { contentId: published.contentId, buildId: builtCore.buildId, path: `/play-content/${published.contentId}/` },
+    });
     let delivered = false;
     if (session.connected && session.socket) {
       try {
@@ -1666,6 +1682,7 @@ export function createBackend(
       return;
     }
     if (outcome.kind === 'compile') {
+      recordProblem(projectId, 'compile', outcome.failure.code, `Script ${behaviorId} failed to compile: ${outcome.failure.reason}`);
       sendJson(res, 400, {
         ok: false,
         error: {

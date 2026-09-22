@@ -96,7 +96,7 @@ export interface ClientUiState {
 export interface ProblemView {
   seq: number;
   at: string;
-  source: 'command' | 'play' | 'export' | 'workspace';
+  source: 'command' | 'import' | 'compile' | 'play' | 'export' | 'workspace';
   code: string;
   message: string;
 }
@@ -124,6 +124,8 @@ export interface ClientCallbacks {
   onSceneChanged: () => void;
   onPlayStarted: (r: PlayStartResult & { snapshot: unknown }) => void;
   onPlayStopped: (reason: string) => void;
+  /** The backend asks the editor to stop the play (a tool or the TTL); the editor tears the preview down and acks. */
+  onPlayStopRequested?: (playSessionId: string) => void;
   /** A backend relay request for the running play (screenshot, diagnostics, input, game control/observe). */
   onRelayRequest?: (request: Record<string, unknown>) => void;
 }
@@ -230,6 +232,7 @@ export class SessionClient {
   private history = { undoDepth: 0, redoDepth: 0 };
   private external: ClientUiState['external'] = null;
   private problems: ProblemView[] = [];
+  private selection: string[] = [];
   private historyRefreshQueued = false;
   /** Active play (the retained `play.started` snapshot + preview bridge). */
   private activePlay: (PlayStartResult & { snapshot: unknown }) | null = null;
@@ -364,6 +367,7 @@ export class SessionClient {
       this.ws = ws;
       ws.onopen = () => {
         this.startHeartbeat(); // §5.2: the client pings at least every 20 s
+        if (this.selection.length > 0) this.sendRelayAck({ type: 'selection.changed', entityIds: this.selection });
         resolve();
       };
       ws.onerror = () => reject(new Error('ws upgrade failed'));
@@ -476,6 +480,12 @@ export class SessionClient {
     });
   }
 
+  /** Report the editor's selection (tools can inspect what is selected). */
+  setSelection(entityIds: readonly string[]): void {
+    this.selection = [...entityIds].slice(0, 64);
+    this.sendRelayAck({ type: 'selection.changed', entityIds: this.selection });
+  }
+
   /** Answer a relay request over the socket (the preview's exact result). */
   sendRelayAck(frame: Record<string, unknown>): void {
     try {
@@ -516,8 +526,14 @@ export class SessionClient {
         this.applyMutationApplied(m as unknown as Parameters<Projection['applyMutationApplied']>[0]);
         break;
       case 'play.started':
-        this.handlePlayStarted(m as unknown as { playSessionId: string; snapshot: unknown });
+        this.handlePlayStarted(m as unknown as { playSessionId: string; snapshot: unknown; playContent?: PlayStartResult['playContent'] });
         break;
+      case 'play.stop.request': {
+        const psid = String(m.playSessionId ?? '');
+        this.cb.onPlayStopRequested?.(psid);
+        this.sendWsFrame({ type: 'play.stopped.ack', playSessionId: psid });
+        break;
+      }
       case 'play.stopped':
         this.handlePlayStopped((m as { reason?: string }).reason ?? 'request');
         break;
@@ -590,7 +606,7 @@ export class SessionClient {
     }
   }
 
-  private handlePlayStarted(m: { playSessionId: string; snapshot: unknown }): void {
+  private handlePlayStarted(m: { playSessionId: string; snapshot: unknown; playContent?: PlayStartResult['playContent'] }): void {
     // The retained `play.started` (§7.1 one-shot delivery). The editor stores
     // it and, on the preview iframe load, hands it across the bridge.
     const base = this.activePlay ?? ({} as PlayStartResult);
@@ -603,7 +619,7 @@ export class SessionClient {
       // M4 (packet 70, D-63-7 repair): the play-content locator (contentId /
       // buildId / path) is retained — the preview bootstrap's handshake +
       // `tl.playContent.expect` gate read it from the onPlayStarted result.
-      playContent: base.playContent,
+      playContent: m.playContent ?? base.playContent,
       snapshot: m.snapshot,
     };
     this.cb.onPlayStarted(this.activePlay);

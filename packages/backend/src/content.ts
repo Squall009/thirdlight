@@ -197,9 +197,11 @@ function hex(bytes: Uint8Array): string {
 export class ContentJobs {
   private readonly records = new Map<string, JobRecord>();
   private readonly now: () => number;
+  private readonly onFail: ((projectId: string, kind: ContentJobKind, code: string, message: string) => void) | undefined;
 
-  constructor(now: () => number) {
+  constructor(now: () => number, onFail?: (projectId: string, kind: ContentJobKind, code: string, message: string) => void) {
     this.now = now;
+    this.onFail = onFail;
   }
 
   /**
@@ -286,6 +288,7 @@ export class ContentJobs {
     }
     r.state = 'failed';
     r.error = { code, message: message.slice(0, 256) };
+    this.onFail?.(r.projectId, r.kind, code, r.error.message);
   }
 
   cancel(jobId: string): void {
@@ -510,6 +513,8 @@ export interface ContentRouteDeps {
   requireAuth: (req: IncomingMessage, projectId: string, adminOnly: boolean) => SessionError | null;
   /** Bounded transport log (the backend's startup ring). */
   log: (message: string) => void;
+  /** A content job (import inspection, publication) failed. */
+  onJobFailed?: (projectId: string, kind: string, code: string, message: string) => void;
 }
 
 const FRAME_BOUND_MS = CONTENT_JOB_RESULT_TTL_MS;
@@ -525,7 +530,7 @@ export class ContentRoutes {
 
   constructor(deps: ContentRouteDeps) {
     this.deps = deps;
-    this.jobs = new ContentJobs(deps.now);
+    this.jobs = new ContentJobs(deps.now, deps.onJobFailed);
     this.uploads = new ContentUploads(deps.now);
   }
 
