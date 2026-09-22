@@ -1,6 +1,6 @@
 {
   "name": "thirdlight",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "Thirdlight \u2014 self-hosted browser game editor built on three.js. See docs/STATUS.md.",

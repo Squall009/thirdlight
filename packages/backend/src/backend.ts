@@ -1895,7 +1895,8 @@ export function createBackend(
       fs: exportFs,
       exportRoot: config.exportRoot,
       repoRoot: engineRoot,
-      authoringRoot: config.dataRoot,
+      // The authoring tree is the projects directory; exports may live elsewhere under the data root.
+      authoringRoot: join(config.dataRoot, 'projects'),
       authoringOrigin: config.authoringOrigin,
       previewOrigin: config.previewOrigin,
       tokenValues: config.tokens.map((t) => t.token),

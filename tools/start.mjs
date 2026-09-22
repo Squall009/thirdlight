@@ -24,7 +24,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function usage(message) {
   if (message) process.stderr.write(`start: ${message}\n`);
@@ -72,7 +72,7 @@ export function ownerToken(dataRoot) {
   return { token, created: true, file };
 }
 
-function ensureBuilt(force) {
+export function ensureBuilt(force) {
   const backend = join(ENGINE_ROOT, 'dist', 'backend', 'backend.mjs');
   const editor = join(ENGINE_ROOT, 'dist', 'editor', 'index.html');
   if (!force && existsSync(backend) && existsSync(editor)) return;
