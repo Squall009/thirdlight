@@ -1,0 +1,22 @@
+# Thirdlight backend as a systemd service (process-level in the LXC).
+# Install: sudo cp deploy/thirdlight.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now thirdlight
+# Adjust --host to the address browsers will use; the backend allows only that exact origin.
+[Unit]
+Description=Thirdlight game editor backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dadmin
+Group=dadmin
+WorkingDirectory=/home/dadmin/projects/thirdlight
+ExecStart=/usr/bin/node /home/dadmin/projects/thirdlight/tools/start.mjs --host 10.0.10.223 --data-root /home/dadmin/thirdlight
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

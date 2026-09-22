@@ -54,6 +54,25 @@ node tools/start.mjs --host 192.168.1.20
 This binds 0.0.0.0. There is no TLS and one shared owner token: keep it on a
 trusted LAN.
 
+## Run it as a service (systemd)
+
+`deploy/thirdlight.service` runs the start script as `dadmin` at boot,
+restarting on failure. It is installed on this LXC (`Pi-CT`, 10.0.10.223):
+
+```sh
+sudo cp deploy/thirdlight.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now thirdlight
+systemctl status thirdlight            # state
+journalctl -u thirdlight -n 50         # the printed editor URL is in here
+sudo systemctl restart thirdlight      # after a rebuild
+```
+
+Edit `--host` in the unit if the address browsers use changes. The editor
+is then at `http://10.0.10.223:8501/` (token from
+`~/thirdlight/owner-token`). Note the start script prints the token to the
+journal, which other local users in `adm`/`systemd-journal` can read.
+
 ## The owner token
 
 There is exactly one token. It is the `Authorization: Bearer` credential
