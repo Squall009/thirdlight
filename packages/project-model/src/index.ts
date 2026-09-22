@@ -250,3 +250,15 @@ export {
 export { serializeCanonical } from './normalize';
 
 export { migrateManifest, migrateScene, migrateSceneV1ToV2 } from './migrate';
+
+// The engine module registry + the declared-dependency resolver (D17).
+export {
+  BEHAVIOR_PACKAGE_MODULES,
+  ENGINE_MODULES,
+  ENGINE_MODULE_IDS,
+  resolveRequiredModules,
+  type EngineModule,
+  type ResolveModulesInput,
+  type ResolveModulesResult,
+  type UnresolvedModule,
+} from './modules';

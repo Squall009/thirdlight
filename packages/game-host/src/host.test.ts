@@ -317,6 +317,8 @@ interface Harness {
   audioCalls: { register: string[]; submit: unknown[][]; setMuted: boolean[] };
   artifactReads: { value: string[] };
   tick: (now?: number) => void;
+  /** The config the harness built (tests derive variants from it). */
+  config: GameHostConfig;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -402,7 +404,7 @@ function harness(options: HarnessOptions = {}): Harness {
     const res = host.runtime.tick(t0);
     if (!res.ok) throw new Error(`tick failed: ${JSON.stringify(res.error)}`);
   };
-  return { host, container, input, adapter, physics, audio, audioCalls, artifactReads, tick };
+  return { host, container, input, adapter, physics, audio, audioCalls, artifactReads, tick, config };
 }
 
 function view(host: Harness['host']): { state: string; stepIndex: number } {
@@ -754,5 +756,46 @@ describe('the HUD module (delivery.md §3.1 HUD rules)', () => {
     expect(texts.some((t) => t.includes('checkpoint @ step 41 active'))).toBe(true);
     hud.dispose();
     expect((hud.root as FakeNode).removed).toBe(true);
+  });
+});
+
+describe('the manifest module list drives the composition (D17)', () => {
+  it('an id this engine does not provide is refused at mount', () => {
+    const h = harness();
+    const cfg: GameHostConfig = { ...h.config, modules: ['thirdlight.platformer:controller', 'thirdlight.terrain:heightmap'] };
+    const host = createGameHost(cfg);
+    const res = host.mount();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe('host_module_unresolved');
+      expect(res.error.message).toContain('thirdlight.terrain:heightmap');
+    }
+    host.dispose();
+    h.host.dispose();
+  });
+
+  it('a physics module without an injected physics port is refused', () => {
+    const h = harness();
+    const base = h.config;
+    const { physics: _physics, ...rest } = base;
+    void _physics;
+    const host = createGameHost({ ...rest, modules: ['thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'] });
+    const res = host.mount();
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('host_module_unresolved');
+    host.dispose();
+    h.host.dispose();
+  });
+
+  it('the derived game set mounts and plays like the default', () => {
+    const h = harness();
+    const base = h.config;
+    const host = createGameHost({
+      ...base,
+      modules: ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.platformer-game:camera', 'thirdlight.platformer-game:session', 'thirdlight.platformer:controller'],
+    });
+    expect(host.mount().ok).toBe(true);
+    host.dispose();
+    h.host.dispose();
   });
 });

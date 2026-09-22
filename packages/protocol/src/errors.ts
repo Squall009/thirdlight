@@ -75,6 +75,8 @@ export const ERROR_CODES = [
   'migration_destination_exists',
   'migration_marker_conflict',
   'migration_resume_required',
+  // D17: a declared dependency (template/behavior/content) no module provides.
+  'module_unresolved',
 ] as const;
 export type SessionErrorCode = (typeof ERROR_CODES)[number];
 

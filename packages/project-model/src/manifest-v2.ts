@@ -103,6 +103,7 @@ export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 
 /** The package a known M3 module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
+  'thirdlight.platformer-game:camera': '@thirdlight/platformer-game',
   'thirdlight.platformer-game:session': '@thirdlight/platformer-game',
   'thirdlight.platformer:controller': '@thirdlight/platformer',
 });

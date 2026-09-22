@@ -146,6 +146,14 @@ export interface GameHostConfig {
   readonly physics?: PhysicsPort;
   /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
   readonly behaviorModules?: readonly SimulationModuleSpec[];
+  /**
+   * The manifest's required engine module ids (derived by the build from the
+   * declared dependencies). The host registers exactly these simulation
+   * modules and checks the port modules it needs are injected; an id it
+   * cannot provide is `host_module_unresolved`. Absent ⇒ the game set when
+   * there is a game block, nothing otherwise.
+   */
+  readonly modules?: readonly string[];
   /** ADDITIVE (CC-55-2): the render-adapter FACTORY — the three-adapter
    * instance requires the runtime it renders, which the host creates inside
    * `mount()`. `null` = no adapter (headless composition). */
@@ -265,6 +273,7 @@ function validateConfig(config: GameHostConfig): string | null {
   if (typeof config.settings !== 'object' || config.settings === null) return 'config.settings must be the resolved gameplay settings';
   if (config.physics !== undefined && !isPlainObject(config.physics)) return 'config.physics must be the injected physics port';
   if (config.behaviorModules !== undefined && !Array.isArray(config.behaviorModules)) return 'config.behaviorModules must be an array of behavior module specs';
+  if (config.modules !== undefined && (!Array.isArray(config.modules) || !config.modules.every((m) => typeof m === 'string'))) return 'config.modules must be an array of module ids';
   if (typeof config.adapter !== 'function') return 'config.adapter must be the render-adapter factory (CC-55-2)';
   if (!isPlainObject(config.input)) return 'config.input must be the injected browser input owner';
   if (typeof config.input.sample !== 'function') return 'config.input.sample must be a function (ActionSource.sample)';
@@ -307,6 +316,48 @@ function toControlError(error: RuntimeError): GameControlError {
  * instance and HUD; the input owner, audio owner, and canvas are
  * wrapper-owned and injected (a new host on the same snapshot reuses them).
  */
+/** The simulation modules this host can register, by manifest module id. */
+const SIMULATION_SPECS: Readonly<Record<string, SimulationModuleSpec>> = {
+  [platformerSpec.id]: platformerSpec,
+  [platformerGameSessionSpec.id]: platformerGameSessionSpec,
+  [platformerGameCameraSpec.id]: platformerGameCameraSpec,
+};
+/** The port modules the delivery wrapper injects (checked, not registered). */
+const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
+
+/**
+ * Select the simulation modules from the manifest's module list (the build's
+ * derived set), or the default game set when the wrapper passed none.
+ */
+function selectModules(
+  config: GameHostConfig,
+  sceneMode: boolean,
+): { ok: true; specs: SimulationModuleSpec[] } | { ok: false; error: { code: 'host_module_unresolved'; message: string } } {
+  if (config.modules === undefined) {
+    return { ok: true, specs: sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec] };
+  }
+  const specs: SimulationModuleSpec[] = [];
+  for (const id of config.modules) {
+    const spec = SIMULATION_SPECS[id];
+    if (spec !== undefined) {
+      if (!specs.includes(spec)) specs.push(spec);
+      continue;
+    }
+    if (id === 'thirdlight.demo:box-motion') continue; // a runtime built-in (already registered)
+    if (PORT_MODULES.has(id)) {
+      if (id === 'thirdlight.physics-rapier:2d' && config.physics === undefined) {
+        return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
+      }
+      continue;
+    }
+    return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but this engine does not provide it` } };
+  }
+  // Register in dependency order (controller before the session, session before the camera).
+  const order = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
+  specs.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return { ok: true, specs };
+}
+
 export function createGameHost(config: GameHostConfig): GameHost {
   const invalid = validateConfig(config);
   const configError: GameControlError = invalid !== null
@@ -476,7 +527,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // the M2 export-composition pattern); the SELECTED modules are the
     // M3 game set, plus the project's compiled behaviors.
     for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
-    const specs = sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
+    const selected = selectModules(config, sceneMode);
+    if (!selected.ok) return selected;
+    const specs = selected.specs;
     const modules: string[] = [];
     for (const spec of specs) {
       const r = registerSimulationModule(registry, spec.id, spec);

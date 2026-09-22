@@ -26,7 +26,6 @@ export { exportProjectM3 } from './export-m3';
 export {
   buildContentClosure,
   buildContentClosureM3,
-  M3_REQUIRED_MODULE_IDS,
   type ClosureArtifact,
   type ClosureBehavior,
   type ContentClosure,
@@ -96,3 +95,7 @@ export {
   type ExportErrorCode,
   type ExportResult,
 } from './errors';
+// The declared-dependency module resolver (D17), re-exported for the
+// backend (whose project-model edge is types-only): templates resolve their
+// declared modules at creation through the same function the closure uses.
+export { resolveRequiredModules, type ResolveModulesResult, type UnresolvedModule } from '@thirdlight/project-model';

@@ -22,7 +22,7 @@ import { extname, join, normalize, resolve as pathResolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
-import { listTemplates, loadTemplate } from './templates';
+import { listTemplates, loadTemplate, resolveTemplateModules } from './templates';
 import {
   classifyLocatorPath,
   isContentId,
@@ -1729,6 +1729,12 @@ export function createBackend(
       const loaded = loadTemplate(config.engineRoot, template);
       if (!loaded.ok) {
         sendError(res, sessionError('invalid_request', 'not_found', loaded.message, { path: '/template' }), 404);
+        return;
+      }
+      // The template's declared dependencies must resolve on this engine.
+      const modules = resolveTemplateModules(loaded.source);
+      if (!modules.ok) {
+        sendError(res, sessionError('module_unresolved', 'validation', modules.message, { path: '/template' }), 400);
         return;
       }
       result = service.createProjectFrom(projectId, name, loaded.source);

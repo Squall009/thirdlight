@@ -8,16 +8,21 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { resolveRequiredModules } from '@thirdlight/exporter';
+
 export interface TemplateInfo {
   id: string;
   name: string;
   description: string;
+  /** Module ids the template declares it needs (`template.json`). */
+  requiredModules: string[];
 }
 
 export interface TemplateSource {
   scene: unknown;
   content: unknown;
   blobs: ReadonlyMap<string, Uint8Array>;
+  requiredModules: string[];
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -35,10 +40,12 @@ function templateDir(engineRoot: string, id: string): string | null {
 function readInfo(dir: string, id: string): TemplateInfo {
   let name = id;
   let description = '';
+  let requiredModules: string[] = [];
   try {
-    const meta = JSON.parse(readFileSync(join(dir, 'template.json'), 'utf8')) as { name?: unknown; description?: unknown };
+    const meta = JSON.parse(readFileSync(join(dir, 'template.json'), 'utf8')) as { name?: unknown; description?: unknown; requiredModules?: unknown };
     if (typeof meta.name === 'string') name = meta.name;
     if (typeof meta.description === 'string') description = meta.description;
+    if (Array.isArray(meta.requiredModules)) requiredModules = meta.requiredModules.filter((m): m is string => typeof m === 'string');
   } catch {
     // no template.json: fall back to the game title
     try {
@@ -48,7 +55,7 @@ function readInfo(dir: string, id: string): TemplateInfo {
       // keep the id
     }
   }
-  return { id, name, description };
+  return { id, name, description, requiredModules };
 }
 
 export function listTemplates(engineRoot: string): TemplateInfo[] {
@@ -91,5 +98,25 @@ export function loadTemplate(engineRoot: string, id: string): { ok: true; source
     }
   };
   if (existsSync(join(dir, 'assets'))) walk(join(dir, 'assets'));
-  return { ok: true, source: { scene: captured.scene, content: captured.content, blobs } };
+  return { ok: true, source: { scene: captured.scene, content: captured.content, blobs, requiredModules: readInfo(dir, id).requiredModules } };
+}
+
+/**
+ * The template's declared dependencies resolved against this engine: the
+ * module set, or what nobody provides (creation refuses).
+ */
+export function resolveTemplateModules(source: TemplateSource): ReturnType<typeof resolveRequiredModules> {
+  const content = (source.content ?? {}) as { game?: unknown; behaviors?: Array<Record<string, unknown>> };
+  const behaviors = (Array.isArray(content.behaviors) ? content.behaviors : [])
+    .filter((b) => b['source'] !== null && b['source'] !== undefined)
+    .map((b) => ({
+      behaviorId: String(b['behaviorId']),
+      requiredModules: ((b['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? [],
+    }));
+  return resolveRequiredModules({
+    scene: source.scene as { entities?: Record<string, unknown>[] },
+    game: content.game ?? null,
+    behaviors,
+    declared: source.requiredModules,
+  });
 }

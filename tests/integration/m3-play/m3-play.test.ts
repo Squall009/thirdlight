@@ -59,7 +59,16 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     // The snapshot identity.
     expect(built.snapshotId).toBe(`${CTX.projectId}@r1`);
     expect(built.contentDigest).toMatch(/^[0-9a-f]{64}$/);
-    expect(built.moduleIds).toEqual(['thirdlight.platformer-game:session', 'thirdlight.platformer:controller']);
+    // The module set is derived from the declared dependencies (D17): the
+    // game block, the controller entity and the model asset.
+    expect(built.moduleIds).toEqual([
+      'thirdlight.input:keyboard-gamepad',
+      'thirdlight.physics-rapier:2d',
+      'thirdlight.platformer-game:camera',
+      'thirdlight.platformer-game:session',
+      'thirdlight.platformer:controller',
+      'thirdlight.three-adapter:gltf-loader',
+    ]);
 
     // The complete artifact set (the accepted §17.2.1 locator route set —
     // manifest.json + assets + game.js). NO scene.json: the v3 scene arrives

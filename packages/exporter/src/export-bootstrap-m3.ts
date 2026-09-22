@@ -270,6 +270,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     snapshot,
     settings,
     behaviorModules,
+    modules: (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [],
     ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(canvas, {

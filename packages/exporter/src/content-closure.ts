@@ -40,6 +40,7 @@ import {
   type MediaBlock,
   type RuntimeContentManifest,
   type RuntimeContentManifestV2,
+  resolveRequiredModules,
 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -303,11 +304,6 @@ export async function buildContentClosure(input: ContentClosureInput): Promise<C
 // M3 shared closure builder (packet 58; delivery.md §2/§3, export.md §3)
 // ---------------------------------------------------------------------------
 
-/** The M3 shared-composition required module set (the gameplay session + controller). */
-export const M3_REQUIRED_MODULE_IDS: readonly string[] = [
-  'thirdlight.platformer-game:session',
-  'thirdlight.platformer:controller',
-];
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
 const ASSET_CONTENT_TYPE: Record<'model' | 'audio', string> = {
@@ -505,13 +501,30 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
   const media = mediaRes.normalized;
 
-  // 3. The reachable source-bearing behaviors (compiled like the M2 closure);
+  // 3. The required engine modules, derived from the declared dependencies
+  //    (the game block, the referenced content, what each behavior requires).
+  //    An unresolved dependency refuses the build here, before any compile.
+  const declaredBehaviors = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration: false, limit: 128, offset: 0 } });
+  if (!declaredBehaviors.ok) return { ok: false, error: fromCommandError(declaredBehaviors.error) };
+  const behaviorDeps = ((declaredBehaviors as unknown as { behaviors: Array<Record<string, unknown>> }).behaviors ?? [])
+    .filter((row) => row['source'] !== null && row['source'] !== undefined)
+    .map((row) => ({
+      behaviorId: String(row['behaviorId']),
+      requiredModules: (((row['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? []),
+    }));
+  const modulesRes = resolveRequiredModules({ scene: input.scene as { entities?: Record<string, unknown>[] }, game: view.game, behaviors: behaviorDeps });
+  if (!modulesRes.ok) {
+    return { ok: false, error: { code: 'module_unresolved', cls: 'validation', reason: 'module_unresolved', message: modulesRes.message.slice(0, 256) } };
+  }
+  const moduleIds = modulesRes.moduleIds;
+
+  // 4. The reachable source-bearing behaviors (compiled like the M2 closure);
   //    the game host links them as runtime modules.
   const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId);
   if (!compiledBehaviors.ok) return compiledBehaviors;
   const { behaviorArtifacts, behaviorInputs, behaviors } = compiledBehaviors;
 
-  // 4. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
+  // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
   for (const a of view.assets) {
@@ -547,12 +560,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     });
   }
 
-  // 5. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
+  // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneDoc = input.scene;
   const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
   const sceneDigest = sha256Hex(sceneBytes);
 
-  // 6. The v2 manifest (pure derivation) + self-identifying buildId.
+  // 7. The v2 manifest (pure derivation) + self-identifying buildId.
   const captured = captureManifestV2({
     projectId,
     revision: input.revision,
@@ -564,7 +577,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     settings: view.settings,
     game: view.game,
     media,
-    moduleIds: M3_REQUIRED_MODULE_IDS,
+    moduleIds,
     enginePins: M3_ENGINE_PINS,
   });
   if (!captured.ok) {
@@ -585,7 +598,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       snapshotId: `${projectId}@r${input.revision}`,
       sceneDigest,
       sceneBytes,
-      moduleIds: [...M3_REQUIRED_MODULE_IDS],
+      moduleIds,
       settings: view.settings,
       game: view.game,
       media,

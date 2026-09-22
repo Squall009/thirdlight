@@ -391,6 +391,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     snapshot,
     settings,
     behaviorModules,
+    modules: (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [],
     ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(cfg.canvas, {

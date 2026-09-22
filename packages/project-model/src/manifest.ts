@@ -20,6 +20,7 @@
  * values by the packet-36 integration evidence; see the contract-change
  * request C36-2 in docs/handoffs/36.md.
  */
+import { resolveRequiredModules } from './modules';
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 
 /** The manifest discriminator (sessions.md §17.1.1). */
@@ -240,33 +241,18 @@ export function versionFactsDigest(v: {
 }
 
 /**
- * The required engine module IDs for one captured scene (ascending):
- * `thirdlight.demo:box-motion` when selected, the platformer controller +
- * physics + input set when the scene carries a collider/controller, and the
- * GLTFLoader module when the scene carries a model component.
+ * The required engine module IDs for one captured M2 scene (ascending) —
+ * the declared-dependency resolver over the scene's referenced content
+ * (see `modules.ts`); a plain scene resolves to no modules.
  */
 export function requiredModuleIds(
   scene: { entities: ReadonlyArray<Record<string, unknown>> },
   demo: boolean,
   hasBehaviors: boolean,
 ): string[] {
-  const ids = new Set<string>();
-  if (demo) ids.add('thirdlight.demo:box-motion');
-  let hasPhysics = false;
-  let hasModel = false;
-  for (const e of scene.entities) {
-    const c = (e['components'] ?? {}) as Record<string, unknown>;
-    if (c['collider'] !== undefined || c['controller'] !== undefined) hasPhysics = true;
-    if (c['model'] !== undefined) hasModel = true;
-  }
   void hasBehaviors;
-  if (hasPhysics) {
-    ids.add('thirdlight.platformer:controller');
-    ids.add('thirdlight.physics-rapier:2d');
-    ids.add('thirdlight.input:keyboard-gamepad');
-  }
-  if (hasModel) ids.add('thirdlight.three-adapter:gltf-loader');
-  return [...ids].sort();
+  const r = resolveRequiredModules({ scene, game: null, demo });
+  return r.ok ? r.moduleIds : [];
 }
 
 /**
