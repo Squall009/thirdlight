@@ -1,0 +1,49 @@
+{
+  "note": "exact identities recorded from the disposable-prefix installs (--prefix /tmp/tl-m2-eval-14/<cand>; npm registry metadata via .package-lock.json). No candidate ever entered the repo lockfile or node_modules (BR-1).",
+  "unpackedBytesNote": "APPROXIMATE (GE-4): the per-candidate `unpackedBytes` values are the registry `unpackedSize` rounded to one decimal (e.g. rapier2d 2,744,411 B is recorded as 3.1M); integrity, license and dependencies are exact and are the facts the selection relies on.",
+  "candidates": [
+    {
+      "name": "@dimforge/rapier2d-compat",
+      "version": "0.20.0",
+      "integrity": "sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ==",
+      "license": "Apache-2.0",
+      "dependencies": null,
+      "unpackedBytes": "7.6M",
+      "distribution": "base64-embedded WASM inside dist/rapier.mjs (ESM entry; CJS twin dist/rapier.cjs); no separate WASM fetch at runtime",
+      "scanNote": "exactly one inert fetch( pattern in the shipped mjs (WASM-instantiation fallback path) — for the packet 19 static scan table"
+    },
+    {
+      "name": "@dimforge/rapier2d",
+      "version": "0.20.0",
+      "integrity": "sha512-AfbRbiu77LnMM5cqwC6RfkF12qSBhYvY4VjJwHtxpCmVg9mLEGtCqqgZm/75RkGWCRQt21vaxsgNiCmf9G2hCw==",
+      "license": "Apache-2.0",
+      "dependencies": null,
+      "unpackedBytes": "3.1M",
+      "distribution": "non-compat: separate WASM binary fetched/instantiated at init (extra CSP/CORS surface — recorded; not benchmarked here)",
+      "status": "evaluated as the distribution alternative to -compat; see decision 0002 draft"
+    },
+    {
+      "name": "planck",
+      "version": "1.5.0",
+      "integrity": "sha512-dlvqJE+FscZgrGUXJ5ybd0o5bvZ5XXyZNbm08xGsXp9WjXeAyWSFT6n9s/1PQcUBo4546fDXA5RMA4wbDyZw6g==",
+      "license": "MIT",
+      "dependencies": null,
+      "engines": { "node": ">=24.0" },
+      "unpackedBytes": "9.3M",
+      "status": "bounded functional comparison (08-planck.json); engines field is a Node-publish concern, not a browser one — recorded"
+    },
+    {
+      "name": "cannon-es",
+      "version": "0.20.0",
+      "integrity": "sha512-eZhWTZIkFOnMAJOgfXJa9+b3kVlvG+FX4mdkpePev/w/rP5V8NRquGyEozcjPfEoXUlb+p7d9SUcmDSn14prOA==",
+      "license": "MIT",
+      "dependencies": null,
+      "unpackedBytes": "768K",
+      "status": "bounded functional comparison (09-cannon-es.json); no Capsule shape in 0.20.0 (recorded finding)"
+    },
+    {
+      "name": "@dimforge/rapier3d-compat (rapier3d)",
+      "status": "ELIMINATED BY DESK RESEARCH — labeled, not benchmarked (m2-physics.md: the 2.5D proposal keeps collision in the XY plane; a 3D solver buys nothing for M2 and adds Z-axis edge cases and larger WASM). No benchmark row fabricated."
+    }
+  ]
+}

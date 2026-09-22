@@ -16,11 +16,17 @@
 declare module 'node:fs' {
   /** O_RDONLY open for a directory flush (§5.1 step 4). */
   export function openSync(path: string, flags: string): number;
+  /** Numeric flags (content-store: O_RDONLY|O_NOFOLLOW blob reads, §13.1 rule 5). */
+  export function openSync(path: string, flags: number): number;
   /** O_WRONLY|O_CREAT|O_EXCL temp-file open (§5.1 step 1); mode 0644. */
   export function openSync(path: string, flags: string, mode: number): number;
   /** Returns the number of bytes written (may be < data.length — partial). */
   export function writeSync(fd: number, data: Uint8Array): number;
   export function writeSync(fd: number, data: Uint8Array, position: number): number;
+  /** Positional read for the O_NOFOLLOW blob read (content-store §13.5). */
+  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number;
+  /** Numeric open flags (`O_RDONLY`, `O_NOFOLLOW`). */
+  export const constants: { readonly O_RDONLY: number; readonly O_NOFOLLOW: number };
   export function fsyncSync(fd: number): void;
   export function closeSync(fd: number): void;
   export function renameSync(oldPath: string, newPath: string): void;
@@ -45,7 +51,19 @@ declare module 'node:fs' {
   export function statSync(path: string): {
     isDirectory(): boolean;
     isFile(): boolean;
+    size: number;
+    mtimeMs: number;
   };
+  /** lstat (never follows a symlink) — the artifact-path rules (§13.1 rule 5). */
+  export function lstatSync(path: string): {
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+    size: number;
+    mtimeMs: number;
+  };
+  /** Filesystem space report (device-space quota, §13.9). */
+  export function statfsSync(path: string): { bavail: number | bigint; bsize: number | bigint };
   /** Canonical path (resolves symlinks) — the symlink-escape check. */
   export function realpathSync(path: string): string;
   export function chmodSync(path: string, mode: number): void;

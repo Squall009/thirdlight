@@ -1,0 +1,124 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ tests/m2-physics/physics-boundary.test.ts > runtime core imports no physics implementation > declares no Rapier dependency and no physics-rapier edge 3ms
+ ✓ tests/m2-physics/physics-boundary.test.ts > runtime core imports no physics implementation > contains no Rapier import anywhere in its sources 2ms
+ ✓ tests/m2-physics/physics-boundary.test.ts > runtime core imports no physics implementation > is the only package allowed to import the pin (the adapter) 6ms
+ ✓ tests/m2-physics/physics-boundary.test.ts > runtime core imports no physics implementation > keeps the adapter free of the forbidden edges (no three/editor/backend/internal imports) 2ms
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > capsule-floor-idle — Capsule resting on the frozen flat floor: grounded every step, rest center 0.910 m ± 0.0005, support normal (0, 1).
+[capsule-floor-idle] {"steps":132,"grounded":131,"snapped":2,"end":{"x":-9.999999998407931,"y":0.9099987331050216},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":132,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.011261233128607273,"live":true}}
+
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > covers every declared failure class 5ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-box-hx-zero — box hx must satisfy 0 < hx <= 1e6 3ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-box-hx-negative — box hy must be positive 1ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-box-too-large — box hx above the 1e6 length bound 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-box-non-finite — box hy must be finite 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-unknown-type — shape type must be "box" or "polygon" 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-box-extra-field — unexpected box field 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-two-vertices — collider_vertices limit: 3-8 vertices 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-nine-vertices — collider_vertices limit: 3-8 vertices 1ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-clockwise — counter-clockwise order required 1ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-non-convex — strict convexity (collinear triples allowed) 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-tiny-area — area >= 1e-6 m^2 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-duplicate-vertex — no duplicate adjacent vertices 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-non-finite — vertices must be finite 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-extent — bounding half-extent <= 64 m 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > shape-polygon-malformed-vertex — each vertex must be an [x, y] pair 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-parented-static — physics_transform_unsupported reason "parented" 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-scaled-static — physics_transform_unsupported reason "scale" 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-rotated-static — physics_transform_unsupported reason "rotation" (off-Z) 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-tilted-controller — physics_transform_unsupported reason "upright" 1ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-parented-controller — the controller must be a root 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-scaled-controller — the capsule is never scaled 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-non-finite-position — non-finite position is refused, never flattened 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-non-finite-rotation — non-finite rotationZ is refused, never flattened 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > transform-non-finite-character — non-finite character position 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-hz — solver.hz is the 120 Hz contract constant 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-skin — offsetSkin 0.01 is a contract constant 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-snap — groundSnap 0.1 is a contract constant 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-autostep — autostep is disabled by contract 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-gravity — gravityY must be finite 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > config-climb-angle — the climb angle must be a real angle 0ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > init-cancelled-pre-aborted — an aborted signal before init allocates nothing; physics.md §6 55ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > init-cancelled-during-preparation — abort during WASM preparation releases everything and a later init succeeds 31ms
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > capsule-floor-run-seam — Walk right from x=-10 over the floor seam at x=0 at 4 m/s: grounded except at most two steps, speed inside the 5 % band, no penetration.
+[capsule-floor-run-seam] {"steps":343,"grounded":342,"snapped":82,"end":{"x":1.0307738349861193,"y":0.9100000107668166},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":333,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":343,"snapSteps":82,"groundedDownwardClampedCount":0,"maxCorrection":0.011261233128607273,"live":true}}
+
+ ✓ tests/m2-physics/physics-fixtures.test.ts > frozen course geometry > carries the 64 static colliders of the packet-14 frozen course 3ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > frozen course geometry > matches the frozen packet-14 ramp geometry exactly 0ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > capsule-floor-idle — Capsule resting on the frozen flat floor: grounded every step, rest center 0.910 m ± 0.0005, support normal (0, 1). 87ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > capsule-floor-run-seam — Walk right from x=-10 over the floor seam at x=0 at 4 m/s: grounded except at most two steps, speed inside the 5 % band, no penetration. 21ms
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > wall-stop — Run right into the wall face at x=9.5: the capsule stops within face + reach + skin + 5 mm, reports a wall contact, never penetrates.
+[wall-stop] {"steps":312,"grounded":311,"snapped":10,"end":{"x":9.190060819937399,"y":0.9096581064679442},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":302,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":312,"snapSteps":10,"groundedDownwardClampedCount":0,"maxCorrection":0.03343333333080712,"live":true}}
+
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > dispose-during-preparation — idempotent dispose; diagnostics after disposal is the frozen snapshot; every world call throws 6ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > stale-world-handle — a disposed port never touches the freed WASM world — it throws a structured error (physics.md §6) 5ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > collision-correction-non-finite — a non-finite staged delta is refused instead of being swept to a silent zero movement 7ms
+ ✓ tests/m2-physics/physics-failures.test.ts > physics failure fixtures > reset-invalid — reset() is a diagnostics/test helper and still refuses a non-finite position 5ms
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > high-speed-wall — Approach the same wall at 12 m/s (0.1 m/step): no tunnelling beyond the 5 mm penetration budget and a wall contact is observed.
+[high-speed-wall] {"steps":312,"grounded":311,"snapped":8,"end":{"x":9.189961120618873,"y":0.9092565890460144},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":302,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":312,"snapSteps":8,"groundedDownwardClampedCount":0,"maxCorrection":0.1000999999974738,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ceiling-head-bump — Climb the 43° ramp to its top corner, then jump straight up under the ceiling (underside y=4.0): a head contact is reported, the center never passes 3.095 + tolerance and the rise after the contact step stays at the controller nudge scale.
+[ceiling-head-bump] {"steps":421,"grounded":354,"snapped":109,"end":{"x":3.5497804905364774,"y":2.605707941942819},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":125,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":421,"snapSteps":109,"groundedDownwardClampedCount":1,"maxCorrection":0.04334478989552784,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ramp-43-climb — Climb the 43° ramp (below the 45° climb limit) from x=1.5: grounded for at least 95 % of the ascent, the center exits near the authored top-corner offset (3.579, 2.703) ± 0.5 m, no penetration below the floor.
+[ramp-43-climb] {"steps":121,"grounded":120,"snapped":107,"end":{"x":3.5506612099707127,"y":2.606756011066318},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":111,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":121,"snapSteps":107,"groundedDownwardClampedCount":0,"maxCorrection":0.01695464923977852,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ramp-47-refuse — Push into the 47° ramp (above the 45° climb limit) for 1 s: height gain stays below 0.3 m (the character does not climb a too-steep slope).
+[ramp-47-refuse] {"steps":132,"grounded":131,"snapped":117,"end":{"x":5.734525082733114,"y":0.9166880945980665},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":122,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":65,"worldBodyCount":64,"staticColliderCount":64,"characterColliderCount":1,"steps":132,"snapSteps":117,"groundedDownwardClampedCount":0,"maxCorrection":0.03332239532804427,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-ramp-30 — Climb a bounded convex-polygon ramp (4-vertex CCW hull, about 35°) created through ColliderDesc.convexHull: grounded, the center rises along the polygon face.
+[convex-ramp-30] {"steps":132,"grounded":131,"snapped":90,"end":{"x":2.3539669422319442,"y":2.0281772241854923},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":122,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":5,"worldBodyCount":4,"staticColliderCount":4,"characterColliderCount":1,"steps":132,"snapSteps":90,"groundedDownwardClampedCount":0,"maxCorrection":0.014566348865628242,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-ramp-45 — Climb a bounded convex-polygon ramp (4-vertex CCW hull, exactly 45°, at the climb limit): grounded, the center rises along the polygon face.
+[convex-ramp-45] {"steps":132,"grounded":131,"snapped":87,"end":{"x":6.839743436368366,"y":1.8782910108187933},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":122,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":5,"worldBodyCount":4,"staticColliderCount":4,"characterColliderCount":1,"steps":132,"snapSteps":87,"groundedDownwardClampedCount":0,"maxCorrection":0.03340404461099145,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-wall-block — Run into the convex-polygon wall: blocked without penetration and with a wall contact reported.
+[convex-wall-block] {"steps":252,"grounded":251,"snapped":23,"end":{"x":10.689961239676913,"y":0.9096792371650736},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":242,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":5,"worldBodyCount":4,"staticColliderCount":4,"characterColliderCount":1,"steps":252,"snapSteps":23,"groundedDownwardClampedCount":0,"maxCorrection":0.03343333333080712,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ground-snap-within — Walk off a 0.05 m step down (inside the 0.1 m snap distance): the capsule stays grounded (at most the transition step ungrounded) and snap is reported at least once.
+[ground-snap-within] {"steps":208,"grounded":207,"snapped":50,"end":{"x":6.532993249645456,"y":0.8600000920484036},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":198,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":4,"worldBodyCount":3,"staticColliderCount":3,"characterColliderCount":1,"steps":208,"snapSteps":50,"groundedDownwardClampedCount":0,"maxCorrection":0.018429912626743317,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ground-snap-beyond — Walk off a 0.50 m drop (beyond the 0.1 m snap distance): the character free-falls (at least five ungrounded steps), never reports snapped while ungrounded, and lands.
+[ground-snap-beyond] {"steps":178,"grounded":159,"snapped":31,"end":{"x":14.033220160752535,"y":0.3599999899533032},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":166,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":4,"worldBodyCount":3,"staticColliderCount":3,"characterColliderCount":1,"steps":178,"snapSteps":31,"groundedDownwardClampedCount":0,"maxCorrection":0.07997649908065796,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-29.9 — Standing on a 29.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).
+[slope-stand-29.9] {"steps":3,"grounded":2,"snapped":2,"end":{"x":0.40264550648147385,"y":1.3044828952034384},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":3,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.009606282226741314,"live":true}}
+
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > wall-stop — Run right into the wall face at x=9.5: the capsule stops within face + reach + skin + 5 mm, reports a wall contact, never penetrates. 14ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > high-speed-wall — Approach the same wall at 12 m/s (0.1 m/step): no tunnelling beyond the 5 mm penetration budget and a wall contact is observed. 16ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ceiling-head-bump — Climb the 43° ramp to its top corner, then jump straight up under the ceiling (underside y=4.0): a head contact is reported, the center never passes 3.095 + tolerance and the rise after the contact step stays at the controller nudge scale. 12ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ramp-43-climb — Climb the 43° ramp (below the 45° climb limit) from x=1.5: grounded for at least 95 % of the ascent, the center exits near the authored top-corner offset (3.579, 2.703) ± 0.5 m, no penetration below the floor. 7ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ramp-47-refuse — Push into the 47° ramp (above the 45° climb limit) for 1 s: height gain stays below 0.3 m (the character does not climb a too-steep slope). 9ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-ramp-30 — Climb a bounded convex-polygon ramp (4-vertex CCW hull, about 35°) created through ColliderDesc.convexHull: grounded, the center rises along the polygon face. 8ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-ramp-45 — Climb a bounded convex-polygon ramp (4-vertex CCW hull, exactly 45°, at the climb limit): grounded, the center rises along the polygon face. 7ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > convex-wall-block — Run into the convex-polygon wall: blocked without penetration and with a wall contact reported. 9ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ground-snap-within — Walk off a 0.05 m step down (inside the 0.1 m snap distance): the capsule stays grounded (at most the transition step ungrounded) and snap is reported at least once. 7ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > ground-snap-beyond — Walk off a 0.50 m drop (beyond the 0.1 m snap distance): the character free-falls (at least five ungrounded steps), never reports snapped while ungrounded, and lands. 7ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-29.9 — Standing on a 29.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4). 5ms
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-30.0 — Standing on a 30.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).
+[slope-stand-30.0] {"steps":3,"grounded":2,"snapped":2,"end":{"x":6.400627759558082,"y":1.3047298649249617},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":3,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.009595600888133049,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-44.9 — Standing on a 44.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).
+[slope-stand-44.9] {"steps":3,"grounded":2,"snapped":2,"end":{"x":12.116890296714551,"y":1.2953017705898235},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":3,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.007696479558944702,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-45.0 — Standing on a 45.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).
+[slope-stand-45.0] {"steps":3,"grounded":2,"snapped":2,"end":{"x":18.115148872180363,"y":1.2949771896856266},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":3,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.007681985851377249,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-45.1 — Standing on a 45.1° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=true marks the climbable decision the controller applies (§8 items 2/4).
+[slope-stand-45.1] {"steps":3,"grounded":2,"snapped":2,"end":{"x":24.113410785881324,"y":1.2946486458355404},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":3,"snapSteps":2,"groundedDownwardClampedCount":0,"maxCorrection":0.007693351712077856,"live":true}}
+
+stdout | tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-no-autonomous-slide-30.0 — Standing on a 30.0° face with no input for 1 s: the measured 0.20.0 behavior is that the controller does NOT slide the character down by itself (vertical loss stays below 0.01 m), although physics.md §7/§8 describe 30.0° as the minimum slide angle. Recorded as C31-4; the slide/traversal policy belongs to the packet-32 controller.
+[slope-no-autonomous-slide-30.0] {"steps":121,"grounded":120,"snapped":3,"end":{"x":6.400627759558082,"y":1.304727722730927},"diagnostics":{"stallSteps":0,"penetrationCorrectedCount":2,"implementation":"rapier2d-compat@0.20.0","worldColliderCount":7,"worldBodyCount":6,"staticColliderCount":6,"characterColliderCount":1,"steps":121,"snapSteps":3,"groundedDownwardClampedCount":0,"maxCorrection":0.009595600888133049,"live":true}}
+
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-30.0 — Standing on a 30.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4). 4ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-44.9 — Standing on a 44.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4). 4ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-45.0 — Standing on a 45.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4). 4ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-stand-45.1 — Standing on a 45.1° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=true marks the climbable decision the controller applies (§8 items 2/4). 5ms
+ ✓ tests/m2-physics/physics-fixtures.test.ts > physics cases (real Rapier 2D) > slope-no-autonomous-slide-30.0 — Standing on a 30.0° face with no input for 1 s: the measured 0.20.0 behavior is that the controller does NOT slide the character down by itself (vertical loss stays below 0.01 m), although physics.md §7/§8 describe 30.0° as the minimum slide angle. Recorded as C31-4; the slide/traversal policy belongs to the packet-32 controller. 6ms
+
+ Test Files  3 passed (3)
+      Tests  61 passed (61)
+   Start at  07:33:29
+   Duration  626ms (transform 51%, tests 34%, import 14%, worker 1%)
+

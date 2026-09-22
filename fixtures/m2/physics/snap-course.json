@@ -1,0 +1,79 @@
+{
+  "kind": "physics-course",
+  "id": "tl-m2-snap-course",
+  "packet": 31,
+  "setVersion": 1,
+  "provenance": {
+    "source": "authored",
+    "note": "Ground-snap course: a 0.05 m step down (within the 0.1 m snap distance) at x=5 and a 0.50 m drop (beyond snap) at x=10. Measured packet-31 behavior recorded as C31-3: snap chains across steps, so a walking character descends a drop it can bridge with repeated 0.1 m snaps (0.2 m stayed grounded apart from the transition step); a 0.50 m drop produces real free fall (19 ungrounded steps measured)."
+  },
+  "solver": {
+    "hz": 120,
+    "gravityY": -19.62
+  },
+  "character": {
+    "start": {
+      "x": 0,
+      "y": 0.9
+    },
+    "capsule": {
+      "radius": 0.3,
+      "halfHeight": 0.6
+    },
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "maxSlopeClimbRad": 0.785398163397,
+    "minSlopeSlideRad": 0.523598775598,
+    "autostep": false
+  },
+  "statics": [
+    {
+      "entityId": "upper",
+      "shape": {
+        "type": "box",
+        "hx": 5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 0,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "mid",
+      "shape": {
+        "type": "box",
+        "hx": 2.5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 7.5,
+        "y": -0.3
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "deep",
+      "shape": {
+        "type": "box",
+        "hx": 2.5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 12.5,
+        "y": -0.8
+      },
+      "rotationZ": 0
+    }
+  ],
+  "counts": {
+    "statics": 3,
+    "polygonStatics": 0
+  }
+}

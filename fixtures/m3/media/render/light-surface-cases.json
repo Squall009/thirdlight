@@ -1,0 +1,319 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §§41.1/41.2",
+  "shadow": {
+    "mapSize": 512,
+    "type": "PCFShadowMap",
+    "near": 0.5,
+    "distance": 20,
+    "margin": 2,
+    "halfExtentMax": 64,
+    "farMax": 200
+  },
+  "presets": {
+    "matte-ground": {
+      "color": "#6f6f6f",
+      "roughness": 0.95,
+      "metalness": 0,
+      "emissive": "#000000",
+      "emissiveIntensity": 0
+    },
+    "hazard": {
+      "color": "#d42a1e",
+      "roughness": 0.55,
+      "metalness": 0,
+      "emissive": "#3a0703",
+      "emissiveIntensity": 0.35
+    },
+    "beacon": {
+      "color": "#2f7fd4",
+      "roughness": 0.4,
+      "metalness": 0.1,
+      "emissive": "#1bc8ff",
+      "emissiveIntensity": 1.2
+    }
+  },
+  "lights": [
+    {
+      "id": "key-ok",
+      "value": {
+        "type": "directional",
+        "color": "#fff4e0",
+        "intensity": 2.2,
+        "direction": [
+          0.5,
+          -1,
+          -0.6
+        ],
+        "castShadow": true
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "fill-ok",
+      "value": {
+        "type": "ambient",
+        "color": "#8899bb",
+        "intensity": 0.55
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "key-minimal",
+      "value": {
+        "type": "directional",
+        "color": "#ffffff",
+        "intensity": 0,
+        "direction": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "ambient-with-direction",
+      "value": {
+        "type": "ambient",
+        "color": "#ffffff",
+        "intensity": 1,
+        "direction": [
+          0,
+          -1,
+          0
+        ]
+      },
+      "expect": {
+        "code": "field_value",
+        "path": "/direction"
+      }
+    },
+    {
+      "id": "directional-without-direction",
+      "value": {
+        "type": "directional",
+        "color": "#ffffff",
+        "intensity": 1
+      },
+      "expect": {
+        "code": "field_missing",
+        "path": "/direction"
+      }
+    },
+    {
+      "id": "zero-direction",
+      "value": {
+        "type": "directional",
+        "color": "#ffffff",
+        "intensity": 1,
+        "direction": [
+          0,
+          0,
+          0
+        ]
+      },
+      "expect": {
+        "code": "number_out_of_range",
+        "path": "/direction"
+      }
+    },
+    {
+      "id": "direction-too-long",
+      "value": {
+        "type": "directional",
+        "color": "#ffffff",
+        "intensity": 1,
+        "direction": [
+          2,
+          0,
+          0
+        ]
+      },
+      "expect": {
+        "code": "number_out_of_range",
+        "path": "/direction"
+      }
+    },
+    {
+      "id": "intensity-too-high",
+      "value": {
+        "type": "ambient",
+        "color": "#ffffff",
+        "intensity": 9
+      },
+      "expect": {
+        "code": "number_out_of_range",
+        "path": "/intensity"
+      }
+    },
+    {
+      "id": "bad-color",
+      "value": {
+        "type": "ambient",
+        "color": "white",
+        "intensity": 1
+      },
+      "expect": {
+        "code": "field_value",
+        "path": "/color"
+      }
+    }
+  ],
+  "shadowCases": [
+    {
+      "id": "shadow-on",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "direction": [
+        0.5,
+        -1,
+        -0.6
+      ],
+      "castShadow": true,
+      "webgl2": true,
+      "probeOk": true,
+      "expect": {
+        "shadows": "on"
+      }
+    },
+    {
+      "id": "shadow-author-off",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "direction": [
+        0.5,
+        -1,
+        -0.6
+      ],
+      "castShadow": false,
+      "webgl2": true,
+      "probeOk": true,
+      "expect": {
+        "shadows": "off",
+        "shadowReason": "cast_shadow_false"
+      }
+    },
+    {
+      "id": "shadow-degraded-capability",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "direction": [
+        0.5,
+        -1,
+        -0.6
+      ],
+      "castShadow": true,
+      "webgl2": true,
+      "probeOk": false,
+      "expect": {
+        "shadows": "off",
+        "shadowReason": "shadow_unsupported"
+      }
+    },
+    {
+      "id": "shadow-degraded-bounds",
+      "level": {
+        "minX": 0,
+        "maxX": 200,
+        "minY": -4,
+        "maxY": 8
+      },
+      "direction": [
+        0.5,
+        -1,
+        -0.6
+      ],
+      "castShadow": true,
+      "webgl2": true,
+      "probeOk": true,
+      "expect": {
+        "shadows": "off",
+        "shadowReason": "shadow_bounds_exceeded"
+      }
+    },
+    {
+      "id": "no-webgl2",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "direction": [
+        0.5,
+        -1,
+        -0.6
+      ],
+      "castShadow": true,
+      "webgl2": false,
+      "probeOk": false,
+      "expect": {
+        "error": "render_unsupported"
+      }
+    }
+  ],
+  "presetIndependence": {
+    "entityA": {
+      "before": {
+        "color": "#6f6f6f",
+        "roughness": 0.95,
+        "metalness": 0,
+        "emissive": "#000000",
+        "emissiveIntensity": 0
+      },
+      "preset": "hazard"
+    },
+    "entityB": {
+      "before": {
+        "color": "#6f6f6f",
+        "roughness": 0.95,
+        "metalness": 0,
+        "emissive": "#000000",
+        "emissiveIntensity": 0
+      },
+      "preset": "matte-ground"
+    },
+    "expect": {
+      "A": {
+        "color": "#d42a1e",
+        "roughness": 0.55,
+        "metalness": 0,
+        "emissive": "#3a0703",
+        "emissiveIntensity": 0.35
+      },
+      "B": {
+        "color": "#6f6f6f",
+        "roughness": 0.95,
+        "metalness": 0,
+        "emissive": "#000000",
+        "emissiveIntensity": 0
+      },
+      "changedFields": [
+        "color",
+        "roughness",
+        "metalness",
+        "emissive",
+        "emissiveIntensity"
+      ]
+    }
+  }
+}

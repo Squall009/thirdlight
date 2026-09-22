@@ -10,6 +10,9 @@ interface Props {
   canRedo: boolean;
   selectedId: string | null;
   playing: boolean;
+  /** The local snapping gesture option (never persisted — sessions.md §9). */
+  snapping: boolean;
+  onToggleSnapping: () => void;
   onNewBox: () => void;
   onDelete: () => void;
   onUndo: () => void;
@@ -36,6 +39,15 @@ export function Toolbar(p: Props): JSX.Element {
         </button>
         <button className="tl-btn" onClick={p.onRedo} disabled={!p.canRedo} title="Redo">
           redo
+        </button>
+      </div>
+      <div className="tl-toolbar__group">
+        <button
+          className={p.snapping ? 'tl-btn is-active' : 'tl-btn'}
+          onClick={p.onToggleSnapping}
+          title="Snap translate 0.25 m / rotate 15° / scale 0.25 — hold Shift to disable for one gesture"
+        >
+          snap{p.snapping ? ': on' : ': off'}
         </button>
       </div>
       <div className="tl-toolbar__spacer" />

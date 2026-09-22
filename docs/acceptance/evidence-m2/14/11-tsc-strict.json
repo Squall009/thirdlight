@@ -1,0 +1,22 @@
+{
+  "tool": "repo-pinned TypeScript 5.9.3 (node node_modules/typescript/bin/tsc --noEmit)",
+  "subject": "ts-probe.ts (strict probe importing @dimforge/rapier2d-compat@0.20.0)",
+  "runs": [
+    {
+      "config": "extends tsconfig.base.json ONLY (strict, target ES2022 libs, skipLibCheck=false)",
+      "result": "FAIL — 33 x TS2550 'Property dispose does not exist on type SymbolConstructor' in candidate dist/rapier_wasm2d.d.ts (Explicit Resource Management / Symbol.dispose)",
+      "meaning": "the candidate's .d.ts requires the esnext.disposable lib; the repo base config does not include it"
+    },
+    {
+      "config": "tsconfig.base.json + compilerOptions.lib += ['esnext.disposable'] (per-package ADDITIVE; no repo-wide change, no skipLibCheck relaxation)",
+      "result": "PASS (exit 0)",
+      "meaning": "one additive lib entry in the M2 runtime package's tsconfig resolves the candidate's typings"
+    },
+    {
+      "config": "same additive config + deliberate type error (charCollider: number)",
+      "result": "FAIL as intended — TS2322/TS2345/TS2339 reported",
+      "meaning": "negative control proves strictness is intact (the additive lib does not relax checking)"
+    }
+  ],
+  "recommendation": "when @dimforge/rapier2d-compat joins the lockfile (Gate E / packet 31), the M2 runtime package tsconfig adds lib 'esnext.disposable' (target/lib decision noted for the contract-17 drafting packet)"
+}

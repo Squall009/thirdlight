@@ -1,0 +1,43 @@
+# packet 18 toolchain (actual output, 2026-09-18, container host, final state)
+
+$ node --version
+v22.22.1
+
+$ git rev-parse HEAD
+5b746eebc8be22feb921909dc3f5b849c2560ccb
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs   # tail
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 27 check group(s) passed, 0 problem(s)
+
+$ python3 docs/acceptance/evidence-m2/18/independent-recompute.py
+OK   p18-runtime-failures: 6 flood case(s) re-derived in python
+verdict: OK (5 group(s) re-derived, 0 mismatch(es))
+
+$ npm test   # summary lines
+ Test Files  66 passed (66)
+      Tests  841 passed (841)
+   Duration  28.49s (tests 91%, import 5%, transform 3%)
+
+
+$ npm run typecheck
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+exit=0
+
+$ npm run check-deps
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+$ npm run check-boundaries
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 150 source file(s), 514 specifier(s) checked; no boundary violations.
+
+$ npm run build
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).

@@ -1,0 +1,52 @@
+{
+  "indexVersion": 1,
+  "packet": 40,
+  "status": "PROPOSED — not accepted. Gate K records accept/reject per diff.",
+  "contracts": {
+    "gameplay": "docs/planning/m3-contracts/gameplay.md §7",
+    "diffs": "docs/planning/m3-contracts/diffs/runtime.md"
+  },
+  "notes": [
+    "Camera math fixtures (gameplay.md §7). Re-derived by ../gameplay/tools/check-fixtures.mjs from the committed cases.",
+    "fovY 45, CAMERA_Z 12, near 0.1, far 100 are the sample's values; only x/y are ever written.",
+    "Pixel-level framing at a real viewport remains packet 51's browser evidence."
+  ],
+  "fixtures": {
+    "bounds.json": {
+      "kind": "fixture",
+      "bytes": 7779,
+      "sha256": "261d3d5849648a7136ff09d6dd6257c20a9a9c70e0d75b633c6842fafa07275a"
+    },
+    "follow.json": {
+      "kind": "fixture",
+      "bytes": 13365,
+      "sha256": "8538311b1be8dbff33708f5b53a8a0b27629f87a149daa00d9c47cff78971d43"
+    },
+    "owner.json": {
+      "kind": "fixture",
+      "bytes": 4768,
+      "sha256": "1ff2e681bbb2ebf4bb5734c847a604329b540ad8f786acb820c668eada1be52e"
+    },
+    "resize.json": {
+      "kind": "fixture",
+      "bytes": 5118,
+      "sha256": "ed92062a927bd851179ff7dba3b886f1a3d9a0b9b980c65bc247bccef33829ef"
+    },
+    "snap.json": {
+      "kind": "fixture",
+      "bytes": 6026,
+      "sha256": "57e8ab041f4ec760093e263cea1edeff7819d5037a0a7314557407897afbf4ae"
+    }
+  },
+  "constants": {
+    "CAPSULE_RADIUS": 0.3,
+    "CAPSULE_HALF_HEIGHT": 0.6,
+    "ZONE_OVERLAP_EPS": 1e-9,
+    "RESPAWN_DELAY_STEPS": 30,
+    "MAX_GAME_EVENTS": 32,
+    "CAMERA_Z": 12,
+    "CAMERA_MAX_STEP": 4,
+    "CAMERA_SNAP_EPS": 1e-9,
+    "DEFAULT_ASPECT": 1.7777777777777777
+  }
+}

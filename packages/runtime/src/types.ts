@@ -1,18 +1,59 @@
 /**
  * Runtime public types — runtime.md §2 (snapshot), §3 (lifecycle API),
  * §4 (mutable simulation state), §5/§6 (scheduling + interpolation),
- * §7 (module shape), §8 (diagnostics).
+ * §7 (module shape), §8 (diagnostics), and the M2 additions §12 (phases,
+ * ports, transform ownership) / §13 (fail-stop).
  *
  * These are the type surface of the `runtime` package (dependencies.md §3:
- * "types (snapshot, diagnostics, module interfaces)").
+ * "types (snapshot, diagnostics, module interfaces)" plus the M2 additions
+ * `ActionFrame`, `JumpPhase`, `ActionSource`, `createRecordedActionSource`,
+ * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort`,
+ * `PhysicsStepClient`).
  */
-import type { Quat, Scene, Vec3 } from '@thirdlight/project-model';
+import type {
+  CameraFollowComponent,
+  CheckpointActivationAppearance,
+  GameConfig,
+  GameplaySettings as ModelGameplaySettings,
+  GameZoneRole,
+  Quat,
+  Scene,
+  SceneV2,
+  SceneV3,
+  Vec3,
+} from '@thirdlight/project-model';
+
+/** The gameplay-zone role set (project-model §23.3.1) — canonical home here per gameplay.md §11. */
+export type { GameZoneRole };
+import type { ActionFrame, ActionSource } from './actions';
+import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
+import type { PhysicsPort, PhysicsStepClient, Vec2 } from './ports';
+
+/** One entity of any supported normalized scene version. */
+export type RuntimeSnapshotEntity =
+  | Scene['entities'][number]
+  | SceneV2['entities'][number]
+  | SceneV3['entities'][number];
 
 /**
- * The runtime snapshot (runtime.md §2) — the ONLY input of a runtime
- * instance. `scene` is a complete normalized scene document
- * (project-model §8/§12.2); the wrapper fields are the only extra fields.
+ * A complete normalized scene document of any supported version
+ * (project-model §8/§12.2 for `schemaVersion` 1, §13 for 2, §23 for 3).
+ */
+export interface RuntimeScene {
+  schemaVersion: 1 | 2 | 3;
+  sceneId: string;
+  revision: number;
+  entities: RuntimeSnapshotEntity[];
+}
+
+/**
+ * The runtime snapshot (runtime.md §2; M3 addition in §15.3/`gameplay.md`
+ * §4.1) — the ONLY input of a runtime instance. `scene` is a complete
+ * normalized scene document; `game` carries the frozen v3
+ * `content.game` block (project-model §23.4) and is present exactly for a
+ * `schemaVersion` 3 snapshot (where it may be `null`, which an M3-enabled
+ * module set rejects as `config_invalid`, reason `game_config`).
  */
 export interface RuntimeSnapshot {
   /** Exactly `<projectId>@r<revision>` (project-model §6). */
@@ -20,8 +61,13 @@ export interface RuntimeSnapshot {
   projectId: string;
   /** Integer, 0 ≤ v ≤ 2^53−1; must equal `scene.revision`. */
   revision: number;
-  scene: Scene;
+  scene: RuntimeScene;
+  /** v3 only: the frozen `content.game` block, or `null`. */
+  game?: GameConfig | null;
 }
+
+/** The resolved gameplay settings (runtime.md §12.2; project-model §14). */
+export type GameplaySettings = ModelGameplaySettings;
 
 /** Config accepted by `instantiateRuntime` (runtime.md §3.1; strict shape). */
 export interface InstantiateConfig {
@@ -29,6 +75,12 @@ export interface InstantiateConfig {
   registry: SimulationRegistry;
   /** Module IDs present in `registry`. Default `["thirdlight.demo:box-motion"]`. */
   modules?: readonly string[];
+  /** The injected per-step input port (runtime.md §12.5). Default: neutral frames. */
+  actions?: ActionSource;
+  /** An already-initialized physics port (runtime.md §12.6). Required by port-requiring sets. */
+  physics?: PhysicsPort;
+  /** Gameplay settings input, resolved + deep-frozen at instantiate. Default: registry defaults. */
+  settings?: unknown;
   /** Monotonic seconds. Default `performance.now() / 1000`. */
   clock?: () => number;
   /** `"raf"` requires `requestAnimationFrame`; `"manual"` = host calls `tick`. */
@@ -58,6 +110,10 @@ export interface SimEntityData {
   transform: TransformState;
   box?: { size: Vec3; material: { color: string } };
   camera?: { type: 'perspective'; fovY: number; near: number; far: number };
+  /** v2 marker: the entity carries `components.collider`. */
+  hasCollider?: true;
+  /** v2 marker: the entity carries `components.controller`. */
+  hasController?: true;
 }
 
 export interface SimState {
@@ -73,24 +129,330 @@ export interface SimState {
   curr: Map<string, TransformState>;
 }
 
-/** Module config passed to `SimulationModuleSpec.create` (runtime.md §7.2). */
+/**
+ * Module config passed to `SimulationModuleSpec.create` (runtime.md §7.2/§12.1;
+ * the M3 `sceneVersion`/`game` additions are gameplay.md §3.4 / runtime.md §15).
+ */
 export interface ModuleConfig {
   fixedStepHz: number;
+  /** The resolved, deep-frozen gameplay settings (M2 sets). */
+  settings: Readonly<GameplaySettings>;
+  /** The snapshot's `schemaVersion` (1, 2 or 3). */
+  sceneVersion: 1 | 2 | 3;
+  /**
+   * v3 only: the frozen `content.game` block carried inside the snapshot
+   * (runtime.md §2 M3 note). `null` on a v3 snapshot whose content has no
+   * game block (an M3-enabled module set rejects it as `game_config`).
+   */
+  game?: Readonly<GameConfig> | null;
+  /**
+   * The runtime's bounded diagnostics sink for behavior `ctx.log` calls
+   * (runtime.md §14.8.1). Additive M2 host seam (packet 34): the runtime owns
+   * the 32-entry ring, the module owns its per-instance ring and counters.
+   */
+  behaviorLog?: (level: BehaviorLogLevel, message: string) => void;
 }
 
 /**
  * Simulation module shape (runtime.md §7.2; dependencies.md §6):
  * `step` mutates `curr` consistently or throws; `dispose?` is called by
- * `runtime.dispose()`.
+ * `runtime.dispose()`. This is the accepted M1 shape, kept byte-compatible so
+ * the frozen M1 demo source and M1 tests stay unchanged.
  */
 export interface SimulationModule {
   step(state: SimState, stepIndex: number): void;
   dispose?(): void;
 }
 
+/**
+ * The canonical simulation phase order (runtime.md §12.1; M3 adds the two
+ * appended values `gameplay`/`camera` — `gameplay.md` §3.1). Every accepted
+ * M2 phase list stays a prefix of this order and remains valid unchanged.
+ */
+export type SimulationPhase = 'intent' | 'controller' | 'transform' | 'gameplay' | 'camera';
+
+export const SIMULATION_PHASE_ORDER: readonly SimulationPhase[] = [
+  'intent',
+  'controller',
+  'transform',
+  'gameplay',
+  'camera',
+];
+
+// ---------------------------------------------------------------------------
+// M3 game-session types (gameplay.md §2/§3/§4/§5/§6; runtime.md §15).
+// Additive: absent for M1/M2 sets.
+// ---------------------------------------------------------------------------
+
+/** The run state machine's states (gameplay.md §2.1). */
+export type RunState = 'awaitingStart' | 'playing' | 'respawning' | 'won';
+
+/** One completed motion segment of an entity (gameplay.md §3.3). */
+export interface MotionSegment {
+  readonly from: Vec2;
+  readonly to: Vec2;
+}
+
+/** The committed run data the gameplay phase reads (gameplay.md §3.3). */
+export interface RunSnapshot {
+  readonly state: RunState;
+  /** The runtime step counter at read time (see `GameView.stepIndex`). */
+  readonly stepIndex: number;
+  readonly checkpointId: string | null;
+  readonly goalReached: boolean;
+  readonly deathCount: number;
+  readonly replayEpoch: number;
+  readonly respawnAtStep: number | null;
+  /** `${snapshotId}#${replayEpoch}`. */
+  readonly runId: string;
+}
+
+/** The runtime's viewport record (gameplay.md §4.1/§7.1). */
+export interface ViewportInfo {
+  readonly width: number;
+  readonly height: number;
+  readonly aspect: number;
+}
+
+/** The frozen projection of one authored game zone (gameplay.md §4.1). */
+export interface GameZoneSpec {
+  readonly entityId: string;
+  readonly role: GameZoneRole;
+  /** The frozen snapshot transform x/y. */
+  readonly center: Vec2;
+  /** `size / 2` (half-extents, §4.1). */
+  readonly half: Vec2;
+  /** Checkpoint zones only. */
+  readonly safeSpawnId?: string;
+  /** Checkpoint zones only. */
+  readonly activation?: Readonly<CheckpointActivationAppearance>;
+}
+
+/** The authored camera-follow bounds (project-model §23.3.3). */
+export interface GameCameraBounds {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
+/**
+ * The frozen gameplay content the runtime projects from a v3 snapshot
+ * (gameplay.md §4.1) — deep-frozen at instantiate, carried on `StepContext.gameplay`.
+ */
+export interface GameContent {
+  readonly game: Readonly<GameConfig>;
+  /** Ascending `entityId` codepoint order. */
+  readonly zones: readonly GameZoneSpec[];
+  readonly spawns: readonly { entityId: string; center: Vec2 }[];
+  readonly player: { entityId: string };
+  readonly camera: {
+    entityId: string;
+    deadZone: Vec2;
+    smoothing: number;
+    bounds: GameCameraBounds;
+  };
+}
+
+/**
+ * The frozen per-step gameplay port (gameplay.md §3.3 / runtime.md §15.3):
+ * `StepContext.gameplay`, present iff the runtime is M3-enabled. The three
+ * commit calls are callable in the `gameplay` phase only; from any other
+ * phase they throw `module_error` (`reason: 'phase_violation'`); a run-state
+ * rule violation is `module_error` (`reason: 'gameplay_invalid'`).
+ */
+export interface GameSessionPort {
+  /** Deep-frozen at instantiate. */
+  readonly content: Readonly<GameContent>;
+  /** The committed run data, read-only. */
+  run(): Readonly<RunSnapshot>;
+  /** The last completed motion segment of `entityId`, or `undefined`. */
+  lastMotionSegment(entityId: string): Readonly<MotionSegment> | undefined;
+  /** The current viewport record. */
+  viewport(): Readonly<ViewportInfo>;
+  /** T2: decide a death at the current step (`cause`, optional `zoneId`). */
+  beginRespawn(cause: 'hazard' | 'fall', zoneId?: string): void;
+  /** T3: activate the single checkpoint zone (once per run). */
+  activateCheckpoint(zoneEntityId: string): void;
+  /** T4: reach the goal zone (wins once). */
+  reachGoal(zoneEntityId: string): void;
+}
+
+/**
+ * The runtime-called reset-barrier context (gameplay.md §5.1 R6 / §3.3).
+ * `state.curr` is writable only for the module's declared owners.
+ */
+export interface ModuleResetContext {
+  readonly reason: 'start' | 'spawn' | 'replay';
+  /** The upcoming step index. */
+  readonly stepIndex: number;
+  /** The reset character centre. */
+  readonly playerCenter: Readonly<Vec2>;
+  readonly viewport: Readonly<ViewportInfo>;
+  readonly state: SimState;
+}
+
+/** The six gameplay event kinds (gameplay.md §6). */
+export type GameEventKind =
+  | 'runStarted'
+  | 'died'
+  | 'respawned'
+  | 'checkpointActivated'
+  | 'goalReached'
+  | 'replayed';
+
+/** One bounded gameplay event (gameplay.md §6). */
+export interface GameEvent {
+  /** `${runId}/${kind}/${stepIndex}`. */
+  readonly id: string;
+  readonly kind: GameEventKind;
+  readonly stepIndex: number;
+  /** `true` for `runStarted`/`respawned`/`replayed`. */
+  readonly boundary: boolean;
+  readonly zoneId?: string;
+  readonly cause?: 'hazard' | 'fall';
+  /** The counter after this event. */
+  readonly deathCount: number;
+}
+
+/** The committed player motion the view publishes (gameplay.md §6, C41-1). */
+export interface PlayerMotion {
+  /** `|last completed motion segment| × fixedStepHz` (m/s, finite ≥ 0). */
+  readonly speed: number;
+  /** The controller's committed grounding after that step. */
+  readonly grounded: boolean;
+}
+
+/**
+ * The committed read-only game view (gameplay.md §6 / runtime.md §15.5).
+ * Exactly one frozen view exists per instance: the last committed one,
+ * replaced at every commit (phase 8) and at every reset boundary (R8).
+ * `getGameView()` returns a new deep-frozen copy per call.
+ */
+export interface GameView {
+  readonly viewVersion: 1;
+  /** `${snapshotId}#${replayEpoch}`. */
+  readonly runId: string;
+  /** `<projectId>@r<revision>` (accepted §2). */
+  readonly snapshotId: string;
+  readonly replayEpoch: number;
+  readonly state: RunState;
+  /**
+   * The runtime step counter at publication: completed steps after a commit,
+   * the upcoming index at a boundary, the failed step index after a fail-stop.
+   */
+  readonly stepIndex: number;
+  readonly simTime: number;
+  readonly playerId: string;
+  readonly cameraId: string;
+  /** `spawnId` or the activated checkpoint's `safeSpawnId`. */
+  readonly activeSpawnId: string;
+  readonly checkpointId: string | null;
+  /** The read-only presentation bit the adapter consumes (PR-1). */
+  readonly checkpointActive: boolean;
+  /** The committed motion the role selector consumes (C41-1). */
+  readonly playerMotion: PlayerMotion;
+  readonly goalReached: boolean;
+  readonly deathCount: number;
+  readonly respawnAtStep: number | null;
+  /** Oldest first, ≤ MAX_GAME_EVENTS. */
+  readonly events: readonly GameEvent[];
+  /** Cumulative. */
+  readonly eventCount: number;
+  /** Evicted from the front. */
+  readonly eventDropped: number;
+  readonly failed: boolean;
+  /**
+   * The last-committed-state failure record (gameplay.md §5.4/§10, T7).
+   * `phase` (CC-49-1): the failure phase label the promoted
+   * `failure-phases.json` fixture pins on every record (`intent`/
+   * `controller`/`physics`/`transform`/`gameplay`/`camera`/`commit`/`R1`–
+   * `R8`) — additive to the contract's `{ code, reason?, stepIndex }` shape.
+   */
+  readonly failure?: {
+    readonly code: string;
+    readonly reason?: string;
+    readonly stepIndex: number;
+    readonly phase?: string;
+  };
+}
+
+/**
+ * The M2 phase-declaring module shape (runtime.md §12.1). `transformOwners`
+ * is declared once, at `create`; the runtime validates it before any step.
+ *
+ * Contract note (packet 29, C29-4): §12.1 reuses the M1 name `SimulationModule`
+ * for this different signature. Packet 29 keeps the M1 name on the accepted
+ * M1 shape (frozen demo source/tests) and names the M2 shape
+ * `SimulationPhaseModule`.
+ */
+export interface SimulationPhaseModule {
+  readonly transformOwners: readonly string[];
+  step(phase: SimulationPhase, ctx: StepContext): void;
+  /** M3 only: the runtime-called reset-barrier hook (`gameplay.md` §5.1 R6). */
+  reset?(ctx: ModuleResetContext): void;
+  dispose?(): void;
+}
+
+/**
+ * The frozen per-phase context (runtime.md §12.2 / `platformer.md` §3).
+ *
+ * Contract clarification (packet 29, C29-5): the promoted §12.2 requires the
+ * runtime to pass a phase-scoped `state.curr` write target, but the §3
+ * `StepContext` block omits it. Packet 29 exposes it as `ctx.state`.
+ */
+export interface StepContext {
+  readonly stepIndex: number;
+  readonly phase: SimulationPhase;
+  /** The sampled frame — identical for every phase of this step. */
+  readonly action: ActionFrame;
+  readonly settings: Readonly<GameplaySettings>;
+  readonly physics: PhysicsStepClient;
+  /** The phase-scoped mutable state view (`curr` writable only for owned entities). */
+  readonly state: SimState;
+  /**
+   * The intents committed so far in this step (runtime.md §14.5): in the
+   * `intent` phase a module sees only what earlier modules committed, in later
+   * phases the full set. Frozen; packet 34 (additive contract note C34-1).
+   */
+  readonly intents: IntentSet;
+  /**
+   * Commit one validated intent (runtime.md §14.4 exhaustive order). Throws a
+   * `BehaviorIntentError` on any rejection; the runtime turns it into the
+   * contract's fail-stop. Packet 34 (additive contract note C34-1).
+   */
+  emit(intent: BehaviorIntent): void;
+  /**
+   * M3 only (gameplay.md §3.3): the frozen gameplay port, present iff the
+   * runtime is M3-enabled (at least one selected module declares `gameplay`
+   * or `camera`). Absent for M1/M2 sets.
+   */
+  readonly gameplay?: GameSessionPort;
+}
+
 export interface SimulationModuleSpec {
   id: string;
-  create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationModule;
+  /**
+   * The declared phases (runtime.md §12.1): non-empty, unique, canonical
+   * order. Absent ⇒ an accepted M1 module that runs in an implicit
+   * `transform` phase (M1 behavior preserved exactly).
+   */
+  phases?: readonly SimulationPhase[];
+  /** Module IDs this spec cannot coexist with (runtime.md §12.4). */
+  excludes?: readonly string[];
+  /**
+   * The spec needs an injected physics port (runtime.md §12.4
+   * `config_invalid`, reason `physics_port`). Contract note (packet 29,
+   * C29-1): the accepted §12.1 spec shape does not declare how the runtime
+   * learns this.
+   */
+  requiresPhysicsPort?: boolean;
+  /**
+   * Transform owners of an M1 module when it participates in an M2 set
+   * (runtime.md §12.1: the demo owns every `box` entity).
+   */
+  legacyTransformOwners?: (snapshot: RuntimeSnapshot) => readonly string[];
+  create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationModule | SimulationPhaseModule;
 }
 
 /**
@@ -104,8 +466,8 @@ export interface SimulationRegistry {
 const registryBrand: unique symbol = Symbol('thirdlight.simulation-registry');
 export { registryBrand as SIM_REGISTRY_BRAND };
 
-/** Lifecycle states (runtime.md §3). */
-export type RuntimeStateName = 'instantiated' | 'running' | 'stopped' | 'disposed';
+/** Lifecycle states (runtime.md §3/§13). */
+export type RuntimeStateName = 'instantiated' | 'running' | 'stopped' | 'failed' | 'disposed';
 
 /** The runtime instance (runtime.md §3 API; every call returns a result). */
 export interface Runtime {
@@ -118,6 +480,28 @@ export interface Runtime {
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
+
+  // ---- M3 run surface (gameplay.md §6.1; M3-enabled runtimes only) --------
+  /**
+   * The last committed `GameView` (a new deep-frozen copy per call).
+   * `game_session_unavailable` (`reason: 'schedule'`) on a non-M3 runtime;
+   * `runtime_disposed` after `dispose()`.
+   */
+  getGameView(): { ok: true; view: GameView } | { ok: false; error: RuntimeError };
+  /**
+   * Queue one run command between frame updates (never during a step).
+   * A command invalid for the current run state is rejected immediately
+   * (`game_command_invalid`, `reason: 'state'`); a conflicting submission
+   * with a pending command is rejected (`reason: 'pending'`); a second
+   * identical submission coalesces (idempotent `ok: true`).
+   */
+  gameCommand(cmd: 'start' | 'replay'): { ok: true } | { ok: false; error: RuntimeError };
+  /**
+   * Update the presentation-only viewport record. Non-finite, non-positive
+   * or oversized (`> 16384`) dimensions are rejected with
+   * `camera_viewport_invalid`; the previous record is retained.
+   */
+  setViewport(width: number, height: number): { ok: true } | { ok: false; error: RuntimeError };
 }
 
 /** One interpolated transform (runtime.md §6). */
@@ -146,12 +530,24 @@ export interface CameraInfo {
 
 /** One bounded diagnostic error entry (runtime.md §8). */
 export interface DiagnosticErrorEntry {
-  code: ErrorCode;
+  /** `behavior_log` is a diagnostics-only entry code (runtime.md §14.8.1). */
+  code: ErrorCode | 'behavior_log';
   message: string;
   stepIndex?: number;
+  /** M2 fail-stop entries only. */
+  moduleId?: string;
+  phase?: SimulationPhase;
+  reason?: string;
+  /** The contract's short detail token (e.g. `duplicate_writer`). */
+  detail?: string;
 }
 
-/** Structured diagnostics (runtime.md §8; works in every state). */
+/**
+ * Structured diagnostics (runtime.md §8; works in every state).
+ *
+ * The M2-only fields below are present exactly when the runtime is an M2
+ * module set; M1 sets keep the accepted M1 field set (frozen regression).
+ */
 export interface RuntimeDiagnostics {
   state: RuntimeStateName;
   snapshotId: string;
@@ -174,4 +570,45 @@ export interface RuntimeDiagnostics {
   errors: DiagnosticErrorEntry[];
   /** Cumulative (unbounded count; the ring stays bounded). */
   errorCount: number;
+
+  // ---- M2 module sets only (runtime.md §8/§13) ---------------------------
+  /** Sticky: `true` iff the runtime entered the §13 failed state. */
+  failed?: boolean;
+  failedModuleId?: string;
+  failedPhase?: SimulationPhase;
+  failedStepIndex?: number;
+  /** Executed-step action samples. */
+  inputSamples?: number;
+  /** Dropped steps that consequently had no sample. */
+  droppedInputSteps?: number;
+  /** `12` for M2 sets after the pre-roll, else `0`. */
+  settleSteps?: number;
+  /** `port.step()` calls. */
+  physicsSteps?: number;
+  inputSuspendCount?: number;
+  inputActivateCount?: number;
+  inputDisconnectCount?: number;
+  inputMappingUnsupportedCount?: number;
+  physicsStallSteps?: number;
+  physicsPenetrationCorrectedCount?: number;
+  /** Accepted intents committed in this runtime instance (runtime.md §14.8.1). */
+  intentCommitCount?: number;
+  /** Behavior `ctx.log` calls accepted into the per-instance rings. */
+  logCount?: number;
+  /** Behavior `ctx.log` calls rejected by the per-step bound. */
+  logDropped?: number;
+
+  // ---- M3 module sets only (gameplay.md §8 / runtime.md §15.7) ------------
+  /** The committed run state. */
+  runState?: RunState;
+  /** The committed run identity `${snapshotId}#${replayEpoch}`. */
+  runId?: string;
+  /** The committed death counter. */
+  deathCount?: number;
+  /** The committed activated-checkpoint zone id (or `null`). */
+  checkpointId?: string | null;
+  /** Cumulative gameplay events (unbounded count; the ring stays bounded). */
+  gameEventCount?: number;
+  /** The pending run command queue (≤ 1 entry; consumed at the next boundary). */
+  pendingCommands?: readonly ('start' | 'replay')[];
 }

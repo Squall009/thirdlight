@@ -1,0 +1,14 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import w from 'data:text/javascript,export default 1';\nexport default {};\n"
+    }
+  ]
+}

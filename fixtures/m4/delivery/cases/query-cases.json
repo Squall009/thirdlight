@@ -1,0 +1,229 @@
+{
+  "description": "The bounded settings-value query and the accepted queryProject summary (delivery.md §3). The checker re-derives the resolved maps (defaults ⊕ explicit, registry order) and the committed-fixture summary counts (from fixtures/m3/storage/project-v3-demo-0003). The HTTP/WS/stdio-MCP/browser evidence is packet 71.",
+  "registry": [
+    {
+      "key": "gravity_y",
+      "type": "number",
+      "default": -19.62,
+      "lo": -100,
+      "loInclusive": true,
+      "hi": -1,
+      "hiInclusive": true
+    },
+    {
+      "key": "run_speed",
+      "type": "number",
+      "default": 4,
+      "lo": 0,
+      "loInclusive": false,
+      "hi": 50,
+      "hiInclusive": true
+    },
+    {
+      "key": "jump_velocity",
+      "type": "number",
+      "default": 7,
+      "lo": 0,
+      "loInclusive": true,
+      "hi": 50,
+      "hiInclusive": true
+    },
+    {
+      "key": "max_fall_speed",
+      "type": "number",
+      "default": -30,
+      "lo": -100,
+      "loInclusive": true,
+      "hi": 0,
+      "hiInclusive": false
+    },
+    {
+      "key": "max_slope_climb_deg",
+      "type": "number",
+      "default": 45,
+      "lo": 0,
+      "loInclusive": true,
+      "hi": 89.9,
+      "hiInclusive": true
+    },
+    {
+      "key": "min_slope_slide_deg",
+      "type": "number",
+      "default": 30,
+      "lo": 0,
+      "loInclusive": true,
+      "hi": 89.9,
+      "hiInclusive": true
+    }
+  ],
+  "querySettings": [
+    {
+      "id": "Q1-empty-explicit-v3",
+      "request": {
+        "op": "querySettings",
+        "projectId": "m4-delivery-case",
+        "args": {}
+      },
+      "result": {
+        "ok": true,
+        "projectId": "m4-delivery-case",
+        "revision": 7,
+        "explicit": {},
+        "resolved": {
+          "gravity_y": -19.62,
+          "run_speed": 4,
+          "jump_velocity": 7,
+          "max_fall_speed": -30,
+          "max_slope_climb_deg": 45,
+          "min_slope_slide_deg": 30
+        }
+      },
+      "note": "resolved = the six registry defaults in registry order; explicit is never default-filled"
+    },
+    {
+      "id": "Q2-one-non-default",
+      "request": {
+        "op": "querySettings",
+        "projectId": "m4-delivery-case"
+      },
+      "result": {
+        "ok": true,
+        "projectId": "m4-delivery-case",
+        "revision": 7,
+        "explicit": {
+          "run_speed": 5
+        },
+        "resolved": {
+          "gravity_y": -19.62,
+          "run_speed": 5,
+          "jump_velocity": 7,
+          "max_fall_speed": -30,
+          "max_slope_climb_deg": 45,
+          "min_slope_slide_deg": 30
+        }
+      },
+      "note": "only the authored key differs from the default; the other five are the registry defaults; args absent ≡ args {} (no revision/requestId — query semantics)"
+    },
+    {
+      "id": "Q3-all-six",
+      "explicit": {
+        "gravity_y": -20,
+        "run_speed": 5,
+        "jump_velocity": 8,
+        "max_fall_speed": -25,
+        "max_slope_climb_deg": 50,
+        "min_slope_slide_deg": 35
+      },
+      "result": {
+        "ok": true,
+        "projectId": "m4-delivery-case",
+        "revision": 7,
+        "explicit": {
+          "gravity_y": -20,
+          "run_speed": 5,
+          "jump_velocity": 8,
+          "max_fall_speed": -25,
+          "max_slope_climb_deg": 50,
+          "min_slope_slide_deg": 35
+        },
+        "resolved": {
+          "gravity_y": -20,
+          "run_speed": 5,
+          "jump_velocity": 8,
+          "max_fall_speed": -25,
+          "max_slope_climb_deg": 50,
+          "min_slope_slide_deg": 35
+        }
+      },
+      "note": "every key authored ⇒ resolved == explicit (registry order in both)"
+    },
+    {
+      "id": "Q4-v1-envelope",
+      "result": {
+        "ok": true,
+        "projectId": "m4-v1-case",
+        "revision": 1,
+        "explicit": {},
+        "resolved": {}
+      },
+      "note": "a v1 envelope (no content) ⇒ both maps empty (the M1 module set has no settings keys)"
+    }
+  ],
+  "querySettingsErrors": [
+    {
+      "id": "QE1-unknown-args-field",
+      "request": {
+        "op": "querySettings",
+        "projectId": "m4-delivery-case",
+        "args": {
+          "includeAll": true
+        }
+      },
+      "error": {
+        "code": "invalid_request",
+        "path": "/args/includeAll"
+      },
+      "note": "any field other than the empty object is rejected (the query failure code set)"
+    },
+    {
+      "id": "QE2-unknown-project",
+      "request": {
+        "op": "querySettings",
+        "projectId": "no-such-project"
+      },
+      "error": {
+        "code": "project_not_found"
+      }
+    },
+    {
+      "id": "QE3-revision-carried",
+      "rule": "every success result carries the revision the values were read at; a stale caller detects drift from the result alone (no second channel)"
+    }
+  ],
+  "queryProjectSummary": {
+    "rule": "The accepted queryProject content summary (commands.md §5.6, CC-45-6) with the normative count semantics (C64-2). v1 envelopes carry no content field. Counts only — never definitions/declarations/byte lengths.",
+    "v2Shape": {
+      "assets": "number",
+      "prefabs": "number",
+      "behaviors": "number",
+      "settingsKeys": "number"
+    },
+    "v3Adds": {
+      "game": "boolean (content.game !== null)",
+      "zones": "entities with a gameZone component",
+      "spawns": "entities with a playerSpawn component",
+      "audioAssets": "content.assets records with kind \"audio\""
+    },
+    "committedFixture": {
+      "path": "fixtures/m3/storage/project-v3-demo-0003",
+      "envelopeFile": "scenes/main.json",
+      "projectId": "demo-0003",
+      "expected": {
+        "assets": 0,
+        "prefabs": 0,
+        "behaviors": 0,
+        "settingsKeys": 0,
+        "game": true,
+        "zones": 2,
+        "spawns": 2,
+        "audioAssets": 0
+      },
+      "note": "the checker re-derives this object from the fixture envelope (never trust the recorded value)"
+    }
+  },
+  "mcpParity": {
+    "rule": "tl_content_query gains querySettings in its QUERY_OPS list (delivery.md §3.3); the tool routes the same envelope and returns the same result/revision over stdio as the HTTP command path (C07 agreement).",
+    "queryOps": [
+      "queryProject",
+      "queryEntity",
+      "queryEntities",
+      "queryAssets",
+      "queryPrefabs",
+      "queryBehaviors",
+      "querySettings"
+    ]
+  },
+  "clientHydration": {
+    "rule": "The editor settings panel hydrates from querySettings on connect and on every resync (reconnect, stale-edit retry, undo/redo change records): resolved initializes the values; explicit marks the authored non-defaults. No default-based seeding fallback (the client.ts:199–207 behavior is an implementation defect under this rule — packet 71 repair). No second catalog, no new mutable settings store: the panel state is a projection of the backend values advanced by the applied setSettings change records (the accepted sessions.md §8 convergence)."
+  }
+}

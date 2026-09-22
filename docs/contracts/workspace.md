@@ -77,11 +77,24 @@ contract).
   scenes/
     main.json                      the atomic authoring-state envelope (§4) — the ONLY mutable authoring file
     .main.json.tmp-<pid>-<nonce>   temp file, exists only during one write sequence; cleaned on open (§5.4)
+  sources/
+    sha256/
+      <64-lowercase-hex>           AUTHORITATIVE immutable source bytes; the file name IS its SHA-256 (new §13.2)
+      .<digest>.tmp-<pid>-<nonce>  temp file during blob publication; cleaned on open (§5.4)
   .thirdlight/
     ownership.json                 ownership record (§6)
     claim-<e>                      claim file (claim gate, §6.3/§6.5) — one per epoch; unlinked on release (§9)
     recovery/
       scene-<UTCstamp>-<sha8>.json recovery snapshots of external/foreign bytes (§7) — at most 16 kept, oldest pruned
+    staging/
+      <stageId>/
+        source.bin                 staged source bytes — non-authoritative INPUT, supported edit path (new §7.6)
+        stage.json                 optional { "displayName": … } — non-authoritative input
+    derived/
+      <sourceDigest>/<recipeDigest>/
+          import.json              derived, regenerable decoded-import description (new §13.6)
+          <name>.bin               derived, regenerable binary caches
+    migration.json                 migration-copy marker — exists ONLY while a destination is being created (new §14)
 ```
 
 - `<root>` is the backend's configured data root
@@ -99,6 +112,20 @@ contract).
   contract is exactly the "unexpected external modification" this document
   defines (§7), and the supported manual path is the release/reopen
   procedure (§9).
+- `sources/` holds the **only** authoritative content bytes: immutable,
+  content-addressed, write-once files under `sources/sha256/<digest>`. The
+  `derived/`, `staging/` and `migration.json` entries are the **new M2
+  sub-namespaces** added to the `.thirdlight/` namespace this section reserves
+  for ownership/claim/recovery. They are not authoring documents, are excluded
+  from every logical-document read, and their absence or corruption is never a
+  project-blocking error. `.thirdlight/migration.json` exists only inside a
+  destination that is being created (new §14.3).
+- Content artifact paths are addressed only by project ID plus a model-level
+  identifier (`assetId`, `version`, `stageId`, `digest`); no public operation
+  accepts a filesystem path. Every artifact directory must be a real directory
+  whose resolved path stays under the project root, and authoritative blobs are
+  opened with `O_NOFOLLOW`; a violation is `path_rejected` before the first read
+  or write (new §13.1).
 
 ## 4. The atomic authoring-state envelope
 
@@ -127,7 +154,7 @@ project-model §3/§14):
   persistence contract** (project-model §3 anticipates exactly this);
   nothing in M1 may be read as permitting a second mutable scene.
 
-### 4.2 Fields (storageVersion 1)
+### 4.2 Fields (storageVersion 1 and 2)
 
 ```json
 {
@@ -139,6 +166,12 @@ project-model §3/§14):
     "sceneId": "scene-main",
     "revision": 5,
     "entities": [ "…" ]
+  },
+  "content": {
+    "assets": [ /* AssetRecord values; project-model §18 */ ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {}
   },
   "retry": {
     "retention": 128,
@@ -160,6 +193,7 @@ project-model §3/§14):
 | `type` | string | exactly `"authoring-state"`. A discriminator so the standalone scene parser (interchange input, project-model §3) is never misapplied; there is **no auto-detection or fallback** between a bare scene and an envelope. |
 | `projectId` | string | must equal the project directory name (and, by §8, the manifest `id`). |
 | `scene` | object | the complete logical scene document (project-model §8/§15 shape, including its `revision`). Validated by `validateScene` — the workspace **decodes the envelope and passes only the embedded scene to the scene validator**; it never passes the envelope itself (project-model §3). |
+| `content` | object | **v2 only** (`storageVersion` 2): `{ "assets": [ … ], "prefabs": [], "behaviors": [], "settings": {} }` — all four keys required; `assets` is `project-model` §18 (≤ 128 records), the other three are containers whose element shapes are packets 16/17/18's (an empty container remains valid). Bounded: canonical `content` bytes ≤ 1 048 576. Validated by `validateContent`; failures ⇒ `content_invalid` (≤ 10 model errors + true count). **Envelope state only** — there is no standalone catalog file, and `scene.revision` remains the only revision in the envelope. |
 | `retry` | object | `{ "retention": 128, "records": [ … ] }` — the retry block of commands.md §7.1. `retention` is the constant 128 recorded for readers. `records` in strictly ascending `appliedRevision` order, each record `{ requestId, digest, appliedRevision, result }` well-formed per commands.md §7.1. |
 
 Strictness: unknown fields at any level ⇒ invalid envelope
@@ -168,6 +202,24 @@ project-model scene validation (values, hierarchy, limits, exactly one
 camera). Cross-document checks run against the manifest (project-model
 §13): `manifest.scenes[0].id === scene.sceneId`, `manifest.id ===
 envelope.projectId === directory name`.
+
+In a `storageVersion` 2 envelope the envelope's own key set is exactly
+`{storageVersion, type, projectId, scene, content, retry}` (missing or unknown
+key ⇒ `envelope_invalid` with the corresponding `field_missing` /
+`field_unexpected`), and the §4.5 combination check runs **before** any scene or
+content field validation. A `storageVersion` 1 envelope keeps the accepted
+five-key set exactly and never carries `content`.
+A `storageVersion` 3 envelope keeps the **same** top-level key set
+(`{storageVersion, type, projectId, scene, content, retry}`) and adds exactly
+one required key inside `content`: `game`, which is `null` or the bounded
+`GameConfig` block (project-model §23.4). Its embedded scene must be
+`schemaVersion` 3 and its content key set is exactly
+`{assets, prefabs, behaviors, settings, behaviorTrust, game}`; a missing or
+unknown key is `envelope_invalid`. `scene.revision` is still the only revision,
+`retry` is unchanged, canonical serialization is §4.4 extended with the v3
+content key order and the §23.7 component/field orders, and the §4.5 v3 row is
+checked before any scene or content field validation. Normative text and the
+example envelope: [`../storage.md`](../storage.md) §S3.
 
 `scene.revision` is the **only** current-revision value. Records'
 `appliedRevision` fields are per-record historical metadata (commands.md
@@ -189,12 +241,33 @@ result and stops:
    original bytes are retained untouched (no destructive rewrite, ever —
    project-model §12.4).
 2. Root is an object, else `envelope_invalid` (`field_type`).
-3. `storageVersion` present and known: M1 knows `[1]`. Unknown (higher or
-   lower) ⇒ exactly one `storage_version_unsupported`; deeper checks stop.
+3. `storageVersion` present and known: M2 knows `[1, 2]`. Unknown (higher or
+   lower) ⇒ exactly one `storage_version_unsupported`; deeper checks stop. The
+   value selects the pipeline branch (step 6a).
 4. `type === "authoring-state"` else `envelope_invalid`.
 5. `projectId` equals the directory name, else `envelope_project_mismatch`.
 6. `scene` → `validateScene` (project-model). Failure ⇒ `scene_invalid`,
    carrying the project-model error objects (≤ 10 reported, count given).
+   **6a–6h — `storageVersion` 2 branch (new §4.5/§13).** For a v2 envelope:
+   a. envelope key set exactly
+      `{storageVersion, type, projectId, scene, content, retry}` ⇒ else
+      `envelope_invalid`;
+   b. version-combination check (§4.5): `scene.schemaVersion` must be `2` and
+      `content` must be present ⇒ else exactly one
+      `version_combination_unsupported`, deeper checks stop;
+   c. `scene` → v2 scene validation ⇒ `scene_invalid` (≤ 10 errors);
+   d. `content` → `validateContent` ⇒ `content_invalid` (≤ 10 errors); c and d
+      are both evaluated and both error sets reported when both fail;
+   e. cross-block check (`validateProjectV2`, project-model §13.1): only when c
+      and d both pass ⇒ `asset_reference_missing` (`document: "scene"`);
+   f. canonical `content` byte budget ≤ 1 048 576 ⇒ `content_invalid`
+      (`limits_exceeded`, `limit: "content_bytes"`);
+   g. the retry block check of the accepted step 7 runs unchanged ⇒
+      `retry_records_invalid`;
+   h. the manifest (must be `schemaVersion` 1) and the accepted step 8
+      cross-document checks run unchanged ⇒ `manifest_invalid` /
+      `manifest_scene_mismatch`, plus `manifest.id === envelope.projectId ===
+      directory name`.
 7. `retry` block: `retention === 128`; `records` is an array of
    well-formed records (fields, types, digest shape, result shape per
    commands.md §5.1), `appliedRevision` strictly ascending and
@@ -211,7 +284,9 @@ result and stops:
 On success the backend holds in memory: the normalized scene, the current
 revision, the record map (requestId → record), the envelope's exact bytes
 and their SHA-256 (`lastWrittenHash`, §5.2), and an empty history
-(commands.md §9).
+(commands.md §9). For a v2 envelope it additionally holds the normalized content
+catalog, the per-asset `currentVersion` map and a bounded content integrity
+report (§13.5). History is still empty.
 
 ### 4.4 Envelope serialization (canonical, byte-stable)
 
@@ -226,6 +301,41 @@ diffs; same style as project-model §12.2):
   no BOM. Numbers with `JSON.stringify` shortest round-trip semantics.
 - Envelope fixtures (`fixtures/commands/envelope/valid/`) are byte-exact
   under this rule.
+
+### 4.5 Envelope version compatibility (v2)
+
+The active workspace accepts exactly two passable version combinations, and a
+`schemaVersion`/`storageVersion` change is a **reviewable contract change**, never
+a same-version extension:
+
+| `manifest.schemaVersion` | `scene.schemaVersion` | `storageVersion` | Result |
+|---|---|---|---|
+| 1 | 1 | 1 | **valid** — the accepted M1 combination, M1 pipeline unchanged |
+| 1 | 2 | 2 | **valid** — the only M2 combination (`content` present) |
+| 1 | 3 | 3 | **valid** — the v3 combination (`content.game` present; storage.md §S3) |
+| 1 | 1 | 2 | `version_combination_unsupported` (single error, stops before scene/content field validation) |
+| 1 | 2 | 1 | `scene_invalid` → `schema_version_unsupported` (the M1 validator knows scene `[1]`; accepted behavior unchanged) |
+| 1 | 1 | 3 | `version_combination_unsupported` (single error) |
+| 1 | 2 | 3 | `version_combination_unsupported` (single error) |
+| 1 | 3 | 1 | `version_combination_unsupported` (single error) |
+| 1 | 3 | 2 | `version_combination_unsupported` (single error) |
+| 2 | any | any | `manifest_invalid` → `schema_version_unsupported` for the manifest — **the manifest stays schemaVersion 1 in M2** |
+| any | any | ≥4 or ≤0 | `storage_version_unsupported` |
+| any | ≥4 | any | `schema_version_unsupported` for that document |
+
+No other combination is passable. There is **no silent upgrade on open**: a
+`storageVersion 1` envelope is loaded by the M1 pipeline exactly as accepted and
+is never rewritten in place; converting a project is the explicit operator
+workflow of §14. There is **no downgrade**: M2 writes only `storageVersion 2`
+envelopes, and an M1-only engine opening one reports
+`storage_version_unsupported` and retains the bytes (accepted rule). The
+storage-version dispatch is fixed: exactly **three** passable combinations
+(v1/v2/v3), and a `schemaVersion`/`storageVersion` change is a reviewable
+contract change, never a same-version extension. The manifest stays
+`schemaVersion` 1 in M3; the runtime-content export `manifest.json`'s
+`manifestVersion` move (1→2) is a **different document** owned by packet 42 and
+is not a change to this table. Every v3 refusal is non-destructive: one error,
+bytes retained byte-identically, no repair, no rewrite (workspace.md §16.2).
 
 ## 5. Durability protocol
 
@@ -246,6 +356,16 @@ sequence:
    `SHA-256(bytes)`. Mismatch ⇒ a foreign writer won a race ⇒ the
    external-change protocol (§7) — the write is *not* retried and the
    command fails with `external_change_unresolved`.
+
+**M2 application (new §13.2).** Content blob publication reuses `W`
+byte-for-byte with `target = sources/sha256/<digest>` and
+`dir = sources/sha256/`. The workspace computes the digest from the bytes it
+read (a caller-supplied digest is never authoritative), and an existing path
+whose content is read and re-hashed: match ⇒ no write (idempotent retry),
+mismatch ⇒ `blob_corrupt` and **no overwrite** — refusing to overwrite a
+content-addressed path is what makes a foreign write or an external tamper
+detectable. Blob publication changes no authoritative state: no reference, no
+revision, no retry record, and it requires no mutation lock.
 
 Steps 1–5 are retried as a whole on I/O error (ENOSPC, EIO, …), up to
 **3 attempts** total with a fresh nonce. If the sequence still fails:
@@ -321,7 +441,9 @@ Consequences (normative):
 ### 5.4 Temp-file hygiene
 
 On a successful open (after ownership is acquired, §6.2), the owner deletes
-every `scenes/.main.json.tmp-*` file. Leftover temps exist only because a
+every `scenes/.main.json.tmp-*` file **and** every
+`sources/sha256/.<digest>.tmp-*` file (the blob-publication temps of §13.2).
+Leftover temps exist only because a
 previous owner crashed mid-write; only the owner ever writes temps, and the
 previous owner is by definition gone (ownership semantics, §6), so the
 cleanup is safe. The cleanup happens before any command for the project is
@@ -385,6 +507,17 @@ lost the ack — it retries C with the same `requestId`):
 
 Fixtures pin the two dominant rows: `scenarios/06-crash-before-replace` and
 `scenarios/07-crash-after-replace`.
+
+**G3 — content publication addendum (M2, new §13.3).** For a content
+publication, a successful ack implies that (i) the referenced immutable bytes
+exist durably under `sources/sha256/<digest>` and (ii) the new scene revision,
+the catalog version and the retry record are in the same atomic envelope
+replacement, verified by `W` step 5. A failure or crash before the envelope
+commit may leave **unreferenced immutable bytes** (retained; never deleted, and
+never an acked dangling reference: the commit-time application step re-verifies
+that the referenced blob exists and matches its digest, failing closed with
+`blob_missing` / `blob_corrupt` otherwise). The content crash-point table is
+§13.3.4; it extends the table above with the blob phase and never weakens it.
 
 ## 6. Ownership
 
@@ -630,6 +763,11 @@ write check, §5.2) and **after every rename** (verification read, §5.1
 step 5); an optional inotify watcher may trigger *earlier* detection but
 **is not normative** — correctness does not depend on it.
 
+**Scope (M2):** this section and §5.2 apply to the **authoring files** —
+`scenes/main.json` (and the manifest at creation). They must never be extended
+to any path under `.thirdlight/**`; the staging area is a supported edit path
+with its own invariants (§7.6).
+
 **Explicit non-claim:** no watcher, and no hash check, prevents or detects
 *all* races with a bypassing writer. A writer can replace the file between
 the pre-write check and the rename (our rename then atomically wins, and
@@ -682,6 +820,9 @@ the triggering mutation:
    were read and validated but no snapshot is durable; `"unreadable"` —
    step 1 failed with a non-ENOENT error, in which case `externalHash` is
    `null` and `externalValid`/`externalErrors` are null):
+   Only the authoring file's bytes can trigger this protocol. A write to
+   `.thirdlight/staging/**` (or `.thirdlight/derived/**`) is not a pending
+   change and never sets `writePaused`.
    - Mutations ⇒ `external_change_unresolved` (with `pendingChange`).
    - Dedup replays still work (pure read, commands.md §6.1 step 2).
    - Queries are served from the **last known good** in-memory state with
@@ -774,6 +915,85 @@ recovery snapshot or a backup, if available) and re-open. This is the
 project-model §12.4 rule at the workspace level: no destructive rewrite,
 ever.
 
+### 7.6 The supported staging area (BR-4)
+
+
+`m2-plan.md` §3.5 states that the harness can edit source files in a declared
+staging area. `m2-plan-review.md` BR-4 records the failure to prevent: the
+harness edits behavior/source files under the project tree, the accepted
+external-change protocol (`workspace.md` §7) treats that as an unexpected
+external modification, pauses writes and writes a recovery snapshot, and the
+publish then conflicts or the staged bytes are quarantined as "external".
+**This section removes that failure mode by contract.**
+
+#### 7.6.1 Definition and invariants (normative)
+
+The staging area is `<project>/.thirdlight/staging/<stageId>/`:
+
+- `stageId` uses project-model §5.1 ID syntax (no path separators, so traversal
+  through a stage ID is unrepresentable).
+- The staged source file has the **fixed** name `source.bin`. A caller-provided
+  file name is never used as a path; it may only be sanitized into a suggested
+  `displayName` (1–128 chars, no control characters) recorded in `stage.json`.
+- Staged bytes are written by the workspace with `O_NOFOLLOW` and the artifact
+  directory checks of §2 rule 5; the checks run *before* the first write.
+
+Invariants:
+
+1. **Staging is a supported edit path.** `workspace.md` §5.2's pre-write check
+   and §7's unexpected-external-modification protocol are scoped to the
+   **authoring files** (`scenes/main.json`; the manifest at creation). They
+   **must not** be extended to any path under `.thirdlight/**` — including
+   `.thirdlight/staging/**`. Creating, replacing, truncating or removing files
+   under the staging area therefore triggers **no pause, no recovery snapshot,
+   no `external_change_unresolved`** and no quarantine. This binds both the
+   backend and any future watcher.
+2. **Staging is never authoritative and never read to determine state.** No
+   load, validation, query, projection, snapshot, play, export or recovery path
+   reads staging. Deleting the whole staging area at any time loses nothing
+   authoritative; a client that loses its stage re-stages from its own source of
+   truth.
+3. **Staged bytes are untrusted input.** At every use the workspace recomputes
+   the digest from the bytes actually on disk, enforces the caps of §9, applies
+   the traversal/symlink refusal of §2 rule 5, and runs the full import profile
+   (`assets.md` §7). A concurrent edit between read and publish can at most change
+   *which* of the observed byte strings is published — never corrupt one: the
+   published blob is the exact byte string the workspace hashed.
+4. **The mutation lock is never held while reading staging.** Staging reads,
+   inspection and blob publication happen outside the lock (§6.3).
+5. **A pause does not quarantine staging.** While an external change to the
+   envelope is unresolved, staging writes and inspection still work; the
+   *command* that would commit content is refused with
+   `external_change_unresolved` (the accepted pipeline's step 3) and the staged
+   bytes remain exactly where they are. After the operator resolves the change,
+   the same staged bytes can be published.
+6. **No command argument ever references a staging handle** (§6.2). The
+   authoritative content command is addressed by `assetId` + `sourceDigest`, so a
+   lost-ack retry never needs a stage.
+
+#### 7.6.2 Lifecycle, bounds and cleanup
+
+- A stage handle is `(projectId, stageId)`. It is valid while the directory
+  exists and is younger than the **stage TTL** of 3 600 s; after the TTL a *new*
+  request that resolves it fails `stage_expired` (§9).
+- **A successful publish does not delete the stage.** Deletion is not part of the
+  commit path, so no commit/cleanup ordering can affect replay. The caller may
+  `discardStage` explicitly; otherwise the abandoned-stage retention removes the
+  directory once its mtime is older than 24 h.
+- Cleanup runs on a successful open (after ownership) and only ever removes
+  directories under `.thirdlight/staging/`. It never touches authoritative paths.
+- Bounds: ≤ 32 MiB per stage, ≤ 8 open stages per project, ≤ 128 MiB of staged
+  bytes per project, ≤ 1 048 576 bytes per upload frame (§9). Exceeding a bound
+  fails **before** the file is created or extended whenever the bound is
+  knowable from the frame/dir listing.
+
+
+**`kind: "behavior-source"` staging (C19-D1).** A behavior source is staged in
+exactly the same way — `source.bin` under `<stageId>/`, untrusted input, caps
+and traversal/symlink refusal applied at every use. It is never authoritative
+and never read to determine state; publication is the separate preparation path
+of §13.3.1. The behavior-source container's own rules are `project-model` §22.
+
 ## 8. Project creation
 
 ### 8.1 `createProject(projectId, name)` (operator command)
@@ -824,11 +1044,116 @@ completion — not multi-file atomicity simulated by renames:
   no envelope ⇒ **deterministic completion**: write the initial envelope
   (a pure function of the manifest — default scene at revision 0) and log.
   The creation is completed, never half-finished.
+  **Migration destinations are exempt (M2, new §14.3):** a directory that carries
+  a valid `.thirdlight/migration.json` marker is an interrupted migration
+  destination, not an interrupted project creation, and the deterministic
+  default-envelope completion above **must not** run for it (it would create an
+  empty default project and destroy the migration intent). Such a directory is
+  reported by the scan (below) and completed only by resuming
+  `migrateProjectCopy` or by the operator deleting it.
 - Crash after step 3 with no manifest (only possible if the manifest was
   deleted after the fact) ⇒ orphan: reported at startup scan, retained,
   operator removes.
 - The creation is idempotent per §8.1, so a retried `createProject` after
   any crash converges to the same project state.
+
+### 8.4 `createProjectFromTemplate(projectId, name, templateId)` (template creation — M4, C65-3)
+
+A template is an installed, verified directory (templates.md §1/§2:
+`descriptor.json` + `base/scene.json` + `recipe/commands.json` +
+`sources/**` + `NOTICE`, three independent digest checks, no archives,
+no symlinks, exact engine-version match). Preconditions: `projectId`
+matches project-model §5.1; `name` 1–128 chars, no control chars
+(`field_*`); the template installed + verified (else
+`template_not_found` / `template_content_mismatch` /
+`template_engine_version_mismatch` / `template_path_rejected`).
+
+**Outcome (exact — the idempotency/collision rules):**
+
+- Destination absent ⇒ create via the phase sequence below. Result:
+  `{ ok: true, created: true, projectId, revision: <N>, template:
+  { templateId, version, contentDigest } }` (`N` = the recipe command
+  count).
+- Destination present and loadable, and its manifest `template` block
+  equals the requested `(templateId, contentDigest)` **and** its
+  manifest `name` equals the requested `name` ⇒ **idempotent no-op**:
+  `{ ok: true, created: false, projectId, revision: <current>, template:
+  <recorded> }` (a retry after a publication crash converges; a retried
+  creation can never create two destinations).
+- Destination present, otherwise (different template/digest/name, a
+  non-template project, a partial destination of a different identity,
+  or an unloadable directory) ⇒ `template_destination_exists` (carries
+  `existing: "project" | "partial" | "unloadable"`); nothing written;
+  the existing project is never overwritten, renamed or upgraded.
+
+**Concurrent claim:** the `reserved` phase claims the destination with
+the atomic `mkdir` of `projects/<projectId>` (first creator wins; a
+concurrent same-identity creator observes the marker and converges to
+the no-op after publication, or reports
+`template_initialization_incomplete` with `phase` while creation is in
+flight; a different-identity concurrent creator gets
+`template_destination_exists` (`existing: "partial"`); a foreign marker
+observed at reservation ⇒ `template_reservation_conflict`). The
+reservation marker carries the request identity, so "same identity" is
+decidable without a live channel.
+
+**The phase sequence (normative):** `reserved` (atomic mkdir +
+`.thirdlight` dirs + `W(reservation.json)`) → `blobs` (each descriptor
+blob, inventory order: copy from the installed template — fresh `W`
+writes, no hardlink/symlink — to
+`.thirdlight/sources/sha256/<digest>`, post-write digest check; marker
+phase advance) → `envelope` (`W(project.json)` — manifest **schemaVersion
+2** with the `template` block, project-model §7 C65-1; `W(scenes/
+main.json)` — the template base scene at `revision 0` + the empty v3
+content block, game `null`; marker phase advance) → `replayed` (open
+under the creation context; apply recipe commands `K+1…N` through the
+accepted command pipeline — each command: validation, revision +1,
+history entry, retry record, envelope `W`; deterministic requestIds
+`req-` + first 32 hex of `sha256("<templateId>@<templateVersion>#" + i)`,
+origin `{ kind: "template", clientId: "<templateId>@<version>" }`;
+marker phase advance with `recipeApplied N`) → `published` (claim
+ownership §6.3; `rm reservation.json`; log).
+
+**Crash completion (per phase boundary):** reserved-only ⇒ scan reports
+(resume on same identity, operator delete otherwise); blobs done, no
+manifest ⇒ resume (re-hash existing blobs, `alreadyPresent` per blob);
+manifest + revision-0 envelope, marker < `replayed` ⇒ write/verify the
+envelope (a pure function of the reservation identity) and continue;
+envelope at revision `K < N`, marker phase `replayed` ⇒ resume the
+replay at `K+1` (the recipe requestIds make every applied command
+dedup-safe — no command applies twice); `K = N` but unclaimed ⇒
+**deterministic completion** (verify the creation-context claim, unlink
+the marker). The marker and envelope disagreeing in an unrecoverable way
+(e.g. `recipeApplied` ≠ envelope revision, a corrupt `published` phase
+at `K < N`) ⇒ `template_marker_conflict` (no auto-completion). An
+in-flight creation whose marker `contentDigest` no longer matches any
+installed template (a replacement across the crash) ⇒ reported
+`template_source_unavailable` (never re-pointed, never auto-completed —
+operator restores the original template or deletes the destination).
+
+**Partial destinations are not projects:** a destination with a
+reservation marker (any phase < `published`) is refused by open/query/
+Play/list as `template_initialization_incomplete` (carries `phase`,
+`recipeApplied`, the resume/delete hint). Only the complete validated
+envelope + the published claim + the removed marker constitute a ready
+project. Disk-full in any phase: the accepted `write_failed` /
+`content_publish_failed` / `content_quota_exceeded` semantics, marker
+retained at the last completed phase (resumable or operator-deletable,
+never half-claimed, never ready).
+
+**Removal/replacement of the installed template:** created projects are
+unaffected (they hold their own bytes + the manifest `template` block —
+no live template reference); new creations record the replacement's
+identity; in-flight creations follow the `template_source_unavailable`
+rule above.
+
+**Content store (C65-5 adjudication):** no new artifact class — the
+template's source blobs are published into the destination's accepted
+content-store layout (`.thirdlight/sources/sha256/<digest>`, §13.1) as
+ordinary immutable blobs during the `blobs` phase; the accepted
+§13.2/§13.3 publication invariants apply unchanged; the
+`queryAssets`/`readBlob`/`contentIntegrity` surfaces see the starter
+assets exactly as authored assets.
 
 ## 9. Supported maintenance procedure (release → edit → reopen)
 
@@ -871,7 +1196,11 @@ state while the backend is out of the way:
    `projectId`, the revision semantics, and `retry.records: []`). The
    manifest stays untouched (immutable, §8.2). The backend is not involved
    and holds no claim file — the released record is what lets a later open
-   claim the project.
+   claim the project. Staging a source file for a content publish is a
+   **different, supported** path that needs no release (§7.6): it writes only
+   under `.thirdlight/staging/**`, never touches the envelope, and therefore
+   cannot conflict with the pause protocol. Use this procedure (§9) only for
+   hand edits of the envelope itself.
 3. **Reopen** — the next command (on-demand open) or an explicit open:
    §4.3 validation runs on the edited file; success loads the state (empty
    history — new boundary; commands.md §9.2), re-claims ownership
@@ -892,10 +1221,12 @@ project entries, then a count):
 |---|---|
 | complete, loadable project | listed; opens on demand later |
 | manifest without envelope (interrupted creation) | deterministic completion (§8.3), logged |
+| directory with a valid `.thirdlight/migration.json` marker and no envelope (interrupted migration destination) | reported as an interrupted migration destination with `migration_resume_required`; **no** action, **no** §8.3 completion; resumable or deletable |
 | orphan (no loadable manifest) | reported, retained |
 | corrupt manifest/envelope | reported with the §4.3 codes, retained, blocked until operator repair |
 | stale ownership record (dead pid) | reported; **no** action (takeover remains explicit) |
 | leftover temps | **not** cleaned here — only the owner cleans temps, at open (§5.4) |
+| a `projects/<id>` directory carrying `.thirdlight/reservation.json` (any `phase`) — template creation, C65-3 | **not a project**: reported with the marker's `phase` / `recipeApplied` / identity and refused for open/edit/Play as `template_initialization_incomplete`; a marker at `phase "published"` with the envelope at the full recipe revision and a creation-context claim completes deterministically (claim verified, marker unlinked, logged); a marker whose `templateContentDigest` matches no installed template is reported `template_source_unavailable`; as with the accepted migration marker, the reservation marker is non-authoritative, is never restored over an envelope, and is excluded from every backup (§15) |
 
 The scan performs no writes except the deterministic creation completion,
 and claims no ownership.
@@ -909,6 +1240,16 @@ and claims no ownership.
 | `takeoverWorkspace(projectId)` | operator (explicit, §6.4) | `{ ok, lockEpoch, backendId, pid }` | `ownership_conflict`, `stale_ownership`, `project_not_found`, `project_unavailable` (claim succeeded, the §4.3 scene/manifest load failed ⇒ the §7.5 block) |
 | `acceptExternalState(projectId)` | operator | `{ ok, revision, historyReset, retryCleared }` | `no_pending_change`, `external_change_invalid`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
 | `discardExternalState(projectId)` | operator | `{ ok, revision, historyReset }` | `no_pending_change`, `external_change_unreadable`, `external_change_evidence_missing`, `project_unavailable` |
+| `stageContent(projectId, { stageId, bytes, displayName? })` | caller/harness input (non-authoritative) | `{ ok, stageId, byteLength, digest, expiresAt }` | `stage_limits_exceeded`, `path_rejected`, `project_not_found`, `project_unavailable` |
+| `inspectStage(projectId, stageId)` | proposal (non-authoritative) | `{ ok, proposal }` (project-model §19/`assets.md` §8) | `stage_not_found`, `stage_expired`, `import_rejected`, `derived_cache_unavailable` (non-fatal) |
+| `publishBlob(projectId, { digest, byteLength, source })` | immutable publication (no lock) | `{ ok, digest, byteLength, published, alreadyPresent }` | `blob_corrupt`, `content_quota_exceeded`, `content_publish_failed`, `path_rejected`, `stage_not_found`, `stage_expired` |
+| `discardStage(projectId, stageId)` | cleanup | `{ ok, discarded }` | `stage_not_found` |
+| `readBlob(projectId, { assetId, version })` | verified read | `{ ok, assetId, version, digest, byteLength, verified: true, bytes }` | `asset_not_found`, `asset_version_not_found`, `blob_missing`, `blob_corrupt`, `path_rejected` |
+| `contentIntegrity(projectId)` | read | `{ ok, entries, summary }` | `project_not_found`, `project_unavailable` |
+| `captureContentView(projectId)` | pure read | `{ ok, view }` | `project_not_found`, `project_unavailable` |
+| `migrateProjectCopy(sourceProjectId, newProjectId)` | operator (§14) | `{ ok, sourceProjectId, newProjectId, sourceRevision, newRevision: 0, revisionPolicy: "reset-to-zero", historyReset: true, retryCleared: true, blobsCopied, resumed }` | `migration_source_invalid`, `migration_destination_exists`, `migration_marker_conflict`, `migration_resume_required`, `path_rejected`, `content_publish_failed` |
+| `migrateProjectCopyV3(sourceProjectId, newProjectId)` | operator (§16) | `{ ok, sourceProjectId, newProjectId, sourceRevision, newRevision: 0, revisionPolicy: "reset-to-zero", historyReset: true, retryCleared: true, blobsCopied, blobsAlreadyPresent, resumed, sourceVersion: 2, newVersion: 3 }` | `migration_version_unsupported`, `migration_source_invalid`, `migration_destination_exists`, `migration_marker_conflict`, `path_rejected`, `content_publish_failed` |
+| `createProjectFromTemplate(projectId, name, templateId)` | operator (§8.4) | `{ ok, created, projectId, revision?, template: { templateId, version, contentDigest } }` | `field_*` (args), `template_not_found`, `template_content_mismatch`, `template_engine_version_mismatch`, `template_path_rejected`, `template_destination_exists`, `template_reservation_conflict`, `template_marker_conflict`, `template_initialization_incomplete`, `content_quota_exceeded`, `content_publish_failed` |
 
 (Transport/auth for these operator commands is packet 09; in M1 they are
 admin-scoped — never exposed as browser/MCP mutation commands.)
@@ -946,12 +1287,53 @@ as operation results):
 | `external_change_evidence_missing` | pending change readable but not durably snapshotted: `paused-snapshot-failed` (§7.2); accept/discard refused until the snapshot is durable; carries `projectId`, `snapshotState: "snapshot_failed"` |
 | `no_pending_change` | resolve command with nothing pending (§7.3) |
 | `project_exists_invalid` | `createProject` onto an unloadable existing directory (§8.1) |
+| `content_invalid` | the `content` block fails validation (carries ≤ 10 project-model errors + true count) |
+| `version_combination_unsupported` | a `storageVersion` 2 envelope whose `scene.schemaVersion` is not 2 (single error, deeper checks stop) |
+| `stage_not_found` | the staging directory does not exist |
+| `stage_expired` | the staging directory exists but is older than the 3 600 s stage TTL |
+| `stage_limits_exceeded` | a staging bound is exceeded (`limit`: `stage_bytes` / `frame_bytes` / `open_stages` / `staged_bytes_per_project`) |
+| `path_rejected` | an artifact path is a symlink, escapes the project root, or is not a real directory/file under the project |
+| `import_rejected` | the M2 import profile rejects the bytes (carries the ordered `asset_*` diagnostics, ≤ 10 + count) |
+| `asset_id_duplicate` | a create targets an existing `assetId` |
+| `asset_not_found` | an operation names an unknown `assetId` |
+| `asset_version_not_found` | an operation names an unknown version of a known asset |
+| `blob_missing` | a referenced authoritative blob does not exist |
+| `blob_corrupt` | a blob's content does not match its digest, or an existing content-addressed path holds other bytes |
+| `content_quota_exceeded` | project quota or device free space is insufficient (`kind`: `project_quota` / `device_space`; carries used/limit/needed) |
+| `content_publish_failed` | a non-envelope publication phase failed (`reason`: `write` / `timeout` / `busy`, with `onDiskState` for the blob phase) |
+| `derived_cache_unavailable` | a derived cache is missing/corrupt and could not be regenerated |
+| `migration_source_invalid` | the source project is missing or does not load under the M1 pipeline |
+| `migration_destination_exists` | the destination already contains a loadable project |
+| `migration_marker_conflict` | a marker exists for different source/new IDs |
+| `migration_resume_required` | an interrupted migration destination must be resumed (informational) |
+| `migration_version_unsupported` | the source is not a loadable `storageVersion` 2 / scene `schemaVersion` 2 project (v1 must use the accepted v1→v2 copy first), or the requested destination is not the v3 combination (single error; carries `sourceProjectId`, `foundVersion`, `expectedVersion`) |
+| `template_not_found` | the `templateId` is not an installed, verified template (§8.4, C65-3) |
+| `template_descriptor_invalid` | the installed descriptor fails the templates.md §1 shape/digest checks (carries `reason`) |
+| `template_content_mismatch` | a recipe/base/blob re-hash ≠ its digested value (carries the file/field) |
+| `template_engine_version_mismatch` | the backend engine version ≠ the descriptor's (carries both) |
+| `template_path_rejected` | a template path escapes the root, uses `..`, or is a symlink |
+| `template_recipe_invalid` | the recipe fails the templates.md §4 rules (op not whitelisted, a bound, or a replayed command fails — carries the 1-based index + the command error) |
+| `template_destination_exists` | §8.4 identity mismatch on an existing destination (carries `existing`) |
+| `template_reservation_conflict` | a foreign reservation marker for the same destination |
+| `template_marker_conflict` | the reservation marker and the on-disk state disagree unrecoverably |
+| `template_initialization_incomplete` | the destination carries a marker with phase < `published` (carries `phase`, `recipeApplied`, the hint) |
+| `template_source_unavailable` | an in-flight creation's marker digest matches no installed template |
 
 **Permitted `project_unavailable.reason` values (normative):** the codes
 in this table **plus** the codes the §4.3 load pipeline surfaces from the
 strict parse and cross-document checks — `encoding_invalid`,
 `json_parse_error`, `duplicate_key`, `field_type`,
-`manifest_scene_mismatch` (project-model.md §12.3/§12.6/§13 codes) —
+`manifest_scene_mismatch`, `content_invalid`,
+`version_combination_unsupported` and `asset_reference_missing`
+(project-model.md §12.3/§12.6/§13 codes) —
+plus the v3 codes `game_reference_missing`, `game_reference_in_use`,
+`zone_transform_unsupported`, `spawn_transform_unsupported`,
+`zone_checkpoint_count_invalid`,
+`zone_goal_missing`, `asset_kind_mismatch`, `game_config_invalid`
+(project-model.md §23.9) —
+plus the M4 template code `template_initialization_incomplete` (§8.4,
+C65-3 — a destination that exists but cannot be opened because it is
+mid-creation) —
 since a project that exists on disk but cannot load is exactly what
 `project_unavailable` reports.
 
@@ -967,8 +1349,23 @@ with foreign/absent content, §6.3, incl. the self-reclaim refusal, §6.2).
   spans multiple files (multi-scene projects, assets, prefabs) **requires a
   new persistence contract** — journaling, a transaction log, or equivalent
   recovery semantics. It may not be bolted on as "several renames".
+  **That contract is new §13/§14 for M2 content, and it adds no authoritative
+  file:** immutable blobs are written before one atomic envelope replacement
+  (a bounded, idempotent, crash-tested sequence with an explicit completion
+  rule), and the migration copy is a new project written with a marker and an
+  authoritative-last ordering. Multi-scene projects and any other
+  multi-authoring-file transaction remain excluded.
 - No journaling/redo log on disk; history is in-memory (commands.md §9).
-- No backups feature (recovery snapshots are evidence, §7.4).
+- No backups feature (recovery snapshots are evidence, §7.4). M2 defines only
+  the **artifact backup classification** of new §15 — which files constitute a
+  complete source backup and how a restore is verified. No backup service,
+  scheduler or destination exists.
+- **No garbage collection, no blob or version deletion in M2** (new §13.7):
+  retained versions and their bytes are what keep undo, history, retained
+  snapshots, retained retry records and running play/export valid.
+- **No in-place migration, no automatic upgrade on open, no downgrade** (new
+  §14): converting a project always creates a new project and retains the
+  original byte-for-byte.
 - No concurrent-writer protocol (one owner; external writers are
   detected/paused, never synchronized).
 - No network-filesystem support (§2), no cross-project atomicity, no
@@ -977,3 +1374,928 @@ with foreign/absent content, §6.3, incl. the self-reclaim refusal, §6.2).
   storage, no compression/segmentation of the envelope.
 - No watchers in the guarantees (§7.1): inotify is an optional early-warning
   aid, never a correctness dependency.
+
+
+## 13. Content storage, publication and retention
+
+### 13.0 Scope, ownership and non-goals
+
+
+This section defines **where authoritative content bytes live, how they are
+published, how they are read, how a crash or an operator mistake is bounded, and
+how an M1 project becomes an M2 project**. It does not define the GLB importer
+(packet 24), the content commands' wire shape (packets 21/23), the HTTP/MCP
+transport (packet 25) or any rendering (packet 26).
+
+Ownership (unchanged from `m2-plan.md` §4, made explicit here):
+
+| Unit | Owns | Must not |
+|---|---|---|
+| `workspace` | every project-relative path, ownership and the envelope write, immutable blob publication, staging, quota accounting, integrity reports, migration-copy | hold the project mutation lock across inspection/blob I/O; accept a caller-supplied path or digest as authoritative |
+| `project-model` | v2 catalog record shapes, content validation/normalization, the captured content view, the cross-block reference check | perform I/O; know about paths, sockets or caches |
+| new `asset-pipeline` (packet 24) | bounded pure GLB inspection and the import recipe over **supplied bytes**, emitting `ImportProposal` | read the filesystem, decide asset IDs, commit state, cache anything on disk |
+| `commands` (packets 21/23) | the content mutation's typed args, inverse/history, retry serialization, projection | reference a staging handle or any non-authoritative path |
+| `backend` (packet 25) | framing uploads, bounded job coordination, serving verified bytes | implement a second storage path or bypass the workspace |
+
+Non-goals for M2 in this document: garbage collection, blob deletion, version
+eviction, in-place migration, downgrade, remote/URL content fetch, a second
+mutable catalog file, multi-file transactions for authoring state, and any
+content path outside the project tree.
+
+### 13.1 On-disk layout, artifact classes and path rules
+
+
+```text
+<root>/projects/<projectId>/
+  project.json                      manifest — IMMUTABLE after creation (workspace.md §8)
+  scenes/
+    main.json                       storageVersion 2 authoring-state envelope (§3) — the ONLY mutable authoring file
+    .main.json.tmp-<pid>-<nonce>    temp file (workspace.md §5.4)
+  sources/
+    sha256/
+      <64-lowercase-hex>            AUTHORITATIVE immutable source bytes; the file name IS its SHA-256
+      .<digest>.tmp-<pid>-<nonce>   temp file during publication (§4); cleaned on open
+  .thirdlight/
+    ownership.json                  ownership record (workspace.md §6) — unchanged
+    claim-<e>                       claim file (workspace.md §6.3) — unchanged
+    recovery/                       recovery snapshots (workspace.md §7.4) — unchanged
+    migration.json                  migration-copy marker — exists ONLY while a destination is being created (§12)
+    staging/
+      <stageId>/
+        source.bin                  staged source bytes — non-authoritative INPUT, supported edit path (§5)
+        stage.json                  optional { "displayName": … } — non-authoritative input
+    derived/
+      <sourceDigest>/
+        <recipeDigest>/
+          import.json               derived, regenerable decoded-import description
+          <name>.bin                derived, regenerable binary caches
+```
+
+Artifact classes (normative):
+
+| Path | Class | Authoritative? | In a complete backup? | Writer |
+|---|---|---|---|---|
+| `project.json` | immutable manifest | yes | yes | workspace (§8.3 of the accepted contract) |
+| `scenes/main.json` | atomic authoring-state envelope | yes | yes | workspace only |
+| `sources/sha256/<digest>` | immutable content-addressed source bytes | yes | **yes, all of them** (§11) | workspace only, write-once |
+| `.thirdlight/staging/**` | staged input | **no** | no | the caller/harness or the workspace (§5) |
+| `.thirdlight/derived/**` | derived cache | **no** (regenerable) | no | any content worker |
+| `.thirdlight/ownership.json`, `claim-*` | ownership state | operational | **no** | workspace |
+| `.thirdlight/recovery/**` | external-change evidence | no (evidence) | no (never restored over the envelope) | workspace |
+| `.thirdlight/migration.json` | in-progress migration marker | no | no | workspace (§12) |
+| `scenes/.main.json.tmp-*`, `sources/sha256/.<digest>.tmp-*` | temp files | no | no | workspace; cleaned on open |
+
+Rules:
+
+1. **The only mutable authoritative file is the envelope.** Content bytes are
+   immutable and content-addressed; there is no second mutable catalog file, no
+   side-car index, and no mutable content state outside the envelope
+   (`m2-plan.md` §2.1/§3.1, `workspace.md` §4.1/§12).
+2. `.thirdlight/derived/` and `.thirdlight/staging/` are **new sub-namespaces**
+   inside the namespace the accepted `workspace.md` §3 reserves for
+   ownership/claim/recovery (`m2-plan-review.md`, non-gating observation (a)).
+   The `diffs/workspace.md` §3 diff adds them explicitly. They are not authoring
+   documents, are excluded from every logical-document read, and their absence
+   or corruption is never a project-blocking error.
+- In the M3 workspace the active envelope is `storageVersion` 3
+  (project-model §23, storage.md §S3). The game-configuration block is a
+  `content.game` key inside that envelope: **no new file, directory or artifact
+  class is introduced**, `sources/sha256/<digest>` remains the only
+  authoritative content path for model and audio bytes alike, and no artifact is
+  written outside the accepted layout.
+3. Hidden (`.`-prefixed) artifacts are never authoring documents (accepted rule,
+   unchanged). No content artifact is written outside the paths above.
+4. **No public operation accepts a filesystem path.** Every content operation is
+   addressed by project ID plus a model-level identifier (`assetId`, `version`,
+   `stageId`, `digest`). `stageId` uses project-model §5.1 ID syntax, so path
+   separators and `..` are unrepresentable. Digest-addressed reads are internal
+   to the workspace.
+5. Every artifact directory used by content storage (`sources`, `sources/sha256`,
+   `.thirdlight`, `.thirdlight/staging`, `.thirdlight/derived` and their per-stage
+   /per-digest children) must be a **real directory** whose resolved realpath stays
+   under the project root; authoritative blobs are opened with `O_NOFOLLOW`.
+   Any violation ⇒ `path_rejected` before the first write or read of the target
+   (§7, C5). Symlinks are never followed and never repaired.
+6. `.thirdlight/migration.json` exists only inside a destination that is being
+   created and is removed before that destination is reported complete (§12).
+
+### 13.2 Immutable blob publication
+
+
+Publishing an authoritative blob is exactly `workspace.md` §5.1
+`W(bytes, target, dir)` with `target = sources/sha256/<digest>` and
+`dir = sources/sha256/` — temp file in the same directory, file fsync, atomic
+rename, directory fsync, verification read.
+
+Normative rules:
+
+1. **The workspace computes the digest** from the bytes it read; a caller-supplied
+   digest is never authoritative. A named-but-mismatched digest is
+   `blob_corrupt`, never a write.
+2. **Write-once.** If `sources/sha256/<digest>` already exists, its content is
+   read and hashed: match ⇒ **no write** (`alreadyPresent: true`, idempotent
+   retry of a crash); mismatch ⇒ `blob_corrupt` and **no overwrite**. Refusing to
+   overwrite a content-addressed path is what makes a foreign write or an
+   external tamper detectable instead of silently absorbed.
+3. **A blob publication changes no authoritative state.** It creates no
+   reference, advances no revision, writes no retry record and requires no
+   mutation lock. An unreferenced blob is inert; a referenced one is created only
+   by the command pipeline (§6). This is why a crash between blob publication and
+   the commit is safe.
+4. **Durable before referenced:** a successful `W` includes the directory flush
+   and the verification read, so an acked reference always has durable bytes
+   (published *before* the command, §6).
+5. **Temp hygiene** is extended by the same rule as `workspace.md` §5.4: on a
+   successful open, after ownership is acquired and before any command, the owner
+   removes every `sources/sha256/.<digest>.tmp-*` file. Only the owner ever writes
+   them and the previous owner is gone, so the cleanup is safe.
+6. Blobs are never truncated, rewritten, renamed away, hard-linked elsewhere or
+   deleted in M2 (§10).
+
+### 13.3 Publication pipeline, lock scope, durability addendum and crash-point table
+
+#### 13.3.1 Two layers, one authoritative step
+
+
+Content publication is deliberately split so that the *authoritative* step is a
+pure, stage-free command:
+
+| Layer | Operation | Authoritative? | Mutation lock? | Repeatable? |
+|---|---|---|---|---|
+| preparation | `stageContent` (§5) | no | no | yes (idempotent per digest) |
+| preparation | `inspectStage` → `ImportProposal` (`assets.md` §8) | no | no | yes |
+| preparation | `publishBlob` (§4) | creates immutable bytes only | no | yes (write-once + verify) |
+| **authority** | the content mutation command (`DELEGATED`: packets 21/23), args `{ mode, assetId, displayName?, sourceDigest, sourceByteLength, importRecipe, metrics }` | **yes** | **yes** (commands.md §6.1, §10) | yes (retry record / dedup) |
+| read | `readBlob`, `contentIntegrity`, `captureContentView` (§8) | read-only | no | yes |
+
+Consequence (normative, and the packet's dedup requirement):
+**deduplication precedes every staging or blob lookup.** The command carries no
+staging handle, and its args contain only durable, digest-addressed facts, so an
+identical retry is served from the retry record map at commands.md §6.1 step 2 —
+before the revision check, before argument validation, before any staging
+resolution, and even while writes are paused (accepted behavior) — and it neither
+re-publishes bytes nor needs the stage to exist. Any composition that resolves a
+stage before issuing the command must first establish that the command is not a
+replay; that probe is the same pure retry-map read.
+
+
+**Behavior-source preparation profile (C19-D1).** `stageContent` accepts a
+`kind: "behavior-source"` profile: the staged `source.bin` is the canonical
+source-graph container (`project-model` §22.1) and is staged byte-for-byte like
+any other source. `prepareBehaviorSource(projectId, stageId | { bytes },
+declaration)` is the preparation-layer operation for this profile (no lock,
+repeatable, idempotent per digest): it resolves the stage (refusal checks, caps,
+traversal/symlink refusal), verifies the container, runs the static rules and
+`compileBehavior`, and stores the prepared output as a **derived cache** under
+`.thirdlight/derived/<sourceDigest>/<recipeDigest>/` — regenerable from the
+immutable container blob, never authoritative (`behaviors.md` §8.4,
+`project-model` §22.4). The trust-aware refusal runs **before** staging
+resolution **at the command layer**: `publishBehavior{mode:"source"}` fails with
+`behavior_trust_unacknowledged` when the supplied `sourceDigest` has no
+acknowledgment entry, and with `behavior_publication_unavailable`
+(`preparer_unavailable`) while no preparer is registered — before any stage,
+digest or validation work (`behaviors.md` §8.3/§8.4; `commands.md` §8.11).
+**C33-5 (accepted with diff, Gate I) — the enforceable preparation order:** at
+the **preparation** layer the digest is only knowable after the staged bytes
+are read, so `prepareBehaviorSource` reads and hashes the bytes **first**, then
+refuses an unacknowledged digest (before compiling and before writing anything),
+and only then parses/compiles. The full enforceable order is therefore
+**stage resolve → read + hash → trust refusal → parse/compile → immutable blob +
+derived record → command publication**. Neither layer writes authoritative state
+before its refusal.
+#### 13.3.2 Client-visible ordering
+
+
+For a fresh (non-replay) publication of a created/reimported asset version:
+
+1. **Preparation (no lock).** Resolve the stage ⇒ refusal checks ⇒ caps ⇒ read
+   bytes ⇒ digest ⇒ import-profile validation (`ImportProposal`).
+2. **Immutable publication (no lock).** `publishBlob` creates
+   `sources/sha256/<digest>` durably (write-once, verified).
+3. **Quota pre-flight (no lock, re-checked under the lock).** Project quota and
+   device free space (§9); failure ⇒ `content_quota_exceeded` with nothing
+   written by the command.
+4. **Command pipeline (lock held).** commands.md §6.1 steps 1–9: project/
+   ownership resolution, dedup, pause check, revision check, pure validation and
+   application (which **verifies that the referenced blob exists and matches its
+   digest** — `blob_missing` / `blob_corrupt` ⇒ no state change), no-change check,
+   the single atomic envelope write carrying the new scene revision **and** the
+   new content block **and** the new retry record, in-memory publish, ack.
+5. **Ack.** After the envelope write completed including directory flush and the
+   verification read (workspace.md §5.3). A success ack implies the catalog
+   reference and its bytes are both durable.
+
+A crash or failure before step 4 may leave **unreferenced immutable bytes**
+(never an acked dangling reference). A crash after step 4's rename is the accepted
+envelope crash semantics.
+
+#### 13.3.3 Lock scope (normative)
+
+
+The per-project mutation lock is held only for step 4 and the read operations
+that need a consistent snapshot. It is **never** held while: framing/reading
+staged bytes, inspecting/decoding a GLB, hashing a source blob, publishing a
+blob, waiting for a job slot, or performing any filesystem or CPU work whose
+duration scales with the content. No long job holds the lock. Any implementation
+that holds the lock across inspection or blob publication violates this section
+even if its observable results happen to match.
+
+#### 13.3.4 Crash-point table (content publication)
+
+
+| Crash/failure point | On disk after restart | Retry of the same requestId |
+|---|---|---|
+| during staging read / inspection | unchanged (+ possibly a partial staged temp, removed on open) | fresh execution (no record); nothing published |
+| during `publishBlob` | envelope unchanged; possibly a leftover `sources/sha256/.<digest>.tmp-*` (removed on open) | fresh execution; blob re-published |
+| after `publishBlob`, before the command | envelope unchanged; one unreferenced blob | fresh execution; blob write skipped after digest verification |
+| inside the envelope write | accepted `workspace.md` §5.1 table (old or new envelope; complete document) | replay (record present) or fresh execution (record absent) |
+| after the envelope commit, before the ack | new envelope with the record | replay, `duplicated: true`; **no** stage or blob lookup |
+| after the ack | as committed | replay, `duplicated: true` |
+
+### 13.4 Failure and recovery matrix
+
+
+Every row is normative; "no state change" means no scene, content, revision or
+retry-record change and no envelope write. Fixtures in
+`fixtures/m2/contracts/cases/` and `cases/constructed-cases.md`.
+
+| # | Failure | Detected at | Result | Durable effect | Recovery |
+|---|---|---|---|---|---|
+| F1 | path traversal / symlinked artifact dir or blob | artifact path checks (§2 rule 5, §5.1) | `path_rejected`, no read/write of the target | none | fix the path by hand; the backend never follows, repairs or deletes it |
+| F2 | malformed GLB (magic/version/length/chunks/JSON/accessors/meshes/materials/images/animations/nodes) | import-profile validation (`assets.md` §7) | `import_rejected` with ordered diagnostics | none | fix the source and re-stage |
+| F3 | remote/external/data URI in the GLB | `assets.md` §7 step 7/11 | `import_rejected` → `asset_uri_rejected` | none | embed the resources; no URL fetch exists in M2 |
+| F4 | unsupported required extension / compression | `assets.md` §7 step 5/9/10 | `import_rejected` → `asset_extension_unsupported` / `asset_compression_unsupported` | none | re-export without the extension |
+| F5 | decoded-resource cap exceeded | `assets.md` §6 caps | `import_rejected` → `limits_exceeded` (+ `limit`) or `content_invalid` for persisted metrics | none | reduce the model or raise the contract cap at Gate E |
+| F6 | source over the byte cap / frame cap | staging caps (§5.2, §9) | `stage_limits_exceeded` | none (the stage file is not created/extended) | split or reduce the source |
+| F7 | quota or device space insufficient | quota pre-flight (§6.2 step 3) and again under the lock | `content_quota_exceeded` (`kind: "project_quota" | "device_space"`) | none | free space / raise the configured quota; M2 never evicts to make room |
+| F8 | ENOSPC/EIO during `publishBlob` | `W` failure classification | `content_publish_failed` | envelope unchanged; at most a leftover temp (removed on open) | retry the same request |
+| F9 | ENOSPC/EIO during the envelope write | accepted `workspace.md` §5.1 | `write_failed` (`onDiskState`) | old or new envelope; at most the documented `new-undurable` case | accepted retry semantics |
+| F10 | missing authoritative blob | commit-time verification (§6.2 step 4) / `readBlob` / integrity report | `blob_missing`; commit refused | none (or, for a later read, no change) | restore from backup or re-import the version |
+| F11 | corrupted/tampered authoritative blob | digest verification on every read (`§8`) | `blob_corrupt`; bytes retained | none | restore the correct bytes; never auto-repaired |
+| F12 | derived cache missing/corrupt | derived lookup | `derived_cache_unavailable` (warning) | regenerated from `sources/` | automatic regeneration; never fetched from a URL |
+| F13 | stale/abandoned stage | stage resolve / TTL | `stage_expired` (`stage_not_found` if never staged) | none | re-stage and re-issue |
+| F14 | identical retry with an expired/cleaned stage | dedup, commands.md §6.1 step 2 | **replay** (`duplicated: true`) | none | none needed |
+| F15 | ownership lost / conflict at commit | pipeline step 1 + claim verification at write time | `ownership_conflict` | possibly one unreferenced blob | re-open/takeover, then retry (idempotent blob write) |
+| F16 | stale revision (inspection long past, concurrent publish) | pipeline step 4 | `revision_conflict` (+ `currentRevision`) | none | re-read and re-issue with a fresh requestId; the proposal stays a proposal |
+| F17 | crash at any publication boundary | restart/open | see §6.4 | unreferenced bytes at worst | retry; temps cleaned on open |
+| F18 | v1/v2 mismatch / unknown version | load pipeline §3.1/§3.2 | `version_combination_unsupported`, `storage_version_unsupported`, `scene_invalid`, `manifest_invalid` | none; bytes retained | open with a matching engine; migration is explicit (§12) |
+| F19 | interrupted migration-copy creation | startup scan / open | reported as an interrupted migration destination; **never auto-completed** | partial destination (marker + manifest [+ blobs]) | resume `migrateProjectCopy` (§12) or delete the destination directory |
+| F20 | migration source invalid or destination occupied | migration preconditions | `migration_source_invalid` / `migration_destination_exists` | none | fix the source / choose a new ID |
+| F21 | migration marker conflict | resume check | `migration_marker_conflict` | none | inspect the destination by hand; nothing is overwritten |
+| F22 | external tamper of a superseded (non-current) version blob | integrity report / read | `blob_corrupt`, `referenced: false` in the report | none | restore from backup; undo/history that pins it stays failing closed |
+
+### 13.5 Reads, integrity and tamper handling
+
+
+- `readBlob(projectId, { assetId, version })` — the only public byte read **by catalog version**. It
+  resolves the version's `sourceDigest` from the last acknowledged catalog,
+  checks the artifact-path rules, reads `sources/sha256/<digest>`, **verifies the
+  digest before returning**, and returns bytes plus `{ digest, byteLength }`.
+  There is no public read by path, and no read of a version that the catalog does
+  not contain (`asset_not_found` / `asset_version_not_found`).
+- `readSourceBlob(projectId, { digest })` — the digest-addressed verified read
+  (**C35-1** accepted with diff, Gate I). Behavior-source containers are not
+  catalog assets, so the play/export build cannot use `readBlob`; this read
+  resolves `sources/sha256/<digest>` directly, opens it with `O_NOFOLLOW`
+  (refusing a symlink at the blob path as `path_rejected`), **verifies the
+  SHA-256 before returning** and returns the bytes plus `{ digest, byteLength }`.
+  It is read-only, does not consult or advance the catalog, and never mutates.
+  A missing/orphan blob is `blob_missing`; a digest mismatch is `blob_corrupt`.
+- Reads never mutate: no temp file, no derived write, no envelope write, no
+  revision change. A failed read leaves every artifact untouched.
+
+
+
+- `contentIntegrity(projectId)` returns, for every catalog record version:
+  `{ assetId, version, sourceDigest, referenced, status: "ok" | "missing" |
+  "corrupt" | "unreadable" }`, plus a bounded summary. It is computed at open
+  (bounded by the catalog caps, §9) and on demand.
+- **Fail closed, not block:** a missing/corrupt blob never blocks opening,
+  querying, or mutations that do not read those bytes, and it never causes the
+  envelope, catalog or scene to be rewritten. Operations that need the bytes fail
+  with `blob_missing` / `blob_corrupt` and an actionable message naming the
+  assetId, version, digest, project-relative path and the two supported repairs
+  (restore the authoritative bytes from a backup, or re-import the version as a
+  new version). No silent substitution of another version, no degraded placeholder
+  geometry, no fabricated bytes.
+- **External-source tamper handling:** `sources/sha256/<digest>` is authoritative
+  and content-addressed, so (a) a modified file no longer matches its name and is
+  detected by hashing on every read; (b) the tampered bytes are retained
+  byte-for-byte and never auto-deleted or auto-repaired; (c) a symlink at the blob
+  path is refused (`path_rejected`) rather than followed; (d) because all pinned
+  readers (play, export, history, retries) verify, an external tamper can never
+  silently change rendered or exported content — it becomes a loud, actionable
+  failure.
+
+### 13.6 Derived caches
+
+
+- Key: `.thirdlight/derived/<sourceDigest>/<recipeDigest>/`, where
+  `recipeDigest = SHA-256(canonical JSON of the importRecipe value)` with
+  canonical JSON as in commands.md §6.6 rule 2 (keys sorted codepoint-safe, no
+  insignificant whitespace). `importRecipe` pins the profile, the recipe version
+  and the exact tool versions (`assets.md` §5), so the key changes whenever the
+  decoded result could change.
+- Contents: `import.json` (the bounded decoded-import description: names,
+  indices, metrics — display/diagnostic data, **never a reference source**) and
+  optional binary caches.
+- **Regenerable and deterministic:** for a given `(sourceDigest, recipeDigest)`
+  the derived result must be byte-deterministic; deletion of `.thirdlight/derived/**`
+  is always recoverable by re-running the pinned recipe over the authoritative
+  blob with **no network access**. Derived content is never fetched from a URL and
+  never read to determine project state.
+- **Never authoritative:** a derived cache can be deleted or regenerated at any
+  time, including while the project is open or play is running; it is not in a
+  complete backup (§11) and it never participates in the revision or in any
+  digest a snapshot/export records.
+- Names/indices inside a derived cache (glTF node/material/clip names, indices)
+  are **not** engine IDs and must never be persisted as references
+  (`assets.md` §3).
+
+### 13.7 Ownership, disposal and retention
+
+
+- The workspace owns every path, blob publication and envelope commit. Content
+  workers (import/build) receive **bounded bytes and configuration** and return
+  proposals; they never receive authority over project state, never write the
+  envelope, and never choose asset IDs.
+- **M2 has no garbage collection.** No operation deletes an authoritative blob or
+  removes a catalog version. Superseded versions and their bytes are retained
+  because undo/redo, history, retained retry records, retained snapshots and any
+  running play or export can still pin them; "no GC can invalidate play/history"
+  is therefore structural, not a policy promise.
+- The only disposal in M2 is non-authoritative: abandoned staging directories
+  (§5.2) and derived caches (§8.3). Both are safe to delete at any moment,
+  including while the backend runs.
+- Unreferenced blobs left by a crash between blob publication and the commit are
+  **retained**, not cleaned: deleting them would require the workspace to prove
+  that nothing (including a retained retry record or a snapshot it cannot see)
+  references them, which M2 does not attempt. They are reported only as
+  "unreferenced" in a scan summary.
+- In-memory history is discarded by `releaseWorkspace`/process exit as accepted
+  (commands.md §9.2); that never affects blobs.
+- Asset deletion, if a later version adds it, must (a) retain all blobs,
+  (b) define a never-reuse rule for `assetId` (or a tombstone), and (c) be a
+  reviewed version change — none of which is M2.
+- **Quota cliff (stated limitation):** because M2 provides no blob deletion and
+  no eviction, a project that reaches `maxSourceBytesPerProject` cannot import
+  more content until the operator raises the configured quota or removes
+  authoritative bytes by hand outside this contract. The backend fails closed with
+  an actionable message; it never evicts retained versions to make room.
+
+### 13.8 Compatibility and change rules
+
+
+- The accepted M1 pipeline and the accepted v1 envelope semantics are unchanged.
+  A v2-only behavior must never be reachable from a `storageVersion 1` envelope.
+- Adding a field to the `content` block, changing an existing field's meaning, or
+  changing a bound is a reviewable change. Field-level changes require a new
+  `storageVersion` unless the field is optional **and** always defaulted, and even
+  then only where the accepted contract's own rules allow it — by default this
+  proposal follows the M1 strictness (no same-version extensions).
+- Changing a bound (§9) is a contract change with the same review as a schema
+  change, because fixtures and tests reference the exact values.
+- Fixtures are part of the contract: changing an expected code or a byte-exact
+  fixture requires the same review.
+- `workspace.md` §12's "no multi-file transactions / assets require a new
+  persistence contract" is satisfied **by this document**: content adds no
+  authoritative file beyond the envelope, and the only multi-file sequence
+  (immutable blobs before one atomic envelope replacement, and the migration
+  copy) has an explicit ordering and crash-completion rule here.
+
+### 13.9 Bounds
+
+
+All values are proposed and must be pinned at Gate E before the packet-24/25
+fixtures and tests choose thresholds. Exceeding a bound fails **before**
+publication whenever the bound is knowable then.
+
+| Class | Bound | Value | Failure |
+|---|---|---|---|
+| byte | source blob / staged source / upload request | 33 554 432 B (32 MiB) | `stage_limits_exceeded` (`stage_bytes`), `content_invalid` (`limits_exceeded` → `source_bytes`, persisted) |
+| byte | content block, canonical | 1 048 576 B (1 MiB) | `content_invalid` (`limits_exceeded` → `content_bytes`), no envelope write |
+| byte | `content.game`, canonical | 16 384 B | `content_invalid` (`limits_exceeded` → `game_bytes`), no envelope write; counted inside `content_bytes` |
+| byte | upload frame (transport) | 1 048 576 B | `stage_limits_exceeded` (`frame_bytes`) |
+| byte | import-proposal response | 262 144 B (bounded name lists, `truncated: true`) | never produced (truncated instead) |
+| byte | GLB JSON chunk / BIN chunk | 8 388 608 B / 33 554 432 B | `import_rejected` (`limits_exceeded`) |
+| decoded | per version: nodes / meshes / primitives / materials / images / textures | 4 096 / 1 024 / 8 192 / 512 / 64 / 512 | `import_rejected` / `content_invalid` (`limits_exceeded` + `limit`) |
+| decoded | per version: vertices / triangles | 2 000 000 / 4 000 000 | as above |
+| decoded | per version: animations / animation channels / clip duration | 64 / 4 096 / 600 000 ms | as above |
+| decoded | per version: geometry bytes / image bytes / total | 268 435 456 / 268 435 456 / 536 870 912 B | as above |
+| catalog | assets / versions per asset / total version records | 128 / 32 / 1 024 | `content_invalid` (`limits_exceeded`), no envelope write |
+| staging | open stages per project / staged bytes per project / stage TTL | 8 / 134 217 728 B / 3 600 s | `stage_limits_exceeded`, `stage_expired` |
+| staging | abandoned-stage retention | 24 h by directory mtime | silent non-authoritative cleanup on open |
+| job | concurrent publishes per project / globally / inspection / publish | 2 / 4 / 30 s / 120 s | `content_publish_failed` (`busy` / `timeout`), `import_rejected` (`timeout`) |
+| quota | authoritative bytes per project (`maxSourceBytesPerProject`), default | 536 870 912 B (512 MiB), deployment-configurable | `content_quota_exceeded` (`project_quota`) |
+| quota | free device space required before a blob write | `blobBytes + 67 108 864` | `content_quota_exceeded` (`device_space`) |
+
+Bounds are counted over **retained** bytes: superseded versions stay inside the
+project quota, because M2 has no GC (§10).
+
+### 13.10 What is deliberately not in M2 (content)
+
+
+- No garbage collection, blob deletion, version eviction, refcounting or
+  compaction (a later milestone may propose them; they must not invalidate
+  history, snapshots, retries or play).
+- No second mutable catalog, no side-car index, no database, no journal/WAL
+  beyond the accepted single-envelope scheme.
+- No in-place migration, no automatic upgrade on open, no downgrade, no partial
+  envelope/manifest upgrades.
+- No content fetch from the network: no URL import, no remote source, no CDN
+  cache, no telemetry on read.
+- No filesystem paths in any public operation; no `file://`, `http(s)://` or
+  absolute path values in any persisted document.
+- No compression/compaction of blobs, no deduplication across projects, no
+  content-addressable store beyond the project tree.
+- No watcher-based correctness: staging is safe because it is out of the
+  authoring scope, not because a watcher exists.
+
+
+## 14. Migration: M1 project → M2 project copy
+
+
+Migration is **explicit, operator-driven and non-destructive**. It is never an
+open-time side effect.
+
+#### 14.1 Preconditions
+
+- The source project ID exists, is loadable under the **accepted M1 pipeline**
+  (`storageVersion 1`, scene `schemaVersion 1`, manifest v1), and is not
+  currently owned by a live *other* backend (the migration reads the source; it
+  does not write it).
+- The destination project ID is a new, valid ID syntax value and
+  `<root>/projects/<newProjectId>` does not already contain a loadable project or
+  a migration marker for different IDs.
+- Operator-scoped only: never exposed to the browser or MCP as a mutation.
+
+#### 14.2 Result and identity/revision policy
+
+| Aspect | Policy |
+|---|---|
+| destination identity | **new project** (`newProjectId`); a new manifest with `id = newProjectId`, the source `name` carried over, a new `createdAt` |
+| manifest schemaVersion | stays **1** (M2 combination) |
+| scene | `schemaVersion` 1 → **2**, entities carried over **verbatim** (byte-identical values: IDs, names, order, transforms, components, materials) |
+| storage | `storageVersion` 1 → **2**, with empty `content` containers (`assets: []`, `prefabs: []`, `behaviors: []`, `settings: {}`) |
+| revision | **reset to 0** (`revisionPolicy: "reset-to-zero"`) |
+| retry records | **cleared** (`retry.records: []`), `retention` 128 |
+| history | not carried (it is in-memory only in M1; the destination starts with empty history) |
+| source project | **retained byte-for-byte**; never claimed, released, rewritten or touched |
+| reported | `{ sourceProjectId, newProjectId, sourceRevision, newRevision: 0, revisionPolicy, historyReset: true, retryCleared: true, blobsCopied: n, resumed: boolean }` |
+
+Rationale for reset-to-zero: the destination is a different project identity, so
+carrying the source's revision would import a counter from another revision
+history while history and retry records are explicitly cleared; a reset makes the
+"new project, new boundary" statement unambiguous and reproducible, exactly like
+the accepted release/reopen boundary (commands.md §9.2). Snapshot identity
+(`<projectId>@r<revision>`) already distinguishes the two projects.
+
+#### 14.3 Ordered write sequence and crash completion
+
+Writes go **destination-first, authoritative-last** — the same blob-before-
+envelope discipline as §6:
+
+1. `mkdir <dest>`, `mkdir <dest>/.thirdlight` (0755).
+2. **Write `.thirdlight/migration.json`** (marker) — `{ storageVersion: 1,
+   type: "migration-copy", sourceProjectId, newProjectId, phase, startedAt }`
+   with `phase` recording the last completed step (`created` → `manifest` →
+   `blobs` → `envelope`).
+3. Write the destination manifest (`project.json`) via `W`.
+4. Copy every source blob to `sources/sha256/<digest>` via `W`, verifying each
+   digest after the write (M1 sources have none today, so this step is usually a
+   no-op; it exists because a numbered future source version may).
+5. **Write the destination envelope last** (`scenes/main.json`, §12.2 values via
+   `W`). This is the commit point: before it, the destination is not a loadable
+   project.
+6. **Remove the marker.** The destination is reported complete only after this.
+
+Crash completion (normative):
+
+- A directory containing a valid migration marker and **no envelope** is
+  reported by the startup scan as an interrupted migration destination. The
+  accepted `workspace.md` §8.3 deterministic completion (default envelope) is
+  **suppressed** for such a directory — auto-completing it would create an empty
+  default project and destroy the migration intent. (This is one clause added to
+  §8.3 and one startup-scan row; see `diffs/workspace.md`.)
+- The operator either re-runs `migrateProjectCopy(sourceProjectId,
+  newProjectId)` — idempotent: it re-verifies existing files against their
+  expected canonical bytes (`project.json`), re-verifies/copies blobs, and
+  continues from the recorded `phase` — or deletes the destination directory,
+  which is always safe because nothing in it was ever authoritative.
+- A marker whose `sourceProjectId`/`newProjectId` do not match the request ⇒
+  `migration_marker_conflict`; an existing loadable destination ⇒
+  `migration_destination_exists`; both refuse without writing.
+- `phase: "envelope"` with a loadable envelope means step 5 succeeded and only
+  step 6 (marker removal) was interrupted: the resume path verifies the envelope
+  equals the expected canonical bytes and removes the marker without rewriting it.
+
+#### 14.4 No silent upgrade, no downgrade
+
+- Opening a v1 project under M2 uses the M1 pipeline unchanged; M2 never rewrites
+  it and never writes a v2 envelope into it.
+- Migration always creates a **new** project; there is no in-place conversion, no
+  partial manifest/envelope upgrade, and no "upgrade on save".
+- Downgrade does not exist: M2 has no v1 writer, and an M1-only engine reports
+  `storage_version_unsupported` for a v2 envelope while retaining the bytes
+  (accepted non-destructive rule).
+- M1 loading, editing and export paths are unaffected by this section: they
+  continue to operate on `storageVersion 1` projects exactly as accepted
+  (acceptance row A01).
+- **v3 migration is a second, separate operator (§16).** `migrateProjectCopy`
+  (v1→v2) is unchanged and never writes v3. A v1 project reaches v3 only by the
+  chained copy `migrateProjectCopy` → `migrateProjectCopyV3`; there is no direct
+  v1→v3 operator and no in-place upgrade. `migrateProjectCopyV3` refuses a v1
+  source with `migration_version_unsupported`.
+
+
+## 15. Artifact backup classification
+
+
+A "complete M2 source backup" of a project means exactly this set, copied
+consistently (the project must be released or the backend stopped):
+
+| Class | Included | Reason |
+|---|---|---|
+| `project.json` (manifest) | **yes** | needed to open at all; immutable |
+| `scenes/main.json` (envelope: scene + content + retry) | **yes** | the sole mutable authoritative state; contains the catalog that names every blob |
+| `sources/sha256/<digest>` — every file, including superseded versions | **yes** | history/undo, retained snapshots, retained retry records, play and export pins; also the *only* copy of the content bytes |
+| `.thirdlight/staging/**` | no | caller-owned input; re-stage |
+| `.thirdlight/derived/**` | no | regenerable from sources + recipe, no network |
+| `.thirdlight/ownership.json`, `claim-*` | no | restoring a live-looking ownership record would create false ownership; ownership is re-established by claim/takeover |
+| `.thirdlight/recovery/**` | no (optional evidence retention) | repair aid; must never be restored *over* the envelope |
+| `.thirdlight/migration.json` | no | describes an in-progress destination only |
+| temp files | no | cleaned on open |
+
+Restore procedure (normative): restore the included set into a clean project
+directory with the **same `projectId`** (the manifest `id`, the envelope
+`projectId` and the directory name must agree), then open. Verification after
+restore: (1) `contentIntegrity` reports every catalog record version `ok`; (2)
+the load pipeline succeeds; (3) a fresh play/export uses the same digests as the
+backup's envelope names; (4) no network access is needed. A restore that omits
+any authoritative blob is reported as `blob_missing` per §8.2 — never silently
+degraded. Backups are an operator procedure; no backup service exists in M2.
+**v3 adds no backup class.** The game-configuration block is inside the envelope
+and audio bytes are ordinary `sources/sha256/<digest>` blobs, so the same
+included/excluded sets apply verbatim: manifest + envelope + every source blob
+(model and audio) are included; staging, derived caches, ownership, recovery and
+the migration marker are excluded.
+
+
+## 16. Storage v3 and the v2→v3 copy migration
+
+### 16.1 Scope and non-goals
+
+This section defines the v3 authoring envelope, its durable/blob consequences and
+the explicit v2→v3 **copy** migration. It does not define scene data
+([`project-model.md`](project-model.md)), commands ([`commands.md`](commands.md)), publication
+internals (accepted §13), the WAV import profile or audio bytes (packet 41), or
+the runtime-content export `manifest.json` (`manifestVersion` 1→2, **packet 42**).
+
+Non-goals (unchanged from §§12/13.10 and M2): in-place upgrade, downgrade,
+garbage collection, blob deletion, version eviction, a second mutable document,
+a catalogue side-car, multi-file authoring transactions, remote/URL content, and
+any authoring path outside the project tree.
+
+### 16.2 Envelope version compatibility (v3)
+
+`storageVersion` known set is `[1, 2, 3]`. The exhaustive table of §4.5 gains
+exactly one passable row (`manifest 1 + scene 3 + storage 3`); all other new
+pairs are single-error refusals checked **before** scene/content field
+validation. The v3 combination's envelope carries the six-key `content` block of
+§16.3.
+
+| `manifest.schemaVersion` | `scene.schemaVersion` | `storageVersion` | Result |
+|---|---|---|---|
+| 1 | 1 | 1 | **valid** — M1, unchanged |
+| 1 | 2 | 2 | **valid** — M2, unchanged |
+| 1 | 3 | 3 | **valid** — **v3** (`content.game` present) |
+| 1 | 1 | 2 | `version_combination_unsupported` (accepted, unchanged) |
+| 1 | 2 | 1 | `scene_invalid` → `schema_version_unsupported` (accepted, unchanged) |
+| 1 | 1 or 2 | 3 | `version_combination_unsupported` |
+| 1 | 3 | 1 or 2 | `version_combination_unsupported` |
+| 2 | any | any | `manifest_invalid` → `schema_version_unsupported` |
+| any | any | ≥ 4 or ≤ 0 | `storage_version_unsupported` |
+| any | ≥ 4 | any | `schema_version_unsupported` for that document |
+
+Non-destructive refusal rule (normative, restated for v3): the refusal is exactly
+one error at the envelope's `storageVersion` (or the document's
+`schemaVersion`) path; deeper scene/content checks stop; the on-disk bytes are
+retained **byte-identically**; the startup scan, open and every query perform no
+normalization, upgrade, downgrade, repair or write. An unsupported project is
+reported under `project_unavailable.reason` with that code. A v3 project opened
+by a v2-only engine behaves exactly as an M2 project opened by an M1 engine:
+`storage_version_unsupported`, bytes retained.
+
+### 16.3 Storage v3: the authoring-state envelope
+
+The envelope file, atomic replacement and durability guarantees are unchanged
+(§§4/5). `storageVersion` **3** has the same top-level key set as v2:
+`{storageVersion, type, projectId, scene, content, retry}`.
+
+```json
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "demo-0003",
+  "scene": { "schemaVersion": 3, "sceneId": "scene-main", "revision": 0, "entities": ["…"] },
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": { "entries": [] },
+    "game": null
+  },
+  "retry": { "retention": 128, "records": [] }
+}
+```
+
+Differences from §4.2's v2 row (additive only):
+
+| Aspect | v3 rule |
+|---|---|
+| key set | exactly the six keys above; a missing or unknown key ⇒ `envelope_invalid` |
+| `scene.schemaVersion` | must be exactly `3` (combination check §16.2 precedes field validation) |
+| `content` keys | exactly `assets, prefabs, behaviors, settings, behaviorTrust, game` |
+| `content.game` | **required key**; `null`, or a `GameConfig` value ([`project-model.md`](project-model.md) §23.4) |
+| everything else | unchanged: `scene.revision` is the sole revision; `retry` unchanged; `projectId` = directory name = manifest `id`; canonical §4.4 serialization extended with the v3 content key order and the §23.7 component/field orders |
+| buffers | the backend holds the normalized v3 scene, the normalized content catalog (including the normalized `game` block or `null`), `currentVersion` maps, integrity report, retry map, last-written hash, empty history |
+
+`content` byte budget: §13.9's 1 048 576 B stands, unchanged. The `game` block
+adds its own ≤ 16 384 B bound (`game_bytes`, [`project-model.md`](project-model.md) §23.10) and
+is counted inside `content_bytes`. No new envelope size class exists.
+
+### 16.4 Load validation pipeline (v3 branch, normative order)
+
+The §4.3 pipeline dispatches on `storageVersion`. The v3 branch is the v2 branch
+with these substitutions; every other step (strict parse, `envelope_invalid`,
+retry block, manifest, cross-document, ownership, external change) is unchanged:
+
+1. step 2: envelope structure/`type`, v3 six-key set ⇒ `envelope_invalid`;
+2. step 3 (§4.5): `scene.schemaVersion === 3` and `storageVersion === 3` ⇒ else
+   exactly one `version_combination_unsupported`, deeper checks stop;
+3. step 4: `scene` → v3 scene validation ([`project-model.md`](project-model.md) §23.8) ⇒
+   `scene_invalid` (≤ 10 model errors);
+4. step 4: `content` → `validateContent` for the six-key v3 block ⇒
+   `content_invalid`, and canonical `content` bytes ≤ 1 048 576 ⇒
+   `content_invalid` (`limits_exceeded` `content_bytes`), `content.game` bytes ≤
+   16 384 ⇒ `limits_exceeded` `game_bytes`; both error sets are reported when
+   both fail;
+5. step 4: cross-block check `validateProjectV3` = accepted v2 cross-block check
+   **plus** the §23.5/§23.8-step-6 game/cue/animation reference checks ⇒
+   `asset_reference_missing` / `asset_kind_mismatch` / `game_reference_missing`
+   (`document: "scene"` or `"content"` as appropriate);
+6. steps 7–8 unchanged: retry block, manifest (must be `schemaVersion` 1),
+   `manifest_scene_mismatch`, `manifest.id === envelope.projectId === directory
+   name`.
+
+A v3 combination mismatch stops before any scene/content field validation. A v2
+envelope is loaded by the unchanged v2 branch; no v3 code path runs on it.
+
+### 16.5 Migration: v2 project → v3 project copy
+
+Migration is **explicit, operator-driven and non-destructive**. It is never an
+open-time side effect and is never exposed to the browser or MCP as a mutation.
+
+#### 16.5.1 Preconditions
+
+- The source project ID exists and is loadable under the **v2 pipeline**
+  (`storageVersion 2`, scene `schemaVersion 2`, manifest `schemaVersion 1`), and
+  is not currently owned by a live *other* backend (the migration reads it; it
+  never edits, claims, releases or rewrites it). “Loadable under the v2
+  pipeline” includes the **v2 component registry**: a `schemaVersion 2` scene
+  that carries a v3-only component (`gameZone`, `playerSpawn`, `cameraFollow`,
+  `light`, `surface`, `modelAnimation`) is `component_unknown` there, so it is
+  refused as `migration_source_invalid` (`project-model.md` §23.11); it is not a
+  v2 project and is never silently upgraded by the copy.
+- The destination project ID is a new, valid ID-syntax value, and
+  `<root>/projects/<newProjectId>` contains neither a loadable project nor a
+  migration marker for different IDs.
+- A v1 source is **refused** by this operator (`migration_version_unsupported`,
+  `sourceVersion: 1`). v1 projects use the accepted v1→v2 copy
+  (`migrateProjectCopy`, §14) **first**, then this v2→v3 copy on the resulting
+  destination; chaining two copy operators is the only supported v1 route. There
+  is no direct v1→v3 operator and no in-place upgrade.
+- An unsupported **new** mix is refused: a destination request that would have to
+  write a combination outside §16.2 fails before any write with
+  `migration_version_unsupported`.
+
+#### 16.5.2 Result and identity/revision policy
+
+| Aspect | Policy |
+|---|---|
+| destination identity | **new project** (`newProjectId`); new manifest, `id = newProjectId`, source `name` carried over, new `createdAt` |
+| manifest `schemaVersion` | stays **1** (the authoring manifest is never re-versioned) |
+| scene | `schemaVersion` 2 → **3**; every entity value/order/ID/hierarchy/transform/component carried **verbatim** (byte-identical values) |
+| content | carried **verbatim** — `assets` (records, versions, recipes, metrics, timestamps), `prefabs`, `behaviors`, `settings`, `behaviorTrust` are copied byte-identically **except** for the derived revision metadata reset in the next row; `game` is added as **`null`** |
+| derived revision metadata | **reset to 0** on copy: every `content.assets[i].versions[j].publishedRevision`, every `content.behaviors[i].publishedRevision`, every `content.behaviors[i].source.publishedRevision` (when `source` is non-null) and every `content.behaviorTrust.entries[k].acknowledgedRevision` is written as `0` |
+| storage | `storageVersion` 2 → **3** |
+| revision | **reset to 0** (`revisionPolicy: "reset-to-zero"`) |
+| retry records | **cleared** (`retry.records: []`), `retention: 128` |
+| history | not carried (in-memory only); the destination starts with empty history |
+| source project | **retained byte-for-byte** after success **and** after refusal (`sourceTreeHash` recorded before and after by the operator; the executable test hashes every source file) |
+| reported | `{ sourceProjectId, newProjectId, sourceRevision, newRevision: 0, revisionPolicy: "reset-to-zero", historyReset: true, retryCleared: true, blobsCopied, blobsAlreadyPresent, resumed, sourceVersion: 2, newVersion: 3 }` |
+
+Rationale for reset-to-zero is the accepted §14.2 rationale, unchanged: a new
+project identity starts its own revision history, and snapshot identity
+(`<projectId>@r<revision>`) already distinguishes the projects. Carrying
+`assets` verbatim (rather than re-importing) is required because blobs are
+immutable and content-addressed: the destination's catalog names the same
+digests, so the copy can re-verify bytes instead of re-inspecting them.
+
+**Why the derived revision metadata is also reset.** `publishedRevision` and
+`acknowledgedRevision` are per-record *history* metadata: each names the
+revision at which that record landed. The destination is a **new project
+identity** whose `revision` restarts at 0 with empty history (row above,
+§14.2 rationale), so a carried value would name a revision that does not exist
+in the destination and would be refused as a future revision by the
+`§13.2` rule 5 / `§18.9.2` rule 4 bounds (`≤ scene.revision`,
+[`project-model.md`](project-model.md)). Writing `0` keeps the copy honest
+(“landed at the destination baseline”, `project-model.md` §18.4) and keeps the
+destination loadable: for a `source`-bearing behavior record this copy writes
+the one `publishedRevision` value that is below the `project-model.md` §12
+step 5 / §22.2 rule 4 preparation bound (`≥ 1`), so those rules read the bound
+as `≥ 0` for a record this copy writes. Everything else in
+`content` — `sourceDigest`, `sourceByteLength`, recipes, metrics, timestamps,
+the whole behavior `source` block, `settings` — is copied byte-identically, and
+the **source project keeps its own revision and its own values** (row “source
+project”: no file in the source tree is written, so its
+`publishedRevision: 2` is untouched; the copy is one-directional).
+
+#### 16.5.3 Ordered write sequence and crash completion
+
+Writes go **destination-first, authoritative-last** — the same discipline as §6
+and accepted §14.3:
+
+1. `mkdir <dest>`, `mkdir <dest>/.thirdlight` (0755).
+2. **Write `.thirdlight/migration.json`** (marker):
+   `{ storageVersion: 3, type: "migration-copy", sourceProjectId, newProjectId,
+   sourceVersion: 2, newVersion: 3, phase, startedAt }`; `phase` records the last
+   completed step (`created` → `manifest` → `blobs` → `envelope`). The marker is
+   non-authoritative, is never restored over an envelope, and is excluded from
+   every backup (§15).
+3. Write the destination manifest (`project.json`) via `W`.
+4. Copy every **reachable and unreachable** source blob
+   (`sources/sha256/<digest>` for every version of every asset record) via `W`,
+   verifying each digest after write; an existing destination blob with the same
+   digest is verified and counted `alreadyPresent`. Audio blobs use the same
+   layout — there is **no new artifact class**.
+5. **Write the destination envelope last** (`scenes/main.json`, §16.5.2 values via
+   `W`). This is the commit point: before it the destination is not a loadable
+   project.
+6. **Remove the marker.** The destination is reported complete only after this.
+
+Crash completion (normative):
+
+- A directory containing a valid v3 migration marker and **no envelope** is
+  reported by the startup scan as an interrupted migration destination. The §8.3
+  deterministic default-envelope completion is **suppressed** for it (creating an
+  empty default project would destroy the migration intent).
+- `migrateProjectCopyV3(sourceProjectId, newProjectId)` is **idempotent and
+  resumable**: it re-verifies existing destination files against their expected
+  canonical bytes, re-verifies/copies blobs, and continues from the recorded
+  `phase`. Alternatively the operator deletes the destination directory — always
+  safe because nothing in it was ever authoritative.
+- Marker mismatch (`sourceProjectId`/`newProjectId`/`sourceVersion` not matching
+  the request) ⇒ `migration_marker_conflict`; an existing loadable destination ⇒
+  `migration_destination_exists`; a v1 or unknown source ⇒
+  `migration_version_unsupported`; all refuse **without writing** and leave both
+  trees byte-identical.
+- `phase: "envelope"` with a loadable v3 envelope means step 5 succeeded and only
+  step 6 was interrupted: the resume path verifies the envelope equals the
+  expected canonical bytes and removes the marker without rewriting.
+- `phase: "blobs"` with all expected blobs present verifies digests and skips to
+  step 5. `phase: "created"` with an unexpected non-marker file ⇒
+  `migration_destination_exists` unless the file is a temp file (§5.4), which is
+  cleaned.
+
+#### 16.5.4 No silent upgrade, no downgrade, no mixed state
+
+- Opening a v1 or v2 project under M3 uses the unchanged v1/v2 pipeline; M3 never
+  rewrites it and never writes a v3 envelope into it.
+- Migration always creates a **new** project; there is no in-place conversion, no
+  partial manifest/envelope upgrade and no "upgrade on save".
+- Downgrade does not exist: v3 writes only `storageVersion 3` envelopes, and a
+  v2-only engine reports `storage_version_unsupported` while retaining the bytes.
+- There is no supported state in which a project holds a v2 envelope with v3
+  scene data or a v3 envelope with v2 scene data: the combination check of §16.2
+  refuses such a document and the migration operator never writes one.
+- M1/M2 loading, editing, publication, capture and export paths are unaffected by
+  this section (acceptance rows B01/B18).
+
+### 16.6 Durable/blob consequences
+
+1. **One mutable file.** The v3 envelope is still the only mutable authoritative
+   file; `content.game` lives inside it. There is no `game.json`, no
+   `settings.json` and no side-car.
+2. **Blob layout is unchanged.** `sources/sha256/<digest>` remains the only
+   authoritative content path; audio bytes are content-addressed exactly like
+   model bytes. Publication ordering, lock scope and the crash-point table
+   (accepted §13.3) are unchanged.
+3. **Integrity.** `contentIntegrity` covers every version of every record,
+   `model` and `audio` alike; there is no new integrity state. `readBlob` is
+   unchanged and kind-agnostic.
+4. **Captured view.** The captured content view (`project-model` §19) is
+   extended, not re-versioned: `captureContent` collects references from the
+   captured scene's `model` **and** `modelAnimation` components, and from the
+   captured `content.game` cues/activation references, resolves them to
+   `(version, sourceDigest, sourceByteLength, importRecipe)`, sorts by `assetId`
+   and computes `contentDigest` unchanged. `contentVersion` stays `1`; the view
+   has no new field, so play/export pinning keeps working by revision
+   (§19.3 unchanged). A `modelAnimation` binding pins its recorded `version`
+   explicitly in addition to the asset's `currentVersion`. **CC-44-6 (promoted
+   at Gate L):** a `modelAnimation` binding's recorded `version` **wins** over
+   the asset's `currentVersion` for the same `assetId`. If two reachable
+   bindings record different explicit versions for one `assetId`, the first in
+   scene document order (then prefab definition order) wins deterministically:
+   conflicting bindings are not valid authoring state and capture neither merges
+   nor fails on them.
+5. **Backup classification** (§15) is unchanged: manifest + envelope +
+   every `sources/sha256/<digest>` (model and audio) are included; staging,
+   derived caches, ownership, recovery and the migration marker are excluded.
+6. **Retention.** v3 has no GC and no version eviction (accepted rule). A
+   `modelAnimation` binding to an older version is therefore always deliverable.
+
+### 16.7 Bounds (storage-side v3 additions)
+
+Scene/component bounds are [`project-model.md`](project-model.md) §23.10. Storage adds:
+
+| Class | Bound | Value | Failure |
+|---|---|---|---|
+| byte | canonical `content.game` | 16 384 B | `content_invalid` (`limits_exceeded` → `game_bytes`), no envelope write |
+| byte | canonical `content` (incl. `game`) | 1 048 576 B (unchanged) | as accepted |
+| job | migration copy wall clock | 120 s | `content_publish_failed` (`timeout`), destination not authoritative |
+| count | migration marker phases | 4 (`created`, `manifest`, `blobs`, `envelope`) | malformed marker ⇒ `migration_marker_conflict` |
+
+These are finite defaults and are **reviewable at Gate K**.
+
+### 16.8 Workspace operations and error codes (v3 additions)
+
+One operation is added, mirroring accepted `migrateProjectCopy` (§11/§14):
+
+| Operation | Kind | Success result | Failure codes |
+|---|---|---|---|
+| `migrateProjectCopyV3(sourceProjectId, newProjectId)` | operator (§16.5) | the §16.5.2 reported object | `migration_version_unsupported`, `migration_source_invalid`, `migration_destination_exists`, `migration_marker_conflict`, `path_rejected`, `content_publish_failed` |
+
+New codes (additive; surfaced via `project_unavailable.reason` or as operation
+results): `migration_version_unsupported` (source/new version pair not a v2→v3
+copy), plus the model codes of [`project-model.md`](project-model.md) §23.9 (`game_reference_missing`,
+`game_reference_in_use`, `zone_transform_unsupported`,
+`spawn_transform_unsupported`,
+`zone_checkpoint_count_invalid`, `zone_goal_missing`, `asset_kind_mismatch`,
+`game_config_invalid`), which join the permitted `project_unavailable.reason` set
+and the `commands.md` §5.4 table.
+
+### 16.9 Public exports
+
+No new package. Additions to the existing public surfaces (implemented by
+packets 44–48; **promoted at Gate L**, CC-44-1):
+
+- `project-model` — `SCHEMA_VERSIONS_BY_DOCUMENT`/`KNOWN_VERSIONS` gain `3`;
+  `migrateSceneV3`, `validateSceneV3`/`validateContentV3`/`validateProjectV3`
+  (names mirroring the accepted v2 entry points), `validateEnvelopeV3`/
+  `normalizeEnvelopeV3`/`parseEnvelopeV3`/`parseSceneV3`, `validateGameConfig`,
+  the v3 envelope result/error types (`EnvelopeV3Load`, `EnvelopeV3Error`,
+  `EnvelopeV3ErrorCode`), `GAME_ZONE_ROLES`, `SURFACE_PRESETS`,
+  `GAME_ZONE_LIMITS`, and the v3 types (`GameZoneComponent`,
+  `PlayerSpawnComponent`, `CameraFollowComponent`, `LightComponent`,
+  `SurfaceComponent`, `ModelAnimationComponent`, `GameConfig`, `CueRef`).
+  `canonicalContentV3` is exported from its module but **not** re-exported at the
+  package entry (the v3 envelope is built by `workspace`; packet 47's audio
+  validation calls it internally).
+- `commands` — the §A2–§A6 ops/args/change/inverse types, the
+  `queryGameConfig`/`filterEntitiesByComponent` query helpers, and the
+  `GAME_CONFIG_FIELDS` constant (exported from its module; the package entry
+  re-exports the query helpers and the change types).
+- `workspace` — `MigrationResultV3` (the §16.5.2 reported object), the v3
+  migration marker `MigrationMarkerV3` (`storageVersion: 3`, `sourceVersion: 2`,
+  `newVersion: 3`) and `AnyMigrationMarker` (the union of both marker versions
+  `readMigrationMarker` returns and the startup scan reports), and the
+  `migrateProjectCopyV3` service method. The v3 envelope builder
+  (`buildEnvelopeBytesV3`) and `ENVELOPE_STORAGE_VERSIONS` stay package-internal,
+  exactly like `buildEnvelopeBytesV2`.
+The v3 envelope is deliberately **not** consumed through
+`project-model`'s `validateEnvelopeV3`: the workspace owns the envelope's retry
+block, `UnavailableReason` mapping and key-set order (packet 46).
+
+### 16.10 Compatibility and change rules
+
+- v3 is a new known combination, not a same-version extension: v1/v2 documents
+  stay valid and unmodified, and no v2 field changes meaning.
+- The accepted `content` key order gains `game` **after** `behaviorTrust`; every
+  v3 envelope fixture carries all six keys. A v2 envelope keeps its five-key set
+  and never carries `game`.
+- The added limits and codes are contract material because fixtures and the
+  checker reference their exact values.
+- Every v3 field, op, code, limit and artifact has exactly one owner
+  (`model.md` / this file / `authoring.md`); no downstream packet invents a
+  missing field or lifetime rule.
+
+### 16.11 Fixture index
+
+`fixtures/m3/contracts/envelope/valid/*.json` (byte-exact v3 envelopes),
+`envelope/invalid/*.json` (one rule each), `migration/{v2-source,expected-v3-destination,
+interrupted-copy}/*` (identity/reset/crash outcomes), `commands/*` (legal
+edit/inverse/redo, no-change, reachable failures). `index.json` records every
+fixture's expectation and SHA-256; `tools/check-fixtures.mjs` replays them and
+has a deliberate-corruption negative control.

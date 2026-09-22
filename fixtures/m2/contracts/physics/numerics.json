@@ -1,0 +1,846 @@
+{
+  "kind": "physics-numerics",
+  "setVersion": 1,
+  "id": "physics-numerics",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 3. Supported collision features (M2, exhaustive)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 7. Numeric constants, defaults and tolerances"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 8. Grounding rule (normative)"
+    }
+  ],
+  "constants": [
+    {
+      "name": "fixedStepHz",
+      "value": 120,
+      "unit": "Hz",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "dt",
+      "value": 0.008333333333333333,
+      "unit": "s",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "gravityY",
+      "value": -19.62,
+      "unit": "m/s2",
+      "source": "packet-14-measured",
+      "setting": "gravity_y"
+    },
+    {
+      "name": "runSpeed",
+      "value": 4,
+      "unit": "m/s",
+      "source": "packet-14-measured",
+      "setting": "run_speed"
+    },
+    {
+      "name": "jumpVelocity",
+      "value": 7,
+      "unit": "m/s",
+      "source": "packet-14-measured",
+      "setting": "jump_velocity"
+    },
+    {
+      "name": "maxFallSpeed",
+      "value": -30,
+      "unit": "m/s",
+      "source": "packet-14-measured",
+      "setting": "max_fall_speed"
+    },
+    {
+      "name": "capsuleRadius",
+      "value": 0.3,
+      "unit": "m",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "capsuleHalfHeight",
+      "value": 0.6,
+      "unit": "m",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "reach",
+      "value": 0.9,
+      "unit": "m",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "offsetSkin",
+      "value": 0.01,
+      "unit": "m",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "groundSnap",
+      "value": 0.1,
+      "unit": "m",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "maxSlopeClimbDeg",
+      "value": 45,
+      "unit": "deg",
+      "source": "packet-14-measured",
+      "setting": "max_slope_climb_deg"
+    },
+    {
+      "name": "minSlopeSlideDeg",
+      "value": 30,
+      "unit": "deg",
+      "source": "packet-14-measured",
+      "setting": "min_slope_slide_deg"
+    },
+    {
+      "name": "autostep",
+      "value": false,
+      "unit": "flag",
+      "source": "packet-14-measured"
+    },
+    {
+      "name": "settledRestCenterY",
+      "value": 0.91,
+      "unit": "m",
+      "source": "packet-14-measured (0.9099987 measured; 0.910 contract)"
+    },
+    {
+      "name": "settlePreRollSteps",
+      "value": 12,
+      "unit": "steps",
+      "source": "packet-14-measured (1.36 mm first-step dip)"
+    },
+    {
+      "name": "moveAccel",
+      "value": 40,
+      "unit": "m/s2",
+      "source": "contract-selected (not packet-14 measured)"
+    },
+    {
+      "name": "moveDecel",
+      "value": 60,
+      "unit": "m/s2",
+      "source": "contract-selected (not packet-14 measured)"
+    },
+    {
+      "name": "jumpReleaseFactor",
+      "value": 0.5,
+      "unit": "factor",
+      "source": "contract-selected (not packet-14 measured)"
+    },
+    {
+      "name": "coyoteSteps",
+      "value": 6,
+      "unit": "steps",
+      "source": "contract-selected (not packet-14 measured)"
+    },
+    {
+      "name": "jumpBufferSteps",
+      "value": 8,
+      "unit": "steps",
+      "source": "contract-selected (not packet-14 measured)"
+    },
+    {
+      "name": "staticPenetrationMax",
+      "value": 0.005,
+      "unit": "m",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "wallStopBand",
+      "value": 0.05,
+      "unit": "m",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "headContactMaxRisePerStep",
+      "value": 0.0005,
+      "unit": "m/step",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "ledgeBlockMaxDxPerStep",
+      "value": 0.02,
+      "unit": "m/step",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "seamMaxUngroundedSteps",
+      "value": 2,
+      "unit": "steps",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "apexTheoretical",
+      "value": 1.249,
+      "unit": "m",
+      "source": "packet-14-measured (v^2/2g)"
+    },
+    {
+      "name": "apexTolerance",
+      "value": 0.05,
+      "unit": "m",
+      "source": "packet-14-measured tolerance"
+    },
+    {
+      "name": "replayToleranceSameEngine",
+      "value": 0.000001,
+      "unit": "m",
+      "source": "contract-selected"
+    },
+    {
+      "name": "replayToleranceCrossEngine",
+      "value": 0.001,
+      "unit": "m",
+      "source": "contract-selected"
+    },
+    {
+      "name": "containerStepP99Ms",
+      "value": 0.031,
+      "unit": "ms",
+      "source": "packet-14-directional (BR-2, not a reference-desktop claim)"
+    },
+    {
+      "name": "coldInitMsMin",
+      "value": 73.125,
+      "unit": "ms",
+      "source": "packet-14-directional (BR-2, not a reference-desktop claim)"
+    },
+    {
+      "name": "coldInitMsMax",
+      "value": 76.72,
+      "unit": "ms",
+      "source": "packet-14-directional (BR-2, not a reference-desktop claim)"
+    },
+    {
+      "name": "tickBudgetMs",
+      "value": 8.333,
+      "unit": "ms",
+      "source": "whole 120 Hz tick budget, not physics-only"
+    }
+  ],
+  "derived": {
+    "cosMaxSlopeClimb": 0.7071067811865476,
+    "groundingThreshold": 0.7071057811865475,
+    "accelStepsToRunSpeed": 12,
+    "decelStepsToZero": 8,
+    "coyoteWindowSteps": 6,
+    "jumpBufferWindowSteps": 8,
+    "jumpApexGainDiscrete": 1.2196625,
+    "jumpApexGainDiscreteNote": "contract-order discrete model, gain from the settled rest center 0.910 m; the packet-14 probe reported 1.2297 from the nominal 0.900 m center over a settled start of 0.9099987 m (same trajectory)"
+  },
+  "slopeClassification": [
+    {
+      "angleDeg": 29.9,
+      "supportNormalY": 0.8668967489356028,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": false,
+      "expected": "grounded-not-idle-sliding"
+    },
+    {
+      "angleDeg": 30,
+      "supportNormalY": 0.8660254037844387,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": true,
+      "expected": "grounded-idle-sliding"
+    },
+    {
+      "angleDeg": 30.1,
+      "supportNormalY": 0.8651514205697044,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": true,
+      "expected": "grounded-idle-sliding"
+    },
+    {
+      "angleDeg": 43,
+      "supportNormalY": 0.7313537016191705,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": true,
+      "expected": "grounded-idle-sliding"
+    },
+    {
+      "angleDeg": 44.9,
+      "supportNormalY": 0.7083398377245289,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": true,
+      "expected": "grounded-idle-sliding"
+    },
+    {
+      "angleDeg": 45,
+      "supportNormalY": 0.7071067811865476,
+      "grounded": true,
+      "climbAllowed": true,
+      "slidesWhenIdle": true,
+      "expected": "grounded-idle-sliding"
+    },
+    {
+      "angleDeg": 45.1,
+      "supportNormalY": 0.705871570678681,
+      "grounded": false,
+      "climbAllowed": false,
+      "slidesWhenIdle": true,
+      "expected": "refused"
+    },
+    {
+      "angleDeg": 47,
+      "supportNormalY": 0.6819983600624985,
+      "grounded": false,
+      "climbAllowed": false,
+      "slidesWhenIdle": true,
+      "expected": "refused"
+    }
+  ],
+  "settingsRegistry": [
+    {
+      "key": "gravity_y",
+      "type": "number",
+      "default": -19.62,
+      "min": -100,
+      "max": -1,
+      "exclusiveMax": false,
+      "unit": "m/s2"
+    },
+    {
+      "key": "run_speed",
+      "type": "number",
+      "default": 4,
+      "min": 0,
+      "max": 50,
+      "exclusiveMin": true,
+      "unit": "m/s"
+    },
+    {
+      "key": "jump_velocity",
+      "type": "number",
+      "default": 7,
+      "min": 0,
+      "max": 50,
+      "unit": "m/s"
+    },
+    {
+      "key": "max_fall_speed",
+      "type": "number",
+      "default": -30,
+      "min": -100,
+      "max": 0,
+      "exclusiveMax": true,
+      "unit": "m/s"
+    },
+    {
+      "key": "max_slope_climb_deg",
+      "type": "number",
+      "default": 45,
+      "min": 0,
+      "max": 89.9,
+      "unit": "deg"
+    },
+    {
+      "key": "min_slope_slide_deg",
+      "type": "number",
+      "default": 30,
+      "min": 0,
+      "max": 89.9,
+      "unit": "deg"
+    }
+  ],
+  "settingsCases": [
+    {
+      "caseId": "S1-empty",
+      "input": {},
+      "outcome": "ok",
+      "settings": {
+        "gravity_y": -19.62,
+        "run_speed": 4,
+        "jump_velocity": 7,
+        "max_fall_speed": -30,
+        "max_slope_climb_deg": 45,
+        "min_slope_slide_deg": 30
+      }
+    },
+    {
+      "caseId": "S2-partial-override",
+      "input": {
+        "jump_velocity": 8.25
+      },
+      "outcome": "ok",
+      "settings": {
+        "gravity_y": -19.62,
+        "run_speed": 4,
+        "jump_velocity": 8.25,
+        "max_fall_speed": -30,
+        "max_slope_climb_deg": 45,
+        "min_slope_slide_deg": 30
+      }
+    },
+    {
+      "caseId": "S3-unknown-key",
+      "input": {
+        "double_jump": true
+      },
+      "outcome": "setting_unknown",
+      "code": "setting_unknown",
+      "key": "double_jump"
+    },
+    {
+      "caseId": "S4-wrong-type",
+      "input": {
+        "run_speed": "fast"
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "run_speed"
+    },
+    {
+      "caseId": "S5-out-of-range-high",
+      "input": {
+        "run_speed": 50.5
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "run_speed"
+    },
+    {
+      "caseId": "S6-out-of-range-low",
+      "input": {
+        "gravity_y": -101
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "gravity_y"
+    },
+    {
+      "caseId": "S7-zero-run-speed",
+      "input": {
+        "run_speed": 0
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "run_speed"
+    },
+    {
+      "caseId": "S8-zero-max-fall",
+      "input": {
+        "max_fall_speed": 0
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "max_fall_speed"
+    },
+    {
+      "caseId": "S9-cross-key",
+      "input": {
+        "max_slope_climb_deg": 25,
+        "min_slope_slide_deg": 30
+      },
+      "outcome": "field_value",
+      "code": "field_value",
+      "key": "min_slope_slide_deg"
+    },
+    {
+      "caseId": "S10-cross-key-equal",
+      "input": {
+        "max_slope_climb_deg": 30,
+        "min_slope_slide_deg": 30
+      },
+      "outcome": "ok",
+      "settings": {
+        "gravity_y": -19.62,
+        "run_speed": 4,
+        "jump_velocity": 7,
+        "max_fall_speed": -30,
+        "max_slope_climb_deg": 30,
+        "min_slope_slide_deg": 30
+      }
+    }
+  ],
+  "validationCases": [
+    {
+      "caseId": "V1-box-valid",
+      "component": {
+        "shape": {
+          "type": "box",
+          "hx": 2,
+          "hy": 0.25
+        }
+      },
+      "outcome": "ok"
+    },
+    {
+      "caseId": "V2-box-zero-extent",
+      "component": {
+        "shape": {
+          "type": "box",
+          "hx": 0,
+          "hy": 0.25
+        }
+      },
+      "code": "collider_shape_invalid"
+    },
+    {
+      "caseId": "V3-polygon-valid-ramp",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              3,
+              0
+            ],
+            [
+              3,
+              2.8
+            ]
+          ]
+        }
+      },
+      "outcome": "ok"
+    },
+    {
+      "caseId": "V4-polygon-two-vertices",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "code": "collider_shape_invalid"
+    },
+    {
+      "caseId": "V5-polygon-nine-vertices",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              2,
+              0.4
+            ],
+            [
+              3,
+              1
+            ],
+            [
+              3,
+              2
+            ],
+            [
+              2,
+              3
+            ],
+            [
+              1,
+              3.2
+            ],
+            [
+              0.5,
+              3
+            ],
+            [
+              0,
+              2
+            ]
+          ]
+        }
+      },
+      "code": "limits_exceeded",
+      "limit": "collider_vertices"
+    },
+    {
+      "caseId": "V6-polygon-concave",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              2,
+              0
+            ],
+            [
+              1,
+              1
+            ],
+            [
+              2,
+              2
+            ],
+            [
+              0,
+              2
+            ]
+          ]
+        }
+      },
+      "code": "collider_shape_invalid"
+    },
+    {
+      "caseId": "V7-polygon-degenerate-area",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              2,
+              0
+            ]
+          ]
+        }
+      },
+      "code": "collider_shape_invalid"
+    },
+    {
+      "caseId": "V8-polygon-duplicate-vertex",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "code": "collider_shape_invalid"
+    },
+    {
+      "caseId": "V9-polygon-non-finite",
+      "component": {
+        "shape": {
+          "type": "polygon",
+          "vertices": [
+            [
+              0,
+              0
+            ],
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              1e+308
+            ]
+          ]
+        }
+      },
+      "code": "number_out_of_range"
+    },
+    {
+      "caseId": "V10-controller-marker",
+      "component": {},
+      "outcome": "ok"
+    },
+    {
+      "caseId": "V11-controller-unknown-field",
+      "component": {
+        "speed": 4
+      },
+      "code": "field_unexpected"
+    },
+    {
+      "caseId": "V12-collider-and-controller",
+      "entity": {
+        "components": {
+          "transform": {},
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            }
+          },
+          "controller": {}
+        }
+      },
+      "code": "component_conflict"
+    },
+    {
+      "caseId": "V13-parented-collider",
+      "entity": {
+        "parentId": "group-0001",
+        "components": {
+          "transform": {},
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            }
+          }
+        }
+      },
+      "code": "physics_transform_unsupported",
+      "reason": "parented"
+    },
+    {
+      "caseId": "V14-scaled-collider",
+      "entity": {
+        "components": {
+          "transform": {
+            "scale": [
+              2,
+              1,
+              1
+            ]
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            }
+          }
+        }
+      },
+      "code": "physics_transform_unsupported",
+      "reason": "scale"
+    },
+    {
+      "caseId": "V15-tilted-collider",
+      "entity": {
+        "components": {
+          "transform": {
+            "rotation": [
+              0.383,
+              0,
+              0,
+              0.924
+            ]
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            }
+          }
+        }
+      },
+      "code": "physics_transform_unsupported",
+      "reason": "rotation"
+    },
+    {
+      "caseId": "V16-z-rotated-box-valid",
+      "entity": {
+        "components": {
+          "transform": {
+            "rotation": [
+              0,
+              0,
+              0.3826834323650898,
+              0.9238795325112867
+            ]
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.1
+            }
+          }
+        }
+      },
+      "outcome": "ok"
+    },
+    {
+      "caseId": "V17-rotated-controller",
+      "entity": {
+        "components": {
+          "transform": {
+            "rotation": [
+              0,
+              0,
+              0.3826834323650898,
+              0.9238795325112867
+            ]
+          },
+          "controller": {}
+        }
+      },
+      "code": "physics_transform_unsupported",
+      "reason": "upright"
+    },
+    {
+      "caseId": "V18-two-controllers",
+      "scene": {
+        "controllerCount": 2
+      },
+      "code": "controller_count_invalid"
+    },
+    {
+      "caseId": "V19-zero-controllers-with-controller-module",
+      "scene": {
+        "controllerCount": 0
+      },
+      "code": "config_invalid",
+      "reason": "controller_target"
+    },
+    {
+      "caseId": "V20-collider-count-overflow",
+      "scene": {
+        "colliderCount": 257
+      },
+      "code": "limits_exceeded",
+      "limit": "colliders"
+    }
+  ]
+}

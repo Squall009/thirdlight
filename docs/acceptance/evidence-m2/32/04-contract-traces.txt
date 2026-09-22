@@ -1,0 +1,14 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+stdout | tests/m2-controller/contract-traces.test.ts > accepted platformer traces (platformer.md §7, packet-17 fixture) > replays all 16 traces × 178 sampled rows
+[traces] 16 traces / 178 sampled rows replayed exactly
+
+ ✓ tests/m2-controller/contract-traces.test.ts > accepted platformer traces (platformer.md §7, packet-17 fixture) > replays all 16 traces × 178 sampled rows 20ms
+ ✓ tests/m2-controller/contract-traces.test.ts > accepted platformer traces (platformer.md §7, packet-17 fixture) > reproduces the declared derived expectations 7ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  07:53:42
+   Duration  417ms (transform 71%, import 18%, tests 10%, worker 1%)
+

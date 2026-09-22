@@ -12,21 +12,34 @@
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
-import { createCommandState } from '@thirdlight/commands';
-import type { CommandError, HistoryState } from '@thirdlight/commands';
-import type { Entity, Manifest, Scene } from '@thirdlight/project-model';
+import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
+import type { CommandError, ContentDocument, HistoryState } from '@thirdlight/commands';
+import type {
+  ContentCatalog,
+  ContentCatalogV3,
+  Entity,
+  Manifest,
+  Scene,
+  SceneV2,
+  SceneV3,
+} from '@thirdlight/project-model';
 import {
   normalizeScene,
   parseDocumentBytes,
   validateManifest,
+  validateProjectV2,
+  validateProjectV3,
 } from '@thirdlight/project-model';
 
 import {
   buildEnvelopeBytes,
+  buildEnvelopeBytesV2,
+  buildEnvelopeBytesV3,
   ID_RE,
   validateEnvelope,
   type RetryRecord,
 } from './envelope';
+import { cleanBlobTemps, cleanupStages, loadPreparedSources, type ContentConfig } from './content-store';
 import {
   entityNotFound,
   externalChangeEvidenceMissing,
@@ -98,7 +111,11 @@ export interface PendingChange {
   /** All validation errors (the public shape reports ≤ 10 + the count); null while unreadable. */
   externalErrors: readonly LoadDetail[] | null;
   /** The parsed external scene (canonical) when the bytes are valid. */
-  externalScene: Scene | null;
+  externalScene: Scene | SceneV2 | SceneV3 | null;
+  /** The parsed external content block (v2/v3 only; null for a v1 envelope). */
+  externalContent: ContentCatalog | ContentCatalogV3 | null;
+  /** The external envelope's storageVersion (null while unreadable). */
+  externalStorageVersion: 1 | 2 | 3 | null;
 }
 
 /**
@@ -128,7 +145,11 @@ export interface ProjectSession {
   thirdlightDir: string;
   manifest: Manifest;
   /** Published (last acknowledged) scene; null while blocked. */
-  scene: Scene | null;
+  scene: Scene | SceneV2 | SceneV3 | null;
+  /** The envelope's storageVersion (1 for M1, 2 for M2, 3 for v3). */
+  storageVersion: 1 | 2 | 3;
+  /** The published v2/v3 content catalog; null for a storageVersion 1 project. */
+  content: ContentCatalog | ContentCatalogV3 | null;
   /** === scene.revision (0 while blocked). */
   revision: number;
   /** Published retry records (ascending appliedRevision). */
@@ -158,6 +179,14 @@ export interface ProjectSession {
   ownershipReverify: boolean;
   blocked: { reason: UnavailableReason; errors: readonly LoadDetail[]; count: number } | null;
   pendingChange: PendingChange | null;
+  /**
+   * The digest-bound prepared behavior-source facts for this project
+   * (packet 33; a derived cache, never authoritative). Loaded at open from
+   * the project's `.thirdlight/derived` prepared records and extended by
+   * `prepareBehaviorSource`. The command layer reads ONLY these facts for a
+   * `publishBehavior{mode:"source"}` request.
+   */
+  preparedSources: Map<string, import('@thirdlight/behavior-build').PreparedBehaviorSource>;
 }
 
 /** The core the service shares with the session layer. */
@@ -173,6 +202,9 @@ export interface Core {
   utcNow: () => string;
   ops: WriteOps;
   sessions: Map<string, ProjectSession>;
+  /** Content-storage configuration (workspace.md §13.9): quota, device-space
+   * reserve and the clock/TTL seam. */
+  content: ContentConfig;
 }
 
 export type OpenOutcome =
@@ -297,8 +329,10 @@ export function resolveProjectDir(
 
 // ---- manifest + envelope loading -----------------------------------------------
 
-/** Read + strictly validate the manifest (project-model pass 1 + validator). */
-function loadManifest(
+/** Read + strictly validate the manifest (project-model pass 1 + validator).
+ * Exported for the read-only migration loader (workspace.md §14.1 reads the
+ * source without claiming it). */
+export function loadManifest(
   core: Core,
   dir: string,
 ): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
@@ -340,7 +374,15 @@ function loadManifest(
 }
 
 type LoadOutcome =
-  | { kind: 'loaded'; scene: Scene; records: RetryRecord[]; bytes: Uint8Array; hash: string }
+  | {
+      kind: 'loaded';
+      scene: Scene | SceneV2 | SceneV3;
+      storageVersion: 1 | 2 | 3;
+      content: ContentCatalog | ContentCatalogV3 | null;
+      records: RetryRecord[];
+      bytes: Uint8Array;
+      hash: string;
+    }
   | { kind: 'envelope-missing' }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
@@ -370,6 +412,40 @@ export function loadProjectDir(
   const env = validateEnvelope(bytes, projectId);
   if (!env.ok) {
     return { kind: 'blocked', reason: env.reason, errors: env.errors, count: env.count };
+  }
+  // Step 6e — the v2 cross-block composition (workspace.md §4.3 step 6e,
+  // project-model §13.1): only when scene and content both passed. The
+  // manifest supplies the manifest/scene identity that all three blocks are
+  // composed against; any failure is reported with its model code
+  // (e.g. `asset_reference_missing`).
+  if (env.storageVersion === 2) {
+    const cross = validateProjectV2(manifest, env.scene, env.content);
+    if (!cross.ok) {
+      const first = cross.errors[0];
+      return {
+        kind: 'blocked',
+        reason: (first === undefined ? 'scene_invalid' : (first.code as UnavailableReason)),
+        errors: cross.errors.slice(0, 10),
+        count: cross.errors.length,
+      };
+    }
+  }
+  // §16.4 step 5 — the v3 cross-block composition: the accepted v2
+  // cross-block check plus the §23.5/§23.8-step-6 game/cue/animation
+  // reference checks (`validateProjectV3`). Runs only when the scene and
+  // content blocks both passed; a failure is reported with its model code
+  // (`game_reference_missing`, `asset_kind_mismatch`, `zone_goal_missing`, …).
+  if (env.storageVersion === 3) {
+    const cross = validateProjectV3(manifest, env.scene, env.content);
+    if (!cross.ok) {
+      const first = cross.errors[0];
+      return {
+        kind: 'blocked',
+        reason: (first === undefined ? 'scene_invalid' : (first.code as UnavailableReason)),
+        errors: cross.errors.slice(0, 10) as readonly LoadDetail[],
+        count: cross.errors.length,
+      };
+    }
   }
   // Step 8 — cross-document checks (project-model §13 + the workspace
   // -enforced directory-name rule, §13.3).
@@ -408,6 +484,8 @@ export function loadProjectDir(
   return {
     kind: 'loaded',
     scene: env.scene,
+    storageVersion: env.storageVersion,
+    content: env.content,
     records: env.records,
     bytes,
     hash: sha256Hex(bytes),
@@ -435,17 +513,27 @@ function makeSession(
     thirdlightDir,
     manifest,
     scene: loaded.scene,
+    storageVersion: loaded.storageVersion,
+    content: loaded.content,
     revision: loaded.scene.revision,
     records: [...loaded.records],
     recordMap,
     lastWrittenHash: loaded.hash,
     envelopeBytes: loaded.bytes,
-    history: createCommandState(loaded.scene).history,
+    history:
+      loaded.content === null
+        ? createCommandState(loaded.scene).history
+        : createCommandState(
+            loaded.scene,
+            loaded.content as unknown as ContentDocument,
+            manifest,
+          ).history,
     ownership,
     mode: 'open',
     ownershipReverify: false,
     blocked: null,
     pendingChange: null,
+    preparedSources: loadPreparedSources(thirdlightDir),
   };
 }
 
@@ -466,6 +554,8 @@ function blockSession(
     thirdlightDir,
     manifest,
     scene: null,
+    storageVersion: 1,
+    content: null,
     revision: 0,
     records: [],
     recordMap: new Map(),
@@ -477,7 +567,67 @@ function blockSession(
     ownershipReverify: false,
     blocked,
     pendingChange: null,
+    preparedSources: new Map(),
   };
+}
+
+/**
+ * A fresh history for the session's published state (workspace.md §9.2
+ * boundaries): a v2/v3 session builds the command state with its content
+ * block and manifest so the M2/M3 ops keep their three-block validation
+ * inputs (commands.md §6.1 step 5; C21-1).
+ */
+function freshHistory(s: ProjectSession): HistoryState {
+  if (s.content === null) return createCommandState(s.scene!).history;
+  return createCommandState(
+    s.scene!,
+    s.content as unknown as ContentDocument,
+    s.manifest,
+  ).history;
+}
+
+/**
+ * Build the session's canonical envelope bytes at the session's
+ * storageVersion: a `storageVersion` 3 project writes the v3 envelope (scene
+ * + six-key content + retry, workspace.md §16.3); a `storageVersion` 2
+ * project writes the v2 envelope (scene + content + retry, §4.4/§4.5); an M1
+ * project writes the accepted v1 bytes unchanged. This is the ONE envelope
+ * construction used by the mutation write, the release rewrite and the
+ * migration copy — no second mutation path.
+ */
+export function envelopeBytesFor(
+  storageVersion: 1 | 2 | 3,
+  projectId: string,
+  scene: Scene | SceneV2 | SceneV3,
+  content: ContentCatalog | ContentCatalogV3 | null,
+  records: readonly RetryRecord[],
+): Uint8Array {
+  if (storageVersion === 3 && content !== null) {
+    return buildEnvelopeBytesV3(projectId, scene as SceneV3, content as ContentCatalogV3, records);
+  }
+  if (storageVersion === 2 && content !== null) {
+    return buildEnvelopeBytesV2(projectId, scene as SceneV2, content as ContentCatalog, records);
+  }
+  return buildEnvelopeBytes(projectId, scene as Scene, records);
+}
+
+export function envelopeBytesForSession(
+  s: ProjectSession,
+  records: readonly RetryRecord[],
+): Uint8Array {
+  return envelopeBytesFor(s.storageVersion, s.projectId, s.scene!, s.content, records);
+}
+
+/** Open-time artifact hygiene (workspace.md §5.4/§7.6.2): the owner removes
+ * leftover envelope temps and abandoned staging directories (mtime older than
+ * 24 h). The staging cleanup only ever removes directories under
+ * `.thirdlight/staging/` — never an authoritative path. */
+function cleanOpenArtifacts(core: Core, projectDir: string, sceneDir: string, thirdlightDir: string): void {
+  cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+  // §5.4 extended to blob temps (§13.2 rule 5): the owner removes every
+  // leftover `sources/sha256/.<digest>.tmp-*`.
+  cleanBlobTemps(projectDir);
+  cleanupStages(core, projectDir, thirdlightDir, core.content.now());
 }
 
 /**
@@ -679,7 +829,7 @@ export function ensureSession(
   }
 
   // §5.4: the owner cleans leftover temps on open, before any command.
-  cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+  cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
 
   // The §4.3 load (through the VERIFIED scenes directory).
   const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
@@ -828,15 +978,33 @@ export function detectExternalChange(
   const envRes = validateEnvelope(foreign.bytes, s.projectId);
   let externalValid = false;
   let externalErrors: readonly LoadDetail[] = [];
-  let externalScene: Scene | null = null;
+  let externalScene: Scene | SceneV2 | SceneV3 | null = null;
+  let externalContent: ContentCatalog | ContentCatalogV3 | null = null;
+  let externalStorageVersion: 1 | 2 | 3 | null = null;
   if (envRes.ok) {
-    const crossOk =
-      s.manifest.scenes[0].id === envRes.scene.sceneId && s.manifest.id === s.projectId;
+    // v2/v3 envelopes additionally require the three-block composition (the
+    // cross-block reference checks the envelope loader defers to the manifest
+    // holder): `validateProjectV2` for v2, `validateProjectV3` for v3.
+    let crossOk = s.manifest.scenes[0].id === envRes.scene.sceneId && s.manifest.id === s.projectId;
+    if (crossOk && envRes.storageVersion === 2) {
+      const cross = validateProjectV2(s.manifest, envRes.scene, envRes.content);
+      if (!cross.ok) {
+        crossOk = false;
+        externalErrors = cross.errors.slice(0, 10);
+      }
+    } else if (crossOk && envRes.storageVersion === 3) {
+      const cross = validateProjectV3(s.manifest, envRes.scene, envRes.content);
+      if (!cross.ok) {
+        crossOk = false;
+        externalErrors = cross.errors.slice(0, 10) as readonly LoadDetail[];
+      }
+    }
     if (crossOk) {
       externalValid = true;
       externalScene = envRes.scene;
-    } else {
-      externalValid = false;
+      externalContent = envRes.content;
+      externalStorageVersion = envRes.storageVersion;
+    } else if (externalErrors.length === 0) {
       externalErrors = [
         {
           code: 'manifest_scene_mismatch',
@@ -860,6 +1028,8 @@ export function detectExternalChange(
     externalValid,
     externalErrors,
     externalScene,
+    externalContent,
+    externalStorageVersion,
   };
   s.pendingChange = pending;
   return pending;
@@ -879,6 +1049,8 @@ export function setPendingUnreadable(s: ProjectSession): void {
     externalValid: null,
     externalErrors: null,
     externalScene: null,
+    externalContent: null,
+    externalStorageVersion: null,
   };
 }
 
@@ -1015,7 +1187,7 @@ function restoreLkgAfterAbsentReread(
   const res = restoreLkg(core, s);
   if (res.ok) {
     s.pendingChange = null;
-    s.history = createCommandState(s.scene!).history;
+    s.history = freshHistory(s);
     return { kind: 'restored' };
   }
   if (res.failed && res.failed.onDiskState === 'new-undurable') {
@@ -1023,7 +1195,7 @@ function restoreLkgAfterAbsentReread(
     // unproven. The foreign state is gone either way: clear the pending
     // change and un-pause (memory already equals the restored bytes).
     s.pendingChange = null;
-    s.history = createCommandState(s.scene!).history;
+    s.history = freshHistory(s);
   }
   if (res.external) {
     // A readable appearance raced in between the re-read and the W
@@ -1057,7 +1229,11 @@ export function acceptExternal(
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
-  let pc = s.pendingChange;
+  // The pending change is readable on every path that reaches the publish
+  // below: an `unreadable` pending state is either refused or (re)established
+  // from the real bytes by `rereadSceneForResolution` (which yields a
+  // ReadablePendingChange). The cast records that invariant.
+  let pc: ReadablePendingChange = s.pendingChange as ReadablePendingChange;
   if (pc.snapshotState !== 'ok') {
     // §7.3 refusal: while evidence is missing or unreadable, the
     // resolution is refused — but before answering, the command re-reads
@@ -1097,8 +1273,16 @@ export function acceptExternal(
     return { ok: false, error: externalChangeInvalid() };
   }
   // The external scene becomes authoritative: canonical re-serialization
-  // with retry.records = [] (new retry boundary), ownership unchanged.
-  const newBytes = buildEnvelopeBytes(s.projectId, pc.externalScene, []);
+  // with retry.records = [] (new retry boundary), ownership unchanged. The
+  // storageVersion dispatch follows the parsed external envelope (a v2/v3
+  // envelope carries its content block verbatim into the rewrite).
+  const newBytes = envelopeBytesFor(
+    pc.externalStorageVersion ?? s.storageVersion,
+    s.projectId,
+    pc.externalScene,
+    pc.externalContent,
+    [],
+  );
   const res = writeAtomic({
     dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
     target: join(s.sceneDir, 'main.json'),
@@ -1139,14 +1323,7 @@ export function acceptExternal(
       // recovery snapshot): the resolution is applied, so the pending
       // change is cleared and writes unpaused (§7.3: "Resolving clears
       // the pending state and unpauses writes").
-      s.scene = pc.externalScene;
-      s.revision = pc.externalScene.revision;
-      s.records = [];
-      s.recordMap = new Map();
-      s.envelopeBytes = newBytes;
-      s.lastWrittenHash = sha256Hex(newBytes);
-      s.history = createCommandState(pc.externalScene).history;
-      s.pendingChange = null;
+      publishAcceptedExternal(s, pc, newBytes);
       return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
     }
     // `previous`: nothing was written — the pending state and the pause
@@ -1155,15 +1332,32 @@ export function acceptExternal(
   }
   // Publish (the accepted revision is whatever the external document
   // carries — an operator accept is a declared re-base, §7.3).
-  s.scene = pc.externalScene;
-  s.revision = pc.externalScene.revision;
+  publishAcceptedExternal(s, pc, newBytes);
+  return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
+}
+
+/** Publish an accepted external envelope into the session (both the success
+ * path and the `new-undurable` path share exactly this state transition). */
+function publishAcceptedExternal(
+  s: ProjectSession,
+  pc: ReadablePendingChange,
+  newBytes: Uint8Array,
+): void {
+  const scene = pc.externalScene!;
+  const content = pc.externalContent;
+  s.scene = scene;
+  s.storageVersion = pc.externalStorageVersion ?? s.storageVersion;
+  s.content = content;
+  s.revision = scene.revision;
   s.records = [];
   s.recordMap = new Map();
   s.envelopeBytes = newBytes;
   s.lastWrittenHash = sha256Hex(newBytes);
-  s.history = createCommandState(pc.externalScene).history;
+  s.history =
+    content === null
+      ? createCommandState(scene).history
+      : createCommandState(scene, content as unknown as ContentDocument, s.manifest).history;
   s.pendingChange = null;
-  return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
 }
 
 /** `discardExternalState` (§7.3). */
@@ -1174,7 +1368,11 @@ export function discardExternal(
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
-  let pc = s.pendingChange;
+  // The pending change is readable on every path that reaches the publish
+  // below: an `unreadable` pending state is either refused or (re)established
+  // from the real bytes by `rereadSceneForResolution` (which yields a
+  // ReadablePendingChange). The cast records that invariant.
+  let pc: ReadablePendingChange = s.pendingChange as ReadablePendingChange;
   if (pc.snapshotState !== 'ok') {
     // §7.3 refusal: while evidence is missing or unreadable, the
     // resolution is refused — but before answering, the command re-reads
@@ -1253,7 +1451,7 @@ export function discardExternal(
       // snapshot; unpaused, §7.3) — while the operation still reports the
       // FAILURE for unproven durability (`write_failed { onDiskState:
       // "new-undurable" }`, §5.1 — never a success ack).
-      s.history = createCommandState(s.scene!).history;
+      s.history = freshHistory(s);
       s.pendingChange = null;
       return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
     }
@@ -1263,7 +1461,7 @@ export function discardExternal(
   }
   // lastWrittenHash is unchanged (the same LKG bytes were re-written);
   // history is cleared (new boundary — no reconciliation, charter §6).
-  s.history = createCommandState(s.scene!).history;
+  s.history = freshHistory(s);
   s.pendingChange = null;
   return { ok: true, revision: s.revision, historyReset: true };
 }
@@ -1416,7 +1614,7 @@ export function takeover(
       };
     }
     // (4) load the project (§4.3) — plus the owner temp cleanup (§5.4).
-    cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+    cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
     const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
     if (l.kind === 'loaded') {
       const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
@@ -1535,7 +1733,7 @@ function performClaimAndLoad(
   if (claim === null || !claim.ok) {
     return { ok: false, error: ownershipConflict(null) };
   }
-  cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+  cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
   const l = loadProjectDir(core, sceneDir, projectId, manifest);
   if (l.kind === 'loaded') {
     const s = makeSession(core, dir, projectId, l, manifest, claim.record, sceneDir, thirdlightDir);
@@ -1629,7 +1827,7 @@ export function releaseProject(
     };
   }
   // (a) Rewrite the envelope (records cleared) via W.
-  const newBytes = buildEnvelopeBytes(s.projectId, s.scene!, []);
+  const newBytes = envelopeBytesForSession(s, []);
   const newHash = sha256Hex(newBytes);
   const res = writeAtomic({
     dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
@@ -1697,7 +1895,7 @@ export function releaseProject(
     // fresh open (workspace.md §9 step 3: "not a continuation of the
     // released session"), and while released queries fail
     // project_unavailable { reason: "workspace_closed" } (§9.1).
-    s.history = createCommandState(s.scene!).history;
+    s.history = freshHistory(s);
     s.ownership = { ...s.ownership, state: 'released' };
     s.mode = 'released';
     return { ok: true, revision: s.revision, retryCleared: true };
@@ -1712,7 +1910,7 @@ export function releaseProject(
     // unproven durability (workspace.md §5.1: `write_failed
     // { onDiskState: "new-undurable" }`; the R4 acceptance: "while still
     // returning failure for unproven durability").
-    s.history = createCommandState(s.scene!).history;
+    s.history = freshHistory(s);
     s.ownership = { ...s.ownership, state: 'released' };
     s.mode = 'released';
     return { ok: false, error: writeFailed('new-undurable', rel.failed?.errno) };
@@ -1749,7 +1947,20 @@ function echoOp(v: unknown): string | undefined {
   return v.length > 32 ? v.slice(0, 32) : v;
 }
 
-const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities'] as const;
+const QUERY_OPS = [
+  'queryProject',
+  'queryEntity',
+  'queryEntities',
+  // packet 25: the bounded M2 content queries (commands.md §4) are served
+  // through the same query path (last acknowledged state, never a mutation).
+  'queryAssets',
+  'queryPrefabs',
+  'queryBehaviors',
+  // packet 48 / authoring §A6 (commands.md §3.1.11): the v3 game-config query
+  // is the same read path (wiring completed by the coordinator repair; the
+  // pure function is `commands`' single implementation).
+  'queryGameConfig',
+] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 
 /** Strict query envelope validation (request-level: `invalid_request`). */
@@ -1774,7 +1985,7 @@ function validateQueryEnvelope(req: unknown):
   if (typeof op !== 'string' || !(QUERY_OPS as readonly string[]).includes(op)) {
     return {
       ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the M1 query ops'),
+      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the known query ops'),
     };
   }
   const projectId = req['projectId'];
@@ -1826,6 +2037,7 @@ function validateQueryArgs(
       includeSubtree?: boolean;
       limit?: number;
       offset?: number;
+      component?: string;
     }
   | { ok: false; error: import('@thirdlight/commands').CommandError } {
   if (op === 'queryProject') {
@@ -1869,9 +2081,17 @@ function validateQueryArgs(
   }
   // queryEntities
   for (const k of Object.keys(args)) {
-    if (k !== 'limit' && k !== 'offset') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset') };
+    if (k !== 'limit' && k !== 'offset' && k !== 'component') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset, component') };
     }
+  }
+  // packet 45/48: the optional `component` filter (commands.md §4). Validated
+  // through the pure commands helper so the accepted names live in one place.
+  let component: string | undefined;
+  if (args['component'] !== undefined) {
+    const f = filterEntitiesByComponent([], args['component']);
+    if (!f.ok) return { ok: false, error: f.error };
+    component = args['component'] as string;
   }
   let limit = 100;
   if (args['limit'] !== undefined) {
@@ -1908,7 +2128,7 @@ function validateQueryArgs(
     }
     offset = o;
   }
-  return { ok: true, limit, offset };
+  return { ok: true, limit, offset, ...(component !== undefined ? { component } : {}) };
 }
 
 /**
@@ -1944,9 +2164,31 @@ export function serveQuery(
     const b = s.blocked;
     return queryFailure(op, projectId, projectUnavailable(b?.reason ?? 'envelope_invalid', null, b?.errors ?? []));
   }
+  const scene = s.scene;
+  // ---- packet 25: the bounded M2 content queries (commands.md §4/§5.6) -------
+  // Served from exactly the same last-acknowledged in-memory state as the M1
+  // queries (never a mutation, no lock, no revision advance). The pure query
+  // functions live in `commands` (the single implementation); the workspace
+  // only supplies the current state.
+  if (op === 'queryAssets' || op === 'queryPrefabs' || op === 'queryBehaviors' || op === 'queryGameConfig') {
+    const state =
+      s.content !== null
+        ? createCommandState(scene, s.content as unknown as ContentDocument, s.manifest)
+        : createCommandState(scene);
+    const request: Record<string, unknown> = { op, projectId };
+    if (args !== undefined) request['args'] = args;
+    const result =
+      op === 'queryAssets'
+        ? queryAssets(state, request)
+        : op === 'queryPrefabs'
+          ? queryPrefabs(state, request)
+          : op === 'queryBehaviors'
+            ? queryBehaviors(state, request)
+            : queryGameConfig(state, request);
+    return result as unknown as QueryResult;
+  }
   const ov = validateQueryArgs(op, args);
   if (!ov.ok) return queryFailure(op, projectId, ov.error);
-  const scene = s.scene;
   if (op === 'queryProject') {
     return {
       ok: true,
@@ -1955,6 +2197,9 @@ export function serveQuery(
       manifest: s.manifest,
       scene: {
         sceneId: scene.sceneId,
+        // C35-5 / sessions.md §19.x: the SCENE document's version (1/2/3),
+        // never the manifest's (always 1).
+        schemaVersion: scene.schemaVersion,
         entityCount: scene.entities.length,
         cameraId: cameraIdOf(scene),
       },
@@ -2010,14 +2255,24 @@ export function serveQuery(
     return out;
   }
   // queryEntities — paged in document order; offset > total ⇒ empty page.
-  const total = scene.entities.length;
+  // packet 45/48: the optional `component` filter is applied first and `total`
+  // counts the filtered set (commands.md §4).
+  const filtered: { ok: true; entities: readonly Entity[] } | { ok: false; error: CommandError } =
+    ov.component === undefined
+      ? { ok: true, entities: scene.entities }
+      : (filterEntitiesByComponent(
+          scene.entities as unknown as readonly { components: Record<string, unknown> }[],
+          ov.component,
+        ) as { ok: true; entities: readonly Entity[] } | { ok: false; error: CommandError });
+  if (!filtered.ok) return queryFailure(op, projectId, filtered.error);
+  const total = filtered.entities.length;
   const offset = ov.offset ?? 0;
   const limit = ov.limit ?? 100;
-  const entities = offset >= total ? [] : scene.entities.slice(offset, offset + limit);
-  return { ok: true, projectId, revision: s.revision, total, offset, limit, entities };
+  const entities = offset >= total ? [] : filtered.entities.slice(offset, offset + limit);
+  return { ok: true, projectId, revision: s.revision, total, offset, limit, entities } as unknown as QueryResult;
 }
 
-function cameraIdOf(scene: Scene): string {
+function cameraIdOf(scene: Scene | SceneV2 | SceneV3): string {
   for (const e of scene.entities) {
     if (e.components.camera !== undefined) return e.id;
   }

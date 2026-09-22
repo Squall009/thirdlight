@@ -1,0 +1,217 @@
+{
+  "description": "The module-requirement cases (templates.md §8; C06). Pure input→output cases for the packet-72 resolver: the finite registry, the declared vs content-derived rules, the fail-fast validation, and the evaluation points. The checker re-derives each output from the §8.2 rules.",
+  "registry": [
+    {
+      "id": "thirdlight.platformer:controller",
+      "kind": "engine",
+      "availability": "required by content.game !== null (the playerId reference rules)"
+    },
+    {
+      "id": "thirdlight.platformer-game:session",
+      "kind": "engine",
+      "availability": "required by content.game !== null (cues/checkpoint/goal machinery)"
+    },
+    {
+      "id": "thirdlight.platformer-game:camera",
+      "kind": "engine",
+      "availability": "required by content.game !== null (the cameraFollow reference rule)"
+    },
+    {
+      "id": "thirdlight.demo:box-motion",
+      "kind": "engine",
+      "availability": "optional; selected only if the snapshot declares it (the M1 default, unchanged)"
+    },
+    {
+      "id": "thirdlight.behavior:<behaviorId>",
+      "kind": "behavior-reference",
+      "availability": "referenced only when content.behaviors declares it with a non-null source AND the host links the output — not linkable under the M4 built-in-only profile (the §8.4 refusal)"
+    }
+  ],
+  "cases": [
+    {
+      "id": "M1",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer-game:session",
+            "thirdlight.platformer-game:camera"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": null,
+          "behaviors": []
+        }
+      },
+      "selected": [
+        "thirdlight.platformer:controller",
+        "thirdlight.platformer-game:session",
+        "thirdlight.platformer-game:camera"
+      ],
+      "note": "the base scene (revision 0, game null): the declared required set — the template is playable-ready for the recipe replay (the recipe then sets game; the selection is stable across the replay)"
+    },
+    {
+      "id": "M2",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer-game:session",
+            "thirdlight.platformer-game:camera"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": "non-null (the recipe end state)",
+          "behaviors": []
+        }
+      },
+      "selected": [
+        "thirdlight.platformer:controller",
+        "thirdlight.platformer-game:session",
+        "thirdlight.platformer-game:camera"
+      ],
+      "note": "content.game !== null derives the same three (subset of declared) — canonical registry order, no duplicates"
+    },
+    {
+      "id": "M3",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller"
+          ],
+          "optional": [
+            "thirdlight.demo:box-motion"
+          ]
+        },
+        "content": {
+          "game": null,
+          "behaviors": []
+        }
+      },
+      "selected": [
+        "thirdlight.platformer:controller"
+      ],
+      "note": "an optional module the content does not reference is NOT selected (optional = may appear in the registry, not always included)"
+    },
+    {
+      "id": "M4",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer-game:session",
+            "thirdlight.platformer-game:camera"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": "non-null",
+          "behaviors": [
+            "behavior-0001 (source non-null, linked output)"
+          ]
+        }
+      },
+      "selected": null,
+      "error": {
+        "code": "module_unresolved",
+        "detail": "thirdlight.behavior:behavior-0001 referenced but not linkable under the M4 built-in-only profile (the §8.4 explicit refusal — C14)"
+      },
+      "note": "the user-added behavior case: the requirement surfaces at capture/build and fails clearly"
+    },
+    {
+      "id": "M5",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.unknown:module"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": null,
+          "behaviors": []
+        }
+      },
+      "selected": null,
+      "error": {
+        "code": "module_unknown",
+        "detail": "thirdlight.unknown:module"
+      },
+      "note": "an unknown declared ID fails at resolution (fail-fast, before publication/build)"
+    },
+    {
+      "id": "M6",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer:controller"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": null,
+          "behaviors": []
+        }
+      },
+      "selected": null,
+      "error": {
+        "code": "module_duplicate",
+        "detail": "the resolution set would contain the ID twice"
+      },
+      "note": "a registry-integrity fault — the flat registry union cannot produce it for a well-formed descriptor; the check guards the registry itself"
+    },
+    {
+      "id": "M7",
+      "input": {
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer-game:session",
+            "thirdlight.platformer-game:camera"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": "non-null",
+          "behaviors": [],
+          "modelEntities": 5,
+          "lights": 2,
+          "surfaces": 4
+        }
+      },
+      "selected": [
+        "thirdlight.platformer:controller",
+        "thirdlight.platformer-game:session",
+        "thirdlight.platformer-game:camera"
+      ],
+      "note": "model/modelAnimation/light/surface/box/collider content adds NO module (adapter-owned rendering; the platformer core owns physics/rendering — the §8.2 content-derived table)"
+    },
+    {
+      "id": "M8",
+      "input": {
+        "layout": "the gameplay panel hidden",
+        "declared": {
+          "required": [
+            "thirdlight.platformer:controller",
+            "thirdlight.platformer-game:session",
+            "thirdlight.platformer-game:camera"
+          ],
+          "optional": []
+        },
+        "content": {
+          "game": "non-null",
+          "behaviors": []
+        }
+      },
+      "selected": [
+        "thirdlight.platformer:controller",
+        "thirdlight.platformer-game:session",
+        "thirdlight.platformer-game:camera"
+      ],
+      "note": "the layout state is NEVER an input to resolution (templates.md §8.3/§9.4): a required module cannot be disabled by hiding a panel"
+    }
+  ]
+}

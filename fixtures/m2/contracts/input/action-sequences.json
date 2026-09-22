@@ -1,0 +1,726 @@
+{
+  "kind": "input-action-sequences",
+  "setVersion": 1,
+  "id": "input-action-sequences",
+  "constants": {
+    "deadZone": 0.2,
+    "moveQuantum": 0.0001,
+    "neutralFrame": {
+      "stepIndex": null,
+      "moveX": 0,
+      "jump": "none"
+    },
+    "jumpPhases": [
+      "none",
+      "pressed",
+      "held",
+      "released"
+    ],
+    "settlePreRollSteps": 12
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "## 2. `ActionFrame` (strict shape)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 3.2 Press latch — exactly one edge per executed step"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 4.2 Gamepad dead zone and rescaling"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 4.3 Simultaneous-source arbitration (deterministic, no summation)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 5.3 Suspension: focus loss, hidden tab, page hide"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 5.4 Hot disconnect"
+    }
+  ],
+  "mappingCases": [
+    {
+      "caseId": "M1-digital-left",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": true,
+        "keyboardRight": false,
+        "stickX": 0,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": -1,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M2-digital-right",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": false,
+        "keyboardRight": true,
+        "stickX": 0,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 1,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M3-both-keys-cancel",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": true,
+        "keyboardRight": true,
+        "stickX": 0.8,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 0.75,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M4-stick-inside-dead-zone",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": false,
+        "keyboardRight": false,
+        "stickX": 0.2,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 0,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M5-stick-rescaled",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": false,
+        "keyboardRight": false,
+        "stickX": 0.6,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 0.5,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M6-stick-full",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": false,
+        "keyboardRight": false,
+        "stickX": 1,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 1,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M7-keyboard-beats-stick",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": true,
+        "keyboardRight": false,
+        "stickX": -1,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": -1,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M8-dpad-opposes-stick",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "keyboardLeft": false,
+        "keyboardRight": false,
+        "dpad": -1,
+        "stickX": 0.9,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": -1,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M9-jump-pressed",
+      "stepIndex": 12,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": true
+      },
+      "expectFrame": {
+        "stepIndex": 12,
+        "moveX": 0,
+        "jump": "pressed"
+      },
+      "expectNext": {
+        "down": true,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M10-jump-held",
+      "stepIndex": 13,
+      "prevDown": true,
+      "verified": true,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": true
+      },
+      "expectFrame": {
+        "stepIndex": 13,
+        "moveX": 0,
+        "jump": "held"
+      },
+      "expectNext": {
+        "down": true,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M11-jump-released",
+      "stepIndex": 14,
+      "prevDown": true,
+      "verified": true,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 14,
+        "moveX": 0,
+        "jump": "released"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M12-jump-latch-tap",
+      "stepIndex": 14,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": false,
+        "jumpLatch": true
+      },
+      "expectFrame": {
+        "stepIndex": 14,
+        "moveX": 0,
+        "jump": "pressed"
+      },
+      "expectNext": {
+        "down": true,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M13-awaiting-release-held-not-pressed",
+      "stepIndex": 15,
+      "prevDown": false,
+      "verified": false,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": true
+      },
+      "expectFrame": {
+        "stepIndex": 15,
+        "moveX": 0,
+        "jump": "held"
+      },
+      "expectNext": {
+        "down": true,
+        "verified": false
+      }
+    },
+    {
+      "caseId": "M14-awaiting-release-clears-on-up",
+      "stepIndex": 16,
+      "prevDown": true,
+      "verified": false,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": false
+      },
+      "expectFrame": {
+        "stepIndex": 16,
+        "moveX": 0,
+        "jump": "none"
+      },
+      "expectNext": {
+        "down": false,
+        "verified": true
+      }
+    },
+    {
+      "caseId": "M15-fresh-press-after-release",
+      "stepIndex": 17,
+      "prevDown": false,
+      "verified": true,
+      "raw": {
+        "stickX": 0,
+        "jumpDown": true
+      },
+      "expectFrame": {
+        "stepIndex": 17,
+        "moveX": 0,
+        "jump": "pressed"
+      },
+      "expectNext": {
+        "down": true,
+        "verified": true
+      }
+    }
+  ],
+  "sequenceCases": [
+    {
+      "caseId": "Q1-tap-between-steps",
+      "title": "a tap that begins and ends between two samples produces exactly one pressed",
+      "events": [
+        {
+          "atStep": 13.2,
+          "kind": "down"
+        },
+        {
+          "atStep": 13.8,
+          "kind": "up"
+        }
+      ],
+      "sampleSteps": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "expectPressedCount": 1,
+      "expectFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 14,
+          "moveX": 0,
+          "jump": "pressed"
+        },
+        {
+          "stepIndex": 15,
+          "moveX": 0,
+          "jump": "released"
+        }
+      ],
+      "expectPressedCountActual": 1,
+      "expectPressedCountMatches": true
+    },
+    {
+      "caseId": "Q2-hold-and-release",
+      "title": "a held button is pressed once, then held, then released once",
+      "events": [
+        {
+          "atStep": 12,
+          "kind": "down"
+        },
+        {
+          "atStep": 16,
+          "kind": "up"
+        }
+      ],
+      "sampleSteps": [
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "expectPressedCount": 1,
+      "expectFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "pressed"
+        },
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "held"
+        },
+        {
+          "stepIndex": 14,
+          "moveX": 0,
+          "jump": "held"
+        },
+        {
+          "stepIndex": 15,
+          "moveX": 0,
+          "jump": "held"
+        },
+        {
+          "stepIndex": 16,
+          "moveX": 0,
+          "jump": "released"
+        },
+        {
+          "stepIndex": 17,
+          "moveX": 0,
+          "jump": "none"
+        }
+      ],
+      "expectPressedCountActual": 1,
+      "expectPressedCountMatches": true
+    },
+    {
+      "caseId": "Q3-double-tap-coalesced",
+      "title": "two taps inside one fixed step coalesce into one pressed frame (single latch)",
+      "events": [
+        {
+          "atStep": 13.1,
+          "kind": "down"
+        },
+        {
+          "atStep": 13.2,
+          "kind": "up"
+        },
+        {
+          "atStep": 13.3,
+          "kind": "down"
+        },
+        {
+          "atStep": 13.4,
+          "kind": "up"
+        }
+      ],
+      "sampleSteps": [
+        12,
+        13,
+        14
+      ],
+      "expectPressedCount": 1,
+      "expectFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 14,
+          "moveX": 0,
+          "jump": "pressed"
+        }
+      ],
+      "expectPressedCountActual": 1,
+      "expectPressedCountMatches": true
+    },
+    {
+      "caseId": "Q4-focus-loss-resume",
+      "title": "after a suspension a still-held jump yields held (never pressed) until it is released",
+      "events": [
+        {
+          "atStep": 12,
+          "kind": "down"
+        },
+        {
+          "atStep": 15,
+          "kind": "up"
+        },
+        {
+          "atStep": 16,
+          "kind": "down"
+        }
+      ],
+      "sampleSteps": [
+        12,
+        13,
+        14,
+        15,
+        16,
+        17
+      ],
+      "expectPressedCount": 2,
+      "suspendBeforeStep": 13,
+      "expectFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "pressed"
+        },
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "held"
+        },
+        {
+          "stepIndex": 14,
+          "moveX": 0,
+          "jump": "held"
+        },
+        {
+          "stepIndex": 15,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 16,
+          "moveX": 0,
+          "jump": "pressed"
+        },
+        {
+          "stepIndex": 17,
+          "moveX": 0,
+          "jump": "held"
+        }
+      ],
+      "expectPressedCountActual": 2,
+      "expectPressedCountMatches": true
+    },
+    {
+      "caseId": "Q5-hidden-tab-resume",
+      "title": "a hidden tab suspends and clears the latch; the pre-hidden tap is never replayed",
+      "events": [
+        {
+          "atStep": 12.5,
+          "kind": "down"
+        },
+        {
+          "atStep": 13,
+          "kind": "up"
+        }
+      ],
+      "sampleSteps": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "expectPressedCount": 0,
+      "suspendBeforeStep": 13,
+      "expectFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 14,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 15,
+          "moveX": 0,
+          "jump": "none"
+        }
+      ],
+      "expectPressedCountActual": 0,
+      "expectPressedCountMatches": true
+    }
+  ],
+  "invalidFrames": [
+    {
+      "caseId": "I1-duplicate-step-index",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 12,
+          "moveX": 1,
+          "jump": "none"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "stepIndex"
+    },
+    {
+      "caseId": "I2-decreasing-step-index",
+      "frames": [
+        {
+          "stepIndex": 13,
+          "moveX": 0,
+          "jump": "none"
+        },
+        {
+          "stepIndex": 12,
+          "moveX": 1,
+          "jump": "none"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "stepIndex"
+    },
+    {
+      "caseId": "I3-movex-out-of-range",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 1.5,
+          "jump": "none"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "moveX"
+    },
+    {
+      "caseId": "I4-movex-not-quantized",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0.123456,
+          "jump": "none"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "moveX"
+    },
+    {
+      "caseId": "I5-jump-unknown",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "down"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "jump"
+    },
+    {
+      "caseId": "I6-step-index-not-integer",
+      "frames": [
+        {
+          "stepIndex": 12.5,
+          "moveX": 0,
+          "jump": "none"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "stepIndex"
+    },
+    {
+      "caseId": "I7-unknown-field",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "none",
+          "device": "pad"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "device"
+    },
+    {
+      "caseId": "I8-broken-phase-chain",
+      "frames": [
+        {
+          "stepIndex": 12,
+          "moveX": 0,
+          "jump": "held"
+        }
+      ],
+      "code": "input_frame_invalid",
+      "field": "jump"
+    }
+  ],
+  "tolerances": {
+    "sameBuildSameEngine": "exact (bit-identical)",
+    "sameBuildRepeatedSessionM": 0.000001,
+    "sameSourcesDifferentEngineM": 0.001,
+    "crossPlatformBitExact": false
+  }
+}

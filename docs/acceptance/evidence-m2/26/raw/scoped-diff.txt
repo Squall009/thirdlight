@@ -1,0 +1,40 @@
+== tracked files changed by packet 26 (git diff --stat)
+ docs/STATUS.md                        | 74 ++++++++++++++++++++++++++++++++++-
+ packages/three-adapter/package.json   |  5 ++-
+ packages/three-adapter/src/adapter.ts | 41 +++++++++++++++++++
+ packages/three-adapter/src/errors.ts  | 27 +++++++++++++
+ packages/three-adapter/src/index.ts   | 52 +++++++++++++++++++-----
+ tools/check-boundaries.mjs            | 47 ++++++++++++++++++++--
+ tools/check-boundaries.test.mjs       | 34 ++++++++++++++++
+ 7 files changed, 265 insertions(+), 15 deletions(-)
+
+== new (untracked) packet-26 files
+ M packages/three-adapter/package.json
+ M packages/three-adapter/src/adapter.ts
+ M packages/three-adapter/src/errors.ts
+ M packages/three-adapter/src/index.ts
+?? docs/acceptance/evidence-m2/26/
+?? docs/handoffs/26.md
+?? packages/three-adapter/src/context-loss.test.ts
+?? packages/three-adapter/src/gltf-loader.test.ts
+?? packages/three-adapter/src/gltf-loader.ts
+?? packages/three-adapter/src/ownership.ts
+?? packages/three-adapter/src/preview-controller.test.ts
+?? packages/three-adapter/src/test-glb.ts
+?? packages/three-adapter/src/test-visual.ts
+?? packages/three-adapter/src/visual-resource.test.ts
+?? packages/three-adapter/src/visual.ts
+
+== already-modified M2 tree files NOT touched by packet 26 (filtered out of the packet-26 path set)
+  pre-existing: docs/contracts/commands.md
+  pre-existing: docs/contracts/dependencies.md
+  pre-existing: docs/contracts/export.md
+  pre-existing: docs/contracts/project-model.md
+  pre-existing: docs/contracts/runtime.md
+  pre-existing: docs/contracts/sessions.md
+  pre-existing: docs/contracts/workspace.md
+  pre-existing: docs/planning/implementation-prompts.md
+  … 46 pre-existing files in total (Gate F tree state, preserved)
+
+== STATUS.md packet-26 row change (only this row was edited)
++| 26 | Shared GLB rendering and asset previews | G | Gate F accepted | done 2026-09-19 — one resource-owner path in `@thirdlight/three-adapter` for model ins

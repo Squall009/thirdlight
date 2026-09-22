@@ -1,0 +1,63 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-stage-expired-new-request",
+  "title": "A new request against an expired stage fails closed",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 5. The supported staging area (BR-4)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "stage": {
+      "stageId": "stg-expired01",
+      "state": "absent",
+      "reason": "abandoned-stage retention (24 h) removed the directory"
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000003",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-expired01"
+    },
+    "retryRecord": {
+      "present": false
+    }
+  },
+  "steps": [
+    {
+      "at": "step-2",
+      "action": "deduplication lookup",
+      "expect": {
+        "outcome": "no record"
+      }
+    },
+    {
+      "at": "step-5",
+      "action": "resolve the staging handle",
+      "expect": {
+        "outcome": "absent"
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "stage_expired"
+    ],
+    "durableEffects": [],
+    "observations": [
+      "revision unchanged, no record, no blob, no envelope write",
+      "the caller re-stages from its own source of truth and re-issues with a fresh requestId"
+    ]
+  },
+  "notes": "Distinguishes an expired stage handle (fails closed, nothing durable) from an identical retry of a recorded command (replays)."
+}

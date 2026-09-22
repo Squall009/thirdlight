@@ -1,0 +1,55 @@
+# packet 18 negative control (six corrupted values in a copy of fixtures/m2/contracts)
+# command: TL15_REPO_ROOT=<repo> node /tmp/tl18-neg/tools/check-fixtures.mjs
+# corruptions: (1) bare-import.json container text edited ('lodash' -> './util.ts'),
+#              (2) intents.json I06-range expect.detail 'value' -> 'shape',
+#              (3) compiled-example.json source.manifestDigest -> 64 zeros,
+#              (4) runtime-failures.json L01 expect.dropped 984 -> 900,
+#              (5) source-graphs.json G07 expect.code -> undeclared 'behavior_sandbox_escape',
+#              (6) publication-cases.json P01 expect.revision 5 -> 4
+
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 72 JSON fixture(s) checked
+ok   index: 75 index entries, 78 files on disk
+ok   code-registry: 65 code(s) used by fixtures, all declared in expected.json.registry; 63 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 127 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   p17-numerics: 34 constants, 8 slope rows, 10 settings cases, 20 validation cases re-derived
+ok   p17-traces: 16 traces, 178 sampled step rows and 48 derived expectations replayed
+ok   p17-input: 15 mapping cases and 5 step-indexed sequences replayed
+ok   p17-catchup: 7 scheduler cases and 8 ownership/combination cases replayed
+ok   p17-failures: 21 failure cases checked (codes, state, durable effect)
+ok   p18-source-graphs: 41 source-graph case(s) (16 container + 25 constructed) re-derived from behaviors.md §4.3/§6
+ok   p18-intents: 6 quantization row(s), 18 intent step(s) and 4 effective-frame row(s) replayed
+ok   p18-runtime-failures: 21 runtime failure case(s) and 6 flood case(s) re-derived
+ok   p18-publication: 14 publication case(s) replayed through the prepare/publish/build state machine
+ok   p18-example: the example manifest is digest-bound, links one pinned module, declares a numeric property and replays its intent trace
+ok   preimage: 2 preimage(s) re-hashed
+ok   p18-container-hash: 16 behavior source container(s) re-hashed and merged into the digest map
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+FAIL canonical-form: behaviors/compiled-example.json: bytes are not the canonical form (run --write)
+FAIL canonical-form: behaviors/intents.json: bytes are not the canonical form (run --write)
+FAIL canonical-form: behaviors/publication-cases.json: bytes are not the canonical form (run --write)
+FAIL canonical-form: behaviors/runtime-failures.json: bytes are not the canonical form (run --write)
+FAIL code-registry: behaviors/source-graphs.json: code "behavior_sandbox_escape" is not declared in expected.json registry
+FAIL p18-source-graphs: G03-bare-import: containerDigest 21ffad56b4ae2d4d6fe45f32c5cc99a7b2b56f84ecbb1f26ef7156b9d0146e1f != e64b053b117726882a395b32c50debaf388f28d634a3a2b6e05e3416f6c5469f
+FAIL p18-source-graphs: G03-bare-import: containerByteLength 352 != 349
+FAIL p18-source-graphs: G03-bare-import: code derived "behavior_source_missing" != expected "behavior_import_forbidden"
+FAIL p18-source-graphs: G03-bare-import: reason derived undefined != expected "bare"
+FAIL p18-source-graphs: G03-bare-import: specifier derived undefined != expected "lodash"
+FAIL p18-source-graphs: G07-eval-call: code derived "behavior_dynamic_code" != expected "behavior_sandbox_escape"
+FAIL p18-intents: I06-range: detail derived "value" != expected "shape"
+FAIL p18-runtime-failures: L01-log-flood-single-step: dropped derived 984 != expected 900
+FAIL p18-publication: P01-staged-edit-does-not-change-active-play: revision derived 5 != expected 4
+FAIL p18-example: manifestDigest 5e97f3c92b136e685506d06749f4d1e80f923c650cbb3dff7a7996bc6fee70c7 != 0000000000000000000000000000000000000000000000000000000000000000
+FAIL p18-container-hash: bare-import.json: sha256 21ffad56b4ae2d4d6fe45f32c5cc99a7b2b56f84ecbb1f26ef7156b9d0146e1f != declared e64b053b117726882a395b32c50debaf388f28d634a3a2b6e05e3416f6c5469f
+FAIL p18-container-hash: bare-import.json: length 352 != declared 349
+check FAILED: 27 check group(s) passed, 17 problem(s)
+exit=1

@@ -1,0 +1,86 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "New M3 error codes (gameplay.md §8.1) with class and destination, plus the additive reason strings on accepted codes. Run-command failures are runtime codes, not commands.md §5.4 rows."
+  ],
+  "codes": {
+    "game_command_invalid": {
+      "cls": "validation",
+      "carries": [
+        "command",
+        "state",
+        "reason"
+      ],
+      "reasons": [
+        "state",
+        "pending",
+        "unknown"
+      ],
+      "destination": "runtime.md §8",
+      "raisedWhen": "a run command is rejected for the current run state or conflicts with a pending command"
+    },
+    "game_spawn_invalid": {
+      "cls": "validation",
+      "carries": [
+        "spawnEntityId",
+        "reason",
+        "stepIndex"
+      ],
+      "reasons": [
+        "reference",
+        "outside_level"
+      ],
+      "destination": "runtime.md §8/§13",
+      "raisedWhen": "the reset destination does not resolve, is outside content.game.level, or is at/below killY (fail-stop)"
+    },
+    "game_spawn_blocked": {
+      "cls": "unavailable",
+      "carries": [
+        "spawnEntityId",
+        "reason",
+        "penetration",
+        "stepIndex"
+      ],
+      "reasons": [
+        "blocked",
+        "no_support",
+        "hazard",
+        "query_failed"
+      ],
+      "destination": "runtime.md §8/§13",
+      "raisedWhen": "the clearance/overlap probe rejects the destination (fail-stop, no retry, no fallback)"
+    },
+    "camera_viewport_invalid": {
+      "cls": "validation",
+      "carries": [
+        "width",
+        "height"
+      ],
+      "reasons": [],
+      "destination": "runtime.md §8",
+      "raisedWhen": "setViewport receives a non-finite, non-positive or oversized dimension"
+    },
+    "game_session_unavailable": {
+      "cls": "validation",
+      "carries": [
+        "reason"
+      ],
+      "reasons": [
+        "schedule"
+      ],
+      "destination": "runtime.md §8",
+      "raisedWhen": "a run/view/viewport call on a runtime that is not M3-enabled"
+    }
+  },
+  "acceptedReasonAdditions": {
+    "module_error": [
+      "gameplay_invalid"
+    ],
+    "physics_port_error": [
+      "reset"
+    ]
+  },
+  "notAdded": [
+    "commands.md §5.4 gains no row: run-command failures are runtime codes, not authoring-command failures."
+  ]
+}

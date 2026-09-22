@@ -1,0 +1,40 @@
+# packet 17 — independent recomputation in python3 (actual, final run)
+date: 2026-09-19T01:04:02Z
+
+Method: docs/acceptance/evidence-m2/17/independent-recompute.py is a second implementation
+(python3, no thirdlight imports) of the proposed input mapping, platformer step order,
+scripted analytic port and runtime scheduler. It GENERATED the committed expectation tables;
+the JS checker re-derives them. This run re-derives every fixture from scratch and compares.
+
+## python3 --version
+Python 3.14.4
+
+## python3 docs/acceptance/evidence-m2/17/independent-recompute.py --verify
+OK   physics/numerics.json
+OK   platformer/traces.json
+OK   platformer/failures.json
+OK   input/action-sequences.json
+OK   runtime/catchup.json
+exit=0
+
+## spot values (recomputed independently of the JS checker)
+  jump-hold-full-height: apexGainM=1.2196625 apexStep=53 landedStep=96
+  jump-tap-release: apexGainM=0.3961625 apexStep=33 landedStep=None
+  buffer: landingStep=18, jumpStartedStep=19
+  coyote: lastGroundedResultStep=14, windowLastStep=21, jumpStartedStep=21
+  no-air-jump: jumpStartCount=1, maxVy=6.8365
+  wall-stop: maxCenterX=9.190000 (face 9.5 - 0.31 skin), contactStep=47
+  head-bump: maxCenterY=2.670000 (= 3.58 - 0.91), maxVyAfterContact=0, maxRise/step=0
+  ledge: blockedCenterX=11.690000, maxDxWhileBlocked=0, landedCenterY=1.310000, autostep=False
+  seam-cross: ungroundedSteps=0 (allowed 2), maxYDeviation=0, maxDxPerStep=0.033333
+  snap-within: stepDownM=0.06, ungroundedSteps=0, finalCenterY=0.850000
+  snap-beyond: stepDownM=0.15, firstUngroundedStep=51, landedStep=66, landedCenterY=0.760000
+  slope rows: 29.9->grounded-not-idle-sliding, 30->grounded-idle-sliding, 30.1->grounded-idle-sliding, 43->grounded-idle-sliding, 44.9->grounded-idle-sliding, 45->grounded-idle-sliding, 45.1->refused, 47->refused
+  accel/decel steps: 12 / 8 ; apex 1.2196625
+   C1-pre-roll-first-frame endStep 14 dropped 0 clockWarnings 0
+   C2-normal-60hz endStep 20 dropped 0 clockWarnings 0
+   C3-stall-drop-and-resync endStep 22 dropped 112 clockWarnings 0
+   C4-no-step-frame endStep 14 dropped 0 clockWarnings 0
+   C5-negative-clock endStep 12 dropped 0 clockWarnings 2
+   C6-jump-edge-not-replayed endStep 20 dropped 0 clockWarnings 0
+   C7-drop-does-not-replay-edges endStep 22 dropped 52 clockWarnings 0

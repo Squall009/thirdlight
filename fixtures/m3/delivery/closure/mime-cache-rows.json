@@ -1,0 +1,24 @@
+{
+  "contentType": {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json",
+    ".wasm": "application/wasm",
+    ".glb": "model/gltf-binary",
+    ".wav": "audio/wav"
+  },
+  "always": {
+    "X-Content-Type-Options": "nosniff"
+  },
+  "previewArtifacts": {
+    "Cache-Control": "private, immutable, max-age=<remaining locator TTL seconds>",
+    "ETag": "\"<sha256 digest>\""
+  },
+  "exportStatic": {
+    "note": "an independent static server must send the same MIME classes; the export does not rely on a hosting CSP header"
+  },
+  "nonRootPrefix": {
+    "example": "/games/beacon-reach/",
+    "rule": "all references relative (./...); no absolute/-prefixed reference; no <base> element"
+  }
+}

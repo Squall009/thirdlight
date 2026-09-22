@@ -1,0 +1,38 @@
+{
+  "cases/load-order-cases.json": {
+    "byteLength": 19121,
+    "sha256": "1bf7e432dca6dcdc9b4397cacc9ff735c6a750c04be47f9f1fd9021cabf787d6"
+  },
+  "cases/model-attach-cases.json": {
+    "byteLength": 7060,
+    "sha256": "54f3abc5b5662db70856c36d65406498ab6933b97af6ee096a9592a835f100df"
+  },
+  "cases/query-cases.json": {
+    "byteLength": 6949,
+    "sha256": "a5360b5c3a53e4f13fd9463484aed0380c254f8d603ccb8408d2c9c0dad1a3e7"
+  },
+  "cases/scan-graph-cases.json": {
+    "byteLength": 4032,
+    "sha256": "be924e0239e4f11b2cedd5b99ffa92cb9d770bf658123cbc4943effc574566bf"
+  },
+  "glb/bad-root-motion-m4.glb": {
+    "byteLength": 2368,
+    "sha256": "2a8ec6473268078538fc37be4f1557a8aa5831f037b3b5a1b0acdfa8bbf647e5"
+  },
+  "glb/bad-skin-m4.glb": {
+    "byteLength": 1340,
+    "sha256": "b3544776a12cbc937c4605179373c1ed2dab41747c46f82b745f691b596a7168"
+  },
+  "glb/corrupt-m4.glb": {
+    "byteLength": 1279,
+    "sha256": "6264e2b679006f5cacc718fae361a282002d8b2b0721715f91e314534232de02"
+  },
+  "glb/runner-m4.glb": {
+    "byteLength": 2132,
+    "sha256": "001046db22c4cec83d27c4053d2e65dd2a4a3df78855df62b69b69a09f1f5f7e"
+  },
+  "glb/undeclared-m4.glb": {
+    "byteLength": 1304,
+    "sha256": "918f812b72508a4331d93e072d49bf986bc670352eddff5283f0a7c99daa916d"
+  }
+}

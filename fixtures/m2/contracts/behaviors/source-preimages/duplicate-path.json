@@ -1,0 +1,16 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "export const a = 1;\n"
+    },
+    {
+      "path": "src/index.ts",
+      "text": "export const b = 2;\n"
+    }
+  ]
+}

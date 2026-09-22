@@ -1,0 +1,128 @@
+{
+  "kind": "delivery-upload-bounds",
+  "setVersion": 1,
+  "id": "delivery-upload-bounds",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 11. Constants (normative, packet 19)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 9. Bounds"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "### 5.2 Lifecycle, bounds and cleanup"
+    }
+  ],
+  "bounds": {
+    "frameBytes": 1048576,
+    "stageBytes": 33554432,
+    "openStages": 8,
+    "stagedBytesPerProject": 134217728,
+    "stageTtlSeconds": 3600,
+    "abandonedStageRetentionSeconds": 86400,
+    "proposalResponseBytes": 262144
+  },
+  "cases": [
+    {
+      "caseId": "U1-single-frame-complete",
+      "frameBytes": 1048576,
+      "offset": 0,
+      "expectedOffset": 0,
+      "declaredTotal": 1048576,
+      "openStages": 1,
+      "stagedBytes": 0,
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "limit": null
+      }
+    },
+    {
+      "caseId": "U2-frame-over-cap",
+      "frameBytes": 1048577,
+      "offset": 0,
+      "expectedOffset": 0,
+      "declaredTotal": 2097152,
+      "openStages": 1,
+      "stagedBytes": 0,
+      "expect": {
+        "accepted": false,
+        "code": "stage_limits_exceeded",
+        "limit": "frame_bytes"
+      }
+    },
+    {
+      "caseId": "U3-bad-offset",
+      "frameBytes": 4096,
+      "offset": 8192,
+      "expectedOffset": 4096,
+      "declaredTotal": 8192,
+      "openStages": 1,
+      "stagedBytes": 0,
+      "expect": {
+        "accepted": false,
+        "code": "content_frame_invalid",
+        "limit": null
+      }
+    },
+    {
+      "caseId": "U4-stage-over-cap",
+      "frameBytes": 1048576,
+      "offset": 33554432,
+      "expectedOffset": 33554432,
+      "declaredTotal": 34603008,
+      "openStages": 1,
+      "stagedBytes": 33554432,
+      "expect": {
+        "accepted": false,
+        "code": "stage_limits_exceeded",
+        "limit": "stage_bytes"
+      }
+    },
+    {
+      "caseId": "U5-too-many-open-stages",
+      "frameBytes": 4096,
+      "offset": 0,
+      "expectedOffset": 0,
+      "declaredTotal": 4096,
+      "openStages": 8,
+      "stagedBytes": 0,
+      "expect": {
+        "accepted": false,
+        "code": "stage_limits_exceeded",
+        "limit": "open_stages"
+      }
+    },
+    {
+      "caseId": "U6-staged-bytes-over-project-cap",
+      "frameBytes": 4096,
+      "offset": 0,
+      "expectedOffset": 0,
+      "declaredTotal": 4096,
+      "openStages": 2,
+      "stagedBytes": 134217728,
+      "expect": {
+        "accepted": false,
+        "code": "stage_limits_exceeded",
+        "limit": "staged_bytes_per_project"
+      }
+    },
+    {
+      "caseId": "U7-valid-second-frame",
+      "frameBytes": 4096,
+      "offset": 4096,
+      "expectedOffset": 4096,
+      "declaredTotal": 8192,
+      "openStages": 1,
+      "stagedBytes": 4096,
+      "expect": {
+        "accepted": true,
+        "code": null,
+        "limit": null
+      }
+    }
+  ]
+}

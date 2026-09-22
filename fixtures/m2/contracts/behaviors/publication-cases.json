@@ -1,0 +1,595 @@
+{
+  "kind": "behavior-publication-case-set",
+  "setVersion": 1,
+  "id": "behavior-publication-cases",
+  "digests": {
+    "published": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+    "other": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f"
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 8.1 The order (normative)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 8.4 Preparation (packet 33) — the digest-bound result"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 8.6 Revision, watchers and running snapshots"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 8.7 Play, export and the two distinct build failures"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "P01-staged-edit-does-not-change-active-play",
+      "title": "a staged source edit is inert: publishing + building a new digest changes the revision but not the running instance",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "editStage"
+        },
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p01"
+        },
+        {
+          "op": "build",
+          "result": "ok"
+        }
+      ],
+      "expect": {
+        "revision": 5,
+        "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "artifactDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "code": null,
+        "reason": null,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      }
+    },
+    {
+      "caseId": "P02-failed-compile-preserves-last-good-publication",
+      "title": "a failing preparation writes nothing",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "editStage"
+        },
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "fail",
+          "code": "behavior_source_cycle"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "behavior_source_cycle",
+        "reason": null,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      }
+    },
+    {
+      "caseId": "P03-publication-unavailable-before-33",
+      "title": "with no preparer, source publication always fails closed",
+      "before": {
+        "revision": 4,
+        "sourceDigest": null,
+        "sourceNull": true,
+        "prepared": false,
+        "acknowledged": true,
+        "derivedArtifact": null,
+        "preparer": false,
+        "runningPlay": null
+      },
+      "steps": [
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p03"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": null,
+        "artifactDigest": null,
+        "code": "behavior_publication_unavailable",
+        "reason": "preparer_unavailable",
+        "sourceNull": true
+      }
+    },
+    {
+      "caseId": "P04-source-publication-changes-revision",
+      "title": "publishing prepared bytes advances the revision and writes the digest-bound record",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p04"
+        }
+      ],
+      "expect": {
+        "revision": 5,
+        "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": null,
+        "reason": null
+      }
+    },
+    {
+      "caseId": "P05-no-change",
+      "title": "a byte-identical declaration publication is a no-change",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "publishDeclaration",
+          "requestId": "req-p05",
+          "identical": true
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "no_change",
+        "reason": null
+      }
+    },
+    {
+      "caseId": "P06-stale-request",
+      "title": "a stale expectedRevision is refused",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 2,
+          "requestId": "req-p06"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "revision_conflict",
+        "reason": null
+      }
+    },
+    {
+      "caseId": "P07-retry-replay",
+      "title": "an identical retry replays from the record without recompiling",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p07"
+        },
+        {
+          "op": "retry",
+          "requestId": "req-p07"
+        }
+      ],
+      "expect": {
+        "revision": 5,
+        "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": null,
+        "reason": null,
+        "duplicated": true,
+        "recompiled": false
+      }
+    },
+    {
+      "caseId": "P08-preparation-missing",
+      "title": "a digest with no prepared artifact cannot be published",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p08"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "behavior_publication_unavailable",
+        "reason": "preparation_missing"
+      }
+    },
+    {
+      "caseId": "P09-trust-unacknowledged",
+      "title": "an unacknowledged digest cannot be prepared or published",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": false,
+        "acknowledged": false,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "trust",
+          "code": "behavior_trust_unacknowledged"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p09"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "behavior_trust_unacknowledged",
+        "reason": "digest"
+      }
+    },
+    {
+      "caseId": "P10-derived-cache-deleted-regenerable",
+      "title": "deleting the derived artifact loses nothing authoritative; a re-preparation regenerates it",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "deleteDerivedCache"
+        },
+        {
+          "op": "play",
+          "probe": "firstPlay"
+        },
+        {
+          "op": "reprepare",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+          "result": "ok"
+        },
+        {
+          "op": "build",
+          "result": "ok"
+        },
+        {
+          "op": "play",
+          "probe": "secondPlay"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": null,
+        "reason": null,
+        "firstPlay": {
+          "code": "behavior_publication_unavailable",
+          "reason": "preparation_missing"
+        },
+        "secondPlay": {
+          "ok": true,
+          "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      }
+    },
+    {
+      "caseId": "P11-build-failure-preserves-last-good-artifact",
+      "title": "a full-snapshot build failure does not undo the publication and keeps the previous artifact",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p11"
+        },
+        {
+          "op": "build",
+          "result": "fail",
+          "code": "behavior_build_failed"
+        },
+        {
+          "op": "play",
+          "probe": "playFailure"
+        }
+      ],
+      "expect": {
+        "revision": 5,
+        "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "behavior_build_failed",
+        "reason": "link",
+        "playFailure": {
+          "code": "behavior_publication_unavailable",
+          "reason": "preparation_missing"
+        }
+      }
+    },
+    {
+      "caseId": "P12-source-null-composes-and-plays",
+      "title": "a declaration-only behavior needs no build and plays as today",
+      "before": {
+        "revision": 4,
+        "sourceDigest": null,
+        "sourceNull": true,
+        "prepared": false,
+        "acknowledged": true,
+        "derivedArtifact": null,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "probe": "play"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": null,
+        "artifactDigest": null,
+        "code": null,
+        "reason": null,
+        "play": {
+          "ok": true,
+          "artifactDigest": null
+        }
+      }
+    },
+    {
+      "caseId": "P13-incompatible-property-update-with-source",
+      "title": "an incompatible declaration update leaves the published source and revision untouched",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "publishDeclaration",
+          "requestId": "req-p13",
+          "identical": false,
+          "incompatible": true,
+          "code": "property_declaration_incompatible"
+        }
+      ],
+      "expect": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "artifactDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "code": "property_declaration_incompatible",
+        "reason": null
+      }
+    },
+    {
+      "caseId": "P14-build-recovery-after-failure",
+      "title": "a later successful build publishes the new artifact; the failure left nothing inconsistent",
+      "before": {
+        "revision": 4,
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceNull": false,
+        "prepared": true,
+        "acknowledged": true,
+        "derivedArtifact": true,
+        "preparer": true,
+        "runningPlay": {
+          "snapshotDigest": "snap-r4",
+          "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24"
+        }
+      },
+      "steps": [
+        {
+          "op": "prepare",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "result": "ok"
+        },
+        {
+          "op": "publishSource",
+          "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+          "expectedRevision": 4,
+          "requestId": "req-p14"
+        },
+        {
+          "op": "build",
+          "result": "fail",
+          "code": "behavior_build_failed"
+        },
+        {
+          "op": "build",
+          "result": "ok"
+        },
+        {
+          "op": "play",
+          "probe": "finalPlay"
+        }
+      ],
+      "expect": {
+        "revision": 5,
+        "sourceDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "artifactDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+        "code": null,
+        "reason": null,
+        "finalPlay": {
+          "ok": true,
+          "artifactDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f"
+        }
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/behaviors.md",
+          "section": "### 8.7 Play, export and the two distinct build failures"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+== npm test (root, captured 2026-09-19T07:04:08Z) ==
+ Test Files  106 passed (106)
+      Tests  1401 passed (1401)
+   Duration  30.85s (tests 87%, import 8%, transform 5%, worker 1%)
+
+== npm run typecheck ==
+
+> thirdlight@0.0.0 typecheck
+> node tools/typecheck.mjs
+
+typecheck: tsc --noEmit -p packages/asset-pipeline
+typecheck: tsc --noEmit -p packages/backend
+typecheck: tsc --noEmit -p packages/commands
+typecheck: tsc --noEmit -p packages/editor
+typecheck: tsc --noEmit -p packages/exporter
+typecheck: tsc --noEmit -p packages/input
+typecheck: tsc --noEmit -p packages/mcp-adapter
+typecheck: tsc --noEmit -p packages/project-model
+typecheck: tsc --noEmit -p packages/protocol
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+(exit 0 — 12 package configs validated, tsc --noEmit clean)
+
+== npm run check-deps ==
+> thirdlight@0.0.0 check-deps
+> node tools/check-deps.mjs
+
+check-deps: OK
+  installed (npm ls --depth=0, non-workspace):
+    ws 8.21.3 (= §7 pin)
+    @types/react-dom 19.3.0 (= §7 pin)
+    @types/react 19.3.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    react-dom 19.3.0 (= §7 pin)
+    react 19.3.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    @modelcontextprotocol/sdk 1.30.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)

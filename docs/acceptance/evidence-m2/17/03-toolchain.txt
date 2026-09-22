@@ -1,0 +1,66 @@
+# packet 17 toolchain (actual, final run)
+date: 2026-09-19T01:02:25Z
+
+## node --version
+v22.22.1
+
+## node fixtures/m2/contracts/tools/check-fixtures.mjs
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 50 JSON fixture(s) checked
+ok   index: 52 index entries, 55 files on disk
+ok   code-registry: 48 code(s) used by fixtures, all declared in expected.json.registry; 63 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 110 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   p17-numerics: 34 constants, 8 slope rows, 10 settings cases, 20 validation cases re-derived
+ok   p17-traces: 16 traces, 178 sampled step rows and 48 derived expectations replayed
+ok   p17-input: 15 mapping cases and 5 step-indexed sequences replayed
+ok   p17-catchup: 7 scheduler cases and 8 ownership/combination cases replayed
+ok   p17-failures: 21 failure cases checked (codes, state, durable effect)
+ok   preimage: 2 preimage(s) re-hashed
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 21 check group(s) passed, 0 problem(s)
+checker exit=0
+
+## npm test
+
+
+ Test Files  66 passed (66)
+      Tests  841 passed (841)
+   Start at  01:02:25
+   Duration  28.09s (tests 92%, import 5%, transform 3%)
+
+    Isolate  66 workers spawned · ~207ms startup each (spawn + environment, per file)
+             at least ~2.52s faster with isolate: false — reuses workers across files instead of one per file
+
+test exit=0
+
+## npm run typecheck
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+typecheck exit=0
+
+## npm run check-deps
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+check-deps exit=0
+
+## npm run check-boundaries
+
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 150 source file(s), 514 specifier(s) checked; no boundary violations.
+check-boundaries exit=0
+
+## npm run build
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+build exit=0

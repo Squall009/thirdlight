@@ -1,0 +1,643 @@
+{
+  "description": "The both-host loading order (delivery.md §2.8) with failure injection at each phase (L1–L9). The manifestFragment is self-consistent under the accepted digest rules; the checker re-derives every digest and the ready identity tuple. The browser-level evidence (real tl.* transcript, fetch counts) is packet 70.",
+  "constants": {
+    "SETTLE_STEPS": 12,
+    "PRESENT_TIMEOUT_MS": 15000,
+    "PLAY_CONTENT_TTL_S": 900,
+    "SNAPSHOT_BRIDGE_MAX_BYTES": 1048576
+  },
+  "manifestFragment": {
+    "manifestVersion": 2,
+    "type": "thirdlight-runtime-content",
+    "projectId": "m4-delivery-case",
+    "revision": 7,
+    "snapshotId": "m4-delivery-case@r7",
+    "capturedAt": "2026-09-22T00:00:00Z",
+    "sceneDigest": "40d5369e2e56d807e3892dfdc31a472a062d926d544121c709db1cfa38b117d2",
+    "contentDigest": "09deb304299d49d77207f8662663428bc580df1b8c3ee995775b9ad2e83c794e",
+    "gameDigest": "9f319da89ef88ebf2d03b36c1039f15bd0476ade8df99b0f0acd09edf9f9f288",
+    "settingsDigest": "3855424884cb268235bae3e5b06bc5c4d338f63187d7d91f689a0958da0550c6",
+    "mediaDigest": "272f2288c51221265f042faefd59cc9a5548d2237363bab4516b1fa1ce771a44",
+    "settings": {
+      "gravity_y": -19.62,
+      "run_speed": 5,
+      "jump_velocity": 7,
+      "max_fall_speed": -30,
+      "max_slope_climb_deg": 45,
+      "min_slope_slide_deg": 30
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "M4 Delivery Case",
+      "objective": "Reach the beacon.",
+      "instructions": "A/D or arrows: move. Space: jump. Enter: start/replay.",
+      "level": {
+        "xMin": 0,
+        "xMax": 40,
+        "killY": -4
+      },
+      "cues": {
+        "start": null,
+        "jump": null,
+        "checkpoint": null,
+        "death": null,
+        "goal": null
+      },
+      "spawnId": "spawn-0001",
+      "playerId": "player-0001",
+      "cameraId": "cam-main"
+    },
+    "assets": [
+      {
+        "assetId": "asset-runner",
+        "kind": "model",
+        "version": 1,
+        "sourceDigest": "001046db22c4cec83d27c4053d2e65dd2a4a3df78855df62b69b69a09f1f5f7e",
+        "sourceByteLength": 2132,
+        "recipeDigest": "65d536f552fe8540443af452334c8b7089d87e0229c941831ccba28ca436aed9",
+        "metricsDigest": "b340e386c37da984ca6d775c6bfebb1e171253f5a23957ef6c247ea615d05527",
+        "path": "content/sha256/001046db22c4cec83d27c4053d2e65dd2a4a3df78855df62b69b69a09f1f5f7e"
+      }
+    ],
+    "media": {
+      "cues": {
+        "start": null,
+        "jump": null,
+        "checkpoint": null,
+        "death": null,
+        "goal": null
+      },
+      "animation": [
+        {
+          "entityId": "model-player-0001",
+          "assetId": "asset-runner",
+          "version": 1,
+          "profileDigest": "ab19012f0ada6c418a189c4b99bfb6a151fcf3a6f1111dde8bd4723078b7abe0",
+          "roles": {
+            "idle": {
+              "clipIndex": 0,
+              "clipName": "Idle"
+            },
+            "run": {
+              "clipIndex": 1,
+              "clipName": "Run"
+            },
+            "airborne": {
+              "clipIndex": 2,
+              "clipName": "Airborne"
+            }
+          }
+        }
+      ]
+    },
+    "behaviors": [],
+    "modules": [
+      {
+        "id": "thirdlight.platformer-game:session",
+        "apiVersion": 1,
+        "package": "@thirdlight/platformer-game",
+        "version": "0.1.0"
+      },
+      {
+        "id": "thirdlight.platformer:controller",
+        "apiVersion": 1,
+        "package": "@thirdlight/platformer",
+        "version": "0.1.0"
+      }
+    ],
+    "enginePins": [
+      {
+        "id": "@thirdlight/platformer-game",
+        "version": "0.1.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/runtime",
+        "version": "0.1.0",
+        "apiVersion": 2
+      },
+      {
+        "id": "@thirdlight/three",
+        "version": "0.186.0",
+        "apiVersion": 0
+      }
+    ],
+    "recipes": {
+      "behavior-source": 1,
+      "gltf-glb": 1,
+      "pcm-wav": 1
+    },
+    "toolchain": {
+      "esbuild": "0.28.2",
+      "typescript": "5.9.3",
+      "optionsDigest": "561e1d3cc87b127b733740d5f57f49e86e0a23ed0b3371432284266995004131"
+    },
+    "buildOptionsDigest": "561e1d3cc87b127b733740d5f57f49e86e0a23ed0b3371432284266995004131",
+    "buildId": "35cbb4783f31f9c756ce064fc9bdeed54a1d2ec34bf4eb5a23b1d2502f373991"
+  },
+  "snapshotDocument": {
+    "snapshotId": "m4-delivery-case@r7",
+    "projectId": "m4-delivery-case",
+    "revision": 7,
+    "scene": {
+      "schemaVersion": 3,
+      "sceneId": "scene-main",
+      "revision": 7,
+      "entities": [
+        {
+          "id": "cam-main",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                1.5,
+                4
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "camera": {
+              "fovY": 60,
+              "near": 0.1,
+              "far": 100
+            }
+          }
+        },
+        {
+          "id": "player-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                3,
+                0.91,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                0.6,
+                1.8,
+                0.6
+              ],
+              "material": {
+                "color": "#4a90d9"
+              }
+            },
+            "controller": {},
+            "surface": {
+              "color": "#4a90d9",
+              "roughness": 0.8,
+              "metalness": 0,
+              "emissive": "#000000",
+              "emissiveIntensity": 0
+            }
+          }
+        },
+        {
+          "id": "model-player-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                3,
+                0.91,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "model": {
+              "asset": {
+                "assetId": "asset-runner"
+              }
+            },
+            "modelAnimation": {
+              "assetId": "asset-runner",
+              "version": 1,
+              "roles": {
+                "idle": {
+                  "clipIndex": 0,
+                  "clipName": "Idle"
+                },
+                "run": {
+                  "clipIndex": 1,
+                  "clipName": "Run"
+                },
+                "airborne": {
+                  "clipIndex": 2,
+                  "clipName": "Airborne"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "model-deco-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                8,
+                0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "model": {
+              "asset": {
+                "assetId": "asset-runner"
+              }
+            }
+          }
+        },
+        {
+          "id": "zone-checkpoint-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                12,
+                0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#888888"
+              }
+            },
+            "gameZone": {
+              "role": "checkpoint",
+              "size": [
+                1,
+                1
+              ],
+              "safeSpawnId": "spawn-checkpoint-0001",
+              "activation": {
+                "emissive": "#00ff88",
+                "emissiveIntensity": 2,
+                "cueAssetId": null
+              }
+            }
+          }
+        },
+        {
+          "id": "spawn-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                3,
+                0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "playerSpawn": {}
+          }
+        },
+        {
+          "id": "spawn-checkpoint-0001",
+          "parentId": null,
+          "components": {
+            "transform": {
+              "position": [
+                12,
+                0.5,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "playerSpawn": {}
+          }
+        },
+        {
+          "id": "br-light-sun",
+          "parentId": null,
+          "components": {
+            "light": {
+              "type": "directional",
+              "color": "#ffffff",
+              "intensity": 3,
+              "direction": [
+                -0.4,
+                -1,
+                -0.3
+              ],
+              "castShadow": true
+            }
+          }
+        }
+      ]
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "M4 Delivery Case",
+      "objective": "Reach the beacon.",
+      "instructions": "A/D or arrows: move. Space: jump. Enter: start/replay.",
+      "level": {
+        "xMin": 0,
+        "xMax": 40,
+        "killY": -4
+      },
+      "cues": {
+        "start": null,
+        "jump": null,
+        "checkpoint": null,
+        "death": null,
+        "goal": null
+      },
+      "spawnId": "spawn-0001",
+      "playerId": "player-0001",
+      "cameraId": "cam-main"
+    }
+  },
+  "previewSequence": [
+    {
+      "step": 1,
+      "event": "shell",
+      "detail": "GET /play/<playSessionId>?content=<contentId> → page config v2 (authoringOrigin, playSessionId, contentId, manifestPath)"
+    },
+    {
+      "step": 2,
+      "event": "tl.handshake",
+      "detail": "editor → preview: nonce, demo, bridgeVersion 2, contentId, buildId (= manifest.buildId)"
+    },
+    {
+      "step": 3,
+      "event": "tl.handshake.ack",
+      "detail": "preview → editor: nonce echoed (origin/source/playSessionId verified first) — D-63-5 repair point"
+    },
+    {
+      "step": 4,
+      "event": "tl.playContent.expect + tl.snapshot",
+      "detail": "editor → preview after the ack: expect (contentId, buildId) and the runtime.md §2 document WITH the v3 game field"
+    },
+    {
+      "step": 5,
+      "event": "manifest-read",
+      "detail": "fetch(\"./manifest.json\"); validate type gate, buildId == expected, snapshot.scene rehash → sceneDigest, snapshot.game rehash → gameDigest, snapshotId/revision match; tl.load.progress phase \"manifest\""
+    },
+    {
+      "step": 6,
+      "event": "asset-reads",
+      "detail": "one read per unique declared asset path (content/sha256/<digest>), re-hash vs sourceDigest; tl.load.progress phase \"assets\""
+    },
+    {
+      "step": 7,
+      "event": "runtime-instantiate",
+      "detail": "instantiateRuntime({ snapshot (incl. game), settings = manifest.settings (resolved), M3 module set })"
+    },
+    {
+      "step": 8,
+      "event": "adapter+models",
+      "detail": "createSceneAdapter(canvas, { runtime, snapshot, models: { assets, animation: manifest.media.animation, resolveBytes } }) — model prepares start (async, cancellable)"
+    },
+    {
+      "step": 9,
+      "event": "host-mount",
+      "detail": "createGameHost + mount(); run = awaitingStart; the menu channel is live (start/replay/mute serviced between frames)"
+    },
+    {
+      "step": 10,
+      "event": "prepares-settle",
+      "detail": "all model prepares ready (or a hard failure per L1–L5/L9)"
+    },
+    {
+      "step": 11,
+      "event": "tl.ready",
+      "detail": "preview → editor: the real identity tuple — D-63-6 repair point",
+      "readyTuple": {
+        "snapshotId": "m4-delivery-case@r7",
+        "revision": 7,
+        "buildId": "35cbb4783f31f9c756ce064fc9bdeed54a1d2ec34bf4eb5a23b1d2502f373991",
+        "contentDigest": "09deb304299d49d77207f8662663428bc580df1b8c3ee995775b9ad2e83c794e",
+        "stepIndex": 12
+      }
+    },
+    {
+      "step": 12,
+      "event": "play.preview.ready",
+      "detail": "editor → backend WS (the send path — D-63-4 repair point); the backend marks the play presented before the 15 s bound"
+    }
+  ],
+  "failureInjection": [
+    {
+      "id": "L1-buildId-mismatch",
+      "phase": "manifest",
+      "change": "the handshake carries a different buildId than the served manifest",
+      "fetches": 1,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "manifest",
+        "code": "play_content_not_ready"
+      },
+      "after": "no asset read, no runtime, no tl.ready; the editor reports the truthful failure and the play is never presented (preview_timeout at +15 s if unhandled)"
+    },
+    {
+      "id": "L1b-sceneDigest-mismatch",
+      "phase": "manifest",
+      "change": "the snapshot scene re-hashes to a value ≠ manifest.sceneDigest",
+      "fetches": 1,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "manifest",
+        "code": "play_content_not_ready"
+      },
+      "after": "same as L1 (the snapshot is not this capture)"
+    },
+    {
+      "id": "L1c-gameDigest-mismatch",
+      "phase": "manifest",
+      "change": "the snapshot game re-hashes to a value ≠ manifest.gameDigest",
+      "fetches": 1,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "manifest",
+        "code": "play_content_not_ready"
+      },
+      "after": "same as L1 (the D-63-9 digest gate — the transported game is digest-bound)"
+    },
+    {
+      "id": "L2-digest-mismatch",
+      "phase": "assets",
+      "change": "a declared asset read returns bytes whose sha256 ≠ the manifest row sourceDigest",
+      "fetches": 2,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "assets",
+        "code": "asset_corrupt"
+      },
+      "after": "no runtime; no partial scene; never a silent retry against another path"
+    },
+    {
+      "id": "L4-extension-unsupported",
+      "phase": "assets",
+      "change": "the verified bytes require a GLB extension the visual profile cannot honor",
+      "fetches": 2,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "assets",
+        "code": "asset_extension_unsupported"
+      },
+      "after": "no runtime (hard, L4)"
+    },
+    {
+      "id": "L5-clip-invalid",
+      "phase": "assets",
+      "change": "the prepared resource carries a structurally invalid animation clip",
+      "fetches": 2,
+      "outcome": {
+        "message": "tl.error",
+        "phase": "assets",
+        "code": "asset_clip_invalid"
+      },
+      "after": "no runtime (hard, L5)"
+    },
+    {
+      "id": "L6-unresolved-mapping",
+      "phase": "prepares-settle",
+      "change": "the committed roles do not satisfy the loaded clips (stage 5–6 re-check)",
+      "fetches": 2,
+      "outcome": {
+        "message": "no tl.error; the model renders statically at its committed transform; one bounded diagnostic (animation_role_unresolved); the run proceeds",
+        "ready": true
+      },
+      "after": "tl.ready is posted (the mount succeeded); gameplay runs with the static model (R6)"
+    },
+    {
+      "id": "L9-cancel-on-stop",
+      "phase": "prepares-settle",
+      "change": "the play stops (editor removes the frame / locator expiry) while a prepare is in flight",
+      "fetches": 2,
+      "outcome": {
+        "message": "the pending handle is cancelled; it resolves ok:false (asset_load_cancelled) and its late completion is discarded and released — never applied to the scene",
+        "ready": false
+      },
+      "after": "the host/adapter dispose idempotently; a repeated dispose returns alreadyDisposed (no double free)"
+    }
+  ],
+  "pinnedReimport": {
+    "rule": "A reimport of an asset during an active play publishes a new version into the authoring project; the active preview keeps its PINNED snapshot and content (accepted §19.2/§19.3 pinning; delivery.md §2.6). The new version is visible only to a NEW play (new snapshotId/contentId); the old locator serves the same immutable bytes.",
+    "cases": [
+      {
+        "phase": "during-active-play",
+        "change": "publishAsset reimport of asset-runner (authoring revision advances)",
+        "activePlay": {
+          "snapshotId": "m4-delivery-case@r7",
+          "contentId": "unchanged",
+          "buildId": "35cbb4783f31f9c756ce064fc9bdeed54a1d2ec34bf4eb5a23b1d2502f373991"
+        },
+        "authoring": {
+          "revision": 8,
+          "currentVersion": 2
+        },
+        "after": "the active play is unaffected (no in-flight re-point); the new play captures r8 with the new version"
+      },
+      {
+        "phase": "old-locator",
+        "change": "a fetch of the old contentId during its remaining TTL",
+        "after": "the same immutable bytes (Cache-Control: private, immutable; ETag = digest) — never newer content"
+      }
+    ]
+  },
+  "exportSequence": [
+    {
+      "step": 1,
+      "event": "manifest+scene-read",
+      "detail": "fetch(\"./manifest.json\") + fetch(\"./scene.json\") (relative, digest-verified — the accepted C36-1 row); the manifest identity gates (buildId/sceneDigest/gameDigest) pass against the scene.json bytes"
+    },
+    {
+      "step": 2,
+      "event": "asset-reads",
+      "detail": "one relative read per unique declared asset path, re-hashed"
+    },
+    {
+      "step": 3,
+      "event": "runtime+adapter+host",
+      "detail": "instantiateRuntime (settings = manifest.settings) + createSceneAdapter with the models block + createGameHost + mount() → awaitingStart title screen"
+    },
+    {
+      "step": 4,
+      "event": "ready",
+      "detail": "ready means the title screen loaded (not gameplay started); no bridge, no presented state, no authoring call (the backend may be unreachable)"
+    }
+  ]
+}

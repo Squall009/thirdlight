@@ -1,0 +1,74 @@
+{
+  "assets": [
+    {
+      "assetId": "asset-0001",
+      "kind": "model",
+      "version": 2,
+      "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceByteLength": 1864,
+      "recipe": {
+        "id": "gltf-glb",
+        "version": 1
+      },
+      "metricsDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "assetId": "asset-0002",
+      "kind": "audio",
+      "version": 1,
+      "sourceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sourceByteLength": 48044,
+      "recipe": {
+        "id": "pcm-wav",
+        "version": 1
+      },
+      "metricsDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "assetId": "asset-0003",
+      "kind": "audio",
+      "version": 1,
+      "sourceDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sourceByteLength": 96044,
+      "recipe": {
+        "id": "pcm-wav",
+        "version": 1
+      },
+      "metricsDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "prefabs": [],
+  "behaviors": [],
+  "settings": {
+    "gravity_y": -30,
+    "run_speed": 6,
+    "jump_velocity": 7,
+    "max_fall_speed": -30,
+    "max_slope_climb_deg": 45,
+    "min_slope_slide_deg": 30
+  },
+  "behaviorTrust": [],
+  "game": {
+    "configVersion": 1,
+    "title": "Beacon Reach",
+    "objective": "Light the beacon.",
+    "instructions": "A/D or arrows move, Space jumps, Enter starts, M mutes.",
+    "playerId": "player-0001",
+    "cameraId": "camera-main",
+    "spawnId": "spawn-0002",
+    "level": {
+      "minX": -40,
+      "maxX": 40,
+      "minY": -6,
+      "maxY": 20
+    },
+    "killY": -5,
+    "cues": {
+      "start": "asset-0002",
+      "jump": null,
+      "checkpoint": "asset-0003",
+      "death": null,
+      "goal": null
+    }
+  }
+}

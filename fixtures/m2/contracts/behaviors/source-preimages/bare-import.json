@@ -1,0 +1,12 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import { clamp } from 'lodash';\n\nexport default {\n  prepare() { return {}; },\n  instantiate() { return {}; },\n  step() { clamp(1, 0, 2); },\n  dispose() {},\n};\n"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL before the blob rename: no blob, leftover temp cleaned on open, retry is idempotent 128ms
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL after the blob rename: the immutable blob is durable and correct; republish is idempotent 110ms
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL before the envelope rename: old state, no record, retry re-executes fresh 118ms
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL after the envelope rename: new state + durable record; replay is duplicated and byte-stable 113ms
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL after the blob, before the command: unreferenced durable bytes; the fresh retry commits once 142ms
+ ✓ tests/m2-crash.test.ts > packet 23 — real SIGKILL at the blob-envelope boundaries (workspace.md §13.3.4) > SIGKILL after the envelope rename carrying a new reference: the acked reference has durable bytes and replays 119ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  03:36:56
+   Duration  1.29s (tests 66%, transform 27%, import 6%)
+

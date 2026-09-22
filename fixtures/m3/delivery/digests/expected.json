@@ -1,0 +1,15 @@
+{
+  "sceneDigest": "01f5d5bad3859daf15739cda94a5c1198fa9ca3e54c976c1464d64068519954e",
+  "contentDigest": "e6c929569443c9dd0121f0e706bf904f94092efd3de1d7cc2389aa306a3780cb",
+  "gameDigest": "5ad520642e00b8ca9462679f412229ba191caedf1c690e394bd2f015b795e448",
+  "settingsDigest": "1e0330968732956f82238e846a85a2694219e951f38a0eec85e8fee49f13f284",
+  "mediaDigest": "a6e27a4e7137366103a4e57a6db32dcc5a2ddd38ad5859504409a09ed5f47219",
+  "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+  "buildId": "41b5a60bc73c3a8f8dd65edd4acf95622ca1e80f1ae577502ba00cecbf2ee536",
+  "contentCanonicalBytes": 1909,
+  "manifestCanonicalBytes": 4685,
+  "changed": {
+    "contentDigest": "99531988663cba305b56a9566faf4fbb3b0c533661a1e729780cd81759351a40",
+    "settingsDigest": "6176e0515be45e95bc36bb174671f3ea92257746de0fa8ef45556f7ef41fe348"
+  }
+}

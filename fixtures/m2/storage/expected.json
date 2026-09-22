@@ -1,0 +1,124 @@
+{
+  "indexVersion": 1,
+  "contracts": {
+    "workspace": "docs/contracts/workspace.md (accepted; \u00a73, \u00a74.2\u2013\u00a74.5, \u00a75, \u00a77.6, \u00a710, \u00a711, \u00a713\u2013\u00a715)",
+    "projectModel": "docs/contracts/project-model.md (accepted; \u00a712, \u00a718\u2013\u00a722)",
+    "commands": "docs/contracts/commands.md (accepted; \u00a76, \u00a77)"
+  },
+  "notes": [
+    "Packet-23 storage fixtures (workspace.md \u00a713): two real source blobs with real SHA-256/lengths and one byte-exact storageVersion 2 project (manifest + envelope) whose catalog references them. Every digest below is recomputed from the committed bytes.",
+    "The project fixture is copied into a disposable data root by the tests (fixtures/ are never mutated); blob bytes are installed under sources/sha256/<digest>.",
+    "caseStatus maps the accepted declarative fixtures/m2/contracts/cases/*.json to their packet-23 execution status. Executed means a real workspace test performs the described steps and asserts the outcome; declarative means the case is a contract-level description whose executable layer is a later packet (inspectAsset/derived regeneration is packet 24).",
+    "The migration fixtures (fixtures/m2/contracts/migration/**) are executed by packages/workspace/src/m2-migration.test.ts: v1-source is copied read-only, expected-v2-destination is compared byte-for-byte, and interrupted-copy resumes.",
+    "The M1 byte-exact envelopes under fixtures/commands/envelope/** are unchanged and still pass (packages/workspace/tests/envelope.test.ts)."
+  ],
+  "fixtureFiles": [
+    {
+      "path": "blobs/alpha.bin",
+      "sha256": "e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20",
+      "byteLength": 28
+    },
+    {
+      "path": "blobs/beta.bin",
+      "sha256": "bc592e7f9eb753abffb040e37fdabc5d19eeda9b85a6a5660fc730fa8051cae5",
+      "byteLength": 27
+    },
+    {
+      "path": "project/project.json",
+      "sha256": "aecc41298a3db0d569408178447d307d4204c8f20e7169d74dd48ad71ca66ad5",
+      "byteLength": 233
+    },
+    {
+      "path": "project/scenes/main.json",
+      "sha256": "e5939c882e9d818f2731d1f5a09f2013ab68ed2f4514a836866aa53660d1bddf",
+      "byteLength": 4739
+    }
+  ],
+  "caseStatus": [
+    {
+      "case": "blob-missing-fails-closed.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "blob-tamper-detected.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "derived-cache-deleted-regenerable.json",
+      "status": "declarative",
+      "note": "needs the packet-24 importer (inspectAsset/derived regeneration); the path/retention invariants are exercised by the packet-23 derived-cache tests"
+    },
+    {
+      "case": "migration-interrupted-copy-resume.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-concurrent-stale-import.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-crash-after-blob-before-envelope.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-crash-after-envelope-before-ack.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-enospc-during-blob.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-full-disk-before-publication.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-ownership-loss-before-commit.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-retry-replay-after-expired-stage.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-single-authoritative-commit.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "publish-stage-expired-new-request.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "reimport-undo-retains-old-bytes.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "staging-crash-mid-publish-retry.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "staging-harness-edit-publish-succeeds.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    },
+    {
+      "case": "staging-traversal-symlink-rejected.json",
+      "status": "executed",
+      "note": "replayed by packages/workspace/src/m2-storage.test.ts"
+    }
+  ]
+}

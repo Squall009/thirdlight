@@ -1,0 +1,52 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.7.2",
+  "sets": {
+    "modelCommand": [
+      "animation_role_out_of_range",
+      "animation_role_duplicate",
+      "animation_role_mismatch",
+      "animation_role_ambiguous",
+      "animation_skin_unsupported",
+      "animation_root_motion"
+    ],
+    "limitNames": [
+      "animation_clips",
+      "animation_tracks",
+      "animation_track_times",
+      "animation_clip_duration",
+      "audio_pcm_bytes",
+      "audio_cues"
+    ],
+    "audioDiagnostics": [
+      "audio_source_bytes_exceeded",
+      "audio_container_invalid",
+      "audio_chunk_invalid",
+      "audio_format_unsupported",
+      "audio_channel_unsupported",
+      "audio_sample_rate_unsupported",
+      "audio_bit_depth_unsupported",
+      "audio_data_size_invalid",
+      "audio_empty"
+    ],
+    "adapter": [
+      "animation_role_unresolved"
+    ],
+    "hostAudio": [
+      "audio_decode_failed",
+      "audio_unsupported",
+      "audio_disposed",
+      "audio_invalid_bytes"
+    ],
+    "hardFailure": [
+      "blob_missing",
+      "blob_corrupt",
+      "asset_kind_mismatch",
+      "export_failed"
+    ],
+    "softFallback": [
+      "sound-off",
+      "shadow-off"
+    ]
+  }
+}

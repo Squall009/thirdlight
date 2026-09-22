@@ -113,3 +113,109 @@ describe('Projection — conflict explanation (never silently lost)', () => {
     expect(p.getEntity('a')?.id).toBe('a');
   });
 });
+// ---------------------------------------------------------------------------
+// M3 v3 gameplay components (packet 56) — hydration + change convergence
+// ---------------------------------------------------------------------------
+
+function entV3(id: string, components: Record<string, unknown>, pos: [number, number, number] = [0, 0, 0]): Entity {
+  return {
+    id,
+    name: id,
+    components: {
+      transform: { position: pos, rotation: [0, 0, 0, 1] as Quat, scale: [1, 1, 1] as Vec3 },
+      ...components,
+    },
+  };
+}
+
+describe('Projection — v3 gameplay components (gameZone / playerSpawn / cameraFollow)', () => {
+  const GOAL = { role: 'goal', size: [2, 2] };
+  const CHECKPOINT = { role: 'checkpoint', size: [1.5, 1.5], safeSpawnId: 'spawn-0001', activation: { emissive: '#1bc8ff', emissiveIntensity: 1.2, cueAssetId: null } };
+  const FOLLOW = { deadZone: { x: 0.3, y: 0.3 }, smoothing: 0.5, bounds: { minX: -10, maxX: 10, minY: -4, maxY: 8 } };
+
+  it('hydrates the v3 components from the full-state entities', () => {
+    const p = new Projection();
+    p.hydrate(full(1, [
+      entV3('zone-0001', { gameZone: GOAL }, [3, 1, 0]),
+      entV3('spawn-0001', { playerSpawn: {} }, [0, 2, 0]),
+      entV3('cam-main', { camera: {}, cameraFollow: FOLLOW }, [0, 3, 5]),
+    ]));
+    expect(p.getEntity('zone-0001')?.gameZone).toEqual(GOAL);
+    expect(p.getEntity('spawn-0001')?.playerSpawn).toBe(true);
+    expect(p.getEntity('cam-main')?.cameraFollow).toEqual(FOLLOW);
+    expect(p.getEntity('spawn-0001')?.gameZone).toBeUndefined();
+  });
+
+  it('setComponent(gameZone) add / edit / remove converge (previous/next from the wire)', () => {
+    const p = new Projection();
+    p.hydrate(full(1, [entV3('zone-0001', {})]));
+    p.applyMutationApplied({
+      requestId: 'c1', revision: 2,
+      change: { type: 'setComponent', id: 'zone-0001', component: 'gameZone', previous: null, next: GOAL, changedFields: ['role', 'size'] },
+    });
+    expect(p.getEntity('zone-0001')?.gameZone).toEqual(GOAL);
+    p.applyMutationApplied({
+      requestId: 'c2', revision: 3,
+      change: { type: 'setComponent', id: 'zone-0001', component: 'gameZone', previous: GOAL, next: { ...GOAL, size: [3, 3] }, changedFields: ['size'] },
+    });
+    expect(p.getEntity('zone-0001')?.gameZone).toEqual({ role: 'goal', size: [3, 3] });
+    p.applyMutationApplied({
+      requestId: 'c3', revision: 4,
+      change: { type: 'setComponent', id: 'zone-0001', component: 'gameZone', previous: { ...GOAL, size: [3, 3] }, next: null, changedFields: [] },
+    });
+    expect(p.getEntity('zone-0001')?.gameZone).toBeUndefined();
+  });
+
+  it('checkpoint activation changes converge on the same component key', () => {
+    const p = new Projection();
+    p.hydrate(full(1, [entV3('zone-cp', { gameZone: CHECKPOINT })]));
+    p.applyMutationApplied({
+      requestId: 'a1', revision: 2,
+      change: {
+        type: 'setComponent', id: 'zone-cp', component: 'gameZone', previous: CHECKPOINT,
+        next: { ...CHECKPOINT, activation: { emissive: '#ff8800', emissiveIntensity: 2, cueAssetId: 'asset-cue' } },
+        changedFields: ['activation'],
+      },
+    });
+    expect(p.getEntity('zone-cp')?.gameZone?.activation).toEqual({ emissive: '#ff8800', emissiveIntensity: 2, cueAssetId: 'asset-cue' });
+  });
+
+  it('playerSpawn / cameraFollow add + remove converge', () => {
+    const p = new Projection();
+    p.hydrate(full(1, [entV3('spawn-0001', {}), entV3('cam-main', { camera: {} })]));
+    p.applyMutationApplied({
+      requestId: 's1', revision: 2,
+      change: { type: 'setComponent', id: 'spawn-0001', component: 'playerSpawn', previous: null, next: {}, changedFields: [] },
+    });
+    p.applyMutationApplied({
+      requestId: 'f1', revision: 3,
+      change: { type: 'setComponent', id: 'cam-main', component: 'cameraFollow', previous: null, next: FOLLOW, changedFields: ['deadZone', 'smoothing', 'bounds'] },
+    });
+    expect(p.getEntity('spawn-0001')?.playerSpawn).toBe(true);
+    expect(p.getEntity('cam-main')?.cameraFollow).toEqual(FOLLOW);
+    p.applyMutationApplied({
+      requestId: 'f2', revision: 4,
+      change: { type: 'setComponent', id: 'cam-main', component: 'cameraFollow', previous: FOLLOW, next: null, changedFields: [] },
+    });
+    p.applyMutationApplied({
+      requestId: 's2', revision: 5,
+      change: { type: 'setComponent', id: 'spawn-0001', component: 'playerSpawn', previous: {}, next: null, changedFields: [] },
+    });
+    expect(p.getEntity('cam-main')?.cameraFollow).toBeUndefined();
+    expect(p.getEntity('spawn-0001')?.playerSpawn).toBeUndefined();
+  });
+
+  it('setGameConfig / applySurfacePreset changes are consumed (revision advances, no gap; the block/map lives on the client — §A8 row 19)', () => {
+    const p = new Projection();
+    p.hydrate(full(1, [ent('a')]));
+    const GAME = { configVersion: 1 as const, title: 'T', objective: 'O', instructions: 'I', playerId: 'a', cameraId: 'c', spawnId: 's', level: { minX: -1, maxX: 1, minY: -1, maxY: 1 }, killY: -2, cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } };
+    expect(p.applyMutationApplied({ requestId: 'g1', revision: 2, change: { type: 'setGameConfig', previous: null, next: GAME, changedFields: ['title'] } }).applied).toBe(true);
+    expect(p.revision).toBe(2);
+    expect(p.stale).toBe(false);
+    expect(p.applyMutationApplied({ requestId: 'g2', revision: 3, change: { type: 'setGameConfig', previous: GAME, next: null, changedFields: ['title'] } }).applied).toBe(true);
+    expect(p.revision).toBe(3);
+    expect(p.applyMutationApplied({ requestId: 's1', revision: 4, change: { type: 'applySurfacePreset', id: 'a', preset: 'matte-ground', previous: null, next: { color: '#888888', roughness: 0.9, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }, changedFields: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'] } }).applied).toBe(true);
+    expect(p.revision).toBe(4);
+    expect(p.stale).toBe(false);
+  });
+});

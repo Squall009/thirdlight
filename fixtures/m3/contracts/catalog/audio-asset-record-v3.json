@@ -1,0 +1,47 @@
+{
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-audio-cue-start",
+        "kind": "audio",
+        "displayName": "Cue: Start",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb",
+            "sourceByteLength": 236,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 96,
+              "durationMs": 2,
+              "pcmBytes": 192,
+              "dataChunkBytes": 192,
+              "riffChunkBytes": 228
+            },
+            "importedAt": "2026-09-19T10:00:00Z",
+            "publishedRevision": 1
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  }
+}

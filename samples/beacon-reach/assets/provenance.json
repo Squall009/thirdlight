@@ -1,0 +1,105 @@
+{
+  "sample": "beacon-reach",
+  "generatedBy": "samples/beacon-reach/tools/generate-assets.mjs",
+  "license": "thirdlight-sample-generated-content",
+  "licenseText": "/home/dadmin/projects/thirdlight/samples/beacon-reach/LICENSE",
+  "assets": [
+    {
+      "id": "audio-start",
+      "kind": "audio",
+      "path": "audio/cue-start.wav",
+      "sourceDigest": "608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+      "sourceByteLength": 17324,
+      "profile": "pcm-wav",
+      "recipe": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "freqHz": 660,
+        "durationMs": 180
+      }
+    },
+    {
+      "id": "audio-jump",
+      "kind": "audio",
+      "path": "audio/cue-jump.wav",
+      "sourceDigest": "98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+      "sourceByteLength": 13484,
+      "profile": "pcm-wav",
+      "recipe": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "freqHz": 520,
+        "durationMs": 140
+      }
+    },
+    {
+      "id": "audio-checkpoint",
+      "kind": "audio",
+      "path": "audio/cue-checkpoint.wav",
+      "sourceDigest": "e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+      "sourceByteLength": 21164,
+      "profile": "pcm-wav",
+      "recipe": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "freqHz": 880,
+        "durationMs": 220
+      }
+    },
+    {
+      "id": "audio-death",
+      "kind": "audio",
+      "path": "audio/cue-death.wav",
+      "sourceDigest": "4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+      "sourceByteLength": 30764,
+      "profile": "pcm-wav",
+      "recipe": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "freqHz": 180,
+        "durationMs": 320
+      }
+    },
+    {
+      "id": "audio-goal",
+      "kind": "audio",
+      "path": "audio/cue-goal.wav",
+      "sourceDigest": "ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+      "sourceByteLength": 40364,
+      "profile": "pcm-wav",
+      "recipe": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitsPerSample": 16,
+        "freqHz": 990,
+        "durationMs": 420
+      }
+    },
+    {
+      "id": "model-courier",
+      "kind": "model",
+      "path": "model/courier.glb",
+      "sourceDigest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be",
+      "sourceByteLength": 3440,
+      "profile": "glb-gltf2",
+      "clips": [
+        "Idle",
+        "Run",
+        "Airborne"
+      ]
+    },
+    {
+      "id": "model-beacon",
+      "kind": "model",
+      "path": "model/beacon.glb",
+      "sourceDigest": "b80e27cc44af407e347cb3b4ea07a8b3860fd36be2775fd8e40a389a23675eb6",
+      "sourceByteLength": 1772,
+      "profile": "glb-gltf2",
+      "clips": []
+    }
+  ]
+}

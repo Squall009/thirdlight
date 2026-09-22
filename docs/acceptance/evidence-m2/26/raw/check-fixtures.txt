@@ -1,0 +1,35 @@
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 78 JSON fixture(s) checked
+ok   index: 81 index entries, 84 files on disk
+ok   code-registry: 89 code(s) used by fixtures, all declared in expected.json.registry; 79 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 152 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   p17-numerics: 34 constants, 8 slope rows, 10 settings cases, 20 validation cases re-derived
+ok   p17-traces: 16 traces, 178 sampled step rows and 48 derived expectations replayed
+ok   p17-input: 15 mapping cases and 5 step-indexed sequences replayed
+ok   p17-catchup: 7 scheduler cases and 8 ownership/combination cases replayed
+ok   p17-failures: 21 failure cases checked (codes, state, durable effect)
+ok   p18-source-graphs: 41 source-graph case(s) (16 container + 25 constructed) re-derived from behaviors.md §4.3/§6
+ok   p18-intents: 6 quantization row(s), 18 intent step(s) and 4 effective-frame row(s) replayed
+ok   p18-runtime-failures: 21 runtime failure case(s) and 6 flood case(s) re-derived
+ok   p18-publication: 14 publication case(s) replayed through the prepare/publish/build state machine
+ok   p18-example: the example manifest is digest-bound, links one pinned module, declares a numeric property and replays its intent trace
+ok   p19-protocol: 14 route(s) and 8 bridge message(s) re-derived; 51 error mapping(s) checked
+ok   p19-locator: 14 locator case(s) re-derived (TTL, grace, traversal/listing, build states, redaction)
+ok   p19-upload: 7 upload/stage bound case(s) re-derived (frame, offset, stage, open stages, project cap)
+ok   p19-scans: 13 format-aware scan case(s) re-derived (text vs GLB/WASM/closure, no text scan on binaries)
+ok   p19-manifest: manifest identity, 2 asset(s), 1 behavior(s), closure fetch count 4 and licenses re-derived
+ok   p19-relay: 10 relay case(s) re-derived (step range, exclusive mode, limits, no-browser unavailable)
+ok   preimage: 2 preimage(s) re-hashed
+ok   p18-container-hash: 16 behavior source container(s) re-hashed and merged into the digest map
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 33 check group(s) passed, 0 problem(s)
+exit=0

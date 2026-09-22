@@ -1,0 +1,16 @@
+
+> thirdlight@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+
+ Test Files  95 passed (95)
+      Tests  1269 passed (1269)
+   Start at  05:56:45
+   Duration  30.26s (tests 88%, import 7%, transform 4%)
+
+    Isolate  95 workers spawned · ~216ms startup each (spawn + environment, per file)
+             at least ~3.90s faster with isolate: false — reuses workers across files instead of one per file
+

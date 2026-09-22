@@ -1,0 +1,21 @@
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 45 JSON fixture(s) checked
+ok   index: 47 index entries, 50 files on disk
+ok   code-registry: 32 code(s) used by fixtures, all declared in expected.json.registry; 61 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 62 case->section pin(s) verified
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   preimage: 2 preimage(s) re-hashed
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+FAIL canonical-form: commands/prefab-scenario.messages.json: bytes are not the canonical form (run --write)
+FAIL cross-ref: catalog/content-block-example.json does not equal the valid envelope content block
+FAIL p16-replay: prefab-scenario/M4: parent remap mismatch on box-0002
+FAIL p16-replay: prefab-scenario/M4: remapped entity model-0003 differs from the definition + overrides
+FAIL p16-replay: prefab-scenario/M4: parent remap mismatch on model-0004
+FAIL digest-claims: envelope/valid/demo-0002-rev7-v2.json: sourceDigest 0000000000000000000000000000000000000000000000000000000000000000 matches no committed preimage
+check FAILED: 14 check group(s) passed, 6 problem(s)

@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight M1 three.js scene adapter (docs/contracts/runtime.md §6/§8/§9 + planning packet 08): owns ALL Object3D/material/renderer lifetimes for the M1 scene graph (box primitives, simple Lambert material, one perspective camera, lights), transform synchronization from the runtime's interpolated state to the scene graph, one WebGL renderer path (WebGL 2 first, three@0.186.0 pinned), renderFrame/captureScreenshot(maxWidth)/diagnostics/dispose per the dependencies.md §3 surface row, and the adapter diagnostics block (the selected renderBackend is reported; there is never a second renderer path). Node-side dependencies (dependencies.md §4.1): @thirdlight/runtime, three (+ dev @types/three). The runtime core remains three-free.",
+  "description": "Thirdlight M1 three.js scene adapter (docs/contracts/runtime.md §6/§8/§9 + planning packet 08): owns ALL Object3D/material/renderer lifetimes for the M1 scene graph (box primitives, simple Lambert material, one perspective camera, lights), transform synchronization from the runtime's interpolated state to the scene graph, one WebGL renderer path (WebGL 2 first, three@0.186.0 pinned), renderFrame/captureScreenshot(maxWidth)/diagnostics/dispose per the dependencies.md §3 surface row, and the adapter diagnostics block (the selected renderBackend is reported; there is never a second renderer path). Packet 26 adds the shared GLB realization path on the root subpath (an injected asset-byte resolver, cancellable prepared visual resources with stale-completion discarding, whole-GLB model instances with independent transform/animation state, a local material/animation preview controller, explicit ownership counters and idempotent disposal) plus the pinned three@0.186.0 GLTFLoader-backed loader port on the `./gltf-loader` subpath (no new dependency; the root subpath stays loader-free so the export/preview bundle graphs keep their recorded export.md §5.4.1 counts - see the packet-26 handoff). Node-side dependencies (dependencies.md §4.1): @thirdlight/runtime, three (+ dev @types/three). The runtime core remains three-free.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./gltf-loader": "./src/gltf-loader.ts"
   },
   "dependencies": {
     "@thirdlight/runtime": "0.1.0",

@@ -1,0 +1,104 @@
+{
+  "units": [
+    {
+      "unit": "platformer-game",
+      "contract": "gameplay.md",
+      "packet": 49,
+      "responsibility": "pure run-state, zone geometry and camera math over runtime ports/types; no concrete physics, input, DOM or three"
+    },
+    {
+      "unit": "game-host",
+      "contract": "delivery.md §§3–5",
+      "packet": 55,
+      "responsibility": "browser-safe DOM HUD, menu/control consumption, injected audio lifecycle and the single shared production module composition; no editor/exporter internals"
+    }
+  ],
+  "publicSurface": {
+    "platformer-game": [
+      ".",
+      [
+        "platformerGameSessionSpec",
+        "platformerGameCameraSpec",
+        "PLATFORMER_GAME_MODULE_ID",
+        "stepZones",
+        "zoneOverlap",
+        "followCamera",
+        "CAMERA_CONSTANTS",
+        "RUN_LIMITS"
+      ]
+    ],
+    "game-host": [
+      ".",
+      [
+        "createGameHost",
+        "GAME_HOST_API_VERSION",
+        "GAME_HOST_MESSAGES",
+        "GameHostConfig",
+        "GameHostObservation",
+        "GAME_CONTROL_ACTIONS"
+      ]
+    ]
+  },
+  "importEdges": {
+    "platformer-game": [
+      "runtime (types)"
+    ],
+    "game-host": [
+      "runtime (types + instantiateRuntime/registry values)",
+      "platformer",
+      "platformer-game",
+      "input (types + attachBrowserInput value)",
+      "three-adapter (types only: adapter/resource interfaces and the injected byte resolver)"
+    ]
+  },
+  "forbiddenEdges": {
+    "platformer-game": [
+      "input",
+      "physics-rapier",
+      "three",
+      "three-adapter",
+      "runtime concrete adapters",
+      "editor",
+      "backend",
+      "workspace",
+      "commands",
+      "protocol",
+      "DOM",
+      "Web Audio"
+    ],
+    "game-host": [
+      "editor (any subpath)",
+      "backend",
+      "workspace",
+      "commands",
+      "protocol",
+      "mcp-adapter",
+      "exporter (any subpath)",
+      "asset-pipeline",
+      "behavior-build",
+      "physics-rapier (concrete)",
+      "three (direct)",
+      "node builtins"
+    ],
+    "editor-ui": [
+      "packages/editor/src/ui/**",
+      "packages/editor/src/session/**",
+      "packages/editor/src/viewport/**",
+      "may not import @thirdlight/game-host — only packages/editor/src/preview/** may"
+    ]
+  },
+  "bundleGraphs": {
+    "preview": "gains game-host + platformer-game; still no editor/exporter internals",
+    "export": "gains game-host + platformer-game; no editor/exporter internals",
+    "editor": "unchanged: game-host must not appear"
+  },
+  "checks": [
+    "check 1 (import graph) fails a probe where packages/editor/src/ui/** imports @thirdlight/game-host",
+    "check 3 (bundle graph) fails if game-host or platformer-game appears in the editor bundle or if exporter internals appear in a runtime bundle",
+    "no duplicate gameplay bootstrap: game-host is the only module-wiring owner; wrappers inject platform/canvas/bridge specifics"
+  ],
+  "fetchRemeasureOwners": [
+    "58",
+    "60"
+  ]
+}

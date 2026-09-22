@@ -1,0 +1,12 @@
+{
+  "kind": "input-fixture-index",
+  "setVersion": 1,
+  "id": "input-fixtures",
+  "packet": 30,
+  "files": [
+    {
+      "path": "raw-sequences.json",
+      "sha256": "e85bfab1ffb766b8428006604a3ca6f2aa5a6ad8287013afc9d4b75957b2103e"
+    }
+  ]
+}

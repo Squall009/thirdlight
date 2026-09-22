@@ -1,0 +1,13 @@
+ok   docs/contracts/project-model.md: all 43 destination markers present
+ok   docs/contracts/workspace.md: all 24 destination markers present
+ok   docs/contracts/commands.md: all 16 destination markers present
+ok   docs/contracts/runtime.md: all 19 destination markers present
+ok   docs/contracts/sessions.md: all 10 destination markers present
+ok   docs/contracts/export.md: all 5 destination markers present
+ok   every sampled accepted-diff marker is present
+ok   no "PROPOSED — pending Gate E" marker remains in docs/contracts/
+ok   GE-2 rename materialized (no behavior-compiler/behaviors unit rows; behavior-build/runtime only)
+ok   17 proposal/diff file(s) carry the PROMOTED/historical header
+ok   decision 0002 records the pin/trust/U-4 dispositions under the pre-approval tag
+promotion-check OK: 11 check group(s) passed, 0 problem(s)
+exit=0

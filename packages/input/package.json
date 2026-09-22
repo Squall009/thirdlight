@@ -1,0 +1,16 @@
+{
+  "name": "@thirdlight/input",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M2 device binding (docs/contracts/runtime.md §12.5, promoted from input.md; packet 30): the pure raw-snapshot → ActionFrame mapping (keyboard A/D + arrows + Space, standard gamepad axis 0 / D-pad 14-15 / primary face button, 0.2 radial dead zone, deterministic source arbitration, press latch and jump phase chain) plus the single explicit browser listener owner (attachBrowserInput: focus/text-field suppression, hidden-tab/pagehide suspension with fresh activation, hot gamepad connect/disconnect and index reuse, structured unavailable state, idempotent detach) and a replayable step-indexed test source. Imports @thirdlight/runtime types only (dependencies.md §4.1/§4.3: no editor/protocol/backend/workspace/commands/three/physics/platformer edge).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/runtime": "0.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

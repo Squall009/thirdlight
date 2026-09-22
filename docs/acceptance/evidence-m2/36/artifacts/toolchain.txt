@@ -1,0 +1,40 @@
+# Packet 36 — toolchain transcripts (container, Node v22.22.1, no browser)
+
+## npm test
+ Test Files  135 passed (135)
+      Tests  1701 passed (1701)
+   Duration  36.08s (tests 88%, import 8%, transform 4%)
+   (isolate: 135 workers; packet-35 baseline: 129 files / 1672 tests;
+    Gate I repair: R-I-1/R-I-2 added 2 files / 8 tests, so 133/1693 -> 135/1701)
+
+
+## npm run typecheck
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+exit=0
+
+## npm run check-deps
+    @modelcontextprotocol/sdk 1.30.0 (= §7 pin)
+    @dimforge/rapier2d-compat 0.20.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+## npm run check-boundaries
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 15 package(s) [asset-pipeline, backend, behavior-build, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 283 source file(s), 1068 specifier(s) checked; no boundary violations.
+
+## npm run build
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+## fixtures checker
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)

@@ -1,0 +1,13 @@
+{
+  "name": "@thirdlight/asset-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight bounded GLB import pipeline (project-model.md §18.7/§18.8, dependencies.md §2/§3): pure glTF 2.0 GLB inspection over supplied bytes and the immutable import proposal + import recipe. No I/O, no Node built-ins, no three.js/GLTFLoader, no cache writes, no asset-ID decisions (dependencies.md §4.1 leaf edge: @thirdlight/project-model types only).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/project-model": "0.1.0"
+  }
+}

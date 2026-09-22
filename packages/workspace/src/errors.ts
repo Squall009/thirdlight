@@ -20,9 +20,11 @@
 
 import { ERROR_CODES as COMMAND_ERROR_CODES } from '@thirdlight/commands';
 import type { CommandError } from '@thirdlight/commands';
-import type { ErrorCode, ModelError } from '@thirdlight/project-model';
+import type { ErrorCode, LimitName, ModelError } from '@thirdlight/project-model';
 
-/** The workspace.md §11 workspace code table (stable). */
+/** The workspace.md §11 workspace code table (stable). The packet-23
+ * content-storage additions (workspace.md §11/§13) are appended in contract
+ * table order. */
 export const WORKSPACE_ERROR_CODES = [
   'envelope_invalid',
   'storage_version_unsupported',
@@ -39,6 +41,27 @@ export const WORKSPACE_ERROR_CODES = [
   'external_change_evidence_missing',
   'no_pending_change',
   'project_exists_invalid',
+  // packet 23 content storage (workspace.md §11 §13):
+  'content_invalid',
+  'version_combination_unsupported',
+  'stage_not_found',
+  'stage_expired',
+  'stage_limits_exceeded',
+  'path_rejected',
+  'import_rejected',
+  'asset_id_duplicate',
+  'asset_not_found',
+  'asset_version_not_found',
+  'blob_missing',
+  'blob_corrupt',
+  'content_quota_exceeded',
+  'content_publish_failed',
+  'derived_cache_unavailable',
+  'migration_source_invalid',
+  'migration_destination_exists',
+  'migration_marker_conflict',
+  'migration_resume_required',
+  'migration_version_unsupported',
 ] as const;
 
 /**
@@ -85,7 +108,9 @@ export type UnavailableReason =
   | 'stale_ownership'
   | 'workspace_closed'
   | 'external_change_unresolved'
-  | 'external_change_unreadable';
+  | 'external_change_unreadable'
+  | 'content_invalid'
+  | 'version_combination_unsupported';
 
 /** Reason-specific recovery advice (workspace.md semantics). */
 function reasonHint(reason: UnavailableReason): string {
@@ -122,7 +147,7 @@ export type LoadDetail = {
   expected?: string;
   found?: unknown;
   hint?: string;
-  limit?: 'entities' | 'depth';
+  limit?: LimitName;
   knownVersions?: readonly number[];
   /** The invalid document, when the detail describes a rejected document. */
   document?: unknown;
@@ -586,4 +611,325 @@ export function isSafeInt(v: unknown): v is number {
  */
 export function pointerSegment(segment: string): string {
   return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+// ---- packet 23 content-storage errors (workspace.md §11/§13) -----------------
+
+/** A `limits_exceeded`-style staging bound (workspace.md §7.6.2/§13.9). */
+export type StageLimit =
+  | 'stage_bytes'
+  | 'frame_bytes'
+  | 'open_stages'
+  | 'staged_bytes_per_project';
+
+/** `stage_limits_exceeded` (workspace.md §11/§13.9). */
+export function stageLimitsExceeded(
+  limit: StageLimit,
+  current: number,
+  max: number,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'stage_limits_exceeded',
+    cls: 'validation',
+    limit,
+    current,
+    max,
+    message: `a staging bound is exceeded: ${limit} ${current} > ${max}`,
+    hint: 'reduce the staged bytes, discard an open stage, or raise the configured bound',
+  };
+  return e as unknown as CommandError;
+}
+
+/** `stage_not_found` (workspace.md §11). */
+export function stageNotFound(stageId: string): CommandError {
+  return {
+    code: 'stage_not_found',
+    cls: 'not_found',
+    message: `the staging directory for '${stageId}' does not exist`,
+    hint: 're-stage the bytes (stageContent) — staging is non-authoritative input',
+  };
+}
+
+/** `stage_expired` (workspace.md §11/§7.6.2: the 3 600 s stage TTL). */
+export function stageExpired(stageId: string, ageSeconds: number, ttlSeconds: number): CommandError {
+  return {
+    code: 'stage_expired',
+    cls: 'unavailable',
+    message: `the stage '${stageId}' is ${ageSeconds}s old, past the ${ttlSeconds}s stage TTL`,
+    hint: 're-stage the bytes and re-issue; an identical recorded command replays without the stage',
+  };
+}
+
+/** `path_rejected` (workspace.md §11/§13.1 rule 5): a symlinked artifact
+ * directory, a path escaping the project root, or a non-directory artifact
+ * component. The backend never follows, repairs or deletes it. */
+export function pathRejected(path: string, message: string): CommandError {
+  return {
+    code: 'path_rejected',
+    cls: 'validation',
+    path,
+    message,
+    hint: 'fix the artifact path by hand; the backend never follows or repairs symlinked paths',
+  };
+}
+
+/** `blob_missing` (workspace.md §11/§13.4 F10). */
+export function blobMissing(
+  digest: string,
+  path: string,
+  assetId?: string,
+  version?: number,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'blob_missing',
+    cls: 'not_found',
+  };
+  if (assetId !== undefined) e['assetId'] = assetId;
+  if (version !== undefined) e['assetVersion'] = version;
+  e['sourceDigest'] = digest;
+  e['path'] = path;
+  e['message'] = `authoritative blob ${digest} does not exist at ${path}`;
+  e['hint'] =
+    'restore the authoritative bytes from a backup, or re-import the version as a new version (M2 never fabricates bytes)';
+  return e as unknown as CommandError;
+}
+
+/** `blob_corrupt` (workspace.md §11/§13.4 F11): the bytes do not match the
+ * content-addressed name. The bytes are retained byte-for-byte. */
+export function blobCorrupt(
+  digest: string,
+  path: string,
+  found?: string,
+  assetId?: string,
+  version?: number,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'blob_corrupt',
+    cls: 'validation',
+  };
+  if (assetId !== undefined) e['assetId'] = assetId;
+  if (version !== undefined) e['assetVersion'] = version;
+  e['sourceDigest'] = digest;
+  e['path'] = path;
+  if (found !== undefined) e['found'] = found;
+  e['message'] = `blob content at ${path} does not match its digest ${digest}`;
+  e['hint'] =
+    'the bytes are retained byte-for-byte and never auto-repaired; restore the correct bytes from a backup or re-import the version';
+  return e as unknown as CommandError;
+}
+
+/** `content_quota_exceeded` (workspace.md §11/§13.9): project quota or
+ * device free space is insufficient; nothing is written. */
+export function contentQuotaExceeded(
+  kind: 'project_quota' | 'device_space',
+  used: number,
+  limit: number,
+  needed: number,
+): CommandError {
+  return {
+    code: 'content_quota_exceeded',
+    cls: 'validation',
+    kind,
+    current: used,
+    max: limit,
+    message:
+      kind === 'project_quota'
+        ? `the project's authoritative bytes (${used}) would exceed the quota ${limit}`
+        : `the device free space after writing ${needed} bytes would fall below the required reserve`,
+    hint:
+      'free device space or raise the configured quota; M2 never evicts retained versions to make room',
+  };
+}
+
+/** `content_publish_failed` (workspace.md §11/§13.4 F8): a non-envelope
+ * publication phase failed; the envelope is unchanged. */
+export function contentPublishFailed(
+  reason: 'write' | 'timeout' | 'busy',
+  onDiskState?: 'previous' | 'new-undurable',
+  errno?: string,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'content_publish_failed',
+    cls: 'unavailable',
+    reason,
+  };
+  if (onDiskState !== undefined) e['onDiskState'] = onDiskState;
+  if (errno !== undefined) e['errno'] = errno;
+  e['message'] = `a content publication phase failed (${reason})`;
+  e['hint'] =
+    'retry the same request; blob publication is idempotent (an existing content-addressed blob is verified, never overwritten)';
+  return e as unknown as CommandError;
+}
+
+/** `derived_cache_unavailable` (workspace.md §11/§13.6): a derived cache is
+ * missing/corrupt and could not be regenerated. Never fatal to the project. */
+export function derivedCacheUnavailable(sourceDigest: string, path: string): CommandError {
+  return {
+    code: 'derived_cache_unavailable',
+    cls: 'unavailable',
+    sourceDigest,
+    path,
+    message: `the derived cache at ${path} is missing or corrupt and could not be regenerated`,
+    hint: 'derived caches are regenerable from the authoritative blob with no network access; the project state is unaffected',
+  };
+}
+
+/**
+ * `behavior_publication_unavailable` (project-model.md §22.6/§22.4.1): the
+ * behavior-source publication path is not available for this request —
+ * `preparer_unavailable` (no compiler registered) or `preparation_missing`
+ * (no prepared artifact for the supplied digest).
+ */
+export function behaviorPublicationUnavailable(
+  behaviorId: string,
+  mode: string,
+  reason: 'preparer_unavailable' | 'preparation_missing',
+): CommandError {
+  return {
+    code: 'behavior_publication_unavailable',
+    cls: 'unavailable',
+    behaviorId,
+    mode,
+    reason,
+    message:
+      reason === 'preparer_unavailable'
+        ? 'no behavior-source preparer (compiler) is registered for this workspace'
+        : 'no prepared artifact exists for the supplied sourceDigest',
+    hint: 'stage the canonical source container, prepare it, then publish the prepared digest',
+  };
+}
+
+/** `behavior_trust_unacknowledged` (project-model.md §22.3.2/§22.5). */
+export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError {
+  return {
+    code: 'behavior_trust_unacknowledged',
+    cls: 'validation',
+    sourceDigest,
+    message: 'the exact sourceDigest has no content.behaviorTrust acknowledgment',
+    hint: 'acknowledge the digest (acknowledgeBehaviorTrust) before preparing or publishing its source',
+  };
+}
+
+/** `import_rejected` (workspace.md §11/§13.3.1; project-model §18.8): the M2
+ * import profile rejected the staged bytes; carries the ordered `asset_*`
+ * diagnostics (≤ 10) plus the true count. */
+export function importRejected(
+  sourceDigest: string,
+  diagnostics: readonly unknown[],
+  diagnosticCount: number,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'import_rejected',
+    cls: 'validation',
+    sourceDigest,
+    diagnostics: diagnostics.slice(0, 10),
+    diagnosticCount,
+    message: `the import profile rejected the staged bytes (${diagnosticCount} diagnostic(s))`,
+    hint: 'fix the source or re-export it with the supported glTF 2.0 GLB profile',
+  };
+  return e as unknown as CommandError;
+}
+
+/** `content_invalid` (workspace.md §11/§4.3 step 6d): the v2 envelope's
+ * `content` block fails validation; carries ≤ 10 model errors + the true count. */
+export function contentInvalid(
+  details: readonly LoadDetail[],
+  count: number,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'content_invalid',
+    cls: 'unavailable',
+  };
+  if (details.length > 0) {
+    e['details'] = details.slice(0, 10);
+    e['detailCount'] = count;
+  }
+  e['message'] = 'the envelope content block fails validation';
+  e['hint'] =
+    'the bytes are retained untouched; repair the content block by hand or restore it from a backup, then re-open';
+  return e as unknown as CommandError;
+}
+
+/** `migration_source_invalid` (workspace.md §11/§14.1). */
+export function migrationSourceInvalid(sourceProjectId: string, details: readonly LoadDetail[]): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'migration_source_invalid',
+    cls: 'validation',
+    projectId: sourceProjectId,
+  };
+  if (details.length > 0) {
+    e['details'] = details.slice(0, 10);
+    e['detailCount'] = details.length;
+  }
+  e['message'] = `the migration source '${sourceProjectId}' is missing or does not load under the M1 pipeline`;
+  e['hint'] =
+    'migration requires an M1 project (storageVersion 1, scene schemaVersion 1, manifest v1) that is not owned by a live backend';
+  return e as unknown as CommandError;
+}
+
+/** `migration_destination_exists` (workspace.md §11/§14.3). */
+export function migrationDestinationExists(newProjectId: string): CommandError {
+  return {
+    code: 'migration_destination_exists',
+    cls: 'conflict',
+    projectId: newProjectId,
+    message: `the migration destination '${newProjectId}' already contains a loadable project`,
+    hint: 'choose a new destination project ID; migration never overwrites an existing project',
+  };
+}
+
+/** `migration_marker_conflict` (workspace.md §11/§14.3): a marker exists for
+ * different source/new IDs. Nothing is overwritten. */
+export function migrationMarkerConflict(
+  newProjectId: string,
+  markerSource: unknown,
+  markerNew: unknown,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'migration_marker_conflict',
+    cls: 'conflict',
+    projectId: newProjectId,
+    found: { sourceProjectId: markerSource, newProjectId: markerNew },
+    message: `the migration marker in '${newProjectId}' names a different source/new project`,
+    hint: 'inspect the destination by hand; nothing is overwritten (workspace.md §14.3)',
+  };
+  return e as unknown as CommandError;
+}
+
+/** `migration_resume_required` (workspace.md §11/§10): an interrupted
+ * migration destination must be resumed (informational). */
+export function migrationResumeRequired(newProjectId: string, phase: string): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'migration_resume_required',
+    cls: 'unavailable',
+    projectId: newProjectId,
+    phase,
+    message: `the migration destination '${newProjectId}' is interrupted at phase '${phase}' and must be resumed or deleted`,
+    hint: 're-run migrateProjectCopy(sourceProjectId, newProjectId) to resume, or delete the destination directory (it was never authoritative)',
+  };
+  return e as unknown as CommandError;
+}
+
+/**
+ * `migration_version_unsupported` (workspace.md §11/§16.5.1): the source is
+ * not a loadable `storageVersion` 2 / scene `schemaVersion` 2 project (a v1
+ * source must use the accepted v1→v2 copy first; a v3 source is already the
+ * destination version), or the requested destination would write a
+ * combination outside §16.2. Single error; carries `sourceProjectId`,
+ * `foundVersion`, `expectedVersion`. Nothing is written.
+ */
+export function migrationVersionUnsupported(
+  sourceProjectId: string,
+  foundVersion: unknown,
+  expectedVersion: string,
+): CommandError {
+  const e: Record<string, unknown> = {
+    code: 'migration_version_unsupported',
+    cls: 'validation',
+    sourceProjectId,
+    foundVersion,
+    expectedVersion,
+    message: `the migration source '${sourceProjectId}' is not a v2 project (found version ${String(foundVersion)}); the v2→v3 copy requires a v2 source`,
+    hint: 'a v1 project uses migrateProjectCopy (v1→v2) first, then this operator on the resulting v2 project; there is no in-place upgrade and no direct v1→v3 route',
+  };
+  return e as unknown as CommandError;
 }

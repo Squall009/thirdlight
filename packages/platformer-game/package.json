@@ -1,0 +1,16 @@
+{
+  "name": "@thirdlight/platformer-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M3 pure gameplay module (docs/contracts/gameplay.md, packet 49): the stateless `gameplay`-phase run/zone module `thirdlight.platformer-game:session` and the pure swept upright-capsule vs axis-aligned XY zone predicate over the frozen `GameContent` the runtime projects from a v3 snapshot. Imports `@thirdlight/runtime` types only (dependencies.md §2/§3/§4.1: no concrete physics, no input, no three.js, no DOM, no authoring/editor/backend/workspace/protocol edge, no Node built-ins, no I/O, no second movement solver).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/runtime": "0.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import type { BehaviorStepContext } from '@thirdlight/runtime';\nimport { scale } from './ui.tsx';\n\nexport default {\n  prepare() {\n    return {};\n  },\n\n  instantiate() {\n    return {};\n  },\n\n  step(_state: unknown, ctx: BehaviorStepContext): void {\n    ctx.emit({ kind: 'control_move', value: scale(ctx.properties.speed as number) });\n  },\n\n  dispose() {},\n};\n"
+    },
+    {
+      "path": "src/ui.tsx",
+      "text": "export function Widget() {\n  return null;\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "derivedExisted": true,
+  "cacheRecoverable": true,
+  "tamperDetected": true,
+  "integrityTamper": {
+    "body": {
+      "ok": true,
+      "entries": [
+        {
+          "assetId": "asset-00000000000037a1",
+          "version": 1,
+          "sourceDigest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+          "referenced": false,
+          "status": "corrupt"
+        },
+        {
+          "assetId": "asset-00000000000037a1",
+          "version": 2,
+          "sourceDigest": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+          "referenced": true,
+          "status": "ok"
+        }
+      ],
+      "summary": {
+        "total": 2,
+        "ok": 1,
+        "missing": 0,
+        "corrupt": 1,
+        "unreadable": 0,
+        "orphanBlobs": 1
+      }
+    },
+    "isError": false
+  },
+  "missingDetected": true,
+  "integrityMissing": {
+    "ok": true,
+    "entries": [
+      {
+        "assetId": "asset-00000000000037a1",
+        "version": 1,
+        "sourceDigest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+        "referenced": false,
+        "status": "missing"
+      },
+      {
+        "assetId": "asset-00000000000037a1",
+        "version": 2,
+        "sourceDigest": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+        "referenced": true,
+        "status": "ok"
+      }
+    ],
+    "summary": {
+      "total": 2,
+      "ok": 1,
+      "missing": 1,
+      "corrupt": 0,
+      "unreadable": 0,
+      "orphanBlobs": 1
+    }
+  },
+  "restoredOk": true,
+  "freshPlayAfterRestore": 200
+}

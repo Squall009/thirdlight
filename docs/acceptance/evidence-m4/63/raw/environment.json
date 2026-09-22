@@ -1,0 +1,13 @@
+{
+  "startedAt": "2026-09-22T05:16:37.397Z",
+  "node": "v22.22.1",
+  "npm": "9.2.0",
+  "gitHead": "5b746eebc8be22feb921909dc3f5b849c2560ccb",
+  "gitDirtyPaths": 365,
+  "baseline": "the uncommitted M2/M3 working tree (the dirty tree is the candidate; HEAD alone is historical)",
+  "toolchain": {
+    "command": "npm run build",
+    "exit": 0,
+    "tail": "typecheck: tsc --noEmit -p packages/workspace\nbuild: editor: packages/editor/src/index.tsx -> dist/editor/main.js\nbuild: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js\nbuild: preview-m3: packages/editor/src/preview/preview-m3.ts -> dist/preview/preview-m3.js\nbuild: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs\nbuild: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs\nbuild: editor page: -> dist/editor/index.html\nbuild: done (5 built, 0 skipped)."
+  }
+}

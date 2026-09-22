@@ -1,14 +1,109 @@
 /**
- * @thirdlight/three-adapter — public surface (dependencies.md §3 row:
+ * @thirdlight/three-adapter — public surface (dependencies.md §3 rows:
  * `createSceneAdapter(canvas, opts) → SceneAdapter { renderFrame,
- * captureScreenshot(maxWidth), diagnostics, dispose }`, `ERROR_CODES`).
+ * captureScreenshot(maxWidth), diagnostics, dispose }`, `ERROR_CODES`; packet-26
+ * additions: "the GLB realization/resource-owner helpers + an injected byte
+ * resolver: the adapter accepts **bytes or a resolver function**, never a
+ * token/URL/fetch; GLTFLoader/AnimationClip preview helpers").
  *
- * Thirdlight M1 three.js scene adapter (packet 08): owns ALL
- * Object3D/material/renderer lifetimes for the M1 scene graph; transform
- * synchronization from the runtime's interpolated state; one WebGL
- * renderer path (three@0.186.0, WebGL 2 first — the selected backend is
- * reported in diagnostics); structured adapter diagnostics. Node-side
- * dependencies (dependencies.md §4.1): @thirdlight/runtime, three.
+ * The root subpath stays loader-free: the real `three/examples/jsm` GLTFLoader
+ * binding lives on the `./gltf-loader` subpath (packet-26 contract-change
+ * request C26-1) so the M1 export/preview bundle graphs keep their recorded
+ * `export.md` §5.4.1 counts until packets 35/36 re-measure them.
+ *
+ * Thirdlight M1 three.js scene adapter (packet 08) + shared GLB realization
+ * path (packet 26). Node-side dependencies (dependencies.md §4.1):
+ * @thirdlight/runtime, three.
  */
 export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult } from './adapter';
 export { ERROR_CODES, type AdapterError, type AdapterErrorCode } from './errors';
+// Packet 69: the M4 delivered-rendering `models` block (presentation.md
+// §41.9 row, C64-4 — "the M4 `models` block on `createSceneAdapter`
+// options": the resolved model-asset map, the per-`modelAnimation`-entity
+// committed mappings and the injected byte resolver; the adapter realizes
+// `model` entities as attached `ModelInstance`s under the entity holders
+// and drives one role controller per animated entity from the single
+// `renderFrame` loop — delivery.md (M4) §2). All on the existing root
+// subpath — no new subpath, no new three subpath, no pin change.
+export {
+  createModelsRealization,
+  validateModelsBlock,
+  type ModelAnimationRoles,
+  type ModelsRealization,
+  type ModelsRealizationContext,
+  type ModelsSettledResult,
+  type SceneAdapterModelAsset,
+  type SceneAdapterModels,
+  type SceneAdapterModelsDiagnostics,
+} from './models';
+// Packet 52: the M3 light/shadow/surface realization surface (presentation.md
+// §§41.1/41.2/§41.9 — "shadow/light realization options on the accepted
+// `createSceneAdapter` options"; the pure math is exported so the named
+// B11 checklist and the tests compare realized values against the frozen
+// rows and the promoted fixture).
+export {
+  decideShadows,
+  deriveShadowCamera,
+  planSceneLights,
+  SHADOW_PROFILE,
+  SURFACE_PRESETS,
+  type AuthoredLight,
+  type AuthoredSurface,
+  type ShadowLevel,
+  type ShadowOutcome,
+  type ShadowPlan,
+  type ShadowReason,
+} from './lighting';
+// Packet 53: the runtime role selector and the bounded crossfade
+// (presentation.md §41.3.6/§41.3.7/§41.9 — root subpath, no new subpath):
+// `createAnimationRoleController`/`AnimationRoleController` + the
+// profile/state types; the pure selection/weight/validation helpers are
+// exported so the named B14 checklist and the tests compare realized values
+// against the contract constants and the promoted fixture rows.
+export {
+  ANIMATION_CROSSFADE_SECONDS,
+  ANIMATION_MAX_DELTA_SECONDS,
+  ANIMATION_ROLES,
+  RUN_SPEED_EPS,
+  crossfadeIncomingWeight,
+  createAnimationRoleController,
+  selectAnimationRole,
+  validateAnimationRoles,
+  type AnimationRoleBindingInput,
+  type AnimationRoleController,
+  type AnimationRoleMotion,
+  type AnimationRoleName,
+  type AnimationRoleState,
+  type AnimationRoleValidationFailure,
+  type AnimationRoleView,
+  type AnimationRolesInput,
+} from './animation';
+export type { OwnershipCounts, OwnershipKind, ResourceOwnership } from './ownership';
+export {
+  createVisualResourceStore,
+  injectedResolver,
+  prepareVisualResource,
+  suppliedBytes,
+  VISUAL_SOURCE_BYTES_MAX,
+  visualLoadFailure,
+  type AssetByteSource,
+  type AssetPreviewController,
+  type AssetVersionDescriptor,
+  type GlbLoaderPort,
+  type LoadedGlb,
+  type ModelInstance,
+  type PrepareVisualOptions,
+  type PrepareVisualResult,
+  type PreparedVisualResource,
+  type PreviewMaterialMode,
+  type PreviewResult,
+  type PreviewState,
+  type VisualClipInfo,
+  type VisualLoadFailure,
+  type VisualLoadFailureReason,
+  type VisualResourceDiagnostics,
+  type VisualResourceHandle,
+  type VisualResourceState,
+  type VisualResourceStore,
+  type VisualResourceStoreOptions,
+} from './visual';

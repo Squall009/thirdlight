@@ -1,0 +1,27 @@
+Platformer Starter template — provenance and license
+=====================================================
+
+Content: engine-generated (original generated content of the Thirdlight
+campaign). No downloaded asset, no third-party bytes; no license is
+asserted over external material.
+
+Derivation: this template is derived from the accepted Beacon Reach sample
+recipe (samples/beacon-reach/recipe/commands.json — 26 commands, committed
+with its generation tooling and asset provenance under samples/beacon-reach/).
+The source assets below are byte-identical copies of the sample's
+self-generated assets (samples/beacon-reach/assets/); their generation
+scripts and provenance JSON are committed there. The recipe reuses the
+sample's layout commands with the template's own game text (commands 1-26)
+and adds (27-30) the courier modelAnimation binding, one decoration prefab
+definition and two independent decoration prefab instances.
+
+Digests: the descriptor's "blobs" inventory lists every source file with
+its SHA-256 digest and byte length; the descriptor's recipeDigest/baseDigest/
+contentDigest follow the accepted block-digest rule (SHA-256 of the canonical
+2-space JSON + one trailing LF of the committed document; contentDigest over
+the descriptor without its own contentDigest field).
+
+Distribution: this directory is engine content (part of the engine
+distribution; the packet-66 engine-kit layout owns its in-kit location).
+Creating a project copies these bytes into the project's own content store
+— the project never references this directory after creation.

@@ -27,6 +27,18 @@ export interface BackendResponse {
   readonly body: unknown;
 }
 
+/** Parse an HTTP response body (JSON when possible; a bounded error otherwise). */
+async function readResponse(res: { status: number; text(): Promise<string> }): Promise<BackendResponse> {
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text.length === 0 ? null : JSON.parse(text);
+  } catch {
+    parsed = { ok: false, error: { code: 'invalid_request', cls: 'internal', message: `non-JSON backend response (status ${res.status})`, raw: text.slice(0, 512) } };
+  }
+  return { status: res.status, body: parsed };
+}
+
 function trimOrigin(origin: string): string {
   return origin.replace(/\/+$/, '');
 }
@@ -114,6 +126,94 @@ export class BackendClient {
   /** POST fetch bounded runtime diagnostics from the play session's connected preview. */
   diagnostics(projectId: string, playSessionId: string): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/diagnostics`, {});
+  }
+
+  /**
+   * POST the bounded input-exercise relay (sessions.md §18.1): a step-indexed
+   * semantic action sequence applied in exclusive test-input mode. With no
+   * connected browser the backend returns the structured `session_unavailable`.
+   */
+  inputRelay(projectId: string, playSessionId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/input`, body);
+  }
+
+  /**
+   * POST the bounded §20 control relay (sessions.md §20.1) to an explicitly
+   * presented play session. With no connected/presenting browser the backend
+   * returns its structured `session_unavailable` — never a fabricated success.
+   */
+  gameControl(projectId: string, playSessionId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/control`, body);
+  }
+
+  /** POST the bounded §20 observation relay (body: `{ timeoutMs? }`). */
+  gameObserve(projectId: string, playSessionId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/observe`, body);
+  }
+
+  // ---- packet 25 content services (the same /api/v1 surface) --------------
+
+  /** POST create a bounded upload stage (the stage id is server-allocated). */
+  createStage(projectId: string, body: Record<string, unknown> = {}): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages`, body);
+  }
+
+  /** PUT one bounded upload frame (raw bytes; `X-Thirdlight-Offset`/`-Total`). */
+  async uploadFrame(projectId: string, stageId: string, offset: number, declaredTotal: number, bytes: Uint8Array): Promise<BackendResponse> {
+    const url = `${this.origin}/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/bytes`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          'content-type': 'application/octet-stream',
+          'x-thirdlight-offset': String(offset),
+          'x-thirdlight-total': String(declaredTotal),
+        },
+        body: bytes as unknown as BodyInit,
+        signal: controller.signal,
+      });
+      return await readResponse(res);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** POST inspect a staged source (bounded import proposal). `body` may carry
+   *  the packet-48 additive `{ kind?, animation? }` request. */
+  inspectStage(projectId: string, stageId: string, body: Record<string, unknown> = {}): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/inspect`, body);
+  }
+
+  /** DELETE a stage (non-authoritative cleanup). */
+  discardStage(projectId: string, stageId: string): Promise<BackendResponse> {
+    return this.request('DELETE', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}`);
+  }
+
+  /** GET the bounded asset catalog page. */
+  listAssets(projectId: string, limit?: number, offset?: number): Promise<BackendResponse> {
+    const qs = new URLSearchParams();
+    if (limit !== undefined) qs.set('limit', String(limit));
+    if (offset !== undefined) qs.set('offset', String(offset));
+    const q = qs.toString();
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/assets${q.length > 0 ? `?${q}` : ''}`);
+  }
+
+  /** GET one asset record with its versions (never bytes). */
+  contentAsset(projectId: string, assetId: string): Promise<BackendResponse> {
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/assets/${encodeURIComponent(assetId)}`);
+  }
+
+  /** GET the bounded content integrity report. */
+  contentIntegrity(projectId: string): Promise<BackendResponse> {
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/integrity`);
+  }
+
+  /** GET one bounded content job (job_not_found / job_expired). */
+  contentJob(projectId: string, jobId: string): Promise<BackendResponse> {
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/jobs/${encodeURIComponent(jobId)}`);
   }
 }
 

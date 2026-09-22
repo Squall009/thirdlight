@@ -62,7 +62,7 @@ function validScene(entities: Record<string, unknown>[] = [cameraEntity()]): Rec
   return { schemaVersion: 1, sceneId: 'scene-main', revision: 0, entities };
 }
 
-const codes = (res: { ok: false; errors: readonly ModelError[] }): string[] =>
+const codes = (res: { ok: false; errors: readonly { code: string }[] }): string[] =>
   res.errors.map((e) => e.code);
 const first = (res: { ok: false; errors: readonly ModelError[] }): ModelError => res.errors[0]!;
 const decode = (b: Uint8Array): string => new TextDecoder('utf-8', { fatal: true }).decode(b);
@@ -79,7 +79,7 @@ function deepFreeze<T>(v: T): T {
 // ---- constants ------------------------------------------------------------------
 
 describe('stable constants (dependencies.md §3 single source of truth)', () => {
-  it('ERROR_CODES is exactly the §12.6 stable code set', () => {
+  it('ERROR_CODES is exactly the §12.6 stable code set (M3 v3 extended)', () => {
     expect([...ERROR_CODES].sort()).toEqual(
       [
         'encoding_invalid',
@@ -106,12 +106,62 @@ describe('stable constants (dependencies.md §3 single source of truth)', () => 
         'revision_invalid',
         'manifest_scene_mismatch',
         'no_migration_path',
+        'version_combination_unsupported',
+        'asset_reference_missing',
+        'digest_invalid',
+        'asset_version_invalid',
+        'recipe_invalid',
+        'prefab_reference_missing',
+        'prefab_component_forbidden',
+        'behavior_reference_missing',
+        'property_unknown',
+        'property_type',
+        'property_value',
+        'setting_unknown',
+        'collider_shape_invalid',
+        'controller_count_invalid',
+        'physics_transform_unsupported',
+        'behavior_source_invalid',
+        'behavior_source_duplicate',
+        'behavior_source_missing',
+        'behavior_source_escape',
+        'behavior_source_cycle',
+        'behavior_import_forbidden',
+        'behavior_import_unpinned',
+        'behavior_dynamic_code',
+        'behavior_source_limits_exceeded',
+        'behavior_compile_timeout',
+        'behavior_compile_failed',
+        'behavior_output_limits_exceeded',
+        'behavior_output_forbidden_content',
+        'behavior_declaration_mismatch',
+        'behavior_trust_unacknowledged',
+        // packet 44 v3 additions (§23.9)
+        'game_reference_missing',
+        'game_reference_in_use',
+        'zone_transform_unsupported',
+        'spawn_transform_unsupported',
+        'zone_checkpoint_count_invalid',
+        'zone_goal_missing',
+        'asset_kind_mismatch',
+        'game_config_invalid',
+        // packet 47 media additions (presentation.md §41.7.2 A / §18.9.3):
+        // the rigid-animation role/profile codes of the promoted contract.
+        'animation_role_out_of_range',
+        'animation_role_duplicate',
+        'animation_role_mismatch',
+        'animation_role_ambiguous',
+        'animation_skin_unsupported',
+        'animation_root_motion',
       ].sort(),
     );
   });
 
-  it('KNOWN_VERSIONS is [1] for M1', () => {
-    expect([...KNOWN_VERSIONS]).toEqual([1]);
+  // Packet 20 (M2) made KNOWN_VERSIONS the per-document structure; packet 44
+  // (M3, contract §23.1) adds scene 3. The M1 standalone interchange entry
+  // points stay pinned to schemaVersion 1 (§8).
+  it('KNOWN_VERSIONS is the per-document structure for M3', () => {
+    expect(KNOWN_VERSIONS).toEqual({ manifest: [1], scene: [1, 2, 3] });
   });
 });
 

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "0.1.0",
+  "id": "demo-m1-v2",
+  "name": "Migrated Demo",
+  "createdAt": "2026-09-18T12:00:00Z",
+  "scenes": [
+    {
+      "id": "scene-main",
+      "path": "scenes/main.json"
+    }
+  ]
+}

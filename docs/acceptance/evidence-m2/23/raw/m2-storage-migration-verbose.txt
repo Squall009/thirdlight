@@ -1,0 +1,40 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/workspace/tests/m2-migration.test.ts > packet 23 — explicit operator migration copy (workspace.md §14) > copies an M1 source to a new M2 project, byte-identical to the fixture, source untouched 43ms
+ ✓ packages/workspace/tests/m2-migration.test.ts > packet 23 — explicit operator migration copy (workspace.md §14) > reports an interrupted migration destination in the startup scan and never auto-completes it 22ms
+ ✓ packages/workspace/tests/m2-migration.test.ts > packet 23 — explicit operator migration copy (workspace.md §14) > refuses a marker that names a different source (migration_marker_conflict) without writing 2ms
+ ✓ packages/workspace/tests/m2-migration.test.ts > packet 23 — explicit operator migration copy (workspace.md §14) > refuses a missing/invalid source and a source owned by a live backend 3ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > loads the v2 envelope, reads verified bytes and derives the captured content view 23ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > reports a missing blob and fails the read closed (workspace.md §13.5) 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > detects and retains a tampered blob (fixture blob-tamper-detected) 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > reports orphan blobs as harmless (no GC; retained + counted only) 10ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > refuses a symlinked sources/ path with path_rejected (never followed) 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope, blob reads, integrity and capture (workspace.md §13) > captureContentView is unavailable for an M1 (storageVersion 1) project 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > stages, publishes a new immutable blob, is idempotent and never overwrites 15ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > BR-4: a harness edit under .thirdlight/staging/ is a supported path (no pause, digest recomputed from disk) 11ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > staging still works while an external change to the envelope is pending 21ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > fails closed past the stage TTL; an identical recorded retry replays without the stage 14ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > a concurrent stale import never overwrites newer work (revision_conflict) 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > dedup precedes revision checks and survives a release/reopen (retry + play pins readable) 27ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — staging and immutable blob publication (workspace.md §7.6/§13.2) > refuses behavior source publication structurally (packet-33 preparer unavailable) 6ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — quota and write faults (workspace.md §13.4 F7/F8) > fails a publication with content_quota_exceeded (project quota) before writing 9ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — quota and write faults (workspace.md §13.4 F7/F8) > fails with content_quota_exceeded (device space) when the reserve cannot be met 6ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — quota and write faults (workspace.md §13.4 F7/F8) > maps an ENOSPC during blob publication to content_publish_failed with the envelope unchanged 10ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — quota and write faults (workspace.md §13.4 F7/F8) > rejects a second owner (ownership_conflict) for content operations 8ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — derived caches are regenerable and never authoritative (workspace.md §13.6) > writes, reads, deletes and re-reads a derived import without touching the envelope 11ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — v2 envelope compatibility (workspace.md §4.5) > reports storage_version_unsupported for an unknown version and content_invalid for a bad content block 7ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — fixture index and staging faults > the storage fixture index hashes every committed fixture byte-exactly 0ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — fixture index and staging faults > reports stage_not_found for an unknown stage and discards a stage 11ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — fixture index and staging faults > maps an fsync failure during blob publication to content_publish_failed (envelope unchanged) 7ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — accepted M2 envelope fixtures > rebuilds every valid v2 envelope byte-identically 11ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — accepted M2 envelope fixtures > reports the declared reason for every invalid v2 envelope fixture 4ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — accepted M2 envelope fixtures > fails a v2 envelope with a dangling model reference as asset_reference_missing at open 6ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — external change on a v2 envelope (workspace.md §7) > acceptExternalState rewrites the v2 envelope (content preserved) and unpauses 13ms
+ ✓ packages/workspace/tests/m2-storage.test.ts > packet 23 — external change on a v2 envelope (workspace.md §7) > discardExternalState restores the v2 last-known-good envelope and unpauses 11ms
+
+ Test Files  2 passed (2)
+      Tests  31 passed (31)
+   Start at  03:38:57
+   Duration  858ms (transform 58%, tests 30%, import 11%, worker 1%)
+

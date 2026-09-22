@@ -1,0 +1,171 @@
+# packet 24 — scoped diff (no commit made)
+
+## new files (this packet)
+  ?? docs/acceptance/evidence-m2/24/manifest.md
+  ?? docs/acceptance/evidence-m2/24/raw/allowlist-decision.txt
+  ?? docs/acceptance/evidence-m2/24/raw/asset-pipeline-verbose.txt
+  ?? docs/acceptance/evidence-m2/24/raw/boundary-negative-probe.txt
+  ?? docs/acceptance/evidence-m2/24/raw/check-fixtures.txt
+  ?? docs/acceptance/evidence-m2/24/raw/fixture-hashes.txt
+  ?? docs/acceptance/evidence-m2/24/raw/fixture-proposals.txt
+  ?? docs/acceptance/evidence-m2/24/raw/independent-verification.txt
+  ?? docs/acceptance/evidence-m2/24/raw/npm-build.txt
+  ?? docs/acceptance/evidence-m2/24/raw/npm-check-boundaries.txt
+  ?? docs/acceptance/evidence-m2/24/raw/npm-check-deps.txt
+  ?? docs/acceptance/evidence-m2/24/raw/npm-test.txt
+  ?? docs/acceptance/evidence-m2/24/raw/npm-typecheck.txt
+  ?? docs/acceptance/evidence-m2/24/raw/scoped-diff.txt
+  ?? docs/handoffs/24.md
+  ?? fixtures/m2/assets/README.md
+  ?? fixtures/m2/assets/accessor-overflow.glb
+  ?? fixtures/m2/assets/bad-chunk.glb
+  ?? fixtures/m2/assets/bad-json.glb
+  ?? fixtures/m2/assets/bom-json.glb
+  ?? fixtures/m2/assets/bytes.base64.json
+  ?? fixtures/m2/assets/compression.glb
+  ?? fixtures/m2/assets/count-limit.glb
+  ?? fixtures/m2/assets/decoded-limit.glb
+  ?? fixtures/m2/assets/empty-model.glb
+  ?? fixtures/m2/assets/expected.json
+  ?? fixtures/m2/assets/external-uri-buffer.glb
+  ?? fixtures/m2/assets/external-uri-image.glb
+  ?? fixtures/m2/assets/image-count-limit.glb
+  ?? fixtures/m2/assets/malformed-clip.glb
+  ?? fixtures/m2/assets/mime-mismatch.glb
+  ?? fixtures/m2/assets/required-extension.glb
+  ?? fixtures/m2/assets/tiny-v1.glb
+  ?? fixtures/m2/assets/tiny-v2.glb
+  ?? fixtures/m2/assets/tools/generate-fixtures.mjs
+  ?? fixtures/m2/assets/truncated.glb
+  ?? packages/asset-pipeline/package.json
+  ?? packages/asset-pipeline/src/determinism.test.ts
+  ?? packages/asset-pipeline/src/fixture-index.test.ts
+  ?? packages/asset-pipeline/src/images.ts
+  ?? packages/asset-pipeline/src/index.ts
+  ?? packages/asset-pipeline/src/inspect.ts
+  ?? packages/asset-pipeline/src/json.ts
+  ?? packages/asset-pipeline/src/limits-and-jobs.test.ts
+  ?? packages/asset-pipeline/src/limits.ts
+  ?? packages/asset-pipeline/src/profile-rejections.test.ts
+  ?? packages/asset-pipeline/src/sha256.ts
+  ?? packages/asset-pipeline/src/surface.test.ts
+  ?? packages/asset-pipeline/src/test-fixtures.ts
+  ?? packages/asset-pipeline/src/test-glb.ts
+  ?? packages/asset-pipeline/src/types.ts
+  ?? packages/asset-pipeline/src/vite-glob.d.ts
+  ?? packages/asset-pipeline/tsconfig.json
+
+## tracked files modified by this packet
+$ git diff --stat -- tools/check-boundaries.mjs docs/STATUS.md package-lock.json
+ docs/STATUS.md             | 74 +++++++++++++++++++++++++++++++++++++++++++++-
+ package-lock.json          | 11 +++++++
+ tools/check-boundaries.mjs | 11 +++++++
+ 3 files changed, 95 insertions(+), 1 deletion(-)
+
+$ git diff -- tools/check-boundaries.mjs
+diff --git a/tools/check-boundaries.mjs b/tools/check-boundaries.mjs
+index 92af98d..b856317 100644
+--- a/tools/check-boundaries.mjs
++++ b/tools/check-boundaries.mjs
+@@ -87,6 +87,7 @@ export const UNITS = [
+   'editor',
+   'mcp-adapter',
+   'exporter',
++  'asset-pipeline',
+ ];
+ 
+ /**
+@@ -135,6 +136,16 @@ export const NODE_SIDE_ALLOWED = {
+     node: [],
+     typesOnly: { workspace: true },
+   },
++  // §4.1 row: "asset-pipeline | project-model (types: ImportProposal/recipe/
++  // metrics shapes) — pure, no three and no GLTFLoader (it inspects bytes
++  // itself)". The proposal/recipe/metrics shapes the importer shares with the
++  // model are types only (the importer parses its own JSON and hashes bytes).
++  'asset-pipeline': {
++    packages: ['project-model'],
++    external: [],
++    node: [],
++    typesOnly: { 'project-model': true },
++  },
+   'mcp-adapter': {
+     packages: ['protocol', 'backend'],
+     external: ['@modelcontextprotocol/sdk'],
+
+docs/STATUS.md: the packet-24 change is exactly the row-24 cell (pending -> done). Rows 20-29
+appear as additions in the diff only because the M2 packet table itself is uncommitted from
+packets 14-23 (it is absent from HEAD 5b746ee).
+$ git diff -U0 docs/STATUS.md | grep -c '^-| 24 '   # removed packet-24 lines (must be 0)
+0
+
+## other packages and existing fixtures: not modified during the packet-24 window
+$ find packages/project-model packages/commands packages/workspace packages/runtime packages/three-adapter \
+       packages/protocol packages/backend packages/editor packages/mcp-adapter packages/exporter \
+       fixtures/m2/contracts fixtures/m2/storage -newermt '2026-09-19 03:45' -type f
+  (no output: the pre-existing uncommitted packets-20-23 edits listed below were made before
+   03:45; packet 24 neither reads nor edits them, and check-boundaries proves none is imported
+   by packages/asset-pipeline)
+
+$ git status --porcelain -- packages/project-model packages/commands packages/workspace packages/runtime packages/three-adapter packages/protocol packages/backend packages/editor packages/mcp-adapter packages/exporter
+ M packages/backend/src/ambient.d.ts
+ M packages/commands/src/api-surface.test.ts
+ M packages/commands/src/apply.ts
+ M packages/commands/src/errors.ts
+ M packages/commands/src/history.ts
+ M packages/commands/src/index.ts
+ M packages/commands/src/ops.ts
+ M packages/commands/src/test-fixtures.ts
+ M packages/commands/src/types.ts
+ M packages/commands/src/validate-request.ts
+ M packages/exporter/src/ambient.d.ts
+ M packages/mcp-adapter/src/ambient.d.ts
+ M packages/project-model/src/api-behavior.test.ts
+ M packages/project-model/src/errors.ts
+ M packages/project-model/src/index.ts
+ M packages/project-model/src/migrate.ts
+ M packages/project-model/src/normalize.ts
+ M packages/project-model/src/parse-api.ts
+ M packages/project-model/src/test-fixtures.ts
+ M packages/project-model/src/validate.ts
+ M packages/workspace/src/envelope.ts
+ M packages/workspace/src/errors.ts
+ M packages/workspace/src/index.ts
+ M packages/workspace/src/isolate.ts
+ M packages/workspace/src/node-ambient.d.ts
+ M packages/workspace/src/service.ts
+ M packages/workspace/src/session.ts
+ M packages/workspace/src/types.ts
+ M packages/workspace/tests/envelope.test.ts
+?? packages/commands/src/content-ops.ts
+?? packages/commands/src/m2-content.test.ts
+?? packages/commands/src/m2-prefab.test.ts
+?? packages/commands/src/prefab-ops.ts
+?? packages/commands/src/properties.ts
+?? packages/commands/src/queries.ts
+?? packages/commands/src/validate-content-args.ts
+?? packages/commands/src/validate-prefab-args.ts
+?? packages/project-model/src/content.ts
+?? packages/project-model/src/m2-model.test.ts
+?? packages/project-model/src/project-v2.ts
+?? packages/project-model/src/scene-v2.ts
+?? packages/project-model/src/sha256.ts
+?? packages/project-model/src/types-v2.ts
+?? packages/workspace/src/content-store.ts
+?? packages/workspace/src/migration.ts
+?? packages/workspace/tests/m2-migration.test.ts
+?? packages/workspace/tests/m2-storage.test.ts
+
+## accepted contracts / M2 proposals
+$ git diff --stat -- docs/contracts docs/planning/m2-contracts
+ docs/contracts/commands.md      |  799 ++++++++++++++++++-
+ docs/contracts/dependencies.md  |  166 +++-
+ docs/contracts/export.md        |  200 ++++-
+ docs/contracts/project-model.md | 1672 ++++++++++++++++++++++++++++++++++++++-
+ docs/contracts/runtime.md       | 1001 ++++++++++++++++++++++-
+ docs/contracts/sessions.md      |  578 +++++++++++++-
+ docs/contracts/workspace.md     |  806 ++++++++++++++++++-
+ 7 files changed, 5077 insertions(+), 145 deletions(-)
+  (the docs/contracts diff is the pre-existing M2 promotion from packets 20-23 — see the find
+   check above, which proves no contract file changed during the packet-24 window; the accepted
+   contract text was read, never changed)

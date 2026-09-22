@@ -1,0 +1,336 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Same-step precedence gameplay.md §4.3: death (hazard, then fall) > checkpoint > goal; ties by ascending entityId."
+  ],
+  "cases": [
+    {
+      "id": "prec-none",
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        5,
+        0.91
+      ],
+      "to": [
+        5.4,
+        0.91
+      ],
+      "expect": {
+        "kind": null,
+        "zoneId": null,
+        "cause": null
+      }
+    },
+    {
+      "id": "prec-hazard-beats-checkpoint",
+      "zones": [
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0005",
+          "role": "hazard",
+          "center": [
+            21,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        21.4,
+        0.91
+      ],
+      "to": [
+        21.5,
+        0.91
+      ],
+      "expect": {
+        "kind": "death",
+        "zoneId": "zone-0005",
+        "cause": "hazard"
+      }
+    },
+    {
+      "id": "prec-checkpoint-beats-goal",
+      "zones": [
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0006",
+          "role": "goal",
+          "center": [
+            22.5,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        22,
+        0.91
+      ],
+      "to": [
+        22,
+        0.91
+      ],
+      "expect": {
+        "kind": "checkpoint",
+        "zoneId": "zone-0003",
+        "cause": null
+      }
+    },
+    {
+      "id": "prec-fall-beats-checkpoint",
+      "zones": [
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        22,
+        0.91
+      ],
+      "to": [
+        22,
+        -4.5
+      ],
+      "expect": {
+        "kind": "death",
+        "zoneId": null,
+        "cause": "fall"
+      }
+    },
+    {
+      "id": "prec-hazard-id-tie",
+      "zones": [
+        {
+          "id": "zone-0007",
+          "role": "hazard",
+          "center": [
+            21.6,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0005",
+          "role": "hazard",
+          "center": [
+            21,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        21.55,
+        0.91
+      ],
+      "to": [
+        21.55,
+        0.91
+      ],
+      "expect": {
+        "kind": "death",
+        "zoneId": "zone-0005",
+        "cause": "hazard"
+      }
+    },
+    {
+      "id": "prec-goal-id-tie",
+      "zones": [
+        {
+          "id": "zone-0006",
+          "role": "goal",
+          "center": [
+            22.5,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        44.5,
+        0.91
+      ],
+      "to": [
+        44.6,
+        0.91
+      ],
+      "expect": {
+        "kind": "goal",
+        "zoneId": "zone-0001",
+        "cause": null
+      }
+    },
+    {
+      "id": "prec-hazard-beats-fall",
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      ],
+      "checkpointId": null,
+      "killY": -4,
+      "from": [
+        10.9,
+        0.91
+      ],
+      "to": [
+        10.9,
+        -5
+      ],
+      "expect": {
+        "kind": "death",
+        "zoneId": "zone-0002",
+        "cause": "hazard"
+      }
+    },
+    {
+      "id": "prec-checkpoint-already-active",
+      "zones": [
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        }
+      ],
+      "checkpointId": "zone-0003",
+      "killY": -4,
+      "from": [
+        22,
+        0.91
+      ],
+      "to": [
+        22,
+        0.91
+      ],
+      "expect": {
+        "kind": null,
+        "zoneId": null,
+        "cause": null
+      }
+    }
+  ]
+}

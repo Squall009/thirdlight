@@ -1,0 +1,58 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-full-disk-before-publication",
+  "title": "Quota and free-space pre-flight fails before any publication",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "stage": {
+      "stageId": "stg-quota01",
+      "bytes": "source-preimages/placeholder-b.bin",
+      "state": "readable"
+    },
+    "device": {
+      "freeBytes": 20000000,
+      "requiredFreeBytes": 67108864
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000006",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-quota01"
+    }
+  },
+  "steps": [
+    {
+      "at": "phase-0",
+      "action": "quota and free-space pre-flight before the first write",
+      "expect": {
+        "outcome": "refused"
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "content_quota_exceeded"
+    ],
+    "durableEffects": [],
+    "observations": [
+      "error carries kind: \"device_space\", the required and observed free bytes, and a remediation hint",
+      "no temp file, no blob, no envelope write",
+      "quota is checked again before the commit so a racing publication cannot exceed it"
+    ]
+  },
+  "notes": "Fail before publication when full. A pre-flight refusal is not a partial publication."
+}

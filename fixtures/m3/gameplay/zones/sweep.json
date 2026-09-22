@@ -1,0 +1,381 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Every expected value is re-derived by tools/check-fixtures.mjs from gameplay.md §4.2 (closed form); the closed-form arithmetic is recorded in verification.md §3.",
+    "The standing-capsule threshold against a zone whose left edge is x=10.5 and whose top is y=0.25 is dx_max = sqrt(0.3^2 - 0.06^2) = sqrt(0.0864) = 0.29393876913398137, i.e. x = 10.206061230866018; sweep-stand-outside (x=10.2) and sweep-stand-inside (x=10.21) bracket it."
+  ],
+  "cases": [
+    {
+      "id": "sweep-enter-hazard",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        10,
+        0.91
+      ],
+      "to": [
+        10.4,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.09999999999999964,
+        "dy": 0.06000000000000005,
+        "d": 0.11661903789690573,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-stand-outside",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        10.2,
+        0.91
+      ],
+      "to": [
+        10.2,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.3000000000000007,
+        "dy": 0.06000000000000005,
+        "d": 0.3059411708155678,
+        "overlap": false,
+        "tangent": false,
+        "classification": "separate"
+      }
+    },
+    {
+      "id": "sweep-stand-inside",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        10.21,
+        0.91
+      ],
+      "to": [
+        10.21,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.28999999999999915,
+        "dy": 0.06000000000000005,
+        "d": 0.2961418578992161,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-touch-edge-tangent",
+      "zone": {
+        "id": "zone-0003",
+        "role": "checkpoint",
+        "center": [
+          22,
+          1
+        ],
+        "size": [
+          2,
+          2
+        ]
+      },
+      "from": [
+        20.7,
+        0.91
+      ],
+      "to": [
+        20.7,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.3000000000000007,
+        "dy": 0,
+        "d": 0.3000000000000007,
+        "overlap": false,
+        "tangent": true,
+        "classification": "tangent"
+      }
+    },
+    {
+      "id": "sweep-touch-edge-just-inside",
+      "zone": {
+        "id": "zone-0003",
+        "role": "checkpoint",
+        "center": [
+          22,
+          1
+        ],
+        "size": [
+          2,
+          2
+        ]
+      },
+      "from": [
+        20.71,
+        0.91
+      ],
+      "to": [
+        20.71,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.28999999999999915,
+        "dy": 0,
+        "d": 0.28999999999999915,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-degenerate-inside",
+      "zone": {
+        "id": "zone-0003",
+        "role": "checkpoint",
+        "center": [
+          22,
+          1
+        ],
+        "size": [
+          2,
+          2
+        ]
+      },
+      "from": [
+        22,
+        1
+      ],
+      "to": [
+        22,
+        1
+      ],
+      "expect": {
+        "dx": 0,
+        "dy": 0,
+        "d": 0,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-fast-crossing",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        10,
+        0.91
+      ],
+      "to": [
+        13,
+        0.91
+      ],
+      "expect": {
+        "dx": 0,
+        "dy": 0.06000000000000005,
+        "d": 0.06000000000000005,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-fast-crossing-end-only",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        13,
+        0.91
+      ],
+      "to": [
+        13,
+        0.91
+      ],
+      "expect": {
+        "dx": 1.6999999999999993,
+        "dy": 0.06000000000000005,
+        "d": 1.7010584939971927,
+        "overlap": false,
+        "tangent": false,
+        "classification": "separate"
+      }
+    },
+    {
+      "id": "sweep-fall-through",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        11,
+        1.5
+      ],
+      "to": [
+        11,
+        0.5
+      ],
+      "expect": {
+        "dx": 0,
+        "dy": 0,
+        "d": 0,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    },
+    {
+      "id": "sweep-jump-over",
+      "zone": {
+        "id": "zone-0002",
+        "role": "hazard",
+        "center": [
+          10.9,
+          0.125
+        ],
+        "size": [
+          0.8,
+          0.25
+        ]
+      },
+      "from": [
+        10,
+        2.5
+      ],
+      "to": [
+        12,
+        2.5
+      ],
+      "expect": {
+        "dx": 0,
+        "dy": 1.65,
+        "d": 1.65,
+        "overlap": false,
+        "tangent": false,
+        "classification": "separate"
+      }
+    },
+    {
+      "id": "sweep-exit-checkpoint",
+      "zone": {
+        "id": "zone-0003",
+        "role": "checkpoint",
+        "center": [
+          22,
+          1
+        ],
+        "size": [
+          2,
+          2
+        ]
+      },
+      "from": [
+        23.5,
+        0.91
+      ],
+      "to": [
+        24,
+        0.91
+      ],
+      "expect": {
+        "dx": 0.5,
+        "dy": 0,
+        "d": 0.5,
+        "overlap": false,
+        "tangent": false,
+        "classification": "separate"
+      }
+    },
+    {
+      "id": "sweep-goal-from-spawn",
+      "zone": {
+        "id": "zone-0001",
+        "role": "goal",
+        "center": [
+          44.5,
+          1
+        ],
+        "size": [
+          1,
+          2
+        ]
+      },
+      "from": [
+        44.5,
+        0.91
+      ],
+      "to": [
+        44.53,
+        0.91
+      ],
+      "expect": {
+        "dx": 0,
+        "dy": 0,
+        "d": 0,
+        "overlap": true,
+        "tangent": false,
+        "classification": "overlap"
+      }
+    }
+  ]
+}

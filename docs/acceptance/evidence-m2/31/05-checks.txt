@@ -1,0 +1,57 @@
+Packet 31 — required checks (all run on the frozen tree; actual output)
+
+== npm test ==
+ Test Files  113 passed (113)
+      Tests  1501 passed (1501)
+   Start at  07:34:33
+   Duration  30.98s (tests 87%, import 8%, transform 4%, worker 1%)
+
+    Isolate  113 workers spawned · ~211ms startup each (spawn + environment, per file)
+             at least ~4.56s faster with isolate: false — reuses workers across files instead of one per file
+
+
+== npm run typecheck ==
+typecheck: tsc --noEmit -p packages/physics-rapier
+typecheck: tsc --noEmit -p packages/project-model
+typecheck: tsc --noEmit -p packages/protocol
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+
+== npm run check-deps ==
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+== npm run check-boundaries ==
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 13 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, physics-rapier, project-model, protocol, runtime, three-adapter, workspace], 246 source file(s), 895 specifier(s) checked; no boundary violations.
+
+== npm run build ==
+typecheck: tsc --noEmit -p packages/workspace
+build: editor: packages/editor/src/index.tsx -> dist/editor/main.js
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+== fixtures/m2/contracts/tools/check-fixtures.mjs ==
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)
+
+== fixtures/m2/physics/tools/check-physics-fixtures.mjs ==
+ok   sanitization: no credential-like strings in the fixture set
+check-physics-fixtures: OK — all packet-31 fixture checks passed.
+
+== fixtures/m2/input/tools/check-input-fixtures.mjs ==
+ok   secrets: no credential-like strings
+check OK: input fixtures consistent
+
+== fixtures/m2/runtime/tools/check-runtime-fixtures.mjs ==
+
+check-runtime-fixtures: all checks passed

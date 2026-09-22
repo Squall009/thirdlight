@@ -1,0 +1,159 @@
+Packet 31 — installed pin, integrity and lockfile delta
+
+## npm ls --depth=0 --json (health + installed pin)
+problems: null
+physics-rapier: {"version":"0.1.0","resolved":"file:../../packages/physics-rapier","overridden":false,"dependencies":{"@dimforge/rapier2d-compat":{"version":"0.20.0","resolved":"https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.20.0.tgz","overridden":false},"@thirdlight/runtime":{"version":"0.1.0"}}}
+
+## exact integrity verification (lockfile entry vs registry vs recorded decision value)
+lockfile:  sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ==
+registry:  sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ==
+decision:  sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ== (docs/decisions/0002-m2-content-and-behavior.md §1.2 item 1)
+resolved:  https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.20.0.tgz
+version:   0.20.0
+license:   Apache-2.0
+runtime dependencies: {}
+
+## lockfile delta vs the pre-packet state (git diff --stat package-lock.json and the raw diff)
+ package-lock.json | 39 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+--- raw diff (3 hunks, +16 lines: the @dimforge/rapier2d-compat entry, the @thirdlight/physics-rapier workspace link and package entry) ---
+diff --git a/package-lock.json b/package-lock.json
+index 27ae664..2a05b7c 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -20,6 +20,11 @@
+         "node": "22"
+       }
+     },
++    "node_modules/@dimforge/rapier2d-compat": {
++      "version": "0.20.0",
++      "resolved": "https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.20.0.tgz",
++      "integrity": "sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ=="
++    },
+     "node_modules/@dimforge/rapier3d-compat": {
+       "version": "0.12.0",
+       "resolved": "https://registry.npmjs.org/@dimforge/rapier3d-compat/-/rapier3d-compat-0.12.0.tgz",
+@@ -763,6 +768,10 @@
+       "dev": true,
+       "peer": true
+     },
++    "node_modules/@thirdlight/asset-pipeline": {
++      "resolved": "packages/asset-pipeline",
++      "link": true
++    },
+     "node_modules/@thirdlight/backend": {
+       "resolved": "packages/backend",
+       "link": true
+@@ -779,10 +788,18 @@
+       "resolved": "packages/exporter",
+       "link": true
+     },
++    "node_modules/@thirdlight/input": {
++      "resolved": "packages/input",
++      "link": true
++    },
+     "node_modules/@thirdlight/mcp-adapter": {
+       "resolved": "packages/mcp-adapter",
+       "link": true
+     },
++    "node_modules/@thirdlight/physics-rapier": {
++      "resolved": "packages/physics-rapier",
++      "link": true
++    },
+     "node_modules/@thirdlight/project-model": {
+       "resolved": "packages/project-model",
+       "link": true
+@@ -2780,6 +2797,13 @@
+         "zod": "^3.25.28 || ^4"
+       }
+     },
++    "packages/asset-pipeline": {
++      "name": "@thirdlight/asset-pipeline",
++      "version": "0.1.0",
++      "dependencies": {
++        "@thirdlight/project-model": "0.1.0"
++      }
++    },
+     "packages/backend": {
+       "name": "@thirdlight/backend",
+       "version": "0.1.0",
+@@ -2823,6 +2847,13 @@
+         "esbuild": "0.28.2"
+       }
+     },
++    "packages/input": {
++      "name": "@thirdlight/input",
++      "version": "0.1.0",
++      "dependencies": {
++        "@thirdlight/runtime": "0.1.0"
++      }
++    },
+     "packages/mcp-adapter": {
+       "name": "@thirdlight/mcp-adapter",
+       "version": "0.1.0",
+@@ -2832,6 +2863,14 @@
+         "@thirdlight/protocol": "0.1.0"
+       }
+     },
++    "packages/physics-rapier": {
++      "name": "@thirdlight/physics-rapier",
++      "version": "0.1.0",
++      "dependencies": {
++        "@dimforge/rapier2d-compat": "0.20.0",
++        "@thirdlight/runtime": "0.1.0"
++      }
++    },
+     "packages/project-model": {
+       "name": "@thirdlight/project-model",
+       "version": "0.1.0"
+
+## delta vs the pre-packet-31 working-tree lockfile (copy saved at /tmp/lock-before-31.json before `npm install`)
+The `git diff package-lock.json` above is against HEAD (5b746ee) and therefore also contains the
+uncommitted packet-24/25/30 additions; the packet-31-only delta is this one:
+--- /tmp/lock-before-31.json	2026-09-19 07:10:55.586111207 +0000
++++ package-lock.json	2026-09-19 07:11:26.809502641 +0000
+@@ -20,6 +20,11 @@
+         "node": "22"
+       }
+     },
++    "node_modules/@dimforge/rapier2d-compat": {
++      "version": "0.20.0",
++      "resolved": "https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.20.0.tgz",
++      "integrity": "sha512-FFYwGrfJov7d5kn4fxblG/ip5C+sYQL+Jl/hqLvDvu4BcMD/Mhrz7cTvnZTtuIRDXY8CLuraObqB/prip4wdWQ=="
++    },
+     "node_modules/@dimforge/rapier3d-compat": {
+       "version": "0.12.0",
+       "resolved": "https://registry.npmjs.org/@dimforge/rapier3d-compat/-/rapier3d-compat-0.12.0.tgz",
+@@ -791,6 +796,10 @@
+       "resolved": "packages/mcp-adapter",
+       "link": true
+     },
++    "node_modules/@thirdlight/physics-rapier": {
++      "resolved": "packages/physics-rapier",
++      "link": true
++    },
+     "node_modules/@thirdlight/project-model": {
+       "resolved": "packages/project-model",
+       "link": true
+@@ -2854,6 +2863,14 @@
+         "@thirdlight/protocol": "0.1.0"
+       }
+     },
++    "packages/physics-rapier": {
++      "name": "@thirdlight/physics-rapier",
++      "version": "0.1.0",
++      "dependencies": {
++        "@dimforge/rapier2d-compat": "0.20.0",
++        "@thirdlight/runtime": "0.1.0"
++      }
++    },
+     "packages/project-model": {
+       "name": "@thirdlight/project-model",
+       "version": "0.1.0"
+
+(3 hunks, +16 lines: node_modules/@dimforge/rapier2d-compat, node_modules/@thirdlight/physics-rapier, packages/physics-rapier.)
+npm 9.2.0 writes the workspace `packages/physics-rapier` entry WITHOUT a `name` field when adding to an
+existing lockfile (the recorded 04-review R6 trap); the entry was completed with `name` exactly as the
+packet-30 `packages/input` entry has it, and `npm ls` reports no problems. Two unrelated stale-entry
+normalizations npm also wanted (`@thirdlight/asset-pipeline` in packages/backend and packages/workspace —
+the uncommitted packet-24/25 manifests) were reverted to keep the delta limited to the approved change.

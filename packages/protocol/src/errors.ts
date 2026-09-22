@@ -33,8 +33,49 @@ export const ERROR_CODES = [
   'screenshot_timeout',
   'diagnostics_timeout',
   'relay_failed',
+  // M2 content transport (sessions.md §11.3 + §16.1; workspace.md §11 codes
+  // surface through the routes unchanged). Additive: the M1 codes above are
+  // unchanged.
+  'content_frame_invalid',
+  'job_not_found',
+  'job_expired',
+  'stage_not_found',
+  'stage_expired',
+  'stage_limits_exceeded',
+  'import_rejected',
+  'blob_missing',
+  'blob_corrupt',
+  'path_rejected',
+  'asset_not_found',
+  'asset_version_not_found',
+  'asset_id_duplicate',
+  'content_quota_exceeded',
+  'content_publish_failed',
+  'content_invalid',
+  'derived_cache_unavailable',
+  // M2 play delivery + bounded input relay (sessions.md §11.3/§17.2/§18.1).
+  'play_locator_invalid',
+  'play_locator_expired',
+  'play_content_not_ready',
+  'play_build_unavailable',
+  'input_relay_conflict',
+  'input_relay_limits_exceeded',
+  'input_relay_timeout',
+  'scan_forbidden_content',
+  // M3 §20 game control/observation relay (sessions.md §20.2, packet 42
+  // promoted; packet 48 implements). Additive: no accepted code changed.
+  'game_command_invalid',
+  'game_run_stale',
+  'game_relay_rejected',
+  'game_relay_timeout',
+  'limits_exceeded',
+  // M3 v2→v3 operator copy (workspace.md §16.8, packet 48 route). Additive.
+  'migration_version_unsupported',
+  'migration_source_invalid',
+  'migration_destination_exists',
+  'migration_marker_conflict',
+  'migration_resume_required',
 ] as const;
-
 export type SessionErrorCode = (typeof ERROR_CODES)[number];
 
 export type ErrorClass =
@@ -74,6 +115,8 @@ export interface SessionError {
   details?: unknown;
   /** `session_unavailable` (§11.3). */
   playSessionId?: string;
+  /** `play_locator_expired` (§17.2): the locator deadline (truthful UI). */
+  expiresAt?: string;
   /** `screenshot_timeout` / `diagnostics_timeout` (§11.3). */
   relayId?: string;
   /** `relay_failed` (§11.3): the preview/bridge cause. The §11.3 table
@@ -81,6 +124,30 @@ export interface SessionError {
    *  `relay_failed` by the same row + §7.2, so the cause travels under
    *  `cause` (interpretation recorded in docs/handoffs/09.md). */
   cause?: string;
+  // ---- M2 content transport code-specific fields (packet 25) -----------------
+  /** `stage_*`, `import_rejected`, `job_*`: the stage/job identity. */
+  stageId?: string;
+  jobId?: string;
+  /** `stage_limits_exceeded` / `limits_exceeded`: the failed bound. */
+  limit?: string;
+  /** `limits_exceeded`/quota: the current and maximum values. */
+  current?: number;
+  max?: number;
+  /** `asset_*` / asset-byte reads. */
+  assetId?: string;
+  assetVersion?: number;
+  /** `blob_*` / `import_rejected`: the digest and the bounded diagnostics. */
+  sourceDigest?: string;
+  byteLength?: number;
+  diagnostics?: unknown;
+  diagnosticCount?: number;
+  /** `content_quota_exceeded`: `project_quota` | `device_space`. */
+  kind?: string;
+  used?: number;
+  needed?: number;
+  /** `game_run_stale` (§20.2): the current run identity, so a stale control is
+   *  refused with the run the caller must re-derive against. Never a capability. */
+  runId?: string;
 }
 
 export const MESSAGE_LIMIT = 256;

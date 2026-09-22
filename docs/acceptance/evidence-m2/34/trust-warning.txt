@@ -1,0 +1,9 @@
+Behavior code is trusted personal project code. It runs on the play page’s main thread, in the same JavaScript context as the renderer and the runtime step loop.
+
+1. There is NO hard runtime timeout. A same-thread infinite loop (for example while (true) {}) cannot be interrupted: no watchdog, no Stop button, no iframe removal and no dispose() call is claimed to preempt it. A hung behavior hangs the play tab until you close it.
+
+2. There is NO hostile-code sandbox. A behavior can reach every global available in its game origin (window, document, fetch, XMLHttpRequest, WebSocket, Worker, storage, console) and can call them directly. The compiler’s import/source checks and the preview CSP are defense in depth against accidental and structural mistakes, not a sandbox, and are trivially bypassable by design.
+
+3. Scripts observe their origin’s globals. The preview page therefore exposes nothing sensitive: no authoring credentials, no authoring token, no /api/v1 access and no project filesystem handle ever enter the preview.
+
+ACK LABEL: I understand the limits and acknowledge this exact source digest

@@ -1,0 +1,15 @@
+$ cat > packages/three-adapter/src/__boundary_probe.ts <<'EOF'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+export const c = OrbitControls;
+EOF
+$ npm run check-boundaries   # with the UNAPPROVED subpath present
+> node tools/check-boundaries.mjs
+
+check-boundaries: FAIL — 1 violation(s):
+  packages/three-adapter/src/__boundary_probe.ts:1: [external-subpath-forbidden] 'three/examples/jsm/controls/OrbitControls.js' — 'three-adapter' may import only 'three' and its 'examples/jsm/loaders/GLTFLoader.js' subpath (dependencies.md §4.2/§7: another examples/jsm module is a reviewed addition, not an incidental import)
+exit=1
+
+$ npm run check-boundaries   # after removing the probe (the approved GLTFLoader import remains)
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 11 package(s) [asset-pipeline, backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 196 source file(s), 710 specifier(s) checked; no boundary violations.

@@ -1,0 +1,119 @@
+{
+  "manifestVersion": 1,
+  "type": "thirdlight-runtime-content",
+  "projectId": "demo-store-01",
+  "revision": 13,
+  "snapshotId": "demo-store-01@r13",
+  "capturedAt": "2026-09-19T10:47:42Z",
+  "sceneDigest": "4aa99a080e09bcf7853c9f6949dc7c4cc6cb7fa2c83338068abb132a4eae8351",
+  "contentDigest": "3e0f013723bb6edb8e92b72cf31825c7e9fa61aa6cee97ffa749003810be770a",
+  "assets": [
+    {
+      "assetId": "asset-02778846479b94",
+      "version": 1,
+      "sourceDigest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+      "sourceByteLength": 1552,
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metricsDigest": "0a8582f151fe7526f4e03faaacc4a731d1837e88252a5a53f826256cc2aa77dd",
+      "path": "content/sha256/5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43"
+    }
+  ],
+  "behaviors": [
+    {
+      "behaviorId": "behavior-p36-01",
+      "sourceDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+      "sourceByteLength": 922,
+      "manifestDigest": "ee8fc8fdd3c64b93755ae1b55ff99fff640ed5a1386ff0d291f2b24e48c503d6",
+      "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+      "outputByteLength": 500,
+      "apiVersion": 1,
+      "declaration": {
+        "properties": [
+          {
+            "key": "speed",
+            "label": "Speed",
+            "type": "number",
+            "default": 3.5,
+            "min": -1000,
+            "max": 1000,
+            "step": 0.25
+          }
+        ]
+      },
+      "ownedTransforms": [],
+      "requiredModules": [
+        "@thirdlight/runtime"
+      ],
+      "path": "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js"
+    }
+  ],
+  "modules": [
+    {
+      "id": "thirdlight.input:keyboard-gamepad",
+      "apiVersion": 1,
+      "package": "@thirdlight/input",
+      "version": "0.1.0"
+    },
+    {
+      "id": "thirdlight.physics-rapier:2d",
+      "apiVersion": 1,
+      "package": "@thirdlight/physics-rapier",
+      "version": "0.1.0"
+    },
+    {
+      "id": "thirdlight.platformer:controller",
+      "apiVersion": 1,
+      "package": "@thirdlight/platformer",
+      "version": "0.1.0"
+    },
+    {
+      "id": "thirdlight.three-adapter:gltf-loader",
+      "apiVersion": 1,
+      "package": "@thirdlight/three-adapter",
+      "version": "0.1.0"
+    }
+  ],
+  "enginePins": [
+    {
+      "id": "@thirdlight/input",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/physics-rapier",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/platformer",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/runtime",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/three",
+      "version": "0.186.0",
+      "apiVersion": 0
+    },
+    {
+      "id": "@thirdlight/three-adapter",
+      "version": "0.1.0",
+      "apiVersion": 1
+    }
+  ],
+  "recipes": {
+    "gltf-glb": 1,
+    "behavior-source": 1
+  },
+  "toolchain": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
+  },
+  "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+  "buildId": "aaedfa81c90365e02a9996c825018d24db6853e596f836b50d2d2c315a02fec5"
+}

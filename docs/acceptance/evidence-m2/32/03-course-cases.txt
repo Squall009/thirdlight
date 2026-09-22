@@ -1,0 +1,117 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+stdout | tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > idle-settle: grounded every step, no Y drift, settled rest centre
+[idle-settle] restY=0.9099987331050216 maxDy=0
+
+ ✓ tests/m2-controller/course-cases.test.ts > frozen course fixtures > carries the 64 static colliders of the packet-14 frozen course 3ms
+ ✓ tests/m2-controller/course-cases.test.ts > frozen course fixtures > declares 28 diagnostic cases with tolerance references 1ms
+ ✓ tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > idle-settle: grounded every step, no Y drift, settled rest centre 97ms
+stdout | tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > flat-run: run_speed band, grounded every step, seam crossed
+[flat-run] meanSpeed=3.9993691678558076 maxYdev=0.003563396630852367 ungrounded=0
+
+stdout | tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > accel-decel-steps: 12 steps to run_speed, 8 steps to zero
+[accel-decel] vx@11=4.000000208616257 vx@decelStart=3.5 vx@8=0
+
+stdout | tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > seam-cross: the 0.02 m floor seam never dislodges the character
+[seam-cross] ungrounded=0 frac=1
+
+stdout | tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > jump-hold: apex gain inside the theoretical tolerance, lands back at rest
+[jump-hold] restY=0.9099987331050216 apexGain=1.219662501127459 maxVy=6.8365
+
+stdout | tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > jump-tap: release halves the ascending velocity once (variable height)
+[jump-tap] vy32=6.673 vy33=3.25475 apex=1.3061612339428392
+
+stdout | tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > no-air-jump: repeated press edges while airborne never restore jump velocity
+[no-air-jump] starts=1 maxVy=6.8365
+
+stdout | tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > wall-stop: the run stops at the face band with no penetration
+[wall-stop] maxX=9.190161649108632 stopCenter=9.19
+
+stdout | tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > high-speed-wall: 12 m/s approach, no tunnelling, stop within 10 steps of contact
+[high-speed-wall] maxX=9.189900463486264 contact@26 stop@27 approach=8.666666666666664
+
+ ✓ tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > flat-run: run_speed band, grounded every step, seam crossed 33ms
+ ✓ tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > accel-decel-steps: 12 steps to run_speed, 8 steps to zero 10ms
+ ✓ tests/m2-controller/course-cases.test.ts > flat ground, movement and seams (real Rapier + controller) > seam-cross: the 0.02 m floor seam never dislodges the character 13ms
+ ✓ tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > jump-hold: apex gain inside the theoretical tolerance, lands back at rest 13ms
+ ✓ tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > jump-tap: release halves the ascending velocity once (variable height) 12ms
+ ✓ tests/m2-controller/course-cases.test.ts > jump behaviour (real Rapier + controller) > no-air-jump: repeated press edges while airborne never restore jump velocity 9ms
+ ✓ tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > wall-stop: the run stops at the face band with no penetration 10ms
+ ✓ tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > high-speed-wall: 12 m/s approach, no tunnelling, stop within 10 steps of contact 19ms
+stdout | tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > high-speed-ledge: a true 12 m/s approach into the ledge face does not tunnel
+[high-speed-ledge] approach=12 maxX=9.19036984158156 contact@24 stop@26
+
+stdout | tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > ceiling-head-bump: head contact clamps the rise and zeroes vy
+[ceiling-head-bump] maxCenterY=3.0899104348901894 head@187 maxRiseAfter=0
+
+stdout | tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > ledge-block-and-jump: the 0.4 m step blocks walking; a jump lands on the ledge top
+[ledge] maxBlockedDx=0.0065676141530275345 landed=(14.917325487965718,1.309999398716318)
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > ramp-a43-climb: a 43 degree ramp is climbed and grounded
+[ramp-a43] gain=2.120910220335645 ascentSteps=107 groundedFrac=1
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > ramp-b47-refuse: the too-steep ramp refuses the climb
+[ramp-b47] gainOver1s=0.007645474295713939
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table
+[slope 29.9] normalY=0.8668967484053135 rawGrounded=true steep=false controllerGrounded=true slideDrift=(0,0)
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table
+[slope 30] normalY=0.8660253998985324 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.67754803202115,-0.27714485961132596)
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table
+[slope 44.9] normalY=0.7083398184194536 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.35000001243315637,-0.14401872908092628)
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table
+[slope 45] normalY=0.7071067811865475 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.35000001243315637,-0.14280392783894058)
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table
+[slope 45.1] normalY=0.705871590051261 rawGrounded=true steep=true controllerGrounded=false slideDrift=(0,0)
+
+ ✓ tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > high-speed-ledge: a true 12 m/s approach into the ledge face does not tunnel 17ms
+ ✓ tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > ceiling-head-bump: head contact clamps the rise and zeroes vy 19ms
+ ✓ tests/m2-controller/course-cases.test.ts > wall, ceiling and ledge (real Rapier + controller) > ledge-block-and-jump: the 0.4 m step blocks walking; a jump lands on the ledge top 14ms
+ ✓ tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > ramp-a43-climb: a 43 degree ramp is climbed and grounded 19ms
+ ✓ tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > ramp-b47-refuse: the too-steep ramp refuses the climb 13ms
+ ✓ tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > slope-threshold: the 29.9/30.0/44.9/45.0/45.1 degree classification table 43ms
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > snap-within: a 0.05 m step-down is absorbed; never airborne
+[snap-within] minY=0.8596376536452454 ungrounded=0
+
+stdout | tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > snap-beyond: a 0.50 m step-down is not snapped; the character falls and lands lower
+[snap-beyond] snappedDeep=22 maxStepDrop=0.057246118783950806 landedY=0.35999999000446226
+
+stdout | tests/m2-controller/course-cases.test.ts > Z lock and snapshot immutability > no-z-drift: position.z, rotation and scale stay bit-identical
+[no-z-drift] steps=120 z=0
+
+stdout | tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > jump-buffer-in-window: a press 7 steps before landing fires the jump
+[buffer-in] landedStep=114 fired=true
+
+stdout | tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > jump-buffer-expired: a press 10 steps before landing never fires
+[buffer-out] landedStep=114 fired=false
+
+ ✓ tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > snap-within: a 0.05 m step-down is absorbed; never airborne 20ms
+ ✓ tests/m2-controller/course-cases.test.ts > slope limit, sliding and snapping (real Rapier + controller) > snap-beyond: a 0.50 m step-down is not snapped; the character falls and lands lower 20ms
+ ✓ tests/m2-controller/course-cases.test.ts > Z lock and snapshot immutability > no-z-drift: position.z, rotation and scale stay bit-identical 19ms
+ ✓ tests/m2-controller/course-cases.test.ts > Z lock and snapshot immutability > the runtime snapshot is not mutated by a full run 12ms
+ ✓ tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > jump-buffer-in-window: a press 7 steps before landing fires the jump 24ms
+ ✓ tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > jump-buffer-expired: a press 10 steps before landing never fires 25ms
+stdout | tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > coyote window: the last permitted step and one step later (run off the ledge)
+[coyote-last-step] lastGroundedStep=86 pressStep=93 fired=true
+
+stdout | tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > coyote window: the last permitted step and one step later (run off the ledge)
+[coyote-one-step-late] lastGroundedStep=86 pressStep=94 fired=false
+
+stdout | tests/m2-controller/course-cases.test.ts > packet-30 mapping drives the controller (keyboard + gamepad raw snapshots) > a standard gamepad stick + face button produce the same run and jump
+[device-parity] gamepadMean=3.7918909965083 keyboardMean=3.7918909965083
+
+ ✓ tests/m2-controller/course-cases.test.ts > window boundaries (coyote / jump buffer) on the real course > coyote window: the last permitted step and one step later (run off the ledge) 48ms
+ ✓ tests/m2-controller/course-cases.test.ts > packet-30 mapping drives the controller (keyboard + gamepad raw snapshots) > keyboard right-arrow/D held reaches run_speed and jumps 10ms
+ ✓ tests/m2-controller/course-cases.test.ts > packet-30 mapping drives the controller (keyboard + gamepad raw snapshots) > a standard gamepad stick + face button produce the same run and jump 21ms
+ ✓ tests/m2-controller/course-cases.test.ts > packet-30 mapping drives the controller (keyboard + gamepad raw snapshots) > a jump held across a focus suspension is never a phantom press (loss of focus) 7ms
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  07:53:40
+   Duration  999ms (tests 65%, transform 29%, import 6%)
+

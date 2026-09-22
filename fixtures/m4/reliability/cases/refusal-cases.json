@@ -1,0 +1,62 @@
+{
+  "note": "Each case: a temp source project (the committed v3 fixture bytes) + a temp backup/destination state, the procedure invoked, the expected code, and the original-preservation assertion (the source tree is byte-identical after the refusal — the acceptance obligation: \"fixtures prove refusals retain originals\"). The checker runs every case through its reference implementation of the §1–§2 procedures.",
+  "source": "fixtures/m3/storage/project-v3-demo-0003 (project.json + scenes/main.json)",
+  "cases": [
+    {
+      "id": "R1-TRUNCATED",
+      "setup": "a backup dir whose scenes/main.json is truncated (last 100 bytes removed)",
+      "procedure": "verify",
+      "expected": "backup_truncated",
+      "originals": "the source project untouched (verify is read-only on the backup; the source is never read by verify)"
+    },
+    {
+      "id": "R2-BAD-HASH",
+      "setup": "a backup dir whose project.json has one flipped byte (the manifest byteLength unchanged)",
+      "procedure": "verify",
+      "expected": "backup_hash_mismatch",
+      "originals": "the source project untouched"
+    },
+    {
+      "id": "R3-BLOB-MISSING",
+      "setup": "a backup dir whose inventory names a sources/sha256/<d> file that is absent, AND the envelope catalog names that digest (a temp catalog extension — the generator materializes a temp project with one published blob and the backup omits it)",
+      "procedure": "verify",
+      "expected": "backup_blob_missing (carries assetId, version, superseded: false)",
+      "originals": "the source project (with its blob) untouched"
+    },
+    {
+      "id": "R4-SUPERSEDED-BLOB-MISSING",
+      "setup": "a temp project whose catalog carries versions 1 AND 2 of one asset (two digests); the backup omits the v1 file",
+      "procedure": "verify",
+      "expected": "backup_blob_missing (superseded: true — the §15 \"every file, including superseded versions\" rule)",
+      "originals": "the source project (both blob files) untouched"
+    },
+    {
+      "id": "R5-OWNERSHIP-INCLUDED",
+      "setup": "a backup dir whose inventory includes a .thirdlight/ownership.json path",
+      "procedure": "verify (step 5)",
+      "expected": "backup_ownership_included",
+      "originals": "the source project untouched"
+    },
+    {
+      "id": "R6-NONEMPTY-DESTINATION",
+      "setup": "a backup (verified) + a destination project dir that already exists with a byte in it",
+      "procedure": "restore",
+      "expected": "restore_destination_nonempty (checked BEFORE the first write)",
+      "originals": "the existing destination byte-identical + the source backup untouched"
+    },
+    {
+      "id": "R7-SYMLINK-ESCAPE",
+      "setup": "a backup dir whose inventory path is ../../etc/passwd (an escape)",
+      "procedure": "verify (step 6)",
+      "expected": "backup_path_rejected",
+      "originals": "the source project untouched"
+    },
+    {
+      "id": "R8-LIVE-PROJECT",
+      "setup": "the source project with a LIVE ownership record (owned, holder pid = a real live process — the checker records its own pid)",
+      "procedure": "backup (the §1.2 precondition)",
+      "expected": "backup_live_project (the copy never starts)",
+      "originals": "the source project byte-identical (the refusal is before any read-copy); a second run with the record marked stale proceeds (the accepted §6.2 rule)"
+    }
+  ]
+}

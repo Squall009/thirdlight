@@ -1,0 +1,4 @@
+{
+  "identicalAcrossRuns": true,
+  "note": "two consecutive standalone runs, same process args; full-output equality"
+}

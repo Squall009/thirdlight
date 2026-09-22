@@ -1,0 +1,50 @@
+{
+  "consoleMessages": [
+    {
+      "type": "warning",
+      "text": "THREE.GLTFLoader: Missing min/max properties for accessor POSITION."
+    }
+  ],
+  "logs": [],
+  "requests": [
+    "http://127.0.0.1:8793/engine-csp-wasm.html",
+    "http://127.0.0.1:8793/probe.css",
+    "http://127.0.0.1:8793/engine.js",
+    "http://127.0.0.1:8793/favicon.ico",
+    "http://127.0.0.1:8793/tiny-v2.glb"
+  ],
+  "responses": [
+    {
+      "url": "http://127.0.0.1:8793/engine-csp-wasm.html",
+      "status": 200,
+      "mimeType": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/probe.css",
+      "status": 200,
+      "mimeType": "text/css",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/engine.js",
+      "status": 200,
+      "mimeType": "text/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/favicon.ico",
+      "status": 204,
+      "mimeType": "text/plain",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/tiny-v2.glb",
+      "status": 200,
+      "mimeType": "model/gltf-binary",
+      "fromDiskCache": false
+    }
+  ],
+  "failures": [],
+  "errors": []
+}

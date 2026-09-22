@@ -1,0 +1,24 @@
+{
+  "migration": {
+    "ok": true,
+    "sourceProjectId": "demo-m1",
+    "newProjectId": "demo-m1-v2",
+    "sourceRevision": 3,
+    "newRevision": 0,
+    "revisionPolicy": "reset-to-zero",
+    "historyReset": true,
+    "retryCleared": true,
+    "blobsCopied": 0,
+    "resumed": false
+  },
+  "sourceIdentical": true,
+  "destEqualsExpected": true,
+  "destTree": {
+    "project.json": "73c4cd1f67cdc15c9a671aad3ee5fba900a70c03ec042496f33282c9beeb5ce0",
+    "scenes/main.json": "475e63185f5939ba7817f21887acbd3e7a6564316df6aa3050f27ee125fade5f"
+  },
+  "expectedTree": {
+    "project.json": "73c4cd1f67cdc15c9a671aad3ee5fba900a70c03ec042496f33282c9beeb5ce0",
+    "scenes/main.json": "475e63185f5939ba7817f21887acbd3e7a6564316df6aa3050f27ee125fade5f"
+  }
+}

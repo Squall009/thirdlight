@@ -1,0 +1,114 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.6",
+  "resources": [
+    {
+      "resource": "WebGLRenderer",
+      "creator": "three-adapter:createSceneAdapter",
+      "disposer": "SceneAdapter.dispose",
+      "counter": "rendererState"
+    },
+    {
+      "resource": "shadowMap",
+      "creator": "three-adapter:lightRealization",
+      "disposer": "SceneAdapter.dispose",
+      "counter": "shadows"
+    },
+    {
+      "resource": "BufferGeometry",
+      "creator": "three-adapter:boxRealization",
+      "disposer": "ModelInstance.dispose",
+      "counter": "ownership.geometries"
+    },
+    {
+      "resource": "MeshStandardMaterial",
+      "creator": "three-adapter:surfaceRealization",
+      "disposer": "ModelInstance.dispose",
+      "counter": "ownership.materials"
+    },
+    {
+      "resource": "glbSharedResources",
+      "creator": "GlbLoaderPort.load",
+      "disposer": "PreparedVisualResource.dispose",
+      "counter": "ownership"
+    },
+    {
+      "resource": "AnimationMixer",
+      "creator": "AnimationRoleController",
+      "disposer": "AnimationRoleController.dispose",
+      "counter": "mixers"
+    },
+    {
+      "resource": "AnimationAction",
+      "creator": "AnimationRoleController",
+      "disposer": "AnimationRoleController.dispose",
+      "counter": "actions"
+    },
+    {
+      "resource": "AudioBuffer",
+      "creator": "GameAudioOwner.decode",
+      "disposer": "GameAudioOwner.dispose",
+      "counter": "cues"
+    },
+    {
+      "resource": "AudioContext",
+      "creator": "GameAudioOwner",
+      "disposer": "GameAudioOwner.dispose",
+      "counter": "status"
+    }
+  ],
+  "cases": [
+    {
+      "id": "repeated-dispose-idempotent",
+      "resource": "AnimationRoleController",
+      "calls": 2,
+      "expect": [
+        {
+          "ok": true
+        },
+        {
+          "ok": true,
+          "alreadyDisposed": true
+        }
+      ]
+    },
+    {
+      "id": "audio-repeated-dispose",
+      "resource": "GameAudioOwner",
+      "calls": 2,
+      "expect": [
+        {
+          "ok": true
+        },
+        {
+          "ok": true,
+          "alreadyDisposed": true
+        }
+      ]
+    },
+    {
+      "id": "instance-isolation",
+      "resource": "MeshStandardMaterial",
+      "instances": 2,
+      "mutate": "A",
+      "expect": {
+        "A": "changed",
+        "B": "unchanged",
+        "shared": "unchanged"
+      }
+    },
+    {
+      "id": "last-instance-release",
+      "resource": "glbSharedResources",
+      "instances": 2,
+      "disposeOrder": [
+        "A",
+        "B"
+      ],
+      "expectLeases": [
+        1,
+        0
+      ]
+    }
+  ]
+}

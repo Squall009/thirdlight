@@ -1,0 +1,15 @@
+# packet-19 negative control: seven corrupted values in a throwaway copy of fixtures/m2/contracts
+# (temp copy at /tmp/p19nc; the repo fixtures are untouched)
+
+$ TL15_REPO_ROOT=/home/dadmin/projects/thirdlight node /tmp/p19nc/tools/check-fixtures.mjs
+FAIL code-registry: delivery/protocol-surface.json: code "job_expired" is not declared in expected.json registry
+FAIL p19-protocol: content-integrity: project_not_found status 500 != statusMap[not_found]=404
+FAIL p19-protocol: content-job: error code job_expired not in expected.json registry
+FAIL p19-locator: L1-live-declared-read: cacheMaxAgeSeconds 999 != derived 890
+FAIL p19-upload: U3-bad-offset: code null != derived "content_frame_invalid"
+FAIL p19-scans: S2-glb-remote-uri: textScanApplied true != derived false
+FAIL p19-scans: S2-glb-remote-uri: a binary container must not be judged by the text scan
+FAIL p19-manifest: buildId 0000000000000000000000000000000000000000000000000000000000000000 != recomputed 5d374b60ddb40c817025bb5e22b9639f08a5ad14c8a9544644464db9475d681b
+FAIL p19-relay: R1-valid-sequence: appliedToStep 9999 != derived 1531
+check FAILED: 33 check group(s) passed, 9 problem(s)
+exit=1

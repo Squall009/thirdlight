@@ -1,0 +1,16 @@
+{
+  "name": "@thirdlight/platformer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M2 platformer controller (docs/contracts/runtime.md §12, promoted from platformer.md; packet 32): the pure fixed-step controller module `thirdlight.platformer:controller` — single jump, variable height on release, integer-step coyote/jump-buffer windows, grounding from support normals with the climb/slide slope classification, no air/wall jump and no stair climbing — written over the injected runtime input/physics ports. Imports `@thirdlight/runtime` types only (dependencies.md §4.1/§4.3: no concrete physics, no input, no three.js, no authoring/editor/backend/workspace/protocol edge, no Node built-ins, no I/O).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/runtime": "0.1.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

@@ -1,0 +1,19 @@
+# packet 29 — M2 runtime test replay (vitest)
+
+## packages/runtime (unit)
+
+
+ Test Files  11 passed (11)
+      Tests  81 passed (81)
+   Start at  06:44:52
+   Duration  862ms (transform 58%, import 25%, tests 15%, worker 2%)
+
+
+## tests/m2-runtime (fixture replay)
+
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  06:44:53
+   Duration  386ms (transform 74%, import 14%, tests 11%, worker 1%)
+

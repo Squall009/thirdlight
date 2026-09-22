@@ -1,0 +1,41 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/commands/src/m2-content.test.ts > packet-16 accepted fixture replay (non-prefab steps) > M1 publishBehavior declaration-create matches the committed result byte-for-byte 10ms
+ ✓ packages/commands/src/m2-content.test.ts > packet-16 accepted fixture replay (non-prefab steps) > M2 setBehaviorProperties attach matches the committed result byte-for-byte 3ms
+ ✓ packages/commands/src/m2-content.test.ts > packet-16 accepted fixture replay (non-prefab steps) > replays every non-prefab atomic-rejection case against its reachable state 9ms
+ ✓ packages/commands/src/m2-content.test.ts > publishAsset (commands.md §8.5) > create consumes exactly one revision/history entry with a correct inverse 5ms
+ ✓ packages/commands/src/m2-content.test.ts > publishAsset (commands.md §8.5) > reimport appends one immutable version and restores the previous record on undo 1ms
+ ✓ packages/commands/src/m2-content.test.ts > publishAsset (commands.md §8.5) > create on an existing id and reimport on an unknown one fail without touching state 1ms
+ ✓ packages/commands/src/m2-content.test.ts > publishAsset (commands.md §8.5) > rejects a malformed digest, byte length and request shape before any mutation 0ms
+ ✓ packages/commands/src/m2-content.test.ts > publishBehavior (commands.md §8.8) > declaration-create/update consume one revision and restore the previous record on undo 2ms
+ ✓ packages/commands/src/m2-content.test.ts > publishBehavior (commands.md §8.8) > source mode is unavailable before any existence or declaration validation 1ms
+ ✓ packages/commands/src/m2-content.test.ts > publishBehavior (commands.md §8.8) > validates declaration data and bounds with the contract codes 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setBehaviorProperties (commands.md §8.9) > updates one key, records changedKeys in declaration order and is self-inverse 2ms
+ ✓ packages/commands/src/m2-content.test.ts > setBehaviorProperties (commands.md §8.9) > removes the component with behaviorId null and undo restores it 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setBehaviorProperties (commands.md §8.9) > no-change on an identical write and argument errors leave the state untouched 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setBehaviorProperties (commands.md §8.9) > rejects the camera and resolves entity/asset references 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setBehaviorProperties (commands.md §8.9) > deleteEntity rejects a subtree referenced from outside (§8.3 step 2b) 3ms
+ ✓ packages/commands/src/m2-content.test.ts > setComponent (commands.md §8.10) > edits a box field, carries changedFields and is self-inverse 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setComponent (commands.md §8.10) > rejects unowned/unknown components, unknown fields, missing components and no-change 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setComponent (commands.md §8.10) > edits camera fields and rejects a model asset that does not resolve 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setSettings (commands.md §8.11) > applies a partial typed map with ascending changedKeys and self-inverse 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setSettings (commands.md §8.11) > rejects unknown keys, out-of-range values, empty maps and the cross-key violation 1ms
+ ✓ packages/commands/src/m2-content.test.ts > setSettings (commands.md §8.11) > no-change on an identical write 1ms
+ ✓ packages/commands/src/m2-content.test.ts > acknowledgeBehaviorTrust (commands.md §8.12) > appends one entry with the result revision, is no-change when present and undo removes it 1ms
+ ✓ packages/commands/src/m2-content.test.ts > ordering, revision and history rules (commands.md §6.1/§9) > a stale revision is reported as stale, not validated (stale precedes argument validation) 0ms
+ ✓ packages/commands/src/m2-content.test.ts > ordering, revision and history rules (commands.md §6.1/§9) > a fresh edit truncates the redo tail (redo invalidation) 1ms
+ ✓ packages/commands/src/m2-content.test.ts > ordering, revision and history rules (commands.md §6.1/§9) > mixed M1/M2 history shares one stack (undo crosses the op kinds) 2ms
+ ✓ packages/commands/src/m2-content.test.ts > ordering, revision and history rules (commands.md §6.1/§9) > the request-byte bound is enforced before argument validation 1ms
+ ✓ packages/commands/src/m2-content.test.ts > fixtures/m2/commands/content-ops.messages.json replay > replays every step byte-for-byte and ends at the indexed revision 4ms
+ ✓ packages/commands/src/m2-content.test.ts > content queries (commands.md §5.6) > queryAssets/queryBehaviors return the committed query examples 1ms
+ ✓ packages/commands/src/m2-content.test.ts > content queries (commands.md §5.6) > queryProject content counts match the committed example 0ms
+ ✓ packages/commands/src/m2-content.test.ts > content queries (commands.md §5.6) > queries are bounded, read-only and validate their args 1ms
+ ✓ packages/commands/src/m2-content.test.ts > invariants > every successful M2 mutation consumes exactly one revision and one history entry 2ms
+ ✓ packages/commands/src/m2-content.test.ts > invariants > failed edits leave the input state byte-identical (no partial content change) 1ms
+
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+   Start at  02:59:19
+   Duration  707ms (transform 71%, import 17%, tests 11%, worker 1%)
+

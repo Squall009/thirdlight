@@ -1,0 +1,12 @@
+# Packet-30 evidence — environment and toolchain
+
+captured: 2026-09-19T07:03:34Z
+
+node: v22.22.1
+npm: 9.2.0
+typescript: 5.9.3
+esbuild: 0.28.2
+vitest: 5.0.1
+
+browser: none in this container (no browser, no WebGL, no gamepad hardware)
+host: Linux 7.0.2-2-pve x86_64

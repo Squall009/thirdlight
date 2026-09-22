@@ -1,0 +1,56 @@
+{
+  "operator": "migrateProjectCopyV3",
+  "sourceProjectId": "demo-0002",
+  "newProjectId": "demo-0003",
+  "sourceVersion": 2,
+  "newVersion": 3,
+  "phases": [
+    "created",
+    "manifest",
+    "blobs",
+    "envelope"
+  ],
+  "marker": {
+    "storageVersion": 3,
+    "type": "migration-copy",
+    "sourceVersion": 2,
+    "newVersion": 3
+  },
+  "reported": [
+    "sourceProjectId",
+    "newProjectId",
+    "sourceRevision",
+    "newRevision",
+    "revisionPolicy",
+    "historyReset",
+    "retryCleared",
+    "blobsCopied",
+    "blobsAlreadyPresent",
+    "resumed",
+    "sourceVersion",
+    "newVersion"
+  ],
+  "derivedRevisionFields": [
+    "content.assets[i].versions[j].publishedRevision",
+    "content.behaviors[i].publishedRevision",
+    "content.behaviors[i].source.publishedRevision",
+    "content.behaviorTrust.entries[k].acknowledgedRevision"
+  ],
+  "refusals": [
+    "migration_version_unsupported",
+    "migration_source_invalid",
+    "migration_destination_exists",
+    "migration_marker_conflict",
+    "path_rejected",
+    "content_publish_failed"
+  ],
+  "expectedDestination": {
+    "projectId": "demo-0003",
+    "revision": 0,
+    "revisionPolicy": "reset-to-zero",
+    "contentGame": null,
+    "retryRecords": 0,
+    "retention": 128
+  },
+  "contractsFixture": "../contracts/migration/expected-v3-destination/envelope.json"
+}

@@ -1,0 +1,89 @@
+{
+  "document": "runtime-content manifest.json (sessions.md §17.1.1 / delivery.md §2)",
+  "authoringDocument": {
+    "file": "project.json",
+    "field": "schemaVersion",
+    "value": 1,
+    "note": "authoring manifest is NOT versioned by this packet (PR-4 naming rule)"
+  },
+  "v1": {
+    "manifestVersion": 1,
+    "readableUnderOldMeaning": true,
+    "inPlaceUpgrade": false,
+    "requiredKeys": [
+      "manifestVersion",
+      "type",
+      "projectId",
+      "revision",
+      "snapshotId",
+      "capturedAt",
+      "sceneDigest",
+      "contentDigest",
+      "assets",
+      "behaviors",
+      "modules",
+      "enginePins",
+      "recipes",
+      "toolchain",
+      "buildOptionsDigest",
+      "buildId"
+    ],
+    "hasSettings": false,
+    "hasGame": false,
+    "hasMedia": false,
+    "assetRowsHaveKind": false,
+    "recaptureProduces": 2
+  },
+  "v2": {
+    "manifestVersion": 2,
+    "requiredKeys": [
+      "manifestVersion",
+      "type",
+      "projectId",
+      "revision",
+      "snapshotId",
+      "capturedAt",
+      "sceneDigest",
+      "contentDigest",
+      "gameDigest",
+      "settingsDigest",
+      "mediaDigest",
+      "settings",
+      "game",
+      "assets",
+      "media",
+      "behaviors",
+      "modules",
+      "enginePins",
+      "recipes",
+      "toolchain",
+      "buildOptionsDigest",
+      "buildId"
+    ],
+    "addedKeys": [
+      "gameDigest",
+      "settingsDigest",
+      "mediaDigest",
+      "settings",
+      "game",
+      "media"
+    ],
+    "changedKeyMeanings": [
+      {
+        "key": "assets",
+        "change": "each row gains required kind ∈ {model, audio}; version stays the resolved immutable version"
+      }
+    ],
+    "assetKinds": [
+      "model",
+      "audio"
+    ],
+    "recipes": [
+      "behavior-source",
+      "gltf-glb",
+      "pcm-wav"
+    ],
+    "digestPreimage": "sha256(JSON.stringify(manifestWithoutBuildId, null, 2) + \"\\n\") UTF-8, canonical key order, buildId last",
+    "blockDigestRule": "sha256(JSON.stringify(blockValue, null, 2) + \"\\n\"); a null block hashes the 4 bytes \"null\""
+  }
+}

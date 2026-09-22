@@ -1,0 +1,556 @@
+{
+  "limits": {
+    "files": 16,
+    "fileBytes": 65536,
+    "graphBytes": 262144,
+    "importDepth": 8,
+    "importsPerFile": 16,
+    "ownedTransforms": 16,
+    "diagnostics": 32,
+    "timeoutMs": 2000,
+    "outputBytes": 131072,
+    "properties": 32,
+    "declarationBytes": 32768
+  },
+  "pinnedModules": [
+    {
+      "id": "@thirdlight/platformer",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/physics-rapier",
+      "version": "0.1.0",
+      "apiVersion": 1
+    },
+    {
+      "id": "@thirdlight/runtime",
+      "version": "0.1.0",
+      "apiVersion": 1
+    }
+  ],
+  "validSample": {
+    "container": "valid/sample.json",
+    "outputArtifact": {
+      "path": "valid/sample.output.js",
+      "digest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+      "byteLength": 500
+    },
+    "manifest": {
+      "manifestVersion": 1,
+      "behaviorId": "behavior-0100",
+      "sourceDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+      "sourceByteLength": 922,
+      "entryPath": "src/index.ts",
+      "files": [
+        {
+          "path": "src/index.ts",
+          "digest": "23a4f761edeb2040a413ce8977114dddd7401b3e12bcc9ab7b3621128f138499",
+          "byteLength": 476
+        },
+        {
+          "path": "src/util.ts",
+          "digest": "5df0bb5085cc59e6eb3171c9a19b83aa14201f8a3e88498699744c67ad01d6f1",
+          "byteLength": 156
+        }
+      ],
+      "requiredModules": [
+        "@thirdlight/runtime"
+      ],
+      "ownedTransforms": [],
+      "enginePins": [
+        {
+          "id": "@thirdlight/platformer",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/physics-rapier",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/runtime",
+          "version": "0.1.0",
+          "apiVersion": 1
+        }
+      ],
+      "declaration": {
+        "properties": [
+          {
+            "key": "speed",
+            "label": "Speed",
+            "type": "number",
+            "default": 3.5,
+            "min": -1000,
+            "max": 1000,
+            "step": 0.25
+          }
+        ]
+      },
+      "apiVersion": 1,
+      "compiler": {
+        "id": "thirdlight.behavior-compiler",
+        "version": "1",
+        "esbuild": "0.28.2",
+        "typescript": "5.9.3"
+      },
+      "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+      "outputByteLength": 500
+    },
+    "recipe": {
+      "compilerId": "thirdlight.behavior-compiler",
+      "compilerVersion": "1",
+      "esbuild": "0.28.2",
+      "typescript": "5.9.3",
+      "options": {
+        "bundle": true,
+        "platform": "browser",
+        "format": "esm",
+        "target": "es2022",
+        "treeShaking": false,
+        "sourcemap": false,
+        "minify": false,
+        "logLevel": "silent",
+        "write": false,
+        "absWorkingDir": "/"
+      },
+      "limits": {
+        "files": 16,
+        "fileBytes": 65536,
+        "graphBytes": 262144,
+        "importDepth": 8,
+        "importsPerFile": 16,
+        "ownedTransforms": 16,
+        "diagnostics": 32,
+        "timeoutMs": 2000,
+        "outputBytes": 131072,
+        "properties": 32,
+        "declarationBytes": 32768
+      },
+      "pinnedModules": [
+        {
+          "id": "@thirdlight/platformer",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/physics-rapier",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/runtime",
+          "version": "0.1.0",
+          "apiVersion": 1
+        }
+      ],
+      "declarationDigest": "4fb3f66fc84938a9d379a940d52758b1a1b6a0448b7cf7e1985ce6b6b1bdc9d2"
+    },
+    "manifestDigest": "86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136",
+    "manifestByteLength": 1417,
+    "recipeDigest": "499dfd2f0417de2ae45978f71942609f5dad16844a169f7b34bf61579cc7149b"
+  },
+  "rows": [
+    {
+      "caseId": "hostile-absolute",
+      "container": "hostile/absolute.json",
+      "containerDigest": "6d892769a7ee245670ec6a9f5191d54a2d2b36b4c3e5a6c4c09301bde9fa7919",
+      "containerByteLength": 264,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "absolute",
+        "detail": "/etc/passwd.ts"
+      }
+    },
+    {
+      "caseId": "hostile-bare-import",
+      "container": "hostile/bare-import.json",
+      "containerDigest": "5b523b03ab12bd644bc70a69a95f5e3d3131cfa43888a0de9c4c31e9eb709dbd",
+      "containerByteLength": 261,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "bare",
+        "detail": "lodash"
+      }
+    },
+    {
+      "caseId": "hostile-bom",
+      "container": "hostile/bom.json",
+      "containerDigest": "96d8cd26ba2a071beb8471bc61360db600cac080a9134dd7a35789b09f9793a2",
+      "containerByteLength": 245,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "encoding"
+      }
+    },
+    {
+      "caseId": "hostile-cycle",
+      "container": "hostile/cycle.json",
+      "containerDigest": "793234d18635592788a5f9854b048f58ad2bba02406097696b8289b0f090d857",
+      "containerByteLength": 406,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_cycle",
+        "reason": "src/a.ts -> src/b.ts -> src/a.ts",
+        "detail": "src/a.ts -> src/b.ts -> src/a.ts"
+      }
+    },
+    {
+      "caseId": "hostile-data-url",
+      "container": "hostile/data-url.json",
+      "containerDigest": "8dc56f1e5a55a2127c2d857c33ba229ab9123431a39ddcf021e8d82e91c437c2",
+      "containerByteLength": 287,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "network",
+        "detail": "data:text/javascript,export default 1"
+      }
+    },
+    {
+      "caseId": "hostile-depth-over",
+      "container": "hostile/depth-over.json",
+      "containerDigest": "f73f3fa8b54b94fe72bbe4baa82fed34908f8f9c6898b1dbea299bde3faee1ba",
+      "containerByteLength": 1234,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "reason": "import_depth",
+        "limit": "import_depth",
+        "current": 9,
+        "max": 8
+      }
+    },
+    {
+      "caseId": "hostile-duplicate-path",
+      "container": "hostile/duplicate-path.json",
+      "containerDigest": "9e687020dd95c253fab7aac527eb43e1ff351523ad1ea992fca3013ded9fbf59",
+      "containerByteLength": 333,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_duplicate",
+        "reason": "duplicate",
+        "detail": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "hostile-dynamic-import",
+      "container": "hostile/dynamic-import.json",
+      "containerDigest": "ddecf13c0e9003deeb75737be3761e4c7cc29ae5f787b7869f7b358465d771c8",
+      "containerByteLength": 275,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "dynamic_import",
+        "detail": "dynamic_import"
+      }
+    },
+    {
+      "caseId": "hostile-encoding",
+      "container": "hostile/encoding.json",
+      "containerDigest": "e688017d82dfac623667194ca04e9031ebf80248929b127bc5ad5dc4c09eedc4",
+      "containerByteLength": 262,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "encoding"
+      }
+    },
+    {
+      "caseId": "hostile-engine-value-import",
+      "container": "hostile/engine-value-import.json",
+      "containerDigest": "9ebf910ad98178d183fdc458af9dc3db748f4262d104cd176648cb9e0aa59384",
+      "containerByteLength": 310,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "engine_value_import",
+        "detail": "@thirdlight/runtime"
+      }
+    },
+    {
+      "caseId": "hostile-entry-absent",
+      "container": "hostile/entry-absent.json",
+      "containerDigest": "884f52952e1ab8be6d2c299caac473aabea9d37896d6e75f29205bc29c608980",
+      "containerByteLength": 231,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "entry_missing",
+        "detail": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "hostile-escape",
+      "container": "hostile/escape.json",
+      "containerDigest": "f51f4d3c6548d4a6f08b1511aa19ae87a89af4b53f283eb3af5edc39937ce017",
+      "containerByteLength": 266,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_escape",
+        "reason": "../outside.ts",
+        "detail": "../outside.ts"
+      }
+    },
+    {
+      "caseId": "hostile-eval",
+      "container": "hostile/eval.json",
+      "containerDigest": "c74477ae05a3f7dbda813ea90e81b815427bbce74f1b3722c2885f5559739d5d",
+      "containerByteLength": 258,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "eval",
+        "detail": "eval"
+      }
+    },
+    {
+      "caseId": "hostile-extension",
+      "container": "hostile/extension.json",
+      "containerDigest": "157570570e2f2602367179fe0b0bc091ca011d9410e7be740e14e72718d53aef",
+      "containerByteLength": 227,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "extension",
+        "detail": "src/ui.tsx"
+      }
+    },
+    {
+      "caseId": "hostile-file-too-large",
+      "container": "hostile/file-too-large.json",
+      "containerDigest": "16cb18aa39ab0ceb5d6dd1c459f524e25bcdfd252e0c7cab748bc47439fe1c7f",
+      "containerByteLength": 65847,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "reason": "file_bytes",
+        "limit": "file_bytes",
+        "current": 65634,
+        "max": 65536
+      }
+    },
+    {
+      "caseId": "hostile-function-constructor",
+      "container": "hostile/function-constructor.json",
+      "containerDigest": "8fa6acd9b2989716b110b678934da7379352cfd4bfe428c366a6c6761bda5e92",
+      "containerByteLength": 278,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "function_constructor",
+        "detail": "function_constructor"
+      }
+    },
+    {
+      "caseId": "hostile-imports-over",
+      "container": "hostile/imports-over.json",
+      "containerDigest": "dccbda4954a74fe48d9b42d2e5af355463a6d1ef89a5b3ca047a349c288326cb",
+      "containerByteLength": 628,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "reason": "imports",
+        "limit": "imports",
+        "current": 17,
+        "max": 16
+      }
+    },
+    {
+      "caseId": "hostile-missing",
+      "container": "hostile/missing.json",
+      "containerDigest": "f9b39b49cca1e95ae8223385a76e499de3cfacb80c0d7b0cb05b736560d56895",
+      "containerByteLength": 263,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_missing",
+        "reason": "src/nope.ts",
+        "detail": "src/nope.ts"
+      }
+    },
+    {
+      "caseId": "hostile-network",
+      "container": "hostile/network.json",
+      "containerDigest": "77b205f0495ceef79156c104d095bfd5dd07d08b31e8bff41d00cd21a3f2c937",
+      "containerByteLength": 283,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "network",
+        "detail": "https://cdn.example.com/widget.js"
+      }
+    },
+    {
+      "caseId": "hostile-node-bare-builtin",
+      "container": "hostile/node-bare-builtin.json",
+      "containerDigest": "b31ecf703db1c990459b34197c6ac04b2105fb2dc257578ad6df49d75fa27f30",
+      "containerByteLength": 253,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "node_builtin",
+        "detail": "fs"
+      }
+    },
+    {
+      "caseId": "hostile-node-builtin",
+      "container": "hostile/node-builtin.json",
+      "containerDigest": "98437f6654057a06338cb4590eff708e7fbc7cf7787ede1660005ab1574f4a86",
+      "containerByteLength": 258,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "node_builtin",
+        "detail": "node:fs"
+      }
+    },
+    {
+      "caseId": "hostile-not-canonical",
+      "container": "hostile/not-canonical.json",
+      "containerDigest": "a5ec168aae846f90e5495f12b8d2c7536b7698e9ea5c634b9fdd481298113de8",
+      "containerByteLength": 244,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "container"
+      }
+    },
+    {
+      "caseId": "hostile-not-json",
+      "container": "hostile/not-json.json",
+      "containerDigest": "f95b22dbe021bdb75b3a5c26524511b41ca688ff9434d7e0cb1f4800343c1987",
+      "containerByteLength": 18,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "container"
+      }
+    },
+    {
+      "caseId": "hostile-not-sorted",
+      "container": "hostile/not-sorted.json",
+      "containerDigest": "ea68f00b54e6342c14801a7e8fef7c14b97f3f7ac016f7da94e3c7e71dcaae5f",
+      "containerByteLength": 354,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "file_order"
+      }
+    },
+    {
+      "caseId": "hostile-owned-transforms-not-id",
+      "container": "hostile/owned-transforms-not-id.json",
+      "containerDigest": "76e41391e709e4775c9f7f1311a5f3be957eb3f9eeda5df08129db481668fc03",
+      "containerByteLength": 262,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "container",
+        "detail": "Model-0001"
+      }
+    },
+    {
+      "caseId": "hostile-owned-transforms-over",
+      "container": "hostile/owned-transforms-over.json",
+      "containerDigest": "9e81e4d1ce2a5406a2447ea1a97c8fdfdde0aa57c0653fbdb24d559c73bbd1b8",
+      "containerByteLength": 550,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "reason": "owned_transforms",
+        "limit": "owned_transforms",
+        "current": 17,
+        "max": 16
+      }
+    },
+    {
+      "caseId": "hostile-path-grammar",
+      "container": "hostile/path-grammar.json",
+      "containerDigest": "fa3f88eba2ff5df0ba0faccca7011d6f63e3a878f78cc75b37d2888ee2b9fee5",
+      "containerByteLength": 231,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "path",
+        "detail": "Src/Index.ts"
+      }
+    },
+    {
+      "caseId": "hostile-require",
+      "container": "hostile/require.json",
+      "containerDigest": "7215342e9c7c18fd78e2ee351952ad070ad50f5f87c36b0be51e0eecb6556b7b",
+      "containerByteLength": 269,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "require",
+        "detail": "require"
+      }
+    },
+    {
+      "caseId": "hostile-required-unpinned",
+      "container": "hostile/required-unpinned.json",
+      "containerDigest": "0b0773b1ebd6f686e7e9e0121752c2be97747fa230b32abfdea0ac6711a13f36",
+      "containerByteLength": 269,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_unpinned",
+        "reason": "@thirdlight/unknown",
+        "detail": "@thirdlight/unknown"
+      }
+    },
+    {
+      "caseId": "hostile-type-only-unpinned",
+      "container": "hostile/type-only-unpinned.json",
+      "containerDigest": "4e7c22d06bcd8eba9e7dc5611769cfa018b091d55e1b824397d9c0c73896de9f",
+      "containerByteLength": 303,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_import_unpinned",
+        "reason": "@thirdlight/runtime",
+        "detail": "@thirdlight/runtime"
+      }
+    },
+    {
+      "caseId": "hostile-unknown-field",
+      "container": "hostile/unknown-field.json",
+      "containerDigest": "e5d408792b9752ac0129d255a2bfd3adccd618731a9ea902def4e66c537719db",
+      "containerByteLength": 265,
+      "outcome": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "container"
+      }
+    },
+    {
+      "caseId": "valid-owned-transforms",
+      "container": "valid/owned-transforms.json",
+      "containerDigest": "8527ec8460f9563bf8a5030beeb5748b3b0bcd7c43eacc68d864bfa5dfa2649a",
+      "containerByteLength": 284,
+      "outcome": {
+        "ok": true,
+        "outputDigest": "ac87c52cf2d81f5d7c93775ce360dfe58ccb34fb9b121ee4968fd09ce4419cb2",
+        "manifestDigest": "7ba7b55414d9a9419f8eb34903e3c59d7e35dc667c6e70e95d1cc799a21a1afd",
+        "outputByteLength": 91,
+        "recipeDigest": "da9018ae8b1f367f81aeea344c0d87458adbff90877214116974279f978b3035"
+      }
+    },
+    {
+      "caseId": "valid-sample",
+      "container": "valid/sample.json",
+      "containerDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+      "containerByteLength": 922,
+      "outcome": {
+        "ok": true,
+        "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+        "manifestDigest": "86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136",
+        "outputByteLength": 500,
+        "recipeDigest": "da9018ae8b1f367f81aeea344c0d87458adbff90877214116974279f978b3035"
+      }
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.4",
+  "constants": {
+    "headerBytes": 44,
+    "sampleRate": 48000,
+    "channels": 1,
+    "bitsPerSample": 16,
+    "byteRate": 96000,
+    "blockAlign": 2,
+    "maxPcmBytes": 192000,
+    "maxFrames": 96000,
+    "maxDurationMs": 2000,
+    "maxSourceBytes": 196608,
+    "maxReferencedCues": 6
+  },
+  "recipe": {
+    "profile": "pcm-wav",
+    "recipeVersion": 1,
+    "toolchain": {
+      "asset-pipeline": "0.1.0"
+    }
+  },
+  "audioRecord": {
+    "preimage": "wav/cue-preimage.wav",
+    "contractsPreimage": "source-preimages/cue-start.wav",
+    "sourceDigest": "6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb",
+    "sourceByteLength": 236,
+    "recipe": {
+      "profile": "pcm-wav",
+      "recipeVersion": 1,
+      "toolchain": {
+        "asset-pipeline": "0.1.0"
+      }
+    },
+    "recipeDigest": "0b4b8bc94346f97cf9bf8d6f1a34b69e7f55420e162a3a3ee9c35300fbc5cdc2",
+    "metadataDigest": "ce73e02cb170be9f4064afbc15fa78b0da2344150cdd47ea37bc66e4c445ac53",
+    "metrics": {
+      "container": "riff-wave",
+      "encoding": "pcm-s16le",
+      "channels": 1,
+      "sampleRate": 48000,
+      "bitsPerSample": 16,
+      "frames": 96,
+      "durationMs": 2,
+      "pcmBytes": 192,
+      "dataChunkBytes": 192,
+      "riffChunkBytes": 228
+    }
+  },
+  "positives": [
+    {
+      "file": "wav/cue-start.wav",
+      "frames": 2400
+    },
+    {
+      "file": "wav/cue-jump.wav",
+      "frames": 4800
+    },
+    {
+      "file": "wav/cue-checkpoint.wav",
+      "frames": 7200
+    },
+    {
+      "file": "wav/cue-death.wav",
+      "frames": 9600
+    },
+    {
+      "file": "wav/cue-goal.wav",
+      "frames": 14400
+    },
+    {
+      "file": "wav/cue-max.wav",
+      "frames": 96000
+    },
+    {
+      "file": "wav/cue-min.wav",
+      "frames": 1
+    },
+    {
+      "file": "wav/cue-preimage.wav",
+      "frames": 96
+    }
+  ],
+  "rejections": [
+    {
+      "file": "wav/rejections/stereo.wav",
+      "code": "audio_channel_unsupported",
+      "stage": 5
+    },
+    {
+      "file": "wav/rejections/rate-44100.wav",
+      "code": "audio_sample_rate_unsupported",
+      "stage": 6
+    },
+    {
+      "file": "wav/rejections/bit-depth-8.wav",
+      "code": "audio_bit_depth_unsupported",
+      "stage": 7
+    },
+    {
+      "file": "wav/rejections/float32.wav",
+      "code": "audio_format_unsupported",
+      "stage": 4
+    },
+    {
+      "file": "wav/rejections/adpcm.wav",
+      "code": "audio_format_unsupported",
+      "stage": 4
+    },
+    {
+      "file": "wav/rejections/mulaw.wav",
+      "code": "audio_format_unsupported",
+      "stage": 4
+    },
+    {
+      "file": "wav/rejections/alaw.wav",
+      "code": "audio_format_unsupported",
+      "stage": 4
+    },
+    {
+      "file": "wav/rejections/bad-byte-rate.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 8
+    },
+    {
+      "file": "wav/rejections/bad-block-align.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 8
+    },
+    {
+      "file": "wav/rejections/bad-fmt-size.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/extra-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/duplicate-fmt-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/fact-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/bext-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/cue-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/smpl-chunk.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/bad-magic.wav",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/rf64.wav",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/bw64.wav",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/bad-riff-size.wav",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/truncated.wav",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/data-overrun.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/odd-data.wav",
+      "code": "audio_data_size_invalid",
+      "stage": 9
+    },
+    {
+      "file": "wav/rejections/zero-frames.wav",
+      "code": "audio_empty",
+      "stage": 10
+    },
+    {
+      "file": "wav/rejections/trailing-byte.wav",
+      "code": "audio_chunk_invalid",
+      "stage": 3
+    },
+    {
+      "file": "wav/rejections/oversized-pcm.wav",
+      "code": "asset_limits_exceeded",
+      "limit": "audio_pcm_bytes",
+      "stage": 11
+    },
+    {
+      "file": "wav/rejections/source-at-bound.wav",
+      "code": "asset_limits_exceeded",
+      "limit": "audio_pcm_bytes",
+      "stage": 11
+    },
+    {
+      "file": "wav/rejections/source-over-bound.wav",
+      "code": "audio_source_bytes_exceeded",
+      "stage": 1
+    },
+    {
+      "file": "wav/rejections/huge-source.wav",
+      "code": "audio_source_bytes_exceeded",
+      "stage": 1
+    },
+    {
+      "file": "wav/rejections/non-wav.bin",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/data-url.txt",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/remote-url.txt",
+      "code": "audio_container_invalid",
+      "stage": 2
+    },
+    {
+      "file": "wav/rejections/compressed.bin",
+      "code": "audio_container_invalid",
+      "stage": 2
+    }
+  ]
+}

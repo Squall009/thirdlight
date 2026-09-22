@@ -1,0 +1,61 @@
+# packet 17 — no accepted contract/decision/lockfile/package changed (actual)
+date: 2026-09-19T00:59:17Z
+
+## git status --porcelain docs/contracts docs/decisions package.json package-lock.json packages
+?? docs/decisions/0002-m2-content-and-behavior.md
+(only the untracked packet-14 decision draft above = nothing changed)
+
+## git diff --stat HEAD -- docs/contracts docs/decisions package.json package-lock.json
+(empty above = no accepted file touched)
+
+## decision 0002 sha256 (still the packet-14 draft; packet 17 did not edit it)
+2d6aa6c977368a786b06478079a76d760d35fe93ae047d29ebf31135d8fb46de  docs/decisions/0002-m2-content-and-behavior.md
+
+## lockfile untouched (no install ran; identical to the M1 baseline)
+git diff --stat HEAD -- package-lock.json
+(empty above)
+md5sum package-lock.json
+
+## new packet-17 deliverables
+   ?? docs/acceptance/evidence-m2/17/
+   ?? docs/planning/m2-contracts/
+   ?? fixtures/m2/
+
+## packages/ on disk (no new package directory was created)
+backend
+commands
+editor
+exporter
+mcp-adapter
+project-model
+protocol
+runtime
+three-adapter
+workspace
+98bf340af47dba6ff4b6b65d1bb28336  package-lock.json
+
+## packet-17 files (explicit)
+   ?? docs/acceptance/evidence-m2/17/01-fixture-check.json
+   ?? docs/acceptance/evidence-m2/17/02-fixture-check-run.txt
+   ?? docs/acceptance/evidence-m2/17/03-toolchain.txt
+   ?? docs/acceptance/evidence-m2/17/04-proposal-check.txt
+   ?? docs/acceptance/evidence-m2/17/05-negative-control.txt
+   ?? docs/acceptance/evidence-m2/17/06-independent-recompute.txt
+   ?? docs/acceptance/evidence-m2/17/independent-recompute.py
+   ?? docs/acceptance/evidence-m2/17/manifest.md
+   ?? docs/handoffs/17.md
+   ?? docs/planning/m2-contracts/diffs/project-model.md
+   ?? docs/planning/m2-contracts/diffs/runtime.md
+   ?? docs/planning/m2-contracts/input.md
+   ?? docs/planning/m2-contracts/physics.md
+   ?? docs/planning/m2-contracts/platformer.md
+   ?? fixtures/m2/contracts/cases/constructed-cases.md
+   ?? fixtures/m2/contracts/commands/prefab-failures.json
+   ?? fixtures/m2/contracts/expected.json
+   ?? fixtures/m2/contracts/input/action-sequences.json
+   ?? fixtures/m2/contracts/physics/numerics.json
+   ?? fixtures/m2/contracts/platformer/failures.json
+   ?? fixtures/m2/contracts/platformer/traces.json
+   ?? fixtures/m2/contracts/runtime/catchup.json
+   ?? fixtures/m2/contracts/tools/check-fixtures.mjs
+   ?? fixtures/m2/contracts/verification.md

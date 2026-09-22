@@ -1,0 +1,35 @@
+{
+  "note": "byte length + sha256 of every generated data file (UTF-8 byte lengths). The S3 digest is re-derived by the generator AND the checker via the real command engine (deterministic replay).",
+  "files": [
+    {
+      "path": "cases/backup-example.json",
+      "byteLength": 1358,
+      "sha256": "25996892ce448a5daaadf0b2381d7e0485e82c3f86a6ec624c93e4961f71ffb1"
+    },
+    {
+      "path": "cases/budget-tables.json",
+      "byteLength": 6568,
+      "sha256": "c0c7d7acd2496238850cefba6d5facd0c0cf279d5e62ab664ada1c7380aa81bb"
+    },
+    {
+      "path": "cases/fault-matrix.json",
+      "byteLength": 4362,
+      "sha256": "0a4d31602da69061da202b5183849169d29fa02cc387541791de794bd4db279d"
+    },
+    {
+      "path": "cases/health-envelope.json",
+      "byteLength": 2995,
+      "sha256": "1f0b710eb0c3a0f557e3e45690999e8ff76162e088ec2d91318224d458e595eb"
+    },
+    {
+      "path": "cases/refusal-cases.json",
+      "byteLength": 3384,
+      "sha256": "6e866e08b0b9e36d0112b296073c05b9362a4d5006ec4792e1a6257ac00f2505"
+    },
+    {
+      "path": "cases/transform-cases.json",
+      "byteLength": 2029,
+      "sha256": "ddcbf4d4846b7ffa18aa0767bccc9950ab175c095382548983655687c93f2767"
+    }
+  ]
+}

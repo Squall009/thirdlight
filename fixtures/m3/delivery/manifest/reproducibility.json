@@ -1,0 +1,53 @@
+{
+  "rule": "compare two separate output trees; normalize only the contracted timestamp carriers; re-derive buildId",
+  "timestampCarriers": [
+    {
+      "path": "manifest.json#capturedAt"
+    },
+    {
+      "path": "meta.json#exportedAt"
+    }
+  ],
+  "neverNormalized": [
+    "sceneDigest",
+    "contentDigest",
+    "gameDigest",
+    "settingsDigest",
+    "mediaDigest",
+    "settings",
+    "game",
+    "media",
+    "assets",
+    "behaviors",
+    "modules",
+    "enginePins",
+    "recipes",
+    "toolchain",
+    "buildOptionsDigest"
+  ],
+  "m3Additions": [
+    "gameDigest",
+    "settingsDigest",
+    "mediaDigest",
+    "settings",
+    "game",
+    "media"
+  ],
+  "trees": [
+    {
+      "tree": "A",
+      "capturedAt": "2026-09-19T10:00:00Z",
+      "exportedAt": "2026-09-19T10:00:01Z"
+    },
+    {
+      "tree": "B",
+      "capturedAt": "2026-09-19T10:00:07Z",
+      "exportedAt": "2026-09-19T10:00:08Z"
+    }
+  ],
+  "expectation": {
+    "identicalAfterNormalization": true,
+    "distinctRawBuildIds": true,
+    "distinctBlockDigests": false
+  }
+}

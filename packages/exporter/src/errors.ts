@@ -47,6 +47,30 @@ export const ERROR_CODES = {
    * atomic replacement). The previous tree (if any) is restored/untouched.
    */
   export_output_not_writable: 'export_output_not_writable',
+  /**
+   * M2 step 5a — the runtime-content manifest fails its self-identity check
+   * (the recomputed `buildId`, the declared-path closure, the digest of the
+   * emitted scene document) or the M2 closure derivation failed.
+   */
+  export_manifest_invalid: 'export_manifest_invalid',
+  /**
+   * M2 — a derived bundle/behavior build failed (the packet-33 compiler or the
+   * M2 bundle build). The previous output tree is preserved (export.md §4.1).
+   */
+  export_build_unavailable: 'export_build_unavailable',
+  /**
+   * M2 step 5b — a format-aware scan hit (GLB container, WASM container, the
+   * relative-closure rule). The shared code with the play build
+   * (sessions.md §11.3).
+   */
+  scan_forbidden_content: 'scan_forbidden_content',
+  /**
+   * M2 — a reachable `source`-bearing behavior has no trust acknowledgment.
+   * Structurally unreachable through the accepted public reads (the workspace
+   * refuses an unacknowledged source publication — see the packet-36 handoff
+   * contract-change request C36-4); kept in the stable code set.
+   */
+  behavior_trust_unacknowledged: 'behavior_trust_unacknowledged',
 } as const;
 
 export type ExportErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -82,10 +106,18 @@ export type ExportResult =
       outputDir: string;
       snapshotId: string;
       revision: number;
-      /** Byte sizes of the four emitted files (measured, not estimated). */
+      /** Byte sizes of the emitted files (measured, not estimated). */
       files: Record<string, number>;
       /** Hits outside the §5.4.1 recorded-exception scope (0 for a success). */
       scanHits: number;
+      /** M2 only: `meta.json.schemaVersion` (2). */
+      schemaVersion?: number;
+      /** M2 only: the runtime-content manifest identity (§17.1.2). */
+      buildId?: string;
+      /** M2 only: the captured content-view digest. */
+      contentDigest?: string;
+      /** M2 only: the emitted-closure digest recorded in `meta.json`. */
+      outputDigest?: string;
     }
   | { ok: false; error: ExportError };
 

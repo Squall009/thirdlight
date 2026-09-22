@@ -1,0 +1,62 @@
+{
+  "tool": "fixtures/m2/contracts/tools/check-fixtures.mjs",
+  "mode": "check",
+  "fixturesRoot": "fixtures/m2/contracts",
+  "filesOnDisk": 45,
+  "checks": [
+    {
+      "check": "self-test",
+      "detail": "9 invalid + 3 valid parser controls, canon() order-insensitivity"
+    },
+    {
+      "check": "canonical-form",
+      "detail": "40 JSON fixture(s) checked"
+    },
+    {
+      "check": "index",
+      "detail": "42 index entries, 45 files on disk"
+    },
+    {
+      "check": "code-registry",
+      "detail": "10 code(s) used by fixtures, all declared in expected.json.registry; 65 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture"
+    },
+    {
+      "check": "case-pins",
+      "detail": "28 case->section pin(s) verified"
+    },
+    {
+      "check": "cross-ref",
+      "detail": "content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block"
+    },
+    {
+      "check": "cross-ref",
+      "detail": "2 catalog records, 2 scene reference(s) resolved"
+    },
+    {
+      "check": "migration",
+      "detail": "source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)"
+    },
+    {
+      "check": "source-retention",
+      "detail": "2 source file(s) re-hashed (original-preserving migration evidence)"
+    },
+    {
+      "check": "interrupted-copy",
+      "detail": "marker phase \"manifest\", no envelope present (never auto-completed)"
+    },
+    {
+      "check": "preimage",
+      "detail": "2 preimage(s) re-hashed"
+    },
+    {
+      "check": "digest-claims",
+      "detail": "every sourceDigest/sourceByteLength pair matches a committed preimage"
+    },
+    {
+      "check": "content-digest",
+      "detail": "captured-content-view.json contentDigest 8b7116a759bd251c… verified"
+    }
+  ],
+  "failures": [],
+  "ok": true
+}

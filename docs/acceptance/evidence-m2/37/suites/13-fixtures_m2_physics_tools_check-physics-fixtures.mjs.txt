@@ -1,0 +1,12 @@
+ok   canonical: 7 fixture files are byte-canonical JSON
+ok   index: 7 fixture files listed with the correct SHA-256
+ok   course: 64 statics reproduced exactly from tests/evaluations/m2-physics/course-spec.json
+ok   course: snap-course.json: 3 statics (0 polygon) internally consistent
+ok   course: slope-course.json: 6 statics (0 polygon) internally consistent
+ok   course: convex-course.json: 4 statics (3 polygon) internally consistent
+ok   tolerances: 5 slope thresholds re-derived; contract constants pinned
+ok   cases: 18 cases: courses, pivots and expectation keys consistent
+ok   failures: 36 cases: ops and codes declared
+ok   pins: 39 case pins resolve
+ok   sanitization: no credential-like strings in the fixture set
+check-physics-fixtures: OK — all packet-31 fixture checks passed.

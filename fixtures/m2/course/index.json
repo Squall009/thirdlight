@@ -1,0 +1,32 @@
+{
+  "kind": "platformer-course-fixture-index",
+  "setVersion": 1,
+  "id": "m2-course-fixtures",
+  "packet": 32,
+  "files": [
+    {
+      "path": "cases.json",
+      "sha256": "91c9df6b70ce746bc69ce6bc7168b26f258402ecc27a2452652e37a64f2ad953"
+    },
+    {
+      "path": "course.json",
+      "sha256": "bcc319b7dc5aa59e56c476f2b302ba4f08ab7455831bd3d956053ac08a6847cc"
+    },
+    {
+      "path": "input-sequences.json",
+      "sha256": "e36942403e45a6506730330a7d82acc8291a93c32473876fa4b60b5760b1fd57"
+    },
+    {
+      "path": "slope-course.json",
+      "sha256": "29ddc543a98671709e61514e1a4c5438949716d1a46dd5677691854193fa7398"
+    },
+    {
+      "path": "snap-course.json",
+      "sha256": "896c70ca66bc12b1441e7780eee31f1ebd227d8e55c51137614bbadf33ece0b2"
+    },
+    {
+      "path": "tolerances.json",
+      "sha256": "47766ed0f5df16f997bb0b33fa6d8ea2195286c1b316f789cd2aa4e9fa74de1a"
+    }
+  ]
+}

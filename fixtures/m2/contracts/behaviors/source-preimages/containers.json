@@ -1,0 +1,135 @@
+{
+  "kind": "behavior-source-container-index",
+  "indexVersion": 1,
+  "note": "Committed canonical source-graph containers (behaviors.md §3.1). sha256/byteLength are the real SHA-256/length of each committed file; tools/check-fixtures.mjs re-derives them and merges them into the digest check for sourceDigest/sourceByteLength claims.",
+  "containers": [
+    {
+      "file": "drift-example.json",
+      "sha256": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+      "byteLength": 677,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "drift-example"
+    },
+    {
+      "file": "multi-file-valid.json",
+      "sha256": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+      "byteLength": 721,
+      "entryPath": "src/index.ts",
+      "fileCount": 2,
+      "note": "multi-file-valid"
+    },
+    {
+      "file": "bare-import.json",
+      "sha256": "e64b053b117726882a395b32c50debaf388f28d634a3a2b6e05e3416f6c5469f",
+      "byteLength": 349,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "bare-import"
+    },
+    {
+      "file": "node-builtin-import.json",
+      "sha256": "da0dcf4ac5fc265b08b58221f8841eb48c4150e882de7d9f4a3bfb20a623a7f6",
+      "byteLength": 359,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "node-builtin-import"
+    },
+    {
+      "file": "network-import.json",
+      "sha256": "b52a1e56ae049296973adf4f4926752bef2a273220eaa0dcefc66bbdc0f51b2d",
+      "byteLength": 370,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "network-import"
+    },
+    {
+      "file": "dynamic-import.json",
+      "sha256": "e7725b25c90ec6248bb61941f5125fdb9fe0e31e90232a83b682d3100079e54e",
+      "byteLength": 369,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "dynamic-import"
+    },
+    {
+      "file": "eval-call.json",
+      "sha256": "462b49a17cc647efa47e6ab3161c76eb868816fec8627226f7d8bb54064c3456",
+      "byteLength": 344,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "eval-call"
+    },
+    {
+      "file": "graph-escape.json",
+      "sha256": "14dc818dd011c2eb69b50b6330f139f524222235115955b3f565738a02fd70c3",
+      "byteLength": 357,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "graph-escape"
+    },
+    {
+      "file": "graph-cycle.json",
+      "sha256": "c2628a0353e586fa7d7a0a3e5afe823dc8d756469c7f1e698e15a01db2473fc8",
+      "byteLength": 547,
+      "entryPath": "src/index.ts",
+      "fileCount": 3,
+      "note": "graph-cycle"
+    },
+    {
+      "file": "missing-import.json",
+      "sha256": "c480c610c715301ba9088b6aece3a0a034f2a07bc525eacfa0011597e1134292",
+      "byteLength": 346,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "missing-import"
+    },
+    {
+      "file": "engine-value-import.json",
+      "sha256": "f1a0001061c4cd13b44277e0322cacae6cba77daaca0dff5a4f2733d0179d3a1",
+      "byteLength": 417,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "engine-value-import"
+    },
+    {
+      "file": "entry-absent.json",
+      "sha256": "695b8e39c02337845578b4a72a666a29ca91330e0dcc40489ca5d6c84a77cffe",
+      "byteLength": 207,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "entry-absent"
+    },
+    {
+      "file": "duplicate-path.json",
+      "sha256": "2b1d3b49cdc9aba65dd7053c7bdab7547937319845e09cbb662c1640647281fc",
+      "byteLength": 284,
+      "entryPath": "src/index.ts",
+      "fileCount": 2,
+      "note": "duplicate-path"
+    },
+    {
+      "file": "not-sorted.json",
+      "sha256": "3d084168a39c0059c7169864e2eea87540aba6520d13b78368ee220d49c0d0e6",
+      "byteLength": 272,
+      "entryPath": "src/a.ts",
+      "fileCount": 2,
+      "note": "not-sorted"
+    },
+    {
+      "file": "extension-tsx.json",
+      "sha256": "66f9a6bae97c2aee9525d4bdf29e418510cadb74f1a3e611fe8f7ce151300cc7",
+      "byteLength": 664,
+      "entryPath": "src/index.ts",
+      "fileCount": 2,
+      "note": "extension-tsx"
+    },
+    {
+      "file": "file-too-large.json",
+      "sha256": "df20f7dbad81ac28ee5a8e0f365f6b00d6e9ca939c1c9b284d0a8b5bb5ffa662",
+      "byteLength": 65834,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "note": "file-too-large"
+    }
+  ]
+}

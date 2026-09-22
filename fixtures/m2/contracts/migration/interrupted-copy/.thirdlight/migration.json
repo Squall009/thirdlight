@@ -1,0 +1,8 @@
+{
+  "storageVersion": 1,
+  "type": "migration-copy",
+  "sourceProjectId": "demo-m1",
+  "newProjectId": "demo-m1-v2",
+  "phase": "manifest",
+  "startedAt": "2026-09-18T12:00:00Z"
+}

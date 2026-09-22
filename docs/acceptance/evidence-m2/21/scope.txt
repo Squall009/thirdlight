@@ -1,0 +1,75 @@
+# Packet 21 scope and M1-regression evidence (sanitized)
+
+## git status --porcelain (repo-relative paths only)
+ M docs/STATUS.md
+ M docs/contracts/commands.md
+ M docs/contracts/dependencies.md
+ M docs/contracts/export.md
+ M docs/contracts/project-model.md
+ M docs/contracts/runtime.md
+ M docs/contracts/sessions.md
+ M docs/contracts/workspace.md
+ M docs/planning/implementation-prompts.md
+ M packages/commands/src/api-surface.test.ts
+ M packages/commands/src/apply.ts
+ M packages/commands/src/errors.ts
+ M packages/commands/src/history.ts
+ M packages/commands/src/index.ts
+ M packages/commands/src/ops.ts
+ M packages/commands/src/test-fixtures.ts
+ M packages/commands/src/types.ts
+ M packages/commands/src/validate-request.ts
+ M packages/project-model/src/api-behavior.test.ts
+ M packages/project-model/src/errors.ts
+ M packages/project-model/src/index.ts
+ M packages/project-model/src/migrate.ts
+ M packages/project-model/src/normalize.ts
+ M packages/project-model/src/parse-api.ts
+ M packages/project-model/src/test-fixtures.ts
+ M packages/project-model/src/validate.ts
+?? docs/acceptance/evidence-m2/
+?? docs/decisions/0002-m2-content-and-behavior.md
+?? docs/handoffs/14.md
+?? docs/handoffs/15.md
+?? docs/handoffs/16.md
+?? docs/handoffs/17.md
+?? docs/handoffs/18.md
+?? docs/handoffs/19.md
+?? docs/handoffs/20.md
+?? docs/handoffs/21.md
+?? docs/handoffs/gate-e.md
+?? docs/handoffs/m2-plan-review.md
+?? docs/handoffs/m2-planning.md
+?? docs/handoffs/m2-promotion.md
+?? docs/planning/m2-acceptance.md
+?? docs/planning/m2-contracts/
+?? docs/planning/m2-packets.md
+?? docs/planning/m2-physics.md
+?? docs/planning/m2-plan.md
+?? fixtures/m2/
+?? packages/commands/src/content-ops.ts
+?? packages/commands/src/m2-content.test.ts
+?? packages/commands/src/properties.ts
+?? packages/commands/src/queries.ts
+?? packages/commands/src/validate-content-args.ts
+?? packages/project-model/src/content.ts
+?? packages/project-model/src/m2-model.test.ts
+?? packages/project-model/src/project-v2.ts
+?? packages/project-model/src/scene-v2.ts
+?? packages/project-model/src/sha256.ts
+?? packages/project-model/src/types-v2.ts
+?? tests/evaluations/
+
+## M1 fixtures unchanged (fixtures/commands) — porcelain + diff
+(no lines above = fixtures/commands byte-unchanged and unmodified)
+
+## Packet-16 accepted command fixtures (unmodified by packet 21)
+46f9ceef2e452af5fe160ec9e9653c59696b7a3315c4b137408f43abd26c8797  fixtures/m2/contracts/commands/prefab-failures.json
+b03c0032ebf5a2e3716a7a849cf790aef20779770adcd2822cd0a630ec09b8fa  fixtures/m2/contracts/commands/prefab-scenario.after.json
+0f36a181bf7df74ec26cfa2af0bfa62b457ba4edbf2ebc089f38cd5c512f5147  fixtures/m2/contracts/commands/prefab-scenario.before.json
+712523aff9c48ebb8efc7a9d6544183903f1a26acf8fd6e1532d4e238a2a9b90  fixtures/m2/contracts/commands/prefab-scenario.messages.json
+e602da933952f51c0effc0891a5b05a69a3c44da9101f4fabc6279a4207ea415  fixtures/m2/contracts/commands/queries.json
+
+## Packet-21 fixtures
+33334f5ce231d166899c0d7b419476e0a5efbf16451a4f732ceea6424cc6fe3d  fixtures/m2/commands/content-ops.messages.json
+85460a80503cd73220378703ad724f8771d6b28f6b2cf2ded53500ea8c196aba  fixtures/m2/commands/expected.json

@@ -1,0 +1,17 @@
+{
+  "route": "POST /api/v1/projects/:projectId/play/:playSessionId/observe",
+  "origin": "authoring",
+  "auth": "project bearer token or admin scope",
+  "body": {
+    "timeoutMs": 5000
+  },
+  "bounds": {
+    "timeoutMs": {
+      "min": 250,
+      "max": 15000,
+      "default": 5000
+    },
+    "bodyBytes": 4096,
+    "resultBytes": 16384
+  }
+}

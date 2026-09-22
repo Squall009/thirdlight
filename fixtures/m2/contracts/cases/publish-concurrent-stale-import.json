@@ -1,0 +1,53 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-concurrent-stale-import",
+  "title": "A stale proposal can never overwrite newer work",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/assets.md",
+      "section": "## 13. Observable failure outcomes"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 10,
+    "proposal": {
+      "preparedAtRevision": 8,
+      "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41"
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000009",
+      "expectedRevision": 8,
+      "mode": "reimport",
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "stageId": "stg-stale01"
+    }
+  },
+  "steps": [
+    {
+      "at": "step-4",
+      "action": "revision check",
+      "expect": {
+        "outcome": "stale",
+        "currentRevision": 10
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "revision_conflict"
+    ],
+    "durableEffects": [],
+    "observations": [
+      "a job result stays a proposal until it is deliberately resubmitted with the current expectedRevision and a fresh requestId",
+      "no blob is published on a stale request (the revision check precedes validation and publication)"
+    ]
+  },
+  "notes": "A10: concurrent or stale imports never overwrite newer work."
+}

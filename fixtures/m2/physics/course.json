@@ -1,0 +1,873 @@
+{
+  "kind": "physics-course",
+  "id": "tl-m2-frozen-course",
+  "packet": 31,
+  "setVersion": 1,
+  "provenance": {
+    "source": "tests/evaluations/m2-physics/course-spec.json",
+    "runId": "tl14-2026-09-18-a",
+    "note": "Frozen packet-14 course converted to PhysicsInitConfig static collider specs (boxes; the two ramps are rotated cuboids). Declaration precedes judgement: the tolerances live in tolerances.json."
+  },
+  "solver": {
+    "hz": 120,
+    "gravityY": -19.62
+  },
+  "character": {
+    "start": {
+      "x": -10,
+      "y": 0.9
+    },
+    "capsule": {
+      "radius": 0.3,
+      "halfHeight": 0.6
+    },
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "maxSlopeClimbRad": 0.785398163397,
+    "minSlopeSlideRad": 0.523598775598,
+    "autostep": false
+  },
+  "statics": [
+    {
+      "entityId": "floorA",
+      "shape": {
+        "type": "box",
+        "hx": 9.995,
+        "hy": 0.25
+      },
+      "position": {
+        "x": -10.005,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "floorB",
+      "shape": {
+        "type": "box",
+        "hx": 9.995,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 10.005,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "rampA43",
+      "shape": {
+        "type": "box",
+        "hx": 1.5,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 3.097030552429,
+        "y": 1.022997540094
+      },
+      "rotationZ": 0.750491578358
+    },
+    {
+      "entityId": "rampB47",
+      "shape": {
+        "type": "box",
+        "hx": 1.5,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 7.022997540094,
+        "y": 1.097030552429
+      },
+      "rotationZ": 0.820304748437
+    },
+    {
+      "entityId": "wall",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 1.5
+      },
+      "position": {
+        "x": 9.75,
+        "y": 1.5
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "ceiling",
+      "shape": {
+        "type": "box",
+        "hx": 6,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 4,
+        "y": 4.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "ledge",
+      "shape": {
+        "type": "box",
+        "hx": 4,
+        "hy": 0.2
+      },
+      "position": {
+        "x": 16,
+        "y": 0.2
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-00",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 24,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-01",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 24.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-02",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 25.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-03",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 26.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-04",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 27,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-05",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 27.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-06",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 28.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-07",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 29.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-08",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 30,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-09",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 30.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-10",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 31.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-11",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 32.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-12",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 33,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-13",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 33.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-14",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 34.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-15",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 35.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-16",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 36,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-17",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 36.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-18",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 37.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-19",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 38.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-20",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 39,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-21",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 39.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-22",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 40.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-23",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 41.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-24",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 42,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-25",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 42.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-26",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 43.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-27",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 44.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-28",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 45,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-29",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 45.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-30",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 46.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-31",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 47.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-32",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 48,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-33",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 48.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-34",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 49.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-35",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 50.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-36",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 51,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-37",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 51.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-38",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 52.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-39",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 53.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-40",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 54,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-41",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 54.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-42",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 55.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-43",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 56.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-44",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 57,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-45",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 57.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-46",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 58.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-47",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 59.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-48",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 60,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-49",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 60.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-50",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 61.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-51",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 62.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-52",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 63,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-53",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 63.75,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-54",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 64.5,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-55",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 65.25,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "filler-56",
+      "shape": {
+        "type": "box",
+        "hx": 0.25,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 66,
+        "y": 0.25
+      },
+      "rotationZ": 0
+    }
+  ],
+  "counts": {
+    "statics": 64,
+    "polygonStatics": 0
+  }
+}

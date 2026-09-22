@@ -87,6 +87,16 @@ export const UNITS = [
   'editor',
   'mcp-adapter',
   'exporter',
+  'asset-pipeline',
+  'input',
+  'physics-rapier',
+  'platformer',
+  'platformer-game',
+  'behavior-build',
+  // M3 (dependencies.md §2 row, accepted at Gate K): created at packet 54
+  // with the `.` audio entry (presentation.md §41.9); the delivery.md
+  // §§3–5 composition part lands at packet 55.
+  'game-host',
 ];
 
 /**
@@ -94,7 +104,11 @@ export const UNITS = [
  * `packages`: allowed `@thirdlight/*` targets. `external`: allowed
  * non-workspace packages. `node`: allowed Node builtins. `subpaths`:
  * per-target subpath restriction (mcp-adapter → backend: `services` only —
- * dependencies.md §3/§4.3). `typesOnly`: allowed targets whose edge the
+ * dependencies.md §3/§4.3). `externalSubpaths`: the same restriction for an
+ * approved external package (dependencies.md §4.2/§7 GLTFLoader note:
+ * three-adapter may import only the `three` root and its GLTFLoader subpath;
+ * any other `three/examples/jsm/...` module is a reviewed addition).
+ * `typesOnly`: allowed targets whose edge the
  * §4.1 table qualifies as types only — a value import of such a target
  * fails (`types-only-edge`).
  */
@@ -102,15 +116,39 @@ export const NODE_SIDE_ALLOWED = {
   'project-model': { packages: [], external: [], node: [] },
   commands: { packages: ['project-model'], external: [], node: [] },
   workspace: {
-    packages: ['project-model', 'commands'],
+    packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build'],
     external: [],
     node: ['fs', 'path', 'crypto', 'os'],
+    // Packet 25/33 (§4.1 additions): the compiler/inspector instances are
+    // injected by the backend — workspace holds only their types.
+    typesOnly: { 'asset-pipeline': true, 'behavior-build': true },
   },
   runtime: { packages: ['project-model'], external: [], node: [] },
   'three-adapter': {
     packages: ['runtime'],
     external: ['three', '@types/three'],
+    // dependencies.md §4.2/§7 (the GLTFLoader note): only the pinned
+    // three@0.186.0 package's own GLTFLoader subpath is approved; the empty
+    // subpath '' is the bare `three` specifier.
+    externalSubpaths: { three: ['', 'examples/jsm/loaders/GLTFLoader.js'] },
     node: [],
+  },
+  // Packet 55 (delivery.md §3.1/§3.2, dependencies.md §4.1 row): the local
+  // composition. runtime (the accepted instantiateRuntime/
+  // createSimulationRegistry/registerSimulationModule values + BUILTIN_MODULES
+  // for the §3.2 registry + types), platformer (platformerSpec),
+  // platformer-game (session/camera specs), input (types only — the injected
+  // owner's MenuSample seam; the attachBrowserInput VALUE edge is permission,
+  // not obligation: the owner is injected). three-adapter is NOT imported
+  // (the host defines the structural HostRenderAdapter surface; the adapter
+  // instance is injected) — the §4.1 types-only row entry stays unexercised.
+  // The concrete physics-rapier port, three canvas and audio context are
+  // injected (no value edge to them).
+  'game-host': {
+    packages: ['runtime', 'platformer', 'platformer-game', 'input'],
+    external: [],
+    node: [],
+    typesOnly: { input: true },
   },
   // §4.1 row: "project-model, commands (types; pure code, no I/O)".
   protocol: {
@@ -122,7 +160,7 @@ export const NODE_SIDE_ALLOWED = {
   // §4.1 row: "… project-model (types only — the snapshot document,
   // sessions.md §10.1)".
   backend: {
-    packages: ['protocol', 'workspace', 'exporter', 'project-model'],
+    packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build'],
     external: ['ws'],
     node: ['http', 'fs', 'path', 'crypto'],
     typesOnly: { 'project-model': true },
@@ -134,6 +172,66 @@ export const NODE_SIDE_ALLOWED = {
     external: ['esbuild'],
     node: [],
     typesOnly: { workspace: true },
+  },
+  // §4.1 row: "asset-pipeline | project-model (types: ImportProposal/recipe/
+  // metrics shapes) — pure, no three and no GLTFLoader (it inspects bytes
+  // itself)". The proposal/recipe/metrics shapes the importer shares with the
+  // model are types only (the importer parses its own JSON and hashes bytes).
+  'asset-pipeline': {
+    packages: ['project-model'],
+    external: [],
+    node: [],
+    typesOnly: { 'project-model': true },
+  },
+  // §4.1 row: "input | runtime (types)" — the pure mapping plus one browser
+  // attachment entry; it knows runtime types only (no value edge, so the
+  // types-only qualifier applies to the whole package).
+  input: {
+    packages: ['runtime'],
+    external: [],
+    node: [],
+    typesOnly: { runtime: true },
+  },
+  // §4.1 row: "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
+  // (the approved pin, §7)". The adapter never imports a concrete runtime
+  // value (the runtime owns stepping and hands it only the port shape), and it
+  // may not reach project-model/editor/backend/protocol/workspace/three.
+  'physics-rapier': {
+    packages: ['runtime'],
+    external: ['@dimforge/rapier2d-compat'],
+    node: [],
+    typesOnly: { runtime: true },
+  },
+  // §4.1 row: "platformer | runtime (types)" — the controller algorithm over
+  // the injected input/physics ports; it may not reach the concrete physics
+  // adapter, the input package, three.js, authoring, backend or Node built-ins
+  // (dependencies.md §4.1/§4.3).
+  platformer: {
+    packages: ['runtime'],
+    external: [],
+    node: [],
+    typesOnly: { runtime: true },
+  },
+  // §4.1 row (M3, packet 49): "platformer-game | runtime (types)" — the pure,
+  // stateless gameplay-phase session/zone module (the camera-phase half is
+  // packet 51). Same edge as platformer: runtime types only (it imports the
+  // GameSessionPort/ModuleConfig/StepContext shapes and never a runtime value),
+  // no physics, input, three.js, authoring, backend or Node built-ins.
+  'platformer-game': {
+    packages: ['runtime'],
+    external: [],
+    node: [],
+    typesOnly: { runtime: true },
+  },
+  // §4.1 row: "behavior-build | project-model (types +
+  // parseSourceGraphContainer/validateDeclaration), esbuild (the pinned
+  // parser, §7)". Pure and Node-side: no Node builtins, no browser edge, and
+  // never a value edge into runtime/three/editor/backend/workspace/commands
+  // (§4.3).
+  'behavior-build': {
+    packages: ['project-model'],
+    external: ['esbuild'],
+    node: [],
   },
   'mcp-adapter': {
     packages: ['protocol', 'backend'],
@@ -185,6 +283,70 @@ export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
 const BUNDLE_ENTRY_EDGES = {
   'packages/exporter/src/export-bootstrap.ts': {
     packages: ['runtime', 'three-adapter', 'project-model'],
+    external: ['three'],
+    node: [],
+  },
+  // dependencies.md §4.2 export bundle row (packet 36): the M2 bootstrap's
+  // direct edges are the runtime-bundle graph (runtime/three-adapter/
+  // project-model/input/platformer/physics-rapier + three), plus the two
+  // per-snapshot virtual modules the export build generates in memory
+  // (`thirdlight:export-artifacts`, `thirdlight:export-behaviors` — they have
+  // no package; the esbuild metafile check allows exactly those two keys).
+  'packages/exporter/src/export-bootstrap-m2.ts': {
+    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier'],
+    external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-behaviors'],
+    node: [],
+  },
+  // The shared composition module (packet 36) is imported by the M2 bootstrap
+  // and also runs in Node for the play/export trace evidence; it is
+  // browser-safe and imports runtime + platformer only.
+  'packages/exporter/src/export-composition.ts': {
+    packages: ['runtime', 'platformer'],
+    external: [],
+    node: [],
+  },
+  // dependencies.md §4.2 M3 export bundle row (packet 58): the M3 bootstrap's
+  // direct edges are the single shared production composition graph — the
+  // `game-host` composition (which transitively pulls `platformer-game`,
+  // `runtime`, `three-adapter`, `project-model`) + `input`/`platformer`/
+  // `physics-rapier` + the per-snapshot virtual module the export build
+  // generates in memory (`thirdlight:export-artifacts` — it has no package;
+  // the esbuild metafile check allows exactly that key for M3). The M2
+  // bootstrap (`export-bootstrap-m2.ts`) stays byte-stable above.
+  'packages/exporter/src/export-bootstrap-m3.ts': {
+    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
+    external: ['three', 'thirdlight:export-artifacts'],
+    node: [],
+  },
+  // dependencies.md §4.2 play-preview bundle row (packet 35): the entry is
+  // `editor/src/preview/**` and its graph may include protocol, runtime,
+  // three-adapter (+ the GLTFLoader subpath), project-model, input, platformer
+  // and physics-rapier. The checker validates this file's DIRECT edges against
+  // that §4.2 graph instead of the narrower §4.1 editor row (which names the
+  // editor UI's edges) — a bounded checker alignment recorded as C35-3 in
+  // docs/handoffs/35.md; the transitive graph stays enforced by the esbuild
+  // metafile check.
+  //
+  // `computedDynamicImport: 'locator'` records the OTHER accepted exception:
+  // the preview loads the pinned behavior outputs from the read-only locator at
+  // runtime (delivery §4.3: `./game.js`-relative behavior outputs are a
+  // permitted engine fetch), so its `import()` specifier is built from the
+  // artifact root and cannot be a string literal. The target is always a
+  // manifest-declared relative artifact path — never a package/remote specifier.
+  'packages/editor/src/preview/preview-bootstrap.ts': {
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier'],
+    external: ['three'],
+    node: [],
+    computedDynamicImport: 'locator',
+  },
+  // Packet 59 (delivery.md §3.2/§4.3): the M3 preview wrapper composes the
+  // SINGLE shared production host (`createGameHost`) — the only editor file
+  // allowed to import `game-host` (the preview wrapper, not the editor UI).
+  // Same §4.2 play-preview graph as preview-bootstrap.ts plus game-host +
+  // platformer-game (the M3 composition). The M2 preview-bootstrap.ts row
+  // above stays byte-stable.
+  'packages/editor/src/preview/preview-m3.ts': {
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
     external: ['three'],
     node: [],
   },
@@ -506,6 +668,11 @@ export function checkWorkspace(root) {
       for (const { spec, kind, line, typeOnly } of extractSpecifiers(src, file)) {
         specifiersChecked += 1;
         if (spec === null) {
+          if (kind === 'dynamic-import' && fileAllowed?.computedDynamicImport === 'locator') {
+            // Bounded, recorded exception (see BUNDLE_ENTRY_EDGES): the target is
+            // a manifest-declared relative locator artifact path, not a package.
+            continue;
+          }
           addV(rel, line, 'unresolved-import-target',
             `${kind} target must be a string literal so its dependency boundary can be checked (dependencies.md §5.1).`);
           continue;
@@ -676,6 +843,25 @@ export function checkWorkspace(root) {
             'forbidden-external',
             `'${spec}' — '${pkgName}' is not in '${pkg.name}'s dependencies.md §4.1 ` +
               'allowed edges',
+          );
+          continue;
+        }
+        // Approved-subpath restriction for an allowed external package
+        // (dependencies.md §4.2/§7 GLTFLoader note: exactly one
+        // `three/examples/jsm` module is approved for the three-adapter).
+        const externalSubpaths = fileAllowed.externalSubpaths?.[pkgName];
+        if (externalSubpaths && !externalSubpaths.includes(subpath)) {
+          addV(
+            rel,
+            line,
+            'external-subpath-forbidden',
+            `'${spec}' — '${pkg.name}' may import only '${pkgName}'` +
+              `${externalSubpaths
+                .filter((s) => s !== '')
+                .map((s) => ` and its '${s}' subpath`)
+                .join('')}` +
+              ' (dependencies.md §4.2/§7: another examples/jsm module is a ' +
+              'reviewed addition, not an incidental import)',
           );
         }
       }

@@ -1,0 +1,24 @@
+=== lockfile delta vs the pre-install state (only the platformer link/entry) ===
+802a803,806
+>     "node_modules/@thirdlight/platformer": {
+>       "resolved": "packages/platformer",
+>       "link": true
+>     },
+2870a2875,2881
+>         "@thirdlight/runtime": "0.1.0"
+>       }
+>     },
+>     "packages/platformer": {
+>       "name": "@thirdlight/platformer",
+>       "version": "0.1.0",
+>       "dependencies": {
+diff exit=1
+
+=== git status --porcelain (packet 32 paths) ===
+ M package-lock.json
+ M tools/check-boundaries.mjs
+?? docs/acceptance/evidence-m2/32/
+?? fixtures/m2/course/
+?? packages/platformer/
+?? tests/browser/m2-controller/
+?? tests/m2-controller/

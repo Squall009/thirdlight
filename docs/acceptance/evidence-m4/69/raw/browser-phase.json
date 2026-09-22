@@ -1,0 +1,304 @@
+{
+  "frames": [
+    {
+      "index": 0,
+      "t": 2208.4000005722046,
+      "stepIndex": 206,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 4.000000208616257,
+        "grounded": true
+      },
+      "playerRole": "run",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 8.994097552132235,
+        "y": 0.9099999955944078
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2655
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 36
+      }
+    },
+    {
+      "index": 1,
+      "t": 2898.6000003814697,
+      "stepIndex": 288,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 4.7080028377053385,
+        "grounded": false
+      },
+      "playerRole": "airborne",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 11.742766367071495,
+        "y": 1.967808456609969
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2910
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 46
+      }
+    },
+    {
+      "index": 2,
+      "t": 3572.800000190735,
+      "stepIndex": 369,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2754
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 51
+      }
+    },
+    {
+      "index": 3,
+      "t": 4241.10000038147,
+      "stepIndex": 449,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2769
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 48
+      }
+    },
+    {
+      "index": 4,
+      "t": 4905.900000572205,
+      "stepIndex": 528,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2769
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 48
+      }
+    },
+    {
+      "index": 5,
+      "t": 5579.699999809265,
+      "stepIndex": 607,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2769
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 48
+      }
+    },
+    {
+      "index": 6,
+      "t": 6248.800000190735,
+      "stepIndex": 687,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2769
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 48
+      }
+    },
+    {
+      "index": 7,
+      "t": 6912.300000190735,
+      "stepIndex": 768,
+      "runState": "playing",
+      "baseStep": 20,
+      "playerMotion": {
+        "speed": 0,
+        "grounded": true
+      },
+      "playerRole": "idle",
+      "nonPlayerRole": "idle",
+      "playerPosition": {
+        "x": 14.266057489672676,
+        "y": 0.9099938745913825
+      },
+      "models": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      },
+      "capture": {
+        "byteSize": 2769
+      },
+      "signature": {
+        "distinctPixels": 1296,
+        "distinctColors": 48
+      }
+    }
+  ],
+  "settle": {
+    "ok": true,
+    "assets": 2,
+    "instances": 6,
+    "animations": 2,
+    "unresolved": 0
+  },
+  "ready": true,
+  "stateA": {
+    "stepIndex": 206,
+    "runState": "playing",
+    "baseStep": 20,
+    "playerMotion": {
+      "speed": 4.000000208616257,
+      "grounded": true
+    },
+    "playerRole": "run",
+    "nonPlayerRole": "idle",
+    "playerPosition": {
+      "x": 8.994097552132235,
+      "y": 0.9099999955944078
+    },
+    "models": {
+      "assets": 2,
+      "instances": 6,
+      "pending": 0,
+      "animations": 2,
+      "failed": 0
+    }
+  },
+  "console": {
+    "messages": [
+      {
+        "type": "error",
+        "text": "THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')"
+      },
+      {
+        "type": "error",
+        "text": "THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')"
+      },
+      {
+        "type": "error",
+        "text": "THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')"
+      }
+    ],
+    "errors": [
+      "console.error: THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')",
+      "console.error: THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')",
+      "console.error: THREE.WebGLRenderer: Cannot read properties of null (reading 'precision')",
+      "log.error(network): Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  }
+}

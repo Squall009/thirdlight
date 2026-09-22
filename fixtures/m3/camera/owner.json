@@ -1,0 +1,218 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Instantiate-time camera/gameplay ownership validation (gameplay.md §3.4).",
+    "Packet-51 repair CC-51-1: the five single-camera-module cases (owner-gameplay-conflict, owner-scene-version, owner-game-null, owner-no-camera-follow, owner-ok) now expect the code each case's own violated condition names in the gameplay.md §3.4 validation order (the real runtime agrees on every case); the checker re-derivation bug (case-level cameraId instead of the document-level one) is fixed in ../gameplay/tools/check-fixtures.mjs."
+  ],
+  "cameraId": "cam-main",
+  "cases": [
+    {
+      "id": "owner-missing",
+      "modules": [
+        {
+          "id": "thirdlight.platformer:controller",
+          "phases": [
+            "controller",
+            "transform"
+          ],
+          "transformOwners": [
+            "group-0001"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "camera_owner",
+        "detail": "missing"
+      }
+    },
+    {
+      "id": "owner-multiple",
+      "modules": [
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        },
+        {
+          "id": "b:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "camera_owner",
+        "detail": "multiple"
+      }
+    },
+    {
+      "id": "owner-mismatch",
+      "modules": [
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "box-0001"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "camera_owner",
+        "detail": "owner_mismatch"
+      }
+    },
+    {
+      "id": "owner-gameplay-conflict",
+      "modules": [
+        {
+          "id": "a:session",
+          "phases": [
+            "gameplay"
+          ],
+          "transformOwners": []
+        },
+        {
+          "id": "b:session",
+          "phases": [
+            "gameplay"
+          ],
+          "transformOwners": []
+        },
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "gameplay_module"
+      }
+    },
+    {
+      "id": "owner-scene-version",
+      "modules": [
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 2,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "scene_version"
+      }
+    },
+    {
+      "id": "owner-game-null",
+      "modules": [
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": null,
+      "cameraFollow": true,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "game_config"
+      }
+    },
+    {
+      "id": "owner-no-camera-follow",
+      "modules": [
+        {
+          "id": "a:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": false,
+      "expect": {
+        "ok": false,
+        "code": "config_invalid",
+        "reason": "camera_follow"
+      }
+    },
+    {
+      "id": "owner-ok",
+      "modules": [
+        {
+          "id": "thirdlight.platformer-game:session",
+          "phases": [
+            "gameplay"
+          ],
+          "transformOwners": []
+        },
+        {
+          "id": "thirdlight.platformer-game:camera",
+          "phases": [
+            "camera"
+          ],
+          "transformOwners": [
+            "cam-main"
+          ]
+        }
+      ],
+      "sceneVersion": 3,
+      "game": {},
+      "cameraFollow": true,
+      "expect": {
+        "ok": true
+      }
+    }
+  ]
+}

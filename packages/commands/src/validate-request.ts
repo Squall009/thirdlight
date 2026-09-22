@@ -33,8 +33,11 @@
  * stays the single authority for document value rules.
  */
 
+import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
+
 import {
   ID_RE,
+  MAX_REQUEST_BYTES,
   REQUEST_ID_RE,
   fieldType,
   fieldMissing,
@@ -44,16 +47,43 @@ import {
   isPlainObject,
   isValidName,
   jsonType,
+  limitsExceeded,
 } from './errors';
+import { SURFACE_PRESET_NAMES } from './v3';
+import {
+  validateAcknowledgeBehaviorTrustArgs,
+  validateApplySurfacePresetArgs,
+  validatePublishAssetArgs,
+  validatePublishBehaviorArgs,
+  validateSetBehaviorPropertiesArgs,
+  validateSetComponentArgs,
+  validateSetGameConfigArgs,
+  validateSetSettingsArgs,
+} from './validate-content-args';
+import {
+  validateCreatePrefabArgs,
+  validateInstantiatePrefabArgs,
+} from './validate-prefab-args';
 import type {
+  AcknowledgeBehaviorTrustArgs,
+  ApplySurfacePresetArgs,
   BoxArgs,
   CommandError,
   CreateEntityArgs,
+  CreatePrefabArgs,
   DeleteEntityArgs,
   EmptyArgs,
+  InstantiatePrefabArgs,
+  MutationArgs,
   MutationOp,
   Origin,
   PartialTransformArgs,
+  PublishAssetArgs,
+  PublishBehaviorArgs,
+  SetBehaviorPropertiesArgs,
+  SetComponentArgs,
+  SetGameConfigArgs,
+  SetSettingsArgs,
   SetTransformArgs,
 } from './types';
 
@@ -72,6 +102,19 @@ const OPS: readonly MutationOp[] = [
   'deleteEntity',
   'undo',
   'redo',
+  // non-prefab M2 content/property ops (packet 21):
+  'publishAsset',
+  'publishBehavior',
+  'setBehaviorProperties',
+  'setComponent',
+  'setSettings',
+  'acknowledgeBehaviorTrust',
+  // prefab M2 ops (packet 22):
+  'createPrefab',
+  'instantiatePrefab',
+  // v3 game/presentation ops (packet 45):
+  'applySurfacePreset',
+  'setGameConfig',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -79,9 +122,21 @@ const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 type TransformField = (typeof TRANSFORM_FIELDS)[number];
 
+/** §3.1: the add-capable `createEntity.components` key set (closed). */
+const CREATE_COMPONENTS: readonly string[] = [
+  'collider',
+  'controller',
+  'gameZone',
+  'playerSpawn',
+  'cameraFollow',
+  'light',
+  'surface',
+  'modelAnimation',
+];
+
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -103,51 +158,109 @@ function pointerSegment(segment: string): string {
   return segment.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
-export type ValidatedMutationRequest =
-  | {
-      op: 'createEntity';
-      projectId: string;
-      expectedRevision: number;
-      requestId: string;
-      origin: Origin | null;
-      args: CreateEntityArgs;
-    }
-  | {
-      op: 'setTransform';
-      projectId: string;
-      expectedRevision: number;
-      requestId: string;
-      origin: Origin | null;
-      args: SetTransformArgs;
-    }
-  | {
-      op: 'deleteEntity';
-      projectId: string;
-      expectedRevision: number;
-      requestId: string;
-      origin: Origin | null;
-      args: DeleteEntityArgs;
-    }
-  | {
-      op: 'undo';
-      projectId: string;
-      expectedRevision: number;
-      requestId: string;
-      origin: Origin | null;
-      args: EmptyArgs;
-    }
-  | {
-      op: 'redo';
-      projectId: string;
-      expectedRevision: number;
-      requestId: string;
-      origin: Origin | null;
-      args: EmptyArgs;
-    };
+export type ValidatedMutationRequest = {
+  op: MutationOp;
+  projectId: string;
+  expectedRevision: number;
+  requestId: string;
+  origin: Origin | null;
+  args: MutationArgs;
+};
 
 export type RequestValidation =
   | { ok: true; request: ValidatedMutationRequest }
   | { ok: false; error: CommandError };
+
+/**
+ * Byte length of the §6.6 canonical request form (keys sorted, no
+ * whitespace, `JSON.stringify` number semantics) without recursion, so a
+ * deeply nested malformed request cannot exhaust the stack: the public entry
+ * points are total (commands.md §3; the O1 repair contract).
+ */
+export function canonicalRequestByteLength(request: unknown): number {
+  let bytes = 0;
+  const stack: ({ v: unknown } | { text: string })[] = [{ v: request }];
+  while (stack.length > 0) {
+    const frame = stack.pop() as { v: unknown } | { text: string };
+    if ('text' in frame) {
+      bytes += utf8ByteLength(frame.text);
+      continue;
+    }
+    const val = frame.v;
+    if (val === null) {
+      bytes += 4;
+      continue;
+    }
+    const t = typeof val;
+    if (t === 'number') {
+      bytes += (JSON.stringify(val) ?? 'null').length;
+      continue;
+    }
+    if (t === 'boolean') {
+      bytes += val ? 4 : 5;
+      continue;
+    }
+    if (t === 'string') {
+      bytes += utf8ByteLength(JSON.stringify(val));
+      continue;
+    }
+    if (Array.isArray(val)) {
+      bytes += 2 + Math.max(0, val.length - 1);
+      for (let i = val.length - 1; i >= 0; i--) stack.push({ v: val[i] });
+      continue;
+    }
+    if (t === 'object') {
+      const obj = val as Record<string, unknown>;
+      const keys = Object.keys(obj).filter((k) => obj[k] !== undefined);
+      bytes += 2 + Math.max(0, keys.length - 1);
+      const sorted = keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        const k = sorted[i] as string;
+        stack.push({ v: obj[k] });
+        stack.push({ text: `${JSON.stringify(k)}:` });
+      }
+      continue;
+    }
+    // undefined / function / symbol emit no token in the canonical form.
+  }
+  return bytes;
+}
+
+/** UTF-8 byte length of a string (no TextEncoder allocation). */
+function utf8ByteLength(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) {
+        n += 4;
+        i += 1;
+      } else n += 3;
+    } else n += 3;
+  }
+  return n;
+}
+
+/**
+ * §3.1 convention: the request's canonical bytes must be ≤ 65 536
+ * (`limits_exceeded` `request_bytes`), checked before argument validation and
+ * after the revision check. Returns the limit error, or null.
+ */
+export function checkRequestBytes(request: unknown): CommandError | null {
+  const bytes = canonicalRequestByteLength(request);
+  if (bytes > MAX_REQUEST_BYTES) {
+    return limitsExceeded(
+      'request_bytes',
+      bytes,
+      MAX_REQUEST_BYTES,
+      `the canonical request exceeds the ${MAX_REQUEST_BYTES}-byte cap (${bytes})`,
+    );
+  }
+  return null;
+}
 
 // ---- envelope level (invalid_request) ------------------------------------------
 
@@ -424,14 +537,18 @@ function validateBoxArgs(
 function validateCreateArgs(args: Record<string, unknown>):
   | { ok: true; args: CreateEntityArgs }
   | { ok: false; error: CommandError } {
-  const KNOWN = 'kind, parentId (optional), name (optional), transform (optional), box (optional, box only)';
+  const KNOWN =
+    'kind, parentId (optional), name (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional)';
   for (const key of Object.keys(args)) {
     if (
       key !== 'kind' &&
       key !== 'parentId' &&
       key !== 'name' &&
       key !== 'transform' &&
-      key !== 'box'
+      key !== 'box' &&
+      key !== 'model' &&
+      key !== 'components' &&
+      key !== 'surfacePreset'
     ) {
       return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN) };
     }
@@ -442,17 +559,17 @@ function validateCreateArgs(args: Record<string, unknown>):
   if (typeof args['kind'] !== 'string') {
     return {
       ok: false,
-      error: fieldType('/args/kind', args['kind'], '"group" or "box"'),
+      error: fieldType('/args/kind', args['kind'], '"group", "box" or "model"'),
     };
   }
-  if (args['kind'] !== 'group' && args['kind'] !== 'box') {
+  if (args['kind'] !== 'group' && args['kind'] !== 'box' && args['kind'] !== 'model') {
     return {
       ok: false,
       error: fieldValue(
         '/args/kind',
         args['kind'],
-        '"group" or "box"',
-        'kind must be "group" or "box" (camera creation is not an M1 command)',
+        '"group", "box" or "model"',
+        'kind must be "group", "box" or "model" (camera creation is not a command)',
       ),
     };
   }
@@ -529,6 +646,108 @@ function validateCreateArgs(args: Record<string, unknown>):
     const checked = validateBoxArgs(args['box'], '/args/box');
     if ('error' in checked) return { ok: false, error: checked.error };
     out.box = checked;
+  }
+  if (args['kind'] === 'model') {
+    if (args['model'] === undefined) {
+      return { ok: false, error: fieldMissing('/args/model', 'model') };
+    }
+    const m = args['model'];
+    if (!isPlainObject(m)) {
+      return { ok: false, error: fieldType('/args/model', m, 'object { asset: { assetId } }') };
+    }
+    for (const key of Object.keys(m)) {
+      if (key !== 'asset') {
+        return { ok: false, error: fieldUnexpected(`/args/model/${pointerSegment(key)}`, key, 'asset') };
+      }
+    }
+    const asset = m['asset'];
+    if (!isPlainObject(asset)) {
+      return { ok: false, error: fieldType('/args/model/asset', asset, 'object { assetId }') };
+    }
+    for (const key of Object.keys(asset)) {
+      if (key !== 'assetId') {
+        return { ok: false, error: fieldUnexpected(`/args/model/asset/${pointerSegment(key)}`, key, 'assetId') };
+      }
+    }
+    if (typeof asset['assetId'] !== 'string') {
+      return { ok: false, error: fieldType('/args/model/asset/assetId', asset['assetId'], 'string (asset ID)') };
+    }
+    out.model = { asset: { assetId: asset['assetId'] } };
+  } else if (args['model'] !== undefined) {
+    return {
+      ok: false,
+      error: fieldUnexpected('/args/model', 'model', KNOWN, 'model is permitted only when kind is "model"'),
+    };
+  }
+  // §3.1/authoring §A3.1: the add-capable components, created in the same
+  // transaction. Unknown keys are `component_unknown`; the per-component
+  // VALUES are validated by the op (project-model §23.3).
+  if (args['components'] !== undefined) {
+    const components = args['components'];
+    if (!isPlainObject(components)) {
+      return { ok: false, error: fieldType('/args/components', components, 'object of add-capable components') };
+    }
+    const keys = Object.keys(components);
+    if (keys.length > 8) {
+      return {
+        ok: false,
+        error: fieldValue(
+          '/args/components',
+          keys.length,
+          'at most 8 add-capable component keys',
+          'at most 8 components may be added in one createEntity',
+        ),
+      };
+    }
+    for (const key of keys) {
+      if (!CREATE_COMPONENTS.includes(key)) {
+        return {
+          ok: false,
+          error: {
+            code: 'component_unknown',
+            cls: 'validation',
+            path: `/args/components/${pointerSegment(key)}`,
+            found: components[key],
+            expected: CREATE_COMPONENTS.map((c) => `"${c}"`).join(', '),
+            message: 'unknown component name (the registry is closed)',
+          },
+        };
+      }
+      if (components[key] === null) {
+        return {
+          ok: false,
+          error: fieldValue(
+            `/args/components/${pointerSegment(key)}`,
+            null,
+            'the component add value (never null)',
+            'components values are add values; removal is setComponent with value: null',
+          ),
+        };
+      }
+    }
+    out.components = components;
+  }
+  if (args['surfacePreset'] !== undefined) {
+    const preset = args['surfacePreset'];
+    if (out.kind !== 'box' && out.kind !== 'model') {
+      return {
+        ok: false,
+        error: fieldUnexpected('/args/surfacePreset', 'surfacePreset', KNOWN, 'surfacePreset is permitted only when kind is "box" or "model"'),
+      };
+    }
+    if (typeof preset !== 'string' || !(SURFACE_PRESET_NAMES as readonly string[]).includes(preset)) {
+      return {
+        ok: false,
+        error: fieldValue('/args/surfacePreset', preset, '"matte-ground", "hazard" or "beacon"', 'surfacePreset must be one of the three built-in presets'),
+      };
+    }
+    if (out.components !== undefined && out.components['surface'] !== undefined) {
+      return {
+        ok: false,
+        error: fieldValue('/args/surfacePreset', preset, 'absent when components.surface is present', 'surfacePreset and components.surface are mutually exclusive'),
+      };
+    }
+    out.surfacePreset = preset as CreateEntityArgs['surfacePreset'];
   }
   return { ok: true, args: out };
 }
@@ -647,7 +866,17 @@ export type ValidatedOpArgs =
   | { op: 'setTransform'; args: SetTransformArgs }
   | { op: 'deleteEntity'; args: DeleteEntityArgs }
   | { op: 'undo'; args: EmptyArgs }
-  | { op: 'redo'; args: EmptyArgs };
+  | { op: 'redo'; args: EmptyArgs }
+  | { op: 'publishAsset'; args: PublishAssetArgs }
+  | { op: 'publishBehavior'; args: PublishBehaviorArgs }
+  | { op: 'setBehaviorProperties'; args: SetBehaviorPropertiesArgs }
+  | { op: 'setComponent'; args: SetComponentArgs }
+  | { op: 'setSettings'; args: SetSettingsArgs }
+  | { op: 'acknowledgeBehaviorTrust'; args: AcknowledgeBehaviorTrustArgs }
+  | { op: 'createPrefab'; args: CreatePrefabArgs }
+  | { op: 'instantiatePrefab'; args: InstantiatePrefabArgs }
+  | { op: 'applySurfacePreset'; args: ApplySurfacePresetArgs }
+  | { op: 'setGameConfig'; args: SetGameConfigArgs };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -685,6 +914,56 @@ export function validateOpArgs(
       if (!r.ok) return r;
       return { ok: true, validated: { op, args: r.args } };
     }
+    case 'publishAsset': {
+      const r = validatePublishAssetArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'publishAsset', args: r.args } };
+    }
+    case 'publishBehavior': {
+      const r = validatePublishBehaviorArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'publishBehavior', args: r.args } };
+    }
+    case 'setBehaviorProperties': {
+      const r = validateSetBehaviorPropertiesArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setBehaviorProperties', args: r.args } };
+    }
+    case 'setComponent': {
+      const r = validateSetComponentArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setComponent', args: r.args } };
+    }
+    case 'setSettings': {
+      const r = validateSetSettingsArgs(args, M2_SETTINGS_KEYS);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setSettings', args: r.args } };
+    }
+    case 'acknowledgeBehaviorTrust': {
+      const r = validateAcknowledgeBehaviorTrustArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'acknowledgeBehaviorTrust', args: r.args } };
+    }
+    case 'createPrefab': {
+      const r = validateCreatePrefabArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'createPrefab', args: r.args } };
+    }
+    case 'instantiatePrefab': {
+      const r = validateInstantiatePrefabArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'instantiatePrefab', args: r.args } };
+    }
+    case 'applySurfacePreset': {
+      const r = validateApplySurfacePresetArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'applySurfacePreset', args: r.args } };
+    }
+    case 'setGameConfig': {
+      const r = validateSetGameConfigArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setGameConfig', args: r.args } };
+    }
     default: {
       // Unreachable: `op` was validated against the five ops by the
       // envelope pass; keep a safe, contract-shaped fallback.
@@ -712,47 +991,9 @@ export function validateMutationRequest(req: unknown): RequestValidation {
   const envResult = validateRequestEnvelope(req);
   if (!envResult.ok) return envResult;
   const env = envResult.envelope;
-  const argsObj = envResult.args;
-  const base = {
-    projectId: env.projectId,
-    expectedRevision: env.expectedRevision,
-    requestId: env.requestId,
-    origin: env.origin,
-  };
-  switch (env.op) {
-    case 'createEntity': {
-      const r = validateCreateArgs(argsObj);
-      if (!r.ok) return r;
-      return { ok: true, request: { op: env.op, ...base, args: r.args } };
-    }
-    case 'setTransform': {
-      const r = validateSetTransformArgs(argsObj);
-      if (!r.ok) return r;
-      return { ok: true, request: { op: env.op, ...base, args: r.args } };
-    }
-    case 'deleteEntity': {
-      const r = validateDeleteArgs(argsObj);
-      if (!r.ok) return r;
-      return { ok: true, request: { op: env.op, ...base, args: r.args } };
-    }
-    case 'undo':
-    case 'redo': {
-      const r = validateUndoRedoArgs(env.op, argsObj);
-      if (!r.ok) return r;
-      return { ok: true, request: { op: env.op, ...base, args: r.args } };
-    }
-    default:
-      // Unreachable: `op` was validated against the five ops above.
-      return {
-        ok: false,
-        error: invalidRequest(
-          '/op',
-          env.op,
-          EXPECT.op,
-          'op is not one of the five M1 mutation ops',
-        ),
-      };
-  }
+  const va = validateOpArgs(env.op, envResult.args);
+  if (!va.ok) return va;
+  return { ok: true, request: { ...env, args: va.validated.args } };
 }
 
 /**

@@ -1,0 +1,42 @@
+# packet 29 — toolchain (actual output tails, 2026-09-19)
+
+## npm test
+      Tests  1323 passed (1323)
+   Start at  06:42:28
+   Duration  30.37s (tests 87%, import 8%, transform 4%, worker 1%)
+
+    Isolate  102 workers spawned · ~202ms startup each (spawn + environment, per file)
+             at least ~3.92s faster with isolate: false — reuses workers across files instead of one per file
+
+
+## npm run typecheck
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+
+## npm run check-deps
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+## npm run check-boundaries
+
+check-boundaries: OK — 11 package(s) [asset-pipeline, backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 225 source file(s), 832 specifier(s) checked; no boundary violations.
+
+## npm run build
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+## contracts fixture checker
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)
+
+## packet-29 runtime fixture checker
+ok   canonical: 3 fixture file(s) byte-canonical
+ok   index: 3 file(s) listed with matching sha256
+ok   scheduler: 5 case(s) re-derived from the fixed-step arithmetic
+ok   demo: 7 sample(s) re-derived from the §7.1 formula
+ok   failstop: 13 case(s) validated against the accepted runtime code registry
+ok   secrets: no credential-like content in the runtime fixtures
+
+check-runtime-fixtures: all checks passed

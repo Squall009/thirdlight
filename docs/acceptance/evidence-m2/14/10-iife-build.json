@@ -1,0 +1,17 @@
+{
+  "tool": "repo-pinned esbuild 0.28.2 (JS API; esbuild.version asserted before build)",
+  "flags": { "bundle": true, "platform": "browser", "format": "iife", "treeShaking": false, "sourcemap": false, "minify": false, "note": "exact pinned option set of export.md §5.3; all other options at 0.28.2 defaults; no defines/banners/loaders/aliases/externals" },
+  "entry": "ts-probe.ts (strict-TS probe importing @dimforge/rapier2d-compat@0.20.0)",
+  "candidateResolution": "disposable prefix via esbuild nodePaths (EVAL_PREFIX=/tmp/tl-m2-eval-14) — never the repo lockfile (plan-review BR-1)",
+  "buildMs": 53.4,
+  "inputModules": 2,
+  "outputBytes": 2169354,
+  "outputFile": "out/probe-iife.js (copied to evidence as 10-probe-iife.js)",
+  "topLevelAwait": "build succeeded under format:iife, which rejects top-level await at build time — constraint satisfied (export.md §5.3)",
+  "runInNode": {
+    "command": "node /tmp/tl-m2-eval-14/out/probe-iife.js",
+    "exit": 0,
+    "output": "{\"tl14_probe\":\"ok\",\"version\":\"0.20.0\",\"x\":0.3328,\"y\":0.91,\"grounded\":true}"
+  },
+  "note": "Node run proves the bundle is self-contained and executes; browser-side execution is UNVERIFIED (no browser in container) — desktop procedure in manifest.md"
+}

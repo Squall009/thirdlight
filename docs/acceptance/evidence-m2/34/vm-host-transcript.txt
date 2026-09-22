@@ -1,0 +1,12 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+P34_MEASUREMENT {"behaviorId":"behavior-0100","outputDigest":"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69","property":"speed","speedLow":3.5,"speedHigh":6.5,"steps":40,"xLow":0.14900000000000002,"xHigh":0.279,"intentCommitCount":52,"sourceDigestUnchanged":"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69"}
+P34_FAILSTOP {"code":"module_error","message":"behavior \"behavior-0201\" step threw: hostile-throw","stepIndex":0,"reason":"behavior_step_failed","moduleId":"thirdlight.behavior:behavior-0201","phase":"intent"}
+P34_LOGBOUND {"logCount":208,"logDropped":312,"ring":32}
+
+ Test Files  2 passed (2)
+      Tests  34 passed (34)
+   Start at  09:14:29
+   Duration  444ms (transform 67%, import 17%, tests 15%, worker 1%)
+

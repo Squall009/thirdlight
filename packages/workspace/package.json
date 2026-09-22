@@ -8,6 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@thirdlight/asset-pipeline": "0.1.0",
+    "@thirdlight/behavior-build": "0.1.0",
     "@thirdlight/commands": "0.1.0",
     "@thirdlight/project-model": "0.1.0"
   },

@@ -21,8 +21,23 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { applyMutation } from '@thirdlight/commands';
-import type { CommandError, HistoryState, MutationResult } from '@thirdlight/commands';
-import type { Manifest, Scene } from '@thirdlight/project-model';
+import type {
+  CommandError,
+  CommandState,
+  ContentDocument,
+  HistoryState,
+  MutationResult,
+  MutationSuccess,
+  SceneDocument,
+} from '@thirdlight/commands';
+import type {
+  ContentCatalog,
+  ContentCatalogV3,
+  Manifest,
+  Scene,
+  SceneV2,
+  SceneV3,
+} from '@thirdlight/project-model';
 import {
   normalizeScene,
   parseDocumentBytes,
@@ -37,10 +52,52 @@ import {
   type RetryRecord,
 } from './envelope';
 import {
+  authoritativeBytes,
+  captureContentView,
+  cleanupStages,
+  contentIntegrity,
+  DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
+  DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
+  defaultFreeSpace,
+  discardStage,
+  inspectStage,
+  publishBlob,
+  readBlob,
+  readCapturedV3,
+  readSourceBlob,
+  stageContent,
+  verifyReferencedBlob,
+  type BlobPublishRequest,
+  type BlobPublishResult,
+  type BlobReadRequest,
+  type BlobReadResult,
+  type SourceBlobReadRequest,
+  type SourceBlobReadResult,
+  type CaptureViewResult,
+  type CapturedV3ReadResult,
+  type ContentConfig,
+  type ContentContext,
+  type ContentIntegrityResult,
+  type InspectStageOptions,
+  type InspectStageResult,
+  type StageDiscardResult,
+  type StageRequest,
+  type StageResult,
+} from './content-store';
+import {
+  migrateProjectCopy,
+  migrateProjectCopyV3,
+  readMigrationMarker,
+  type MigrationResult,
+  type MigrationResultV3,
+} from './migration';
+import { prepareBehaviorSource, preparedFactsOf, type PrepareBehaviorSourceRequest } from './behavior';
+import {
   externalChangeUnreadable,
   externalChangeUnresolved,
   fieldTypeError,
   fieldValueType,
+  contentQuotaExceeded,
   invalidRequest,
   projectExistsInvalid,
   projectNotFound,
@@ -75,6 +132,7 @@ import {
   detectExternalChange,
   ensureSession,
   ENGINE_VERSION,
+  envelopeBytesFor,
   loadProjectDir,
   pendingInfo,
   releaseProject,
@@ -101,6 +159,54 @@ import type {
 
 /** The M1 scene path inside a project (project-model §7.1). */
 const SCENE_REL = join('scenes', 'main.json');
+
+/** The session as the content-store operations need it. */
+function contentCtx(s: ProjectSession): ContentContext {
+  return {
+    projectId: s.projectId,
+    dir: s.dir,
+    thirdlightDir: s.thirdlightDir,
+    storageVersion: s.storageVersion,
+    revision: s.revision,
+    scene: s.scene,
+    content: s.content,
+  };
+}
+
+/**
+ * The session's canonical envelope bytes at its storageVersion
+ * (§4.4/§4.5/§16.3). One construction shared with the release rewrite, the
+ * resident external-state resolution and the migration copy — there is no
+ * second envelope writer.
+ */
+function sessionEnvelopeBytes(
+  s: ProjectSession,
+  scene: Scene | SceneV2 | SceneV3,
+  content: ContentCatalog | ContentCatalogV3 | null,
+  records: readonly RetryRecord[],
+): Uint8Array {
+  return envelopeBytesFor(s.storageVersion, s.projectId, scene, content, records);
+}
+
+/**
+ * The authoritative blob a successful publication references (the new
+ * version's digest/length), or null for a non-publication / history-op
+ * result. commit-time verification (workspace.md §13.3.2 step 4) uses it.
+ */
+function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength: number } | null {
+  const ch = result.change;
+  if (ch.type === 'publishBehavior') {
+    // Packet 33: a source publication references the immutable container blob
+    // exactly like an asset version does (§13.3.2 step 4 verification).
+    const src = ch.next === null ? null : ch.next.source;
+    if (src === null) return null;
+    return { digest: src.sourceDigest, byteLength: src.sourceByteLength };
+  }
+  if (ch.type !== 'publishAsset' || ch.next === null) return null;
+  const last = ch.next.versions[ch.next.versions.length - 1];
+  if (last === undefined) return null;
+  return { digest: last.sourceDigest, byteLength: last.sourceByteLength };
+}
 
 export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceService {
   const root = config.root;
@@ -135,6 +241,17 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
     utcNow: config.utcNow ?? (() => utcSecond()),
     ops: config.ops ?? defaultOps,
     sessions: new Map(),
+    content: {
+      maxSourceBytesPerProject: config.maxSourceBytesPerProject ?? DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
+      deviceSpaceReserveBytes: config.deviceSpaceReserveBytes ?? DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
+      freeSpaceBytes: config.freeSpaceBytes ?? (() => defaultFreeSpace(root)),
+      now: config.now ?? (() => Date.now()),
+      ...(config.assetInspector !== undefined ? { assetInspector: config.assetInspector } : {}),
+      ...(config.inspectTimeoutMs !== undefined ? { inspectTimeoutMs: config.inspectTimeoutMs } : {}),
+      // Packet 33: the injected behavior-source compiler (dependencies.md
+      // §4.1 — `backend` constructs it; the workspace holds only its type).
+      ...(config.behaviorCompiler !== undefined ? { behaviorCompiler: config.behaviorCompiler } : {}),
+    },
   };
   return buildService(core);
 }
@@ -248,9 +365,48 @@ function buildService(core: Core): WorkspaceService {
     }
 
     // Steps 4–6 — revision check, validation + pure application, no-change
-    // check (the pure layer; the input state is never mutated).
-    const outcome = applyMutation({ scene: s.scene!, history: s.history }, request);
+    // check (the pure layer; the input state is never mutated). The v2
+    // pipeline wires the envelope's content block and the manifest as the
+    // three-block validation inputs (commands.md §6.1 step 5; C21-1).
+    const commandState: CommandState<SceneDocument> =
+      s.content === null
+        ? { scene: s.scene!, history: s.history }
+        : {
+            scene: s.scene!,
+            content: s.content as unknown as ContentDocument,
+            manifest: s.manifest,
+            history: s.history,
+          };
+    // Packet 33: the prepared digest-bound behavior-source facts (a derived
+    // cache) and whether a preparer is registered. The command reads ONLY
+    // these facts for a source publication; they are never request input.
+    if (core.content.behaviorCompiler !== undefined) {
+      commandState.behaviorPreparerRegistered = true;
+    }
+    if (s.preparedSources.size > 0) {
+      commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+    }
+    const outcome = applyMutation(commandState, request);
     if (!outcome.ok) return outcome.result;
+
+    // Step 5/commit-time verification (workspace.md §13.3.2 step 4): a
+    // content publication verifies that the referenced authoritative blob
+    // exists and matches its digest — fail closed BEFORE any state change.
+    // The quota pre-flight is re-checked under the lock (step 3).
+    if (s.storageVersion !== 1 && s.content !== null) {
+      const ref = publishedBlobRef(outcome.result);
+      if (ref !== null) {
+        const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength);
+        if (!v.ok) return failRequest(request, v.error);
+        const used = authoritativeBytes(s.dir);
+        if (used > core.content.maxSourceBytesPerProject) {
+          return failRequest(
+            request,
+            contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0),
+          );
+        }
+      }
+    }
 
     // Step 7 — durability write. The new envelope carries BOTH the new
     // scene (revision+1) and the new record (one atomic replacement —
@@ -264,7 +420,12 @@ function buildService(core: Core): WorkspaceService {
       result: outcome.result,
     };
     const records = appendRecord(s.records, newRecord);
-    const envBytes = buildEnvelopeBytes(pid, outcome.state.scene, records);
+    const envBytes = sessionEnvelopeBytes(
+      s,
+      outcome.state.scene,
+      outcome.state.content ?? s.content,
+      records,
+    );
     const res = writeAtomic({
       dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
       target: join(s.sceneDir, 'main.json'),
@@ -318,11 +479,16 @@ function buildService(core: Core): WorkspaceService {
    */
   function publish(
     s: ProjectSession,
-    newState: { scene: Scene; history: HistoryState },
+    newState: {
+      scene: SceneDocument;
+      content?: ContentCatalog | ContentCatalogV3 | null;
+      history: HistoryState;
+    },
     records: RetryRecord[],
     envBytes: Uint8Array,
   ): void {
     s.scene = newState.scene;
+    if (s.storageVersion !== 1 && newState.content !== undefined) s.content = newState.content;
     s.revision = newState.scene.revision;
     s.records = records;
     const m = new Map<string, RetryRecord>();
@@ -628,6 +794,144 @@ function buildService(core: Core): WorkspaceService {
     return discardExternal(core, s);
   }
 
+  // ---- content storage operations (workspace.md §11/§13) ---------------------
+
+  /** Resolve the project for a content operation (the on-demand open). */
+  function withOpenSession<T>(
+    projectId: string,
+    fn: (s: ProjectSession) => T,
+    missing: (e: CommandError) => T,
+  ): T {
+    const o = ensureSession(core, projectId, 'command');
+    if (o.kind === 'not-found') return missing(projectNotFound(projectId));
+    if (o.kind === 'unavailable') return missing(projectUnavailable(o.reason, o.holder, o.errors ?? []));
+    if (o.kind === 'released') return missing(projectUnavailable('workspace_closed', null, []));
+    const s = o.session;
+    if (s.mode !== 'open') {
+      return missing(projectUnavailable(s.blocked?.reason ?? 'envelope_invalid', null, s.blocked?.errors ?? []));
+    }
+    return fn(s);
+  }
+
+  /** `stageContent` (workspace.md §7.6/§11): non-authoritative staged input. */
+  function stageContentOp(projectId: string, request: StageRequest): StageResult {
+    return deepFreeze(
+      withOpenSession<StageResult>(
+        projectId,
+        (s) => stageContent(core, contentCtx(s), request),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `discardStage` (workspace.md §7.6.2/§11): non-authoritative cleanup. */
+  function discardStageOp(projectId: string, stageId: string): StageDiscardResult {
+    return deepFreeze(
+      withOpenSession<StageDiscardResult>(
+        projectId,
+        (s) => discardStage(core, contentCtx(s), stageId),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `inspectStage` (workspace.md §11/§13.3.1): the injected bounded inspector
+   * over the staged bytes; non-authoritative, never mutates authoring state. */
+  function inspectStageOp(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult {
+    return deepFreeze(
+      withOpenSession<InspectStageResult>(
+        projectId,
+        (s) => inspectStage(core, contentCtx(s), stageId, options ?? {}),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `publishBlob` (workspace.md §13.2/§11): immutable blob publication (no lock). */
+  function publishBlobOp(projectId: string, request: BlobPublishRequest): BlobPublishResult {
+    return deepFreeze(
+      withOpenSession<BlobPublishResult>(
+        projectId,
+        (s) => publishBlob(core, contentCtx(s), request),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `readBlob` (workspace.md §13.5/§11): the only public byte read. */
+  function readBlobOp(projectId: string, request: BlobReadRequest): BlobReadResult {
+    return deepFreeze(
+      withOpenSession<BlobReadResult>(
+        projectId,
+        (s) => readBlob(core, contentCtx(s), request),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /**
+   * `readSourceBlob` (packet 35): the digest-addressed verified immutable-blob
+   * read the play/export delivery build uses for behavior source containers.
+   */
+  function readSourceBlobOp(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult {
+    return deepFreeze(
+      withOpenSession<SourceBlobReadResult>(
+        projectId,
+        (s) => readSourceBlob(core, contentCtx(s), request),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `contentIntegrity` (workspace.md §13.5/§11): bounded integrity report. */
+  function contentIntegrityOp(projectId: string): ContentIntegrityResult {
+    return deepFreeze(
+      withOpenSession<ContentIntegrityResult>(
+        projectId,
+        (s) => contentIntegrity(core, contentCtx(s)),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `captureContentView` (project-model §19/workspace.md §11): pure capture. */
+  function captureContentViewOp(projectId: string): CaptureViewResult {
+    return deepFreeze(
+      withOpenSession<CaptureViewResult>(
+        projectId,
+        (s) => captureContentView(contentCtx(s)),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `readCapturedV3` (packet 58, delivery.md §2.6): the M3 single
+   *  acknowledged envelope read (scene + content halves). Pure read. */
+  function readCapturedV3Op(projectId: string): CapturedV3ReadResult {
+    return deepFreeze(
+      withOpenSession<CapturedV3ReadResult>(
+        projectId,
+        (s) => readCapturedV3(contentCtx(s)),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** `migrateProjectCopy` (workspace.md §14): explicit operator migration. */
+  function migrateProjectCopyOp(sourceProjectId: string, newProjectId: string): MigrationResult {
+    return deepFreeze(migrateProjectCopy(core, sourceProjectId, newProjectId));
+  }
+
+  /**
+   * `migrateProjectCopyV3` (workspace.md §16.5/§16.8): the explicit v2→v3
+   * operator. Reads the v2 source, writes a new v3 destination
+   * destination-first/authoritative-last with a resumable four-phase marker;
+   * the source is never claimed, released or written.
+   */
+  function migrateProjectCopyV3Op(sourceProjectId: string, newProjectId: string): MigrationResultV3 {
+    return deepFreeze(migrateProjectCopyV3(core, sourceProjectId, newProjectId));
+  }
+
   function scan(): ScanReport {
     const report = runScan(core);
     lastScanRef[0] = report;
@@ -642,6 +946,9 @@ function buildService(core: Core): WorkspaceService {
     core.sessions.clear();
   }
 
+  const prepareBehaviorSourceOp = (projectId: string, request: PrepareBehaviorSourceRequest) =>
+    prepareBehaviorSource(core, projectId, request);
+
   return {
     backendId: self.backendId,
     runCommand,
@@ -651,6 +958,18 @@ function buildService(core: Core): WorkspaceService {
     takeoverWorkspace,
     acceptExternalState,
     discardExternalState,
+    stageContent: stageContentOp,
+    discardStage: discardStageOp,
+    inspectStage: inspectStageOp,
+    publishBlob: publishBlobOp,
+    readBlob: readBlobOp,
+    readSourceBlob: readSourceBlobOp,
+    contentIntegrity: contentIntegrityOp,
+    captureContentView: captureContentViewOp,
+    readCapturedV3: readCapturedV3Op,
+    migrateProjectCopy: migrateProjectCopyOp,
+    migrateProjectCopyV3: migrateProjectCopyV3Op,
+    prepareBehaviorSource: prepareBehaviorSourceOp,
     scan,
     dispose,
     get lastScan() {
@@ -722,6 +1041,29 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
   if (stale) entry.staleOwnership = true;
 
+  // Interrupted migration destination (workspace.md §10/§14.3/§16.5.3): a
+  // valid `.thirdlight/migration.json` marker with no envelope suppresses
+  // the §8.3 default-envelope completion — auto-completing would create an
+  // empty default project and destroy the migration intent. This is checked
+  // BEFORE the manifest: a crash between the marker write and step 3 leaves a
+  // marker-only destination (no manifest), which must still be reported as
+  // an interrupted migration destination, never as an orphan. Reported;
+  // resumable or deletable.
+  const envelopeExists = core.ops.fileExists(join(dir, SCENE_REL));
+  const migrationMarker = readMigrationMarker(dir);
+  if (migrationMarker !== null && !envelopeExists) {
+    entry.kind = 'project';
+    entry.loadable = false;
+    entry.code = 'migration_resume_required';
+    entry.migration = 'resume_required';
+    entry.migrationPhase = migrationMarker.phase;
+    const resumeOp = migrationMarker.storageVersion === 3 ? 'migrateProjectCopyV3' : 'migrateProjectCopy';
+    entry.note = stale
+      ? `interrupted migration destination (phase ${migrationMarker.phase}); stale ownership reported; resume ${resumeOp} or delete the directory`
+      : `interrupted migration destination (phase ${migrationMarker.phase}) — never auto-completed; resume ${resumeOp} or delete the directory`;
+    return entry;
+  }
+
   // Manifest.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
@@ -750,8 +1092,6 @@ function scanEntry(core: Core, name: string): ScanEntry {
     return entry;
   }
 
-  // Envelope.
-  const envelopeExists = core.ops.fileExists(join(dir, SCENE_REL));
   if (!envelopeExists) {
     // R7 (2026-09-18 review): the completion write is the scan's ONLY
     // write and it goes through the scenes directory — a PRESENT scenes
@@ -1018,7 +1358,7 @@ function echoProjectId(v: unknown): string | undefined {
 function validateQueryRequest(request: unknown):
   | {
       ok: true;
-      op: 'queryProject' | 'queryEntity' | 'queryEntities';
+      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig';
       projectId: string;
       args: Record<string, unknown> | undefined;
     }
@@ -1039,10 +1379,18 @@ function validateQueryRequest(request: unknown):
     }
   }
   const op = req['op'];
-  if (op !== 'queryProject' && op !== 'queryEntity' && op !== 'queryEntities') {
+  if (
+    op !== 'queryProject' &&
+    op !== 'queryEntity' &&
+    op !== 'queryEntities' &&
+    op !== 'queryAssets' &&
+    op !== 'queryPrefabs' &&
+    op !== 'queryBehaviors' &&
+    op !== 'queryGameConfig'
+  ) {
     return {
       ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the M1 query ops'),
+      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
     };
   }
   const projectId = req['projectId'];

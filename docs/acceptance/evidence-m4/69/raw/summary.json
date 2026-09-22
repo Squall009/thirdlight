@@ -1,0 +1,335 @@
+{
+  "rows": [
+    {
+      "id": "R01",
+      "phase": "fixture",
+      "status": "PASS",
+      "detail": {
+        "status": 0,
+        "output": [
+          "check ok: /home/dadmin/projects/thirdlight/tests/integration/m4-render/fixtures/sources/courier.glb",
+          "check ok: /home/dadmin/projects/thirdlight/tests/integration/m4-render/fixtures/index.json",
+          "fixture check: byte-identical"
+        ]
+      }
+    },
+    {
+      "id": "R02",
+      "phase": "fixture",
+      "status": "PASS",
+      "detail": {
+        "digests": {
+          "br-model-beacon": true,
+          "br-model-courier": true
+        },
+        "defectiveSourceDigest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be"
+      }
+    },
+    {
+      "id": "R11",
+      "phase": "node",
+      "status": "PASS",
+      "detail": {
+        "ok": true,
+        "assets": 2,
+        "instances": 6,
+        "animations": 2,
+        "unresolved": 0
+      }
+    },
+    {
+      "id": "R12",
+      "phase": "node",
+      "status": "PASS",
+      "detail": {
+        "assets": 2,
+        "instances": 6,
+        "pending": 0,
+        "animations": 2,
+        "failed": 0
+      }
+    },
+    {
+      "id": "R13",
+      "phase": "node",
+      "status": "PASS",
+      "detail": {
+        "d1": {
+          "ok": true
+        },
+        "d2": {
+          "ok": true,
+          "alreadyDisposed": true
+        },
+        "modelsAfter": null,
+        "loads": 2,
+        "releases": 2
+      }
+    },
+    {
+      "id": "R14",
+      "phase": "node",
+      "status": "PASS",
+      "detail": {
+        "settle": {
+          "ok": true,
+          "assets": 2,
+          "instances": 6,
+          "animations": 1,
+          "unresolved": 0
+        },
+        "counters": {
+          "assets": 2,
+          "instances": 6,
+          "pending": 0,
+          "animations": 1,
+          "failed": 0
+        }
+      }
+    },
+    {
+      "id": "R15",
+      "phase": "node",
+      "status": "PASS",
+      "detail": {
+        "settle": {
+          "ok": true,
+          "assets": 2,
+          "instances": 5,
+          "animations": 2,
+          "unresolved": 1
+        }
+      }
+    },
+    {
+      "id": "R21",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "ready": true,
+        "settle": {
+          "ok": true,
+          "assets": 2,
+          "instances": 6,
+          "animations": 2,
+          "unresolved": 0
+        },
+        "unhandled": []
+      }
+    },
+    {
+      "id": "R22",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "pngs": [
+          "frame-01.png",
+          "frame-02.png",
+          "frame-03.png",
+          "frame-04.png",
+          "frame-05.png",
+          "frame-06.png",
+          "frame-07.png",
+          "frame-08.png"
+        ],
+        "sizes": [
+          2655,
+          2910,
+          2754,
+          2769,
+          2769,
+          2769,
+          2769,
+          2769
+        ],
+        "signatures": [
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 36
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 46
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 51
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 48
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 48
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 48
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 48
+          },
+          {
+            "distinctPixels": 1296,
+            "distinctColors": 48
+          }
+        ]
+      }
+    },
+    {
+      "id": "R23",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "changed": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "changedCount": 3
+      }
+    },
+    {
+      "id": "R24",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "runFrame": {
+          "index": 0,
+          "speed": 4.000000208616257,
+          "grounded": true
+        },
+        "airFrame": {
+          "index": 1,
+          "grounded": false
+        },
+        "nonPlayerAllIdle": true,
+        "steps": {
+          "first": 206,
+          "last": 768
+        }
+      }
+    },
+    {
+      "id": "R25",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "maxX": 14.27,
+        "finalX": 14.27,
+        "paces": [
+          3.98,
+          3.74,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "runPace": 3.98,
+        "runSpeed": 4,
+        "runStates": [
+          "playing",
+          "playing",
+          "playing",
+          "playing",
+          "playing",
+          "playing",
+          "playing",
+          "playing"
+        ]
+      }
+    },
+    {
+      "id": "R26",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "peak": 1,
+        "fired": 313,
+        "pending": 1
+      }
+    },
+    {
+      "id": "R27",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "cycles": [
+          {
+            "ok": true,
+            "settle": {
+              "ok": true,
+              "assets": 2,
+              "instances": 6,
+              "animations": 2,
+              "unresolved": 0
+            }
+          },
+          {
+            "ok": true,
+            "settle": {
+              "ok": true,
+              "assets": 2,
+              "instances": 6,
+              "animations": 2,
+              "unresolved": 0
+            }
+          },
+          {
+            "ok": true,
+            "settle": {
+              "ok": true,
+              "assets": 2,
+              "instances": 6,
+              "animations": 2,
+              "unresolved": 0
+            }
+          }
+        ],
+        "unhandled": [],
+        "rafAfter": {
+          "peak": 1,
+          "fired": 389,
+          "pending": 1
+        },
+        "models": {
+          "assets": 2,
+          "instances": 6,
+          "pending": 0,
+          "animations": 2,
+          "failed": 0
+        }
+      }
+    },
+    {
+      "id": "R28",
+      "phase": "browser",
+      "status": "PASS",
+      "detail": {
+        "total": 11,
+        "external": []
+      }
+    }
+  ],
+  "failed": [],
+  "hardError": null,
+  "environment": {
+    "node": "v22.22.1",
+    "gpu": "SwiftShader (headless container; never a hardware-GPU claim)",
+    "fixtureServer": "http://127.0.0.1:40819/",
+    "fixture": {
+      "sceneBytes": 13354,
+      "sceneDigest": "41cf6da0dd8ac9021b2c8842ce17e6e9014c336d64601401b3d2b4f60d99aae4",
+      "indexDigest": "bc9c692171b9889928a00c0e8643730d7bb97ed6fbd5805957b510f9a24ef70a"
+    },
+    "modelEntities": 6,
+    "modelAnimationEntities": 2
+  }
+}

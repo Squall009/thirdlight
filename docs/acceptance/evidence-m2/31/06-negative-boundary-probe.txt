@@ -1,0 +1,15 @@
+Packet 31 — disposable negative boundary probe (introducing the physics-rapier edge)
+
+A temporary packages/physics-rapier/src/__probe.ts imported 'three', a runtime VALUE import and node:fs.
+check-boundaries must fail all three; the file is then removed and the tree re-checked green.
+
+== node tools/check-boundaries.mjs (with the probe present) ==
+check-boundaries: FAIL — 3 violation(s):
+  packages/physics-rapier/src/__probe.ts:1: [forbidden-external] 'three' — 'three' is not in 'physics-rapier's dependencies.md §4.1 allowed edges
+  packages/physics-rapier/src/__probe.ts:2: [types-only-edge] '@thirdlight/runtime' — 'physics-rapier → runtime' is a types-only edge (dependencies.md §4.1: "types only"); value imports, value re-exports, and dynamic import() of it are executable imports — use `import type` / `export type` for the type-only forms (the no-second-mutation-path rule, §4.3)
+  packages/physics-rapier/src/__probe.ts:3: [node-builtin-forbidden] 'node:fs' — Node builtins are not in 'physics-rapier's allowed edges (dependencies.md §4.1; runtime is three-free and I/O-free, §4.3)
+exit=1
+
+== node tools/check-boundaries.mjs (probe removed) ==
+check-boundaries: OK — 13 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, physics-rapier, project-model, protocol, runtime, three-adapter, workspace], 246 source file(s), 895 specifier(s) checked; no boundary violations.
+exit=0

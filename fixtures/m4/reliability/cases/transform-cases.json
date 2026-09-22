@@ -1,0 +1,45 @@
+{
+  "note": "Same-ID restore = NO transform (the bytes are copied verbatim into a same-name destination). New-ID creation = the EXACT 3-field identity rewrite (reliability.md §2.2) and nothing else — no revision reset (contrast the migration operators' revisionPolicy reset-to-zero), history/retry preserved as authored, the template block preserved (provenance follows the content). The byte-exact old/new values below are re-derived by the checker from the live fixture bytes.",
+  "sameId": {
+    "transform": "none (verbatim copy)",
+    "identity": {
+      "manifestId": "demo-0003",
+      "envelopeProjectId": "demo-0003",
+      "directory": "demo-0003"
+    }
+  },
+  "newId": {
+    "newProjectId": "demo-0009",
+    "transforms": [
+      {
+        "field": "manifest.id",
+        "before": "demo-0003",
+        "after": "demo-0009"
+      },
+      {
+        "field": "envelope.projectId",
+        "before": "demo-0003",
+        "after": "demo-0009"
+      },
+      {
+        "field": "directory name",
+        "before": "demo-0003",
+        "after": "demo-0009"
+      }
+    ],
+    "unchanged": {
+      "manifestBytesSha256ExceptId": "the checker re-derives: the new manifest = JSON re-serialization of the parsed manifest with ONLY id changed",
+      "envelopeBytesSha256ExceptProjectId": "the checker re-derives: the new envelope = the parsed envelope with ONLY projectId changed (scene.revision, content, retry byte-identical in structure)",
+      "revision": 3,
+      "templateBlock": "absent on this fixture (a v1 manifest — the rule holds vacuously; the 65 v2-manifest case is the C65-1 shape)"
+    },
+    "before": {
+      "manifestSha256": "4d73ad2055237a730b38c7be8df046ace6425a4d99b9dd0848d135e074e5f72f",
+      "envelopeSha256": "a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414"
+    },
+    "after": {
+      "manifestSha256": "6b2067422fd543b6e789b2feb2be9acc053a832b9f4d875b9f9610e8965ea315",
+      "envelopeSha256": "3cf9bd3b67998dc2aa17f599fd406e8699ded87b91ddb143e018ed6fb36c053f"
+    }
+  }
+}

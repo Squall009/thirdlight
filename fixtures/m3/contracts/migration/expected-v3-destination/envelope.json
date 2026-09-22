@@ -1,0 +1,163 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "demo-0003",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "name": "Start ground",
+        "components": {
+          "transform": {
+            "position": [
+              8,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              16,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "group-0001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "controller": {}
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-model-courier",
+        "kind": "model",
+        "displayName": "Courier",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc",
+            "sourceByteLength": 47,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 96,
+              "triangles": 32,
+              "animations": 3,
+              "animationChannels": 3,
+              "clipDurationMs": 900,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-19T10:00:00Z",
+            "publishedRevision": 0
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {
+      "run_speed": 5
+    },
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

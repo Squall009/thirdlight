@@ -1,0 +1,1834 @@
+{
+  "kind": "behavior-intent-analysis",
+  "setVersion": 1,
+  "id": "behavior-intent-analysis",
+  "limits": {
+    "intentsPerInstanceStep": 5,
+    "intentsPerStep": 64,
+    "perEntityAxisStep": 1,
+    "logsPerInstance": 32,
+    "logsPerStep": 16
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 9.4 Intent API (strict shapes)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 9.5 The `IntentSet` and the effective-input rule"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "## 10. Runtime bounds (log/intent rate and per-step caps)"
+    }
+  ],
+  "quantization": [
+    {
+      "input": 0.34999,
+      "expected": 0.35
+    },
+    {
+      "input": 0.77123,
+      "expected": 0.7712
+    },
+    {
+      "input": 0.99999,
+      "expected": 1
+    },
+    {
+      "input": 0.00004,
+      "expected": 0
+    },
+    {
+      "input": -0.00004,
+      "expected": 0,
+      "note": "negative zero is normalized to 0"
+    },
+    {
+      "input": -0.34999,
+      "expected": -0.35
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "V01-valid-move",
+      "title": "a valid control_move commits quantized",
+      "expect": {
+        "ok": true,
+        "committed": {
+          "move": 0.35,
+          "jump": null,
+          "moveWriter": "thirdlight.behavior:behavior-0002",
+          "jumpWriter": null,
+          "transformWrites": []
+        }
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.34999
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "V02-valid-jump",
+      "title": "a control_jump phase commits unquantized",
+      "expect": {
+        "ok": true,
+        "committed": {
+          "move": null,
+          "jump": "pressed",
+          "moveWriter": null,
+          "jumpWriter": "thirdlight.behavior:behavior-0002",
+          "transformWrites": []
+        }
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_jump",
+              "value": "pressed"
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "V03-valid-transform",
+      "title": "a transform write on an owned entity commits (transform phase)",
+      "expect": {
+        "ok": true,
+        "committed": {
+          "move": null,
+          "jump": null,
+          "moveWriter": null,
+          "jumpWriter": null,
+          "transformWrites": [
+            {
+              "moduleId": "thirdlight.behavior:behavior-0002",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1.5,
+                "z": -2
+              }
+            }
+          ]
+        }
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1.5,
+                "z": -2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "V04-three-axes",
+      "title": "three axes of one owned entity in one transform step",
+      "expect": {
+        "ok": true,
+        "committed": {
+          "move": null,
+          "jump": null,
+          "moveWriter": null,
+          "jumpWriter": null,
+          "transformWrites": [
+            {
+              "moduleId": "thirdlight.behavior:behavior-0002",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1
+              }
+            },
+            {
+              "moduleId": "thirdlight.behavior:behavior-0002",
+              "entityId": "model-0001",
+              "position": {
+                "y": 0.5
+              }
+            },
+            {
+              "moduleId": "thirdlight.behavior:behavior-0002",
+              "entityId": "model-0001",
+              "position": {
+                "z": -1
+              }
+            }
+          ]
+        }
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "y": 0.5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "z": -1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I01-unknown-kind",
+      "title": "unknown kind",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "shape"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_turn",
+              "value": 1
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I02-unknown-field",
+      "title": "unknown field on an intent",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "shape"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.5,
+              "gain": 2
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I03-wrong-type",
+      "title": "a string where a number is required is a shape failure",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "shape"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": "0.5"
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I04-phase",
+      "title": "control_move outside the intent phase",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "phase"
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I05-transform-phase",
+      "title": "a transform write in the intent phase",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "phase"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1
+              }
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I06-range",
+      "title": "control_move outside [-1, 1]",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "value"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 1.5
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I07-jump-value",
+      "title": "an unknown jump phase",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "value"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_jump",
+              "value": "up"
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I08-empty-position",
+      "title": "a transform write with no axis",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "value"
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I09-axis-magnitude",
+      "title": "a transform write above 1e6",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_invalid",
+        "detail": "value"
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1000001
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I10-not-owner",
+      "title": "a transform write to a non-owned entity",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_transform_forbidden",
+        "detail": "not_owner"
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0002",
+              "position": {
+                "x": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I11-duplicate-intent",
+      "title": "the same channel committed twice by one instance in one step",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_conflict",
+        "detail": "duplicate_intent"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.1
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.2
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I12-duplicate-writer",
+      "title": "two instances committing the same control channel",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_conflict",
+        "detail": "duplicate_writer"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.1
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0003",
+            "ownedTransforms": [],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.2
+            }
+          }
+        ],
+        "transformPhase": []
+      }
+    },
+    {
+      "caseId": "I13-duplicate-axis",
+      "title": "the same (entityId, axis) written twice in one transform step",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_conflict",
+        "detail": "duplicate_intent"
+      },
+      "step": {
+        "intentPhase": [],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 1
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "model-0001"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "model-0001",
+              "position": {
+                "x": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "I16-per-step-cap",
+      "title": "70 intents across 14 instances in one step exceeds the per-step cap of 64",
+      "expect": {
+        "ok": false,
+        "code": "module_error",
+        "reason": "behavior_intent_limit",
+        "detail": "per_step"
+      },
+      "step": {
+        "intentPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "e1-1"
+            ],
+            "intent": {
+              "kind": "control_move",
+              "value": 0.1
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "e1-1"
+            ],
+            "intent": {
+              "kind": "control_jump",
+              "value": "none"
+            }
+          }
+        ],
+        "transformPhase": [
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "e1-1"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e1-1",
+              "position": {
+                "x": 1
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "e1-1"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e1-1",
+              "position": {
+                "y": 1
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0002",
+            "ownedTransforms": [
+              "e1-1"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e1-1",
+              "position": {
+                "z": 1
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0012",
+            "ownedTransforms": [
+              "e2-1",
+              "e2-2",
+              "e2-3",
+              "e2-4",
+              "e2-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e2-1",
+              "position": {
+                "x": 2
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0012",
+            "ownedTransforms": [
+              "e2-1",
+              "e2-2",
+              "e2-3",
+              "e2-4",
+              "e2-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e2-2",
+              "position": {
+                "x": 2
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0012",
+            "ownedTransforms": [
+              "e2-1",
+              "e2-2",
+              "e2-3",
+              "e2-4",
+              "e2-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e2-3",
+              "position": {
+                "x": 2
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0012",
+            "ownedTransforms": [
+              "e2-1",
+              "e2-2",
+              "e2-3",
+              "e2-4",
+              "e2-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e2-4",
+              "position": {
+                "x": 2
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0012",
+            "ownedTransforms": [
+              "e2-1",
+              "e2-2",
+              "e2-3",
+              "e2-4",
+              "e2-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e2-5",
+              "position": {
+                "x": 2
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0013",
+            "ownedTransforms": [
+              "e3-1",
+              "e3-2",
+              "e3-3",
+              "e3-4",
+              "e3-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e3-1",
+              "position": {
+                "x": 3
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0013",
+            "ownedTransforms": [
+              "e3-1",
+              "e3-2",
+              "e3-3",
+              "e3-4",
+              "e3-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e3-2",
+              "position": {
+                "x": 3
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0013",
+            "ownedTransforms": [
+              "e3-1",
+              "e3-2",
+              "e3-3",
+              "e3-4",
+              "e3-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e3-3",
+              "position": {
+                "x": 3
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0013",
+            "ownedTransforms": [
+              "e3-1",
+              "e3-2",
+              "e3-3",
+              "e3-4",
+              "e3-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e3-4",
+              "position": {
+                "x": 3
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0013",
+            "ownedTransforms": [
+              "e3-1",
+              "e3-2",
+              "e3-3",
+              "e3-4",
+              "e3-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e3-5",
+              "position": {
+                "x": 3
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0014",
+            "ownedTransforms": [
+              "e4-1",
+              "e4-2",
+              "e4-3",
+              "e4-4",
+              "e4-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e4-1",
+              "position": {
+                "x": 4
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0014",
+            "ownedTransforms": [
+              "e4-1",
+              "e4-2",
+              "e4-3",
+              "e4-4",
+              "e4-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e4-2",
+              "position": {
+                "x": 4
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0014",
+            "ownedTransforms": [
+              "e4-1",
+              "e4-2",
+              "e4-3",
+              "e4-4",
+              "e4-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e4-3",
+              "position": {
+                "x": 4
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0014",
+            "ownedTransforms": [
+              "e4-1",
+              "e4-2",
+              "e4-3",
+              "e4-4",
+              "e4-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e4-4",
+              "position": {
+                "x": 4
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0014",
+            "ownedTransforms": [
+              "e4-1",
+              "e4-2",
+              "e4-3",
+              "e4-4",
+              "e4-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e4-5",
+              "position": {
+                "x": 4
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0015",
+            "ownedTransforms": [
+              "e5-1",
+              "e5-2",
+              "e5-3",
+              "e5-4",
+              "e5-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e5-1",
+              "position": {
+                "x": 5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0015",
+            "ownedTransforms": [
+              "e5-1",
+              "e5-2",
+              "e5-3",
+              "e5-4",
+              "e5-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e5-2",
+              "position": {
+                "x": 5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0015",
+            "ownedTransforms": [
+              "e5-1",
+              "e5-2",
+              "e5-3",
+              "e5-4",
+              "e5-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e5-3",
+              "position": {
+                "x": 5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0015",
+            "ownedTransforms": [
+              "e5-1",
+              "e5-2",
+              "e5-3",
+              "e5-4",
+              "e5-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e5-4",
+              "position": {
+                "x": 5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0015",
+            "ownedTransforms": [
+              "e5-1",
+              "e5-2",
+              "e5-3",
+              "e5-4",
+              "e5-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e5-5",
+              "position": {
+                "x": 5
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0016",
+            "ownedTransforms": [
+              "e6-1",
+              "e6-2",
+              "e6-3",
+              "e6-4",
+              "e6-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e6-1",
+              "position": {
+                "x": 6
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0016",
+            "ownedTransforms": [
+              "e6-1",
+              "e6-2",
+              "e6-3",
+              "e6-4",
+              "e6-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e6-2",
+              "position": {
+                "x": 6
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0016",
+            "ownedTransforms": [
+              "e6-1",
+              "e6-2",
+              "e6-3",
+              "e6-4",
+              "e6-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e6-3",
+              "position": {
+                "x": 6
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0016",
+            "ownedTransforms": [
+              "e6-1",
+              "e6-2",
+              "e6-3",
+              "e6-4",
+              "e6-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e6-4",
+              "position": {
+                "x": 6
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0016",
+            "ownedTransforms": [
+              "e6-1",
+              "e6-2",
+              "e6-3",
+              "e6-4",
+              "e6-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e6-5",
+              "position": {
+                "x": 6
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0017",
+            "ownedTransforms": [
+              "e7-1",
+              "e7-2",
+              "e7-3",
+              "e7-4",
+              "e7-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e7-1",
+              "position": {
+                "x": 7
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0017",
+            "ownedTransforms": [
+              "e7-1",
+              "e7-2",
+              "e7-3",
+              "e7-4",
+              "e7-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e7-2",
+              "position": {
+                "x": 7
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0017",
+            "ownedTransforms": [
+              "e7-1",
+              "e7-2",
+              "e7-3",
+              "e7-4",
+              "e7-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e7-3",
+              "position": {
+                "x": 7
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0017",
+            "ownedTransforms": [
+              "e7-1",
+              "e7-2",
+              "e7-3",
+              "e7-4",
+              "e7-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e7-4",
+              "position": {
+                "x": 7
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0017",
+            "ownedTransforms": [
+              "e7-1",
+              "e7-2",
+              "e7-3",
+              "e7-4",
+              "e7-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e7-5",
+              "position": {
+                "x": 7
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0018",
+            "ownedTransforms": [
+              "e8-1",
+              "e8-2",
+              "e8-3",
+              "e8-4",
+              "e8-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e8-1",
+              "position": {
+                "x": 8
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0018",
+            "ownedTransforms": [
+              "e8-1",
+              "e8-2",
+              "e8-3",
+              "e8-4",
+              "e8-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e8-2",
+              "position": {
+                "x": 8
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0018",
+            "ownedTransforms": [
+              "e8-1",
+              "e8-2",
+              "e8-3",
+              "e8-4",
+              "e8-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e8-3",
+              "position": {
+                "x": 8
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0018",
+            "ownedTransforms": [
+              "e8-1",
+              "e8-2",
+              "e8-3",
+              "e8-4",
+              "e8-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e8-4",
+              "position": {
+                "x": 8
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0018",
+            "ownedTransforms": [
+              "e8-1",
+              "e8-2",
+              "e8-3",
+              "e8-4",
+              "e8-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e8-5",
+              "position": {
+                "x": 8
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0019",
+            "ownedTransforms": [
+              "e9-1",
+              "e9-2",
+              "e9-3",
+              "e9-4",
+              "e9-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e9-1",
+              "position": {
+                "x": 9
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0019",
+            "ownedTransforms": [
+              "e9-1",
+              "e9-2",
+              "e9-3",
+              "e9-4",
+              "e9-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e9-2",
+              "position": {
+                "x": 9
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0019",
+            "ownedTransforms": [
+              "e9-1",
+              "e9-2",
+              "e9-3",
+              "e9-4",
+              "e9-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e9-3",
+              "position": {
+                "x": 9
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0019",
+            "ownedTransforms": [
+              "e9-1",
+              "e9-2",
+              "e9-3",
+              "e9-4",
+              "e9-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e9-4",
+              "position": {
+                "x": 9
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0019",
+            "ownedTransforms": [
+              "e9-1",
+              "e9-2",
+              "e9-3",
+              "e9-4",
+              "e9-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e9-5",
+              "position": {
+                "x": 9
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0020",
+            "ownedTransforms": [
+              "e10-1",
+              "e10-2",
+              "e10-3",
+              "e10-4",
+              "e10-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e10-1",
+              "position": {
+                "x": 10
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0020",
+            "ownedTransforms": [
+              "e10-1",
+              "e10-2",
+              "e10-3",
+              "e10-4",
+              "e10-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e10-2",
+              "position": {
+                "x": 10
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0020",
+            "ownedTransforms": [
+              "e10-1",
+              "e10-2",
+              "e10-3",
+              "e10-4",
+              "e10-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e10-3",
+              "position": {
+                "x": 10
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0020",
+            "ownedTransforms": [
+              "e10-1",
+              "e10-2",
+              "e10-3",
+              "e10-4",
+              "e10-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e10-4",
+              "position": {
+                "x": 10
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0020",
+            "ownedTransforms": [
+              "e10-1",
+              "e10-2",
+              "e10-3",
+              "e10-4",
+              "e10-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e10-5",
+              "position": {
+                "x": 10
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0021",
+            "ownedTransforms": [
+              "e11-1",
+              "e11-2",
+              "e11-3",
+              "e11-4",
+              "e11-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e11-1",
+              "position": {
+                "x": 11
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0021",
+            "ownedTransforms": [
+              "e11-1",
+              "e11-2",
+              "e11-3",
+              "e11-4",
+              "e11-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e11-2",
+              "position": {
+                "x": 11
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0021",
+            "ownedTransforms": [
+              "e11-1",
+              "e11-2",
+              "e11-3",
+              "e11-4",
+              "e11-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e11-3",
+              "position": {
+                "x": 11
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0021",
+            "ownedTransforms": [
+              "e11-1",
+              "e11-2",
+              "e11-3",
+              "e11-4",
+              "e11-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e11-4",
+              "position": {
+                "x": 11
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0021",
+            "ownedTransforms": [
+              "e11-1",
+              "e11-2",
+              "e11-3",
+              "e11-4",
+              "e11-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e11-5",
+              "position": {
+                "x": 11
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0022",
+            "ownedTransforms": [
+              "e12-1",
+              "e12-2",
+              "e12-3",
+              "e12-4",
+              "e12-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e12-1",
+              "position": {
+                "x": 12
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0022",
+            "ownedTransforms": [
+              "e12-1",
+              "e12-2",
+              "e12-3",
+              "e12-4",
+              "e12-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e12-2",
+              "position": {
+                "x": 12
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0022",
+            "ownedTransforms": [
+              "e12-1",
+              "e12-2",
+              "e12-3",
+              "e12-4",
+              "e12-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e12-3",
+              "position": {
+                "x": 12
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0022",
+            "ownedTransforms": [
+              "e12-1",
+              "e12-2",
+              "e12-3",
+              "e12-4",
+              "e12-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e12-4",
+              "position": {
+                "x": 12
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0022",
+            "ownedTransforms": [
+              "e12-1",
+              "e12-2",
+              "e12-3",
+              "e12-4",
+              "e12-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e12-5",
+              "position": {
+                "x": 12
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0023",
+            "ownedTransforms": [
+              "e13-1",
+              "e13-2",
+              "e13-3",
+              "e13-4",
+              "e13-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e13-1",
+              "position": {
+                "x": 13
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0023",
+            "ownedTransforms": [
+              "e13-1",
+              "e13-2",
+              "e13-3",
+              "e13-4",
+              "e13-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e13-2",
+              "position": {
+                "x": 13
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0023",
+            "ownedTransforms": [
+              "e13-1",
+              "e13-2",
+              "e13-3",
+              "e13-4",
+              "e13-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e13-3",
+              "position": {
+                "x": 13
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0023",
+            "ownedTransforms": [
+              "e13-1",
+              "e13-2",
+              "e13-3",
+              "e13-4",
+              "e13-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e13-4",
+              "position": {
+                "x": 13
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0023",
+            "ownedTransforms": [
+              "e13-1",
+              "e13-2",
+              "e13-3",
+              "e13-4",
+              "e13-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e13-5",
+              "position": {
+                "x": 13
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0024",
+            "ownedTransforms": [
+              "e14-1",
+              "e14-2",
+              "e14-3",
+              "e14-4",
+              "e14-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e14-1",
+              "position": {
+                "x": 14
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0024",
+            "ownedTransforms": [
+              "e14-1",
+              "e14-2",
+              "e14-3",
+              "e14-4",
+              "e14-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e14-2",
+              "position": {
+                "x": 14
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0024",
+            "ownedTransforms": [
+              "e14-1",
+              "e14-2",
+              "e14-3",
+              "e14-4",
+              "e14-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e14-3",
+              "position": {
+                "x": 14
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0024",
+            "ownedTransforms": [
+              "e14-1",
+              "e14-2",
+              "e14-3",
+              "e14-4",
+              "e14-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e14-4",
+              "position": {
+                "x": 14
+              }
+            }
+          },
+          {
+            "moduleId": "thirdlight.behavior:behavior-0024",
+            "ownedTransforms": [
+              "e14-1",
+              "e14-2",
+              "e14-3",
+              "e14-4",
+              "e14-5"
+            ],
+            "intent": {
+              "kind": "transform",
+              "entityId": "e14-5",
+              "position": {
+                "x": 14
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "effectiveFrames": [
+    {
+      "caseId": "E01-empty-identity",
+      "action": {
+        "stepIndex": 40,
+        "moveX": 0.5,
+        "jump": "held"
+      },
+      "intents": {
+        "move": null,
+        "jump": null
+      },
+      "expected": {
+        "stepIndex": 40,
+        "moveX": 0.5,
+        "jump": "held"
+      },
+      "note": "packet-17 identity: this is the compatibility condition for platformer/traces.json"
+    },
+    {
+      "caseId": "E02-move-override",
+      "action": {
+        "stepIndex": 41,
+        "moveX": 0.5,
+        "jump": "none"
+      },
+      "intents": {
+        "move": 0.35,
+        "jump": null
+      },
+      "expected": {
+        "stepIndex": 41,
+        "moveX": 0.35,
+        "jump": "none"
+      }
+    },
+    {
+      "caseId": "E03-jump-override",
+      "action": {
+        "stepIndex": 42,
+        "moveX": 0,
+        "jump": "none"
+      },
+      "intents": {
+        "move": null,
+        "jump": "pressed"
+      },
+      "expected": {
+        "stepIndex": 42,
+        "moveX": 0,
+        "jump": "pressed"
+      }
+    },
+    {
+      "caseId": "E04-both-override",
+      "action": {
+        "stepIndex": 43,
+        "moveX": -1,
+        "jump": "held"
+      },
+      "intents": {
+        "move": 0,
+        "jump": "released"
+      },
+      "expected": {
+        "stepIndex": 43,
+        "moveX": 0,
+        "jump": "released"
+      }
+    }
+  ]
+}

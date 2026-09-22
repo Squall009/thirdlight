@@ -1,0 +1,51 @@
+{
+  "consoleMessages": [],
+  "logs": [
+    {
+      "level": "warning",
+      "source": "other",
+      "text": "The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio"
+    }
+  ],
+  "requests": [
+    "http://127.0.0.1:8793/capability.html",
+    "http://127.0.0.1:8793/probe.css",
+    "http://127.0.0.1:8793/capability.js",
+    "http://127.0.0.1:8793/favicon.ico",
+    "http://127.0.0.1:8793/favicon.ico"
+  ],
+  "responses": [
+    {
+      "url": "http://127.0.0.1:8793/capability.html",
+      "status": 200,
+      "mimeType": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/probe.css",
+      "status": 200,
+      "mimeType": "text/css",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/capability.js",
+      "status": 200,
+      "mimeType": "text/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/favicon.ico",
+      "status": 204,
+      "mimeType": "text/plain",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:8793/favicon.ico",
+      "status": 204,
+      "mimeType": "text/plain",
+      "fromDiskCache": false
+    }
+  ],
+  "failures": [],
+  "errors": []
+}

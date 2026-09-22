@@ -1,0 +1,27 @@
+== FINAL re-run 2026-09-19T07:05:21Z ==
+
+-- npm test --
+ Test Files  106 passed (106)
+      Tests  1401 passed (1401)
+   Duration  30.85s (tests 87%, import 8%, transform 5%, worker 1%)
+exit=0
+
+-- npm run typecheck --
+exit=0
+
+-- npm run check-deps --
+exit=0
+pins: 14
+
+-- npm run check-boundaries --
+exit=0
+check-boundaries: OK — 12 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 235 source file(s), 861 specifier(s) checked; no boundary violations.
+
+-- npm run build --
+exit=0
+build: done (4 built, 0 skipped).
+
+-- contracts checker --
+check OK: 34 check group(s) passed, 0 problem(s)
+-- input checker --
+check OK: input fixtures consistent

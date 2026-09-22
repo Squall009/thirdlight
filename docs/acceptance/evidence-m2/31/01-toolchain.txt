@@ -1,0 +1,12 @@
+Packet 31 toolchain and environment (recorded 2026-09-19)
+host: container (Proxmox LXC) — no browser, no GPU, no physical gamepad
+node: v22.22.1
+npm: 9.2.0
+typescript: Version 5.9.3
+esbuild: 0.28.2 (require.esbuild)
+vitest: vitest/5.0.1 linux-x64 node-v22.22.1
+os: Linux 7.0.2-2-pve x86_64
+cpu: 12th Gen Intel(R) Core(TM) i5-12600H
+npm registry: https://registry.npmjs.org/
+browser: ABSENT (no browser/GPU/gamepad in this container; browser/CSP/static-packaging claims are UNVERIFIED)
+rapier pin installed: @dimforge/rapier2d-compat@0.20.0 license=Apache-2.0 runtimeDeps={}

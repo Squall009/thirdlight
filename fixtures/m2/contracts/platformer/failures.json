@@ -1,0 +1,409 @@
+{
+  "kind": "platformer-failure-set",
+  "setVersion": 1,
+  "id": "platformer-failures",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "## 9. Fail-stop lifecycle (M2 module sets)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "### 2.2 Write guard and phase violations (normative)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "### 2.3 Unsupported module combinations"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 4. Physics-bearing entities (`components.collider`, `components.controller`)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 6. Adapter lifecycle: init, cancellation, parentless collider, disposal"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 10. Observable failure outcomes"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "## 7. Observable failure outcomes"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "F01-focus-loss",
+      "title": "focus loss clears held state, emits a neutral frame and requires fresh activation",
+      "trigger": "window blur during gameplay",
+      "codes": [],
+      "diagnostics": [
+        "input_suspend"
+      ],
+      "runtimeState": "running",
+      "durableEffect": "none; the next step receives moveX 0 / jump none and a later press is a real pressed edge",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/input.md",
+          "section": "### 5.3 Suspension: focus loss, hidden tab, page hide"
+        }
+      ]
+    },
+    {
+      "caseId": "F02-hot-disconnect",
+      "title": "active gamepad disconnect clears its contribution and never emits a phantom pressed",
+      "trigger": "gamepaddisconnected while the primary button is down",
+      "codes": [],
+      "diagnostics": [
+        "input_disconnect"
+      ],
+      "runtimeState": "running",
+      "durableEffect": "none; a takeover pad must observe an up before any pressed",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/input.md",
+          "section": "### 5.4 Hot disconnect"
+        }
+      ]
+    },
+    {
+      "caseId": "F03-hidden-tab",
+      "title": "hidden tab + resume: dropped wall time executes no phantom step and replays no edge",
+      "trigger": "visibilitychange hidden for 5 s, then visible",
+      "codes": [],
+      "diagnostics": [
+        "input_suspend",
+        "input_activate"
+      ],
+      "runtimeState": "running",
+      "maxStepsAfterResume": 8,
+      "droppedStepsGreaterThan": 0,
+      "durableEffect": "none; stepIndex stays contiguous and every executed step is sampled exactly once",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/input.md",
+          "section": "### 5.3 Suspension: focus loss, hidden tab, page hide"
+        },
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "## 6. Step indexing, settle pre-roll and initialization"
+        }
+      ]
+    },
+    {
+      "caseId": "F04-parented-collider",
+      "title": "a collider inside a parent group is a validation error, not flattened geometry",
+      "trigger": "snapshot with components.collider on a non-root entity",
+      "code": "physics_transform_unsupported",
+      "reason": "parented",
+      "innerCodes": [
+        "snapshot_invalid"
+      ],
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; the snapshot is rejected before any world or module instance exists",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 4. Physics-bearing entities (`components.collider`, `components.controller`)"
+        }
+      ]
+    },
+    {
+      "caseId": "F05-non-unit-scale",
+      "title": "a scaled collider is rejected instead of being silently scaled",
+      "trigger": "snapshot with transform.scale [2,1,1] on a collider entity",
+      "code": "physics_transform_unsupported",
+      "reason": "scale",
+      "innerCodes": [
+        "snapshot_invalid"
+      ],
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 4. Physics-bearing entities (`components.collider`, `components.controller`)"
+        }
+      ]
+    },
+    {
+      "caseId": "F06-tilted-character",
+      "title": "a rotated controller entity is rejected (the capsule is never tilted)",
+      "trigger": "snapshot with a non-identity quaternion on the controller entity",
+      "code": "physics_transform_unsupported",
+      "reason": "upright",
+      "innerCodes": [
+        "snapshot_invalid"
+      ],
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 4. Physics-bearing entities (`components.collider`, `components.controller`)"
+        }
+      ]
+    },
+    {
+      "caseId": "F07-duplicate-transform-writer",
+      "title": "two modules claiming one entity transform are rejected at instantiate",
+      "trigger": "modules demo:box-motion + platformer:controller with overlapping owners",
+      "code": "transform_owner_conflict",
+      "reason": "char-0001",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; no port is stepped and no module create() side effect is retained (modules are created only after validation)",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "## 5. Authoritative transform policy"
+        }
+      ]
+    },
+    {
+      "caseId": "F08-unsupported-module-combination",
+      "title": "the M1 box-motion demo and the M2 controller cannot be selected together",
+      "trigger": "modules [demo:box-motion, platformer:controller]",
+      "code": "module_combination_unsupported",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "### 2.3 Unsupported module combinations"
+        }
+      ]
+    },
+    {
+      "caseId": "F09-module-throw-after-physics-mutation",
+      "title": "a module throw after the physics phase fail-stops the simulation; private state is not rolled back",
+      "trigger": "transform-phase module throws after port.step() succeeded at stepIndex 480",
+      "code": "module_error",
+      "reason": "module_threw",
+      "phase": "transform",
+      "runtimeState": "failed",
+      "stepIndexUnchanged": 480,
+      "durableEffect": "none; the last completed step's render state stays readable (alpha 0), start/tick reject with runtime_failed, only dispose+fresh instantiate recovers",
+      "innerCodes": [
+        "runtime_failed"
+      ],
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "## 9. Fail-stop lifecycle (M2 module sets)"
+        }
+      ]
+    },
+    {
+      "caseId": "F10-init-cancelled",
+      "title": "a cancelled physics initialization releases everything and a later init succeeds",
+      "trigger": "AbortSignal aborted during createPhysicsPort",
+      "code": "physics_init_cancelled",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; no PhysicsPort object escapes and a subsequent createPhysicsPort succeeds",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 6. Adapter lifecycle: init, cancellation, parentless collider, disposal"
+        }
+      ]
+    },
+    {
+      "caseId": "F11-init-failed",
+      "title": "a WASM/init failure reports an actionable unavailable state with no fallback",
+      "trigger": "createPhysicsPort rejects (WASM/CSP failure)",
+      "code": "physics_init_failed",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; play does not silently switch engines or fall back to transform-only motion",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 6. Adapter lifecycle: init, cancellation, parentless collider, disposal"
+        }
+      ]
+    },
+    {
+      "caseId": "F12-repeated-jump-edges-during-catch-up",
+      "title": "an 8-step catch-up frame consumes a pressed edge exactly once",
+      "trigger": "one frame executes 8 steps with a recorded pressed edge at the first of them",
+      "diagnostics": [],
+      "assertion": "runtime/catchup.json C6: pressedCount 1, one sample per executed index",
+      "runtimeState": "running",
+      "pressedCountExpected": 1,
+      "durableEffect": "none; the same frame index is never sampled twice",
+      "innerCodes": [],
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/input.md",
+          "section": "### 3.2 Press latch — exactly one edge per executed step"
+        },
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "### 2.1 Fixed-step ordering (normative, replacing nothing in M1's per-step math)"
+        }
+      ]
+    },
+    {
+      "caseId": "F13-phantom-steps-after-drop",
+      "title": "dropped wall time produces no phantom physics or input steps",
+      "trigger": "1.0 s stall",
+      "diagnostics": [],
+      "assertion": "runtime/catchup.json C3/C7: 8 steps executed, 112/52 dropped, contiguous indices",
+      "runtimeState": "running",
+      "maxStepsInFrame": 8,
+      "droppedStepsGreaterThan": 0,
+      "durableEffect": "none; stepIndex advances only for executed steps and the union of executed indices has no gaps",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/diffs/runtime.md",
+          "section": "### R7 — §5 \"Fixed steps with bounded catch-up\""
+        }
+      ]
+    },
+    {
+      "caseId": "F14-camera-claimed-by-module",
+      "title": "a module claiming the camera entity is rejected",
+      "trigger": "transformOwners includes the camera entity",
+      "code": "transform_owner_forbidden",
+      "reason": "camera",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "## 8. Fixed static camera convention"
+        }
+      ]
+    },
+    {
+      "caseId": "F15-purpose-violation",
+      "title": "writing curr outside the transform phase fail-stops instead of mutating a half-applied step",
+      "trigger": "controller-phase module writes state.curr",
+      "code": "module_error",
+      "reason": "phase_violation",
+      "phase": "controller",
+      "runtimeState": "failed",
+      "stepIndexUnchanged": true,
+      "durableEffect": "none; prev/curr remain the last completed step values",
+      "innerCodes": [
+        "runtime_failed"
+      ],
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "### 2.2 Write guard and phase violations (normative)"
+        }
+      ]
+    },
+    {
+      "caseId": "F16-malformed-port-result",
+      "title": "a malformed CharacterMoveResult fail-stops before anything is committed",
+      "trigger": "port.step() returns grounded true with a zero support normal",
+      "code": "physics_port_error",
+      "reason": "result",
+      "runtimeState": "failed",
+      "durableEffect": "none; the invalid result is never applied",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 5. The injected port"
+        }
+      ]
+    },
+    {
+      "caseId": "F17-duplicate-staged-move",
+      "title": "two staged moves for one character in one step are rejected",
+      "trigger": "stageCharacterMove called twice for the same entity in one controller phase",
+      "code": "module_error",
+      "reason": "duplicate_move",
+      "phase": "controller",
+      "runtimeState": "failed",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 5. The injected port"
+        }
+      ]
+    },
+    {
+      "caseId": "F18-m2-module-on-v1-snapshot",
+      "title": "an M2 module cannot run against a schemaVersion 1 snapshot",
+      "trigger": "modules [platformer:controller] with a v1 scene",
+      "code": "config_invalid",
+      "reason": "scene_version",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/platformer.md",
+          "section": "### 2.3 Unsupported module combinations"
+        }
+      ]
+    },
+    {
+      "caseId": "F19-controller-target-count",
+      "title": "an M2 controller module requires exactly one controller entity",
+      "trigger": "scene with zero or two components.controller entities",
+      "codes": [
+        "config_invalid",
+        "controller_count_invalid"
+      ],
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 4. Physics-bearing entities (`components.collider`, `components.controller`)"
+        }
+      ]
+    },
+    {
+      "caseId": "F20-missing-physics-port",
+      "title": "the controller module cannot be instantiated without an injected port",
+      "trigger": "modules [platformer:controller] with no physics config",
+      "code": "config_invalid",
+      "reason": "physics_port",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/physics.md",
+          "section": "## 5. The injected port"
+        }
+      ]
+    },
+    {
+      "caseId": "F21-input-source-throws",
+      "title": "a throwing action source fail-stops and is not retried",
+      "trigger": "actions.sample() throws",
+      "code": "module_error",
+      "reason": "input_source_threw",
+      "runtimeState": "failed",
+      "stepIndexUnchanged": true,
+      "durableEffect": "none",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/input.md",
+          "section": "## 7. Observable failure outcomes"
+        }
+      ]
+    }
+  ],
+  "stateMachine": {
+    "healthy": [
+      "instantiated",
+      "running",
+      "stopped"
+    ],
+    "failedFrom": [
+      "running",
+      "stopped"
+    ],
+    "failedTo": [
+      "disposed"
+    ],
+    "rollbackAttempted": false,
+    "recovery": "dispose + fresh instantiateRuntime with fresh module instances and a fresh port"
+  }
+}

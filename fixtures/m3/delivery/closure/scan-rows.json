@@ -1,0 +1,50 @@
+{
+  "note": "narrow exceptions only; never blanket-disabled",
+  "unchangedBindings": [
+    "three@0.186.0 identity",
+    "export.md §5.3 pinned option set",
+    "reference-build re-scan"
+  ],
+  "rows": [
+    {
+      "pattern": "d fetch(",
+      "recorded": "3 (pinned three core) + 1 Rapier compat + 1 export ./scene.json + counted engine call sites",
+      "m3Change": "none from game-host (0 fetches); ./game.json is NOT added (game is embedded in manifest v2)"
+    },
+    {
+      "pattern": "e node:",
+      "recorded": "0",
+      "m3Change": "0"
+    },
+    {
+      "pattern": "f process.",
+      "recorded": "3",
+      "m3Change": "0"
+    },
+    {
+      "pattern": "h http(s):// + file://",
+      "recorded": "3 + 23 + 12 (GLTFLoader row) = 26/38",
+      "m3Change": "0; no CDN/font/audio URL"
+    },
+    {
+      "pattern": "i token/locator values",
+      "recorded": "0",
+      "m3Change": "0; contentId never enters the export"
+    },
+    {
+      "pattern": "j XMLHttpRequest + WebSocket",
+      "recorded": "3 + trust-notice text",
+      "m3Change": "0; Web Audio (AudioContext) is not a scanned pattern"
+    },
+    {
+      "pattern": "c /api/v1/",
+      "recorded": "0",
+      "m3Change": "0"
+    }
+  ],
+  "remeasureOwners": [
+    "58",
+    "60"
+  ],
+  "remeasureRule": "re-measure export.md §5.4.1 counts before adopting changed exceptions; request bounded re-review if measured text differs"
+}

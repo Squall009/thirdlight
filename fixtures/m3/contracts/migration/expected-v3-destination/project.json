@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "0.1.0",
+  "id": "demo-0003",
+  "name": "Beacon Demo",
+  "createdAt": "2026-09-19T10:00:00Z",
+  "scenes": [
+    {
+      "id": "scene-main",
+      "path": "scenes/main.json"
+    }
+  ]
+}

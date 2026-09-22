@@ -1,0 +1,33 @@
+{
+  "root": "<exportRoot>/<projectId>@r<revision>/",
+  "files": [
+    "index.html",
+    "js/main.js",
+    "manifest.json",
+    "scene.json",
+    "content/sha256/<digest>",
+    "behaviors/<outputDigest>.js",
+    "meta.json"
+  ],
+  "declaredEqualsEmitted": true,
+  "standalone": {
+    "backend": false,
+    "mcp": false,
+    "node": false,
+    "cdn": false,
+    "credentials": false,
+    "capabilityUrl": false,
+    "absoluteWorkspacePath": false
+  },
+  "previousOutputPreservedOnFailure": true,
+  "cancelledLoad": {
+    "presented": false,
+    "inFlightReadsAborted": true,
+    "disposed": true,
+    "pinnedPlayUnaffected": true
+  },
+  "assets": {
+    "model": "model/gltf-binary",
+    "audio": "audio/wav"
+  }
+}

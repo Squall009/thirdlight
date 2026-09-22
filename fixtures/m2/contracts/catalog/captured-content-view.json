@@ -1,0 +1,36 @@
+{
+  "contentVersion": 1,
+  "projectId": "demo-0002",
+  "revision": 7,
+  "assets": [
+    {
+      "assetId": "asset-2b11d4a76c9f0e35",
+      "version": 1,
+      "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "sourceByteLength": 26,
+      "importRecipe": {
+        "profile": "gltf-glb",
+        "recipeVersion": 1,
+        "toolchain": {
+          "three": "0.186.0"
+        },
+        "extensions": []
+      }
+    },
+    {
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "version": 2,
+      "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "sourceByteLength": 26,
+      "importRecipe": {
+        "profile": "gltf-glb",
+        "recipeVersion": 1,
+        "toolchain": {
+          "three": "0.186.0"
+        },
+        "extensions": []
+      }
+    }
+  ],
+  "contentDigest": "8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c"
+}

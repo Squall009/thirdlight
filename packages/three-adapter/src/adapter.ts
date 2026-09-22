@@ -30,6 +30,30 @@ import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
+import {
+  createModelsRealization,
+  type ModelsRealization,
+  type ModelsSettledResult,
+  type SceneAdapterModelAsset,
+  type SceneAdapterModels,
+  type SceneAdapterModelsDiagnostics,
+} from './models';
+import type { GlbLoaderPort } from './visual';
+import {
+  ANIMATION_MAX_DELTA_SECONDS,
+  type AnimationRoleView,
+} from './animation';
+import {
+  decideShadows,
+  deriveShadowCamera,
+  planSceneLights,
+  SHADOW_PROFILE,
+  type AuthoredLight,
+  type AuthoredSurface,
+  type ShadowLevel,
+  type ShadowPlan,
+  type ShadowReason,
+} from './lighting';
 
 /** The runtime instance driving this scene (frame source + camera). */
 export interface SceneAdapterOptions {
@@ -38,9 +62,20 @@ export interface SceneAdapterOptions {
   snapshot: RuntimeSnapshot;
   /** Renderer antialiasing (default true). */
   antialias?: boolean;
+  /** M4 (C64-4, delivery.md (M4) §2.2): the injected model surface — the
+   *  resolved model-asset rows, the committed per-`modelAnimation`-entity
+   *  mappings and the wrapper's verified-bytes resolver. Absent ⇒ the
+   *  adapter behaves exactly as accepted today (byte-stable). Requires
+   *  `modelsLoader` and a v3 snapshot (fail-fast `models_config_invalid`). */
+  models?: SceneAdapterModels;
+  /** M4 (C64-4): the injected GLB loader port (the wrapper builds it from
+   *  the `@thirdlight/three-adapter/gltf-loader` subpath; the root subpath
+   *  stays loader-free). Required iff `models` is present. */
+  modelsLoader?: GlbLoaderPort;
 }
 
-/** Adapter diagnostics block (runtime.md §8, separate block). */
+/** Adapter diagnostics block (runtime.md §8, separate block; the M3
+ * additions are presentation.md §41.1.4 — exactly two read-only fields). */
 export interface SceneAdapterDiagnostics {
   /** The SELECTED render backend: `"webgl2"` | `"webgl1"`, or `null` when
    *  no backend has been selected yet (no successful render — e.g. a
@@ -50,6 +85,20 @@ export interface SceneAdapterDiagnostics {
   rendererInfo: string | null;
   canvasSize: [number, number];
   pixelRatio: number;
+  /** presentation.md §41.1.4 — the shadow realization result for the
+   *  current scene. `on` is the planned/realized state; the first-render
+   *  probe may flip it to `off` / `shadow_unsupported`. v1/v2 and scenes
+   *  without a shadow-casting light are `off` / `cast_shadow_false` (the
+   *  author's own choice — not an error). */
+  shadows: 'on' | 'off';
+  /** §41.1.4 — present iff `shadows === 'off'`; carries no path, token or
+   *  device string. Recorded once per realized scene, never per frame. */
+  shadowReason?: ShadowReason;
+  /** M4 (C64-4, delivery.md (M4) §2.5) — the bounded model-realization
+   *  counters block; ABSENT when the `models` option is absent (or after
+   *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.
+   */
+  models?: SceneAdapterModelsDiagnostics;
 }
 
 export interface ScreenshotResult {
@@ -71,6 +120,12 @@ export interface SceneAdapter {
   /** Idempotent (mirrors runtime.md §3.4): second call ⇒
    *  `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError };
+  /** M4 (C64-4, delivery.md (M4) §2.8 step 10): present iff the `models`
+   *  option was given. Resolves (never rejects) when the model prepares
+   *  have settled — all ready, the first hard failure (§2.7 L2–L5), or the
+   *  adapter disposed (§2.6). The wrapper posts `tl.ready` on `ok: true`
+   *  and `tl.error` (phase `"assets"`) on `ok: false`. */
+  modelsSettled?(): Promise<ModelsSettledResult>;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -81,6 +136,8 @@ const RENDERER_INFO_LIMIT = 128;
 interface CanvasLike {
   getContext?: (type: string, options?: unknown) => unknown;
   toDataURL?: (type?: string) => string;
+  addEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
+  removeEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
   clientWidth?: number;
   clientHeight?: number;
   width?: number;
@@ -99,8 +156,52 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   let camera: THREE.PerspectiveCamera | null = null;
 
+  // --- M3 (presentation.md §§41.1/41.2, packet 52): v3 detection, the
+  // --- authored lights and the shadow decision ----------------------------
+  // The snapshot is deep-frozen and runtime-validated; the adapter reads it
+  // structurally and never re-validates (the runtime already did).
+  const sceneDoc = opts.snapshot.scene;
+  const isV3 = sceneDoc.schemaVersion === 3;
+  const gameBlock = opts.snapshot.game;
+  /** The §41.1.3 input bounds; required on every runtime-validated v3
+   *  snapshot (`game.level`). The null fallback below is defensive only. */
+  const level: ShadowLevel | null =
+    isV3 && gameBlock !== null && gameBlock !== undefined ? gameBlock.level : null;
+  const authoredLights: AuthoredLight[] = [];
+  if (isV3) {
+    for (const e of sceneDoc.entities) {
+      const l = (e.components as { light?: AuthoredLight }).light;
+      if (l) authoredLights.push(l);
+    }
+  }
+  const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
+  /** The planned shadow outcome (probeOk: true — the capability probe runs
+   *  at the first render; the webgl2 requirement is enforced at renderer
+   *  creation, where a WebGL-1 context for a v3 scene is a hard
+   *  `render_unsupported`). */
+  const planned = decideShadows({
+    webgl2: true,
+    castShadow: keyLight?.castShadow === true,
+    probeOk: true,
+    level: level ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+    direction: keyLight?.direction ?? [0, -1, 0],
+  });
+  // `planned` always resolves `ok: true` here (webgl2: true) — the hard
+  // outcome is unreachable on this planning path.
+  const keyPlan: ShadowPlan = planned.ok ? planned.plan : deriveShadowCamera(
+    level ?? { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+    keyLight?.direction ?? [0, -1, 0],
+  );
+  /** The current shadow realization state; recorded once per realized
+   *  scene (never per frame) — the bounded §41.1.4 diagnostic. */
+  let shadowState: { shadows: 'on' | 'off'; reason?: ShadowReason } =
+    planned.ok && planned.shadows === 'on'
+      ? { shadows: 'on' }
+      : { shadows: 'off', reason: planned.ok ? planned.shadowReason : 'cast_shadow_false' };
+  let shadowProbeDone = false;
+
   // --- scene graph construction (fixed M1 table; read-only over the
-  // --- (deep-frozen, normalized) snapshot) -------------------------------
+  // --- (deep-frozen, normalized) snapshot) ---------------------------------
   for (const e of opts.snapshot.scene.entities) {
     const t = e.components.transform;
     let obj: THREE.Object3D;
@@ -110,7 +211,22 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // Box primitive: unit-axis geometry sized by `size`; the
       // transform's `scale` multiplies on top per frame (§6).
       const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
-      const material = new THREE.MeshLambertMaterial({ color: new THREE.Color(box.material.color) });
+      // §41.2.3 (packet 52): an entity carrying `surface` gets ONE
+      // material instance created per entity placement — owned by that
+      // entity's mesh instance (value-level independence; the per-placement
+      // instance is by construction). No preset lookup: the values are
+      // taken literally from the `surface` component. No `surface` ⇒ the
+      // M1 Lambert path, unchanged.
+      const surface = (e.components as { surface?: AuthoredSurface }).surface;
+      const material: THREE.Material = surface
+        ? new THREE.MeshStandardMaterial({
+            color: new THREE.Color(surface.color),
+            roughness: surface.roughness,
+            metalness: surface.metalness,
+            emissive: new THREE.Color(surface.emissive),
+            emissiveIntensity: surface.emissiveIntensity,
+          })
+        : new THREE.MeshLambertMaterial({ color: new THREE.Color(box.material.color) });
       owned.geometries.push(geometry);
       owned.materials.push(material);
       obj = new THREE.Mesh(geometry, material);
@@ -133,13 +249,127 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
     scene.add(camera);
   }
-  // Simple M1 lighting for the Lambert material (charter first-release
-  // item; no shadow pipeline in M1): one directional + one ambient.
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  dirLight.position.set(0.5, 1, 0.8);
-  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
-  scene.add(dirLight);
-  scene.add(ambient);
+  // Realized lights. M1 path (v1/v2): the accepted fixed pair, unchanged
+  // (presentation.md §41.10). M3 path (v3): the authored lights — exactly
+  // one directional node and one ambient node per realized scene
+  // (§41.1.2 rule 4; the model caps both at 1). The light entities' own
+  // `transform` is irrelevant (rule 3): only the component value is read.
+  const keyLights: THREE.DirectionalLight[] = [];
+  if (!isV3) {
+    // Simple M1 lighting for the Lambert material (charter first-release
+    // item; no shadow pipeline in M1): one directional + one ambient.
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(0.5, 1, 0.8);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(dirLight);
+    scene.add(ambient);
+  } else {
+    for (const plannedLight of planSceneLights(authoredLights, level, planned)) {
+      if (plannedLight.kind === 'ambient') {
+        // §41.1.2 rule 1: no shadow, no position dependence; the
+        // intensity is used exactly as authored.
+        scene.add(new THREE.AmbientLight(new THREE.Color(plannedLight.color), plannedLight.intensity));
+      } else {
+        // §41.1.2 rule 2: the derived position `target − n ·
+        // SHADOW_DISTANCE` and the derived target (the shadow centre) —
+        // always derived, shadow state or not.
+        const light = new THREE.DirectionalLight(new THREE.Color(plannedLight.color), plannedLight.intensity);
+        light.position.set(plannedLight.position[0], plannedLight.position[1], plannedLight.position[2]);
+        light.target.position.set(plannedLight.target[0], plannedLight.target[1], plannedLight.target[2]);
+        if (plannedLight.castShadow) {
+          // The shadow-camera parameters are set now; the shadow map is
+          // allocated only by the first-render probe (§41.1.4 rule 5).
+          light.castShadow = true;
+          light.shadow.mapSize.set(SHADOW_PROFILE.mapSize, SHADOW_PROFILE.mapSize);
+          light.shadow.camera.left = keyPlan.camera.left;
+          light.shadow.camera.right = keyPlan.camera.right;
+          light.shadow.camera.top = keyPlan.camera.top;
+          light.shadow.camera.bottom = keyPlan.camera.bottom;
+          light.shadow.camera.near = keyPlan.camera.near;
+          light.shadow.camera.far = keyPlan.camera.far;
+          light.shadow.camera.updateProjectionMatrix();
+        }
+        scene.add(light);
+        scene.add(light.target);
+        keyLights.push(light);
+      }
+    }
+  }
+
+  // --- M4 (C64-4, delivery.md (M4) §2): the model realization ------------
+  // The holders (the `objects` map entries) exist now; the prepared
+  // ModelInstance roots attach as their children. The realization is
+  // created lazily when `models` is present (absent ⇒ byte-stable M1/M2/
+  // M3 behavior — the accepted path is untouched). Fail-fast config
+  // validation (§2.2) surfaces through `modelsSettled` + the structured
+  // result; the base scene keeps rendering (degraded, never a throw).
+  let realization: ModelsRealization | null = null;
+  let modelsConfigError: AdapterError | null = null;
+  if (opts.models !== undefined) {
+    // Structural reads over the (deep-frozen, runtime-validated) snapshot —
+    // the adapter never re-validates (the runtime already did).
+    const modelEntities = new Map<string, string>();
+    const modelAnimationEntities = new Map<string, { readonly assetId: string; readonly version: number }>();
+    for (const e of opts.snapshot.scene.entities) {
+      const comps = e.components as { model?: { asset?: { assetId?: unknown } }; modelAnimation?: { assetId?: unknown; version?: unknown } };
+      if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
+        modelEntities.set(e.id, comps.model.asset.assetId);
+      }
+      if (comps.modelAnimation !== undefined && typeof comps.modelAnimation.assetId === 'string') {
+        const version = comps.modelAnimation.version;
+        if (Number.isInteger(version)) modelAnimationEntities.set(e.id, { assetId: comps.modelAnimation.assetId, version: version as number });
+      }
+    }
+    const playerId = isV3 && opts.snapshot.game !== null && opts.snapshot.game !== undefined
+      ? (opts.snapshot.game as { playerId?: unknown }).playerId
+      : undefined;
+    const hasPlayer = typeof playerId === 'string';
+    const neutralMotion = { speed: 0, grounded: true } as const;
+    // The committed view accessor (delivery.md (M4) §2.4 / presentation.md
+    // §41.3.6 rule 7 clarification): the player's own animated model gets
+    // the committed `playerMotion` (full idle/run/airborne selection);
+    // every NON-player animated entity gets the constant neutral motion
+    // (the accepted pure selector then yields `idle` — no blending, no
+    // run/airborne). `null` pre-commit (no committed view yet): the
+    // controller idles. The selector reads the committed view only (rule 1).
+    const viewFor = (entityId: string): AnimationRoleView | null => {
+      const getGameView = (opts.runtime as { getGameView?: () => { ok: true; view: { stepIndex?: unknown; playerMotion?: { speed?: unknown; grounded?: unknown } } } }).getGameView;
+      if (typeof getGameView !== 'function') return null;
+      let view: { ok: true; view: { stepIndex?: unknown; playerMotion?: { speed?: unknown; grounded?: unknown } } };
+      try {
+        view = getGameView.call(opts.runtime);
+      } catch {
+        return null;
+      }
+      if (view === null || typeof view !== 'object' || view.ok !== true || typeof view.view !== 'object') return null;
+      const stepIndex = typeof view.view.stepIndex === 'number' && Number.isFinite(view.view.stepIndex) ? Math.trunc(view.view.stepIndex) : 0;
+      if (hasPlayer && playerId === entityId) {
+        const pm = view.view.playerMotion;
+        return {
+          stepIndex,
+          playerMotion: {
+            speed: typeof pm?.speed === 'number' && Number.isFinite(pm.speed) ? pm.speed : 0,
+            grounded: pm?.grounded !== false,
+          },
+        };
+      }
+      return { stepIndex, playerMotion: { speed: neutralMotion.speed, grounded: neutralMotion.grounded } };
+    };
+    const result = createModelsRealization({
+      schemaVersion: sceneDoc.schemaVersion,
+      models: opts.models,
+      loader: opts.modelsLoader,
+      modelEntities,
+      modelAnimationEntities,
+      holderFor: (entityId: string) => objects.get(entityId) ?? null,
+      viewFor,
+    });
+    if (result.ok === true) {
+      realization = result.realization;
+    } else {
+      modelsConfigError = result.error;
+    }
+  }
 
   // --- renderer state (lazy: created on the first successful render) ---
   const canvasLike = canvas as CanvasLike | null;
@@ -147,7 +377,37 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let rendererInfo: string | null = null;
   let pixelRatio = 1;
   let contextAttempted = false;
+  let contextLost = false;
   let disposed = false;
+  /** M4 (C64-4): the previous frame's `performance.now()` for the clamped
+   *  role-controller delta (the adapter derives `deltaSeconds` from the
+   *  host clock, guarded — §2.4). The first frame uses 0 (a fresh anchor
+   *  after mount/suspend/resume: no fast-forward). */
+  let lastFrameNow: number | null = null;
+  /** Releases of the WebGL context listeners this adapter owns (packet 26). */
+  const contextListenerReleases: Array<() => void> = [];
+
+  // Packet 26: observe the WebGL context lifecycle of the canvas this adapter
+  // renders into. Loss is reported as a structured `render_context_lost` (no
+  // render into a dead context); three.js re-initializes its own GL state on
+  // restoration and this adapter clears the flag. The adapter owns exactly
+  // these two listeners and releases them in dispose().
+  if (typeof canvasLike?.addEventListener === 'function') {
+    const onLost = (event: unknown): void => {
+      contextLost = true;
+      const e = event as { preventDefault?: () => void } | null;
+      if (typeof e?.preventDefault === 'function') e.preventDefault();
+    };
+    const onRestored = (): void => {
+      contextLost = false;
+    };
+    canvasLike.addEventListener('webglcontextlost', onLost, false);
+    canvasLike.addEventListener('webglcontextrestored', onRestored, false);
+    contextListenerReleases.push(
+      () => canvasLike.removeEventListener?.('webglcontextlost', onLost, false),
+      () => canvasLike.removeEventListener?.('webglcontextrestored', onRestored, false),
+    );
+  }
 
   function canvasSize(): [number, number] {
     const w = Math.max(1, Math.floor(canvasLike?.clientWidth ?? canvasLike?.width ?? 0));
@@ -179,6 +439,29 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       pixelRatio = dpr;
       renderer.setPixelRatio(pixelRatio);
       renderBackend = renderer.capabilities.isWebGL2 ? 'webgl2' : 'webgl1';
+      // §41.1.4 (hard, packet 52): the M3 target is WebGL 2 (baseline.md
+      // §1). A WebGL-1 context for a v3 scene is the unplayable
+      // `render_unsupported` case; the accepted M1/M2 webgl1 fallback is
+      // unchanged for v1/v2 scenes.
+      if (renderBackend === 'webgl1' && isV3) {
+        try {
+          owned.renderer.dispose();
+        } catch {
+          /* best effort */
+        }
+        try {
+          owned.renderer.forceContextLoss();
+        } catch {
+          /* best effort */
+        }
+        owned.renderer = null;
+        renderBackend = null;
+        rendererInfo = null;
+        return adapterError(
+          'render_unsupported',
+          'M3 (v3) scenes require WebGL 2; the selected context is WebGL 1 (presentation.md §41.1.4)',
+        );
+      }
       // `debug.rendererName` exists on the three.js runtime but not on the
       // pinned @types/three 0.186.0 WebGLDebug type — narrow access.
       const dbg = renderer.debug as { rendererName?: string };
@@ -195,6 +478,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
+    if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
+    if (contextLost) {
+      // The context is currently lost: render nothing (three.js re-initializes
+      // its own GL state on `webglcontextrestored`, which clears this flag).
+      return {
+        ok: false,
+        error: adapterError('render_context_lost', 'the WebGL context is lost; the frame was not rendered and the context will be restored by the browser'),
+      };
+    }
     const err = ensureRenderer();
     if (err) return { ok: false, error: err };
     // The runtime is the single frame driver: this runs after the step
@@ -212,8 +504,65 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const obj = objects.get(tr.id);
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
+    // M4 (C64-4, delivery.md (M4) §2.4): one host-driven update per
+    // rendered frame, in this order — (1) the transform sync above
+    // (unchanged), (2) every live role controller advanced once with the
+    // real frame delta CLAMPED to the accepted [0, 0.25] range (first
+    // frame after mount or after a suspend/resume: a fresh anchor — the
+    // host's frame-time reset makes a resume a fresh anchor; the clamp is
+    // the adapter-side bound, no fast-forward), (3) `renderer.render`
+    // (below). The controllers install no rAF, no timer, no mixer
+    // listener — there is no second loop (C13 ruled out by construction).
+    if (realization !== null) {
+      let delta = 0;
+      const perf = globalThis.performance;
+      if (perf !== undefined && typeof perf.now === 'function') {
+        const now = perf.now();
+        if (lastFrameNow !== null && Number.isFinite(now) && Number.isFinite(lastFrameNow) && now >= lastFrameNow) {
+          delta = (now - lastFrameNow) / 1000;
+        }
+        lastFrameNow = now;
+      }
+      // The accepted clamp (presentation.md §41.7.1 / rule 2:
+      // 0 ≤ deltaSeconds ≤ 0.25).
+      if (!Number.isFinite(delta) || delta < 0) delta = 0;
+      if (delta > ANIMATION_MAX_DELTA_SECONDS) delta = ANIMATION_MAX_DELTA_SECONDS;
+      realization.update(delta);
+    }
     const renderer = owned.renderer;
     if (!renderer) return { ok: false, error: adapterError('render_failed', 'renderer unavailable') };
+    // §41.1.4 shadow capability probe (packet 52): once per realized
+    // scene, before the first successful v3 frame. The probe render is the
+    // allocation check (`maxTextureSize ≥ SHADOW_MAP_SIZE` + the actual
+    // render). A failure degrades SOFT — shadows off, rendering continues
+    // with the key light only, and the bounded diagnostic is the
+    // `shadows`/`shadowReason` pair itself (recorded once, never per
+    // frame; no path, token or device string). A scene with no
+    // shadow-casting light never enables `shadowMap` (rule 5: no shadow
+    // map is allocated).
+    if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
+      shadowProbeDone = true;
+      let probeOk = renderer.capabilities.maxTextureSize >= SHADOW_PROFILE.mapSize;
+      if (probeOk) {
+        try {
+          renderer.shadowMap.enabled = true;
+          // §41.1.2: three's `THREE.PCFShadowMap` (the frozen profile row).
+          renderer.shadowMap.type = THREE.PCFShadowMap;
+          renderer.render(scene, camera!);
+        } catch {
+          probeOk = false;
+        }
+      }
+      if (!probeOk) {
+        try {
+          renderer.shadowMap.enabled = false;
+        } catch {
+          /* best effort */
+        }
+        for (const l of keyLights) l.castShadow = false;
+        shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
+      }
+    }
     const [w, h] = canvasSize();
     renderer.setSize(w, h, false);
     camera!.aspect = w / h;
@@ -281,18 +630,53 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Works after dispose too (reports the last known backend or null) —
     // the session layer composes this block for the play relay
     // (sessions.md §12; runtime.md §8 adapter block).
+    const d: SceneAdapterDiagnostics = {
+      renderBackend,
+      rendererInfo,
+      canvasSize: canvasSize(),
+      pixelRatio,
+      shadows: shadowState.shadows,
+    };
+    // §41.1.4: `shadowReason` is present iff `shadows === 'off'`.
+    if (shadowState.shadows === 'off' && shadowState.reason !== undefined) {
+      d.shadowReason = shadowState.reason;
+    }
+    // M4 (C64-4): the `models` counters block — present iff the `models`
+    // option was given and the adapter is not disposed (absent when
+    // `models` is absent; after dispose the realization is gone).
+    if (realization !== null && !disposed) {
+      d.models = realization.counters();
+    }
     return {
       ok: true,
-      diagnostics: { renderBackend, rendererInfo, canvasSize: canvasSize(), pixelRatio },
+      diagnostics: d,
     };
   }
 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
+    // FIRST — cancel every in-flight prepare, dispose the attached
+    // instances (cloned materials + controllers + instances) and the
+    // store (a late completion is discarded and released, never applied).
+    if (realization !== null) {
+      try {
+        realization.dispose();
+      } catch {
+        /* best effort */
+      }
+      realization = null;
+      lastFrameNow = null;
+    }
     // Release ALL owned Object3D/material/renderer lifetimes (runtime.md
     // §3.4-style repeatable disposal; m1-acceptance step 8: "no leaked
     // loop, no stale GPU state").
+    for (const release of contextListenerReleases) {
+      try { release(); } catch { /* best effort */ }
+    }
+    contextListenerReleases.length = 0;
+    contextLost = false;
     for (const g of owned.geometries) {
       try { g.dispose(); } catch { /* best effort */ }
     }
@@ -312,5 +696,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { ok: true };
   }
 
-  return { renderFrame, captureScreenshot, diagnostics, dispose };
+  const api: SceneAdapter = { renderFrame, captureScreenshot, diagnostics, dispose };
+  // M4 (C64-4): the settle surface — present iff the `models` option was
+  // given. A config-invalid block resolves the structured failure (the
+  // wrapper posts `tl.error`); a realized block resolves when every
+  // prepare has settled (§2.8 step 10). Never rejects.
+  if (opts.models !== undefined) {
+    api.modelsSettled = (): Promise<ModelsSettledResult> => {
+      if (realization !== null) return realization.settled();
+      if (modelsConfigError !== null) {
+        return Promise.resolve({ ok: false as const, code: modelsConfigError.code, message: modelsConfigError.message });
+      }
+      // Defensive: `models` present but no realization/config error (e.g.
+      // disposed before the realization attached) — structured, honest.
+      return Promise.resolve({ ok: false as const, code: 'adapter_disposed', message: 'the adapter carries no live model realization' });
+    };
+  }
+  return api;
 }

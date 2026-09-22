@@ -1,0 +1,8 @@
+ok   canonical: 3 fixture file(s) byte-canonical
+ok   index: 3 file(s) listed with matching sha256
+ok   scheduler: 5 case(s) re-derived from the fixed-step arithmetic
+ok   demo: 7 sample(s) re-derived from the §7.1 formula
+ok   failstop: 14 case(s) validated against the accepted runtime code registry
+ok   secrets: no credential-like content in the runtime fixtures
+
+check-runtime-fixtures: all checks passed

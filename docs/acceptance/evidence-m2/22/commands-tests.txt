@@ -1,0 +1,13 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+
+ Test Files  12 passed (12)
+      Tests  217 passed (217)
+   Start at  03:14:40
+   Duration  1.43s (transform 59%, import 27%, tests 13%, worker 1%)
+
+  Transform  transforming modules took 2.56s · 59% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

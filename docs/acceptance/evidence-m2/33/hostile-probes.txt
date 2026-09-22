@@ -1,0 +1,33 @@
+hostile-absolute                      2ms code=behavior_import_forbidden reason=absolute detail=/etc/passwd.ts
+hostile-bare-import                   0ms code=behavior_import_forbidden reason=bare detail=lodash
+hostile-bom                           0ms code=behavior_source_invalid reason=encoding
+hostile-cycle                         0ms code=behavior_source_cycle reason=src/a.ts -> src/b.ts -> src/a.ts detail=src/a.ts -> src/b.ts -> src/a.ts
+hostile-data-url                      0ms code=behavior_import_forbidden reason=network detail=data:text/javascript,export default 1
+hostile-depth-over                    1ms code=behavior_source_limits_exceeded reason=import_depth limit=import_depth current=9 max=8
+hostile-duplicate-path                0ms code=behavior_source_duplicate reason=duplicate detail=src/index.ts
+hostile-dynamic-import                0ms code=behavior_dynamic_code reason=dynamic_import detail=dynamic_import
+hostile-encoding                      1ms code=behavior_source_invalid reason=encoding
+hostile-engine-value-import           0ms code=behavior_import_forbidden reason=engine_value_import detail=@thirdlight/runtime
+hostile-entry-absent                  0ms code=behavior_source_invalid reason=entry_missing detail=src/index.ts
+hostile-escape                        0ms code=behavior_source_escape reason=../outside.ts detail=../outside.ts
+hostile-eval                          0ms code=behavior_dynamic_code reason=eval detail=eval
+hostile-extension                     0ms code=behavior_source_invalid reason=extension detail=src/ui.tsx
+hostile-file-too-large               11ms code=behavior_source_limits_exceeded reason=file_bytes limit=file_bytes current=65634 max=65536
+hostile-function-constructor          0ms code=behavior_dynamic_code reason=function_constructor detail=function_constructor
+hostile-imports-over                  0ms code=behavior_source_limits_exceeded reason=imports limit=imports current=17 max=16
+hostile-missing                       0ms code=behavior_source_missing reason=src/nope.ts detail=src/nope.ts
+hostile-network                       0ms code=behavior_import_forbidden reason=network detail=https://cdn.example.com/widget.js
+hostile-node-bare-builtin             0ms code=behavior_import_forbidden reason=node_builtin detail=fs
+hostile-node-builtin                  0ms code=behavior_import_forbidden reason=node_builtin detail=node:fs
+hostile-not-canonical                 0ms code=behavior_source_invalid reason=container
+hostile-not-json                      0ms code=behavior_source_invalid reason=container
+hostile-not-sorted                    0ms code=behavior_source_invalid reason=file_order
+hostile-owned-transforms-not-id       1ms code=behavior_source_invalid reason=container detail=Model-0001
+hostile-owned-transforms-over         0ms code=behavior_source_limits_exceeded reason=owned_transforms limit=owned_transforms current=17 max=16
+hostile-path-grammar                  0ms code=behavior_source_invalid reason=path detail=Src/Index.ts
+hostile-require                       0ms code=behavior_dynamic_code reason=require detail=require
+hostile-required-unpinned             1ms code=behavior_import_unpinned reason=@thirdlight/unknown detail=@thirdlight/unknown
+hostile-type-only-unpinned            0ms code=behavior_import_unpinned reason=@thirdlight/runtime detail=@thirdlight/runtime
+hostile-unknown-field                 0ms code=behavior_source_invalid reason=container
+valid-owned-transforms                9ms ok outputDigest=ac87c52cf2d81f5d7c93775ce360dfe58ccb34fb9b121ee4968fd09ce4419cb2 manifestDigest=7ba7b55414d9a9419f8eb34903e3c59d7e35dc667c6e70e95d1cc799a21a1afd bytes=91
+valid-sample                          5ms ok outputDigest=55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69 manifestDigest=86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136 bytes=500

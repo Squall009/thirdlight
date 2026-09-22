@@ -1,0 +1,14 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import { createSimulationRegistry } from '@thirdlight/runtime';\n\nexport default {\n  prepare() { return createSimulationRegistry(); },\n  instantiate() { return {}; },\n  step() {},\n  dispose() {},\n};\n"
+    }
+  ]
+}

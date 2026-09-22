@@ -45,6 +45,16 @@ export function isRequestId(v: unknown): v is string {
   return typeof v === 'string' && REQUEST_ID_RE.test(v);
 }
 
+/**
+ * sessions.md §17.2: the play-content locator capability — 32 random bytes as
+ * unpadded base64url (43 chars). A secret-equivalent that is redacted in logs
+ * (`<redacted:contentId>`) and excluded from exports.
+ */
+export const CONTENT_ID_RE = /^[A-Za-z0-9_-]{43}$/;
+export function isContentId(v: unknown): v is string {
+  return typeof v === 'string' && CONTENT_ID_RE.test(v);
+}
+
 /** sessions.md §3: 16-hex handshake nonce (fresh per handshake). */
 export const NONCE_RE = /^[0-9a-f]{16}$/;
 export function isNonce(v: unknown): v is string {

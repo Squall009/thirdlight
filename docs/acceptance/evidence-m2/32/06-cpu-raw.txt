@@ -1,0 +1,13 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+stdout | tests/m2-controller/cpu.test.ts > directional container CPU cost (packet-14 protocol, BR-2) > measures the composed fixed step over 3 runs of 5 s warmup + 30 s sample
+[cpu] {"machine":"container (NOT the reference desktop — directional only, plan-review BR-2)","node":"v22.22.1","fixture":"1 kinematic capsule + 64 static colliders (fixtures/m2/course/course.json)","warmupS":5,"measureS":30,"stepBudgetMs":8.333333333333334,"runs":[{"run":0,"samples":3600,"p50":0.021423,"p95":0.065137,"p99":0.116521},{"run":1,"samples":3600,"p50":0.017361,"p95":0.029758,"p99":0.088128},{"run":2,"samples":3600,"p50":0.016667,"p95":0.025263,"p99":0.060646}]}
+
+ ✓ tests/m2-controller/cpu.test.ts > directional container CPU cost (packet-14 protocol, BR-2) > measures the composed fixed step over 3 runs of 5 s warmup + 30 s sample 660ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  07:53:44
+   Duration  1.07s (tests 71%, transform 23%, import 5%, worker 1%)
+

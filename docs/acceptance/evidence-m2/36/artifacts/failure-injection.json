@@ -1,0 +1,34 @@
+{
+  "missingBlob": {
+    "code": "export_scene_invalid",
+    "reason": null,
+    "previousTreeUnchanged": true
+  },
+  "corruptBlob": {
+    "code": "export_scene_invalid",
+    "reason": null,
+    "previousTreeUnchanged": true
+  },
+  "hostileSourcePublicationStatus": 400,
+  "hostileSourcePublicationBody": {
+    "ok": false,
+    "error": {
+      "code": "behavior_import_forbidden",
+      "cls": "validation",
+      "message": "network",
+      "diagnostics": [
+        {
+          "code": "behavior_import_forbidden",
+          "reason": "network",
+          "message": "file \"src/index.ts\" imports \"https://cdn.example.com/widget.js\" (network)",
+          "path": "src/index.ts"
+        }
+      ]
+    }
+  },
+  "previousTreeFileCount": 7,
+  "reExportAfterRestore": {
+    "ok": true,
+    "outputDir": "demo-store-01@r15"
+  }
+}

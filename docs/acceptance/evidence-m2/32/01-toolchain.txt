@@ -1,0 +1,13 @@
+packet 32 evidence — toolchain and environment (container, no browser/hardware)
+date: 2026-09-19T07:53:38Z
+node: v22.22.1
+npm: 9.2.0
+tsc: Version 5.9.3
+esbuild: 0.28.2
+vitest: vitest/5.0.1 linux-x64 node-v22.22.1
+machine: 12th Gen Intel(R) Core(TM) i5-12600H
+kernel: Linux 7.0.2-2-pve x86_64
+browser: NONE (no browser binary; no root install path)
+gpu: NONE (no WebGL context available in-container)
+gamepad/hardware: NONE
+physical keyboard/monitor: NONE (PI WEB session)

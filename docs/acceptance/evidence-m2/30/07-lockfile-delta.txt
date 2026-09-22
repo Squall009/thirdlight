@@ -1,0 +1,36 @@
+== package-lock.json delta introduced by packet 30 (npm install, no upgrades) ==
+
+baseline = the working-tree lockfile immediately before packet 30 (which already carried packet 24's uncommitted asset-pipeline entry);
+the only hunks below are the @thirdlight/input workspace link and its workspace package entry.
+
+--- /tmp/lock-before-30.json	2026-09-19 06:51:40.690714623 +0000
++++ package-lock.json	2026-09-19 06:52:09.852774691 +0000
+@@ -783,6 +783,10 @@
+       "resolved": "packages/exporter",
+       "link": true
+     },
++    "node_modules/@thirdlight/input": {
++      "resolved": "packages/input",
++      "link": true
++    },
+     "node_modules/@thirdlight/mcp-adapter": {
+       "resolved": "packages/mcp-adapter",
+       "link": true
+@@ -2834,6 +2838,13 @@
+         "esbuild": "0.28.2"
+       }
+     },
++    "packages/input": {
++      "name": "@thirdlight/input",
++      "version": "0.1.0",
++      "dependencies": {
++        "@thirdlight/runtime": "0.1.0"
++      }
++    },
+     "packages/mcp-adapter": {
+       "name": "@thirdlight/mcp-adapter",
+       "version": "0.1.0",
+
+== git diff --stat vs HEAD (includes the pre-existing uncommitted M2 work) ==
+ package-lock.json | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)

@@ -1,0 +1,8 @@
+# independent recomputation of every digest the fixtures claim (no repo tooling used)
+
+$ sha256sum fixtures/m2/contracts/source-preimages/placeholder-{a,b}.bin
+dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967  fixtures/m2/contracts/source-preimages/placeholder-a.bin
+e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41  fixtures/m2/contracts/source-preimages/placeholder-b.bin
+
+$ python3 - <<'PY'  # canonical-JSON SHA-256 of the captured view minus contentDigest
+True   <- recomputed digest equals the committed contentDigest (8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c)

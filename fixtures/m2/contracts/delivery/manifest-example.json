@@ -1,0 +1,148 @@
+{
+  "kind": "delivery-manifest",
+  "setVersion": 1,
+  "id": "delivery-manifest",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 2.1 Manifest document (strict)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 2.2 Snapshot identity vs build identity (normative)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 4.2 Option-set record"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 9. Export closure and metadata"
+    }
+  ],
+  "buildOptions": {
+    "bundler": "esbuild@0.28.2",
+    "bundle": true,
+    "platform": "browser",
+    "format": "iife",
+    "treeShaking": false,
+    "sourcemap": false,
+    "minify": false,
+    "target": "es2022",
+    "loaders": [
+      "ts",
+      "tsx"
+    ]
+  },
+  "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+  "capturedFrom": {
+    "projectId": "demo-0002",
+    "revision": 7,
+    "sceneDigest": "335edff2fbdead66eeedad2c5ac437004454a3347e65775e52335b06a84f93aa",
+    "contentDigest": "8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c"
+  },
+  "manifest": {
+    "manifestVersion": 1,
+    "type": "thirdlight-runtime-content",
+    "projectId": "demo-0002",
+    "revision": 7,
+    "snapshotId": "demo-0002@r7",
+    "capturedAt": "2026-09-18T10:00:00Z",
+    "sceneDigest": "335edff2fbdead66eeedad2c5ac437004454a3347e65775e52335b06a84f93aa",
+    "contentDigest": "8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c",
+    "assets": [
+      {
+        "assetId": "asset-0001",
+        "version": 1,
+        "sourceDigest": "dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967",
+        "sourceByteLength": 26,
+        "recipeDigest": "76e0245138c9276b32202f90674cfaea62fefec8d60f8560635202648515c6c8",
+        "metricsDigest": "987c0bc34f0700dd640f08e7fd7fa2047e4457582ebbf4030ea21a69b9ef150a",
+        "path": "content/sha256/dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967"
+      },
+      {
+        "assetId": "asset-0002",
+        "version": 2,
+        "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+        "sourceByteLength": 26,
+        "recipeDigest": "76e0245138c9276b32202f90674cfaea62fefec8d60f8560635202648515c6c8",
+        "metricsDigest": "4ef35d0318177f616ebc96ee64b7d61e729072ef0ef99818d3eb8c5327e71919",
+        "path": "content/sha256/e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41"
+      }
+    ],
+    "behaviors": [
+      {
+        "behaviorId": "behavior-0002",
+        "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+        "sourceByteLength": 677,
+        "manifestDigest": "5e97f3c92b136e685506d06749f4d1e80f923c650cbb3dff7a7996bc6fee70c7",
+        "outputDigest": "fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6",
+        "outputByteLength": 489,
+        "apiVersion": 1,
+        "path": "behaviors/fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6.js"
+      }
+    ],
+    "modules": [
+      {
+        "id": "thirdlight.platformer:controller",
+        "apiVersion": 1,
+        "package": "@thirdlight/platformer",
+        "version": "0.2.0"
+      }
+    ],
+    "enginePins": [
+      {
+        "id": "@thirdlight/runtime",
+        "version": "0.2.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/three",
+        "version": "0.186.0",
+        "apiVersion": 0
+      }
+    ],
+    "recipes": {
+      "gltf-glb": 1,
+      "behavior-source": 1
+    },
+    "toolchain": {
+      "esbuild": "0.28.2",
+      "typescript": "5.9.3",
+      "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
+    },
+    "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+    "buildId": "5d374b60ddb40c817025bb5e22b9639f08a5ad14c8a9544644464db9475d681b"
+  },
+  "closure": {
+    "entry": "js/main.js",
+    "manifestPath": "manifest.json",
+    "fetchedArtifacts": [
+      "content/sha256/dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967",
+      "content/sha256/e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "behaviors/fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6.js"
+    ],
+    "expectedFetchCount": 4,
+    "allPathsRelative": true,
+    "absoluteLocatorsAllowed": false
+  },
+  "licenses": [
+    {
+      "id": "three",
+      "version": "0.186.0",
+      "license": "MIT",
+      "source": "npm"
+    },
+    {
+      "id": "@dimforge/rapier2d-compat",
+      "version": "0.20.0",
+      "license": "Apache-2.0",
+      "source": "npm"
+    }
+  ],
+  "identityRule": {
+    "snapshotIdIsBinaryHash": false,
+    "buildIdIsEngineIndependentHash": false,
+    "buildFailurePreservesPreviousOutput": true
+  }
+}

@@ -1,0 +1,1159 @@
+{
+  "fixtureVersion": 1,
+  "snapshotId": "demo-0003@r7",
+  "killY": -4,
+  "zones": [
+    {
+      "id": "zone-0002",
+      "role": "hazard",
+      "center": [
+        10.9,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    },
+    {
+      "id": "zone-0003",
+      "role": "checkpoint",
+      "center": [
+        22,
+        1
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "zone-0001",
+      "role": "goal",
+      "center": [
+        44.5,
+        1
+      ],
+      "size": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "zone-0004",
+      "role": "hazard",
+      "center": [
+        28.4,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    }
+  ],
+  "spawnId": "spawn-0001",
+  "safeSpawnId": "spawn-0002",
+  "firstStep": 12,
+  "notes": [
+    "Run state machine gameplay.md §2.2 and queue semantics §2.3. The boundary runs before each step."
+  ],
+  "cases": [
+    {
+      "id": "run-awaiting-no-progress",
+      "script": [
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "awaitingStart",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 0,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": []
+      }
+    },
+    {
+      "id": "run-start-live",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            3.0333,
+            0.91
+          ],
+          "to": [
+            3.0666,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-death-hazard",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "respawning",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 1,
+          "respawnAtStep": 44,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/died/13",
+            "kind": "died",
+            "stepIndex": 13,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0002",
+            "cause": "hazard"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-death-no-double",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "steps",
+          "count": 3,
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "respawning",
+          "stepIndex": 17,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 1,
+          "respawnAtStep": 44,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/died/13",
+            "kind": "died",
+            "stepIndex": 13,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0002",
+            "cause": "hazard"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-respawn-completes",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "steps",
+          "count": 30,
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            24,
+            0.91
+          ],
+          "to": [
+            24.03,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 45,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 1,
+          "respawnAtStep": null,
+          "eventCount": 3,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/died/13",
+            "kind": "died",
+            "stepIndex": 13,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0002",
+            "cause": "hazard"
+          },
+          {
+            "id": "demo-0003@r7#0/respawned/44",
+            "kind": "respawned",
+            "stepIndex": 44,
+            "boundary": true,
+            "deathCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-checkpoint-once",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            23.5,
+            0.91
+          ],
+          "to": [
+            24,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            22,
+            0.91
+          ],
+          "to": [
+            22,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 16,
+          "activeSpawnId": "spawn-0002",
+          "checkpointId": "zone-0003",
+          "checkpointActive": true,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/checkpointActivated/12",
+            "kind": "checkpointActivated",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0003"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-goal-wins",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            44,
+            0.91
+          ],
+          "to": [
+            44.5,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            44.5,
+            0.91
+          ],
+          "to": [
+            44.6,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            44.5,
+            0.91
+          ],
+          "to": [
+            44.5,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "won",
+          "stepIndex": 15,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": true,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/goalReached/12",
+            "kind": "goalReached",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0001"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-replay-from-won",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            44,
+            0.91
+          ],
+          "to": [
+            44.5,
+            0.91
+          ]
+        },
+        {
+          "op": "submit",
+          "command": "replay"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#1",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 1,
+          "state": "playing",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 3,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/goalReached/12",
+            "kind": "goalReached",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0001"
+          },
+          {
+            "id": "demo-0003@r7#1/replayed/13",
+            "kind": "replayed",
+            "stepIndex": 13,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-replay-clears-checkpoint",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "submit",
+          "command": "replay"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#1",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 1,
+          "state": "playing",
+          "stepIndex": 15,
+          "activeSpawnId": "spawn-0002",
+          "checkpointId": "zone-0003",
+          "checkpointActive": true,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 4,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/checkpointActivated/12",
+            "kind": "checkpointActivated",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0003"
+          },
+          {
+            "id": "demo-0003@r7#1/replayed/13",
+            "kind": "replayed",
+            "stepIndex": 13,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#1/checkpointActivated/14",
+            "kind": "checkpointActivated",
+            "stepIndex": 14,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0003"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-replay-from-respawning",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "submit",
+          "command": "replay"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#1",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 1,
+          "state": "playing",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 3,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/died/12",
+            "kind": "died",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0002",
+            "cause": "hazard"
+          },
+          {
+            "id": "demo-0003@r7#1/replayed/13",
+            "kind": "replayed",
+            "stepIndex": 13,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-fall-threshold-alive",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            24,
+            -3.9
+          ],
+          "to": [
+            24,
+            -4
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-fall-threshold-dies",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            24,
+            -3.9
+          ],
+          "to": [
+            24,
+            -4.0000000001
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "respawning",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 1,
+          "respawnAtStep": 43,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/died/12",
+            "kind": "died",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 1,
+            "cause": "fall"
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-fail-is-not-death",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "fail",
+          "where": "gameplay"
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": true,
+          "failure": {
+            "code": "module_error",
+            "reason": "gameplay_invalid",
+            "stepIndex": 13,
+            "phase": "gameplay"
+          }
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-command-invalid-state",
+      "script": [
+        {
+          "op": "submit",
+          "command": "replay",
+          "expectError": {
+            "code": "game_command_invalid",
+            "reason": "state",
+            "command": "replay",
+            "state": "awaitingStart"
+          }
+        },
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "submit",
+          "command": "start",
+          "expectError": {
+            "code": "game_command_invalid",
+            "reason": "state",
+            "command": "start",
+            "state": "playing"
+          }
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-command-coalesce",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "run-command-pending-conflict",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "submit",
+          "command": "replay",
+          "expectError": {
+            "code": "game_command_invalid",
+            "reason": "pending",
+            "command": "replay"
+          }
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 13,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "indexVersion": 1,
+  "packet": 40,
+  "status": "PROPOSED — not accepted. Gate K records accept/reject per diff.",
+  "contracts": {
+    "gameplay": "docs/planning/m3-contracts/gameplay.md (new contract home)",
+    "diffs": "docs/planning/m3-contracts/diffs/runtime.md",
+    "model": "docs/planning/m3-contracts/model.md (packet 39 PROPOSED v3 data)"
+  },
+  "notes": [
+    "Every expected value in every fixture is re-derived by tools/check-fixtures.mjs from the rules of gameplay.md; the closed-form arithmetic is recorded in verification.md §3.",
+    "The run fixtures replay the state machine from recorded step segments; they are a contract-consistency replay, not an implementation of the runtime and not a physics test.",
+    "The camera fixtures live in fixtures/m3/camera and are verified by this same checker.",
+    "No fixture here is evidence of browser, physics or visual behaviour; packets 49-51 own implementation evidence."
+  ],
+  "fixtures": {
+    "errors/codes.json": {
+      "kind": "fixture",
+      "bytes": 2299,
+      "sha256": "0a88fa51f4287ce1338927b371775a16fc7b36d2170e173ea0d2f6e916a3c8d6"
+    },
+    "run/events-bound.json": {
+      "kind": "fixture",
+      "bytes": 2651,
+      "sha256": "a54145d248120f1faf2f6d73ef8a686d8738a0d324ea5920c9fa6780322d8b26"
+    },
+    "run/failure-phases.json": {
+      "kind": "fixture",
+      "bytes": 20451,
+      "sha256": "ea29bf63713dfd586d86f46a16ebaa17d07eaa380924bfa6d4dd5b7f4b3ed6a5"
+    },
+    "run/game-view.json": {
+      "kind": "fixture",
+      "bytes": 3627,
+      "sha256": "fac34f78cd09d887e3169601c92292a908a19bd3098c626ad550735f267453ee"
+    },
+    "run/held-jump.json": {
+      "kind": "fixture",
+      "bytes": 2573,
+      "sha256": "e00fbb925442620749cbf23ad3d4e183a90c733ba1b65f65fdb2f3dfa9493c74"
+    },
+    "run/respawn-timing.json": {
+      "kind": "fixture",
+      "bytes": 6422,
+      "sha256": "5380c2602588d44652df3760c722ed7fc8433d7ff58f8f8fb3f6d915fbcd6bd8"
+    },
+    "run/segment-source.json": {
+      "kind": "fixture",
+      "bytes": 1583,
+      "sha256": "03e166f0fe5752b29bb61fb5efab899f25208017c0e9269c4b2d56fe06c9ed11"
+    },
+    "run/states.json": {
+      "kind": "fixture",
+      "bytes": 25152,
+      "sha256": "407b1cc979813fc0cd76b01c0d30c990bb9a99cc9ec76903352077b8fd3f2198"
+    },
+    "zones/precedence.json": {
+      "kind": "fixture",
+      "bytes": 5722,
+      "sha256": "5dc70148cfaba9b22850120bd332bbf841264bdb7ba32e83b94e11d07a5fe4a5"
+    },
+    "zones/run-semantics.json": {
+      "kind": "fixture",
+      "bytes": 7474,
+      "sha256": "862aba50039f543dfa0ca88a5901757a3f38bb9527a4bddb0e0c25270bbe4fd7"
+    },
+    "zones/spawn.json": {
+      "kind": "fixture",
+      "bytes": 6171,
+      "sha256": "b6d999b7316ded8e0ebc2b07ccb0ae49b77f001e6407d04663f1920f927ea7f2"
+    },
+    "zones/sweep.json": {
+      "kind": "fixture",
+      "bytes": 6943,
+      "sha256": "70ccd06a773e3cf8b5c1b7f103df58e94d948b8b2c8edf68ba8b3508adbeb008"
+    }
+  },
+  "constants": {
+    "CAPSULE_RADIUS": 0.3,
+    "CAPSULE_HALF_HEIGHT": 0.6,
+    "ZONE_OVERLAP_EPS": 1e-9,
+    "RESPAWN_DELAY_STEPS": 30,
+    "MAX_GAME_EVENTS": 32,
+    "CAMERA_Z": 12,
+    "CAMERA_MAX_STEP": 4,
+    "CAMERA_SNAP_EPS": 1e-9,
+    "DEFAULT_ASPECT": 1.7777777777777777
+  }
+}

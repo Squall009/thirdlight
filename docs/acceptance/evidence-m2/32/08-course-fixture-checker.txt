@@ -1,0 +1,11 @@
+ok   [canonical] 6 fixture files are byte-canonical JSON
+ok   [index] 6 fixture files listed with the correct SHA-256
+ok   [course] 64 statics reproduced exactly from tests/evaluations/m2-physics/course-spec.json
+ok   [slope-course.json] static geometry identical to fixtures/m2/physics/slope-course.json (6 colliders)
+ok   [snap-course.json] static geometry identical to fixtures/m2/physics/snap-course.json (3 colliders)
+ok   [tolerances] 5 slope rows re-derived; 17 tolerance groups
+ok   [cases] 28 cases reference real courses, sequences and tolerances
+ok   [inputs] 24 sequences / 12 raw atoms consistent
+ok   [credentials] no credential-like strings in the fixture set
+
+all 9 checks passed

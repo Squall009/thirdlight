@@ -1,0 +1,37 @@
+# packet-19 proposal-check (actual output, captured 2026-09-18; final tree)
+
+$ git rev-parse HEAD
+5b746eebc8be22feb921909dc3f5b849c2560ccb
+
+$ git status --porcelain -- docs/contracts packages tools package.json package-lock.json (must be empty)
+(end)
+
+$ git diff --stat HEAD -- docs/contracts packages tools package.json package-lock.json (must be empty)
+(end)
+
+$ git status --porcelain -- docs/decisions
+?? docs/decisions/0002-m2-content-and-behavior.md
+
+decision 0002 sha256:
+c7ecffe672bac9c6fcffcd9549b235a76bf26ba70ae31a485c9deae8cb787d39  docs/decisions/0002-m2-content-and-behavior.md
+lockfile sha256:
+a71f4c0bbe8aed0f6a890ee18c9d2df53ea165f512c7b9a7ba3273e3da5c0e0e  package-lock.json
+
+packet-19 files (sha256):
+499b1b45da703d1250ed79224acbb66b0c373382c4a3391ea8afa2e452cc4bec  docs/planning/m2-contracts/delivery.md
+acf3780ae1a7902e6f04a260d2ecaa30554c97fb70834b5173b2f2de4b5adb28  docs/planning/m2-contracts/contract-diffs.md
+392c6305d9b90b790cf00828e706d482d50a0b69f507788b4df692d1b8c751d0  docs/planning/m2-contracts/diffs/sessions.md
+a25e01eda1daca8b66983b0d53893860e22eadd34ed41d3daa8debfa139f3425  docs/planning/m2-contracts/diffs/export.md
+c399729c8c9b63152b692a439325aca43dd0012a1b2c97e8bbc2e15747e412a4  docs/planning/m2-contracts/diffs/dependencies.md
+e9410255e58dd5f072c37f36e0f5d49b4e2dbc6e9a60512c3e0a764d52c9a523  docs/planning/m2-contracts/diffs/project-model.md
+27ed3dd6fe674e943ab4f30b6c77dea4255e2424bff8590272c9cc4e83182400  docs/planning/m2-acceptance.md
+529c9d1fa4c3481520d3d65e5f007007de8b268208d851ac4524ed698915dfbd  fixtures/m2/contracts/expected.json
+29a7f4fd3d19e9870f617430d8555be919a42cabc9df59e8478a1ece2b0e3f62  fixtures/m2/contracts/tools/check-fixtures.mjs
+31c4e67c1ec2d0572f2bfef3c317f18e5767f5ea4c019bd88fa08ed221af102a  fixtures/m2/contracts/delivery/protocol-surface.json
+c3725e80e237b83a295b274fd09b34698682c120adb568dd8da8fe7685613c49  fixtures/m2/contracts/delivery/locator-cases.json
+cae7d76351438c6b63fe5f493db90254fff31407f832335be9a87aff626f92f3  fixtures/m2/contracts/delivery/upload-bounds.json
+80adb7bbd35bea4563e9502ee61b1fd5e885a3da4f0de2f78f814c933950a17c  fixtures/m2/contracts/delivery/scan-expectations.json
+e68fd7ef5acba1905c2ac67377dcdb2a1312336f5413389d8ad0a55e6728454a  fixtures/m2/contracts/delivery/manifest-example.json
+b2b92be264812c62a28f2b018cdf5dae836e70984ce7ba04a146e18215987fef  fixtures/m2/contracts/delivery/input-relay.json
+
+accepted-contract docs untouched since HEAD (empty diff above); no dependency/install action was taken; no git commit was made.

@@ -1,0 +1,69 @@
+{
+  "rule": "fetch count = 1 + |unique declared artifacts|",
+  "gameHostFetches": 0,
+  "preview": {
+    "entry": "packages/editor/src/preview/preview-bootstrap.ts",
+    "fetches": [
+      "./manifest.json",
+      "./scene.json",
+      "one read per unique declared asset path"
+    ]
+  },
+  "export": {
+    "entry": "packages/exporter/src/export-bootstrap.ts",
+    "fetches": [
+      "./manifest.json",
+      "./scene.json",
+      "one read per unique declared asset path"
+    ]
+  },
+  "noGameJsonSidecar": true,
+  "forbidden": [
+    "absolute URL",
+    "cross-origin",
+    "data: script",
+    "file://",
+    "http(s):// literal",
+    "undeclared path",
+    "second read of one declared path"
+  ],
+  "graphEdges": {
+    "preview": [
+      "game-host",
+      "platformer-game",
+      "runtime",
+      "platformer",
+      "three-adapter",
+      "project-model",
+      "input",
+      "three",
+      "GLTFLoader subpath",
+      "linked behavior outputs",
+      "injected physics port"
+    ],
+    "export": [
+      "game-host",
+      "platformer-game",
+      "runtime",
+      "platformer",
+      "three-adapter",
+      "project-model",
+      "input",
+      "three",
+      "GLTFLoader subpath",
+      "linked behavior outputs",
+      "injected physics port"
+    ],
+    "forbiddenInRuntimeBundles": [
+      "backend",
+      "workspace",
+      "commands",
+      "mcp-adapter",
+      "exporter internals",
+      "editor internals",
+      "behavior-build",
+      "asset-pipeline",
+      "node builtins"
+    ]
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-single-authoritative-commit",
+  "title": "One successful publish produces exactly one authoritative commit",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 7,
+    "stage": {
+      "stageId": "stg-commit01",
+      "bytes": "source-preimages/placeholder-b.bin",
+      "state": "closed-and-readable"
+    },
+    "preparation": {
+      "operations": [
+        "stageContent",
+        "inspectStage",
+        "publishBlob"
+      ],
+      "mutationLock": "never held",
+      "authoritative": false
+    },
+    "command": {
+      "op": "createAssetVersion",
+      "requestId": "req-50000000000000000000000000000001",
+      "expectedRevision": 7,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "argsCarryStagingHandle": false
+    },
+    "catalogBefore": "catalog/content-block-example.json"
+  },
+  "steps": [
+    {
+      "at": "prepare-1",
+      "action": "stageContent: cap checks, traversal/symlink checks, write .thirdlight/staging/stg-commit01/source.bin",
+      "expect": {
+        "writePaused": false,
+        "externalChangeDetected": false
+      }
+    },
+    {
+      "at": "prepare-2",
+      "action": "inspectStage: read the staged bytes, compute SHA-256, validate against the M2 import profile",
+      "expect": {
+        "digest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+        "outcome": "ImportProposal emitted",
+        "authority": "none (proposal only)"
+      }
+    },
+    {
+      "at": "prepare-3",
+      "action": "publishBlob: durably create sources/sha256/<digest> with the workspace.md 5.1 write procedure",
+      "expect": {
+        "writes": 1,
+        "verified": true,
+        "mutationLock": "not held",
+        "authoritativeStateChange": "none"
+      }
+    },
+    {
+      "at": "command-1",
+      "action": "command pipeline steps 1-3 under the mutation lock: resolve project/ownership, dedup (no record), pause check",
+      "expect": {
+        "outcome": "continues"
+      }
+    },
+    {
+      "at": "command-2",
+      "action": "step 4 revision check and steps 5-6 apply+verify the new AssetVersion (referenced blob exists and matches its digest)",
+      "expect": {
+        "revision": 7,
+        "blobVerified": true
+      }
+    },
+    {
+      "at": "command-3",
+      "action": "step 7 one atomic envelope write: scene revision 8 + new content block + one new retry record",
+      "expect": {
+        "envelopeWrites": 1,
+        "recordsAdded": 1
+      }
+    },
+    {
+      "at": "ack",
+      "action": "step 9 acknowledge after the directory flush and verification read",
+      "expect": {
+        "duplicated": false,
+        "revision": 8
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "success",
+    "codes": [],
+    "durableEffects": [
+      "sources/sha256/e5a1...eb41 exists and is immutable",
+      "envelope revision 8 carries one new AssetVersion with publishedRevision 8",
+      "exactly one retry record appended"
+    ],
+    "observations": [
+      "exactly one authoritative commit: the bytes are durable before the command, and only the single envelope replacement is authoritative",
+      "the command's args contain no staging handle and no path, so retry replay never depends on staging (content-storage.md 6.1)",
+      "no second mutable catalog file is written",
+      "the ack follows the envelope commit, never the blob publication"
+    ],
+    "mutationLock": {
+      "heldDuring": "command pipeline steps 1-9",
+      "notHeldDuring": [
+        "staging read",
+        "inspection",
+        "blob publication",
+        "quota pre-flight"
+      ]
+    }
+  },
+  "notes": "Establishes the acceptance claim \"one authoritative commit\": the blob is durable before the envelope, and only the envelope commit is authoritative."
+}

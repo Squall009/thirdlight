@@ -1,0 +1,14 @@
+# How control-model.txt was generated (literal transcript; no reimplementation).
+# The generator imports the real editor module and the ACCEPTED fixture, so the
+# table cannot drift from the implementation.
+$ cat > /tmp/gen-table.ts <<'TS'
+  import { readFileSync, writeFileSync } from 'node:fs';
+  import { derivePropertyControls, deriveComponentControls } from '<repo>/packages/editor/src/session/property-controls.ts';
+  const after = JSON.parse(readFileSync('<repo>/fixtures/m2/contracts/commands/prefab-scenario.after.json','utf8'));
+  ... derived from after.content.behaviors[0].declaration + the recorded definition values ...
+TS
+$ npx esbuild /tmp/gen-table.ts --bundle --platform=node --format=esm --outfile=/tmp/gen-table.mjs --log-level=warning
+$ node /tmp/gen-table.mjs   # writes docs/acceptance/evidence-m2/28/control-model.txt
+# Node 22.22.1 in this container is NOT compiled with --experimental-strip-types
+# (ERR_NO_TYPESCRIPT), so the module is bundled with the pinned esbuild 0.28.2
+# instead of run through a TS loader. The temp files are outside the repo.

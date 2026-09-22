@@ -1,0 +1,61 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "blob-missing-fails-closed",
+  "title": "A missing authoritative blob fails closed without substitution",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 8. Reading content: integrity, tamper and derived caches"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "onDisk": {
+      "sources/sha256/e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41": "deleted by an operator"
+    },
+    "operation": {
+      "op": "readBlob",
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "version": 2
+    }
+  },
+  "steps": [
+    {
+      "at": "open",
+      "action": "content integrity evaluation",
+      "expect": {
+        "report": "referenced version 2 of asset-7f3a2c9e1b4d5068 has no blob",
+        "projectBlocked": false
+      }
+    },
+    {
+      "at": "read",
+      "action": "readBlob(assetId, version)",
+      "expect": {
+        "outcome": "failure"
+      }
+    },
+    {
+      "at": "envelope",
+      "action": "the project is opened for editing",
+      "expect": {
+        "catalogRewritten": false,
+        "revisionUnchanged": true
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "blob_missing"
+    ],
+    "durableEffects": [],
+    "observations": [
+      "operations that do not read the missing bytes still work; the affected reads fail with an actionable diagnostic naming asset, version, digest and path",
+      "no silent fallback to another version, no fabricated/degraded mesh, no destructive repair of the catalog"
+    ]
+  },
+  "notes": "Fail closed with actionable diagnostics; repair is operator-driven (restore from backup or re-import)."
+}

@@ -1,0 +1,23 @@
+Packet 31 — resource release over repeated create/dispose cycles (real library)
+
+Each cycle: createPhysicsPort over the 61-static load course, assert the library's own
+(world.colliders.len(), world.bodies.len()) counts, run the 12-step settle + 12 moving steps,
+dispose twice (idempotent), assert diagnostics().live === false and that step() throws
+physics_port_disposed (the world handle is gone). 100 cycles, then a fresh port still works.
+
+Honest limits: Rapier's WASM linear memory never shrinks after World.free(), so RSS grows
+run-dependently (measured 14-90 MB over 100 cycles) while the JS heap stays flat (within ~2 MB).
+The memory figure is therefore a bounded-growth smoke check, not a leak proof; the counted
+release evidence is the per-cycle library world counts plus the stale-handle throw after each
+dispose (which proves World.free() ran) and the working fresh port at the end.
+
+[resource-cycles] cycles=100 statics=61 collidersPerCycle=62 bodiesPerCycle=61 rssAfter10Cycles=152580096 rssAfter100Cycles=240361472 rssDeltaBytes=87781376 jsHeapDeltaBytes=2073496 externalDeltaBytes=5944024
+ Test Files  1 passed | 3 skipped (4)
+      Tests  1 passed | 38 skipped (39)
+
+== full adapter suite ==
+ Test Files  4 passed (4)
+      Tests  39 passed (39)
+   Start at  07:34:04
+   Duration  998ms (tests 67%, transform 24%, import 7%, worker 2%)
+

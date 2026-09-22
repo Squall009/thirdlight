@@ -1,0 +1,26 @@
+=== npm test ===
+ Test Files  119 passed (119)
+      Tests  1562 passed (1562)
+=== npm run typecheck (package count) ===
+14
+typecheck exit=0
+=== npm run check-deps ===
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+check-deps exit=0
+=== npm run check-boundaries ===
+check-boundaries: OK — 14 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 251 source file(s), 908 specifier(s) checked; no boundary violations.
+check-boundaries exit=0
+=== npm run build ===
+build: done (4 built, 0 skipped).
+build exit=0
+=== contracts checker (fixtures/m2/contracts/tools/check-fixtures.mjs) ===
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)
+=== packet-32 course fixture checker ===
+
+all 9 checks passed
+=== physics/input/runtime fixture checkers ===
+check-physics-fixtures: OK — all packet-31 fixture checks passed.
+check OK: input fixtures consistent
+check-runtime-fixtures: all checks passed

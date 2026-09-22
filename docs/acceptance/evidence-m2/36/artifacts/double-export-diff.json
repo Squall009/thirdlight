@@ -1,0 +1,24 @@
+{
+  "first": {
+    "capturedAt": "2026-09-19T10:47:44Z",
+    "buildId": "ffb835e8e326973ec9e38e38b4fead8cf41c1cab54492fbee8c6cb69677bf6cf",
+    "outputDigest": "10bf61f226c9b50413725c4c96d8add1b501c4da36c848b26a7bbabf74154680"
+  },
+  "second": {
+    "capturedAt": "2026-09-19T10:47:44Z",
+    "buildId": "ffb835e8e326973ec9e38e38b4fead8cf41c1cab54492fbee8c6cb69677bf6cf",
+    "outputDigest": "10bf61f226c9b50413725c4c96d8add1b501c4da36c848b26a7bbabf74154680"
+  },
+  "sameCaptureSecond": true,
+  "differingFiles": [],
+  "identicalFiles": [
+    "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js",
+    "content/sha256/5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+    "index.html",
+    "js/main.js",
+    "manifest.json",
+    "meta.json",
+    "scene.json"
+  ],
+  "rederivedBuildIdMatchesFirst": true
+}

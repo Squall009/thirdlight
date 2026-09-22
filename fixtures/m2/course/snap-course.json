@@ -1,0 +1,87 @@
+{
+  "kind": "platformer-course",
+  "id": "tl-m2-snap-course",
+  "packet": 32,
+  "setVersion": 1,
+  "provenance": {
+    "source": "fixtures/m2/physics/snap-course.json (packet 31)",
+    "note": "Ground-snap course: 0.05 m and 0.50 m step-downs on a shared floor. Copied for the packet-32 snap measurements."
+  },
+  "solver": {
+    "hz": 120,
+    "gravityY": -19.62
+  },
+  "character": {
+    "start": {
+      "x": 0,
+      "y": 0.9
+    },
+    "capsule": {
+      "radius": 0.3,
+      "halfHeight": 0.6
+    },
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "maxSlopeClimbRad": 0.785398163397,
+    "minSlopeSlideRad": 0.523598775598,
+    "autostep": false
+  },
+  "settings": {
+    "gravity_y": -19.62,
+    "run_speed": 4,
+    "jump_velocity": 7,
+    "max_fall_speed": -30,
+    "max_slope_climb_deg": 45,
+    "min_slope_slide_deg": 30
+  },
+  "statics": [
+    {
+      "entityId": "upper",
+      "shape": {
+        "type": "box",
+        "hx": 5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 0,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "mid",
+      "shape": {
+        "type": "box",
+        "hx": 2.5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 7.5,
+        "y": -0.3
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "deep",
+      "shape": {
+        "type": "box",
+        "hx": 2.5,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 12.5,
+        "y": -0.8
+      },
+      "rotationZ": 0
+    }
+  ],
+  "counts": {
+    "statics": 3,
+    "polygonStatics": 0
+  }
+}

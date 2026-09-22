@@ -1,0 +1,508 @@
+{
+  "startedAt": "2026-09-22T05:17:50.321Z",
+  "authoringOrigin": "http://127.0.0.1:18501",
+  "previewOrigin": "http://127.0.0.1:18502",
+  "rows": {
+    "E02-capabilities": {
+      "status": "INFO",
+      "detail": {
+        "caps": {
+          "webgl2": true,
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+          "vendor": "Google Inc. (Google)",
+          "maxTextureSize": 8192,
+          "audioContext": true,
+          "getGamepads": true,
+          "gamepadCount": 0,
+          "devicePixelRatio": 1,
+          "screen": {
+            "w": 800,
+            "h": 600
+          },
+          "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+          "isTrustedSupport": true
+        },
+        "note": "software rasteriser (ANGLE/SwiftShader) — NEVER a hardware-GPU claim; physical gamepad/audio/display absent"
+      }
+    },
+    "A01-export-title": {
+      "status": "PASS",
+      "detail": {
+        "title": "Beacon Reach"
+      }
+    },
+    "A02-canvas-as-shipped": {
+      "status": "INFO",
+      "detail": {
+        "canvasAttrs": {
+          "tabindex": null,
+          "id": "game"
+        },
+        "note": "no tabindex as shipped — keyboard focus reachability tested in A04/B02"
+      }
+    },
+    "A03-start": {
+      "status": "PASS",
+      "detail": {
+        "promptAfterStart": [
+          "Reach the beacon",
+          "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+          "A/D or the controller to move, Space or the controller confirm to jump, M to mute",
+          "Deaths: 0 — sound: ready"
+        ],
+        "hostHudLine": "beacon-reach@r26 · build c5ce9766272a · awaitingStart · deaths=0 · goal=false"
+      }
+    },
+    "A04-wrapper-hud-staleness": {
+      "status": "INFO",
+      "detail": {
+        "hudTrace": [
+          {
+            "t": 0,
+            "prompt": [
+              "Reach the beacon",
+              "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+              "A/D or the controller to move, Space or the controller confirm to jump, M to mute",
+              "Deaths: 0 — sound: ready"
+            ],
+            "hudLine": "beacon-reach@r26 · build c5ce9766272a · awaitingStart · deaths=0 · goal=false"
+          },
+          {
+            "t": 502,
+            "prompt": [
+              "Reach the beacon",
+              "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+              "A/D or the controller to move, Space or the controller confirm to jump, M to mute",
+              "Deaths: 0 — sound: ready"
+            ],
+            "hudLine": "beacon-reach@r26 · build c5ce9766272a · awaitingStart · deaths=0 · goal=false"
+          },
+          {
+            "t": 1004,
+            "prompt": [
+              "Reach the beacon",
+              "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+              "A/D or the controller to move, Space or the controller confirm to jump, M to mute",
+              "Deaths: 0 — sound: ready"
+            ],
+            "hudLine": "beacon-reach@r26 · build c5ce9766272a · awaitingStart · deaths=0 · goal=false"
+          },
+          {
+            "t": 1506,
+            "prompt": [
+              "Reach the beacon",
+              "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+              "A/D or the controller to move, Space or the controller confirm to jump, M to mute",
+              "Deaths: 0 — sound: ready"
+            ],
+            "hudLine": "beacon-reach@r26 · build c5ce9766272a · awaitingStart · deaths=0 · goal=false"
+          }
+        ],
+        "wrapperHudLineSettled": true,
+        "note": "the wrapper #hud status line (state/deaths/goal) is refreshed once at mount by export-bootstrap-m3 — expected stale during play; the host HUD prompt is live"
+      }
+    },
+    "A05-scripted-motion": {
+      "status": "UNVERIFIED",
+      "detail": {
+        "canvasChanged": false,
+        "distinctHoldFrames": 1,
+        "holdPrompts": [
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute",
+          "Beacon ReachReach the beaconA / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.A/D or the controller to move, Space or the controller confirm to jump, M to muteDeaths: 0 — sound: readyStartMute"
+        ],
+        "spawnBytes": 24278,
+        "moveBytes": 24278
+      }
+    },
+    "A06-raf-cadence": {
+      "status": "PASS",
+      "detail": {
+        "t1": 10633.8,
+        "t2": 11233.8,
+        "delta": 600,
+        "note": "diagnostic only — software rasteriser"
+      }
+    },
+    "A07-wav-decode": {
+      "status": "PASS",
+      "detail": [
+        {
+          "path": "content/sha256/e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+          "duration": 0.22,
+          "ok": true
+        },
+        {
+          "path": "content/sha256/4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+          "duration": 0.31997732426303854,
+          "ok": true
+        },
+        {
+          "path": "content/sha256/ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+          "duration": 0.42,
+          "ok": true
+        },
+        {
+          "path": "content/sha256/98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+          "duration": 0.13997732426303855,
+          "ok": true
+        },
+        {
+          "path": "content/sha256/608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+          "duration": 0.17997732426303856,
+          "ok": true
+        }
+      ]
+    },
+    "A08-two-aspects": {
+      "status": "PASS",
+      "detail": {
+        "aspectA": "1280x720 (16:9)",
+        "aspectB": "960x720 (4:3)",
+        "viewDiffers": true
+      }
+    },
+    "A09-network-relative": {
+      "status": "PASS",
+      "detail": {
+        "requests": 17,
+        "externalOrigins": []
+      }
+    },
+    "A10-console-clean": {
+      "status": "PASS",
+      "detail": {
+        "jsErrors": [],
+        "consoleMessages": []
+      }
+    },
+    "A11-model-entities": {
+      "status": "INFO",
+      "detail": {
+        "modelEntityCount": 3,
+        "note": "the committed sample carries GLB model entities; the M3 scene adapter (three-adapter adapter-m3) realizes boxes/lights/surfaces only — model entities render as empty groups (verified in source, packet 52/58; repair is packet 69). The visible player is the controller BOX."
+      }
+    },
+    "B00-ready": {
+      "status": "PASS",
+      "detail": "host mounted in the real browser (production composition)"
+    },
+    "B01-sim-steps-idle": {
+      "status": "PASS",
+      "detail": {
+        "stepBefore": 285,
+        "stepAfter": 368
+      }
+    },
+    "B01b-canvas-renders": {
+      "status": "PASS",
+      "detail": {
+        "bytes": 23030
+      }
+    },
+    "B02-keyboard-as-shipped": {
+      "status": "INFO",
+      "detail": {
+        "stepAdvanced": true,
+        "observation": {
+          "runId": "beacon-reach@r26#0",
+          "snapshotId": "beacon-reach@r26",
+          "buildId": "probe-build",
+          "stepIndex": 500,
+          "state": "awaitingStart",
+          "checkpointId": null,
+          "deathCount": 0,
+          "goalReached": false,
+          "failed": false,
+          "sound": {
+            "status": "blocked",
+            "unlocked": false,
+            "voices": 0,
+            "muted": false,
+            "gesture": "none"
+          },
+          "inputMode": "physical"
+        },
+        "note": "canvas without tabindex: a native canvas cannot receive focus; the input owner scopes keydown to the canvas element, so as-shipped keyboard input cannot start or drive the game in preview/export. Recorded as a delivery defect (candidate D-63-2); the harness focus shim below is diagnostic, not a fix."
+      }
+    },
+    "B03-enter-starts": {
+      "status": "PASS",
+      "detail": {
+        "runId": "beacon-reach@r26#0",
+        "snapshotId": "beacon-reach@r26",
+        "buildId": "probe-build",
+        "stepIndex": 515,
+        "state": "playing",
+        "checkpointId": null,
+        "deathCount": 0,
+        "goalReached": false,
+        "failed": false,
+        "sound": {
+          "status": "blocked",
+          "unlocked": false,
+          "voices": 0,
+          "muted": false,
+          "gesture": "none"
+        },
+        "inputMode": "physical"
+      }
+    },
+    "B04-held-D-moves-player": {
+      "status": "PASS",
+      "detail": {
+        "start": {
+          "stepIndex": 518,
+          "simTime": 4.316666666666666,
+          "alpha": 0.5040000915527898,
+          "player": {
+            "x": 3,
+            "y": 0.9099545248647337,
+            "z": 0
+          }
+        },
+        "end": {
+          "stepIndex": 927,
+          "simTime": 7.725,
+          "alpha": 0.04799995422370529,
+          "player": {
+            "x": 5.690094460260298,
+            "y": 0.9100000384152372,
+            "z": 0
+          }
+        },
+        "delta": 2.6900944602602976,
+        "samples": [
+          {
+            "t": 0,
+            "step": 518,
+            "x": 3,
+            "y": 0.9099545248647337
+          },
+          {
+            "t": 317,
+            "step": 560,
+            "x": 4.2055999903377135,
+            "y": 0.9099999899555405
+          },
+          {
+            "t": 642,
+            "step": 597,
+            "x": 5.431297367080675,
+            "y": 0.9100000450709195
+          },
+          {
+            "t": 963,
+            "step": 635,
+            "x": 5.690064226226415,
+            "y": 0.9100966685368177
+          },
+          {
+            "t": 1285,
+            "step": 672,
+            "x": 5.690068097093928,
+            "y": 0.9102142626346637
+          },
+          {
+            "t": 1607,
+            "step": 709,
+            "x": 5.690071954922048,
+            "y": 0.9103321528638364
+          },
+          {
+            "t": 1925,
+            "step": 747,
+            "x": 5.690075867450845,
+            "y": 0.9104559577687044
+          },
+          {
+            "t": 2244,
+            "step": 784,
+            "x": 5.690080152431365,
+            "y": 0.9105788443015577
+          },
+          {
+            "t": 2565,
+            "step": 823,
+            "x": 5.690084700264561,
+            "y": 0.9107067801213816
+          },
+          {
+            "t": 2895,
+            "step": 859,
+            "x": 5.690089055123906,
+            "y": 0.9108268450395616
+          }
+        ]
+      }
+    },
+    "B04b-canvas-reflects-motion": {
+      "status": "UNVERIFIED",
+      "detail": {
+        "distinctHoldFrames": 1,
+        "playerDelta": 2.6900944602602976,
+        "note": "the captured canvas frames are identical across the held-D window (SwiftShader + full-frame capture; see B04 for the simulation-state evidence)"
+      }
+    },
+    "B05-diagnostics": {
+      "status": "INFO",
+      "detail": {
+        "diag": {
+          "frameCount": 326,
+          "state": "running",
+          "errors": []
+        },
+        "gameView": {
+          "state": "playing",
+          "stepIndex": 927,
+          "deathCount": 0,
+          "goalReached": false,
+          "events": [
+            {
+              "id": "beacon-reach@r26#0/runStarted/504",
+              "kind": "runStarted",
+              "stepIndex": 504,
+              "boundary": true,
+              "deathCount": 0
+            }
+          ]
+        },
+        "audio": {
+          "state": "blocked",
+          "diagnostics": [
+            {
+              "code": "cue_skipped",
+              "assetId": "br-audio-start",
+              "message": "cue beacon-reach@r26#0/runStarted/504 skipped: sound off (blocked), the game continues"
+            }
+          ]
+        },
+        "note": "audio is pre-gesture (blocked) — the harness never unlocks; audibility UNVERIFIED by contract"
+      }
+    },
+    "C01-backend-start": {
+      "status": "PASS",
+      "detail": {
+        "stderrLine": "thirdlight-backend: listening (authoring port 18501, preview port 18502)"
+      }
+    },
+    "C02-editor-loaded": {
+      "status": "PASS",
+      "detail": "real editor page loaded; WS session attached (status bar present)"
+    },
+    "C03-authoring-viewport-renders": {
+      "status": "PASS",
+      "detail": {
+        "canvasBytes": 40310
+      }
+    },
+    "C03b-session-stable": {
+      "status": "INFO",
+      "detail": {
+        "stable": null,
+        "note": "the status bar never read connected-without-error within 60 s of load (a re-establish cycle); the Play click proceeds and C05 records the real outcome"
+      }
+    },
+    "C04-play-button": {
+      "status": "PASS",
+      "detail": {
+        "playRect": {
+          "x": 1237.7734375,
+          "y": 21,
+          "disabled": false,
+          "visible": true
+        },
+        "clickMethod": "cdp-trusted"
+      }
+    },
+    "C05-preview-iframe": {
+      "status": "PASS",
+      "detail": {
+        "src": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+        "msAfterClick": 104
+      }
+    },
+    "C06-preview-host-mounted": {
+      "status": "FAIL",
+      "detail": {
+        "title": null,
+        "firstBody": null,
+        "note": "see c-06-failure.json (sessionLog carries the authoritative play lifecycle: the §10.2 15 s present timeout stops the play because the editor client never sends play.preview.ready — D-63-4)"
+      }
+    },
+    "C07-preview-canvas-renders": {
+      "status": "FAIL",
+      "detail": {
+        "sceneCanvasBytes": null,
+        "bootstrapCanvasBytes": null,
+        "note": "only the flat bootstrap canvas is present (no scene render — the host did not compose)"
+      }
+    },
+    "C08-keyboard-as-shipped": {
+      "status": "UNVERIFIED",
+      "detail": {
+        "note": "the preview frame was torn down before the keyboard window (the §10.2 15 s present timeout; the editor client never sends play.preview.ready — D-63-4). The as-shipped keyboard facts are recorded in Phase B (B02–B04) over the identical production composition."
+      }
+    },
+    "C09-enter-starts": {
+      "status": "UNVERIFIED",
+      "detail": {
+        "note": "the preview frame was torn down before the keyboard window (the §10.2 15 s present timeout; the editor client never sends play.preview.ready — D-63-4). The as-shipped keyboard facts are recorded in Phase B (B02–B04) over the identical production composition."
+      }
+    },
+    "C10-preview-motion": {
+      "status": "UNVERIFIED",
+      "detail": {
+        "note": "the preview frame was torn down before the keyboard window (the §10.2 15 s present timeout; the editor client never sends play.preview.ready — D-63-4). The as-shipped keyboard facts are recorded in Phase B (B02–B04) over the identical production composition."
+      }
+    },
+    "C11-no-external-requests": {
+      "status": "PASS",
+      "detail": {
+        "requests": [
+          "http://127.0.0.1:18501/",
+          "http://127.0.0.1:18501/main.js",
+          "http://127.0.0.1:18501/api/v1/sessions",
+          "http://127.0.0.1:18501/favicon.ico",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/commands",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/commands",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/commands",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/commands",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/commands",
+          "http://127.0.0.1:18501/api/v1/projects/beacon-reach/play",
+          "http://127.0.0.1:18502/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0",
+          "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+          "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/game.js",
+          "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/manifest.json"
+        ],
+        "externalOrigins": []
+      }
+    },
+    "C12-console-clean": {
+      "status": "PASS",
+      "detail": {
+        "jsErrors": [],
+        "consoleMessages": [
+          {
+            "type": "info",
+            "text": "%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold"
+          }
+        ]
+      }
+    },
+    "C13-keepalive": {
+      "status": "INFO",
+      "detail": {
+        "posts": 5,
+        "errors": 0,
+        "note": "harness session keepalive (real query commands over the public route) — compensates for the missing §5.2 client heartbeat (D-63-3); a real operator's activity would serve the same role"
+      }
+    }
+  }
+}

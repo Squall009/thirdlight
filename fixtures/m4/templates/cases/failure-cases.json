@@ -1,0 +1,114 @@
+{
+  "description": "The failure-phase cases (templates.md §14.4; C09). One case per new code with the exact raising state. The checker re-derives the pure parts (digests, recipe rules, resolution); the workspace-phase states (marker/on-disk) are the pinned 72/73 evidence expectations.",
+  "cases": [
+    {
+      "id": "F1",
+      "code": "template_not_found",
+      "state": "creation names a templateId not in the installed verified set (removed, or never installed)",
+      "resolution": "nothing written; the install scan row reports the installed set only"
+    },
+    {
+      "id": "F2",
+      "code": "template_descriptor_invalid",
+      "state": "a descriptor with an unknown field, a wrong schemaVersion/type, or a blobs entry unsorted / with an invalid path (.., escape, or a symlink component)",
+      "resolution": "install scan reports + excludes the template; creation naming it ⇒ template_not_found (never loaded)"
+    },
+    {
+      "id": "F3",
+      "code": "template_content_mismatch",
+      "state": "any of the three digest checks fails: descriptor-minus-digest re-hash ≠ contentDigest; recipe re-hash ≠ recipeDigest; a sources file re-hash/length ≠ its inventory row (a tampered file)",
+      "resolution": "the template is refused for creation and reported by the scan; no field is ever repaired from another field"
+    },
+    {
+      "id": "F4",
+      "code": "template_engine_version_mismatch",
+      "state": "backend engineVersion ≠ the descriptor engineVersion (carries both)",
+      "resolution": "creation refused before the reserved phase (nothing written)"
+    },
+    {
+      "id": "F5",
+      "code": "template_path_rejected",
+      "state": "a template file path escapes templatesRoot, uses .., or any path component is a symlink (realpath containment fails)",
+      "resolution": "the template is refused at install scan (and at creation); the symlink case is never followed"
+    },
+    {
+      "id": "F6",
+      "code": "template_recipe_invalid",
+      "state": "three sub-cases: (a) an op outside the §4.1 whitelist (e.g. deleteEntity or publishBehavior — the behavior boundary, templates.md §4.1/§8.4); (b) a bound (N > 128, recipe > 256 KiB, blobs > 64); (c) a replayed command fails validation at creation (a command index i fails ⇒ the error carries index i + the command error)",
+      "resolution": "(a)/(b) at install scan (the template is refused — a committed recipe that does not replay is invalid, §4.3); (c) at the replayed phase (the marker is retained at the last good command; the destination stays resumable/deletable, never ready)"
+    },
+    {
+      "id": "F7",
+      "code": "template_destination_exists",
+      "state": "the destination exists with a different identity: different template/digest, different name, a non-template (v1-manifest or migrated) project, a partial destination of a different identity, or an unloadable directory (carries existing: project|partial|unloadable)",
+      "resolution": "nothing written; the existing project is never overwritten/renamed/upgraded; the identity-matching retry is the §5.2 no-op (created:false)"
+    },
+    {
+      "id": "F8",
+      "code": "template_reservation_conflict",
+      "state": "a foreign reservation marker (different identity) is observed for the same destination at the reserved phase (concurrent different-identity claim)",
+      "resolution": "the loser is refused; the winner proceeds; no marker is overwritten"
+    },
+    {
+      "id": "F9",
+      "code": "template_marker_conflict",
+      "state": "the marker and the on-disk state disagree unrecoverably: recipeApplied ≠ the envelope revision; a corrupt published phase at revision < N; a manifest that does not re-derive from the reservation identity",
+      "resolution": "no auto-completion; the scan reports; the operator deletes the destination (or resumes when the disagreement is a simple resume gap)"
+    },
+    {
+      "id": "F10",
+      "code": "template_initialization_incomplete",
+      "state": "any open/query/Play/project-list against a destination with a marker phase < published (carries phase, recipeApplied, the resume/delete hint)",
+      "resolution": "the destination is not a project: it never appears as loadable; only the published+claimed+marker-removed state is ready (the C09 invariant)"
+    },
+    {
+      "id": "F11",
+      "code": "template_source_unavailable",
+      "state": "an in-flight creation (marker phase < published) whose marker templateContentDigest matches no installed template (a replacement landed across a crash)",
+      "resolution": "reported by the scan; resolved by restoring the original template (then resume) or deleting the destination; never re-pointed, never auto-completed"
+    },
+    {
+      "id": "F12",
+      "code": "module_unknown",
+      "state": "a declared or content-derived module ID is not in the finite §8.1 registry (at any evaluation point §8.3)",
+      "resolution": "creation fails before published (reported at the marker); capture/export fail the snapshot build with the exact code; post-edit Play is refused with it"
+    },
+    {
+      "id": "F13",
+      "code": "module_duplicate",
+      "state": "the resolved set would contain the same ID twice (a registry-integrity fault — the resolution is a set union over a flat registry, so this is a registry-validation failure)",
+      "resolution": "fail-fast before publication/build"
+    },
+    {
+      "id": "F14",
+      "code": "module_cycle",
+      "state": "the registry dependency edges carry a cycle (impossible for the flat M4 registry — a registry-integrity check specified so a future row cannot smuggle one in)",
+      "resolution": "fail-fast before publication/build"
+    },
+    {
+      "id": "F15",
+      "code": "module_unresolved",
+      "state": "the delivery capture of a scene whose content references thirdlight.behavior:<id> (a user-added behavior, §8.4): the module is referenced but not linkable under the M4 built-in-only profile",
+      "resolution": "the capture fails with the exact code — never a silent omission (C14), never a silent fallback (the host fail-closed, CC-55-3a, is the same boundary at the host layer)"
+    },
+    {
+      "id": "F16",
+      "code": "manifest_storage_mismatch",
+      "state": "a manifest schemaVersion 2 paired with storageVersion ≤ 2 (the §6 named-combination check)",
+      "resolution": "the load pipeline refuses with version_combination_unsupported (single error); the only new valid combination is (2, 3, 3)"
+    },
+    {
+      "id": "F17",
+      "code": "content_quota_exceeded",
+      "state": "the destination quota / device free space cannot hold the template blobs (checked before the blobs phase; kind: project_quota | device_space)",
+      "resolution": "the reserved marker is retained; nothing half-published; resumable after space, operator-deletable"
+    },
+    {
+      "id": "F18",
+      "code": "content_publish_failed",
+      "state": "a W failure (ENOSPC/EIO) in the blobs/envelope phases (the accepted content_publish_failed with the onDiskState)",
+      "resolution": "the marker stays at the last completed phase; never half-claimed, never ready (§5.7)"
+    }
+  ],
+  "crashTable": "the §5.6 phase table is the crash-completion spec; the 72/73 evidence drills each boundary (subprocess crash at reserved/blobs/envelope/replayed(K<N)/published-unclaimed) and asserts the no-ready-partial invariant (C09)."
+}

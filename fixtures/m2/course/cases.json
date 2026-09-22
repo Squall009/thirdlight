@@ -1,0 +1,534 @@
+{
+  "kind": "controller-cases",
+  "setVersion": 1,
+  "packet": 32,
+  "note": "Every case is a real numeric run: platformer controller + runtime + real Rapier adapter + real input mapping, against fixtures/m2/course/**. `expect` fields name tolerance keys of tolerances.json; no measured value is chosen after the run.",
+  "toleranceFile": "tolerances.json",
+  "cases": [
+    {
+      "id": "idle-settle",
+      "title": "Idle on flat ground: grounded every step, no Y drift, settled rest centre",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "idle-120",
+      "expect": {
+        "groundedEveryStep": true,
+        "maxStepDelta": 0.001,
+        "finalY": {
+          "value": 0.91,
+          "tolerance": 0.0005
+        },
+        "toleranceRef": "T1_idle"
+      }
+    },
+    {
+      "id": "flat-run",
+      "title": "Flat run at run_speed: grounded every step, speed band, seam crossed",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "run-right-240",
+      "expect": {
+        "groundedEveryStep": true,
+        "speed": {
+          "value": 4,
+          "fraction": 0.05
+        },
+        "maxYDeviation": 0.005,
+        "toleranceRef": [
+          "T2_flatRun",
+          "T3_seam"
+        ]
+      }
+    },
+    {
+      "id": "accel-decel-steps",
+      "title": "12-step acceleration to run_speed and 8-step deceleration to zero",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "run-right-20-stop-16",
+      "expect": {
+        "accelSteps": 12,
+        "decelSteps": 8,
+        "runSpeed": 4,
+        "toleranceMps": 0.000001,
+        "toleranceRef": "T12_accelDecel"
+      }
+    },
+    {
+      "id": "jump-hold",
+      "title": "Single held jump: apex gain within the theoretical tolerance, landing back at rest",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "jump-hold-60",
+      "expect": {
+        "apexTheoretical": 1.249,
+        "apexTolerance": 0.05,
+        "landTolerance": 0.001,
+        "singleJump": true,
+        "maxVy": 7,
+        "toleranceRef": "T11_jumpHeight"
+      }
+    },
+    {
+      "id": "jump-tap",
+      "title": "Variable height: release halves the ascending velocity once",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "jump-tap",
+      "expect": {
+        "releaseFactor": 0.5,
+        "releaseTolerance": 0.02,
+        "apexBelowHold": true,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "no-air-jump",
+      "title": "Repeated jump edges while airborne never restore jump velocity",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "no-air-jump",
+      "expect": {
+        "jumpStarts": 1,
+        "maxVy": 7,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "wall-stop",
+      "title": "4 m/s run into the wall face stops within the band with no penetration",
+      "course": "course.json",
+      "start": {
+        "x": 8,
+        "y": 0.91
+      },
+      "input": "wall-stop",
+      "expect": {
+        "wallFaceX": 9.5,
+        "stopBand": 0.05,
+        "maxPenetration": 0.005,
+        "wallContact": true,
+        "groundedEveryStep": true,
+        "toleranceRef": "T6_wallStop"
+      }
+    },
+    {
+      "id": "high-speed-wall",
+      "title": "12 m/s approach: the sweep stops the character with no tunnelling",
+      "course": "course.json",
+      "start": {
+        "x": 8.2,
+        "y": 0.91
+      },
+      "input": "high-speed-wall",
+      "settings": {
+        "run_speed": 12
+      },
+      "expect": {
+        "runSpeed": 12,
+        "maxPenetration": 0.005,
+        "stopWithinStepsOfContact": 10,
+        "toleranceRef": "T9_highSpeed",
+        "runwayLimitedApproach": true
+      }
+    },
+    {
+      "id": "seam-cross",
+      "title": "0.02 m floor seam: no more than 2 ungrounded steps",
+      "course": "course.json",
+      "start": {
+        "x": -1.5,
+        "y": 0.91
+      },
+      "input": "seam-cross",
+      "expect": {
+        "seamX": 0,
+        "maxUngroundedSteps": 2,
+        "groundedFractionMin": 0.95,
+        "toleranceRef": "T3_seam"
+      }
+    },
+    {
+      "id": "ramp-a43-climb",
+      "title": "43 degree ramp is climbed (grounded fraction of the ascent)",
+      "course": "course.json",
+      "start": {
+        "x": -1,
+        "y": 0.91
+      },
+      "input": "ramp-a43-climb",
+      "expect": {
+        "angleDeg": 43,
+        "minGroundedFraction": 0.95,
+        "minHeightGain": 1,
+        "maxPenetrationBelow": 0.005,
+        "toleranceRef": "T4_rampClimb"
+      }
+    },
+    {
+      "id": "ramp-b47-refuse",
+      "title": "47 degree ramp refuses the climb (too-steep)",
+      "course": "course.json",
+      "start": {
+        "x": 5,
+        "y": 0.91
+      },
+      "input": "ramp-b47-refuse",
+      "expect": {
+        "angleDeg": 47,
+        "pushSeconds": 1,
+        "maxHeightGain": 0.3,
+        "toleranceRef": "T5_rampRefuse"
+      }
+    },
+    {
+      "id": "ceiling-head-bump",
+      "title": "Head strike under the ceiling: rise clamped, vy zeroed",
+      "course": "course.json",
+      "start": {
+        "x": -1,
+        "y": 0.91
+      },
+      "input": "ceiling-head-bump",
+      "expect": {
+        "ceilingUndersideY": 4,
+        "maxCenterY": 3.095,
+        "contactMinCenterY": 3.085,
+        "maxRisePerStepAfterContact": 0.0005,
+        "headContact": true,
+        "toleranceRef": "T7_headBump"
+      }
+    },
+    {
+      "id": "ledge-block-and-jump",
+      "title": "0.4 m ledge blocks walking (no autostep); a running jump lands on top",
+      "course": "course.json",
+      "start": {
+        "x": 10.6,
+        "y": 0.91
+      },
+      "input": "ledge-block-and-jump",
+      "expect": {
+        "ledgeTopY": 0.4,
+        "landTolerance": 0.05,
+        "blockMaxDxPerStep": 0.02,
+        "groundedWithinStepsOfContact": 3,
+        "toleranceRef": "T8_ledge"
+      }
+    },
+    {
+      "id": "snap-within",
+      "title": "0.05 m step-down is absorbed by ground snap (never airborne)",
+      "course": "snap-course.json",
+      "start": {
+        "x": -1.5,
+        "y": 0.9
+      },
+      "input": "snap-walk-420",
+      "expect": {
+        "stepDownM": 0.05,
+        "snapDistanceM": 0.1,
+        "ungroundedSteps": 0,
+        "toleranceRef": "T15_snap"
+      }
+    },
+    {
+      "id": "snap-beyond",
+      "title": "0.50 m step-down is not snapped: the character falls and lands lower",
+      "course": "snap-course.json",
+      "start": {
+        "x": -1.5,
+        "y": 0.9
+      },
+      "input": "snap-walk-420",
+      "expect": {
+        "stepDownM": 0.5,
+        "snapDistanceM": 0.1,
+        "minUngroundedSteps": 1,
+        "toleranceRef": "T15_snap"
+      }
+    },
+    {
+      "id": "slope-threshold-29.9",
+      "title": "Standing on a 29.9 degree face: grounded, not steep",
+      "course": "slope-course.json",
+      "start": {
+        "x": 0.408219212448,
+        "y": 1.296152423317
+      },
+      "input": "slope-idle",
+      "expect": {
+        "angleDeg": 29.9,
+        "grounded": true,
+        "steepSlope": false,
+        "supportNormalY": {
+          "value": 0.8668967489356028,
+          "tolerance": 0.002
+        },
+        "toleranceRef": "T14_slopeThreshold"
+      }
+    },
+    {
+      "id": "slope-threshold-30.0",
+      "title": "Standing on a 30.0 degree face: grounded, at the minimum slide angle",
+      "course": "slope-course.json",
+      "start": {
+        "x": 6.406217782649,
+        "y": 1.296410161514
+      },
+      "input": "slope-idle",
+      "expect": {
+        "angleDeg": 30,
+        "grounded": true,
+        "steepSlope": false,
+        "supportNormalY": {
+          "value": 0.8660254037844387,
+          "tolerance": 0.002
+        },
+        "toleranceRef": "T14_slopeThreshold"
+      }
+    },
+    {
+      "id": "slope-threshold-44.9",
+      "title": "Standing on a 44.9 degree face: grounded (inclusive climb limit below)",
+      "course": "slope-course.json",
+      "start": {
+        "x": 12.125993037156,
+        "y": 1.290254701193
+      },
+      "input": "slope-idle",
+      "expect": {
+        "angleDeg": 44.9,
+        "grounded": true,
+        "steepSlope": false,
+        "supportNormalY": {
+          "value": 0.7083398377245289,
+          "tolerance": 0.002
+        },
+        "toleranceRef": "T14_slopeThreshold"
+      }
+    },
+    {
+      "id": "slope-threshold-45.0",
+      "title": "Standing on a 45.0 degree face: grounded (climb limit inclusive)",
+      "course": "slope-course.json",
+      "start": {
+        "x": 18.124264068712,
+        "y": 1.289949493661
+      },
+      "input": "slope-idle",
+      "expect": {
+        "angleDeg": 45,
+        "grounded": true,
+        "steepSlope": false,
+        "supportNormalY": {
+          "value": 0.7071067811865476,
+          "tolerance": 0.002
+        },
+        "toleranceRef": "T14_slopeThreshold"
+      }
+    },
+    {
+      "id": "slope-threshold-45.1",
+      "title": "Standing on a 45.1 degree face: refused (steepSlope, not grounded by the controller)",
+      "course": "slope-course.json",
+      "start": {
+        "x": 24.122537463292,
+        "y": 1.289641270571
+      },
+      "input": "slope-idle",
+      "expect": {
+        "angleDeg": 45.1,
+        "grounded": false,
+        "steepSlope": true,
+        "supportNormalY": {
+          "value": 0.705871570678681,
+          "tolerance": 0.002
+        },
+        "toleranceRef": "T14_slopeThreshold"
+      }
+    },
+    {
+      "id": "no-z-drift",
+      "title": "Z, rotation and scale stay bit-identical through a full X/Y run",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "run-right-120",
+      "expect": {
+        "positionZ": 0,
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "toleranceRef": "T16_noZDrift"
+      }
+    },
+    {
+      "id": "jump-buffer-in-window",
+      "title": "Buffered jump: a press while airborne fires on landing inside the 8-step window",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": null,
+      "window": {
+        "kind": "buffered-jump",
+        "firstJumpStep": 31,
+        "pressOffsetFromLanding": -6,
+        "holdJump": true
+      },
+      "expect": {
+        "windowSteps": 8,
+        "fires": true,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "jump-buffer-expired",
+      "title": "Buffered jump expires: a press 9+ steps before landing never fires",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": null,
+      "window": {
+        "kind": "buffered-jump",
+        "firstJumpStep": 31,
+        "pressOffsetFromLanding": -10,
+        "holdJump": true
+      },
+      "expect": {
+        "windowSteps": 8,
+        "fires": false,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "coyote-last-step",
+      "title": "Coyote: running off the ledge, a press at the last coyote step still jumps",
+      "course": "course.json",
+      "start": {
+        "x": 18,
+        "y": 1.31
+      },
+      "input": null,
+      "window": {
+        "kind": "coyote-runoff",
+        "runInput": "ledge-run-off",
+        "pressOffsetFromLastGrounded": 7,
+        "holdJump": true
+      },
+      "expect": {
+        "windowSteps": 6,
+        "fixtureLastCoyoteOffset": 7,
+        "fires": true,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "coyote-one-step-late",
+      "title": "Coyote: the same press one executed step later cannot jump",
+      "course": "course.json",
+      "start": {
+        "x": 18,
+        "y": 1.31
+      },
+      "input": null,
+      "window": {
+        "kind": "coyote-runoff",
+        "runInput": "ledge-run-off",
+        "pressOffsetFromLastGrounded": 8,
+        "holdJump": true
+      },
+      "expect": {
+        "windowSteps": 6,
+        "fixtureLastCoyoteOffset": 7,
+        "fires": false,
+        "toleranceRef": "T13_windows"
+      }
+    },
+    {
+      "id": "repeated-jump-catchup",
+      "title": "Repeated jump edges across catch-up: one press, one jump",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "jump-hold-60",
+      "expect": {
+        "jumpStarts": 1,
+        "droppedWallSeconds": 0,
+        "toleranceRef": "T17_stall"
+      }
+    },
+    {
+      "id": "stall-dropped-wall-time",
+      "title": "Long tab stall: at most 8 steps execute, the rest of the wall time is dropped, no phantom steps",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "input": "run-right-240",
+      "stallAfterSteps": 20,
+      "stallSeconds": 5,
+      "expect": {
+        "maxCatchupSteps": 8,
+        "droppedSteps": 592,
+        "phantomSteps": 0,
+        "toleranceRef": "T17_stall"
+      }
+    },
+    {
+      "id": "high-speed-ledge",
+      "title": "12 m/s approach into the 0.4 m ledge face: no tunnelling, stop within 10 steps",
+      "course": "course.json",
+      "start": {
+        "x": 8.3,
+        "y": 0.91
+      },
+      "input": "ledge-block-and-jump",
+      "settings": {
+        "run_speed": 12
+      },
+      "expect": {
+        "runSpeed": 12,
+        "minApproachSpeed": 11,
+        "maxPenetration": 0.005,
+        "stopWithinStepsOfContact": 10,
+        "toleranceRef": "T9_highSpeed"
+      }
+    }
+  ]
+}

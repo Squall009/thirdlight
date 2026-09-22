@@ -158,7 +158,7 @@ describe('args-level strictness (field_*) — createEntity', () => {
     }
     if (_label === 'camera') {
       expect(e.code).toBe('field_value');
-      expect(e.expected).toBe('"group" or "box"');
+      expect(e.expected).toBe('"group", "box" or "model"');
     }
   });
 

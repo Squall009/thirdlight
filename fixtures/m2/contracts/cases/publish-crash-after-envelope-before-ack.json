@@ -1,0 +1,54 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-crash-after-envelope-before-ack",
+  "title": "Crash after the envelope commit before the ack replays on retry",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "crashPoint": "after the envelope (revision 9, one new version, one new record) is durable, before the client receives the ack",
+    "request": {
+      "requestId": "req-50000000000000000000000000000005",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-commit01"
+    },
+    "retryRecord": {
+      "present": true,
+      "digestMatches": true,
+      "appliedRevision": 9
+    }
+  },
+  "steps": [
+    {
+      "at": "retry",
+      "action": "retry the identical request",
+      "expect": {
+        "outcome": "replay",
+        "duplicated": true,
+        "revision": 9,
+        "envelopeWrites": 0
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "replay",
+    "codes": [],
+    "durableEffects": [],
+    "observations": [
+      "the record is durable in the same atomic unit as the new revision, so a retry can never double-apply or double-publish"
+    ]
+  },
+  "notes": "Workspace.md §5.1 crash-point table applied to content publication."
+}

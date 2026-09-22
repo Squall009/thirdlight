@@ -49,25 +49,30 @@ let root;
 
 const CLEAN_INDEX = 'export const app = 1;\n';
 const CLEAN_PREVIEW = 'export const preview = 2;\n';
+const CLEAN_PREVIEW_M3 = 'export const previewM3 = 3;\n';
 
 function setEntries(kind) {
   const src = join(root, EDITOR, 'src');
   const index = join(src, 'index.tsx');
   const preview = join(src, 'preview', 'preview-bootstrap.ts');
+  const previewM3 = join(src, 'preview', 'preview-m3.ts');
   switch (kind) {
     case 'clean':
       writeFileSync(index, CLEAN_INDEX);
       writeFileSync(preview, CLEAN_PREVIEW);
+      writeFileSync(previewM3, CLEAN_PREVIEW_M3);
       break;
     case 'boundaries':
       // editor may not import Node builtins (dependencies.md §4.1).
       writeFileSync(index, "import fs from 'fs';\nexport const app = fs;\n");
       writeFileSync(preview, CLEAN_PREVIEW);
+      writeFileSync(previewM3, CLEAN_PREVIEW_M3);
       break;
     case 'typecheck':
       // implicit any — fails tsc under the strict base.
       writeFileSync(index, 'export function identity(value) {\n  return value;\n}\n');
       writeFileSync(preview, CLEAN_PREVIEW);
+      writeFileSync(previewM3, CLEAN_PREVIEW_M3);
       break;
     default:
       throw new Error(`unknown entry kind: ${kind}`);
@@ -154,9 +159,10 @@ describe('R1 — checks 1/5/6 are build prerequisites (04-review R1)', () => {
     expect(out(r)).toContain('check-deps: OK');
     expect(out(r)).toContain('check-boundaries: OK');
     expect(out(r)).toContain('tsc --noEmit -p packages/editor');
-    expect(out(r)).toContain('build: done (2 built, 0 skipped)');
+    expect(out(r)).toContain('build: done (3 built, 0 skipped)');
     expect(existsSync(join(root, 'dist', 'editor', 'main.js'))).toBe(true);
     expect(existsSync(join(root, 'dist', 'preview', 'preview.js'))).toBe(true);
+    expect(existsSync(join(root, 'dist', 'preview', 'preview-m3.js'))).toBe(true);
   }, 180000);
 
   it('a check-deps failure (declared pin drift) prevents bundle emission', () => {
@@ -168,7 +174,7 @@ describe('R1 — checks 1/5/6 are build prerequisites (04-review R1)', () => {
     expect(r.status).not.toBe(0);
     expect(out(r)).toContain('check-deps: FAIL');
     expect(out(r)).toContain('5.9.2');
-    expect(out(r)).not.toContain('build: done (2 built');
+    expect(out(r)).not.toContain('build: done (3 built');
     expect(existsSync(join(root, 'dist', 'editor', 'main.js'))).toBe(false);
     expect(existsSync(join(root, 'dist', 'preview', 'preview.js'))).toBe(false);
     pkg.devDependencies.typescript = '5.9.3'; // restore the exact pin

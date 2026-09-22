@@ -335,7 +335,9 @@ function queryProjectResult({ projectId, manifest, scene, revision, history, wor
     projectId,
     revision,
     manifest,
-    scene: { sceneId: scene.sceneId, entityCount: scene.entities.length, cameraId: cameraIdOf(scene) },
+    // C35-5 / CC-48-3 (promoted at Gate L): the scene summary reports the
+    // SCENE document's schemaVersion (never the manifest's).
+    scene: { sceneId: scene.sceneId, schemaVersion: scene.schemaVersion, entityCount: scene.entities.length, cameraId: cameraIdOf(scene) },
     history,
     workspace,
   };

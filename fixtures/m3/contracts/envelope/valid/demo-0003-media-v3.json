@@ -1,0 +1,375 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "demo-0003",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 5,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          },
+          "cameraFollow": {
+            "deadZone": {
+              "x": 0.5,
+              "y": 0.5
+            },
+            "smoothing": 0.2,
+            "bounds": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": 0,
+              "maxY": 8
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "name": "Start ground",
+        "components": {
+          "transform": {
+            "position": [
+              8,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              16,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "group-0001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "controller": {}
+        }
+      },
+      {
+        "id": "spawn-0001",
+        "name": "Start spawn",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "zone-0001",
+        "name": "Beacon",
+        "components": {
+          "transform": {
+            "position": [
+              44.5,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#2f7fd4"
+            }
+          },
+          "gameZone": {
+            "role": "goal",
+            "size": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      {
+        "id": "model-0001",
+        "name": "Courier",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "asset-model-courier"
+            }
+          },
+          "modelAnimation": {
+            "assetId": "asset-model-courier",
+            "version": 1,
+            "roles": {
+              "idle": {
+                "binding": "packet-41-placeholder"
+              },
+              "run": {
+                "binding": "packet-41-placeholder"
+              },
+              "airborne": {
+                "binding": "packet-41-placeholder"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Key light",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              6,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#ffffff",
+            "intensity": 1.4,
+            "direction": [
+              -0.3,
+              -0.8,
+              -0.5
+            ],
+            "castShadow": true
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-audio-cue-start",
+        "kind": "audio",
+        "displayName": "Cue: Start",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb",
+            "sourceByteLength": 236,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 96,
+              "durationMs": 2,
+              "pcmBytes": 192,
+              "dataChunkBytes": 192,
+              "riffChunkBytes": 228
+            },
+            "importedAt": "2026-09-19T10:00:00Z",
+            "publishedRevision": 1
+          }
+        ]
+      },
+      {
+        "assetId": "asset-model-courier",
+        "kind": "model",
+        "displayName": "Courier",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc",
+            "sourceByteLength": 47,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 96,
+              "triangles": 32,
+              "animations": 3,
+              "animationChannels": 3,
+              "clipDurationMs": 900,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-19T10:00:00Z",
+            "publishedRevision": 2
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "Beacon Reach",
+      "objective": "Reach the beacon",
+      "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+      "playerId": "group-0001",
+      "cameraId": "cam-main",
+      "spawnId": "spawn-0001",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "killY": -4,
+      "cues": {
+        "start": "asset-audio-cue-start",
+        "jump": null,
+        "checkpoint": "asset-audio-cue-start",
+        "death": "asset-audio-cue-start",
+        "goal": "asset-audio-cue-start"
+      }
+    }
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

@@ -1,0 +1,26 @@
+# fixture sha256 (recorded $(date -u +%Y-%m-%dT%H:%M:%SZ))
+e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20  fixtures/m2/storage/blobs/alpha.bin
+bc592e7f9eb753abffb040e37fdabc5d19eeda9b85a6a5660fc730fa8051cae5  fixtures/m2/storage/blobs/beta.bin
+cd78f2a1005a595cb4e26a7e5a0dd5c52a5ade0ca2d55ca37ab9791b3b8944d6  fixtures/m2/storage/expected.json
+aecc41298a3db0d569408178447d307d4204c8f20e7169d74dd48ad71ca66ad5  fixtures/m2/storage/project/project.json
+e5939c882e9d818f2731d1f5a09f2013ab68ed2f4514a836866aa53660d1bddf  fixtures/m2/storage/project/scenes/main.json
+
+# M1 envelope fixtures (unchanged; baseline hashes)
+ef32d09f0bfeaba4c45fb81cef55a9225817e573f7d1974289c10889de1fb4ea  fixtures/commands/envelope/invalid/duplicate-key.json
+863f1de773ef7532318ae0fea4f610d3619dd5f5ff6934848727cd04c76c8240  fixtures/commands/envelope/invalid/embedded-scene-invalid.json
+87fa55e53dc178700b0dd1f81ec99f011a7ff606a882b658472501901c562cc6  fixtures/commands/envelope/invalid/project-mismatch.json
+2a9d2ddc1f9ea3beb089e36cab607f19274a910c129b07088196dfc01a8ec6fe  fixtures/commands/envelope/invalid/retry-records-non-ascending.json
+b7079bdc67f23c1dfb11fd112bb6bd7773115d59683701da35b7351424cb0e65  fixtures/commands/envelope/invalid/storage-version-unsupported.json
+ab7b86d345cc411f3eedf8fd4aad7f1645809e0055502255ff89c39e9b1b6ac1  fixtures/commands/envelope/invalid/type-missing.json
+3a7148e82367b1c22bd653bf466053b685ead8ce867575ef00e7d57d15ec21ee  fixtures/commands/envelope/valid/demo-0001-manifest.json
+25df1acfa3bd9767ebea538440196d3c2e1ea7e0909fa673dd7404d670cc8a19  fixtures/commands/envelope/valid/demo-0001-rev0.json
+3bb1e266b940c13cc9faaaad0b5a9ff867c53e5c3278d4d6eef817413f318326  fixtures/commands/envelope/valid/demo-0001-rev5.json
+cdab8bf6c8ff8f85c63bc26170a33ff02dfd19fe3a7fdf34772113fe7fbbf26d  fixtures/commands/envelope/valid/demo-0001-rev6.json
+5add14a57000dd2ef0cdd2708743e147ca29b29670ecb18ba1bc4fae0a0bded5  fixtures/commands/envelope/valid/demo-0001-rev7.json
+1014a759a91bd934d65c8a79eec18179e49bf600d5fcdf2caf0247a6bf13a793  fixtures/commands/envelope/valid/demo-0002-manifest.json
+279ad0c28f2e620e7273bd2201b8e121cfd7965482ccc956b49810763145b413  fixtures/commands/envelope/valid/demo-0002-revision-129.json
+
+# workspace source new files
+d4707688902d24e239d818882262e84c8d2110d93be366f7db34fa9ebb2d1101  packages/workspace/src/content-store.ts
+fc92596f0532fde91a62f643ea8346f84ec8dda7f096c227cfc5265c95d5c42f  packages/workspace/src/migration.ts
+e8270d649a30b40eb870cfb2f219fccd7a55d76f6b748bbf6aeb6ef148da2855  packages/workspace/src/envelope.ts

@@ -1,0 +1,156 @@
+{
+  "kind": "runtime-failstop-cases",
+  "setVersion": 1,
+  "id": "runtime-failstop-cases",
+  "pins": [
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "## 13. M2 fail-stop lifecycle"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "### 12.4 Unsupported module combinations"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "### 12.2 Write guard and phase violations"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "F1-throw-after-mutation",
+      "scenario": "module_throw_after_mutation",
+      "expect": {
+        "state": "failed",
+        "code": "module_error",
+        "reason": "module_threw",
+        "failedPhase": "transform",
+        "retainsLastCommitted": true,
+        "canResume": false,
+        "transformRollbackAttempted": false
+      }
+    },
+    {
+      "caseId": "F1b-first-step-throw",
+      "scenario": "first_step_transform_throw",
+      "expect": {
+        "state": "failed",
+        "code": "module_error",
+        "reason": "module_threw",
+        "failedPhase": "transform",
+        "failedStepIndex": 0,
+        "rendersInitialCommitted": true,
+        "canResume": false,
+        "transformRollbackAttempted": false
+      }
+    },
+    {
+      "caseId": "F2-port-malformed",
+      "scenario": "port_malformed",
+      "expect": {
+        "state": "failed",
+        "code": "physics_port_error",
+        "reason": "result",
+        "invalidResultApplied": false
+      }
+    },
+    {
+      "caseId": "F3-port-throw",
+      "scenario": "port_throw",
+      "expect": {
+        "state": "failed",
+        "code": "physics_port_error",
+        "reason": "threw"
+      }
+    },
+    {
+      "caseId": "F4-phase-violation",
+      "scenario": "stage_outside_controller",
+      "expect": {
+        "state": "failed",
+        "code": "module_error",
+        "reason": "phase_violation"
+      }
+    },
+    {
+      "caseId": "F4b-write-guard",
+      "scenario": "write_curr_in_intent",
+      "expect": {
+        "state": "failed",
+        "code": "module_error",
+        "reason": "phase_violation"
+      }
+    },
+    {
+      "caseId": "F5-duplicate-writer",
+      "scenario": "duplicate_writer_registration",
+      "expect": {
+        "instantiate": "error",
+        "code": "transform_owner_conflict"
+      }
+    },
+    {
+      "caseId": "F6-module-order",
+      "scenario": "module_order_mismatch",
+      "expect": {
+        "registration": "error",
+        "code": "config_invalid",
+        "reason": "module_phases"
+      }
+    },
+    {
+      "caseId": "F7-unsupported-combo",
+      "scenario": "unsupported_combination",
+      "expect": {
+        "instantiate": "error",
+        "code": "module_combination_unsupported"
+      }
+    },
+    {
+      "caseId": "F8-missing-port",
+      "scenario": "missing_physics_port",
+      "expect": {
+        "instantiate": "error",
+        "code": "config_invalid",
+        "reason": "physics_port"
+      }
+    },
+    {
+      "caseId": "F9-controller-target",
+      "scenario": "controller_target",
+      "expect": {
+        "instantiate": "error",
+        "code": "config_invalid",
+        "reason": "controller_target"
+      }
+    },
+    {
+      "caseId": "F10-scene-version",
+      "scenario": "scene_version",
+      "expect": {
+        "instantiate": "error",
+        "code": "config_invalid",
+        "reason": "scene_version"
+      }
+    },
+    {
+      "caseId": "F11-dispose-idempotent",
+      "scenario": "dispose_idempotent",
+      "expect": {
+        "moduleDisposals": 1,
+        "portDisposals": 1,
+        "repeatDispose": {
+          "alreadyDisposed": true
+        }
+      }
+    },
+    {
+      "caseId": "F12-restart-after-failure",
+      "scenario": "restart_after_failure",
+      "expect": {
+        "freshInstanceRuns": true,
+        "snapshotUnchanged": true
+      }
+    }
+  ]
+}

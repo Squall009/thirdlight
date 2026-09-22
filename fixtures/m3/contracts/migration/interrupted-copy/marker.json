@@ -1,0 +1,10 @@
+{
+  "storageVersion": 3,
+  "type": "migration-copy",
+  "sourceProjectId": "demo-0002",
+  "newProjectId": "demo-0003",
+  "sourceVersion": 2,
+  "newVersion": 3,
+  "phase": "created",
+  "startedAt": "2026-09-19T10:00:00Z"
+}

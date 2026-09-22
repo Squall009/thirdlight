@@ -29,6 +29,12 @@ export {
 } from '../config';
 export { SESSION_LOG_RING, type LogEntry, type LogKind, type SessionRecord } from '../sessions';
 export {
+  acknowledgePreparedDigest,
+  publishBehaviorSource,
+  type PublishBehaviorSourceOutcome,
+  type PublishBehaviorSourceRequest,
+} from '../behavior';
+export {
   type PlayHooks,
   type PlayRecord,
   type PlayState,

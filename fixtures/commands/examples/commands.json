@@ -338,6 +338,7 @@
         },
         "scene": {
           "sceneId": "scene-main",
+          "schemaVersion": 1,
           "entityCount": 4,
           "cameraId": "cam-main"
         },

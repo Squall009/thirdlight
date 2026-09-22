@@ -1,0 +1,324 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Hard snap at the reset barrier (gameplay.md §7.4): the smoothing coefficient is forced to 1, the per-step cap is skipped, then the authored bounds and the frustum clamp apply; prev == curr afterwards."
+  ],
+  "cases": [
+    {
+      "id": "camera-snap-start",
+      "reason": "start",
+      "fovY": 45,
+      "viewport": [
+        1280,
+        720
+      ],
+      "snap": true,
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0.25,
+      "start": [
+        11,
+        2
+      ],
+      "steps": [
+        {
+          "player": [
+            3,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 8.836555997292695,
+        "positions": [
+          [
+            8.836555997292695,
+            1.4100000000000001
+          ]
+        ],
+        "targets": [
+          [
+            3.5,
+            1.4100000000000001
+          ]
+        ],
+        "moved": [
+          true
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 8.836555997292695,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              8.836555997292695,
+              39.16344400270731
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "camera-snap-spawn",
+      "reason": "spawn",
+      "fovY": 45,
+      "viewport": [
+        1280,
+        720
+      ],
+      "snap": true,
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0.25,
+      "start": [
+        30,
+        2
+      ],
+      "steps": [
+        {
+          "player": [
+            24,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 8.836555997292695,
+        "positions": [
+          [
+            24.5,
+            1.4100000000000001
+          ]
+        ],
+        "targets": [
+          [
+            24.5,
+            1.4100000000000001
+          ]
+        ],
+        "moved": [
+          true
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 8.836555997292695,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              8.836555997292695,
+              39.16344400270731
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "camera-snap-edge",
+      "reason": "spawn",
+      "fovY": 45,
+      "viewport": [
+        1280,
+        720
+      ],
+      "snap": true,
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0.25,
+      "start": [
+        30,
+        2
+      ],
+      "steps": [
+        {
+          "player": [
+            24,
+            0.91
+          ]
+        },
+        {
+          "snap": false,
+          "player": [
+            24,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 8.836555997292695,
+        "positions": [
+          [
+            24.5,
+            1.4100000000000001
+          ],
+          [
+            24.5,
+            1.4100000000000001
+          ]
+        ],
+        "targets": [
+          [
+            24.5,
+            1.4100000000000001
+          ],
+          [
+            24.5,
+            1.4100000000000001
+          ]
+        ],
+        "moved": [
+          true,
+          false
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 8.836555997292695,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              8.836555997292695,
+              39.16344400270731
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "camera-snap-replay-with-cap-bypass",
+      "reason": "replay",
+      "fovY": 45,
+      "viewport": [
+        1024,
+        768
+      ],
+      "snap": true,
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0.2,
+      "start": [
+        0,
+        0
+      ],
+      "steps": [
+        {
+          "player": [
+            45,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 6.6274169979695206,
+        "positions": [
+          [
+            41.37258300203048,
+            0.9705627484771409
+          ]
+        ],
+        "targets": [
+          [
+            44.5,
+            0.41000000000000003
+          ]
+        ],
+        "moved": [
+          true
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 6.6274169979695206,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              6.6274169979695206,
+              41.37258300203048
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

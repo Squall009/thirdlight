@@ -1,0 +1,161 @@
+{
+  "kind": "controller-tolerances",
+  "setVersion": 1,
+  "note": "Frozen before the packet-32 measurements (packet-14 T-numbers where they exist; platformer.md/physics.md contract values otherwise). No threshold was chosen after observing a result.",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "### 7.1 Windows (integer steps) and edges"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "## 7. The step algorithm (normative, exact order)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 7. Numeric constants, defaults and tolerances"
+    },
+    {
+      "file": "docs/planning/m2-contracts/physics.md",
+      "section": "## 8. Grounding rule (normative)"
+    },
+    {
+      "file": "tests/evaluations/m2-physics/course-spec.json",
+      "section": "tolerances"
+    }
+  ],
+  "tolerances": {
+    "T1_idle": {
+      "steps": 120,
+      "groundedEveryStep": true,
+      "maxPosDeltaPerStep": 0.001,
+      "restCenterY": 0.91,
+      "restCenterTolerance": 0.0005
+    },
+    "T2_flatRun": {
+      "groundedEveryStep": true,
+      "speedBandFraction": 0.05,
+      "maxYDeviation": 0.005
+    },
+    "T3_seam": {
+      "seamX": 0,
+      "seamHalfWidth": 0.05,
+      "maxUngroundedSteps": 2
+    },
+    "T4_rampClimb": {
+      "angleDeg": 43,
+      "minGroundedFractionOfAscent": 0.95,
+      "minHeightGainM": 1,
+      "maxPenetrationBelowSurface": 0.005
+    },
+    "T5_rampRefuse": {
+      "angleDeg": 47,
+      "pushDurationS": 1,
+      "maxHeightGainM": 0.3
+    },
+    "T6_wallStop": {
+      "wallFaceX": 9.5,
+      "stopBandM": 0.05,
+      "maxPenetrationM": 0.005
+    },
+    "T7_headBump": {
+      "ceilingUndersideY": 4,
+      "maxCenterY": 3.095,
+      "contactMinCenterY": 3.085,
+      "maxRisePerStepAfterContactM": 0.0005
+    },
+    "T8_ledge": {
+      "ledgeTopY": 0.4,
+      "landToleranceM": 0.05,
+      "groundedWithinStepsOfContact": 3,
+      "blockMaxDxPerStepM": 0.02
+    },
+    "T9_highSpeed": {
+      "approachSpeed": 12,
+      "achievedApproachOnFrozenCourseMps": 8.666666666666664,
+      "runwayLimitedNote": "The corridor from the authored start to the wall face is 1.29 m; 40 m/s² from rest needs 1.8 m to reach 12 m/s, so the frozen-course run achieves 8.666666666666664 m/s (measured) and the 12 m/s T9 approach stays the packet-14 instantaneous-velocity probe (C32-4). The `high-speed-ledge` run-up does reach 12.0 m/s.",
+      "maxPenetrationM": 0.005,
+      "stopWithinStepsOfContact": 10
+    },
+    "T11_jumpHeight": {
+      "apexTheoreticalM": 1.249,
+      "toleranceM": 0.05
+    },
+    "T12_accelDecel": {
+      "accelSteps": 12,
+      "decelSteps": 8,
+      "toleranceMps": 0.000001
+    },
+    "T13_windows": {
+      "coyoteSteps": 6,
+      "jumpBufferSteps": 8,
+      "fixtureLastCoyoteOffset": 7,
+      "releaseFactor": 0.5,
+      "releaseTolerance": 0.02
+    },
+    "T14_slopeThreshold": {
+      "table": [
+        {
+          "angleDeg": 29.9,
+          "supportNormalY": 0.8668967489356028,
+          "grounded": true,
+          "steepSlope": false
+        },
+        {
+          "angleDeg": 30,
+          "supportNormalY": 0.8660254037844387,
+          "grounded": true,
+          "steepSlope": false
+        },
+        {
+          "angleDeg": 44.9,
+          "supportNormalY": 0.7083398377245289,
+          "grounded": true,
+          "steepSlope": false
+        },
+        {
+          "angleDeg": 45,
+          "supportNormalY": 0.7071067811865476,
+          "grounded": true,
+          "steepSlope": false
+        },
+        {
+          "angleDeg": 45.1,
+          "supportNormalY": 0.705871570678681,
+          "grounded": false,
+          "steepSlope": true
+        }
+      ],
+      "supportNormalTolerance": 0.002
+    },
+    "T15_snap": {
+      "snapDistanceM": 0.1,
+      "withinStepDownM": 0.05,
+      "beyondStepDownM": 0.5,
+      "ungroundedStepsWithin": 0
+    },
+    "T16_noZDrift": {
+      "positionZ": null,
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "T17_stall": {
+      "maxCatchupSteps": 8,
+      "droppedWallSeconds": 5,
+      "phantomSteps": 0
+    },
+    "T18_cpu": {
+      "protocol": "packet-14 fixture/reference setup (64 statics, 120 Hz), warmup 5 s + 30 s sample, 3 runs; container/Node numbers labelled directional (BR-2)"
+    }
+  },
+  "slidePolicyNote": "C32-1: platformer.md §7.4 now defines the normative slide policy (steep normal or bounded descending correction with the tan(min_slope) ratio guard, gated on moveX === 0); the packet-32 policy and its measurement are recorded in docs/acceptance/evidence-m2/32/manifest.md."
+}

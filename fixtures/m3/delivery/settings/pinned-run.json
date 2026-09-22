@@ -1,0 +1,31 @@
+{
+  "rule": "an active pinned run is unaffected by a later authoring edit",
+  "run": {
+    "playSessionId": "play-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshotId": "demo-0001@r12",
+    "buildId": "41b5a60bc73c3a8f8dd65edd4acf95622ca1e80f1ae577502ba00cecbf2ee536",
+    "runId": "demo-0001@r12#0",
+    "stepIndex": 1531,
+    "state": "playing",
+    "runSpeed": 4,
+    "gravityY": -19.62
+  },
+  "laterEdit": {
+    "op": "setSettings",
+    "key": "run_speed",
+    "from": 4,
+    "to": 6,
+    "newRevision": 13,
+    "newSnapshotId": "demo-0001@r13",
+    "newBuildId": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "expectation": {
+    "pinnedObservedRunSpeed": 4,
+    "pinnedObservedGravityY": -19.62,
+    "pinnedBuildIdUnchanged": true,
+    "pinnedRunIdUnchanged": true,
+    "pinnedStepIndexContinues": true,
+    "locatorBytesUnchanged": true,
+    "authoringRevisionChangeDoesNotReloadPinnedRun": true
+  }
+}

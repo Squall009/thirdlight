@@ -134,6 +134,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       'react-dom': '19.3.0',
       '@types/react': '19.3.0',
       '@types/react-dom': '19.3.0',
+      '@dimforge/rapier2d-compat': '0.20.0',
     });
   });
 });

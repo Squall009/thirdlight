@@ -1,0 +1,82 @@
+{
+  "note": "game.json (distribution.md §2) is the game-owned authoritative identity. The build tool compares game.json.enginePin against the vendored kit's ACTUAL identity (re-hashed — never the recorded kit.json alone).",
+  "validPin": {
+    "engineVersion": "0.1.0",
+    "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+    "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+  },
+  "cases": [
+    {
+      "id": "PIN-MATCH",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "result": "build proceeds to install"
+    },
+    {
+      "id": "PIN-KIT-DIGEST-MISMATCH",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "result": "game_pin_mismatch"
+    },
+    {
+      "id": "PIN-LOCKFILE-MISMATCH",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+        "lockfileDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "result": "game_pin_mismatch"
+    },
+    {
+      "id": "PIN-ENGINE-VERSION-MISMATCH",
+      "gamePin": {
+        "engineVersion": "0.2.0",
+        "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "result": "game_pin_mismatch (the engineVersion must equal the kit's engineVersion field — 0.1.0; never a fabricated release version)"
+    },
+    {
+      "id": "KIT-STALE-REHASH",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "actualKit": {
+        "tamperedFile": "packages/runtime/src/index.ts"
+      },
+      "result": "kit_tampered (the re-hash runs BEFORE the pin comparison — a tampered kit is refused regardless of the pin)"
+    },
+    {
+      "id": "KIT-LOCKFILE-HANDEDIT",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:7a7817c409ef57025a33964132247dc3abc90e84ba9fe6ed5d3dc331790a19dc",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "actualKit": {
+        "tamperedFile": "package-lock.json"
+      },
+      "result": "kit_lockfile_mismatch (stale pin / hand-edit — refused; a clean upgrade is the §2 explicit procedure)"
+    },
+    {
+      "id": "SUPERSEDED-KIT",
+      "gamePin": {
+        "engineVersion": "0.1.0",
+        "kitDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "lockfileDigest": "sha256:871fc924a5681d2a626e6d06c4f42d939f418aec65361fdf4b8d4e32174502d2"
+      },
+      "actualKit": {
+        "superseded": true
+      },
+      "result": "game_pin_mismatch (the vendored kit is a different identity — the operator re-vendors the pinned kit or performs the explicit upgrade)"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/a.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/b.ts",
+      "text": "export const b = 1;\n"
+    },
+    {
+      "path": "src/a.ts",
+      "text": "import { b } from './b';\nexport const a = b + 1;\nexport default { a };\n"
+    }
+  ]
+}

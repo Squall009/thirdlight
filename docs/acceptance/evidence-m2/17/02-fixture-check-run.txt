@@ -1,0 +1,23 @@
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 50 JSON fixture(s) checked
+ok   index: 52 index entries, 55 files on disk
+ok   code-registry: 48 code(s) used by fixtures, all declared in expected.json.registry; 63 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 110 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   p17-numerics: 34 constants, 8 slope rows, 10 settings cases, 20 validation cases re-derived
+ok   p17-traces: 16 traces, 178 sampled step rows and 48 derived expectations replayed
+ok   p17-input: 15 mapping cases and 5 step-indexed sequences replayed
+ok   p17-catchup: 7 scheduler cases and 8 ownership/combination cases replayed
+ok   p17-failures: 21 failure cases checked (codes, state, durable effect)
+ok   preimage: 2 preimage(s) re-hashed
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 21 check group(s) passed, 0 problem(s)
+exit=0

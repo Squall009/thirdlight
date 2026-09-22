@@ -1,0 +1,225 @@
+{
+  "indexVersion": 1,
+  "contracts": {
+    "projectModel": "docs/contracts/project-model.md (packet 20, §§10.5–10.8, 12, 13.1, 18–22)"
+  },
+  "notes": [
+    "Packet 20 model fixtures. They pin the packet-20 v2 scene/content/captured-content/settings/migration validators. The M1 fixtures under fixtures/project-model/ are unchanged and keep passing byte-identically.",
+    "Dispatch: kind scene-v2 -> validateSceneV2/parseSceneV2; content -> validateContent/normalizeContent; project-v2 -> validateProjectV2 (the file is {manifest, scene, content}); migration-scene-v1-to-v2 -> migrateSceneV1ToV2.",
+    "Valid entries must round-trip byte-exactly: parse -> normalize -> serializeCanonical -> parse must be byte-identical and idempotent, and the canonical bytes must equal the committed file bytes.",
+    "Invalid entries must fail non-destructively: the exact error-code set is pinned; the source bytes must be retained unchanged by the pure validators.",
+    "valid/project-v2.json embeds copies of valid/scene-v2.json and valid/content.json; the test asserts they deep-equal, so the composition fixture cannot drift."
+  ],
+  "entries": [
+    {
+      "path": "valid/scene-v2.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": true,
+      "expectedNormalized": "valid/scene-v2.json",
+      "notes": "SchemaVersion 2 scene exercising every v2 component: camera, group, model+behavior values, box collider, polygon collider, controller, prefab provenance. Canonical (byte-exact) already."
+    },
+    {
+      "path": "valid/content.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": true,
+      "expectedNormalized": "valid/content.json",
+      "notes": "Content catalog with two asset versions, one prefab definition, one declaration-only behavior (source null) covering number/boolean/string/enum/vec3/entityRef/assetRef, the six settings keys and an empty behaviorTrust."
+    },
+    {
+      "path": "valid/project-v2.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": true,
+      "notes": "Three-block composition: manifest v1 + embedded scene v2 + content. Cross-block references all resolve; the embedded scene/content must deep-equal the standalone fixtures."
+    },
+    {
+      "path": "migration/scene-v1-input.json",
+      "kind": "migration-scene-v1-to-v2",
+      "entryPoint": "migrateSceneV1ToV2",
+      "valid": true,
+      "expectedNormalized": "migration/scene-v2-expected.json",
+      "notes": "M1 schemaVersion 1 scene (4 entities, parented box, uppercase material color). The pure conversion emits the canonical v2 document with the same sceneId, revision and entity IDs; the input bytes are retained unchanged."
+    },
+    {
+      "path": "invalid/scene-unknown-component.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["component_unknown"]
+    },
+    {
+      "path": "invalid/scene-duplicate-ids.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["id_duplicate"]
+    },
+    {
+      "path": "invalid/scene-reference-missing.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["reference_missing"]
+    },
+    {
+      "path": "invalid/scene-two-controllers.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["controller_count_invalid"]
+    },
+    {
+      "path": "invalid/scene-two-cameras.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["camera_count_invalid"]
+    },
+    {
+      "path": "invalid/scene-physics-parented.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["physics_transform_unsupported"],
+      "expectedReasons": ["parented"]
+    },
+    {
+      "path": "invalid/scene-physics-scaled.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["physics_transform_unsupported"],
+      "expectedReasons": ["scale"]
+    },
+    {
+      "path": "invalid/scene-physics-upright.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["physics_transform_unsupported"],
+      "expectedReasons": ["upright"]
+    },
+    {
+      "path": "invalid/scene-collider-concave.json",
+      "kind": "scene-v2",
+      "entryPoint": "validateSceneV2",
+      "valid": false,
+      "expectedCodes": ["collider_shape_invalid"]
+    },
+    {
+      "path": "invalid/scene-nonfinite.json",
+      "kind": "scene-v2",
+      "entryPoint": "parseSceneV2",
+      "valid": false,
+      "expectedCodes": ["number_not_finite"],
+      "notes": "1e400 is valid JSON syntax but decodes to Infinity; the byte parser must not call it json_parse_error."
+    },
+    {
+      "path": "invalid/content-missing-trust.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["field_missing"]
+    },
+    {
+      "path": "invalid/content-unknown-field.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["field_unexpected"]
+    },
+    {
+      "path": "invalid/content-digest-invalid.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["digest_invalid"]
+    },
+    {
+      "path": "invalid/content-version-order.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["asset_version_invalid"]
+    },
+    {
+      "path": "invalid/content-current-version.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["field_value"]
+    },
+    {
+      "path": "invalid/content-recipe-invalid.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["recipe_invalid"]
+    },
+    {
+      "path": "invalid/content-metric-cap.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["limits_exceeded"]
+    },
+    {
+      "path": "invalid/content-setting-unknown.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["setting_unknown"]
+    },
+    {
+      "path": "invalid/content-slope-crosscheck.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["field_value"]
+    },
+    {
+      "path": "invalid/content-property-range.json",
+      "kind": "content",
+      "entryPoint": "validateContent",
+      "valid": false,
+      "expectedCodes": ["field_value"]
+    },
+    {
+      "path": "invalid/project-asset-reference.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": false,
+      "expectedCodes": ["asset_reference_missing"]
+    },
+    {
+      "path": "invalid/project-prefab-reference.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": false,
+      "expectedCodes": ["prefab_reference_missing"]
+    },
+    {
+      "path": "invalid/project-property-unknown.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": false,
+      "expectedCodes": ["property_unknown"]
+    },
+    {
+      "path": "invalid/project-property-type.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": false,
+      "expectedCodes": ["property_type"]
+    },
+    {
+      "path": "invalid/project-scene-mismatch.json",
+      "kind": "project-v2",
+      "entryPoint": "validateProjectV2",
+      "valid": false,
+      "expectedCodes": ["manifest_scene_mismatch"]
+    }
+  ]
+}

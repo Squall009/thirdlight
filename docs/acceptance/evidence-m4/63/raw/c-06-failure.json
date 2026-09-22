@@ -1,0 +1,172 @@
+{
+  "title": null,
+  "firstBody": null,
+  "bridgeLog": {
+    "installedAt": 68,
+    "preview": {
+      "readyState": "complete",
+      "href": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+      "canvas": true
+    },
+    "received": [
+      {
+        "type": "tl.ping",
+        "origin": "http://127.0.0.1:18501",
+        "sourceIsParent": true,
+        "sourceIsOpener": false,
+        "t": 1558
+      },
+      {
+        "type": "tl.handshake",
+        "origin": "http://127.0.0.1:18501",
+        "sourceIsParent": true,
+        "sourceIsOpener": false,
+        "t": 2557
+      },
+      {
+        "type": "tl.snapshot",
+        "origin": "http://127.0.0.1:18501",
+        "sourceIsParent": true,
+        "sourceIsOpener": false,
+        "t": 3059
+      },
+      {
+        "type": "tl.diagnostics.request",
+        "origin": "http://127.0.0.1:18501",
+        "sourceIsParent": true,
+        "sourceIsOpener": false,
+        "t": 3860
+      }
+    ],
+    "posts": [],
+    "installs": 13,
+    "control": {
+      "sent": "sent",
+      "probe": {
+        "recvPing": [
+          {
+            "type": "tl.ping",
+            "origin": "http://127.0.0.1:18501",
+            "sourceIsParent": true,
+            "sourceIsOpener": false,
+            "t": 1558
+          }
+        ],
+        "postPing": []
+      },
+      "editorMsgs": [
+        {
+          "type": "tl.pong",
+          "t": 67276
+        }
+      ],
+      "loadFired": {
+        "fired": [
+          65767
+        ],
+        "srcSetAt": 65702,
+        "now": 68272
+      },
+      "loadProbeAttach": {
+        "added": true,
+        "t": 65768
+      },
+      "srcWrap": "wrapped",
+      "playResp": {
+        "buildId": "fdf124b8838f54b7013b64231d7084aff6f3ea8182ec4e0e7ed211590786d57a",
+        "contentId": "WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+        "snapshotId": "beacon-reach@r26",
+        "revision": 26,
+        "playBase": "http://127.0.0.1:18502/"
+      },
+      "hsProbe": {
+        "sent": true,
+        "playSessionId": "play-1d9018e59a3bc88e9e7708c3cc5483f0",
+        "contentIdLen": 43,
+        "buildIdLen": 64,
+        "nonce": "bca5c75104e3a293"
+      },
+      "snapProbe": {
+        "sent": true,
+        "nonce": "bca5c75104e3a293"
+      },
+      "diagProbe": {
+        "sent": true,
+        "relayId": "relay-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    }
+  },
+  "editorTx": [
+    {
+      "type": "tl.pong",
+      "from": "http://127.0.0.1:18502",
+      "t": 67275
+    },
+    {
+      "type": "tl.error",
+      "from": "http://127.0.0.1:18502",
+      "t": 68780
+    }
+  ],
+  "iframeSrc": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+  "contextEvents": {
+    "created": [
+      {
+        "id": 3,
+        "name": "",
+        "uniqueId": "1981743562133735857.-8056085087610396165"
+      }
+    ],
+    "destroyed": []
+  },
+  "previewRequests": [
+    "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+    "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/game.js",
+    "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/manifest.json"
+  ],
+  "previewResponses": [
+    {
+      "url": "http://127.0.0.1:18502/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/?play=play-1d9018e59a3bc88e9e7708c3cc5483f0&content=WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/game.js",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18502/play-content/WUt-U7DdiWICaZ7llGMcu9IRrmXOfFgc34DUwQh51KI/manifest.json",
+      "status": 200
+    }
+  ],
+  "statusBar": "conn: connectedsave: idlerevision 26",
+  "sessionLog": {
+    "sessionId": "sess-2cb376d3823ed262988b568b8aa56c1e",
+    "ok": true,
+    "total": 3,
+    "entries": [
+      {
+        "ts": 1790054271,
+        "kind": "registered",
+        "ref": "sess-2cb376d3823ed262988b568b8aa56c1e"
+      },
+      {
+        "ts": 1790054336,
+        "kind": "play",
+        "ref": "play-1d9018e59a3bc88e9e7708c3cc5483f0",
+        "revision": 26,
+        "code": "started"
+      },
+      {
+        "ts": 1790054351,
+        "kind": "play",
+        "ref": "play-1d9018e59a3bc88e9e7708c3cc5483f0",
+        "code": "preview_timeout"
+      }
+    ]
+  },
+  "backendStderrTail": "thirdlight-backend: listening (authoring port 18501, preview port 18502)\n"
+}

@@ -1,0 +1,947 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "beacon-reach",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 26,
+    "entities": [
+      {
+        "id": "br-cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          },
+          "cameraFollow": {
+            "deadZone": {
+              "x": 0.5,
+              "y": 0.5
+            },
+            "smoothing": 0.2,
+            "bounds": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": 0,
+              "maxY": 8
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "name": "Start ground",
+        "components": {
+          "transform": {
+            "position": [
+              8,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              16,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0002",
+        "name": "Low step",
+        "components": {
+          "transform": {
+            "position": [
+              6.5,
+              0.1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#7d7d7d"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 0.5,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0003",
+        "name": "First hazard",
+        "components": {
+          "transform": {
+            "position": [
+              10.9,
+              0.125,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              0.8,
+              0.25,
+              1
+            ],
+            "material": {
+              "color": "#b03030"
+            }
+          },
+          "gameZone": {
+            "role": "hazard",
+            "size": [
+              0.8,
+              0.25
+            ]
+          }
+        }
+      },
+      {
+        "id": "box-0004",
+        "name": "Middle ground",
+        "components": {
+          "transform": {
+            "position": [
+              24.75,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              14.5,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 7.25,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "spawn-0001",
+        "name": "Checkpoint spawn",
+        "components": {
+          "transform": {
+            "position": [
+              24,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "box-0005",
+        "name": "Checkpoint",
+        "components": {
+          "transform": {
+            "position": [
+              22,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1.5,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#3fae6a"
+            }
+          },
+          "gameZone": {
+            "role": "checkpoint",
+            "size": [
+              1.5,
+              2
+            ],
+            "safeSpawnId": "spawn-0001",
+            "activation": {
+              "emissive": "#1bc8ff",
+              "emissiveIntensity": 1.2,
+              "cueAssetId": null
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0006",
+        "name": "Second hazard",
+        "components": {
+          "transform": {
+            "position": [
+              28.4,
+              0.125,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              0.8,
+              0.25,
+              1
+            ],
+            "material": {
+              "color": "#b03030"
+            }
+          },
+          "gameZone": {
+            "role": "hazard",
+            "size": [
+              0.8,
+              0.25
+            ]
+          }
+        }
+      },
+      {
+        "id": "box-0007",
+        "name": "Final ground",
+        "components": {
+          "transform": {
+            "position": [
+              40.75,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              14.5,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 7.25,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0008",
+        "name": "Final step",
+        "components": {
+          "transform": {
+            "position": [
+              36.5,
+              0.1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#7d7d7d"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 0.5,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0009",
+        "name": "Beacon",
+        "components": {
+          "transform": {
+            "position": [
+              44.5,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#2f7fd4"
+            }
+          },
+          "gameZone": {
+            "role": "goal",
+            "size": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      {
+        "id": "group-0001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "controller": {}
+        }
+      },
+      {
+        "id": "spawn-0002",
+        "name": "Start spawn",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Key light",
+        "components": {
+          "transform": {
+            "position": [
+              24,
+              10,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#fff4e0",
+            "intensity": 1.2,
+            "direction": [
+              0.4,
+              -1,
+              -0.3
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-0002",
+        "name": "Ambient fill",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#404860",
+            "intensity": 0.6
+          }
+        }
+      },
+      {
+        "id": "model-0001",
+        "name": "Courier",
+        "components": {
+          "transform": {
+            "position": [
+              3.4,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "br-model-courier"
+            }
+          }
+        }
+      },
+      {
+        "id": "model-0002",
+        "name": "Beacon pillar A",
+        "components": {
+          "transform": {
+            "position": [
+              44.5,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "br-model-beacon"
+            }
+          }
+        }
+      },
+      {
+        "id": "model-0003",
+        "name": "Beacon pillar B",
+        "components": {
+          "transform": {
+            "position": [
+              18,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "br-model-beacon"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "br-audio-checkpoint",
+        "kind": "audio",
+        "displayName": "Cue Checkpoint",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+            "sourceByteLength": 21164,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 10560,
+              "durationMs": 220,
+              "pcmBytes": 21120,
+              "dataChunkBytes": 21120,
+              "riffChunkBytes": 21156
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 3
+          }
+        ]
+      },
+      {
+        "assetId": "br-audio-death",
+        "kind": "audio",
+        "displayName": "Cue Death",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+            "sourceByteLength": 30764,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 15360,
+              "durationMs": 320,
+              "pcmBytes": 30720,
+              "dataChunkBytes": 30720,
+              "riffChunkBytes": 30756
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 4
+          }
+        ]
+      },
+      {
+        "assetId": "br-audio-goal",
+        "kind": "audio",
+        "displayName": "Cue Goal",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+            "sourceByteLength": 40364,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 20160,
+              "durationMs": 420,
+              "pcmBytes": 40320,
+              "dataChunkBytes": 40320,
+              "riffChunkBytes": 40356
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 5
+          }
+        ]
+      },
+      {
+        "assetId": "br-audio-jump",
+        "kind": "audio",
+        "displayName": "Cue Jump",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+            "sourceByteLength": 13484,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 6720,
+              "durationMs": 140,
+              "pcmBytes": 13440,
+              "dataChunkBytes": 13440,
+              "riffChunkBytes": 13476
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 2
+          }
+        ]
+      },
+      {
+        "assetId": "br-audio-start",
+        "kind": "audio",
+        "displayName": "Cue Start",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+            "sourceByteLength": 17324,
+            "importRecipe": {
+              "profile": "pcm-wav",
+              "recipeVersion": 1,
+              "toolchain": {
+                "asset-pipeline": "0.1.0"
+              }
+            },
+            "metrics": {
+              "container": "riff-wave",
+              "encoding": "pcm-s16le",
+              "channels": 1,
+              "sampleRate": 48000,
+              "bitsPerSample": 16,
+              "frames": 8640,
+              "durationMs": 180,
+              "pcmBytes": 17280,
+              "dataChunkBytes": 17280,
+              "riffChunkBytes": 17316
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 1
+          }
+        ]
+      },
+      {
+        "assetId": "br-model-beacon",
+        "kind": "model",
+        "displayName": "Beacon pillar",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "b80e27cc44af407e347cb3b4ea07a8b3860fd36be2775fd8e40a389a23675eb6",
+            "sourceByteLength": 1772,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 3,
+              "meshes": 2,
+              "primitives": 2,
+              "materials": 2,
+              "images": 0,
+              "textures": 0,
+              "vertices": 16,
+              "triangles": 24,
+              "animations": 0,
+              "animationChannels": 0,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 336,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 7
+          }
+        ]
+      },
+      {
+        "assetId": "br-model-courier",
+        "kind": "model",
+        "displayName": "Courier",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be",
+            "sourceByteLength": 3440,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 3,
+              "meshes": 2,
+              "primitives": 2,
+              "materials": 2,
+              "images": 0,
+              "textures": 0,
+              "vertices": 16,
+              "triangles": 24,
+              "animations": 3,
+              "animationChannels": 5,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 504,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-21T00:00:00Z",
+            "publishedRevision": 6
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {
+      "gravity_y": -19.62,
+      "jump_velocity": 7,
+      "max_fall_speed": -30,
+      "max_slope_climb_deg": 45,
+      "min_slope_slide_deg": 30,
+      "run_speed": 4
+    },
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "Beacon Reach",
+      "objective": "Reach the beacon",
+      "instructions": "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+      "playerId": "group-0001",
+      "cameraId": "br-cam-main",
+      "spawnId": "spawn-0002",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -10,
+        "maxY": 8
+      },
+      "killY": -4,
+      "cues": {
+        "start": "br-audio-start",
+        "jump": "br-audio-jump",
+        "checkpoint": "br-audio-checkpoint",
+        "death": "br-audio-death",
+        "goal": "br-audio-goal"
+      }
+    }
+  },
+  "recipe": {
+    "generatedBy": "samples/beacon-reach/tools/capture-project.mjs",
+    "commandCount": 26,
+    "importedAt": "2026-09-21T00:00:00Z"
+  }
+}

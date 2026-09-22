@@ -1,0 +1,18 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+stdout | packages/three-adapter/src/ownership-probe.test.ts > packet-26 ownership probe (disposable evidence probe) > prints the aggregate ownership report over load/reimport/dispose cycles
+PACKET26_OWNERSHIP {"allocations":27,"releases":27,"outstanding":0,"byKind":{"geometry":{"allocations":3,"releases":3},"material":{"allocations":6,"releases":6},"texture":{"allocations":3,"releases":3},"mixer":{"allocations":3,"releases":3},"listener":{"allocations":6,"releases":6},"objectUrl":{"allocations":3,"releases":3},"instance":{"allocations":3,"releases":3}}}
+
+stdout | packages/three-adapter/src/ownership-probe.test.ts > packet-26 ownership probe (disposable evidence probe) > prints the release path of a single prepared resource
+PACKET26_OWNERSHIP_LIVE {"descriptor":{"assetId":"asset-0000000000000001","version":1,"sourceDigest":"abababababababababababababababababababababababababababababababab","sourceByteLength":1428},"state":"ready","instances":1,"clips":1,"ownership":{"allocations":9,"releases":0,"outstanding":9,"byKind":{"geometry":{"allocations":1,"releases":0},"material":{"allocations":2,"releases":0},"texture":{"allocations":1,"releases":0},"mixer":{"allocations":1,"releases":0},"listener":{"allocations":2,"releases":0},"objectUrl":{"allocations":1,"releases":0},"instance":{"allocations":1,"releases":0}}}}
+PACKET26_OWNERSHIP_RELEASED {"allocations":9,"releases":9,"outstanding":0,"byKind":{"geometry":{"allocations":1,"releases":1},"material":{"allocations":2,"releases":2},"texture":{"allocations":1,"releases":1},"mixer":{"allocations":1,"releases":1},"listener":{"allocations":2,"releases":2},"objectUrl":{"allocations":1,"releases":1},"instance":{"allocations":1,"releases":1}}}
+
+ ✓ packages/three-adapter/src/ownership-probe.test.ts > packet-26 ownership probe (disposable evidence probe) > prints the aggregate ownership report over load/reimport/dispose cycles 9ms
+ ✓ packages/three-adapter/src/ownership-probe.test.ts > packet-26 ownership probe (disposable evidence probe) > prints the release path of a single prepared resource 1ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  05:19:57
+   Duration  267ms (transform 58%, import 31%, tests 8%, worker 2%)
+

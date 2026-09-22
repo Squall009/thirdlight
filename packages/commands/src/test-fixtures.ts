@@ -50,3 +50,54 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
+// ---- packet 21: M2 command fixtures (fixtures/m2/**) ------------------------------
+
+const M2_RAW = import.meta.glob('../../../fixtures/m2/**', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+}) as Record<string, string>;
+
+const M2_PREFIX = '../../../fixtures/m2/';
+
+/** Raw UTF-8 text of `fixtures/m2/<rel>`. */
+export function m2FixtureText(rel: string): string {
+  const key = `${M2_PREFIX}${rel}`;
+  const v = M2_RAW[key];
+  if (typeof v !== 'string') {
+    throw new Error(
+      `fixture not found: ${rel} (matched ${Object.keys(M2_RAW).length} files)`,
+    );
+  }
+  return v;
+}
+
+/** Parsed JSON value of `fixtures/m2/<rel>`. */
+export function m2FixtureJson<T = unknown>(rel: string): T {
+  return JSON.parse(m2FixtureText(rel)) as T;
+}
+
+// ---- packet 45: M3 v3 contract fixtures (fixtures/m3/contracts/**) ---------------
+
+const M3_CONTRACT_RAW = import.meta.glob('../../../fixtures/m3/contracts/**', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+}) as Record<string, string>;
+
+const M3_CONTRACT_PREFIX = '../../../fixtures/m3/contracts/';
+
+/** Raw UTF-8 text of `fixtures/m3/contracts/<rel>`. */
+export function m3ContractText(rel: string): string {
+  const key = `${M3_CONTRACT_PREFIX}${rel}`;
+  const v = M3_CONTRACT_RAW[key];
+  if (typeof v !== 'string') {
+    throw new Error(`fixture not found: ${rel} (matched ${Object.keys(M3_CONTRACT_RAW).length} files)`);
+  }
+  return v;
+}
+
+/** Parsed JSON value of `fixtures/m3/contracts/<rel>`. */
+export function m3ContractJson<T = unknown>(rel: string): T {
+  return JSON.parse(m3ContractText(rel)) as T;
+}

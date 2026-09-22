@@ -1,0 +1,58 @@
+{
+  "settle": {
+    "ok": true,
+    "assets": 2,
+    "instances": 6,
+    "animations": 2,
+    "unresolved": 0
+  },
+  "counters": {
+    "assets": 2,
+    "instances": 6,
+    "pending": 0,
+    "animations": 2,
+    "failed": 0
+  },
+  "expected": {
+    "assets": 2,
+    "instances": 6,
+    "animations": 2
+  },
+  "dispose": {
+    "d1": {
+      "ok": true
+    },
+    "d2": {
+      "ok": true,
+      "alreadyDisposed": true
+    },
+    "modelsAfter": null,
+    "loads": 2,
+    "releases": 2
+  },
+  "l6": {
+    "settle": {
+      "ok": true,
+      "assets": 2,
+      "instances": 6,
+      "animations": 1,
+      "unresolved": 0
+    },
+    "counters": {
+      "assets": 2,
+      "instances": 6,
+      "pending": 0,
+      "animations": 1,
+      "failed": 0
+    }
+  },
+  "unresolved": {
+    "settle": {
+      "ok": true,
+      "assets": 2,
+      "instances": 5,
+      "animations": 2,
+      "unresolved": 1
+    }
+  }
+}

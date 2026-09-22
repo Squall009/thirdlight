@@ -1,0 +1,212 @@
+{
+  "setVersion": 1,
+  "projectId": "demo-0003",
+  "cases": [
+    {
+      "id": "F1",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setComponent",
+      "args": {
+        "entityId": "spawn-0002",
+        "component": "playerSpawn",
+        "value": null
+      },
+      "expect": {
+        "code": "game_reference_in_use",
+        "references": [
+          "/entities/7/components/gameZone/safeSpawnId"
+        ]
+      }
+    },
+    {
+      "id": "F2",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "deleteEntity",
+      "args": {
+        "entityId": "group-0001"
+      },
+      "expect": {
+        "code": "game_reference_in_use",
+        "path": "/game/playerId"
+      }
+    },
+    {
+      "id": "F3",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "deleteEntity",
+      "args": {
+        "entityId": "spawn-0001"
+      },
+      "expect": {
+        "code": "game_reference_in_use",
+        "path": "/game/spawnId"
+      }
+    },
+    {
+      "id": "F4",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "deleteEntity",
+      "args": {
+        "entityId": "zone-0003"
+      },
+      "expect": {
+        "code": "ok"
+      }
+    },
+    {
+      "id": "F5",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setComponent",
+      "args": {
+        "entityId": "zone-0002",
+        "component": "playerSpawn",
+        "value": {}
+      },
+      "expect": {
+        "code": "component_conflict",
+        "reason": "zone_and_spawn"
+      }
+    },
+    {
+      "id": "F6",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setComponent",
+      "args": {
+        "entityId": "group-0001",
+        "component": "surface",
+        "value": {
+          "color": "#ffffff"
+        }
+      },
+      "expect": {
+        "code": "component_missing",
+        "expected": "box|model"
+      }
+    },
+    {
+      "id": "F7",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "applySurfacePreset",
+      "args": {
+        "entityId": "group-0001",
+        "preset": "hazard"
+      },
+      "expect": {
+        "code": "component_missing",
+        "expected": "box|model"
+      }
+    },
+    {
+      "id": "F8",
+      "state": "envelope/valid/demo-0003-beacon-min-v3.json",
+      "expectedRevision": 3,
+      "op": "setComponent",
+      "args": {
+        "entityId": "light-0002",
+        "component": "light",
+        "value": {
+          "direction": [
+            -1,
+            -1,
+            -1
+          ]
+        }
+      },
+      "expect": {
+        "code": "field_value",
+        "path": "/args/value/direction"
+      }
+    },
+    {
+      "id": "F9",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setComponent",
+      "args": {
+        "entityId": "spawn-0001",
+        "component": "playerSpawn",
+        "value": {
+          "label": "x"
+        }
+      },
+      "expect": {
+        "code": "field_unexpected",
+        "path": "/args/value/label"
+      }
+    },
+    {
+      "id": "F10",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setGameConfig",
+      "args": {
+        "game": {
+          "title": "only a title"
+        }
+      },
+      "expect": {
+        "code": "ok"
+      }
+    },
+    {
+      "id": "F11",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 6,
+      "op": "setGameConfig",
+      "args": {
+        "game": {
+          "configVersion": 1,
+          "title": "Beacon Reach",
+          "objective": "Reach the beacon",
+          "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+          "playerId": "group-0001",
+          "cameraId": "cam-main",
+          "spawnId": "spawn-0001",
+          "level": {
+            "minX": 0,
+            "maxX": 48,
+            "minY": -4,
+            "maxY": 8
+          },
+          "killY": -4,
+          "cues": {
+            "start": null,
+            "jump": null,
+            "checkpoint": null,
+            "death": null,
+            "goal": null
+          }
+        }
+      },
+      "expect": {
+        "code": "revision_conflict",
+        "expectedRevision": 6,
+        "currentRevision": 7
+      }
+    },
+    {
+      "id": "F12",
+      "state": "commands/scenario.after.json",
+      "expectedRevision": 7,
+      "op": "setComponent",
+      "args": {
+        "entityId": "zone-0002",
+        "component": "gameZone",
+        "value": {
+          "role": "checkpoint"
+        }
+      },
+      "expect": {
+        "code": "field_missing",
+        "path": "/args/value/safeSpawnId"
+      }
+    }
+  ]
+}

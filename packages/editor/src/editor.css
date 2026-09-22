@@ -93,3 +93,182 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-config-error h1 { font-size: 20px; }
 .tl-config-error pre { background: var(--panel); border: 1px solid var(--border); padding: 12px;
   border-radius: 6px; color: var(--err); overflow-x: auto; }
+/* Packet 27 — content browser panel (queries/jobs/placement). Practical
+ * panels only; no decorative or graph UI (decision 0001 §10 scope guard). */
+.tl-assets { width: 300px; }
+.tl-panel__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tl-assets__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 42%; }
+.tl-assets__version { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tl-assets__paging { padding: 4px 10px; color: var(--muted); font-size: 11px; }
+.tl-assets__actions { display: flex; gap: 6px; padding: 6px 10px; flex-wrap: wrap; }
+.tl-assets__file { display: none; }
+.tl-assets__status { padding: 6px 10px; border-top: 1px solid var(--border); font-size: 12px; }
+.tl-assets__status--failed, .tl-assets__status--stale { color: var(--err); }
+.tl-assets__status--committed { color: var(--ok); }
+.tl-assets__error { color: var(--err); font-size: 11px; margin-top: 2px; }
+.tl-assets__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.tl-assets__preview { border-top: 1px solid var(--border); padding: 6px 10px; }
+.tl-assets__preview-head { color: var(--muted); font-size: 11px; margin-bottom: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-assets__preview-body { margin-top: 6px; }
+.tl-assets__clips { color: var(--muted); font-size: 11px; }
+.tl-assets__scrub { width: 100%; margin-top: 4px; }
+.tl-assets__place { display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+  border-top: 1px solid var(--border); margin-top: auto; }
+.tl-assets__hint { color: var(--warn); font-size: 11px; }
+
+/* Packet 28 — prefab (copy) authoring + declared-property controls. Practical
+ * form rows only; no decorative/graph UI and no link/apply/revert controls
+ * (decision 0001 §10 scope guard; project-model §20.1). */
+.tl-prefabs { width: 280px; }
+.tl-prefabs__capture { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tl-prefabs__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.tl-prefabs__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40%; }
+.tl-prefabs__meta { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tl-prefabs__override { padding: 8px 10px; border-top: 1px solid var(--border); overflow-y: auto; }
+.tl-prefabs__target { margin-top: 8px; }
+
+.tl-inspector__copy { color: var(--warn); font-size: 11px; margin-bottom: 8px; }
+.tl-inspector__section { margin-top: 12px; border-top: 1px solid var(--border); }
+
+.tl-props { padding: 6px 0; }
+.tl-prop { margin-bottom: 8px; }
+.tl-prop__head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.tl-prop__label { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.tl-prop__type { color: var(--muted); font-size: 10px; }
+.tl-prop__input { width: 100%; margin-top: 2px; padding: 4px 6px; background: var(--panel-2);
+  color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.tl-prop__check { margin-top: 3px; }
+.tl-prop__caption { color: var(--muted); font-size: 10px; margin-top: 2px; }
+.tl-prop__error { color: var(--err); font-size: 10px; margin-top: 2px; }
+
+.tl-comp { margin-bottom: 8px; }
+.tl-comp__field { display: flex; gap: 6px; align-items: baseline; font-size: 11px;
+  font-variant-numeric: tabular-nums; }
+.tl-comp__name { color: var(--muted); min-width: 56px; }
+.tl-comp__value { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tl-comp__type { color: var(--muted); font-size: 10px; }
+
+/* Packet 34 — trusted behavior publication (runtime.md §14.2; project-model
+ * §22). Form rows, the normative trust notice and bounded diagnostics only;
+ * there is deliberately no source evaluator or "run" control here. */
+.tl-behaviors { width: 300px; }
+.tl-behaviors__notice { padding: 8px 10px; border-bottom: 1px solid var(--border);
+  background: rgba(255, 136, 0, 0.08); max-height: 30%; overflow-y: auto; }
+.tl-behaviors__notice-line { color: var(--warn); font-size: 10px; margin: 0 0 6px 0; line-height: 1.35; }
+.tl-behaviors__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 22%; }
+.tl-behaviors__meta { margin-left: auto; color: var(--muted); font-size: 11px; }
+.tl-behaviors__detail { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tl-behaviors__props { width: 100%; font-size: 11px; border-collapse: collapse; }
+.tl-behaviors__props th { color: var(--muted); text-align: left; font-weight: 400; font-size: 10px; }
+.tl-behaviors__props td { font-variant-numeric: tabular-nums; }
+.tl-behaviors__source { padding: 8px 10px; overflow-y: auto; }
+.tl-behaviors__textarea { width: 100%; height: 96px; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; font-family: monospace; font-size: 11px; }
+.tl-behaviors__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.tl-behaviors__new { padding: 8px 10px; border-top: 1px solid var(--border); }
+
+/* Packet 56 — M3 gameplay authoring (game config / zones / camera follow /
+ * settings). Practical form rows + the imperative zone overlay; the backend
+ * projection stays authoritative (sessions.md §6; authoring.md §A8). */
+.tl-gameplay { width: 320px; }
+.tl-gameplay__tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tl-gameplay__tabs .tl-btn { flex: 1; padding: 4px 6px; font-size: 11px; text-transform: capitalize; }
+.tl-gameplay__tab { padding: 10px; overflow-y: auto; flex: 1; min-height: 0; }
+.tl-gameplay__errors { border: 1px solid var(--err); background: rgba(255,82,82,.08);
+  border-radius: 5px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px; }
+.tl-gameplay__errors ul { margin: 4px 0 6px 16px; padding: 0; }
+.tl-gameplay__errors li { margin-bottom: 2px; }
+.tl-gameplay__errors-title { color: var(--err); font-weight: 600; font-family: monospace; font-size: 10px; }
+.tl-gameplay__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.tl-gameplay__actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.tl-gameplay__add { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.tl-note { color: var(--muted); font-size: 11px; margin: 6px 0; }
+.tl-note--warn { color: var(--warn); }
+.tl-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  margin: 12px 0 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.tl-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.tl-field__label { color: var(--muted); font-size: 11px; }
+.tl-input { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; }
+.tl-input:focus { outline: none; border-color: var(--accent); }
+.tl-input--num { width: 72px; font-variant-numeric: tabular-nums; }
+.tl-input[type="number"] { -moz-appearance: textfield; }
+.tl-btn--danger { background: rgba(255,82,82,.12); border-color: var(--err); color: var(--err); }
+.tl-btn--danger:hover:not(:disabled) { border-color: var(--err); background: rgba(255,82,82,.2); }
+.tl-zone-row { display: flex; gap: 4px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.tl-zone-row__id { font-family: monospace; font-size: 10px; color: var(--muted);
+  max-width: 88px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------------------ */
+/* M3 media / lighting / animation panel (packet 57)                   */
+/* ------------------------------------------------------------------ */
+
+.tl-media {
+  width: 300px;
+  overflow-y: auto;
+}
+
+.tl-media__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--tl-border);
+}
+
+.tl-media__tab-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.tl-media__cue-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 28px;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.tl-media__cue-label {
+  font-size: 11px;
+  color: var(--tl-fg-dim);
+}
+
+.tl-media__preset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tl-media__preset-desc {
+  font-size: 10px;
+  color: var(--tl-fg-dim);
+  font-family: var(--tl-font-mono);
+}
+
+.tl-media__role-row {
+  display: grid;
+  grid-template-columns: 72px 64px 1fr;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.tl-media__diag {
+  margin: 4px 0;
+  font-size: 10px;
+  color: var(--tl-fg-dim);
+}
+
+.tl-media__diag-line {
+  margin-bottom: 2px;
+}
+
+/* the §8.5.1 animated-reimport mapping (Assets panel) */
+.tl-asset__roles {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--tl-border);
+}

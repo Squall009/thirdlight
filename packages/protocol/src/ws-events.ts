@@ -13,12 +13,14 @@ import type { ChangeData, Origin } from '@thirdlight/commands';
 import {
   isPlaySessionId,
   isRelayId,
+  isRequestId,
 } from './ids';
 import {
   checkField,
   checkShape,
   isStringNoControl,
 } from './strict';
+import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
 
 // ---- catalog constants (the exhaustive allowlists, sessions.md §7) -----------
@@ -33,6 +35,11 @@ export const SERVER_EVENT_TYPES = [
   'play.stopped',
   'screenshot.request',
   'play.diagnostics.request',
+  'input.request',
+  // sessions.md §7.1/§20.1 (packet 42 promoted; packet 48 implements): the M3
+  // game control/observation relays forwarded to the owner editor.
+  'game.control.request',
+  'game.observe.request',
   'error',
 ] as const;
 export type ServerEventType = (typeof SERVER_EVENT_TYPES)[number];
@@ -45,6 +52,10 @@ export const CLIENT_EVENT_TYPES = [
   'play.stopped.ack',
   'screenshot.ack',
   'play.diagnostics.ack',
+  'input.result',
+  // sessions.md §7.2/§20.1 (packet 42 promoted; packet 48 implements).
+  'game.control.ack',
+  'game.observe.ack',
 ] as const;
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 
@@ -147,6 +158,37 @@ export function makeDiagnosticsRequest(relayId: string): string {
   return emit({ type: 'play.diagnostics.request', relayId });
 }
 
+/**
+ * The bounded input-exercise relay request (sessions.md §18.1; the WS event
+ * name is a packet-35 contract-change request — §7's catalog predates §18).
+ * Step-indexed semantic frames only: never DOM events, never `eval`.
+ */
+export function makeInputRelayRequest(
+  requestId: string,
+  frames: readonly { readonly stepOffset: number; readonly moveX: number; readonly jump: string }[],
+): string {
+  return emit({
+    type: 'input.request',
+    requestId,
+    frames: frames.map((f) => ({ stepOffset: f.stepOffset, moveX: f.moveX, jump: f.jump })),
+  });
+}
+
+/**
+ * §20.1 control request forwarded to the owner editor (packet-42 §7.1 row;
+ * this catalog's M1 set predates §20). Never carries bytes or a capability.
+ */
+export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string): string {
+  const obj: Record<string, unknown> = { type: 'game.control.request', relayId, command };
+  if (expectedRunId !== undefined) obj.expectedRunId = expectedRunId;
+  return emit(obj);
+}
+
+/** §20.1 observation request forwarded to the owner editor. */
+export function makeGameObserveRequest(relayId: string, timeoutMs: number): string {
+  return emit({ type: 'game.observe.request', relayId, timeoutMs });
+}
+
 export function makeErrorEvent(
   code: 'unknown_event' | 'protocol_error',
   frameHint?: string,
@@ -177,6 +219,28 @@ export type InboundEvent =
       relayId: string;
       ok: boolean;
       diagnostics?: unknown;
+      error?: { code: string; message?: string };
+    }
+  | {
+      type: 'input.result';
+      requestId: string;
+      ok: boolean;
+      appliedFromStep?: number;
+      appliedToStep?: number;
+      error?: { code: string; message?: string };
+    }
+  | {
+      type: 'game.control.ack';
+      relayId: string;
+      ok: boolean;
+      result?: unknown;
+      error?: { code: string; message?: string };
+    }
+  | {
+      type: 'game.observe.ack';
+      relayId: string;
+      ok: boolean;
+      result?: unknown;
       error?: { code: string; message?: string };
     };
 
@@ -382,6 +446,90 @@ export function parseInboundEvent(value: unknown):
           };
         }
         event.diagnostics = s.value.diagnostics;
+      }
+      const err = checkAckFields(s.value, event);
+      if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };
+      return { ok: true, event };
+    }
+    case 'input.result': {
+      const s = checkShape(
+        obj,
+        '',
+        new Map([
+          ['type', '"input.result"'],
+          ['requestId', 'req- + 32 hex'],
+          ['ok', 'boolean'],
+          ['appliedFromStep', 'integer ≥ 0 — when ok'],
+          ['appliedToStep', 'integer ≥ appliedFromStep — when ok'],
+          ['error', '{ code, message? } — when not ok'],
+        ]),
+        ['type', 'requestId', 'ok'],
+      );
+      if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
+      const rid = checkField(s.value, 'requestId', '', 'req- + 32 hex', (v) =>
+        isRequestId(v) ? null : { problem: 'requestId must be req- + 32 hex', kind: 'value' },
+      );
+      if (!rid.ok) return { ok: false, kind: 'protocol_error', error: rid.error };
+      const okf = checkField(s.value, 'ok', '', 'boolean', (v) =>
+        typeof v === 'boolean' ? null : { problem: 'ok must be a boolean', kind: 'type' },
+      );
+      if (!okf.ok) return { ok: false, kind: 'protocol_error', error: okf.error };
+      const event: InboundEvent = { type: 'input.result', requestId: rid.value as string, ok: okf.value as boolean };
+      const from = s.value.appliedFromStep;
+      const to = s.value.appliedToStep;
+      if (event.ok) {
+        if (typeof from !== 'number' || !Number.isInteger(from) || from < 0) {
+          return { ok: false, kind: 'protocol_error', error: { code: 'protocol_error', cls: 'validation', message: 'appliedFromStep must be an integer ≥ 0 when ok', path: '/appliedFromStep' } };
+        }
+        if (typeof to !== 'number' || !Number.isInteger(to) || to < from) {
+          return { ok: false, kind: 'protocol_error', error: { code: 'protocol_error', cls: 'validation', message: 'appliedToStep must be an integer ≥ appliedFromStep when ok', path: '/appliedToStep' } };
+        }
+        event.appliedFromStep = from;
+        event.appliedToStep = to;
+        if (s.value.error !== undefined) {
+          return { ok: false, kind: 'protocol_error', error: { code: 'protocol_error', cls: 'validation', message: 'error must be absent when ok is true', path: '/error' } };
+        }
+      } else if (s.value.error === undefined) {
+        return { ok: false, kind: 'protocol_error', error: { code: 'protocol_error', cls: 'validation', message: 'error is required when ok is false', path: '/error' } };
+      }
+      const err = checkAckFields(s.value, event);
+      if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };
+      return { ok: true, event };
+    }
+    case 'game.control.ack':
+    case 'game.observe.ack': {
+      const isControl = type === 'game.control.ack';
+      const s = checkShape(
+        obj,
+        '',
+        new Map([
+          ['type', `"${type}"`],
+          ['relayId', 'relay- + 32 hex'],
+          ['ok', 'boolean'],
+          ['result', isControl ? 'the §20 control result (≤ 4 KiB) — when ok' : 'the §20 observation document (≤ 16 KiB) — when ok'],
+          ['error', '{ code, message? } — when not ok'],
+        ]),
+        ['type', 'relayId', 'ok'],
+      );
+      if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
+      const rid = checkField(s.value, 'relayId', '', 'relay- + 32 hex', (v) =>
+        isRelayId(v) ? null : { problem: 'relayId must be relay- + 32 hex', kind: 'value' },
+      );
+      if (!rid.ok) return { ok: false, kind: 'protocol_error', error: rid.error };
+      const okf = checkField(s.value, 'ok', '', 'boolean', (v) =>
+        typeof v === 'boolean' ? null : { problem: 'ok must be a boolean', kind: 'type' },
+      );
+      if (!okf.ok) return { ok: false, kind: 'protocol_error', error: okf.error };
+      const event: InboundEvent = isControl
+        ? { type: 'game.control.ack', relayId: rid.value as string, ok: okf.value as boolean }
+        : { type: 'game.observe.ack', relayId: rid.value as string, ok: okf.value as boolean };
+      if (event.ok) {
+        // The editor relays the preview's exact result (never fabricates,
+        // §7.2): the §20 shapes are validated here so a malformed result is a
+        // bounded protocol_error, not a silent success.
+        const verdict = isControl ? validateGameControlResult(s.value.result) : validateGameObservation(s.value.result);
+        if (!verdict.ok) return { ok: false, kind: 'protocol_error', error: verdict.error };
+        event.result = s.value.result;
       }
       const err = checkAckFields(s.value, event);
       if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };

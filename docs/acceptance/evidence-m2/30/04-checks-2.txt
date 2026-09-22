@@ -1,0 +1,25 @@
+== npm run check-boundaries ==
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 12 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 235 source file(s), 861 specifier(s) checked; no boundary violations.
+
+== npm run build ==
+typecheck: tsc --noEmit -p packages/workspace
+build: editor: packages/editor/src/index.tsx -> dist/editor/main.js
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+== node fixtures/m2/contracts/tools/check-fixtures.mjs ==
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)
+
+== node fixtures/m2/input/tools/check-input-fixtures.mjs ==
+ok   canonical: 2 fixture file(s) byte-canonical
+ok   index: 1 fixture file(s) hashed and cross-checked
+ok   sequences: 9 sequence(s), 38 step(s) re-derived
+ok   pins: 6 pin(s) resolved to real headings
+ok   secrets: no credential-like strings
+check OK: input fixtures consistent

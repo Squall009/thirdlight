@@ -1,0 +1,14 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import type { BehaviorStepContext } from '@thirdlight/runtime';\n\ninterface DriftState {\n  steps: number;\n}\n\nexport default {\n  prepare() {\n    return {};\n  },\n\n  instantiate(): DriftState {\n    return { steps: 0 };\n  },\n\n  step(state: DriftState, ctx: BehaviorStepContext): void {\n    state.steps += 1;\n    const speed = ctx.properties.speed as number;\n    ctx.emit({ kind: 'control_move', value: speed / 10 });\n  },\n\n  dispose(): void {},\n};\n"
+    }
+  ]
+}

@@ -1,0 +1,220 @@
+{
+  "storageVersion": 2,
+  "type": "authoring-state",
+  "projectId": "demo-0002",
+  "scene": {
+    "schemaVersion": 2,
+    "sceneId": "scene-main",
+    "revision": 7,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "model-0001",
+        "name": "Lantern Instance",
+        "components": {
+          "transform": {
+            "position": [
+              2,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "asset-7f3a2c9e1b4d5068"
+            }
+          }
+        }
+      },
+      {
+        "id": "model-0002",
+        "name": "Ramp Instance",
+        "components": {
+          "transform": {
+            "position": [
+              -2,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "asset-2b11d4a76c9f0e35"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-2b11d4a76c9f0e35",
+        "kind": "model",
+        "displayName": "Ramp",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+            "sourceByteLength": 26,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 2,
+              "materials": 2,
+              "images": 1,
+              "textures": 1,
+              "vertices": 96,
+              "triangles": 48,
+              "animations": 1,
+              "animationChannels": 3,
+              "clipDurationMs": 1000,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 2048
+            },
+            "importedAt": "2026-09-18T09:15:00Z",
+            "publishedRevision": 6
+          }
+        ]
+      },
+      {
+        "assetId": "asset-7f3a2c9e1b4d5068",
+        "kind": "model",
+        "displayName": "Lantern",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967",
+            "sourceByteLength": 26,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 2,
+              "materials": 2,
+              "images": 1,
+              "textures": 1,
+              "vertices": 96,
+              "triangles": 48,
+              "animations": 1,
+              "animationChannels": 3,
+              "clipDurationMs": 1000,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 2048
+            },
+            "importedAt": "2026-09-18T10:00:00Z",
+            "publishedRevision": 5
+          },
+          {
+            "version": 2,
+            "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+            "sourceByteLength": 26,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 2,
+              "materials": 2,
+              "images": 1,
+              "textures": 1,
+              "vertices": 96,
+              "triangles": 48,
+              "animations": 1,
+              "animationChannels": 3,
+              "clipDurationMs": 1000,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 2048
+            },
+            "importedAt": "2026-09-18T10:30:00Z",
+            "publishedRevision": 7
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    }
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

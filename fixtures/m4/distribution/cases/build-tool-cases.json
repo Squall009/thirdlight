@@ -1,0 +1,117 @@
+{
+  "note": "engine-kit/tools/game-build.mjs (distribution.md §6) — the ONLY build entry a game may document in game.json.buildEntry. Plain Node (node:* only — no new dependency). All paths from its own file location (import.meta.url) or explicit absolute arguments — never process.cwd().",
+  "steps": [
+    {
+      "order": 1,
+      "step": "resolve-paths",
+      "detail": "kit root from import.meta.url; game dir from --game (absolute); derive data/build/template paths",
+      "failure": null
+    },
+    {
+      "order": 2,
+      "step": "verify-kit",
+      "detail": "re-hash the vendored tree against kit.json (lockfileDigest + kitDigest + per-file on any digest mismatch)",
+      "failure": "kit_tampered | kit_inventory_missing | kit_lockfile_mismatch"
+    },
+    {
+      "order": 3,
+      "step": "verify-pin",
+      "detail": "game.json.enginePin (engineVersion, kitDigest, lockfileDigest) vs the ACTUAL kit identity",
+      "failure": "game_pin_mismatch"
+    },
+    {
+      "order": 4,
+      "step": "install",
+      "detail": "npm ci --prefix <kit> (lockfile-authoritative; registry or warm cache)",
+      "failure": "kit_install_unavailable (structured — never a silent skip or partial install)"
+    },
+    {
+      "order": 5,
+      "step": "build-engine",
+      "detail": "npm run build --prefix <kit> = check-deps → check-boundaries → typecheck → build.mjs (the accepted pipeline)",
+      "failure": "the pipeline step's own structured failure (boundary violation / forbidden runtime import / type error / build error) — no game output exists yet"
+    },
+    {
+      "order": 6,
+      "step": "install-template",
+      "detail": "verified copy of the kit templates/ set into <gameDataRoot>/templates/ (packet 65 identity)",
+      "failure": "template_install_mismatch | template_content_mismatch"
+    },
+    {
+      "order": 7,
+      "step": "export",
+      "detail": "spawn the kit backend deployment bundle (game data root; THIRDLIGHT_ENGINE_ROOT=<kit>; admin token; loopback bind — all tool-derived) and call the accepted admin export route",
+      "failure": "the accepted export error codes (content_quota_exceeded, content_publish_failed, …) unchanged"
+    },
+    {
+      "order": 8,
+      "step": "verify-output",
+      "detail": "the static closure exists under <game>/build/<projectId>@r<revision>/ with its metadata (export.md §4 shape)",
+      "failure": "a structured export failure (the closure is absent or incomplete — never claimed built)"
+    }
+  ],
+  "rules": [
+    {
+      "id": "CWD-INDEPENDENCE",
+      "rule": "run from /, from the game root and from the checkout → identical verified outputs (no process.cwd() anywhere in the tool; the engine build.mjs is invoked only via npm run build, where npm fixes the working directory to the kit root)",
+      "negative": "a tool revision that reads process.cwd() for the kit root"
+    },
+    {
+      "id": "SYMLINK-CONTAINMENT",
+      "rule": "any symlink whose realpath leaves the game directory is rejected at assembly AND re-checked before every build",
+      "failure": "kit_path_rejected"
+    },
+    {
+      "id": "ABSOLUTE-CHECKOUT-PATH",
+      "rule": "no functional path reference to the original checkout in the kit's GENERATED data (kit.json, NOTICE, game.json) or in the tool source; the docs/contracts/** copies may RECORD evidence paths (byte-identical engine source — the CCR-66-1 exemption; digests still bind)",
+      "failure": "kit_path_rejected"
+    },
+    {
+      "id": "SECRET-LICENSE-OMISSION",
+      "rule": "no credentials/tokens/origin literals in kit data or tool source (the export.md §5.4 forbidden-content class applied to kit data); NOTICE is REQUIRED",
+      "failure": "kit_path_rejected (content) | kit_notice_missing (absent NOTICE)"
+    }
+  ],
+  "negativeInventory": [
+    {
+      "id": "NEG-NODE-MODULES",
+      "inject": "engine-kit/node_modules/anything",
+      "result": "assembly refuses (node_modules is never a kit member — §4)"
+    },
+    {
+      "id": "NEG-DIST",
+      "inject": "engine-kit/dist/editor/main.js",
+      "result": "assembly refuses (dist/ is a kit-local build output — excluded from the inventory)"
+    },
+    {
+      "id": "NEG-GIT",
+      "inject": "engine-kit/.git/HEAD",
+      "result": "assembly refuses (the kit carries no VCS state — the identity is the digests, not a commit reference into the original repo)"
+    },
+    {
+      "id": "NEG-FIXTURES",
+      "inject": "engine-kit/fixtures/…",
+      "result": "assembly refuses (fixtures are engine test data, not engine distribution)"
+    },
+    {
+      "id": "NEG-SYMLINK-ESCAPE",
+      "inject": "engine-kit/packages/link → /elsewhere/checkout/packages",
+      "result": "kit_path_rejected (a directory symlink into the original checkout is NOT independent — m4-plan §2.3 table)"
+    },
+    {
+      "id": "NEG-TAMPER",
+      "inject": "a hand-edit to any inventory-listed kit file",
+      "result": "kit_tampered (the re-hash before every build)"
+    },
+    {
+      "id": "NEG-FLOATING-DEP",
+      "inject": "an npm install (re-resolution) instead of npm ci",
+      "result": "forbidden by the frozen install command — a transitive floating dependency cannot enter the kit install"
+    },
+    {
+      "id": "NEG-REGISTRY-DOWN",
+      "inject": "npm ci with no registry and no warm cache",
+      "result": "kit_install_unavailable (documented, structured — the operator provides registry or cache; the build never proceeds on a partial install)"
+    }
+  ]
+}

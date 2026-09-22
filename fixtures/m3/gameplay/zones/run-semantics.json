@@ -1,0 +1,356 @@
+{
+  "fixtureVersion": 1,
+  "snapshotId": "demo-0003@r7",
+  "killY": -4,
+  "zones": [
+    {
+      "id": "zone-0002",
+      "role": "hazard",
+      "center": [
+        10.9,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    },
+    {
+      "id": "zone-0003",
+      "role": "checkpoint",
+      "center": [
+        22,
+        1
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "zone-0001",
+      "role": "goal",
+      "center": [
+        44.5,
+        1
+      ],
+      "size": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "zone-0004",
+      "role": "hazard",
+      "center": [
+        28.4,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    },
+    {
+      "id": "zone-0008",
+      "role": "hazard",
+      "center": [
+        25,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    }
+  ],
+  "spawnId": "spawn-0001",
+  "safeSpawnId": "spawn-0002",
+  "firstStep": 12,
+  "notes": [
+    "Run-level zone semantics (gameplay.md §4.4): teleport non-sweep, goal-from-respawn, single activation.",
+    "zone-0008 is a fixture-only hazard placed after the checkpoint spawn so a case can die after activating the checkpoint."
+  ],
+  "cases": [
+    {
+      "id": "zone-teleport-no-sweep",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            3.0333,
+            0.91
+          ],
+          "to": [
+            3.0666,
+            0.91
+          ]
+        }
+      ],
+      "counterfactual": {
+        "from": [
+          30,
+          0.91
+        ],
+        "to": [
+          3.0333,
+          0.91
+        ],
+        "expect": {
+          "kind": "death",
+          "zoneId": "zone-0002",
+          "cause": "hazard"
+        }
+      },
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 14,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 1,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "zone-goal-from-respawn",
+      "safeSpawnId": "spawn-0002",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            24,
+            0.91
+          ],
+          "to": [
+            24.9,
+            0.91
+          ]
+        },
+        {
+          "op": "steps",
+          "count": 30,
+          "from": [
+            24.9,
+            0.91
+          ],
+          "to": [
+            24.9,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            44.5,
+            0.91
+          ],
+          "to": [
+            44.53,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "won",
+          "stepIndex": 45,
+          "activeSpawnId": "spawn-0002",
+          "checkpointId": "zone-0003",
+          "checkpointActive": true,
+          "goalReached": true,
+          "deathCount": 1,
+          "respawnAtStep": null,
+          "eventCount": 5,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/checkpointActivated/12",
+            "kind": "checkpointActivated",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0003"
+          },
+          {
+            "id": "demo-0003@r7#0/died/13",
+            "kind": "died",
+            "stepIndex": 13,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0008",
+            "cause": "hazard"
+          },
+          {
+            "id": "demo-0003@r7#0/respawned/44",
+            "kind": "respawned",
+            "stepIndex": 44,
+            "boundary": true,
+            "deathCount": 1
+          },
+          {
+            "id": "demo-0003@r7#0/goalReached/44",
+            "kind": "goalReached",
+            "stepIndex": 44,
+            "boundary": false,
+            "deathCount": 1,
+            "zoneId": "zone-0001"
+          }
+        ]
+      },
+      "safeSpawnCenter": [
+        44.5,
+        0.91
+      ],
+      "notes": "Fixture-only: the checkpoint's safe spawn is deliberately placed inside the goal zone to pin the goal-from-respawn rule (gameplay.md §4.4). Every other case uses the sample's X=24 checkpoint spawn."
+    },
+    {
+      "id": "zone-single-activation-reentry",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            23.5,
+            0.91
+          ],
+          "to": [
+            24,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            20.9,
+            0.91
+          ],
+          "to": [
+            21.3,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            22,
+            0.91
+          ],
+          "to": [
+            22,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 16,
+          "activeSpawnId": "spawn-0002",
+          "checkpointId": "zone-0003",
+          "checkpointActive": true,
+          "goalReached": false,
+          "deathCount": 0,
+          "respawnAtStep": null,
+          "eventCount": 2,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "events": [
+          {
+            "id": "demo-0003@r7#0/runStarted/12",
+            "kind": "runStarted",
+            "stepIndex": 12,
+            "boundary": true,
+            "deathCount": 0
+          },
+          {
+            "id": "demo-0003@r7#0/checkpointActivated/12",
+            "kind": "checkpointActivated",
+            "stepIndex": 12,
+            "boundary": false,
+            "deathCount": 0,
+            "zoneId": "zone-0003"
+          }
+        ]
+      }
+    }
+  ]
+}

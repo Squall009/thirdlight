@@ -20,10 +20,32 @@ import type {
   MutationResult,
   MutationSuccess,
 } from '@thirdlight/commands';
-import type { Entity, Manifest } from '@thirdlight/project-model';
+import type { Entity, GameConfig, Manifest } from '@thirdlight/project-model';
 import type { LoadDetail } from './errors';
 
 import type { UnavailableReason } from './errors';
+import type {
+  BlobPublishRequest,
+  BlobPublishResult,
+  BlobReadRequest,
+  BlobReadResult,
+  SourceBlobReadRequest,
+  SourceBlobReadResult,
+  CaptureViewResult,
+  CapturedV3ReadResult,
+  ContentIntegrityResult,
+  InspectStageOptions,
+  InspectStageResult,
+  StageDiscardResult,
+  StageInspector,
+  StageRequest,
+  StageResult,
+} from './content-store';
+import type { MigrationResult, MigrationResultV3 } from './migration';
+import type {
+  PrepareBehaviorSourceRequest,
+  PrepareBehaviorSourceResult,
+} from './behavior';
 
 // ---- configuration -----------------------------------------------------------
 
@@ -75,6 +97,31 @@ export interface WorkspaceServiceConfig {
    * runs on the real filesystem.
    */
   ops?: import('./write').WriteOps;
+  /** Authoritative-bytes quota per project (workspace.md §13.9; default
+   * 536 870 912 = 512 MiB). Deployment-configurable. */
+  maxSourceBytesPerProject?: number;
+  /** Device free space that must remain after a blob write (default
+   * 67 108 864 = 64 MiB). */
+  deviceSpaceReserveBytes?: number;
+  /** Device free-space probe (default `statfs` on the data root). */
+  freeSpaceBytes?: () => number;
+  /** Millisecond clock for the stage TTL and abandoned-stage retention
+   * (default `Date.now`; tests pin it for deterministic TTL cases). */
+  now?: () => number;
+  /**
+   * The injected GLB inspector (packet 25; dependencies.md §4.1: `backend`
+   * constructs the `asset-pipeline` inspector and injects it). The workspace
+   * holds only its type and supplies the job port.
+   */
+  assetInspector?: StageInspector;
+  /** The bounded inspection budget (default 30 000 ms). */
+  inspectTimeoutMs?: number;
+  /**
+   * The injected behavior-source compiler (packet 33; dependencies.md §4.1:
+   * `backend` constructs the `behavior-build` compiler and injects it). The
+   * workspace holds only its type.
+   */
+  behaviorCompiler?: import('@thirdlight/behavior-build').BehaviorCompiler;
 }
 
 // ---- pending external change (workspace.md §7.2) -------------------------------
@@ -113,7 +160,7 @@ export interface QueryProjectResult {
   revision: number;
   /** The full normalized manifest (bounded by construction). */
   manifest: Manifest;
-  scene: { sceneId: string; entityCount: number; cameraId: string };
+  scene: { sceneId: string; schemaVersion: number; entityCount: number; cameraId: string };
   history: HistoryDepths;
   workspace: WorkspaceQueryInfo;
 }
@@ -143,6 +190,15 @@ export interface QueryEntitiesResult {
   entities: readonly Entity[];
 }
 
+/** `queryGameConfig` (commands.md §3.1.11 / authoring §A6): the full normalized
+ * `content.game` block, or `null` (a v2 state has no `game` key). */
+export interface QueryGameConfigResult {
+  ok: true;
+  projectId: string;
+  revision: number;
+  game: GameConfig | null;
+}
+
 export interface QueryFailure {
   ok: false;
   /** Echoed when present (first 32 chars), same convention as mutations. */
@@ -156,6 +212,7 @@ export type QueryResult =
   | QueryProjectResult
   | QueryEntityResult
   | QueryEntitiesResult
+  | QueryGameConfigResult
   | QueryFailure;
 
 // ---- operator operations (workspace.md §11) ------------------------------------
@@ -210,13 +267,18 @@ export interface ScanEntry {
   /** Projects only: whether the §4.3 load pipeline succeeded. */
   loadable?: boolean;
   /** The load-failure code (§4.3 / workspace §11 codes) when not loadable. */
-  code?: UnavailableReason | 'manifest_invalid';
+  code?: UnavailableReason | 'manifest_invalid' | 'migration_resume_required';
   /**
    * Interrupted creation (valid manifest, no envelope): `completed` = the
    * deterministic §8.3 completion wrote the initial envelope; `kept` = the
    * completion could not be written (the state is retained for the operator).
    */
   completion?: 'completed' | 'kept';
+  /** A valid migration marker with no envelope: reported, never auto-completed
+   * (workspace.md §10/§14.3). Resumable via `migrateProjectCopy` or deletable. */
+  migration?: 'resume_required';
+  /** The migration marker's last completed phase (informational). */
+  migrationPhase?: string;
   /** A stale (dead-pid) ownership record was reported (no action taken). */
   staleOwnership?: boolean;
   /** Leftover `.main.json.tmp-*` files (NOT cleaned by the scan). */
@@ -266,6 +328,55 @@ export interface WorkspaceService {
   acceptExternalState(projectId: string): AcceptResult;
   /** Operator operation (workspace.md §7.3): discard the external bytes. */
   discardExternalState(projectId: string): DiscardResult;
+
+  // ---- content storage (workspace.md §11/§13, packet 23) ---------------------
+
+  /** `stageContent` — non-authoritative staged input (workspace.md §7.6). */
+  stageContent(projectId: string, request: StageRequest): StageResult;
+  /** `discardStage` — non-authoritative cleanup (workspace.md §7.6.2). */
+  discardStage(projectId: string, stageId: string): StageDiscardResult;
+  /**
+   * `inspectStage` — the injected bounded GLB inspector over the staged bytes
+   * (workspace.md §11/§13.3.1): non-authoritative proposal only, never an
+   * authoring mutation; a rejected profile is `import_rejected`.
+   */
+  inspectStage(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult;
+  /** `publishBlob` — immutable blob publication (workspace.md §13.2, no lock). */
+  publishBlob(projectId: string, request: BlobPublishRequest): BlobPublishResult;
+  /** `readBlob` — the only public verified byte read (workspace.md §13.5). */
+  readBlob(projectId: string, request: BlobReadRequest): BlobReadResult;
+  /**
+   * `readSourceBlob` — a digest-addressed verified read of one immutable
+   * `sources/sha256/<digest>` blob (packet 35; contract-change request C35-1).
+   */
+  readSourceBlob(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult;
+  /** `contentIntegrity` — bounded integrity report (workspace.md §13.5). */
+  contentIntegrity(projectId: string): ContentIntegrityResult;
+  /** `captureContentView` — the pure captured immutable content view
+   * (project-model §19). */
+  captureContentView(projectId: string): CaptureViewResult;
+  /** `readCapturedV3` — the M3 single acknowledged envelope read (scene +
+   *  content halves) for the shared closure builder (packet 58, delivery.md
+   *  §2.6). A `storageVersion` 1/2 project is `version_combination_unsupported`.
+   */
+  readCapturedV3(projectId: string): CapturedV3ReadResult;
+  /** `migrateProjectCopy` — explicit operator M1 → M2 migration (workspace.md §14). */
+  migrateProjectCopy(sourceProjectId: string, newProjectId: string): MigrationResult;
+  /**
+   * `migrateProjectCopyV3` — explicit operator v2 → v3 copy (workspace.md
+   * §16.5/§16.8): a new destination identity, the source carried verbatim
+   * except the derived revision metadata reset, a resumable marker; the v2
+   * source is retained byte-for-byte.
+   */
+  migrateProjectCopyV3(sourceProjectId: string, newProjectId: string): MigrationResultV3;
+  /**
+   * `prepareBehaviorSource` — the behavior-source preparation layer (packet 33;
+   * project-model.md §22.4.1, workspace.md §13.3.1): resolve the stage / accept
+   * bytes, apply the trust gate, run the INJECTED compiler, publish the
+   * immutable container blob and store the digest-bound prepared record as a
+   * derived cache. No lock, repeatable, changes no authoritative state.
+   */
+  prepareBehaviorSource(projectId: string, request: PrepareBehaviorSourceRequest): Promise<PrepareBehaviorSourceResult>;
   /**
    * The startup scan (workspace.md §10) — re-runs it. The initial scan ran
    * at `openWorkspaceService` (the report is also in `lastScan`).

@@ -1,5 +1,6 @@
 /**
- * Restricted cross-origin message bridge (sessions.md §13; packet 10).
+ * Restricted cross-origin message bridge (sessions.md §13; packet 10; M2 v2 by
+ * packet 35 — delivery.md §7, sessions.md §17.6).
  *
  * The editor (authoring origin) and the play preview (a SEPARATE origin) talk
  * only through `postMessage` with the exhaustive §13.5 allowlist. The
@@ -9,16 +10,17 @@
  *      `"*"` target is forbidden — we always post to the exact peer origin);
  *   2. `event.source` is the trusted peer window (the iframe's contentWindow
  *      on the editor side; the opener/parent on the preview side);
- *   3. the body parses and passes the §13.5 strict validator for the
+ *   3. the body parses and passes the §13.5 strict v2 validator for the
  *      direction;
  *   4. the `tl.handshake` nonce is echoed correctly — a `tl.snapshot` whose
  *      nonce does not match the handshake is DROPPED.
  * Anything else is dropped and counted (never executed).
  *
- * The bridge CARRIES NO CREDENTIALS: the only page config the preview receives
- * is `{ v, authoringOrigin }`; the authoring token and the authoring API URL
- * are never sent across the bridge and never embedded in the preview bundle
- * (m1-acceptance §2.2 "Preview receives no credentials").
+ * The bridge CARRIES NO CREDENTIALS: the page config is
+ * `{ v, authoringOrigin, playSessionId, contentId, manifestPath }`; the
+ * authoring token and the authoring API URL are never sent across the bridge
+ * and never embedded in the preview bundle. `contentId` is a read-only
+ * artifact capability, redacted in logs but not an authoring credential.
  *
  * The `post` and the message source check are INJECTED so this module is
  * unit-testable without a browser/DOM.
@@ -74,6 +76,13 @@ function defaultNonce(): string {
   return s;
 }
 
+/** One bounded relay frame as the editor forwards it (§18.1.1). */
+export interface BridgeRelayFrame {
+  stepOffset: number;
+  moveX: number;
+  jump: string;
+}
+
 /**
  * One end of the bridge. Construct one per side; the two ends share the
  * `expectedOrigin`/`targetOrigin` pair (each side's expectedOrigin is the
@@ -114,11 +123,11 @@ export class Bridge {
   }
 
   /** Generate + remember the editor's handshake nonce (editor side only). */
-  beginHandshake(playSessionId: string, demo: boolean): string {
+  beginHandshake(playSessionId: string, demo: boolean, contentId: string, buildId: string): string {
     if (this.direction !== 'editor') throw new Error('beginHandshake is editor-side only');
     const nonce = this.makeNonce();
     this.editorNonce = nonce;
-    this.postLocal({ v: 1, type: 'tl.handshake', playSessionId, nonce, demo });
+    this.postLocal({ v: 2, type: 'tl.handshake', bridgeVersion: 2, playSessionId, nonce, demo, contentId, buildId });
     return nonce;
   }
 
@@ -126,43 +135,80 @@ export class Bridge {
   sendSnapshot(playSessionId: string, snapshot: unknown): void {
     if (this.direction !== 'editor') throw new Error('sendSnapshot is editor-side only');
     const nonce = this.editorNonce ?? this.makeNonce();
-    this.postLocal({ v: 1, type: 'tl.snapshot', playSessionId, nonce, snapshot });
+    this.postLocal({ v: 2, type: 'tl.snapshot', playSessionId, nonce, snapshot });
+  }
+
+  /** Tell the preview which content build it must load (editor side, once). */
+  sendPlayContentExpect(playSessionId: string, contentId: string, buildId: string): void {
+    if (this.direction !== 'editor') throw new Error('sendPlayContentExpect is editor-side only');
+    this.postLocal({ v: 2, type: 'tl.playContent.expect', playSessionId, contentId, buildId });
+  }
+
+  /** Forward one bounded input-exercise sequence (editor side, §18.1). */
+  requestInput(playSessionId: string, requestId: string, frames: readonly BridgeRelayFrame[]): void {
+    if (this.direction !== 'editor') throw new Error('requestInput is editor-side only');
+    this.postLocal({ v: 2, type: 'tl.input.request', playSessionId, requestId, frames: frames.map((f) => ({ ...f })) });
   }
 
   /** Request a bounded screenshot (editor side). */
   requestScreenshot(playSessionId: string, relayId: string, maxWidth?: number): void {
     if (this.direction !== 'editor') throw new Error('requestScreenshot is editor-side only');
-    this.postLocal({ v: 1, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth });
+    this.postLocal({ v: 2, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth });
   }
 
   /** Request diagnostics (editor side). */
   requestDiagnostics(playSessionId: string, relayId: string): void {
     if (this.direction !== 'editor') throw new Error('requestDiagnostics is editor-side only');
-    this.postLocal({ v: 1, type: 'tl.diagnostics.request', playSessionId, relayId });
+    this.postLocal({ v: 2, type: 'tl.diagnostics.request', playSessionId, relayId });
   }
 
   /** Ask the preview to stop (editor side). */
   requestStop(playSessionId: string): void {
     if (this.direction !== 'editor') throw new Error('requestStop is editor-side only');
-    this.postLocal({ v: 1, type: 'tl.play.stop', playSessionId });
+    this.postLocal({ v: 2, type: 'tl.play.stop', playSessionId });
   }
 
   /** Acknowledge the handshake (preview side; echoes the editor's nonce). */
   ackHandshake(playSessionId: string, nonce: string): void {
     if (this.direction !== 'preview') throw new Error('ackHandshake is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.handshake.ack', playSessionId, nonce });
+    this.postLocal({ v: 2, type: 'tl.handshake.ack', playSessionId, nonce });
   }
 
-  /** Report the preview is ready (preview side). */
-  sendReady(playSessionId: string, snapshotId: string, revision: number): void {
+  /** Report the preview is ready (preview side, v2 — delivery §7). */
+  sendReady(
+    playSessionId: string,
+    snapshotId: string,
+    revision: number,
+    buildId: string,
+    contentDigest: string,
+    stepIndex: number,
+  ): void {
     if (this.direction !== 'preview') throw new Error('sendReady is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.ready', playSessionId, snapshotId, revision });
+    this.postLocal({ v: 2, type: 'tl.ready', playSessionId, snapshotId, revision, buildId, contentDigest, stepIndex });
+  }
+
+  /** Report truthful load progress (preview side, ≤ 1 KiB). */
+  sendLoadProgress(playSessionId: string, phase: string, loadedBytes: number, totalBytes: number): void {
+    if (this.direction !== 'preview') throw new Error('sendLoadProgress is preview-side only');
+    this.postLocal({ v: 2, type: 'tl.load.progress', playSessionId, phase, loadedBytes, totalBytes });
+  }
+
+  /** Report the applied range of one input-exercise relay (preview side). */
+  sendInputResult(
+    playSessionId: string,
+    requestId: string,
+    result:
+      | { ok: true; appliedFromStep: number; appliedToStep: number }
+      | { ok: false; error: { code: string; message?: string } },
+  ): void {
+    if (this.direction !== 'preview') throw new Error('sendInputResult is preview-side only');
+    this.postLocal({ v: 2, type: 'tl.input.result', playSessionId, requestId, ...result });
   }
 
   /** Report the preview stopped (preview side). */
   sendStopped(playSessionId: string): void {
     if (this.direction !== 'preview') throw new Error('sendStopped is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.stopped', playSessionId });
+    this.postLocal({ v: 2, type: 'tl.stopped', playSessionId });
   }
 
   /** Report a screenshot result (preview side). */
@@ -172,7 +218,7 @@ export class Bridge {
     result: { ok: true; dataUrl: string; width: number; height: number } | { ok: false; error: { code: string; message?: string } },
   ): void {
     if (this.direction !== 'preview') throw new Error('sendScreenshotResult is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.screenshot.result', playSessionId, relayId, ...result });
+    this.postLocal({ v: 2, type: 'tl.screenshot.result', playSessionId, relayId, ...result });
   }
 
   /** Report a diagnostics result (preview side). */
@@ -182,19 +228,26 @@ export class Bridge {
     result: { ok: true; diagnostics: unknown } | { ok: false; error: { code: string; message?: string } },
   ): void {
     if (this.direction !== 'preview') throw new Error('sendDiagnosticsResult is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.diagnostics.result', playSessionId, relayId, ...result });
+    this.postLocal({ v: 2, type: 'tl.diagnostics.result', playSessionId, relayId, ...result });
   }
 
-  /** Report a structured preview error (preview side). */
-  sendError(playSessionId: string, code: string, message?: string): void {
+  /** Report a structured preview error (preview side; `phase` names the load phase). */
+  sendError(playSessionId: string, code: string, message?: string, phase?: string): void {
     if (this.direction !== 'preview') throw new Error('sendError is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.error', playSessionId, code, ...(message !== undefined ? { message } : {}) });
+    this.postLocal({
+      v: 2,
+      type: 'tl.error',
+      playSessionId,
+      code,
+      ...(phase !== undefined ? { phase } : {}),
+      ...(message !== undefined ? { message: message.slice(0, 256) } : {}),
+    });
   }
 
   /** Respond to a ping (preview side). */
   sendPong(): void {
     if (this.direction !== 'preview') throw new Error('sendPong is preview-side only');
-    this.postLocal({ v: 1, type: 'tl.pong' });
+    this.postLocal({ v: 2, type: 'tl.pong' });
   }
 
   /** Post a validated local message to the peer (never `"*"`). */
@@ -255,7 +308,7 @@ export class Bridge {
         this.dispatch(type, body, event);
         return;
       }
-      // other preview-received types (stop/screenshot/diag/ping): allowlisted,
+      // other preview-received types (stop/screenshot/diag/input/ping): allowlisted,
       // no nonce gate beyond the validator.
       this.dispatch(type, body, event);
       return;

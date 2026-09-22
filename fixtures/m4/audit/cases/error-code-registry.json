@@ -1,0 +1,21 @@
+{
+  "note": "Packet 68 (contract-diffs §7, the 'contradictory errors' failure mode): the SINGLE registry of every error code introduced by the M4 proposals, with its unique source-of-truth section. The audit tool (tools/audit.mjs) parses each proposal's closed 'New error codes' section and asserts: (1) set-equality with this registry; (2) every code appears in EXACTLY ONE new-code section (no code defined twice with different meanings — a contradictory error); (3) delivery.md defines no new codes (reuse only). Reused accepted codes are listed for the trace, not the new-code check.",
+  "newCodes": {
+    "delivery": [],
+    "templates": ["template_not_found", "template_descriptor_invalid", "template_content_mismatch", "template_engine_version_mismatch", "template_path_rejected", "template_recipe_invalid", "template_destination_exists", "template_reservation_conflict", "template_marker_conflict", "template_initialization_incomplete", "template_source_unavailable", "module_unknown", "module_duplicate", "module_cycle", "module_unresolved", "manifest_storage_mismatch"],
+    "distribution": ["kit_tampered", "kit_inventory_missing", "kit_lockfile_mismatch", "kit_install_unavailable", "kit_path_rejected", "kit_notice_missing", "game_pin_mismatch", "template_install_mismatch"],
+    "reliability": ["backup_live_project", "backup_manifest_invalid", "backup_truncated", "backup_hash_mismatch", "backup_blob_missing", "backup_path_rejected", "backup_ownership_included", "backup_incomplete", "backup_destination_exists", "source_blob_corrupt", "restore_destination_nonempty", "restore_identity_mismatch", "budget_scene_unfrozen", "budget_source_not_representative"]
+  },
+  "sourceOfTruth": {
+    "delivery": "docs/planning/m4-contracts/delivery.md — defines NO new codes (C64-1…C64-8 reuse the accepted code tables; the query/scan rows carry the existing codes)",
+    "templates": "docs/planning/m4-contracts/templates.md — the 'New error codes (closed list)' section (16 codes: 11 template/creation codes + 4 module codes + manifest_storage_mismatch)",
+    "distribution": "docs/planning/m4-contracts/distribution.md — §9 (8 codes: 6 kit codes + game_pin_mismatch + template_install_mismatch)",
+    "reliability": "docs/planning/m4-contracts/reliability.md — §9 (14 codes: 9 backup codes + source_blob_corrupt + 2 restore codes + 2 budget codes)"
+  },
+  "meaningNotes": {
+    "module_unresolved": "the C14 explicit refusal: a behavior-bearing scene on the built-in-only M4 profile (CC-55-3a stays fail-closed until the owner's Gate Q scope decision — CCR-65-1)",
+    "template_content_mismatch": "65 §5 only (the template descriptor/content digest mismatch). The 67 backup surface has its OWN codes (backup_hash_mismatch et al.) — the names are distinct on purpose (no cross-surface reuse)",
+    "template_path_rejected": "65 only (template source paths). The kit surface has kit_path_rejected (66 §7); the backup surface has backup_path_rejected (67 §1.4) — three DISTINCT codes for three distinct path-escape checks (the audit's no-double-definition rule enforces this)"
+  },
+  "reusedAcceptedCodes": ["content_quota_exceeded", "content_publish_failed", "blob_corrupt", "blob_missing", "path_rejected", "claim_inconsistent", "project_unavailable", "project_not_found", "session_not_found", "play_not_found", "session_unavailable", "ownership_conflict", "stale_ownership", "invalid_request"]
+}

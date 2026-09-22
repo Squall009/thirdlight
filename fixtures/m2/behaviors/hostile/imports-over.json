@@ -1,0 +1,18 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nimport './util';\nexport default { step() {} };\n"
+    },
+    {
+      "path": "src/util.ts",
+      "text": "export const u = 1;\n"
+    }
+  ]
+}

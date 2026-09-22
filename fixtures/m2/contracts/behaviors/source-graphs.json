@@ -1,0 +1,559 @@
+{
+  "kind": "behavior-source-graph-set",
+  "setVersion": 1,
+  "id": "behavior-source-graphs",
+  "limits": {
+    "files": 16,
+    "fileBytes": 65536,
+    "graphBytes": 262144,
+    "importDepth": 8,
+    "importsPerFile": 16,
+    "ownedTransforms": 16,
+    "diagnostics": 32,
+    "timeoutMs": 2000,
+    "outputBytes": 131072,
+    "intentsPerInstanceStep": 5,
+    "intentsPerStep": 64,
+    "logsPerInstance": 32,
+    "logsPerStep": 16
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 3.1 Canonical source-graph container (format `thirdlight-behavior-source` v1)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 4.3 Validation order (normative, exhaustive)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "## 6. Compiler resource bounds (separate from runtime trust)"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "G01-drift-example",
+      "title": "the valid example graph: one .ts file, a type-only engine import (erased), one required module",
+      "container": "behaviors/source-preimages/drift-example.json",
+      "containerDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+      "containerByteLength": 677,
+      "expect": {
+        "ok": true,
+        "fileCount": 1,
+        "requiredModules": [
+          "@thirdlight/runtime"
+        ],
+        "ownedTransforms": [],
+        "importDepth": 0,
+        "typeOnlyImports": 1,
+        "acceptedImports": 0
+      }
+    },
+    {
+      "caseId": "G02-multi-file-type-only",
+      "title": "two files, one relative value import with an explicit .ts extension, one type-only engine import",
+      "container": "behaviors/source-preimages/multi-file-valid.json",
+      "containerDigest": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+      "containerByteLength": 721,
+      "expect": {
+        "ok": true,
+        "fileCount": 2,
+        "requiredModules": [
+          "@thirdlight/runtime"
+        ],
+        "ownedTransforms": [],
+        "importDepth": 1,
+        "typeOnlyImports": 1,
+        "acceptedImports": 1,
+        "relativeEdges": [
+          [
+            "src/index.ts",
+            "src/util.ts"
+          ]
+        ]
+      }
+    },
+    {
+      "caseId": "G03-bare-import",
+      "title": "a bare npm specifier is forbidden",
+      "container": "behaviors/source-preimages/bare-import.json",
+      "containerDigest": "e64b053b117726882a395b32c50debaf388f28d634a3a2b6e05e3416f6c5469f",
+      "containerByteLength": 349,
+      "expect": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "bare",
+        "specifier": "lodash",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G04-node-builtin-import",
+      "title": "a node: builtin is forbidden",
+      "container": "behaviors/source-preimages/node-builtin-import.json",
+      "containerDigest": "da0dcf4ac5fc265b08b58221f8841eb48c4150e882de7d9f4a3bfb20a623a7f6",
+      "containerByteLength": 359,
+      "expect": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "node_builtin",
+        "specifier": "node:fs",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G05-network-import",
+      "title": "an https: URL specifier is forbidden (network)",
+      "container": "behaviors/source-preimages/network-import.json",
+      "containerDigest": "b52a1e56ae049296973adf4f4926752bef2a273220eaa0dcefc66bbdc0f51b2d",
+      "containerByteLength": 370,
+      "expect": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "network",
+        "specifier": "https://cdn.example.com/widget.js",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G06-dynamic-import",
+      "title": "a dynamic import() is dynamic code, not a resolvable relative import",
+      "container": "behaviors/source-preimages/dynamic-import.json",
+      "containerDigest": "e7725b25c90ec6248bb61941f5125fdb9fe0e31e90232a83b682d3100079e54e",
+      "containerByteLength": 369,
+      "expect": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "dynamic_import",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G07-eval-call",
+      "title": "eval() is dynamic code",
+      "container": "behaviors/source-preimages/eval-call.json",
+      "containerDigest": "462b49a17cc647efa47e6ab3161c76eb868816fec8627226f7d8bb54064c3456",
+      "containerByteLength": 344,
+      "expect": {
+        "ok": false,
+        "code": "behavior_dynamic_code",
+        "reason": "eval",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G08-graph-escape",
+      "title": "a relative import above the graph root is an escape",
+      "container": "behaviors/source-preimages/graph-escape.json",
+      "containerDigest": "14dc818dd011c2eb69b50b6330f139f524222235115955b3f565738a02fd70c3",
+      "containerByteLength": 357,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_escape",
+        "resolved": "../outside.ts",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G09-graph-cycle",
+      "title": "a -> b -> a is a cycle",
+      "container": "behaviors/source-preimages/graph-cycle.json",
+      "containerDigest": "c2628a0353e586fa7d7a0a3e5afe823dc8d756469c7f1e698e15a01db2473fc8",
+      "containerByteLength": 547,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_cycle",
+        "cycle": [
+          "src/a.ts",
+          "src/b.ts",
+          "src/a.ts"
+        ]
+      }
+    },
+    {
+      "caseId": "G10-missing-import",
+      "title": "a relative import whose target is absent",
+      "container": "behaviors/source-preimages/missing-import.json",
+      "containerDigest": "c480c610c715301ba9088b6aece3a0a034f2a07bc525eacfa0011597e1134292",
+      "containerByteLength": 346,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_missing",
+        "resolved": "src/nope.ts",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G11-file-too-large",
+      "title": "one file above the 65 536-byte per-file bound (checked before parsing)",
+      "container": "behaviors/source-preimages/file-too-large.json",
+      "containerDigest": "df20f7dbad81ac28ee5a8e0f365f6b00d6e9ca939c1c9b284d0a8b5bb5ffa662",
+      "containerByteLength": 65834,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "file_bytes",
+        "current": 65644,
+        "max": 65536
+      }
+    },
+    {
+      "caseId": "G12-files-not-sorted",
+      "title": "files must be in ascending path order",
+      "container": "behaviors/source-preimages/not-sorted.json",
+      "containerDigest": "3d084168a39c0059c7169864e2eea87540aba6520d13b78368ee220d49c0d0e6",
+      "containerByteLength": 272,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "file_order"
+      }
+    },
+    {
+      "caseId": "G13-entry-absent",
+      "title": "entryPath names a file that is not in the graph",
+      "container": "behaviors/source-preimages/entry-absent.json",
+      "containerDigest": "695b8e39c02337845578b4a72a666a29ca91330e0dcc40489ca5d6c84a77cffe",
+      "containerByteLength": 207,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "entry_missing"
+      }
+    },
+    {
+      "caseId": "G14-duplicate-path",
+      "title": "the same path twice",
+      "container": "behaviors/source-preimages/duplicate-path.json",
+      "containerDigest": "2b1d3b49cdc9aba65dd7053c7bdab7547937319845e09cbb662c1640647281fc",
+      "containerByteLength": 284,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_duplicate"
+      }
+    },
+    {
+      "caseId": "G15-engine-value-import",
+      "title": "a value import of a pinned engine module is forbidden (type-only is the only accepted form)",
+      "container": "behaviors/source-preimages/engine-value-import.json",
+      "containerDigest": "f1a0001061c4cd13b44277e0322cacae6cba77daaca0dff5a4f2733d0179d3a1",
+      "containerByteLength": 417,
+      "expect": {
+        "ok": false,
+        "code": "behavior_import_forbidden",
+        "reason": "engine_value_import",
+        "specifier": "@thirdlight/runtime",
+        "path": "src/index.ts"
+      }
+    },
+    {
+      "caseId": "G16-extension-tsx",
+      "title": "a non-.ts file is rejected",
+      "container": "behaviors/source-preimages/extension-tsx.json",
+      "containerDigest": "66f9a6bae97c2aee9525d4bdf29e418510cadb74f1a3e611fe8f7ce151300cc7",
+      "containerByteLength": 664,
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "extension",
+        "path": "src/ui.tsx"
+      }
+    }
+  ],
+  "constructed": [
+    {
+      "caseId": "C01-files-cap",
+      "title": "16 files (the cap)",
+      "state": {
+        "fileCount": 16
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C02-files-over",
+      "title": "17 files",
+      "state": {
+        "fileCount": 17
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "files"
+      }
+    },
+    {
+      "caseId": "C03-file-bytes-cap",
+      "title": "a 65 536-byte file (the cap)",
+      "state": {
+        "fileBytes": 65536
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C04-file-bytes-over",
+      "title": "a 65 537-byte file",
+      "state": {
+        "fileBytes": 65537
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "file_bytes"
+      }
+    },
+    {
+      "caseId": "C05-graph-bytes-cap",
+      "title": "262 144 container bytes (the cap)",
+      "state": {
+        "graphBytes": 262144
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C06-graph-bytes-over",
+      "title": "262 145 container bytes",
+      "state": {
+        "graphBytes": 262145
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "graph_bytes"
+      }
+    },
+    {
+      "caseId": "C07-import-depth-cap",
+      "title": "import depth 8 (the cap)",
+      "state": {
+        "importDepth": 8
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C08-import-depth-over",
+      "title": "import depth 9",
+      "state": {
+        "importDepth": 9
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "import_depth"
+      }
+    },
+    {
+      "caseId": "C09-imports-per-file-cap",
+      "title": "16 imports in one file (the cap)",
+      "state": {
+        "importsPerFile": 16
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C10-imports-per-file-over",
+      "title": "17 imports in one file",
+      "state": {
+        "importsPerFile": 17
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "imports"
+      }
+    },
+    {
+      "caseId": "C11-owned-transforms-cap",
+      "title": "16 ownedTransforms entries (the cap)",
+      "state": {
+        "ownedTransforms": 16
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C12-owned-transforms-over",
+      "title": "17 ownedTransforms entries",
+      "state": {
+        "ownedTransforms": 17
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "owned_transforms"
+      }
+    },
+    {
+      "caseId": "C13-output-cap",
+      "title": "131 072 output bytes (the cap)",
+      "state": {
+        "outputBytes": 131072
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C14-output-over",
+      "title": "131 073 output bytes",
+      "state": {
+        "outputBytes": 131073
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_output_limits_exceeded",
+        "limit": "output_bytes"
+      }
+    },
+    {
+      "caseId": "C15-diagnostics-truncated",
+      "title": "a failing compile with 40 diagnostics",
+      "state": {
+        "compileFailed": true,
+        "diagnostics": 40
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_compile_failed",
+        "diagnosticsStored": 32,
+        "diagnosticsTruncated": true
+      }
+    },
+    {
+      "caseId": "C16-timeout-cap",
+      "title": "exactly 2 000 ms of compile wall clock",
+      "state": {
+        "compileTimeoutMs": 2000
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "caseId": "C17-timeout-over",
+      "title": "2 001 ms of compile wall clock",
+      "state": {
+        "compileTimeoutMs": 2001
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_compile_timeout"
+      }
+    },
+    {
+      "caseId": "C18-compile-failed",
+      "title": "the pinned compiler throws",
+      "state": {
+        "compileFailed": true
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_compile_failed"
+      }
+    },
+    {
+      "caseId": "C19-output-scan-hit",
+      "title": "the output contains a forbidden pattern (d: fetch()",
+      "state": {
+        "outputScanPattern": "d"
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_output_forbidden_content",
+        "reason": "d"
+      }
+    },
+    {
+      "caseId": "C20-required-module-unpinned",
+      "title": "a requiredModules entry outside the pinned set",
+      "state": {
+        "requiredModules": [
+          "@thirdlight/runtime",
+          "@thirdlight/unknown"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_import_unpinned",
+        "moduleId": "@thirdlight/unknown"
+      }
+    },
+    {
+      "caseId": "C21-duplicate-required-module",
+      "title": "a duplicated requiredModules entry",
+      "state": {
+        "requiredModules": [
+          "@thirdlight/runtime",
+          "@thirdlight/runtime"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "duplicate"
+      }
+    },
+    {
+      "caseId": "C22-syntax-error",
+      "title": "a TypeScript syntax error",
+      "state": {
+        "syntaxError": true
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_invalid",
+        "reason": "syntax"
+      }
+    },
+    {
+      "caseId": "C23-manifest-mismatch",
+      "title": "a stored record whose manifestDigest does not match the prepared manifest",
+      "state": {
+        "manifestMismatch": true
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_declaration_mismatch",
+        "reason": "manifest"
+      }
+    },
+    {
+      "caseId": "C24-trust-unacknowledged",
+      "title": "preparing a digest that is not acknowledged",
+      "state": {
+        "trustAcknowledged": false
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_trust_unacknowledged",
+        "reason": "digest"
+      }
+    },
+    {
+      "caseId": "C25-imports-before-limits",
+      "title": "a file with a forbidden import and an over-cap graph: the ordered scan reports the import first only if it precedes the byte bound; the byte bound is step 7 and wins",
+      "state": {
+        "graphBytes": 262145,
+        "requiredModules": [
+          "@thirdlight/unknown"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "code": "behavior_source_limits_exceeded",
+        "limit": "graph_bytes"
+      }
+    }
+  ]
+}

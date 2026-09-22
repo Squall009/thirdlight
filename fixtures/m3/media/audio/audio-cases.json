@@ -1,0 +1,101 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §§41.4.7/41.4.8",
+  "maxVoices": 8,
+  "voiceCap": {
+    "events": 10,
+    "expectLive": 8,
+    "dropped": 2,
+    "dropReason": "voice_cap"
+  },
+  "dedupe": {
+    "ids": [
+      "run#0/start/12",
+      "run#0/start/12",
+      "run#0/jump/40"
+    ],
+    "expectLive": 2,
+    "expectPlayed": 2
+  },
+  "runReset": {
+    "idsRunA": [
+      "a/start/0",
+      "a/jump/3"
+    ],
+    "runB": [
+      "b/start/0",
+      "b/start/0"
+    ],
+    "expectPlayed": 3
+  },
+  "stale": {
+    "sequence": [
+      "decode-start",
+      "stop",
+      "decode-resolve"
+    ],
+    "expectPlayed": 0,
+    "expectDiscarded": 1
+  },
+  "statuses": [
+    {
+      "id": "no-context",
+      "environment": "no_audio_context",
+      "expect": {
+        "state": "unsupported",
+        "reason": "no_audio_context"
+      }
+    },
+    {
+      "id": "autoplay-denied",
+      "environment": "resume_rejects",
+      "expect": {
+        "state": "blocked",
+        "reason": "autoplay_denied"
+      }
+    },
+    {
+      "id": "no-device",
+      "environment": "no_output_device",
+      "expect": {
+        "state": "blocked",
+        "reason": "no_device"
+      }
+    },
+    {
+      "id": "after-unlock",
+      "environment": "unlock_ok",
+      "expect": {
+        "state": "ready",
+        "unlocked": true
+      }
+    },
+    {
+      "id": "muted",
+      "environment": "muted",
+      "expect": {
+        "state": "ready",
+        "muted": true
+      }
+    },
+    {
+      "id": "after-dispose",
+      "environment": "disposed",
+      "expect": {
+        "state": "disposed"
+      }
+    }
+  ],
+  "gesture": {
+    "trusted": [
+      "keydown",
+      "gamepad_button",
+      "pointerdown"
+    ],
+    "untrusted": [
+      "postMessage",
+      "mcp_relay",
+      "dispatchEvent"
+    ]
+  }
+}

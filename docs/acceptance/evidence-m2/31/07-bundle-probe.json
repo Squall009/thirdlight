@@ -1,0 +1,20 @@
+{
+  "packet": 31,
+  "entry": "fixtures/m2/physics/tools/build-probe-bundle.mjs (generated probe entry)",
+  "options": {
+    "bundle": true,
+    "platform": "browser",
+    "format": "iife",
+    "treeShaking": false,
+    "sourcemap": false,
+    "minify": false,
+    "note": "exact export.md §5.3 pinned set; every other option at the 0.28.2 default"
+  },
+  "esbuild": "0.28.2",
+  "bytes": 2191202,
+  "sha256": "e319125dc2544377793f0ed4e013f0592e54d325750bdb21432c2bcc55723af3",
+  "importsRapier": true,
+  "importsAdapter": true,
+  "outfile": "/tmp/tl31-bundle/probe-iife.js",
+  "browserExecution": "UNVERIFIED (no browser in this container; packet-37 procedure)"
+}

@@ -1,0 +1,104 @@
+{
+  "done": true,
+  "probe": {
+    "wasmCompile": "blocked: WebAssembly.compile(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\".",
+    "physicsOk": false,
+    "physicsError": {
+      "code": "physics_init_failed",
+      "reason": "wasm_unavailable",
+      "message": "Rapier WASM initialization failed: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\"."
+    },
+    "glbBytes": 1864,
+    "glbSha256": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "glbLoaded": true,
+    "glbClipNames": [
+      "Spin2"
+    ],
+    "glbClipCount": 1,
+    "glbOwnership": {
+      "geometries": 1,
+      "materials": 2,
+      "textures": 0,
+      "listeners": 0,
+      "objectUrls": 0
+    },
+    "glbInstanceChildren": 1,
+    "mixerCrossfade": {
+      "clips": [
+        "probe-idle",
+        "probe-airborne"
+      ],
+      "startWeights": [
+        1,
+        1
+      ],
+      "midWeights": [
+        0.5,
+        0.5
+      ],
+      "endWeights": [
+        0,
+        1
+      ],
+      "mixerTime": 0.6,
+      "otherMixerTime": 0.1,
+      "independentOtherWeight": 1,
+      "instanceChildren": [
+        1,
+        1,
+        1
+      ]
+    },
+    "rigidAnimationProfileFeasible": true,
+    "glbDisposed": true,
+    "inputRight": {
+      "stepIndex": 0,
+      "moveX": 1,
+      "jump": "none"
+    },
+    "inputSpaceHeld": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputSpaceLatch": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputEnter": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "none"
+    },
+    "inputGamepadButton": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputGamepadAxis": {
+      "stepIndex": 0,
+      "moveX": 0.875,
+      "jump": "none"
+    },
+    "inputNonStandardPad": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "none"
+    },
+    "controllerConstants": {
+      "capsuleRadius": 0.3,
+      "capsuleHalfHeight": 0.6,
+      "offsetSkin": 0.01,
+      "groundSnap": 0.1,
+      "autostep": false,
+      "moveAccel": 40,
+      "moveDecel": 60,
+      "coyoteSteps": 6,
+      "jumpBufferSteps": 8,
+      "jumpReleaseFactor": 0.5,
+      "settlePreRollSteps": 12
+    },
+    "errors": []
+  }
+}

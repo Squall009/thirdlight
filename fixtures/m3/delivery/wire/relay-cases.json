@@ -1,0 +1,151 @@
+{
+  "identityTuple": [
+    "playSessionId",
+    "snapshotId",
+    "buildId",
+    "runId",
+    "stepIndex"
+  ],
+  "cases": [
+    {
+      "id": "R1",
+      "case": "valid observe",
+      "expect": {
+        "ok": true,
+        "code": null,
+        "http": 200
+      }
+    },
+    {
+      "id": "R2",
+      "case": "stale runId",
+      "request": {
+        "command": "replay",
+        "expectedRunId": "demo-0001@r12#0"
+      },
+      "current": {
+        "runId": "demo-0001@r12#1"
+      },
+      "expect": {
+        "ok": false,
+        "code": "game_run_stale",
+        "cls": "conflict",
+        "http": 409,
+        "applied": false
+      }
+    },
+    {
+      "id": "R3",
+      "case": "expired locator",
+      "expect": {
+        "ok": false,
+        "code": "play_locator_expired",
+        "cls": "unavailable",
+        "http": 503
+      }
+    },
+    {
+      "id": "R4",
+      "case": "unknown or stopped play",
+      "expect": {
+        "ok": false,
+        "code": "play_not_found",
+        "cls": "not_found",
+        "http": 404
+      }
+    },
+    {
+      "id": "R5",
+      "case": "wrong origin",
+      "expect": {
+        "ok": false,
+        "code": "bad_origin",
+        "cls": "validation",
+        "http": 403
+      }
+    },
+    {
+      "id": "R6",
+      "case": "wrong bridge source or nonce",
+      "expect": {
+        "ok": false,
+        "code": "game_relay_rejected",
+        "cls": "unavailable",
+        "http": 503,
+        "droppedAndCounted": true
+      }
+    },
+    {
+      "id": "R7",
+      "case": "no registered browser / owner WS detached",
+      "expect": {
+        "ok": false,
+        "code": "session_unavailable",
+        "cls": "unavailable",
+        "http": 503
+      }
+    },
+    {
+      "id": "R8",
+      "case": "not presented yet",
+      "expect": {
+        "ok": false,
+        "code": "session_unavailable",
+        "cls": "unavailable",
+        "http": 503,
+        "reason": "not_presented"
+      }
+    },
+    {
+      "id": "R9",
+      "case": "no tl.game.result within timeoutMs",
+      "expect": {
+        "ok": false,
+        "code": "game_relay_timeout",
+        "cls": "unavailable",
+        "http": 503
+      }
+    },
+    {
+      "id": "R10",
+      "case": "physical input engaged during exclusive test mode",
+      "expect": {
+        "ok": false,
+        "code": "input_relay_conflict",
+        "cls": "conflict",
+        "http": 409
+      }
+    },
+    {
+      "id": "R11",
+      "case": "command invalid for run state",
+      "expect": {
+        "ok": false,
+        "code": "game_command_invalid",
+        "cls": "validation",
+        "http": 400,
+        "reason": "state"
+      }
+    },
+    {
+      "id": "R12",
+      "case": "payload over bound",
+      "expect": {
+        "ok": false,
+        "code": "limits_exceeded",
+        "cls": "validation",
+        "http": 400,
+        "limit": "result_bytes"
+      }
+    }
+  ],
+  "neverCrosses": [
+    "GLB bytes",
+    "WAV bytes",
+    "base64 media",
+    "authoring token",
+    "contentId capability",
+    "absolute workspace path",
+    "eval interface"
+  ]
+}

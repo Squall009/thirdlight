@@ -18,10 +18,15 @@
  */
 
 import {
-  KNOWN_VERSIONS,
+  INTERCHANGE_SCENE_VERSIONS,
+  SCHEMA_VERSIONS_BY_DOCUMENT,
   type ModelError,
+  type ModelErrorV2,
   type ModelResult,
 } from './errors';
+
+/** The error element type shared by the M1 (narrow) and v2 (extended) results. */
+type AnyError = ModelError | ModelErrorV2;
 import type {
   BoxComponent,
   CameraComponent,
@@ -36,20 +41,20 @@ import type {
 
 // ---- §5/§6/§7/§10 constants -------------------------------------------------
 
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
+export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/; // §6
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/; // §7.2
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/; // §10.2
 const M1_SCENE_PATH = 'scenes/main.json'; // §3/§5.3/§7.1
 const QUATERNION_TOLERANCE = 1e-4; // §10.1
-const MAX_LEN = 1e6; // §10.1/§10.2/§10.3 length bound (meters)
-const MAX_REVISION = Number.MAX_SAFE_INTEGER; // §6 (2^53 - 1)
+export const MAX_LEN = 1e6; // §10.1/§10.2/§10.3 length bound (meters)
+export const MAX_REVISION = Number.MAX_SAFE_INTEGER; // §6 (2^53 - 1)
 const MAX_ENTITIES = 1024; // §10.4
 const MAX_DEPTH = 32; // §10.4 (root = 1)
-const NAME_MIN = 1;
-const NAME_MAX = 128;
+export const NAME_MIN = 1;
+export const NAME_MAX = 128;
 
-const KNOWN_MANIFEST_FIELDS = new Set([
+export const KNOWN_MANIFEST_FIELDS = new Set([
   'schemaVersion',
   'engineVersion',
   'id',
@@ -72,7 +77,7 @@ const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
 // ---- helpers ----------------------------------------------------------------
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
@@ -87,11 +92,11 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * `escapePointer`): the dependency direction (dependencies.md §4.1) keeps
  * validate.ts module-local, and neither helper is a public export.
  */
-function pointerSegment(segment: string): string {
+export function pointerSegment(segment: string): string {
   return segment.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
-function fail(errors: ModelError[]): { ok: false; errors: readonly ModelError[] } {
+export function fail<E extends AnyError = ModelError>(errors: readonly E[]): { ok: false; errors: readonly E[] } {
   return { ok: false, errors };
 }
 
@@ -188,59 +193,59 @@ function mapFound(v: unknown, depth: number, budget: FoundBudget): unknown {
   return v;
 }
 
-function withFound(e: ModelError, found: unknown): ModelError {
+export function withFound<E extends AnyError>(e: E, found: unknown): E {
   const b = boundedFound(found);
   if (b === undefined) return e;
-  return { ...e, found: b };
+  return { ...e, found: b } as E;
 }
 
-function fieldMissing(path: string, field: string): ModelError {
+export function fieldMissing<E extends AnyError = ModelError>(path: string, field: string): E {
   return {
     code: 'field_missing',
     path,
     message: `required field '${field}' is missing`,
     expected: 'present',
-  };
+  } as unknown as E;
 }
 
-function fieldType(path: string, found: unknown, expected: string): ModelError {
-  return withFound(
-    { code: 'field_type', path, message: `value must be of type ${expected}`, expected },
+export function fieldType<E extends AnyError = ModelError>(path: string, found: unknown, expected: string): E {
+  return withFound<E>(
+    { code: 'field_type', path, message: `value must be of type ${expected}`, expected } as unknown as E,
     found,
   );
 }
 
-function fieldValue(path: string, found: unknown, expected: string, message: string): ModelError {
-  return withFound({ code: 'field_value', path, message, expected }, found);
+export function fieldValue<E extends AnyError = ModelError>(path: string, found: unknown, expected: string, message: string): E {
+  return withFound<E>({ code: 'field_value', path, message, expected } as unknown as E, found);
 }
 
-function idInvalid(path: string, found: string): ModelError {
-  return withFound(
+export function idInvalid<E extends AnyError = ModelError>(path: string, found: string): E {
+  return withFound<E>(
     {
       code: 'id_invalid',
       path,
       message: 'id does not match the M1 ID syntax',
       expected: '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$',
-    },
+    } as unknown as E,
     found,
   );
 }
 
-function unexpectedField(path: string, key: string, known: string): ModelError {
-  return withFound(
+export function unexpectedField<E extends AnyError = ModelError>(path: string, key: string, known: string): E {
+  return withFound<E>(
     {
       code: 'field_unexpected',
       path,
       message: 'unknown field is not permitted (strict M1 schema drops nothing)',
       expected: `known fields: ${known}`,
-    },
+    } as unknown as E,
     key,
   );
 }
 
-/** §12.3 pass 3: schemaVersion present and in KNOWN_VERSIONS. */
-function isKnownVersion(v: unknown): boolean {
-  return typeof v === 'number' && (KNOWN_VERSIONS as readonly number[]).includes(v);
+/** §12.3 pass 3: schemaVersion present and known for the document type. */
+export function isKnownVersion(v: unknown, known: readonly number[]): boolean {
+  return typeof v === 'number' && known.includes(v);
 }
 
 /**
@@ -248,28 +253,29 @@ function isKnownVersion(v: unknown): boolean {
  * `knownVersions: [1]`, and the action hint naming the known versions.
  * Document validation stops at this error.
  */
-function schemaVersionUnsupported(v: unknown): ModelError {
+export function schemaVersionUnsupported(
+  v: unknown,
+  known: readonly number[],
+  context = '',
+): ModelError {
+  const knownList = `[${known.join(', ')}]`;
+  const suffix = context === '' ? '' : ` (${context})`;
   let hint: string;
-  if (typeof v === 'number' && v > 1) {
-    hint =
-      'known versions: [1]; written by a newer Thirdlight; open with a matching ' +
-      'engine, or convert the document; the original is retained';
+  const highest = known.length > 0 ? (known[known.length - 1] as number) : 0;
+  if (typeof v === 'number' && v > highest) {
+    hint = `known versions: ${knownList}${suffix}; written by a newer Thirdlight; open with a matching engine, or convert the document; the original is retained`;
   } else if (typeof v === 'number') {
-    hint =
-      'known versions: [1]; written by an older Thirdlight; open with a matching ' +
-      'engine, or convert the document; the original is retained';
+    hint = `known versions: ${knownList}${suffix}; written by an older Thirdlight; open with a matching engine, or convert the document; the original is retained`;
   } else {
-    hint =
-      'known versions: [1]; the document has no known schemaVersion; open with a ' +
-      'matching engine, or convert the document; the original is retained';
+    hint = `known versions: ${knownList}${suffix}; the document has no known schemaVersion; open with a matching engine, or convert the document; the original is retained`;
   }
   return withFound(
     {
       code: 'schema_version_unsupported',
       path: '/schemaVersion',
       message: 'schemaVersion is not a known version for this engine',
-      expected: `one of the known versions: [${(KNOWN_VERSIONS as readonly number[]).join(', ')}]`,
-      knownVersions: [...KNOWN_VERSIONS],
+      expected: `one of the known versions: ${knownList}`,
+      knownVersions: [...known],
       hint,
     },
     v,
@@ -277,7 +283,7 @@ function schemaVersionUnsupported(v: unknown): ModelError {
 }
 
 /** §7.2: timestamp regex AND an existing UTC calendar date/time. */
-function isValidTimestamp(s: string): boolean {
+export function isValidTimestamp(s: string): boolean {
   if (!TIMESTAMP_RE.test(s)) return false;
   const y = Number(s.slice(0, 4));
   const mo = Number(s.slice(5, 7));
@@ -306,7 +312,7 @@ function isValidTimestamp(s: string): boolean {
 }
 
 /** §4/§9.1: name fields — 1–128 chars, no control characters. */
-function isValidName(s: string): boolean {
+export function isValidName(s: string): boolean {
   if (s.length < NAME_MIN || s.length > NAME_MAX) return false;
   for (let k = 0; k < s.length; k++) {
     const c = s.charCodeAt(k);
@@ -315,7 +321,7 @@ function isValidName(s: string): boolean {
   return true;
 }
 
-interface NumRange {
+export interface NumRange {
   /** reject v <= minExcl */
   minExcl?: number;
   /** reject v >= maxExcl */
@@ -332,12 +338,12 @@ interface NumRange {
  * value yields only `number_out_of_range`; checks are independent per
  * element and all are collected.
  */
-function checkFiniteNumber(
+export function checkFiniteNumber(
   v: unknown,
   path: string,
   range: NumRange,
   expected: string,
-  errors: ModelError[],
+  errors: AnyError[],
 ): void {
   if (typeof v !== 'number') {
     errors.push(fieldType(path, v, 'finite number'));
@@ -378,13 +384,13 @@ function checkFiniteNumber(
 }
 
 /** Optional vector field: exactly `len` finite numbers, per-element range. */
-function checkVector(
+export function checkVector(
   v: unknown,
   path: string,
   len: number,
   range: NumRange,
   expected: string,
-  errors: ModelError[],
+  errors: AnyError[],
 ): void {
   if (v === undefined) return; // defaulted on normalize (§12.2 rule 1)
   if (!Array.isArray(v)) {
@@ -403,7 +409,7 @@ function checkVector(
 }
 
 /** §10.1 quaternion: 4 finite numbers, |‖q‖ − 1| ≤ 1e-4. */
-function checkQuaternion(v: unknown, path: string, errors: ModelError[]): void {
+export function checkQuaternion(v: unknown, path: string, errors: AnyError[]): void {
   if (v === undefined) return;
   if (!Array.isArray(v)) {
     errors.push(fieldType(path, v, 'array of 4 finite numbers'));
@@ -456,7 +462,7 @@ function checkQuaternion(v: unknown, path: string, errors: ModelError[]): void {
 
 // ---- components (§10) --------------------------------------------------------
 
-function validateTransform(t: unknown, path: string, errors: ModelError[]): void {
+export function validateTransform(t: unknown, path: string, errors: AnyError[]): void {
   if (!isPlainObject(t)) {
     errors.push(fieldType(path, t, 'object'));
     return;
@@ -470,7 +476,7 @@ function validateTransform(t: unknown, path: string, errors: ModelError[]): void
   }
 }
 
-function validateBox(b: unknown, path: string, errors: ModelError[]): void {
+export function validateBox(b: unknown, path: string, errors: AnyError[]): void {
   if (!isPlainObject(b)) {
     errors.push(fieldType(path, b, 'object'));
     return;
@@ -501,7 +507,7 @@ function validateBox(b: unknown, path: string, errors: ModelError[]): void {
   }
 }
 
-function validateCamera(c: unknown, path: string, errors: ModelError[]): void {
+export function validateCamera(c: unknown, path: string, errors: AnyError[]): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
@@ -543,7 +549,7 @@ function validateCamera(c: unknown, path: string, errors: ModelError[]): void {
  * collected independently (a conflicting combination does not suppress the
  * field errors of either component).
  */
-function validateComponents(comps: Record<string, unknown>, path: string, errors: ModelError[]): void {
+export function validateComponents(comps: Record<string, unknown>, path: string, errors: AnyError[]): void {
   for (const k of Object.keys(comps)) {
     if (!KNOWN_COMPONENTS.has(k)) {
       errors.push(
@@ -593,7 +599,7 @@ function validateComponents(comps: Record<string, unknown>, path: string, errors
 function validateEntity(
   e: unknown,
   idx: number,
-  errors: ModelError[],
+  errors: AnyError[],
   idFirstIndex: Map<string, number>,
 ): void {
   const base = `/entities/${idx}`;
@@ -663,10 +669,10 @@ function validateEntity(
  * `hierarchy_cycle` listing the node IDs of the cycle in walk order
  * (e.g. ["a","b"] for a → b → a). A self-parent is a cycle (["a"]). O(n).
  */
-function checkHierarchyCycles(
+export function checkHierarchyCycles(
   ents: unknown[],
   idFirstIndex: Map<string, number>,
-  errors: ModelError[],
+  errors: AnyError[],
 ): void {
   const parentOf = new Map<string, string>(); // first occurrence wins
   for (let idx = 0; idx < ents.length; idx++) {
@@ -713,7 +719,7 @@ function checkHierarchyCycles(
   }
 }
 
-function pushDepthError(errors: ModelError[], idx: number, d: number): void {
+export function pushDepthError(errors: AnyError[], idx: number, d: number): void {
   errors.push(
     withFound(
       {
@@ -734,10 +740,10 @@ function pushDepthError(errors: ModelError[], idx: number, d: number): void {
  * undefined (the document is already invalid for that reason) and are not
  * depth-reported.
  */
-function checkDepthLimit(
+export function checkDepthLimit(
   ents: unknown[],
   idFirstIndex: Map<string, number>,
-  errors: ModelError[],
+  errors: AnyError[],
 ): void {
   type Chain = string | null | 'bad';
   const parentOf = new Map<string, Chain>();
@@ -905,9 +911,9 @@ function validateManifestValue(
 
 export function validateManifest(doc: unknown): ModelResult<Manifest> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  if (!isKnownVersion(doc['schemaVersion'])) {
+  if (!isKnownVersion(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.manifest)) {
     // §12.3 pass 3: exactly one error; no field-level validation follows.
-    return fail([schemaVersionUnsupported(doc['schemaVersion'])]);
+    return fail([schemaVersionUnsupported(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.manifest)]);
   }
   const { errors, doc: canonical } = validateManifestValue(doc);
   if (errors.length > 0) return fail(errors);
@@ -1065,7 +1071,7 @@ function validateSceneValue(
  * preserved, quaternions preserved verbatim (no renormalization, no
  * sign-flip, §12.2 rules 2/5).
  */
-function canonNum(v: unknown): number {
+export function canonNum(v: unknown): number {
   const n = v as number; // validated finite number
   return n === 0 ? 0 : n; // negative zero → zero (§12.2 rule 2)
 }
@@ -1084,7 +1090,7 @@ function canonOptNumber(v: unknown, d: number): number {
   return typeof v === 'number' ? canonNum(v) : d;
 }
 
-function canonicalTransform(t: unknown): TransformComponent {
+export function canonicalTransform(t: unknown): TransformComponent {
   const o = (t ?? {}) as Record<string, unknown>;
   return {
     position: canonVec3(o['position'], 0, 0, 0),
@@ -1093,7 +1099,7 @@ function canonicalTransform(t: unknown): TransformComponent {
   };
 }
 
-function canonicalBox(b: unknown): BoxComponent {
+export function canonicalBox(b: unknown): BoxComponent {
   const o = (b ?? {}) as Record<string, unknown>;
   const mat = (o['material'] ?? {}) as Record<string, unknown>;
   const color = mat['color'];
@@ -1103,7 +1109,7 @@ function canonicalBox(b: unknown): BoxComponent {
   };
 }
 
-function canonicalCamera(c: unknown): CameraComponent {
+export function canonicalCamera(c: unknown): CameraComponent {
   const o = (c ?? {}) as Record<string, unknown>;
   const type = o['type'];
   return {
@@ -1143,8 +1149,19 @@ function canonicalScene(doc: Record<string, unknown>, ents: unknown[]): Scene {
 
 export function validateScene(doc: unknown): ModelResult<Scene> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  if (!isKnownVersion(doc['schemaVersion'])) {
-    return fail([schemaVersionUnsupported(doc['schemaVersion'])]);
+  // §8: a STANDALONE interchange scene file remains schemaVersion 1. The v2
+  // embedded scene is validated by validateSceneV2 (packet 20). The M1
+  // fixture/behavior contract (`invalid/unsupported-version.json`) pins that
+  // the interchange entry point rejects a standalone version-2 scene with a
+  // single schema_version_unsupported.
+  if (!isKnownVersion(doc['schemaVersion'], INTERCHANGE_SCENE_VERSIONS)) {
+    return fail([
+      schemaVersionUnsupported(
+        doc['schemaVersion'],
+        INTERCHANGE_SCENE_VERSIONS,
+        'standalone interchange scene files are schemaVersion 1',
+      ),
+    ]);
   }
   const { errors, doc: canonical } = validateSceneValue(doc);
   if (errors.length > 0) return fail(errors);

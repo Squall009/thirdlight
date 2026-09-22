@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "type": "thirdlight-template",
+  "templateId": "platformer-starter",
+  "name": "Platformer Starter",
+  "version": 1,
+  "engineVersion": "0.1.0",
+  "recipeDigest": "d1adfc0ab8c89cfed3e74fb029c0a8803138bd36025179eb368a9863fe90e6e8",
+  "baseDigest": "14c5320414734063b3e34c760a2b9068f4acacafdc27eaf651dd940a753bfaf8",
+  "blobs": [
+    {
+      "path": "audio/cue-checkpoint.wav",
+      "digest": "e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+      "byteLength": 21164
+    },
+    {
+      "path": "audio/cue-death.wav",
+      "digest": "4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+      "byteLength": 30764
+    },
+    {
+      "path": "audio/cue-goal.wav",
+      "digest": "ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+      "byteLength": 40364
+    },
+    {
+      "path": "audio/cue-jump.wav",
+      "digest": "98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+      "byteLength": 13484
+    },
+    {
+      "path": "audio/cue-start.wav",
+      "digest": "608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+      "byteLength": 17324
+    },
+    {
+      "path": "model/beacon.glb",
+      "digest": "b80e27cc44af407e347cb3b4ea07a8b3860fd36be2775fd8e40a389a23675eb6",
+      "byteLength": 1772
+    },
+    {
+      "path": "model/courier.glb",
+      "digest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be",
+      "byteLength": 3440
+    }
+  ],
+  "modules": {
+    "required": [
+      "thirdlight.platformer:controller",
+      "thirdlight.platformer-game:session",
+      "thirdlight.platformer-game:camera"
+    ],
+    "optional": []
+  },
+  "layout": {
+    "layoutVersion": 1,
+    "panels": {
+      "hierarchy": {
+        "visible": true
+      },
+      "inspector": {
+        "visible": true
+      },
+      "assets": {
+        "visible": true
+      },
+      "media": {
+        "visible": true
+      },
+      "prefabs": {
+        "visible": true
+      },
+      "behaviors": {
+        "visible": true
+      },
+      "gameplay": {
+        "visible": true
+      }
+    }
+  },
+  "provenance": {
+    "derivedFrom": "samples/beacon-reach",
+    "note": "M4 built-in platformer template (templates.md §1.2). Derived from the accepted Beacon Reach recipe (samples/beacon-reach/recipe/commands.json, 26 commands): the layout and self-generated assets are reused byte-identically; the game text is the template\\u2019s own; commands 27\\u201330 add the courier modelAnimation binding, the beacon decoration prefab and two independent instances. The source content is engine-generated (NOTICE)."
+  },
+  "contentDigest": "d9f1a764c98ca09f57f57bee4fa782f3b8eabc3d673632f837428a1885967d34"
+}

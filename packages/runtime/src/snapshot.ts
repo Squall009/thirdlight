@@ -8,16 +8,16 @@
  * `validateScene` re-check (project-model §12.1) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { validateScene, type ModelError, type Scene } from '@thirdlight/project-model';
+import { validateScene, validateSceneV2, validateSceneV3, validateGameConfig, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
-import type { RuntimeSnapshot } from './types';
+import type { RuntimeScene, RuntimeSnapshot } from './types';
 
 /** project-model §5.1 ID syntax (all IDs). */
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game']);
 
 /**
  * Recursively freeze (idempotent). runtime.md §2: on successful
@@ -38,10 +38,26 @@ export function deepFreeze<T>(value: T): T {
 /**
  * Validate the runtime snapshot (runtime.md §2). Returns the normalized
  * scene on success. Never throws.
+ *
+ * M3 (runtime.md §2 `game` row): the `game` wrapper field is present iff
+ * `scene.schemaVersion === 3` — required on a v3 snapshot (it may be `null`),
+ * refused on v1/v2 (`reason: "shape"`). A non-null `game` value must pass the
+ * project-model §23.4 block rules (`validateGameConfig`); a violation is
+ * `snapshot_invalid` (`reason: "scene_validation"`) carrying the
+ * project-model error objects.
  */
 export function validateRuntimeSnapshot(
   input: unknown,
-): { scene: Scene; snapshotId: string; projectId: string; revision: number } | { error: RuntimeError } {
+):
+  | {
+      scene: RuntimeScene;
+      sceneVersion: 1 | 2 | 3;
+      snapshotId: string;
+      projectId: string;
+      revision: number;
+      game: GameConfig | null;
+    }
+  | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return {
       error: {
@@ -121,23 +137,105 @@ export function validateRuntimeSnapshot(
     };
   }
 
-  // Re-validate the scene (project-model §12.1): the producer is not
-  // trusted. Validation failures ⇒ snapshot_invalid carrying the
-  // project-model error objects (≤ 10 reported, total count given).
-  const sceneResult = validateScene(snap.scene);
-  if (!sceneResult.ok) {
-    const errors: readonly ModelError[] = sceneResult.errors;
+  // Re-validate the scene (project-model §12.1/§13/§23): the producer is not
+  // trusted. `schemaVersion` 1 uses `validateScene` (the accepted M1 entry
+  // point), 2 uses `validateSceneV2`, 3 uses `validateSceneV3`. Validation
+  // failures ⇒ snapshot_invalid carrying the project-model error objects
+  // (≤ 10 reported, total count given).
+  const rawScene = snap.scene as { schemaVersion?: unknown };
+  const rawVersion: unknown = rawScene.schemaVersion;
+  const sceneVersion: 1 | 2 | 3 = rawVersion === 3 ? 3 : rawVersion === 2 ? 2 : 1;
+  // M3 (runtime.md §2): the `game` wrapper field is v3-only and required on
+  // v3 snapshots; an absent-on-v3 or present-on-v1/v2 `game` is a strict-shape
+  // violation. The value check (block rules) runs once the scene is known to
+  // be v3, so v1/v2 scenes never see a `game`-carrying error path.
+  const gamePresent = 'game' in snap;
+  if (sceneVersion === 3 && !gamePresent) {
     return {
       error: {
         code: 'snapshot_invalid',
-        reason: 'scene_validation',
-        message: clipSceneMessage(errors),
-        errors: errors.slice(0, 10), // runtime.md §2: ≤ 10 reported, total count given
-        errorTotal: errors.length,
+        reason: 'shape',
+        path: '/game',
+        message: 'snapshot field "game" is required for a schemaVersion 3 snapshot (null is legal)',
       },
     };
   }
-  const scene = sceneResult.normalized;
+  if (sceneVersion !== 3 && gamePresent) {
+    return {
+      error: {
+        code: 'snapshot_invalid',
+        reason: 'shape',
+        path: '/game',
+        message: 'snapshot field "game" is v3-only (absent for schemaVersion 1/2 snapshots)',
+      },
+    };
+  }
+  const rawGame: GameConfig | null = snap.game === undefined ? null : (snap.game as GameConfig | null);
+  let scene: RuntimeScene;
+  if (sceneVersion === 3) {
+    const sceneResult = validateSceneV3(snap.scene);
+    if (!sceneResult.ok) {
+      const errors: readonly ModelErrorV3[] = sceneResult.errors;
+      return {
+        error: {
+          code: 'snapshot_invalid',
+          reason: 'scene_validation',
+          message: clipSceneMessage(errors),
+          errors: errors.slice(0, 10),
+          errorTotal: errors.length,
+        },
+      };
+    }
+    scene = sceneResult.normalized;
+    // The §23.4 game-block rules (project-model; references inside the block
+    // are resolved by the cross-block check, never here). `null` is legal —
+    // an M3-enabled module set rejects it at instantiate (`game_config`).
+    if (rawGame !== null) {
+      const gameErrors: ModelErrorV2[] = [];
+      validateGameConfig(rawGame, '/game', gameErrors);
+      if (gameErrors.length > 0) {
+        return {
+          error: {
+            code: 'snapshot_invalid',
+            reason: 'scene_validation',
+            message: clipSceneMessage(gameErrors),
+            errors: gameErrors.slice(0, 10),
+            errorTotal: gameErrors.length,
+          },
+        };
+      }
+    }
+  } else if (sceneVersion === 2) {
+    const sceneResult = validateSceneV2(snap.scene);
+    if (!sceneResult.ok) {
+      const errors: readonly ModelErrorV2[] = sceneResult.errors;
+      return {
+        error: {
+          code: 'snapshot_invalid',
+          reason: 'scene_validation',
+          message: clipSceneMessage(errors),
+          errors: errors.slice(0, 10),
+          errorTotal: errors.length,
+        },
+      };
+    }
+    scene = sceneResult.normalized;
+  } else {
+    const sceneResult = validateScene(snap.scene);
+    if (!sceneResult.ok) {
+      const errors: readonly ModelError[] = sceneResult.errors;
+      return {
+        error: {
+          code: 'snapshot_invalid',
+          reason: 'scene_validation',
+          message: clipSceneMessage(errors),
+          errors: errors.slice(0, 10), // runtime.md §2: ≤ 10 reported, total count given
+          errorTotal: errors.length,
+        },
+      };
+    }
+    scene = sceneResult.normalized;
+  }
   if (scene.revision !== revision) {
     return {
       error: {
@@ -157,10 +255,10 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  return { scene, snapshotId, projectId, revision };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame };
 }
 
-function clipSceneMessage(errors: readonly ModelError[]): string {
+function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErrorV3)[]): string {
   const first = errors[0];
   const firstPart = first ? `; first: ${first.code} at ${first.path}` : '';
   const msg = `scene validation failed: ${errors.length} error(s)${firstPart}`;

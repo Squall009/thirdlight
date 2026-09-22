@@ -1,0 +1,5 @@
+
+> thirdlight@0.0.0 check-boundaries
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 11 package(s) [asset-pipeline, backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 183 source file(s), 660 specifier(s) checked; no boundary violations.

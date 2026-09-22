@@ -1,0 +1,342 @@
+{
+  "indexVersion": 1,
+  "note": "Packet-24 bounded GLB import fixtures. sha256/byteLength are the digests of the committed *.glb files (bytes.base64.json carries the same bytes for the pure, I/O-free package tests). codes/limits/paths are the ordered §18.8.2 diagnostics; metrics are the §18.6 decoded-resource metrics of an accepted model. recipeDigest is §18.5 and metadataDigest is the packet-24 metadata hash of the persistable facts. Every value was produced by the implementation and is asserted against it by packages/asset-pipeline/src/fixture-index.test.ts.",
+  "job": {
+    "proposalId": "p-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "stageId": "stage-24-fixture",
+    "expiresAt": "2026-09-18T00:00:00Z",
+    "suggestedDisplayName": "fixture-model"
+  },
+  "entries": [
+    {
+      "file": "accessor-overflow.glb",
+      "sha256": "6356fc97768247f0c876b0fa4d3aaf2ed66d9a3c07353aec9b6538763ac02af1",
+      "byteLength": 1556,
+      "purpose": "accessor/buffer overflow: accessor count overruns its bufferView",
+      "status": "rejected",
+      "codes": [
+        "asset_accessor_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/accessors/0"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "4c7a9557def0ee66610c5c67de4ff7327c770bd1ceb17f679c65b58ebf77a1fc"
+    },
+    {
+      "file": "bad-chunk.glb",
+      "sha256": "65b8d6b7d5bbe08a448c86671b5a48ffec5c62044c7af9d9d8a406bf4d5155e1",
+      "byteLength": 1552,
+      "purpose": "bad chunk framing: the second chunk type is not BIN",
+      "status": "rejected",
+      "codes": [
+        "asset_container_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "f9c1590d23a371445eed2174171a1669dd7c1f819ddd6ac7e34b7c5ab57b84be"
+    },
+    {
+      "file": "bad-json.glb",
+      "sha256": "d9500a9430f2a6d811783a6f2c8e00d81a50a2147e86eef22f56dc98defe3060",
+      "byteLength": 120,
+      "purpose": "malformed JSON: a repeated object member name",
+      "status": "rejected",
+      "codes": [
+        "asset_json_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/asset/version"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "10e6cab103408a533a441c2e4d839b60752630d9947850da89022830dac655df"
+    },
+    {
+      "file": "bom-json.glb",
+      "sha256": "44fa4296bcbba4ca096643396ba462f869af213628041a29f012e515d5bf282d",
+      "byteLength": 104,
+      "purpose": "malformed JSON: a byte-order mark in the JSON chunk",
+      "status": "rejected",
+      "codes": [
+        "asset_json_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "8a300403462b3b176273bb240d18ce6d8f5a7e5aeeb7866853ac00bf099ad571"
+    },
+    {
+      "file": "compression.glb",
+      "sha256": "263bd7fc7fef74a3a2e5d88d1abb97a3e526cbaa64f94b1e15b8b1b08a9eb37d",
+      "byteLength": 1652,
+      "purpose": "compression extension (Draco) is not in the M2 profile",
+      "status": "rejected",
+      "codes": [
+        "asset_compression_unsupported"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/extensionsUsed"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "8128c67f7246e1231fb820358bfac265143b20b69d5bbc89499a595ee08be619"
+    },
+    {
+      "file": "count-limit.glb",
+      "sha256": "0c8a0eebc3ddabb55b5264fc0b92729f6abc694332f463e7e21b4228eb9cfc6c",
+      "byteLength": 70056,
+      "purpose": "decoded-resource cap: 4097 nodes exceed the node cap",
+      "status": "rejected",
+      "codes": [
+        "asset_limits_exceeded"
+      ],
+      "limits": [
+        "nodes"
+      ],
+      "paths": [
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "0c3c0d9dfe7752f2286722a0fa6a42e408ece3aa4ed8bf8c54c5029f01623beb"
+    },
+    {
+      "file": "decoded-limit.glb",
+      "sha256": "65fde91d5970a37fb233f228a320f956962fe57379e250516cd438d762b0edc3",
+      "byteLength": 1732,
+      "purpose": "decoded-resource cap: header-declared image pixels exceed the decoded cap",
+      "status": "rejected",
+      "codes": [
+        "asset_limits_exceeded",
+        "asset_limits_exceeded"
+      ],
+      "limits": [
+        "decoded_bytes",
+        "decoded_bytes"
+      ],
+      "paths": [
+        "",
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "9495cae543bd7eb3415ccba8dee4a1ad18cd592d515b1435d94efa83b8018910"
+    },
+    {
+      "file": "empty-model.glb",
+      "sha256": "e5dec60562df712fd7151de0c0887159494d0803e8854ae2171bebb1edfcadd6",
+      "byteLength": 1476,
+      "purpose": "empty model: a mesh with no primitives carries no geometry",
+      "status": "rejected",
+      "codes": [
+        "asset_empty_model"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/meshes"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "3a9c47487e9d9f63bcb69b3a7145a538c22119e35cd6b5889169c15a9a04b22a"
+    },
+    {
+      "file": "external-uri-buffer.glb",
+      "sha256": "a6608ead952a115d87d3e5c066a91fed7940a4df3ec114d2b26a3cdb0db3e9d4",
+      "byteLength": 1592,
+      "purpose": "external URI: the buffer is a remote URL",
+      "status": "rejected",
+      "codes": [
+        "asset_uri_rejected"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/buffers/0/uri"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "470a7029d019d019ac3e7d52e01b4587ab103bae6f9a00e067103334100815e8"
+    },
+    {
+      "file": "external-uri-image.glb",
+      "sha256": "85b777162a2e83a532d2afb1ce834adff2086473211e63b93600655f0f1d839a",
+      "byteLength": 1632,
+      "purpose": "external URI: the image is a data: URI",
+      "status": "rejected",
+      "codes": [
+        "asset_uri_rejected"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/images/0/uri"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "e887012203fdef37ebdbb24a022f83ceccc82551c8025c829c9fcf81d39014f2"
+    },
+    {
+      "file": "image-count-limit.glb",
+      "sha256": "c9f353cb6f76d4d53d412cbfc52b1dfc0f76c7297ca1c7c25d837e0fd8ca504b",
+      "byteLength": 12660,
+      "purpose": "decoded-resource cap: 65 images exceed the image-count cap",
+      "status": "rejected",
+      "codes": [
+        "asset_limits_exceeded"
+      ],
+      "limits": [
+        "images"
+      ],
+      "paths": [
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "d5243415a31f16d15c1f01c48511ce27eb73095137167d66284a2c29e4a76055"
+    },
+    {
+      "file": "malformed-clip.glb",
+      "sha256": "2eec5162a1ac4185fc6fb2790e863f13db3e19e3ffb8d219c5f26cd0bd91beb6",
+      "byteLength": 1552,
+      "purpose": "malformed clip: animation input times are not strictly increasing",
+      "status": "rejected",
+      "codes": [
+        "asset_animation_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/animations/0/samplers/0/input"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "749157b73513c9e5dd7d6556372a0178a1a406273a28778b7f970c8460568633"
+    },
+    {
+      "file": "mime-mismatch.glb",
+      "sha256": "5ddf1a77757b4df4c96b2f32b26e212e2a60a5dede42330c46f664537db74d4f",
+      "byteLength": 1740,
+      "purpose": "image magic bytes do not match the declared mimeType",
+      "status": "rejected",
+      "codes": [
+        "asset_image_mime_mismatch"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        "/images/0/mimeType"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "abe4fb15902c22ff91006443705c743dbbd3a491971b7d9a7dda16707c35d6b4"
+    },
+    {
+      "file": "required-extension.glb",
+      "sha256": "c88102035dc771487cc0167dc79d7dc0acbb2cb8b2deef7f0c1ef7977aea2bbe",
+      "byteLength": 1636,
+      "purpose": "unsupported required extension outside the empty allowlist",
+      "status": "rejected",
+      "codes": [
+        "asset_extension_unsupported",
+        "asset_extension_unsupported"
+      ],
+      "limits": [
+        null,
+        null
+      ],
+      "paths": [
+        "/extensionsUsed",
+        "/extensionsRequired"
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "47c92738222469b414c700c2b18e6bde15b254775c8a880e0ec47632d04548f9"
+    },
+    {
+      "file": "tiny-v1.glb",
+      "sha256": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+      "byteLength": 1552,
+      "purpose": "valid tiny model: one triangle, two materials, one rotation clip",
+      "status": "ok",
+      "codes": [],
+      "limits": [],
+      "paths": [],
+      "metrics": {
+        "nodes": 2,
+        "meshes": 1,
+        "primitives": 1,
+        "materials": 2,
+        "images": 0,
+        "textures": 0,
+        "vertices": 3,
+        "triangles": 1,
+        "animations": 1,
+        "animationChannels": 1,
+        "clipDurationMs": 1000,
+        "decodedGeometryBytes": 78,
+        "decodedImageBytes": 0
+      },
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "e1bd46a1a58af02e3718c4903f4452f0d4da9a4c4db62a75b032ec0b8b227f8a"
+    },
+    {
+      "file": "tiny-v2.glb",
+      "sha256": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+      "byteLength": 1864,
+      "purpose": "second version of the same whole model: changed geometry, reordered materials/nodes, rewritten clip",
+      "status": "ok",
+      "codes": [],
+      "limits": [],
+      "paths": [],
+      "metrics": {
+        "nodes": 2,
+        "meshes": 1,
+        "primitives": 1,
+        "materials": 2,
+        "images": 0,
+        "textures": 0,
+        "vertices": 4,
+        "triangles": 2,
+        "animations": 1,
+        "animationChannels": 2,
+        "clipDurationMs": 2000,
+        "decodedGeometryBytes": 108,
+        "decodedImageBytes": 0
+      },
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "b4c50799062a110d38c0c28cfabed4cc90af6e9a54b4c7833504f97f839ebbaa"
+    },
+    {
+      "file": "truncated.glb",
+      "sha256": "cdfc3261538d14c8a505d33b82980824928762d0642d856b3b943688cd6b2afd",
+      "byteLength": 1532,
+      "purpose": "truncation: the header declares the full length, the bytes are cut short",
+      "status": "rejected",
+      "codes": [
+        "asset_container_invalid"
+      ],
+      "limits": [
+        null
+      ],
+      "paths": [
+        ""
+      ],
+      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+      "metadataDigest": "631c52deabbbd6a363c5a27928c06f91691eced1d4460f7c4621573e1e1c9382"
+    }
+  ]
+}

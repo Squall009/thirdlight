@@ -1,0 +1,77 @@
+{
+  "setVersion": 1,
+  "projectId": "demo-0003",
+  "state": "commands/scenario.after.json",
+  "messages": [
+    {
+      "seq": 1,
+      "requestId": "req-00000000000000000000000000000011",
+      "op": "applySurfacePreset",
+      "expectedRevision": 7,
+      "args": {
+        "entityId": "box-0001",
+        "preset": "matte-ground"
+      },
+      "expect": {
+        "ok": false,
+        "code": "no_change"
+      }
+    },
+    {
+      "seq": 2,
+      "requestId": "req-00000000000000000000000000000012",
+      "op": "setGameConfig",
+      "expectedRevision": 7,
+      "args": {
+        "game": {
+          "configVersion": 1,
+          "title": "Beacon Reach",
+          "objective": "Reach the beacon",
+          "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+          "playerId": "group-0001",
+          "cameraId": "cam-main",
+          "spawnId": "spawn-0001",
+          "level": {
+            "minX": 0,
+            "maxX": 48,
+            "minY": -4,
+            "maxY": 8
+          },
+          "killY": -4,
+          "cues": {
+            "start": null,
+            "jump": null,
+            "checkpoint": null,
+            "death": null,
+            "goal": null
+          }
+        }
+      },
+      "expect": {
+        "ok": false,
+        "code": "no_change"
+      }
+    },
+    {
+      "seq": 3,
+      "requestId": "req-00000000000000000000000000000013",
+      "op": "setComponent",
+      "expectedRevision": 7,
+      "args": {
+        "entityId": "zone-0002",
+        "component": "gameZone",
+        "value": {
+          "role": "hazard",
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "code": "no_change"
+      }
+    }
+  ]
+}

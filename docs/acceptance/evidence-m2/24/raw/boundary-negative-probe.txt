@@ -1,0 +1,29 @@
+# packet 24 — negative boundary probes for the new package
+# Each probe file is disposable; it was created, check-boundaries run, and removed.
+
+## probe 1 — forbidden external + Node builtin + workspace edge
+$ cat packages/asset-pipeline/src/__probe.ts
+// Disposable packet-24 negative boundary probe (removed after the run).
+import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
+import { inspectStage } from '@thirdlight/workspace';
+export const probe = [THREE, readFileSync, inspectStage];
+$ node tools/check-boundaries.mjs
+check-boundaries: FAIL — 3 violation(s):
+  packages/asset-pipeline/src/__probe.ts:2: [forbidden-external] 'three' — 'three' is not in 'asset-pipeline's dependencies.md §4.1 allowed edges
+  packages/asset-pipeline/src/__probe.ts:3: [node-builtin-forbidden] 'node:fs' — Node builtins are not in 'asset-pipeline's allowed edges (dependencies.md §4.1; runtime is three-free and I/O-free, §4.3)
+  packages/asset-pipeline/src/__probe.ts:4: [forbidden-edge] '@thirdlight/workspace' — 'asset-pipeline → workspace' is not in the dependencies.md §4.1 allowed node-side edges (forbidden-edge table: §4.3)
+exit=1
+
+## probe 2 — value import across the types-only project-model edge
+$ node tools/check-boundaries.mjs
+check-boundaries: FAIL — 1 violation(s):
+  packages/asset-pipeline/src/__probe2.ts:2: [types-only-edge] '@thirdlight/project-model' — 'asset-pipeline → project-model' is a types-only edge (dependencies.md §4.1: "types only"); value imports, value re-exports, and dynamic import() of it are executable imports — use `import type` / `export type` for the type-only forms (the no-second-mutation-path rule, §4.3)
+exit=1
+
+## after removing both probes
+$ node tools/check-boundaries.mjs
+check-boundaries: OK — 11 package(s) [asset-pipeline, backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 183 source file(s), 660 specifier(s) checked; no boundary violations.
+exit=0
+$ ls packages/asset-pipeline/src/__probe*.ts
+ls: cannot access 'packages/asset-pipeline/src/__probe*.ts': No such file or directory

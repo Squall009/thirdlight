@@ -1,0 +1,17 @@
+{
+  "name": "@thirdlight/behavior-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight M2 behavior build (docs/contracts/project-model.md §22, packet 33): the Node-side, pure behavior source parser/static analyzer, the canonical digest-bound `BehaviorManifest` builder and the shared `compileBehavior` over supplied in-memory bytes. It reads no filesystem path, clock, network endpoint or environment, never imports/executes/evaluates project source, and uses the pinned `esbuild@0.28.2` only as a parser/transformer through an in-memory resolver (dependencies.md §4.1/§4.3: `project-model` types + `parseDocumentBytes`, `esbuild`; no Node built-ins, no runtime/three/editor/backend/workspace/commands/protocol edge, no browser globals).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@thirdlight/project-model": "0.1.0",
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

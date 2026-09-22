@@ -40,6 +40,10 @@
  */
 export function deepFreeze<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value;
+  // ArrayBuffer views (Uint8Array blob bytes) cannot be frozen with
+  // elements and are freshly allocated per read, never aliased
+  // authoritative state — pass them through.
+  if (ArrayBuffer.isView(value)) return value;
   if (Object.isFrozen(value)) return value;
   const obj = value as object as Record<string, unknown>;
   for (const key of Object.keys(obj)) {

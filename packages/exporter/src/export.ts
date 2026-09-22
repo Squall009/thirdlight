@@ -32,61 +32,16 @@ import {
   type ExportResult,
 } from './errors';
 import { checkBundleGraph } from './graph';
+import { publishTree, resolveExportTarget } from './export-io';
+import { exportProjectM2 } from './export-m2';
+import { exportProjectM3 } from './export-m3';
+import { readCapturedScene } from './scene-read';
+import type { ExportContext, ExportFs } from './export-types';
 import { scanExportFiles, type ScanFile } from './scan';
 
 // ---- public types (dependencies.md §3: `exportProject(ctx) → result`) ----------
 
-/**
- * The injected IO facade (export.md §2 dependency-injection style — the
- * backend supplies it from its allowed `node:fs`/`node:path` edges). The
- * exporter never imports Node builtins itself.
- */
-export interface ExportFs {
-  join(...parts: string[]): string;
-  realpath(p: string): string;
-  isDirectory(p: string): boolean;
-  exists(p: string): boolean;
-  /** Recursive mkdir (node:fs.mkdirSync `{ recursive: true }`). */
-  mkdir(p: string): void;
-  write(p: string, data: Uint8Array): void;
-  rename(from: string, to: string): void;
-  /** Recursive, force (node:fs.rmSync). */
-  rm(p: string): void;
-  /** node:fs.mkdtempSync (prefix must end in `-`). */
-  mkdtemp(prefix: string): string;
-  read(p: string): Uint8Array;
-}
-
-export interface ExportContext {
-  projectId: string;
-  /**
-   * The injected workspace service (types-only edge — the exporter never
-   * constructs one; the backend passes its instance, export.md §2).
-   */
-  service: WorkspaceService;
-  /** The injected IO facade (see `ExportFs`). */
-  fs: ExportFs;
-  /** The configured export root (sessions.md §13.7; `<exportRoot>`). */
-  exportRoot: string;
-  /** The engine repository tree (a forbidden export target). */
-  repoRoot: string;
-  /** The workspace data root (the authoring tree — a forbidden target). */
-  authoringRoot: string;
-  /** a — the configured authoring origin (scan pattern). */
-  authoringOrigin: string;
-  /** b — the configured preview origin (scan pattern). */
-  previewOrigin: string;
-  /** i — the configured admin/authoring token VALUES (scan pattern). */
-  tokenValues: readonly string[];
-  /** Absolute path of the export bundle entry (packages/exporter/src/export-bootstrap.ts). */
-  bootstrapEntry: string;
-  /** Absolute path of the installed three package.json (the §5.4.1 identity). */
-  threePackageJson: string;
-  /** Absolute path of the installed typescript package.json (meta.json dependencies). */
-  typescriptPackageJson: string;
-  /** Absolute path of the workspace lockfile (the recorded registry integrity). */
-  lockfile: string;
-}
+export type { ExportContext, ExportFs } from './export-types';
 
 // ---- constants ------------------------------------------------------------------
 
@@ -224,74 +179,30 @@ function revalidateSnapshot(snap: unknown): string | null {
 
 // ---- the pipeline -----------------------------------------------------------------
 
-export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
+/**
+ * The M1 pipeline (storageVersion 1 / schemaVersion 1 projects) — unchanged
+ * from packet 12 except for the extracted shared target/publication helpers.
+ */
+export async function exportProjectM1(ctx: ExportContext): Promise<ExportResult> {
   // ---- step 1: the project loads and the scene/snapshot validate --------------
 
-  const qp = ctx.service.query({ op: 'queryProject', projectId: ctx.projectId });
-  if (qp.ok === false) {
-    return fail(
-      'export_scene_invalid',
-      'validation',
-      `project '${ctx.projectId}' does not load: ${qp.error.message}`,
-      { errors: [qp.error], errorTotal: 1 },
-    );
-  }
-  if (!('manifest' in qp)) {
-    return fail('export_scene_invalid', 'validation', 'inconsistent queryProject result');
-  }
+  const read = readCapturedScene(ctx);
+  if (!read.ok) return { ok: false, error: read.error };
+  const { entities, revision: frozenRevision, manifest } = read.captured;
 
-  // All entities, in document order (paged; the M1 page bound is 1024).
-  const entities: Entity[] = [];
-  let offset = 0;
-  const total = qp.scene.entityCount;
-  while (offset < total) {
-    const page = ctx.service.query({ op: 'queryEntities', projectId: ctx.projectId, args: { offset, limit: 1024 } });
-    if (page.ok === false) {
-      return fail('export_scene_invalid', 'validation', `queryEntities failed at offset ${offset}: ${page.error.message}`, {
-        errors: [page.error],
-        errorTotal: 1,
-      });
-    }
-    if (!('total' in page)) {
-      return fail('export_scene_invalid', 'validation', 'inconsistent queryEntities result');
-    }
-    if (page.total !== total) {
-      return fail('export_scene_invalid', 'validation', `entity count changed mid-read (${total} → ${page.total})`);
-    }
-    entities.push(...page.entities);
-    if (page.entities.length === 0) break;
-    offset += page.entities.length;
-  }
-  if (entities.length !== total) {
-    return fail('export_scene_invalid', 'validation', `entity read incomplete (${entities.length} of ${total})`);
-  }
-
-  // Reconstruct the scene document (project-model §8 canonical order).
-  const sceneDoc: Scene = { schemaVersion: 1, sceneId: qp.scene.sceneId, revision: qp.revision, entities };
+  // Reconstruct the scene document (project-model §8 canonical order) and
+  // validate/normalize it (project-model §12).
+  const sceneDoc: Scene = { schemaVersion: 1, sceneId: read.captured.sceneId, revision: frozenRevision, entities };
   const vres = validateScene(sceneDoc);
   if (!vres.ok) {
     return fail('export_scene_invalid', 'validation', 'the scene document fails validation', clipErrors(vres.errors, vres.errors.length));
   }
   const normalizedScene = vres.normalized;
 
-  // Manifest cross-checks (workspace.md §4.3).
-  const manifest = qp.manifest;
-  if (manifest.id !== ctx.projectId) {
-    return fail('export_scene_invalid', 'validation', `manifest id '${manifest.id}' does not match the queried project`);
-  }
-  if (manifest.scenes.length !== 1 || manifest.scenes[0].id !== qp.scene.sceneId || manifest.scenes[0].path !== 'scenes/main.json') {
-    return fail('export_scene_invalid', 'validation', 'the manifest scene reference fails the M1 cross-check');
-  }
-  const cameraEntity = entities.find((e) => e.components.camera !== undefined);
-  if ((cameraEntity?.id ?? '') !== qp.scene.cameraId) {
-    return fail('export_scene_invalid', 'validation', 'the manifest/scene camera cross-check failed');
-  }
-
   // Construct + re-validate the runtime snapshot (runtime.md §2 boundary),
   // then FREEZE it for the whole export. (The authoritative runtime
   // re-validation also runs at export-page load — the page's bootstrap
   // `instantiateRuntime` on `./snapshot.json`.)
-  const frozenRevision = qp.revision;
   const snapshot = deepFreeze({
     snapshotId: `${ctx.projectId}@r${frozenRevision}`,
     projectId: ctx.projectId,
@@ -371,30 +282,9 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
 
   // ---- step 3: the output target is under <exportRoot>, outside source trees ----
 
-  if (!ctx.fs.isDirectory(ctx.exportRoot)) {
-    return fail('export_output_path_invalid', 'validation', 'the configured exportRoot is not a directory');
-  }
-  const dirName = `${ctx.projectId}@r${frozenRevision}`;
-  if (!/^[A-Za-z0-9_-]+@r\d+$/.test(dirName)) {
-    return fail('export_output_path_invalid', 'validation', 'the output directory name is not <projectId>@r<revision>');
-  }
-  let exportRootReal: string;
-  let repoReal: string;
-  let authoringReal: string;
-  try {
-    exportRootReal = ctx.fs.realpath(ctx.exportRoot);
-    repoReal = ctx.fs.realpath(ctx.repoRoot);
-    authoringReal = ctx.fs.realpath(ctx.authoringRoot);
-  } catch (e) {
-    return fail('export_output_path_invalid', 'validation', `cannot resolve the export paths: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  const target = ctx.fs.join(exportRootReal, dirName);
-  if (target.startsWith(repoReal + '/') || target === repoReal) {
-    return fail('export_output_path_invalid', 'validation', 'the export target sits inside the engine repository tree');
-  }
-  if (target.startsWith(authoringReal + '/') || target === authoringReal) {
-    return fail('export_output_path_invalid', 'validation', 'the export target sits inside a project authoring tree');
-  }
+  const resolved = resolveExportTarget(ctx, frozenRevision);
+  if ('error' in resolved) return { ok: false, error: resolved.error };
+  const { exportRootReal, dirName } = resolved;
 
   // ---- step 4: the bundle import graph is exactly the allowed set --------------
 
@@ -427,7 +317,7 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
     },
     scene: {
       entityCount: entities.length,
-      cameraId: qp.scene.cameraId,
+      cameraId: read.captured.cameraId,
       boxCount: entities.filter((e) => e.components.box !== undefined).length,
     },
   };
@@ -455,51 +345,9 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
 
   // ---- step 6: output writes (temp dir + atomic replacement) --------------------
 
-  let tempDir = '';
-  try {
-    tempDir = ctx.fs.mkdtemp(ctx.fs.join(exportRootReal, '.export-tmp-'));
-  } catch (e) {
-    return fail('export_output_not_writable', 'unavailable', `cannot create the temp export dir: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  try {
-    ctx.fs.mkdir(ctx.fs.join(tempDir, 'js'));
-    for (const f of files) {
-      ctx.fs.write(ctx.fs.join(tempDir, f.name), f.bytes);
-    }
-    // Atomic replacement: back up the previous tree, rename the temp tree
-    // into place, remove the backup. A failure restores the previous tree.
-    const backup = ctx.fs.join(exportRootReal, `.${dirName}.replacing`);
-    if (ctx.fs.exists(backup)) ctx.fs.rm(backup);
-    let backedUp = false;
-    if (ctx.fs.exists(target)) {
-      ctx.fs.rename(target, backup);
-      backedUp = true;
-    }
-    try {
-      ctx.fs.rename(tempDir, target);
-    } catch (e) {
-      if (backedUp) {
-        try {
-          ctx.fs.rename(backup, target);
-        } catch {
-          // The previous tree cannot be restored — report the failure; the
-          // operator must re-export.
-        }
-      }
-      throw e;
-    }
-    if (backedUp) ctx.fs.rm(backup);
-  } catch (e) {
-    try {
-      if (tempDir !== '' && ctx.fs.exists(tempDir)) ctx.fs.rm(tempDir);
-    } catch {
-      // temp cleanup best-effort
-    }
-    return fail('export_output_not_writable', 'unavailable', `the export output writes failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  const sizes: Record<string, number> = {};
-  for (const f of files) sizes[f.name] = f.bytes.length;
+  const published = publishTree(ctx.fs, exportRootReal, dirName, files);
+  if (!published.ok) return { ok: false, error: published.error };
+  const sizes = published.files;
   return {
     ok: true,
     outputDir: dirName,
@@ -507,5 +355,90 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
     revision: frozenRevision,
     files: sizes,
     scanHits: scan.scanHits,
+  };
+}
+// ---- the pipeline dispatcher (packet 36) --------------------------------------
+
+/**
+ * `exportProject(ctx)` — the export operation (sessions.md §6.3). The
+ * delivery pipeline is chosen by the CAPTURED authoring state, never by
+ * configuration:
+ *
+ *   - a `storageVersion` 2 project (the workspace's `captureContentView`
+ *     succeeds) exports as an **M2** export: the shared runtime-content
+ *     manifest closure, the statically linked behavior outputs, the declared
+ *     GLB artifacts and `meta.json` schemaVersion 2 (export.md §3/§5/§6);
+ *   - a `storageVersion` 1 project (`version_combination_unsupported`) keeps
+ *     the M1 pipeline exactly as accepted at packet 12 (schemaVersion 1,
+ *     `snapshot.json`, demo-on bundle) — the M1 regression is unchanged.
+ */
+export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
+  const canCaptureContent = ctx.compiler !== undefined && typeof ctx.service.captureContentView === 'function';
+  if (!canCaptureContent) return exportProjectM1(ctx);
+
+  // M3 (storageVersion 3) — the single acknowledged envelope read
+  // (delivery.md §2.6). A v1/v2 project is `version_combination_unsupported`
+  // here and falls through to the M2/M1 pipeline below (byte-stable).
+  if (typeof ctx.service.readCapturedV3 === 'function') {
+    const v3 = ctx.service.readCapturedV3(ctx.projectId);
+    if (v3.ok) {
+      if (ctx.m3BootstrapEntry === undefined || ctx.compiler === undefined) {
+        return {
+          ok: false,
+          error: {
+            code: 'export_build_unavailable',
+            cls: 'unavailable',
+            message: 'an M3 project requires the M3 bundle entry and the injected behavior compiler',
+            detail: { reason: 'm3_capability_missing' },
+          },
+        };
+      }
+      return exportProjectM3(
+        ctx,
+        { scene: v3.read.scene, content: v3.read.content, revision: v3.read.revision },
+        ctx.m3BootstrapEntry,
+        ctx.compiler,
+      );
+    }
+    if (v3.error.reason !== 'version_combination_unsupported') {
+      return {
+        ok: false,
+        error: {
+          code: 'export_scene_invalid',
+          cls: 'validation',
+          message: `the captured v3 read failed: ${v3.error.message}`.slice(0, 256),
+          detail: { errors: [v3.error], errorTotal: 1 },
+        },
+      };
+    }
+    // Not a v3 project — fall through to the M2/M1 pipeline.
+  }
+
+  const view = ctx.service.captureContentView(ctx.projectId);
+  if (view.ok) {
+    if (ctx.m2BootstrapEntry === undefined || ctx.compiler === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: 'export_build_unavailable',
+          cls: 'unavailable',
+          message: 'an M2 project requires the M2 bundle entry and the injected behavior compiler',
+          detail: { reason: 'm2_capability_missing' },
+        },
+      };
+    }
+    return exportProjectM2(ctx, view.view, ctx.m2BootstrapEntry, ctx.compiler);
+  }
+  if (view.error.reason === 'version_combination_unsupported') {
+    return exportProjectM1(ctx);
+  }
+  return {
+    ok: false,
+    error: {
+      code: 'export_scene_invalid',
+      cls: 'validation',
+      message: `the captured content view failed: ${view.error.message}`.slice(0, 256),
+      detail: { errors: [view.error], errorTotal: 1 },
+    },
   };
 }

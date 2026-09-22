@@ -1,0 +1,576 @@
+{
+  "kind": "runtime-catchup",
+  "setVersion": 1,
+  "id": "runtime-catchup",
+  "scheduler": {
+    "fixedStepHz": 120,
+    "dt": 0.008333333333333333,
+    "maxCatchupSteps": 8,
+    "settlePreRollSteps": 12,
+    "simTimeIsStepIndexOverHz": true
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "### 2.1 Fixed-step ordering (normative, replacing nothing in M1's per-step math)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "## 6. Step indexing, settle pre-roll and initialization"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "## 9. Fail-stop lifecycle (M2 module sets)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 3.2 Press latch — exactly one edge per executed step"
+    },
+    {
+      "file": "docs/planning/m2-contracts/diffs/runtime.md",
+      "section": "### R7 — §5 \"Fixed steps with bounded catch-up\""
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "C1-pre-roll-first-frame",
+      "title": "The first frame after start executes 12 neutral pre-roll steps, samples no input and installs the anchor",
+      "startStepIndex": 0,
+      "startSimTime": 0,
+      "preRollSteps": 12,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 0.0167
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 12,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.1,
+            "preRoll": true,
+            "actionSamples": []
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.11666666666666667,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13
+            ]
+          }
+        ],
+        "stepIndexEnd": 14,
+        "droppedSteps": 0,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true
+      }
+    },
+    {
+      "caseId": "C2-normal-60hz",
+      "title": "A ~60 Hz cadence (0.0167 s frames) executes two fixed steps per frame with no drops",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 0.0167
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        },
+        {
+          "frameId": "F3",
+          "elapsed": 0.0167
+        },
+        {
+          "frameId": "F4",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.11666666666666667,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13
+            ]
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.13333333333333333,
+            "preRoll": false,
+            "actionSamples": [
+              14,
+              15
+            ]
+          },
+          {
+            "frameId": "F3",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.15,
+            "preRoll": false,
+            "actionSamples": [
+              16,
+              17
+            ]
+          },
+          {
+            "frameId": "F4",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.16666666666666666,
+            "preRoll": false,
+            "actionSamples": [
+              18,
+              19
+            ]
+          }
+        ],
+        "stepIndexEnd": 20,
+        "droppedSteps": 0,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true
+      }
+    },
+    {
+      "caseId": "C3-stall-drop-and-resync",
+      "title": "A 1.0 s stall executes the 8-step cap, drops the remainder and resyncs the anchor",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 1
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 8,
+            "droppedSteps": 112,
+            "simTimeAfter": 0.16666666666666666,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ]
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.18333333333333332,
+            "preRoll": false,
+            "actionSamples": [
+              20,
+              21
+            ]
+          }
+        ],
+        "stepIndexEnd": 22,
+        "droppedSteps": 112,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true
+      }
+    },
+    {
+      "caseId": "C4-no-step-frame",
+      "title": "A sub-step frame executes no step at all; the following frame catches the interval up",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 0.001
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 0,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.1,
+            "preRoll": false,
+            "actionSamples": []
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.11666666666666667,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13
+            ]
+          }
+        ],
+        "stepIndexEnd": 14,
+        "droppedSteps": 0,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true
+      }
+    },
+    {
+      "caseId": "C5-negative-clock",
+      "title": "A non-monotonic clock yields zero steps and one clock warning per negative observation, never a negative step count",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": -0.5
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 0,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.1,
+            "preRoll": false,
+            "actionSamples": []
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 0,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.1,
+            "preRoll": false,
+            "actionSamples": []
+          }
+        ],
+        "stepIndexEnd": 12,
+        "droppedSteps": 0,
+        "clockWarningCount": 2,
+        "sampledStepIndices": [],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true
+      }
+    },
+    {
+      "caseId": "C6-jump-edge-not-replayed",
+      "title": "A pressed edge at step 12 delivered inside an 8-step catch-up frame is sampled exactly once",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 0.0668
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 8,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.16666666666666666,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ]
+          }
+        ],
+        "stepIndexEnd": 20,
+        "droppedSteps": 0,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true,
+        "recordedFrames": [
+          {
+            "stepIndex": 12,
+            "moveX": 0,
+            "jump": "pressed"
+          }
+        ],
+        "pressedCount": 1,
+        "pressedAtStepIndex": 12
+      }
+    },
+    {
+      "caseId": "C7-drop-does-not-replay-edges",
+      "title": "After a dropped interval the next frame resumes at the next contiguous index and samples no dropped index",
+      "startStepIndex": 12,
+      "startSimTime": 0.1,
+      "preRollSteps": 0,
+      "frames": [
+        {
+          "frameId": "F1",
+          "elapsed": 0.5
+        },
+        {
+          "frameId": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "observations": [
+          {
+            "frameId": "F1",
+            "stepsExecuted": 8,
+            "droppedSteps": 52,
+            "simTimeAfter": 0.16666666666666666,
+            "preRoll": false,
+            "actionSamples": [
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ]
+          },
+          {
+            "frameId": "F2",
+            "stepsExecuted": 2,
+            "droppedSteps": 0,
+            "simTimeAfter": 0.18333333333333332,
+            "preRoll": false,
+            "actionSamples": [
+              20,
+              21
+            ]
+          }
+        ],
+        "stepIndexEnd": 22,
+        "droppedSteps": 52,
+        "clockWarningCount": 0,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "noPhantomSteps": true,
+        "eachExecutedStepSampledOnce": true,
+        "droppedWindowOmittedFromSamples": true
+      }
+    }
+  ],
+  "phaseOrder": [
+    "sample",
+    "intent",
+    "controller",
+    "physics",
+    "transform",
+    "render"
+  ],
+  "ownershipCases": [
+    {
+      "caseId": "O1-single-owner",
+      "modules": [
+        "thirdlight.platformer:controller"
+      ],
+      "owners": {
+        "thirdlight.platformer:controller": [
+          "char-0001"
+        ]
+      },
+      "outcome": "ok"
+    },
+    {
+      "caseId": "O2-duplicate-writer",
+      "modules": [
+        "thirdlight.demo:box-motion",
+        "thirdlight.platformer:controller"
+      ],
+      "owners": {
+        "thirdlight.demo:box-motion": [
+          "char-0001"
+        ],
+        "thirdlight.platformer:controller": [
+          "char-0001"
+        ]
+      },
+      "code": "transform_owner_conflict",
+      "reason": "char-0001"
+    },
+    {
+      "caseId": "O3-missing-entity",
+      "modules": [
+        "thirdlight.platformer:controller"
+      ],
+      "owners": {
+        "thirdlight.platformer:controller": [
+          "char-9999"
+        ]
+      },
+      "code": "transform_owner_conflict",
+      "reason": "char-9999"
+    },
+    {
+      "caseId": "O4-camera-claim",
+      "modules": [
+        "thirdlight.demo:box-motion"
+      ],
+      "owners": {
+        "thirdlight.demo:box-motion": [
+          "camera-0001"
+        ]
+      },
+      "code": "transform_owner_forbidden",
+      "reason": "camera"
+    },
+    {
+      "caseId": "O5-physics-entity-claim-by-demo",
+      "modules": [
+        "thirdlight.demo:box-motion"
+      ],
+      "owners": {
+        "thirdlight.demo:box-motion": [
+          "char-0001"
+        ]
+      },
+      "code": "transform_owner_forbidden",
+      "reason": "physics_entity"
+    },
+    {
+      "caseId": "O6-module-combination",
+      "modules": [
+        "thirdlight.demo:box-motion",
+        "thirdlight.platformer:controller"
+      ],
+      "code": "module_combination_unsupported"
+    },
+    {
+      "caseId": "O7-controller-count",
+      "modules": [
+        "thirdlight.platformer:controller"
+      ],
+      "scene": {
+        "controllerCount": 0
+      },
+      "code": "config_invalid",
+      "reason": "controller_target"
+    },
+    {
+      "caseId": "O7b-controller-count-two",
+      "modules": [
+        "thirdlight.platformer:controller"
+      ],
+      "scene": {
+        "controllerCount": 2
+      },
+      "code": "snapshot_invalid",
+      "reason": "scene_validation",
+      "sceneErrorCode": "controller_count_invalid"
+    },
+    {
+      "caseId": "O8-m2-module-on-v1-scene",
+      "modules": [
+        "thirdlight.platformer:controller"
+      ],
+      "scene": {
+        "schemaVersion": 1
+      },
+      "code": "config_invalid",
+      "reason": "scene_version"
+    }
+  ]
+}

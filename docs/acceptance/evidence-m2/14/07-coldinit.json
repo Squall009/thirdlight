@@ -1,0 +1,46 @@
+{
+  "method": "3 fresh Node processes, one JSON line each (coldinit-sample.mjs)",
+  "samples": [
+    {
+      "node": "v22.22.1",
+      "entry": "dist/rapier.mjs (ESM, same as the IIFE bundle)",
+      "importMs": 8.203,
+      "initMs": 49.279,
+      "worldBuildPlusFirstStepMs": 17.769,
+      "totalMs": 75.251,
+      "note": "container (NOT the reference desktop \u2014 directional only, plan-review BR-2); single-threaded Node, no GPU"
+    },
+    {
+      "node": "v22.22.1",
+      "entry": "dist/rapier.mjs (ESM, same as the IIFE bundle)",
+      "importMs": 8.352,
+      "initMs": 48.824,
+      "worldBuildPlusFirstStepMs": 15.95,
+      "totalMs": 73.125,
+      "note": "container (NOT the reference desktop \u2014 directional only, plan-review BR-2); single-threaded Node, no GPU"
+    },
+    {
+      "node": "v22.22.1",
+      "entry": "dist/rapier.mjs (ESM, same as the IIFE bundle)",
+      "importMs": 8.198,
+      "initMs": 53.262,
+      "worldBuildPlusFirstStepMs": 15.261,
+      "totalMs": 76.72,
+      "note": "container (NOT the reference desktop \u2014 directional only, plan-review BR-2); single-threaded Node, no GPU"
+    }
+  ],
+  "aggregates": {
+    "importMs": {
+      "min": 8.198,
+      "max": 8.352
+    },
+    "initMs": {
+      "min": 48.824,
+      "max": 53.262
+    },
+    "totalMs": {
+      "min": 73.125,
+      "max": 76.72
+    }
+  }
+}

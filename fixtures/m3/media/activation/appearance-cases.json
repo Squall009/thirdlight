@@ -1,0 +1,91 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.5 (+ gameplay.md §6)",
+  "appearance": {
+    "emissive": "#1bc8ff",
+    "emissiveIntensity": 1.6,
+    "cueAssetId": "asset-c0ffee11c0ffee11"
+  },
+  "zone": {
+    "entityId": "zone-0003",
+    "surface": {
+      "color": "#2f7fd4",
+      "roughness": 0.4,
+      "metalness": 0.1,
+      "emissive": "#000000",
+      "emissiveIntensity": 0
+    }
+  },
+  "timeline": [
+    {
+      "step": "start",
+      "runState": "awaitingStart",
+      "event": null,
+      "expect": {
+        "checkpointActive": false,
+        "checkpointId": null,
+        "marker": "authored"
+      }
+    },
+    {
+      "step": "playing-before",
+      "runState": "playing",
+      "event": null,
+      "expect": {
+        "checkpointActive": false,
+        "checkpointId": null,
+        "marker": "authored"
+      }
+    },
+    {
+      "step": "activate",
+      "runState": "playing",
+      "event": "checkpointActivated",
+      "expect": {
+        "checkpointActive": true,
+        "checkpointId": "zone-0003",
+        "marker": "activated"
+      }
+    },
+    {
+      "step": "died-after",
+      "runState": "respawning",
+      "event": "died",
+      "expect": {
+        "checkpointActive": true,
+        "checkpointId": "zone-0003",
+        "marker": "activated"
+      }
+    },
+    {
+      "step": "respawned",
+      "runState": "playing",
+      "event": "respawned",
+      "expect": {
+        "checkpointActive": true,
+        "checkpointId": "zone-0003",
+        "marker": "activated"
+      }
+    },
+    {
+      "step": "won",
+      "runState": "won",
+      "event": "goalReached",
+      "expect": {
+        "checkpointActive": true,
+        "checkpointId": "zone-0003",
+        "marker": "activated"
+      }
+    },
+    {
+      "step": "replay",
+      "runState": "awaitingStart",
+      "event": "replayed",
+      "expect": {
+        "checkpointActive": false,
+        "checkpointId": null,
+        "marker": "authored"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+inventory-consistency:
+ok   16 proposal/diff file(s) enumerated; all listed in contract-diffs.md
+ok   24 distinct file token(s) referenced by the inventory resolve to a real file
+ok   7 destination contract document(s) present
+ok   decision 0002 §§2–6 present and carry the owner pre-approval tag
+ok   22 packet number(s) referenced; 22 resolve to a m2-packets.md section
+ok   delivery.md + contract-diffs.md + diffs/sessions.md present
+note This check is a docs-level consistency check. It establishes that the consolidated inventory resolves to real files and real packet sections; it does not execute any proposed behavior.
+inventory-consistency OK: 6 check(s), 0 problem(s)

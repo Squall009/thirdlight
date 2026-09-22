@@ -1,0 +1,74 @@
+{
+  "packet": 38,
+  "ranAt": "2026-09-21T03:15:16.290Z",
+  "rows": {
+    "browser-launch": {
+      "status": "PASS",
+      "browserVersion": "Chrome/151.0.7922.34"
+    },
+    "webgl2": {
+      "status": "PASS",
+      "evidence": "capability.json"
+    },
+    "three-render": {
+      "status": "PASS",
+      "evidence": "capability-canvas.png"
+    },
+    "keyboard-events": {
+      "status": "PASS",
+      "keys": "[\"Enter\",\"up:Enter\",\"Space\",\"up:Space\"]"
+    },
+    "hidden-tab": {
+      "status": "PASS",
+      "visibilityState": "hidden",
+      "seen": "[\"hidden\"]"
+    },
+    "engine-engine": {
+      "status": "FAIL",
+      "physicsOk": false,
+      "physicsError": {
+        "code": "physics_init_failed",
+        "reason": "wasm_unavailable",
+        "message": "Rapier WASM initialization failed: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\"."
+      },
+      "wasmCompile": "blocked: WebAssembly.compile(): Compiling or instantiating WebAssembly module violates the following Content Security policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \"script-src 'self'\".",
+      "glbLoaded": true,
+      "glbError": null,
+      "clipCount": 1,
+      "evidence": "engine.json"
+    },
+    "engine-engine-nocsp": {
+      "status": "PASS",
+      "physicsOk": true,
+      "physicsError": null,
+      "wasmCompile": "ok",
+      "glbLoaded": true,
+      "glbError": null,
+      "clipCount": 1,
+      "evidence": "engine-nocsp.json"
+    },
+    "engine-engine-csp-wasm": {
+      "status": "PASS",
+      "physicsOk": true,
+      "physicsError": null,
+      "wasmCompile": "ok",
+      "glbLoaded": true,
+      "glbError": null,
+      "clipCount": 1,
+      "evidence": "engine-csp-wasm.json"
+    }
+  },
+  "environment": {
+    "browserVersion": "Chrome/151.0.7922.34",
+    "protocolVersion": "1.3",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+    "chromePath": "/home/dadmin/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+    "libraryPath": "/home/dadmin/projects/visionary/.browser-libs/root/usr/lib/x86_64-linux-gnu",
+    "stubPath": "/tmp/tl-m3-browser-stubs",
+    "origin": "http://127.0.0.1:8793",
+    "csp": "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'",
+    "cspWithWasm": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'",
+    "display": null,
+    "note": "software rasteriser (ANGLE/SwiftShader); no display; physical gamepad and audio device absent"
+  }
+}

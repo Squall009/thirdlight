@@ -1,0 +1,94 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "demo-0003",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          },
+          "cameraFollow": {
+            "deadZone": {
+              "x": 0.5,
+              "y": 0.5
+            },
+            "smoothing": 0.2,
+            "bounds": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": 0,
+              "maxY": 8
+            }
+          }
+        }
+      },
+      {
+        "id": "group-0001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "controller": {}
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

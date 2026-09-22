@@ -1,0 +1,4 @@
+b3cf2f5a17bb684f33b250ff9ac8ae40b66d1c5e3747d1dcfd1dfa0f0cfc808c  dist/backend/backend.mjs
+53f305504ad6bd0ade5ff63a63b6da82c3c8ddc216aa9e805414af38a5f21d7d  dist/mcp-adapter/mcp.mjs
+88c1d6cd49c6dd69d5d905ef231ccf9096b9be6fe911ad6eb74d33b44aad879b  dist/preview/preview.js
+bfce6f2f2bba2579f5679d6dd69f1a5195b6b073c8aa06985685cd85cad6eaf9  dist/editor/main.js

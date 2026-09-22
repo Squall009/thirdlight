@@ -1,0 +1,38 @@
+
+> thirdlight@0.0.0 build
+> node tools/check-deps.mjs && node tools/check-boundaries.mjs && node tools/typecheck.mjs && node tools/build.mjs
+
+check-deps: OK
+  installed (npm ls --depth=0, non-workspace):
+    ws 8.21.3 (= §7 pin)
+    @types/react-dom 19.3.0 (= §7 pin)
+    @types/react 19.3.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    react-dom 19.3.0 (= §7 pin)
+    react 19.3.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    @modelcontextprotocol/sdk 1.30.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 164 source file(s), 587 specifier(s) checked; no boundary violations.
+typecheck: tsc --noEmit -p packages/backend
+typecheck: tsc --noEmit -p packages/commands
+typecheck: tsc --noEmit -p packages/editor
+typecheck: tsc --noEmit -p packages/exporter
+typecheck: tsc --noEmit -p packages/mcp-adapter
+typecheck: tsc --noEmit -p packages/project-model
+typecheck: tsc --noEmit -p packages/protocol
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+build: editor: packages/editor/src/index.tsx -> dist/editor/main.js
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).

@@ -1,0 +1,110 @@
+{
+  "description": "The panel-visibility / local-preference cases (templates.md §9; C06). Pure preference-transformation cases (the 74/81 in-browser evidence asserts the invariants on a real page): the frozen registry, the §9.2 reset rules, the §9.3 lifecycle, and the §9.4 invariants.",
+  "registry": [
+    "hierarchy",
+    "inspector",
+    "assets",
+    "media",
+    "prefabs",
+    "behaviors",
+    "gameplay"
+  ],
+  "fixedChrome": [
+    "viewport canvas",
+    "toolbar",
+    "status bar"
+  ],
+  "storage": {
+    "keyPrefix": "thirdlight.layout.v1.",
+    "scope": "per projectId (browser localStorage)",
+    "never": [
+      "an authoring envelope field",
+      "a scene revision",
+      "a content key",
+      "a workspace file",
+      "a runtime option",
+      "a build/export input",
+      "the backup set"
+    ]
+  },
+  "default": {
+    "layoutVersion": 1,
+    "panels": {
+      "hierarchy": {
+        "visible": true
+      },
+      "inspector": {
+        "visible": true
+      },
+      "assets": {
+        "visible": true
+      },
+      "media": {
+        "visible": true
+      },
+      "prefabs": {
+        "visible": true
+      },
+      "behaviors": {
+        "visible": true
+      },
+      "gameplay": {
+        "visible": true
+      }
+    }
+  },
+  "templateSeed": {
+    "rule": "the creation result carries the descriptor layout; the editor seeds the local preference for the new projectId IFF none exists; a stored preference always wins; non-template projects seed the default"
+  },
+  "cases": [
+    {
+      "id": "L1",
+      "input": "no stored preference, template-created project, creation result layout all-visible",
+      "output": "the seed is stored (all visible); the template layout is the initial preference"
+    },
+    {
+      "id": "L2",
+      "input": "a stored preference (gameplay hidden), the user opens the project",
+      "output": "the stored preference wins (gameplay hidden); the template seed does not overwrite"
+    },
+    {
+      "id": "L3",
+      "input": "the user toggles the assets panel hidden (a read-only session)",
+      "output": "the local preference updates (no command, no revision, no network mutation — the session may be read-only and the toggle still works)"
+    },
+    {
+      "id": "L4",
+      "input": "Reset Layout on a template-created project",
+      "output": "the descriptor layout is restored (from the editor\\u2019s locally cached creation result; the fallback is the default)"
+    },
+    {
+      "id": "L5",
+      "input": "Reset Layout on a non-template project",
+      "output": "the default (all visible) is restored"
+    },
+    {
+      "id": "L6",
+      "input": "a preference with an unknown panel id { ghost: { visible: false } } + the registry panels",
+      "output": "the unknown entry is dropped; the registry entries are kept (per-panel drop, not a whole reset)"
+    },
+    {
+      "id": "L7",
+      "input": "a preference missing one registry panel (media absent)",
+      "output": "the missing panel takes the default (visible: true); the rest are kept"
+    },
+    {
+      "id": "L8",
+      "input": "corrupt JSON / a non-object / a non-boolean visible / a wrong layoutVersion",
+      "output": "the WHOLE preference resets to the default (safely, silently — no dialog, no error state, no backend call)"
+    },
+    {
+      "id": "L9",
+      "input": "a reload / a different browser (clean localStorage) of the same project",
+      "output": "the re-read/re-seed happens locally; the project bytes, revision and module closure are unchanged (two origins may show different layouts of the identical project)"
+    }
+  ],
+  "invariants": {
+    "rule": "hiding/showing/resetting panels must not delete components, change the scene/content bytes, advance the revision, disable or change any simulation module or the module closure, change asset state, change the emitted runtime closure or the export, or emit any backend write (§9.4 — the testable form: the preference is byte-absent from the envelope, the snapshot document, the export bundle and the backup set).",
+    "assertion": "every L1–L9 transformation, applied to a pinned (envelope bytes, revision, resolved module set) triple, leaves the triple byte-identical (the checker asserts this on the pinned template end state)."
+  }
+}

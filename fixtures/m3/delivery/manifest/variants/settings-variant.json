@@ -1,0 +1,94 @@
+{
+  "label": "changed-settings",
+  "change": {
+    "run_speed": {
+      "from": 4,
+      "to": 6
+    },
+    "gravity_y": {
+      "from": -19.62,
+      "to": -30
+    }
+  },
+  "contentPreimage": "content-view-preimage.json",
+  "changedContentPreimageFile": "manifest/variants/changed-content-view-preimage.json",
+  "changed": {
+    "contentDigest": "99531988663cba305b56a9566faf4fbb3b0c533661a1e729780cd81759351a40",
+    "settingsDigest": "6176e0515be45e95bc36bb174671f3ea92257746de0fa8ef45556f7ef41fe348",
+    "settings": {
+      "gravity_y": -30,
+      "run_speed": 6,
+      "jump_velocity": 7,
+      "max_fall_speed": -30,
+      "max_slope_climb_deg": 45,
+      "min_slope_slide_deg": 30
+    },
+    "unchanged": {
+      "sceneDigest": "01f5d5bad3859daf15739cda94a5c1198fa9ca3e54c976c1464d64068519954e",
+      "gameDigest": "5ad520642e00b8ca9462679f412229ba191caedf1c690e394bd2f015b795e448",
+      "mediaDigest": "a6e27a4e7137366103a4e57a6db32dcc5a2ddd38ad5859504409a09ed5f47219",
+      "title": "Beacon Reach",
+      "cues": {
+        "start": {
+          "assetId": "asset-0002",
+          "version": 1
+        },
+        "jump": null,
+        "checkpoint": {
+          "assetId": "asset-0003",
+          "version": 1
+        },
+        "death": null,
+        "goal": null
+      },
+      "animation": [
+        {
+          "entityId": "player-0001",
+          "assetId": "asset-0001",
+          "version": 2,
+          "profileDigest": "ab19012f0ada6c418a189c4b99bfb6a151fcf3a6f1111dde8bd4723078b7abe0",
+          "roles": {
+            "idle": {
+              "clipIndex": 0,
+              "clipName": "Idle"
+            },
+            "run": {
+              "clipIndex": 1,
+              "clipName": "Run"
+            },
+            "airborne": {
+              "clipIndex": 2,
+              "clipName": "Airborne"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "runSpeedController": {
+      "setting": 6,
+      "targetSpeedMps": 6,
+      "settledSpeedToleranceMps": 0.000001,
+      "windowSteps": 240,
+      "simHz": 120
+    },
+    "gravityPhysics": {
+      "setting": -30,
+      "unit": "m/s^2",
+      "freeFallVyAfter": [
+        {
+          "steps": 120,
+          "vy": -30
+        },
+        {
+          "steps": 240,
+          "vy": -60
+        }
+      ],
+      "toleranceMps": 0.000001,
+      "simHz": 120
+    }
+  },
+  "buildIdChanges": true
+}

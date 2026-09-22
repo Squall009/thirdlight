@@ -1,0 +1,302 @@
+{
+  "fixtureVersion": 1,
+  "snapshotId": "demo-0003@r7",
+  "killY": -4,
+  "zones": [
+    {
+      "id": "zone-0002",
+      "role": "hazard",
+      "center": [
+        10.9,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    },
+    {
+      "id": "zone-0003",
+      "role": "checkpoint",
+      "center": [
+        22,
+        1
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "zone-0001",
+      "role": "goal",
+      "center": [
+        44.5,
+        1
+      ],
+      "size": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "zone-0004",
+      "role": "hazard",
+      "center": [
+        28.4,
+        0.125
+      ],
+      "size": [
+        0.8,
+        0.25
+      ]
+    }
+  ],
+  "spawnId": "spawn-0001",
+  "safeSpawnId": "spawn-0002",
+  "firstStep": 99,
+  "notes": [
+    "Exact bounded respawn delay (gameplay.md §2.4): death at step 100, 30 neutral executed steps 101..130, reset boundary before step 131 = 100 + 1 + RESPAWN_DELAY_STEPS."
+  ],
+  "cases": [
+    {
+      "id": "respawn-timing-100",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "steps",
+          "count": 30,
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        {
+          "op": "step",
+          "from": [
+            24,
+            0.91
+          ],
+          "to": [
+            24.03,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "final": {
+          "runId": "demo-0003@r7#0",
+          "snapshotId": "demo-0003@r7",
+          "replayEpoch": 0,
+          "state": "playing",
+          "stepIndex": 132,
+          "activeSpawnId": "spawn-0001",
+          "checkpointId": null,
+          "checkpointActive": false,
+          "goalReached": false,
+          "deathCount": 1,
+          "respawnAtStep": null,
+          "eventCount": 3,
+          "eventDropped": 0,
+          "failed": false
+        },
+        "timeline": [
+          {
+            "stepIndex": 99,
+            "state": "playing",
+            "evaluated": true
+          },
+          {
+            "stepIndex": 100,
+            "state": "respawning",
+            "evaluated": true
+          },
+          {
+            "stepIndex": 101,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 102,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 103,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 104,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 105,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 106,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 107,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 108,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 109,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 110,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 111,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 112,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 113,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 114,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 115,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 116,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 117,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 118,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 119,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 120,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 121,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 122,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 123,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 124,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 125,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 126,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 127,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 128,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 129,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 130,
+            "state": "respawning",
+            "evaluated": false
+          },
+          {
+            "stepIndex": 131,
+            "state": "playing",
+            "evaluated": true
+          }
+        ]
+      }
+    }
+  ]
+}

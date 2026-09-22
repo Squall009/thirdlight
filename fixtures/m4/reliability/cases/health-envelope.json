@@ -1,0 +1,85 @@
+{
+  "note": "The §3 envelope + the limit/overflow/redaction/stale-identity cases. The shape is typed so an unredacted value cannot be represented; the serializer clips bounded lists (most recent kept) and sets truncated: true. The cases below are the pure-logic specification the 73/75 implementations and the serializer test must satisfy.",
+  "example": {
+    "v": 1,
+    "ts": "2026-09-22T12:00:00Z",
+    "backendId": "tb-0123456789abcdef0123456789abcdef",
+    "engineVersion": "0.1.0",
+    "process": {
+      "pid": 4242,
+      "nodeVersion": "22.22.1",
+      "memoryKb": {
+        "rss": 8192,
+        "heapUsed": 4096
+      }
+    },
+    "workspace": {
+      "projectsScanned": 3,
+      "projectsOk": 2,
+      "blocked": [
+        {
+          "projectId": "demo-0002",
+          "reason": "envelope_invalid"
+        }
+      ]
+    },
+    "sessions": {
+      "active": 1,
+      "logEntries": 37
+    },
+    "play": {
+      "activePlaySessions": 1,
+      "presented": 1
+    },
+    "content": {
+      "jobsActive": 0,
+      "uploadsActive": 0
+    },
+    "errors": [
+      {
+        "code": "project_unavailable",
+        "cls": "unavailable",
+        "at": "2026-09-22T11:59:58Z"
+      }
+    ]
+  },
+  "limits": {
+    "totalSerializedKiB": 32,
+    "blockedList": 100,
+    "errorsList": 32,
+    "overflow": "the bounded list is clipped (most recent kept) and truncated: true is set — never an unbounded document, never a thrown serializer error"
+  },
+  "redaction": [
+    "no credentials/tokens (the §4.1 discipline)",
+    "no absolute paths (data-root-relative or digest/counter only)",
+    "no content bytes (digests/counters only)",
+    "no user names"
+  ],
+  "cases": [
+    {
+      "id": "H1-OVERFLOW",
+      "input": "101 blocked projects",
+      "result": "blocked is clipped to the most recent 100; truncated: true; total ≤ 32 KiB"
+    },
+    {
+      "id": "H2-ERROR-FLOOD",
+      "input": "a 500-error flood since the last report",
+      "result": "errors keeps the last 32 (the ring bound); the rest is dropped, not summarized into unbounded text"
+    },
+    {
+      "id": "H3-SECRET-IMPOSSIBLE",
+      "input": "a code path that would emit a token into a report field",
+      "result": "unrepresentable by the envelope types; the serializer test rejects it (a defect, caught in CI — not a runtime condition)"
+    },
+    {
+      "id": "H4-STALE-IDENTITY",
+      "input": "a consumer cached the report across a backend restart (backendId changed)",
+      "result": "the consumer MUST re-fetch (the normative stale-identity rule); a cached report is never asserted live; relayed diagnostics whose session/play no longer exist surface the accepted session_not_found / play_not_found"
+    },
+    {
+      "id": "H5-HARDWARE-ABSENCE",
+      "input": "a report on a machine without audio/display",
+      "result": "the report asserts NOTHING about hardware (no capability fields) — the device record is the 67-B/79 surface; the absence is invisible to the report by design"
+    }
+  ]
+}

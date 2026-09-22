@@ -1,0 +1,45 @@
+# packet 24 — independent verification of the recorded hashes (python3 hashlib, no project code)
+
+## 1. recipeDigest: canonical JSON of the recipe (commands.md §6.6 rule 2) hashed independently
+canonical recipe : {"extensions":[],"profile":"gltf-glb","recipeVersion":1,"toolchain":{"three":"0.186.0"}}
+python sha256    : dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e
+expected.json    : dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e
+
+## 2. base64 sidecars decode to the committed .glb bytes (python3 base64 + hashlib)
+17/17 sidecars byte-identical to the committed .glb and to expected.json sha256/byteLength
+
+## 3. lockfile delta is limited to the new workspace link (git diff package-lock.json)
+ package-lock.json | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+diff --git a/package-lock.json b/package-lock.json
+index 27ae664..b9135a3 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -763,6 +763,10 @@
+       "dev": true,
+       "peer": true
+     },
++    "node_modules/@thirdlight/asset-pipeline": {
++      "resolved": "packages/asset-pipeline",
++      "link": true
++    },
+     "node_modules/@thirdlight/backend": {
+       "resolved": "packages/backend",
+       "link": true
+@@ -2780,6 +2784,13 @@
+         "zod": "^3.25.28 || ^4"
+       }
+     },
++    "packages/asset-pipeline": {
++      "name": "@thirdlight/asset-pipeline",
++      "version": "0.1.0",
++      "dependencies": {
++        "@thirdlight/project-model": "0.1.0"
++      }
++    },
+     "packages/backend": {
+       "name": "@thirdlight/backend",
+       "version": "0.1.0",
+
+## 4. npm tree health (no ELSPROBLEMS)
+├─┬ @thirdlight/asset-pipeline@0.1.0 -> ./packages/asset-pipeline

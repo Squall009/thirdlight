@@ -1,0 +1,92 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "gameplay.md §3.3: the gameplay phase must use the runtime-provided lastMotionSegment, not state.prev (which holds the end of step n-2 during step n)."
+  ],
+  "cases": [
+    {
+      "id": "segment-after-commit",
+      "lastCommitted": [
+        10,
+        0.91
+      ],
+      "currEnd": [
+        10.4,
+        0.91
+      ],
+      "statePrevDuringStep": [
+        9.96,
+        0.91
+      ],
+      "expect": {
+        "segment": {
+          "from": [
+            10,
+            0.91
+          ],
+          "to": [
+            10.4,
+            0.91
+          ]
+        },
+        "differsFromStatePrev": true
+      }
+    },
+    {
+      "id": "segment-after-reset",
+      "lastCommitted": [
+        3,
+        0.91
+      ],
+      "currEnd": [
+        3.0333,
+        0.91
+      ],
+      "statePrevDuringStep": [
+        30,
+        0.91
+      ],
+      "expect": {
+        "segment": {
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        "differsFromStatePrev": true
+      }
+    },
+    {
+      "id": "segment-first-step",
+      "lastCommitted": [
+        3,
+        0.91
+      ],
+      "currEnd": [
+        3.0333,
+        0.91
+      ],
+      "statePrevDuringStep": [
+        3,
+        0.91
+      ],
+      "expect": {
+        "segment": {
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        "differsFromStatePrev": false
+      }
+    }
+  ]
+}

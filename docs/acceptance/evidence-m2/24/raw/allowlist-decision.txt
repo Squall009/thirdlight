@@ -1,0 +1,23 @@
+# packet 24 — extension allowlist decision (project-model.md §18.8.1)
+
+The contract: the allowlist is 'proposed by packet 24 only after testing the pinned
+loader'; until a passing pinned-loader test is recorded the effective allowlist is
+empty. Packet 24 could not record such a test:
+
+- no browser or DOM exists in this container (the same constraint recorded in M1
+  packets 08/10/13 and not changed for M2), and the pinned loader is a browser module;
+- asset-pipeline may not import three/GLTFLoader at all (dependencies.md §4.1/§4.3).
+
+Static evidence that the pinned loader mentions the candidate is NOT the recorded
+passing test the contract requires; the allowlist therefore stays empty:
+
+$ grep -c KHR_materials_unlit node_modules/three/examples/jsm/loaders/GLTFLoader.js
+3
+$ grep -m1 '"version"' node_modules/three/package.json
+  "version": "0.186.0",
+$ grep -n "M2_GLTF_EXTENSION_ALLOWLIST" packages/asset-pipeline/src/limits.ts
+3: * dependencies.md §3: `M2_GLTF_EXTENSION_ALLOWLIST`,
+48:export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([]);
+
+Observable consequence (fixtures/m2/assets/required-extension.glb):
+required-extension.glb    sha256=c88102035dc771487cc0167dc79d7dc0acbb2cb8b2deef7f0c1ef7977aea2bbe  len=1636  status=rejected  codes=[asset_extension_unsupported,asset_extension_unsupported]  paths=[/extensionsUsed,/extensionsRequired]  limits=[-,-]  metrics=-  recipeDigest=dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e  metadataDigest=47c92738222469b414c700c2b18e6bde15b254775c8a880e0ec47632d04548f9

@@ -31,6 +31,9 @@ describe('public surface (dependencies.md §3)', () => {
   it('exports the entry points and constants', () => {
     expect(typeof pkg.applyMutation).toBe('function');
     expect(typeof pkg.createCommandState).toBe('function');
+    // Packet 21 extended ERROR_CODES with the commands.md §5.4 M2 rows
+    // (prefab/behavior/property/settings/content codes). The M1 rows are
+    // unchanged and in the same order; the assertion records the full set.
     expect(ERROR_CODES).toEqual([
       'invalid_request',
       'field_missing',
@@ -49,10 +52,52 @@ describe('public surface (dependencies.md §3)', () => {
       'limits_exceeded',
       'id_exhaustion',
       'no_change',
+      'prefab_not_found',
+      'prefab_id_duplicate',
+      'prefab_camera_capture_forbidden',
+      'prefab_nested_forbidden',
+      'prefab_external_reference_forbidden',
+      'prefab_local_unknown',
+      'prefab_reference_missing',
+      'prefab_component_forbidden',
+      'behavior_not_found',
+      'behavior_id_duplicate',
+      'behavior_reference_missing',
+      'behavior_publication_unavailable',
+      'property_unknown',
+      'property_type',
+      'property_value',
+      'property_declaration_incompatible',
+      'setting_unknown',
+      'reference_in_use',
+      'asset_not_found',
+      'asset_id_duplicate',
+      'asset_reference_missing',
+      'behavior_trust_unacknowledged',
+      'behavior_declaration_mismatch',
+      'digest_invalid',
+      'component_missing',
+      'id_invalid',
       'external_change_unresolved',
       'history_empty',
       'history_invalid',
       'write_failed',
+      // Packet 45 appended the commands.md §5.4 v3 game/presentation rows
+      // (and the §41.3.2 animation-role rows); no accepted row changed.
+      'game_reference_missing',
+      'game_reference_in_use',
+      'zone_transform_unsupported',
+      'spawn_transform_unsupported',
+      'zone_checkpoint_count_invalid',
+      'zone_goal_missing',
+      'asset_kind_mismatch',
+      'game_config_invalid',
+      'animation_role_out_of_range',
+      'animation_role_duplicate',
+      'animation_role_mismatch',
+      'animation_role_ambiguous',
+      'animation_skin_unsupported',
+      'animation_root_motion',
     ]);
     expect(MAX_REVISION).toBe(2 ** 53 - 1);
   });

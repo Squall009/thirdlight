@@ -1,0 +1,76 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "staging-crash-mid-publish-retry",
+  "title": "Crash after a harness staging edit still publishes or replays deterministically",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 5. The supported staging area (BR-4)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "stage": {
+      "path": "<project>/.thirdlight/staging/stg-harness01/source.bin",
+      "editedBy": "harness (direct filesystem write, supported path)",
+      "edit": "file replaced while the backend owns the project, before the publish command",
+      "stageId": "stg-harness02"
+    },
+    "crashPoints": [
+      {
+        "at": "before the blob write",
+        "retryOutcome": "fresh execution, then success at revision 9"
+      },
+      {
+        "at": "after the blob write, before the envelope commit",
+        "retryOutcome": "fresh execution (no record), idempotent blob write, success at revision 9"
+      },
+      {
+        "at": "after the envelope commit, before the ack",
+        "retryOutcome": "replay with duplicated: true at revision 9"
+      }
+    ],
+    "request": {
+      "requestId": "req-50000000000000000000000000000011",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-harness02"
+    }
+  },
+  "steps": [
+    {
+      "at": "reopen",
+      "action": "open the project after the crash",
+      "expect": {
+        "stagingContentTouched": false,
+        "paused": false
+      }
+    },
+    {
+      "at": "retry",
+      "action": "retry the identical request",
+      "expect": {
+        "outcome": "deterministic, exactly one authoritative commit, never two"
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "crash-then-retry-success",
+    "codes": [],
+    "durableEffects": [
+      "at most one new catalog version and one retry record, or none before the retry succeeds"
+    ],
+    "observations": [
+      "staging content is never deleted, rewritten or \"recovered\" by the backend: it is input, not state",
+      "a crash can lose nothing authoritative; the harness can always re-stage"
+    ]
+  },
+  "notes": "BR-4 crash/retry requirement: publish-after-harness-staging-edit either succeeds or fails closed."
+}

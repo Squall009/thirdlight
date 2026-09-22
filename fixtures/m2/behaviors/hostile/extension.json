@@ -1,0 +1,14 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/ui.tsx",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/ui.tsx",
+      "text": "export default {};\n"
+    }
+  ]
+}

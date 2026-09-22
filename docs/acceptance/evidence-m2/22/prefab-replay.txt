@@ -1,0 +1,31 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/commands/src/m2-prefab.test.ts > packet-16 accepted prefab fixture replay > replays the whole M1–M10 scenario byte-for-byte and lands on the after envelope 22ms
+ ✓ packages/commands/src/m2-prefab.test.ts > packet-16 accepted prefab fixture replay > M3 captures the 4-entity definition and M4/M5 materialize two independent instances 9ms
+ ✓ packages/commands/src/m2-prefab.test.ts > packet-16 accepted prefab fixture replay > replays every pure prefab atomic-rejection case against its reachable state, byte-for-byte 30ms
+ ✓ packages/commands/src/m2-prefab.test.ts > packet-16 accepted prefab fixture replay > §20.10 reference_in_use: a copy outside the deleted subtree blocks the delete (FD-22-1 re-derivation) 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > packet-16 accepted prefab fixture replay > invalid input never partially expands: the state object is untouched 2ms
+ ✓ packages/commands/src/m2-prefab.test.ts > one undo/redo preserves instance identity (§8.7.6) > undo removes the whole subtree and redo restores exactly those IDs 5ms
+ ✓ packages/commands/src/m2-prefab.test.ts > one undo/redo preserves instance identity (§8.7.6) > redo after undo re-inserts recorded values without re-checking IDs against later state 5ms
+ ✓ packages/commands/src/m2-prefab.test.ts > two instances share no entity, no value storage and no link > editing one copy never touches the other, and a definition change is impossible 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > two instances share no entity, no value storage and no link > a later definition is not editable and existing instances are unaffected by capture 4ms
+ ✓ packages/commands/src/m2-prefab.test.ts > createPrefab (§8.6) > definition localIds are the subtree closure in document order; parent links are trimmed to the closure 2ms
+ ✓ packages/commands/src/m2-prefab.test.ts > createPrefab (§8.6) > undo removes the definition and redo re-inserts the recorded value verbatim 2ms
+ ✓ packages/commands/src/m2-prefab.test.ts > createPrefab (§8.6) > rejects the three forbidden capture contents with the §5.4 codes 2ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > re-uses deleted IDs exactly as the accepted createEntity rule does 1ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > the deterministic allocator exhausts a full prefix without partial allocation 2ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > the result entity bound is checked before ID allocation (§8.7.5 step 6 order) 14ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > rejects 65 overrides and a 257-entity definition with the contract limits 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > rejects an instantiation that would exceed the scene entity or depth limit 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > deterministic ID allocation and limits (§8.7.2/§20.3) > rejects an override whose declared value fails the rule 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > fixtures/m2/prefabs/independence.messages.json replay > replays every step byte-for-byte and ends at the indexed revision 4ms
+ ✓ packages/commands/src/m2-prefab.test.ts > fixtures/m2/prefabs/independence.messages.json replay > the two new copies are independent and the edits touch only copy A 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > fixtures/m2/prefabs/independence.messages.json replay > one undo removes copy C whole and redo restores exactly its IDs 3ms
+ ✓ packages/commands/src/m2-prefab.test.ts > queryPrefabs (commands.md §5.6) > returns the committed query examples and a bounded, read-only page 1ms
+
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+   Start at  03:14:42
+   Duration  774ms (transform 64%, tests 20%, import 16%)
+

@@ -1,0 +1,27 @@
+[accel-decel] vx@11=4.000000208616257 vx@decelStart=3.5 vx@8=0
+[buffer-in] landedStep=114 fired=true
+[buffer-out] landedStep=114 fired=false
+[ceiling-head-bump] maxCenterY=3.0899104348901894 head@187 maxRiseAfter=0
+[coyote-last-step] lastGroundedStep=86 pressStep=93 fired=true
+[coyote-one-step-late] lastGroundedStep=86 pressStep=94 fired=false
+[device-parity] gamepadMean=3.7918909965083 keyboardMean=3.7918909965083
+[flat-run] meanSpeed=3.9993691678558076 maxYdev=0.003563396630852367 ungrounded=0
+[high-speed-ledge] approach=12 maxX=9.19036984158156 contact@24 stop@26
+[high-speed-wall] maxX=9.189900463486264 contact@26 stop@27 approach=8.666666666666664
+[idle-settle] restY=0.9099987331050216 maxDy=0
+[jump-hold] restY=0.9099987331050216 apexGain=1.219662501127459 maxVy=6.8365
+[jump-tap] vy32=6.673 vy33=3.25475 apex=1.3061612339428392
+[ledge] maxBlockedDx=0.0065676141530275345 landed=(14.917325487965718,1.309999398716318)
+[no-air-jump] starts=1 maxVy=6.8365
+[no-z-drift] steps=120 z=0
+[ramp-a43] gain=2.120910220335645 ascentSteps=107 groundedFrac=1
+[ramp-b47] gainOver1s=0.007645474295713939
+[seam-cross] ungrounded=0 frac=1
+[slope 29.9] normalY=0.8668967484053135 rawGrounded=true steep=false controllerGrounded=true slideDrift=(0,0)
+[slope 30] normalY=0.8660253998985324 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.67754803202115,-0.27714485961132596)
+[slope 44.9] normalY=0.7083398184194536 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.35000001243315637,-0.14401872908092628)
+[slope 45.1] normalY=0.705871590051261 rawGrounded=true steep=true controllerGrounded=false slideDrift=(0,0)
+[slope 45] normalY=0.7071067811865475 rawGrounded=true steep=false controllerGrounded=true slideDrift=(-0.35000001243315637,-0.14280392783894058)
+[snap-beyond] snappedDeep=22 maxStepDrop=0.057246118783950806 landedY=0.35999999000446226
+[snap-within] minY=0.8596376536452454 ungrounded=0
+[wall-stop] maxX=9.190161649108632 stopCenter=9.19

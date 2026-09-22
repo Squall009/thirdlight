@@ -1,0 +1,164 @@
+/**
+ * The injected physics port — runtime.md §12.6 (promoted from `physics.md`
+ * §5). The concrete adapter (`physics-rapier`, packet 31) implements this
+ * surface; the runtime core never imports it. The runtime owns the instance
+ * and hands modules only the restricted `PhysicsStepClient`.
+ *
+ * These are pure types plus the runtime's strict result validation: no
+ * concrete physics library, no Node built-ins, no I/O.
+ */
+
+export interface Vec2 {
+  x: number;
+  y: number;
+}
+
+/** One static collider the runtime derives from the snapshot (physics.md §5). */
+export interface StaticColliderSpec {
+  entityId: string;
+  /** Validated `components.collider.shape` value (opaque to the runtime core). */
+  shape: unknown;
+  /** World XY (root + unit scale). */
+  position: Vec2;
+  /** Radians, derived from the normalized z/w quaternion copy. */
+  rotationZ: number;
+}
+
+/** The port's per-step character result (physics.md §5). */
+export interface CharacterMoveResult {
+  requested: Vec2;
+  applied: Vec2;
+  position: Vec2;
+  grounded: boolean;
+  supportNormal: Vec2;
+  contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
+  snapped: boolean;
+}
+
+/** Counters a port may expose (physics.md §10). */
+export interface PhysicsDiagnostics {
+  stallSteps?: number;
+  penetrationCorrectedCount?: number;
+}
+
+/**
+ * The injected physics port (physics.md §5). Initialization happens before
+ * `instantiateRuntime` — the runtime only ever receives an already-initialized
+ * port (`createPhysicsPort(config, signal?)` lives in the concrete adapter).
+ */
+export interface PhysicsPort {
+  readonly implementation?: string;
+  stageCharacterMove(delta: Vec2): void;
+  step(): CharacterMoveResult;
+  reset?(character: Vec2): void;
+  diagnostics?(): PhysicsDiagnostics;
+  dispose(): void;
+}
+
+/** The restricted view handed to modules in `StepContext` (physics.md §5). */
+export interface PhysicsStepClient {
+  /** Controller phase only; a second stage for one entity is `duplicate_move`. */
+  stageCharacterMove(entityId: string, delta: Vec2): void;
+  /** The last completed step's result, or `undefined` before the first step. */
+  characterResult(entityId: string): CharacterMoveResult | undefined;
+}
+
+/** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
+export interface CharacterClearanceResult {
+  ok: boolean;
+  reason?: 'blocked' | 'no_support' | 'out_of_bounds' | 'hazard' | 'query_failed';
+  supportNormal?: Vec2;
+  /** m, deepest overlap with a static collider. */
+  penetration?: number;
+}
+
+/**
+ * The M3 restricted reset/clearance port (gameplay.md §5.2 / runtime.md
+ * §15.4). The accepted `PhysicsPort.reset(character)` stays
+ * tests/diagnostics-only and is never called by the runtime, a module, the
+ * session, the camera, a behavior, the HUD or the editor. The three
+ * operations below are callable by the runtime only at the reset barrier —
+ * they are NOT on `PhysicsStepClient` and NOT on `GameSessionPort` (game
+ * code never receives a physics handle, physics.md §5 one-mutation-path).
+ * The concrete implementation is `physics-rapier` (packet 50); the runtime
+ * core carries the type only.
+ */
+export interface PhysicsResetPort extends PhysicsPort {
+  /** Zero every cached/kinematic motion (velocity, pending correction) of the character. */
+  clearCharacterMotion(): void;
+  /** Re-place the capsule centre and return the resulting clearance. */
+  placeCharacter(center: Vec2): CharacterClearanceResult;
+  /** Query only: clearance of the capsule if placed at `center`. No mutation. */
+  characterClearance(center: Vec2): CharacterClearanceResult;
+}
+
+export type CharacterMoveResultFailure = {
+  reason: 'result';
+  detail: string;
+};
+
+function finite(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function vec2(v: unknown): v is Vec2 {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    finite((v as Vec2).x) &&
+    finite((v as Vec2).y)
+  );
+}
+
+/**
+ * Strict result validation (runtime.md §12.6). Returns a failure describing
+ * the first violation instead of throwing; an invalid result is never
+ * partially applied.
+ */
+export function validateCharacterMoveResult(
+  value: unknown,
+  previousPosition: Vec2,
+  requested: Vec2,
+): { ok: true; result: CharacterMoveResult } | { ok: false; failure: CharacterMoveResultFailure } {
+  const bad = (detail: string): { ok: false; failure: CharacterMoveResultFailure } => ({
+    ok: false,
+    failure: { reason: 'result', detail },
+  });
+  if (typeof value !== 'object' || value === null) return bad('result must be an object');
+  const r = value as Partial<CharacterMoveResult>;
+  if (!vec2(r.requested)) return bad('requested must be a finite { x, y }');
+  if (!vec2(r.applied)) return bad('applied must be a finite { x, y }');
+  if (!vec2(r.position)) return bad('position must be a finite { x, y }');
+  if (!vec2(r.supportNormal)) return bad('supportNormal must be a finite { x, y }');
+  if (typeof r.grounded !== 'boolean') return bad('grounded must be a boolean');
+  if (typeof r.snapped !== 'boolean') return bad('snapped must be a boolean');
+  const contacts = r.contacts;
+  if (
+    typeof contacts !== 'object' ||
+    contacts === null ||
+    typeof contacts.ground !== 'boolean' ||
+    typeof contacts.wall !== 'boolean' ||
+    typeof contacts.head !== 'boolean' ||
+    typeof contacts.steepSlope !== 'boolean'
+  ) {
+    return bad('contacts must be { ground, wall, head, steepSlope } booleans');
+  }
+  const result = r as CharacterMoveResult;
+  const normalLength = Math.hypot(result.supportNormal.x, result.supportNormal.y);
+  if (Math.abs(normalLength - 1) > 1e-6) return bad('supportNormal must be unit within 1e-6');
+  if (result.grounded && !(result.supportNormal.y > 0)) {
+    return bad('grounded requires supportNormal.y > 0');
+  }
+  const dx = result.applied.x - (result.position.x - previousPosition.x);
+  const dy = result.applied.y - (result.position.y - previousPosition.y);
+  if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) {
+    return bad('applied != position - previousPosition within 1e-9');
+  }
+  const allowance = result.snapped ? 0.11 : 0.001;
+  const appliedLen = Math.hypot(result.applied.x, result.applied.y);
+  const requestedLen = Math.hypot(requested.x, requested.y);
+  if (appliedLen > requestedLen + allowance + 1e-12) {
+    return bad('|applied| exceeds |requested| + allowance');
+  }
+  return { ok: true, result };
+}

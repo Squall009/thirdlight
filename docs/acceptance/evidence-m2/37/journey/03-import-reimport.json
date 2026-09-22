@@ -1,0 +1,163 @@
+{
+  "assetId": "asset-00000000000037a1",
+  "glbV1Digest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+  "v1": {
+    "proposalId": "p-1d0a882222a22011c95656a8b1b33078",
+    "stageId": "stg-b152da6389cc9d6a834779a2db9f17f7",
+    "sourceDigest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+    "sourceByteLength": 1552,
+    "status": "ok",
+    "importRecipe": {
+      "profile": "gltf-glb",
+      "recipeVersion": 1,
+      "toolchain": {
+        "three": "0.186.0"
+      },
+      "extensions": []
+    },
+    "suggestedDisplayName": "",
+    "inspection": {
+      "nodeNames": [
+        "Root",
+        "Tri"
+      ],
+      "materialNames": [
+        "MatA",
+        "MatB"
+      ],
+      "clipNames": [
+        "Spin"
+      ],
+      "sceneCount": 1,
+      "truncated": false
+    },
+    "diagnostics": [],
+    "diagnosticCount": 0,
+    "expiresAt": "2026-09-19T13:59:46Z",
+    "limits": {
+      "profile": "gltf-glb",
+      "recipeVersion": 1,
+      "sourceBytes": 33554432,
+      "jsonChunkBytes": 8388608,
+      "imageBytes": 33554432,
+      "timeoutMs": 30000,
+      "caps": {
+        "source_bytes": 33554432,
+        "json_chunk_bytes": 8388608,
+        "image_bytes": 33554432,
+        "nodes": 4096,
+        "meshes": 1024,
+        "primitives": 8192,
+        "materials": 512,
+        "images": 64,
+        "textures": 512,
+        "vertices": 2000000,
+        "triangles": 4000000,
+        "animations": 64,
+        "animation_channels": 4096,
+        "clip_duration": 600000,
+        "decoded_bytes": 268435456,
+        "total_decoded_bytes": 536870912,
+        "diagnostics": 10
+      }
+    },
+    "kind": "model",
+    "metrics": {
+      "nodes": 2,
+      "meshes": 1,
+      "primitives": 1,
+      "materials": 2,
+      "images": 0,
+      "textures": 0,
+      "vertices": 3,
+      "triangles": 1,
+      "animations": 1,
+      "animationChannels": 1,
+      "clipDurationMs": 1000,
+      "decodedGeometryBytes": 78,
+      "decodedImageBytes": 0
+    }
+  },
+  "v2": {
+    "proposalId": "p-cc0d9e56d6949f663d93b4b83cc1597b",
+    "stageId": "stg-a2c7d82710a854c5ae144d4d790c704d",
+    "sourceDigest": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "sourceByteLength": 1864,
+    "status": "ok",
+    "importRecipe": {
+      "profile": "gltf-glb",
+      "recipeVersion": 1,
+      "toolchain": {
+        "three": "0.186.0"
+      },
+      "extensions": []
+    },
+    "suggestedDisplayName": "",
+    "inspection": {
+      "nodeNames": [
+        "Tri",
+        "Root"
+      ],
+      "materialNames": [
+        "MatB",
+        "MatA"
+      ],
+      "clipNames": [
+        "Spin2"
+      ],
+      "sceneCount": 1,
+      "truncated": false
+    },
+    "diagnostics": [],
+    "diagnosticCount": 0,
+    "expiresAt": "2026-09-19T13:59:46Z",
+    "limits": {
+      "profile": "gltf-glb",
+      "recipeVersion": 1,
+      "sourceBytes": 33554432,
+      "jsonChunkBytes": 8388608,
+      "imageBytes": 33554432,
+      "timeoutMs": 30000,
+      "caps": {
+        "source_bytes": 33554432,
+        "json_chunk_bytes": 8388608,
+        "image_bytes": 33554432,
+        "nodes": 4096,
+        "meshes": 1024,
+        "primitives": 8192,
+        "materials": 512,
+        "images": 64,
+        "textures": 512,
+        "vertices": 2000000,
+        "triangles": 4000000,
+        "animations": 64,
+        "animation_channels": 4096,
+        "clip_duration": 600000,
+        "decoded_bytes": 268435456,
+        "total_decoded_bytes": 536870912,
+        "diagnostics": 10
+      }
+    },
+    "kind": "model",
+    "metrics": {
+      "nodes": 2,
+      "meshes": 1,
+      "primitives": 1,
+      "materials": 2,
+      "images": 0,
+      "textures": 0,
+      "vertices": 4,
+      "triangles": 2,
+      "animations": 1,
+      "animationChannels": 2,
+      "clipDurationMs": 2000,
+      "decodedGeometryBytes": 108,
+      "decodedImageBytes": 0
+    }
+  },
+  "stable": true,
+  "verAfter": 2,
+  "verUndo": 1,
+  "verRedo": 2,
+  "malformedUnchanged": true
+}

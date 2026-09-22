@@ -15,7 +15,54 @@ export { ERROR_CODES } from './errors';
 // commands' MutationResult/CommandError and the model's document types.
 // (commands' own `QueryResult` is intentionally NOT re-exported — the
 // workspace's own `QueryResult` owns that name on this surface.)
-export type { CommandError, MutationResult } from '@thirdlight/commands';
+export type { CommandError, MutationResult, MutationSuccess } from '@thirdlight/commands';
 export type { WriteOps } from './write';
 export { defaultOps as defaultWriteOps } from './write';
 export type { Entity, Scene, Manifest, ModelError } from '@thirdlight/project-model';
+// Packet-23 content storage (workspace.md §11/§13): the public result/request
+// types of the stage/blob/integrity/capture operations and the operator
+// migration copy. The operations themselves are methods on `WorkspaceService`.
+export type {
+  BlobPublishRequest,
+  BlobPublishResult,
+  BlobReadRequest,
+  BlobReadResult,
+  BlobSource,
+  PreparedMediaFacts,
+  SourceBlobReadRequest,
+  SourceBlobReadResult,
+  CaptureViewResult,
+  CapturedV3Read,
+  CapturedV3ReadResult,
+  ContentIntegrityEntry,
+  ContentIntegrityResult,
+  ContentIntegritySummary,
+  ImportedProposal,
+  InspectStageOptions,
+  InspectStageResult,
+  InspectorRequest,
+  StageDiscardResult,
+  StageInspector,
+  StageRequest,
+  StageResult,
+} from './content-store';
+export type {
+  AnyMigrationMarker,
+  MigrationMarker,
+  MigrationMarkerV3,
+  MigrationPhase,
+  MigrationResult,
+  MigrationResultV3,
+} from './migration';
+export type {
+  PrepareBehaviorSourceOk,
+  PrepareBehaviorSourceRequest,
+  PrepareBehaviorSourceResult,
+} from './behavior';
+export type { AssetRecord, AssetVersion, CapturedContent, ContentCatalog, ImportRecipe } from '@thirdlight/project-model';
+// Packet 25: the injected inspector's proposal type is asset-pipeline's
+// (dependencies.md §3/§4.1 — the workspace's edge is types-only).
+export type { ImportProposal, AudioImportProposal, ImportJobPort } from '@thirdlight/asset-pipeline';
+// Packet 33: the injected behavior-source compiler is `behavior-build`'s
+// (dependencies.md §3/§4.1 — the workspace's edge is types-only).
+export type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behavior-build';

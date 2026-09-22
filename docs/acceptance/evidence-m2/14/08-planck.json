@@ -1,0 +1,43 @@
+{
+  "runId": "tl14-2026-09-18-a",
+  "candidate": "planck@1.5.0",
+  "plane": "XY plane, Y up; Z is visual depth only (no collision dimension in 2D candidates)",
+  "notes": [
+    "circle r=0.9 approximates the course capsule (no capsule shape in planck/Box2D)",
+    "kinematic bodies get NO collision response from the solver — all course collisions must be handled by custom game logic",
+    "grounding = downward raycast within 0.05 of the expected floor distance (custom; no built-in ground classification)"
+  ],
+  "phases": {
+    "P1_flatWalk": {
+      "endPos": {
+        "x": -6,
+        "y": 0.9
+      },
+      "ungroundedSteps": 0,
+      "outOfBox": "walks at commanded speed with consistent raycast grounding (the raycast is custom code — no built-in ground classification)"
+    },
+    "P2_wall": {
+      "endPos": {
+        "x": 16.4,
+        "y": 0.9
+      },
+      "maxPenetrationM": 7.8,
+      "outOfBox": "KINEMATIC BODY PASSES THROUGH THE STATIC WALL — no collision response; M2 must implement manual penetration correction (cast-circle backoff or contact-driven impulse logic)"
+    },
+    "P3_ramp43": {
+      "endPos": {
+        "x": 9.2,
+        "y": 0.9
+      },
+      "maxHeightGainM": 0,
+      "groundedLossEvents": 1,
+      "outOfBox": "circle does NOT climb the 43 deg ramp — falls/slides at the base corner (Box2D edge case); M2 needs edge-snapping + slope classification + custom slope response to match the Rapier CC behavior"
+    },
+    "P4_jump": {
+      "apexGainM": 1.278,
+      "expectedContinuous": 1.249,
+      "outOfBox": "jump works with game-logic velocity + raycast grounding (kinematic: no solver help); apex matches free-fall within step discretization"
+    }
+  },
+  "summary": "P1_flatWalk: end={\"x\":-6,\"y\":0.9} [walks at commanded speed with consistent raycast grounding (the raycast is custom code — n]\nP2_wall: end={\"x\":16.4,\"y\":0.9} [KINEMATIC BODY PASSES THROUGH THE STATIC WALL — no collision response; M2 must implement m]\nP3_ramp43: end={\"x\":9.2,\"y\":0.9} [circle does NOT climb the 43 deg ramp — falls/slides at the base corner (Box2D edge case);]\nP4_jump: end=\"n/a\" [jump works with game-logic velocity + raycast grounding (kinematic: no solver help); apex ]"
+}

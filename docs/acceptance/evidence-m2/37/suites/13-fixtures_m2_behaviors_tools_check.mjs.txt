@@ -1,0 +1,5 @@
+ok   containers: 33 container case(s) re-hashed, canonical-checked and re-analyzed (2 valid)
+ok   sample-products: manifest/output/recipe digests and per-file digests re-derived from the committed bytes
+ok   declaration-cases: 2 declaration bound case(s) re-derived
+ok   injected-cases: 4 injected bound/failure case(s) re-derived
+check: OK — all behavior-build fixture rows re-derived

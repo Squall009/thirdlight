@@ -1,0 +1,590 @@
+{
+  "kind": "physics-cases",
+  "setVersion": 1,
+  "packet": 31,
+  "note": "Declared before judging. Every expectation is a band or a contract-declared value from docs/planning/m2-contracts/physics.md §7/§8 and the frozen packet-14 course tolerances (tests/evaluations/m2-physics/course-spec.json). The measured values are recorded in docs/acceptance/evidence-m2/31/, never used to set a band. Slope cases declare a 1-step settle because the 0.20.0 controller only registers ground contact after a first downward probe (measured, C31-2/C31-4).",
+  "driver": {
+    "model": "packet-14 canonical character model (probe-rapier2d.mjs): grounded && !airborne => vy = 0; jump edge while grounded => vy = jumpVelocity, airborne = true; otherwise vy += gravity_y*dt clamped to maxFallSpeed; airborne clears when grounded && vy <= 0. The controller module itself is packet 32.",
+    "delta": "{ x: moveX * speed * dt, y: vy * dt }, dt = 1/120"
+  },
+  "cases": [
+    {
+      "id": "capsule-floor-idle",
+      "description": "Capsule resting on the frozen flat floor: grounded every step, rest center 0.910 m ± 0.0005, support normal (0, 1).",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 120,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "groundedEveryStep": true,
+        "supportNormalY": {
+          "value": 1,
+          "tolerance": 0.000001
+        },
+        "finalY": {
+          "value": 0.91,
+          "tolerance": 0.0005
+        },
+        "finalX": {
+          "value": -10,
+          "tolerance": 0.0005
+        },
+        "maxStepDelta": 0.001,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.001
+        },
+        "contactsAtLeastOnce": {
+          "ground": true
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "docs/contracts/project-model.md §21.4",
+        "docs/planning/m2-contracts/physics.md §7 (settled rest center 0.910 ± 0.0005)"
+      ]
+    },
+    {
+      "id": "capsule-floor-run-seam",
+      "description": "Walk right from x=-10 over the floor seam at x=0 at 4 m/s: grounded except at most two steps, speed inside the 5 % band, no penetration.",
+      "course": "course.json",
+      "start": {
+        "x": -10,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 600,
+          "moveX": 1,
+          "stopWhen": {
+            "xAtLeast": 1
+          }
+        }
+      ],
+      "expect": {
+        "maxUngroundedSteps": 2,
+        "speedBand": 0.05,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "noZ": true,
+        "minFinalX": 1
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json tolerances.T2_flatRun/T3_seam"
+      ]
+    },
+    {
+      "id": "wall-stop",
+      "description": "Run right into the wall face at x=9.5: the capsule stops within face + reach + skin + 5 mm, reports a wall contact, never penetrates.",
+      "course": "course.json",
+      "start": {
+        "x": 8.4,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 300,
+          "moveX": 1
+        }
+      ],
+      "expect": {
+        "maxX": 9.195,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "contactsAtLeastOnce": {
+          "wall": true
+        },
+        "groundedAtLeastOnce": true,
+        "noZ": true,
+        "maxXNote": "wall face x=9.5; the capsule radius is 0.3 and the controller skin 0.01, so the center must stop by 9.195 (contract wall stop band 0.05 m)"
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json tolerances.T6_wallStop"
+      ]
+    },
+    {
+      "id": "high-speed-wall",
+      "description": "Approach the same wall at 12 m/s (0.1 m/step): no tunnelling beyond the 5 mm penetration budget and a wall contact is observed.",
+      "course": "course.json",
+      "start": {
+        "x": 8.4,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 300,
+          "moveX": 1,
+          "speed": 12
+        }
+      ],
+      "expect": {
+        "maxX": 9.195,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "contactsAtLeastOnce": {
+          "wall": true
+        },
+        "noZ": true,
+        "maxXNote": "wall face x=9.5; the capsule radius is 0.3 and the controller skin 0.01, so the center must stop by 9.195 (contract wall stop band 0.05 m)"
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json tolerances.T9_highSpeed"
+      ]
+    },
+    {
+      "id": "ceiling-head-bump",
+      "description": "Climb the 43° ramp to its top corner, then jump straight up under the ceiling (underside y=4.0): a head contact is reported, the center never passes 3.095 + tolerance and the rise after the contact step stays at the controller nudge scale.",
+      "course": "course.json",
+      "start": {
+        "x": 1.5,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 240,
+          "moveX": 1,
+          "stopWhen": {
+            "xAtLeast": 3.55,
+            "grounded": true
+          }
+        },
+        {
+          "steps": 300,
+          "moveX": 0,
+          "jumpOnFirst": true
+        }
+      ],
+      "expect": {
+        "contactsAtLeastOnce": {
+          "head": true
+        },
+        "maxCenterY": {
+          "value": 3.095,
+          "tolerance": 0.02
+        },
+        "maxStepRiseAfterContact": {
+          "contact": "head",
+          "limit": 0.0005,
+          "note": "physics.md §7: the realized rise after the head-contact step must stay at the controller nudge scale (5e-4 m per step)"
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json tolerances.T7_headBump"
+      ]
+    },
+    {
+      "id": "ramp-43-climb",
+      "description": "Climb the 43° ramp (below the 45° climb limit) from x=1.5: grounded for at least 95 % of the ascent, the center exits near the authored top-corner offset (3.579, 2.703) ± 0.5 m, no penetration below the floor.",
+      "course": "course.json",
+      "start": {
+        "x": 1.5,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 240,
+          "moveX": 1,
+          "stopWhen": {
+            "xAtLeast": 3.549
+          }
+        }
+      ],
+      "expect": {
+        "groundedFractionMin": 0.95,
+        "finalX": {
+          "value": 3.579,
+          "tolerance": 0.5
+        },
+        "finalY": {
+          "value": 2.703,
+          "tolerance": 0.5
+        },
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json statics.bodies.rampA43"
+      ]
+    },
+    {
+      "id": "ramp-47-refuse",
+      "description": "Push into the 47° ramp (above the 45° climb limit) for 1 s: height gain stays below 0.3 m (the character does not climb a too-steep slope).",
+      "course": "course.json",
+      "start": {
+        "x": 5.5,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 120,
+          "moveX": 1
+        }
+      ],
+      "expect": {
+        "maxHeightGain": 0.3,
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "tests/evaluations/m2-physics/course-spec.json tolerances.T5_rampRefuse"
+      ]
+    },
+    {
+      "id": "convex-ramp-30",
+      "description": "Climb a bounded convex-polygon ramp (4-vertex CCW hull, about 35°) created through ColliderDesc.convexHull: grounded, the center rises along the polygon face.",
+      "course": "convex-course.json",
+      "start": {
+        "x": -1,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 120,
+          "moveX": 1
+        }
+      ],
+      "expect": {
+        "groundedFractionMin": 0.9,
+        "minHeightGain": 0.5,
+        "minSupportNormalY": 0.85,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/contracts/project-model.md §10.7",
+        "docs/planning/m2-contracts/physics.md §3"
+      ]
+    },
+    {
+      "id": "convex-ramp-45",
+      "description": "Climb a bounded convex-polygon ramp (4-vertex CCW hull, exactly 45°, at the climb limit): grounded, the center rises along the polygon face.",
+      "course": "convex-course.json",
+      "start": {
+        "x": 4.5,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 120,
+          "moveX": 1
+        }
+      ],
+      "expect": {
+        "groundedFractionMin": 0.85,
+        "minHeightGain": 0.5,
+        "minSupportNormalY": 0.7,
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/contracts/project-model.md §10.7",
+        "docs/planning/m2-contracts/physics.md §3"
+      ]
+    },
+    {
+      "id": "convex-wall-block",
+      "description": "Run into the convex-polygon wall: blocked without penetration and with a wall contact reported.",
+      "course": "convex-course.json",
+      "start": {
+        "x": 9,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 240,
+          "moveX": 1
+        }
+      ],
+      "expect": {
+        "maxX": 10.695,
+        "contactsAtLeastOnce": {
+          "wall": true
+        },
+        "minCapsuleBottom": {
+          "value": 0,
+          "tolerance": 0.005
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/contracts/project-model.md §10.7"
+      ]
+    },
+    {
+      "id": "ground-snap-within",
+      "description": "Walk off a 0.05 m step down (inside the 0.1 m snap distance): the capsule stays grounded (at most the transition step ungrounded) and snap is reported at least once.",
+      "course": "snap-course.json",
+      "start": {
+        "x": 0,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 200,
+          "moveX": 1,
+          "stopWhen": {
+            "xAtLeast": 6.5
+          }
+        }
+      ],
+      "expect": {
+        "groundedAtLeastOnce": true,
+        "maxUngroundedSteps": 2,
+        "snappedAtLeastOnce": true,
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "docs/planning/m2-contracts/physics.md §8 item 5"
+      ]
+    },
+    {
+      "id": "ground-snap-beyond",
+      "description": "Walk off a 0.50 m drop (beyond the 0.1 m snap distance): the character free-falls (at least five ungrounded steps), never reports snapped while ungrounded, and lands.",
+      "course": "snap-course.json",
+      "start": {
+        "x": 8.5,
+        "y": 0.9
+      },
+      "settleSteps": 12,
+      "segments": [
+        {
+          "steps": 300,
+          "moveX": 1,
+          "stopWhen": {
+            "xAtLeast": 14
+          }
+        }
+      ],
+      "expect": {
+        "groundedAtLeastOnce": true,
+        "minUngroundedSteps": 5,
+        "snappedWhileAirborneNever": true,
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8 item 5",
+        "contract-change request C31-3 (snap chaining over a bridged drop)"
+      ]
+    },
+    {
+      "id": "slope-stand-29.9",
+      "description": "Standing on a 29.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).",
+      "course": "slope-course.json",
+      "start": {
+        "x": 0.408219212448,
+        "y": 1.296152423317
+      },
+      "startNote": "capsule center placed at along-slope s=1.0 + the upright-capsule support offset (0.6*cos(angle) + 0.3) + the 0.1 m box half-thickness along the face normal; the declared 1-step settle establishes the ground contact (the contact is only registered after the first downward probe — measured).",
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 2,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "firstStepSteepSlope": false,
+        "firstStepSupportNormalY": {
+          "value": 0.86689675,
+          "tolerance": 0.002
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "cos(29.9°) = 0.86689675"
+      ]
+    },
+    {
+      "id": "slope-stand-30.0",
+      "description": "Standing on a 30.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).",
+      "course": "slope-course.json",
+      "start": {
+        "x": 6.406217782649,
+        "y": 1.296410161514
+      },
+      "startNote": "capsule center placed at along-slope s=1.0 + the upright-capsule support offset (0.6*cos(angle) + 0.3) + the 0.1 m box half-thickness along the face normal; the declared 1-step settle establishes the ground contact (the contact is only registered after the first downward probe — measured).",
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 2,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "firstStepSteepSlope": false,
+        "firstStepSupportNormalY": {
+          "value": 0.8660254,
+          "tolerance": 0.002
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "cos(30.0°) = 0.8660254"
+      ]
+    },
+    {
+      "id": "slope-stand-44.9",
+      "description": "Standing on a 44.9° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).",
+      "course": "slope-course.json",
+      "start": {
+        "x": 12.125993037156,
+        "y": 1.290254701193
+      },
+      "startNote": "capsule center placed at along-slope s=1.0 + the upright-capsule support offset (0.6*cos(angle) + 0.3) + the 0.1 m box half-thickness along the face normal; the declared 1-step settle establishes the ground contact (the contact is only registered after the first downward probe — measured).",
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 2,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "firstStepSteepSlope": false,
+        "firstStepSupportNormalY": {
+          "value": 0.70833984,
+          "tolerance": 0.002
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "cos(44.9°) = 0.70833984"
+      ]
+    },
+    {
+      "id": "slope-stand-45.0",
+      "description": "Standing on a 45.0° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=false marks the climbable decision the controller applies (§8 items 2/4).",
+      "course": "slope-course.json",
+      "start": {
+        "x": 18.124264068712,
+        "y": 1.289949493661
+      },
+      "startNote": "capsule center placed at along-slope s=1.0 + the upright-capsule support offset (0.6*cos(angle) + 0.3) + the 0.1 m box half-thickness along the face normal; the declared 1-step settle establishes the ground contact (the contact is only registered after the first downward probe — measured).",
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 2,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "firstStepSteepSlope": false,
+        "firstStepSupportNormalY": {
+          "value": 0.70710678,
+          "tolerance": 0.002
+        },
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "cos(45.0°) = 0.70710678",
+        "docs/planning/m2-contracts/physics.md §8 item 2 (the climb limit is inclusive)"
+      ]
+    },
+    {
+      "id": "slope-stand-45.1",
+      "description": "Standing on a 45.1° ramp face: the adapter reports the library's raw grounded flag (physics.md §8 item 1) and the support normal of the face; steepSlope=true marks the climbable decision the controller applies (§8 items 2/4).",
+      "course": "slope-course.json",
+      "start": {
+        "x": 24.122537463292,
+        "y": 1.289641270571
+      },
+      "startNote": "capsule center placed at along-slope s=1.0 + the upright-capsule support offset (0.6*cos(angle) + 0.3) + the 0.1 m box half-thickness along the face normal; the declared 1-step settle establishes the ground contact (the contact is only registered after the first downward probe — measured).",
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 2,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "firstStepSteepSlope": true,
+        "firstStepSupportNormalY": {
+          "value": 0.70587157,
+          "tolerance": 0.002
+        },
+        "noZ": true,
+        "groundedButSteepNote": "grounded is the raw computedGrounded() flag; the face is below cos 45° and is therefore reported as steepSlope (the controller treats it as not grounded)"
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "cos(45.1°) = 0.70587157",
+        "docs/planning/m2-contracts/physics.md §8 item 4 + C31-1 (the contract table prints 0.70608759 for 45.1°; cos(45.1°) = 0.70587157)"
+      ]
+    },
+    {
+      "id": "slope-no-autonomous-slide-30.0",
+      "description": "Standing on a 30.0° face with no input for 1 s: the measured 0.20.0 behavior is that the controller does NOT slide the character down by itself (vertical loss stays below 0.01 m), although physics.md §7/§8 describe 30.0° as the minimum slide angle. Recorded as C31-4; the slide/traversal policy belongs to the packet-32 controller.",
+      "course": "slope-course.json",
+      "start": {
+        "x": 6.406217782649,
+        "y": 1.296410161514
+      },
+      "settleSteps": 1,
+      "segments": [
+        {
+          "steps": 120,
+          "moveX": 0
+        }
+      ],
+      "expect": {
+        "firstStepGrounded": true,
+        "maxHeightLoss": 0.01,
+        "noZ": true
+      },
+      "pins": [
+        "docs/planning/m2-contracts/physics.md §8",
+        "docs/planning/m2-contracts/physics.md §7 (minimum slide angle 30°)",
+        "contract-change request C31-4"
+      ]
+    }
+  ]
+}

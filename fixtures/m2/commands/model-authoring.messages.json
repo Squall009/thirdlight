@@ -1,0 +1,654 @@
+{
+  "kind": "command-scenario-m2",
+  "scenarioVersion": 1,
+  "id": "model-authoring",
+  "title": "Whole-GLB placement and collider/controller authoring (C27-1/C28-1 repair): createEntity model, undo/redo, asset_reference_missing, collider add/edit/remove, controller add/remove, component_conflict",
+  "projectId": "demo-0003",
+  "base": {
+    "state": "contracts/commands/prefab-scenario.before.json",
+    "revision": 2
+  },
+  "notes": [
+    "Byte-exact request/result pairs for the repaired command surface against the packet-16 released-state before envelope (revision 2) plus the demo-0003 manifest from contracts/commands/queries.json.",
+    "Every successful step consumes exactly one revision; S4 (asset_reference_missing) and S9 (component_conflict) are failures that leave the durable state byte-identical.",
+    "model-0003 is the smallest free model ID at revision 2 (model-0001/0002 exist); S2 undoes the create and S3 re-creates it with the same recorded ID."
+  ],
+  "steps": [
+    {
+      "stepId": "S1",
+      "in": {
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "expectedRevision": 2,
+        "requestId": "req-00000000000000000000000000000001",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "kind": "model",
+          "parentId": null,
+          "name": "Crate",
+          "transform": {
+            "position": [
+              1,
+              0,
+              0
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "asset-2b11d4a76c9f0e35"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000001",
+        "revision": 3,
+        "duplicated": false,
+        "createdId": "model-0003",
+        "change": {
+          "type": "createEntity",
+          "id": "model-0003",
+          "entity": {
+            "id": "model-0003",
+            "name": "Crate",
+            "components": {
+              "transform": {
+                "position": [
+                  1,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "model": {
+                "asset": {
+                  "assetId": "asset-2b11d4a76c9f0e35"
+                }
+              }
+            }
+          }
+        },
+        "history": {
+          "undoDepth": 1,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S2",
+      "in": {
+        "op": "undo",
+        "projectId": "demo-0003",
+        "expectedRevision": 3,
+        "requestId": "req-00000000000000000000000000000002",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {}
+      },
+      "out": {
+        "ok": true,
+        "op": "undo",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000002",
+        "revision": 4,
+        "duplicated": false,
+        "change": {
+          "type": "deleteEntity",
+          "rootId": "model-0003",
+          "deletedIds": [
+            "model-0003"
+          ]
+        },
+        "appliedOf": "req-00000000000000000000000000000001",
+        "originOfApplied": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "history": {
+          "undoDepth": 0,
+          "redoDepth": 1
+        }
+      }
+    },
+    {
+      "stepId": "S3",
+      "in": {
+        "op": "redo",
+        "projectId": "demo-0003",
+        "expectedRevision": 4,
+        "requestId": "req-00000000000000000000000000000003",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {}
+      },
+      "out": {
+        "ok": true,
+        "op": "redo",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000003",
+        "revision": 5,
+        "duplicated": false,
+        "change": {
+          "type": "createEntity",
+          "id": "model-0003",
+          "entity": {
+            "id": "model-0003",
+            "name": "Crate",
+            "components": {
+              "transform": {
+                "position": [
+                  1,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "model": {
+                "asset": {
+                  "assetId": "asset-2b11d4a76c9f0e35"
+                }
+              }
+            }
+          }
+        },
+        "appliedOf": "req-00000000000000000000000000000001",
+        "originOfApplied": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "history": {
+          "undoDepth": 1,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S4",
+      "in": {
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "expectedRevision": 5,
+        "requestId": "req-00000000000000000000000000000004",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "kind": "model",
+          "model": {
+            "asset": {
+              "assetId": "asset-0000000000000000"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": false,
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000004",
+        "error": {
+          "code": "asset_reference_missing",
+          "cls": "validation",
+          "assetId": "asset-0000000000000000",
+          "message": "asset reference does not resolve in content.assets"
+        }
+      }
+    },
+    {
+      "stepId": "S5",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 5,
+        "requestId": "req-00000000000000000000000000000005",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "collider",
+          "value": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.25
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000005",
+        "revision": 6,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "collider",
+          "previous": null,
+          "next": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.25
+            }
+          },
+          "changedFields": [
+            "shape"
+          ]
+        },
+        "history": {
+          "undoDepth": 2,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S6",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 6,
+        "requestId": "req-00000000000000000000000000000006",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "collider",
+          "value": {
+            "shape": {
+              "type": "box",
+              "hx": 2,
+              "hy": 0.25
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000006",
+        "revision": 7,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "collider",
+          "previous": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.25
+            }
+          },
+          "next": {
+            "shape": {
+              "type": "box",
+              "hx": 2,
+              "hy": 0.25
+            }
+          },
+          "changedFields": [
+            "shape"
+          ]
+        },
+        "history": {
+          "undoDepth": 3,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S7",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 7,
+        "requestId": "req-00000000000000000000000000000007",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "collider",
+          "value": null
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000007",
+        "revision": 8,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "collider",
+          "previous": {
+            "shape": {
+              "type": "box",
+              "hx": 2,
+              "hy": 0.25
+            }
+          },
+          "next": null,
+          "changedFields": [
+            "shape"
+          ]
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S8",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 8,
+        "requestId": "req-00000000000000000000000000000008",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "controller",
+          "value": {}
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000008",
+        "revision": 9,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "controller",
+          "previous": null,
+          "next": {},
+          "changedFields": []
+        },
+        "history": {
+          "undoDepth": 5,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S9",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 9,
+        "requestId": "req-00000000000000000000000000000009",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "collider",
+          "value": {
+            "shape": {
+              "type": "box",
+              "hx": 1.5,
+              "hy": 0.25
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": false,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000009",
+        "error": {
+          "code": "component_conflict",
+          "cls": "validation",
+          "detailDocument": "result-scene",
+          "details": [
+            {
+              "code": "component_conflict",
+              "path": "/entities/6/components",
+              "message": "collider and controller are mutually exclusive on one entity",
+              "expected": "at most one of the conflicting components",
+              "found": [
+                "collider",
+                "controller"
+              ],
+              "document": "scene"
+            }
+          ],
+          "detailCount": 1,
+          "message": "resulting scene failed validation; state unchanged",
+          "hint": "fix the request arguments and re-issue with a new requestId"
+        }
+      }
+    },
+    {
+      "stepId": "S10",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 9,
+        "requestId": "req-0000000000000000000000000000000a",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "controller",
+          "value": null
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-0000000000000000000000000000000a",
+        "revision": 10,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "controller",
+          "previous": {},
+          "next": null,
+          "changedFields": []
+        },
+        "history": {
+          "undoDepth": 6,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S11",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 10,
+        "requestId": "req-0000000000000000000000000000000b",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "component": "collider",
+          "value": {
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ]
+              ]
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-0000000000000000000000000000000b",
+        "revision": 11,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "model-0003",
+          "component": "collider",
+          "previous": null,
+          "next": {
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ]
+              ]
+            }
+          },
+          "changedFields": [
+            "shape"
+          ]
+        },
+        "history": {
+          "undoDepth": 7,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S12",
+      "in": {
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "expectedRevision": 11,
+        "requestId": "req-0000000000000000000000000000000c",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "kind": "model",
+          "model": {
+            "asset": {
+              "assetId": "asset-7f3a2c9e1b4d5068"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "createEntity",
+        "projectId": "demo-0003",
+        "requestId": "req-0000000000000000000000000000000c",
+        "revision": 12,
+        "duplicated": false,
+        "createdId": "model-0004",
+        "change": {
+          "type": "createEntity",
+          "id": "model-0004",
+          "entity": {
+            "id": "model-0004",
+            "components": {
+              "transform": {
+                "position": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "model": {
+                "asset": {
+                  "assetId": "asset-7f3a2c9e1b4d5068"
+                }
+              }
+            }
+          }
+        },
+        "history": {
+          "undoDepth": 8,
+          "redoDepth": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "playSessionId": "play-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "snapshotId": "demo-0001@r12",
+  "buildId": "41b5a60bc73c3a8f8dd65edd4acf95622ca1e80f1ae577502ba00cecbf2ee536",
+  "runId": "demo-0001@r12#0",
+  "command": "start",
+  "state": "playing",
+  "acceptedAtStep": 0,
+  "inputMode": "physical"
+}

@@ -1,0 +1,142 @@
+{
+  "tool": "fixtures/m2/contracts/tools/check-fixtures.mjs",
+  "mode": "check",
+  "fixturesRoot": "fixtures/m2/contracts",
+  "filesOnDisk": 84,
+  "checks": [
+    {
+      "check": "self-test",
+      "detail": "9 invalid + 3 valid parser controls, canon() order-insensitivity"
+    },
+    {
+      "check": "canonical-form",
+      "detail": "78 JSON fixture(s) checked"
+    },
+    {
+      "check": "index",
+      "detail": "81 index entries, 84 files on disk"
+    },
+    {
+      "check": "code-registry",
+      "detail": "89 code(s) used by fixtures, all declared in expected.json.registry; 79 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture"
+    },
+    {
+      "check": "case-pins",
+      "detail": "152 case->section pin(s) verified"
+    },
+    {
+      "check": "cross-ref",
+      "detail": "content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block"
+    },
+    {
+      "check": "cross-ref",
+      "detail": "2 catalog records, 2 scene reference(s) resolved"
+    },
+    {
+      "check": "migration",
+      "detail": "source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)"
+    },
+    {
+      "check": "source-retention",
+      "detail": "2 source file(s) re-hashed (original-preserving migration evidence)"
+    },
+    {
+      "check": "interrupted-copy",
+      "detail": "marker phase \"manifest\", no envelope present (never auto-completed)"
+    },
+    {
+      "check": "p16-replay",
+      "detail": "10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope"
+    },
+    {
+      "check": "p16-failures",
+      "detail": "24 failure case(s) checked (revision arithmetic, error shape, expected codes)"
+    },
+    {
+      "check": "p16-queries",
+      "detail": "query examples checked against the after envelope (counts, ids, definitions, declarations)"
+    },
+    {
+      "check": "p17-numerics",
+      "detail": "34 constants, 8 slope rows, 10 settings cases, 20 validation cases re-derived"
+    },
+    {
+      "check": "p17-traces",
+      "detail": "16 traces, 178 sampled step rows and 48 derived expectations replayed"
+    },
+    {
+      "check": "p17-input",
+      "detail": "15 mapping cases and 5 step-indexed sequences replayed"
+    },
+    {
+      "check": "p17-catchup",
+      "detail": "7 scheduler cases and 8 ownership/combination cases replayed"
+    },
+    {
+      "check": "p17-failures",
+      "detail": "21 failure cases checked (codes, state, durable effect)"
+    },
+    {
+      "check": "p18-source-graphs",
+      "detail": "41 source-graph case(s) (16 container + 25 constructed) re-derived from behaviors.md §4.3/§6"
+    },
+    {
+      "check": "p18-intents",
+      "detail": "6 quantization row(s), 18 intent step(s) and 4 effective-frame row(s) replayed"
+    },
+    {
+      "check": "p18-runtime-failures",
+      "detail": "21 runtime failure case(s) and 6 flood case(s) re-derived"
+    },
+    {
+      "check": "p18-publication",
+      "detail": "14 publication case(s) replayed through the prepare/publish/build state machine"
+    },
+    {
+      "check": "p18-example",
+      "detail": "the example manifest is digest-bound, links one pinned module, declares a numeric property and replays its intent trace"
+    },
+    {
+      "check": "p19-protocol",
+      "detail": "14 route(s) and 8 bridge message(s) re-derived; 51 error mapping(s) checked"
+    },
+    {
+      "check": "p19-locator",
+      "detail": "14 locator case(s) re-derived (TTL, grace, traversal/listing, build states, redaction)"
+    },
+    {
+      "check": "p19-upload",
+      "detail": "7 upload/stage bound case(s) re-derived (frame, offset, stage, open stages, project cap)"
+    },
+    {
+      "check": "p19-scans",
+      "detail": "13 format-aware scan case(s) re-derived (text vs GLB/WASM/closure, no text scan on binaries)"
+    },
+    {
+      "check": "p19-manifest",
+      "detail": "manifest identity, 2 asset(s), 1 behavior(s), closure fetch count 4 and licenses re-derived"
+    },
+    {
+      "check": "p19-relay",
+      "detail": "10 relay case(s) re-derived (step range, exclusive mode, limits, no-browser unavailable)"
+    },
+    {
+      "check": "preimage",
+      "detail": "2 preimage(s) re-hashed"
+    },
+    {
+      "check": "p18-container-hash",
+      "detail": "16 behavior source container(s) re-hashed and merged into the digest map"
+    },
+    {
+      "check": "digest-claims",
+      "detail": "every sourceDigest/sourceByteLength pair matches a committed preimage"
+    },
+    {
+      "check": "content-digest",
+      "detail": "captured-content-view.json contentDigest 8b7116a759bd251c… verified"
+    }
+  ],
+  "failures": [],
+  "ok": true
+}

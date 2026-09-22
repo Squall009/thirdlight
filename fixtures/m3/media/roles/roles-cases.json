@@ -1,0 +1,87 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.3.1/§41.3.4",
+  "roles": [
+    "idle",
+    "run",
+    "airborne"
+  ],
+  "cases": [
+    {
+      "id": "roles-stored-order-v1",
+      "file": "courier-roles.glb",
+      "component": {
+        "assetId": "asset-model-courier",
+        "version": 1,
+        "roles": {
+          "idle": {
+            "clipIndex": 0,
+            "clipName": "Idle"
+          },
+          "run": {
+            "clipIndex": 1,
+            "clipName": "Run"
+          },
+          "airborne": {
+            "clipIndex": 2,
+            "clipName": "Airborne"
+          }
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-reordered-v2",
+      "file": "courier-reordered.glb",
+      "component": {
+        "assetId": "asset-model-courier",
+        "version": 2,
+        "roles": {
+          "idle": {
+            "clipIndex": 2,
+            "clipName": "Idle"
+          },
+          "run": {
+            "clipIndex": 1,
+            "clipName": "Run"
+          },
+          "airborne": {
+            "clipIndex": 0,
+            "clipName": "Airborne"
+          }
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-stored-order-against-reordered-bytes",
+      "file": "courier-reordered.glb",
+      "component": {
+        "assetId": "asset-model-courier",
+        "version": 2,
+        "roles": {
+          "idle": {
+            "clipIndex": 0,
+            "clipName": "Idle"
+          },
+          "run": {
+            "clipIndex": 1,
+            "clipName": "Run"
+          },
+          "airborne": {
+            "clipIndex": 2,
+            "clipName": "Airborne"
+          }
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_role_mismatch"
+      }
+    }
+  ]
+}

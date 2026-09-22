@@ -1,0 +1,19 @@
+== pinned three / GLTFLoader identity
+three version (read from node_modules/three/package.json; the package exports map does not expose ./package.json): 0.186.0
+three-adapter declares: "three": "0.186.0" (packages/three-adapter/package.json; no new dependency, no new pin)
+sha256 (GLTFLoader.js): 131c0f78c01d19368ae495caa65b3adaa10487810a36a05bb5901b769a35ac16
+bytes: 117570
+node: v22.22.1
+
+== the specifier the three-adapter imports
+39:import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+== API surface bound to (pinned @types/three 0.186.0)
+43:export class GLTFLoader extends Loader<GLTF> {
+57:    parse(
+64:    parseAsync(data: ArrayBuffer | string, path: string): Promise<GLTF>;
+98:    parse(onLoad: (gltf: GLTF) => void, onError?: (event: ErrorEvent) => void): void;
+
+== the loader's own transitive examples/jsm imports (inside three's own code, not a three-adapter edge)
+68:import { toTrianglesDrawMode } from '../utils/BufferGeometryUtils.js';
+69:import { clone } from '../utils/SkeletonUtils.js';

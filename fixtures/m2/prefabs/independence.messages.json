@@ -1,0 +1,860 @@
+{
+  "kind": "command-scenario",
+  "scenarioVersion": 1,
+  "id": "prefabs-independence",
+  "title": "Two more materialized copies after ordinary edits, one-undo removal and exact-ID redo over mixed human/MCP history",
+  "projectId": "demo-0003",
+  "base": {
+    "state": "contracts/commands/prefab-scenario.after.json",
+    "revision": 11
+  },
+  "notes": [
+    "Packet 22 byte-exact request/result pairs. `base.state` is the packet-16 released-state after envelope (revision 11); the demo-0003 manifest is the one in contracts/commands/queries.json.",
+    "Pins the packet-22 acceptance criteria beyond the packet-16 scenario: a fresh copy after ordinary edits to another copy, a second copy with a distinct transform, one-undo subtree removal and exact-ID redo."
+  ],
+  "steps": [
+    {
+      "stepId": "I1",
+      "in": {
+        "op": "instantiatePrefab",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000000",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "prefabId": "prefab-0001",
+          "parentId": null,
+          "transform": {
+            "position": [
+              12,
+              0,
+              0
+            ]
+          },
+          "overrides": [
+            {
+              "localId": "model-0001",
+              "key": "speed",
+              "value": 9.75
+            }
+          ]
+        },
+        "expectedRevision": 11
+      },
+      "out": {
+        "ok": true,
+        "op": "instantiatePrefab",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000000",
+        "revision": 12,
+        "duplicated": false,
+        "change": {
+          "type": "instantiatePrefab",
+          "prefabId": "prefab-0001",
+          "rootId": "group-0002",
+          "entries": [
+            {
+              "index": 10,
+              "entity": {
+                "id": "group-0002",
+                "name": "Station",
+                "components": {
+                  "transform": {
+                    "position": [
+                      12,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "group-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 11,
+              "entity": {
+                "id": "box-0002",
+                "name": "Pedestal",
+                "parentId": "group-0002",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "box": {
+                    "size": [
+                      2,
+                      0.5,
+                      2
+                    ],
+                    "material": {
+                      "color": "#b0b0b0"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "box-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 12,
+              "entity": {
+                "id": "model-0003",
+                "name": "Lantern",
+                "parentId": "group-0002",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "behavior": {
+                    "behaviorId": "behavior-0001",
+                    "values": {
+                      "speed": 9.75,
+                      "label": "Lantern",
+                      "visible": true,
+                      "offset": [
+                        0,
+                        0.5,
+                        0
+                      ],
+                      "target": "group-0002",
+                      "material": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 13,
+              "entity": {
+                "id": "model-0004",
+                "name": "Ramp",
+                "parentId": "group-0002",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-2b11d4a76c9f0e35"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0002"
+                  }
+                }
+              }
+            }
+          ],
+          "mapping": [
+            {
+              "localId": "group-0001",
+              "entityId": "group-0002"
+            },
+            {
+              "localId": "box-0001",
+              "entityId": "box-0002"
+            },
+            {
+              "localId": "model-0001",
+              "entityId": "model-0003"
+            },
+            {
+              "localId": "model-0002",
+              "entityId": "model-0004"
+            }
+          ]
+        },
+        "history": {
+          "undoDepth": 1,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "I2",
+      "in": {
+        "op": "setBehaviorProperties",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000001",
+        "origin": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "args": {
+          "entityId": "model-0003",
+          "behaviorId": "behavior-0001",
+          "values": {
+            "speed": 1.25
+          }
+        },
+        "expectedRevision": 12
+      },
+      "out": {
+        "ok": true,
+        "op": "setBehaviorProperties",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000001",
+        "revision": 13,
+        "duplicated": false,
+        "change": {
+          "type": "setBehaviorProperties",
+          "id": "model-0003",
+          "previous": {
+            "behaviorId": "behavior-0001",
+            "values": {
+              "speed": 9.75,
+              "label": "Lantern",
+              "visible": true,
+              "offset": [
+                0,
+                0.5,
+                0
+              ],
+              "target": "group-0002",
+              "material": "asset-7f3a2c9e1b4d5068"
+            }
+          },
+          "next": {
+            "behaviorId": "behavior-0001",
+            "values": {
+              "speed": 1.25,
+              "label": "Lantern",
+              "visible": true,
+              "offset": [
+                0,
+                0.5,
+                0
+              ],
+              "target": "group-0002",
+              "material": "asset-7f3a2c9e1b4d5068"
+            }
+          },
+          "changedKeys": [
+            "speed"
+          ]
+        },
+        "history": {
+          "undoDepth": 2,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "I3",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000002",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "box-0002",
+          "component": "box",
+          "value": {
+            "material": {
+              "color": "#112233"
+            }
+          }
+        },
+        "expectedRevision": 13
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000002",
+        "revision": 14,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "box-0002",
+          "component": "box",
+          "previous": {
+            "size": [
+              2,
+              0.5,
+              2
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          },
+          "next": {
+            "size": [
+              2,
+              0.5,
+              2
+            ],
+            "material": {
+              "color": "#112233"
+            }
+          },
+          "changedFields": [
+            "material"
+          ]
+        },
+        "history": {
+          "undoDepth": 3,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "I4",
+      "in": {
+        "op": "instantiatePrefab",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000003",
+        "origin": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "args": {
+          "prefabId": "prefab-0001",
+          "parentId": null,
+          "transform": {
+            "position": [
+              -12,
+              0,
+              0
+            ]
+          }
+        },
+        "expectedRevision": 14
+      },
+      "out": {
+        "ok": true,
+        "op": "instantiatePrefab",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000003",
+        "revision": 15,
+        "duplicated": false,
+        "change": {
+          "type": "instantiatePrefab",
+          "prefabId": "prefab-0001",
+          "rootId": "group-0004",
+          "entries": [
+            {
+              "index": 14,
+              "entity": {
+                "id": "group-0004",
+                "name": "Station",
+                "components": {
+                  "transform": {
+                    "position": [
+                      -12,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "group-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 15,
+              "entity": {
+                "id": "box-0004",
+                "name": "Pedestal",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "box": {
+                    "size": [
+                      2,
+                      0.5,
+                      2
+                    ],
+                    "material": {
+                      "color": "#b0b0b0"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "box-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 16,
+              "entity": {
+                "id": "model-0007",
+                "name": "Lantern",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "behavior": {
+                    "behaviorId": "behavior-0001",
+                    "values": {
+                      "speed": 4.5,
+                      "label": "Lantern",
+                      "visible": true,
+                      "offset": [
+                        0,
+                        0.5,
+                        0
+                      ],
+                      "target": "group-0004",
+                      "material": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 17,
+              "entity": {
+                "id": "model-0008",
+                "name": "Ramp",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-2b11d4a76c9f0e35"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0002"
+                  }
+                }
+              }
+            }
+          ],
+          "mapping": [
+            {
+              "localId": "group-0001",
+              "entityId": "group-0004"
+            },
+            {
+              "localId": "box-0001",
+              "entityId": "box-0004"
+            },
+            {
+              "localId": "model-0001",
+              "entityId": "model-0007"
+            },
+            {
+              "localId": "model-0002",
+              "entityId": "model-0008"
+            }
+          ]
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "I5",
+      "in": {
+        "op": "undo",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000004",
+        "origin": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "args": {},
+        "expectedRevision": 15
+      },
+      "out": {
+        "ok": true,
+        "op": "undo",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000004",
+        "revision": 16,
+        "duplicated": false,
+        "change": {
+          "type": "deleteEntity",
+          "rootId": "group-0004",
+          "deletedIds": [
+            "group-0004",
+            "box-0004",
+            "model-0007",
+            "model-0008"
+          ]
+        },
+        "appliedOf": "req-60600000000000000000000000000003",
+        "originOfApplied": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "history": {
+          "undoDepth": 3,
+          "redoDepth": 1
+        }
+      }
+    },
+    {
+      "stepId": "I6",
+      "in": {
+        "op": "redo",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000005",
+        "origin": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "args": {},
+        "expectedRevision": 16
+      },
+      "out": {
+        "ok": true,
+        "op": "redo",
+        "projectId": "demo-0003",
+        "requestId": "req-60600000000000000000000000000005",
+        "revision": 17,
+        "duplicated": false,
+        "change": {
+          "type": "instantiatePrefab",
+          "prefabId": "prefab-0001",
+          "rootId": "group-0004",
+          "entries": [
+            {
+              "index": 14,
+              "entity": {
+                "id": "group-0004",
+                "name": "Station",
+                "components": {
+                  "transform": {
+                    "position": [
+                      -12,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "group-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 15,
+              "entity": {
+                "id": "box-0004",
+                "name": "Pedestal",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "box": {
+                    "size": [
+                      2,
+                      0.5,
+                      2
+                    ],
+                    "material": {
+                      "color": "#b0b0b0"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "box-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 16,
+              "entity": {
+                "id": "model-0007",
+                "name": "Lantern",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "behavior": {
+                    "behaviorId": "behavior-0001",
+                    "values": {
+                      "speed": 4.5,
+                      "label": "Lantern",
+                      "visible": true,
+                      "offset": [
+                        0,
+                        0.5,
+                        0
+                      ],
+                      "target": "group-0004",
+                      "material": "asset-7f3a2c9e1b4d5068"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0001"
+                  }
+                }
+              }
+            },
+            {
+              "index": 17,
+              "entity": {
+                "id": "model-0008",
+                "name": "Ramp",
+                "parentId": "group-0004",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "model": {
+                    "asset": {
+                      "assetId": "asset-2b11d4a76c9f0e35"
+                    }
+                  },
+                  "prefab": {
+                    "prefabId": "prefab-0001",
+                    "localId": "model-0002"
+                  }
+                }
+              }
+            }
+          ],
+          "mapping": [
+            {
+              "localId": "group-0001",
+              "entityId": "group-0004"
+            },
+            {
+              "localId": "box-0001",
+              "entityId": "box-0004"
+            },
+            {
+              "localId": "model-0001",
+              "entityId": "model-0007"
+            },
+            {
+              "localId": "model-0002",
+              "entityId": "model-0008"
+            }
+          ]
+        },
+        "appliedOf": "req-60600000000000000000000000000003",
+        "originOfApplied": {
+          "kind": "browser",
+          "clientId": "browser-demo"
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 0
+        }
+      }
+    }
+  ]
+}

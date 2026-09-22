@@ -1,0 +1,65 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-crash-after-blob-before-envelope",
+  "title": "Crash between blob publication and the envelope commit leaves only unreferenced immutable bytes",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "crashPoint": "after sources/sha256/e5a1...eb41 is durable, before the envelope write",
+    "onDiskAfterCrash": [
+      "sources/sha256/e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "envelope at revision 8 (unchanged)"
+    ],
+    "request": {
+      "requestId": "req-50000000000000000000000000000004",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-commit01"
+    }
+  },
+  "steps": [
+    {
+      "at": "reopen",
+      "action": "startup scan and open",
+      "expect": {
+        "envelopeLoads": true,
+        "orphanBlobsReported": 0,
+        "blocked": false
+      }
+    },
+    {
+      "at": "retry",
+      "action": "retry the identical request",
+      "expect": {
+        "outcome": "fresh execution (no record exists)",
+        "blobWrite": "skipped after digest verification",
+        "commit": "envelope revision 9"
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "crash-then-retry-success",
+    "codes": [],
+    "durableEffects": [
+      "no acknowledged dangling reference ever exists",
+      "at worst unreferenced immutable bytes (never a reference acked before its bytes are durable)"
+    ],
+    "observations": [
+      "the orphan blob is not authoritative and not referenced; M2 has no GC, so it is retained",
+      "blob publication is idempotent: an existing file with the expected digest is never rewritten"
+    ]
+  },
+  "notes": "Pins the publish ordering: durable bytes first, envelope commit last, ack after the commit."
+}

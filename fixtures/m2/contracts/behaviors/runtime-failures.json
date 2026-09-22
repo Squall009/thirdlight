@@ -1,0 +1,298 @@
+{
+  "kind": "behavior-runtime-failure-set",
+  "setVersion": 1,
+  "id": "behavior-runtime-failures",
+  "limits": {
+    "intentsPerInstanceStep": 5,
+    "intentsPerStep": 64,
+    "perEntityAxisStep": 1,
+    "logsPerInstance": 32,
+    "logsPerStep": 16
+  },
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "## 9. `BehaviorSpec` lifecycle and the bounded intent API"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "## 10. Runtime bounds (log/intent rate and per-step caps)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/platformer.md",
+      "section": "## 9. Fail-stop lifecycle (M2 module sets)"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "F01-invalid-intent",
+      "title": "an invalid intent fails the instance",
+      "trigger": "a behavior emits { kind: \"control_move\", value: 2 }",
+      "code": "module_error",
+      "reason": "behavior_intent_invalid",
+      "detail": "value",
+      "runtimeState": "failed",
+      "durableEffect": "none; the last completed render state is retained and only a fresh instance recovers (no rollback)"
+    },
+    {
+      "caseId": "F02-duplicate-writer",
+      "title": "two behavior instances write the same control channel",
+      "trigger": "behavior-0002 and behavior-0003 both emit control_move in one step",
+      "code": "module_error",
+      "reason": "behavior_intent_conflict",
+      "detail": "duplicate_writer",
+      "runtimeState": "failed",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F03-intent-limit",
+      "title": "the per-step intent cap is exceeded",
+      "trigger": "65 accepted intents in one step",
+      "code": "module_error",
+      "reason": "behavior_intent_limit",
+      "detail": "per_step",
+      "runtimeState": "failed",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F04-ownership-camera",
+      "title": "a behavior claims the camera entity",
+      "trigger": "ownedTransforms contains the camera entity id",
+      "code": "transform_owner_forbidden",
+      "reason": "behavior_ownership_forbidden",
+      "detail": "camera",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; no runtime instance is created"
+    },
+    {
+      "caseId": "F05-ownership-physics",
+      "title": "a behavior claims a physics-bearing entity",
+      "trigger": "ownedTransforms contains a collider/controller entity",
+      "code": "transform_owner_forbidden",
+      "reason": "behavior_ownership_forbidden",
+      "detail": "physics_entity",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F06-ownership-not-behavior",
+      "title": "a behavior claims an entity without its behavior component",
+      "trigger": "ownedTransforms contains an unrelated entity id",
+      "code": "transform_owner_forbidden",
+      "reason": "behavior_ownership_forbidden",
+      "detail": "not_behavior_entity",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F07-async-step",
+      "title": "a behavior step returns a promise",
+      "trigger": "step is declared async",
+      "code": "module_error",
+      "reason": "behavior_step_async",
+      "runtimeState": "failed",
+      "durableEffect": "none; the thenable is discarded, never awaited"
+    },
+    {
+      "caseId": "F08-shared-state",
+      "title": "a behavior mutates the object returned by prepare()",
+      "trigger": "step writes prepared.counter",
+      "code": "module_error",
+      "reason": "behavior_state_shared",
+      "runtimeState": "failed",
+      "durableEffect": "none; the frozen preparation object rejects the write and the failure is reported as a module error"
+    },
+    {
+      "caseId": "F09-prepare-throw",
+      "title": "prepare() throws",
+      "trigger": "prepare() throws during module create",
+      "code": "config_invalid",
+      "reason": "behavior_prepare_failed",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; no instance, no port use, no step"
+    },
+    {
+      "caseId": "F10-instantiate-throw",
+      "title": "instantiate() throws for one entity",
+      "trigger": "instantiate() throws for the second entity carrying the behavior",
+      "code": "config_invalid",
+      "reason": "behavior_instantiate_failed",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; every already-created instance is disposed exactly once"
+    },
+    {
+      "caseId": "F11-step-throw",
+      "title": "a behavior step throws",
+      "trigger": "step() throws",
+      "code": "module_error",
+      "reason": "behavior_step_failed",
+      "runtimeState": "failed",
+      "durableEffect": "none; packet-17 fail-stop, no rollback, safe restart only"
+    },
+    {
+      "caseId": "F12-dispose-twice",
+      "title": "dispose() is idempotent and runs once per instance",
+      "trigger": "dispose() called on a failed runtime",
+      "code": null,
+      "reason": null,
+      "runtimeState": "disposed",
+      "durableEffect": "dispose is called exactly once per created instance (including the failed one) and is not called again by a second dispose()"
+    },
+    {
+      "caseId": "F13-source-unlinked",
+      "title": "a source-bearing behavior module is selected without a linked output",
+      "trigger": "modules contains thirdlight.behavior:behavior-0002 but no output is linked for its outputDigest",
+      "code": "config_invalid",
+      "reason": "behavior_source_unlinked",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none; the runtime never compiles or imports behavior code"
+    },
+    {
+      "caseId": "F14-too-many-modules",
+      "title": "more than 64 behavior modules",
+      "trigger": "65 published behaviors with source",
+      "code": "config_invalid",
+      "reason": "behavior_modules",
+      "runtimeState": "not instantiated",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F15-incompatible-declaration",
+      "title": "a declaration update would orphan a stored value of a source-bearing behavior",
+      "trigger": "publishBehavior{declaration-update} removes the key speed while model-0001 stores it",
+      "code": "property_declaration_incompatible",
+      "reason": null,
+      "runtimeState": "unchanged",
+      "durableEffect": "none; nothing is written and the published source record is untouched"
+    },
+    {
+      "caseId": "F16-transform-phase",
+      "title": "a transform write outside the transform phase",
+      "trigger": "emit({ kind: \"transform\", ... }) in the intent phase",
+      "code": "module_error",
+      "reason": "behavior_intent_invalid",
+      "detail": "phase",
+      "runtimeState": "failed",
+      "durableEffect": "none"
+    },
+    {
+      "caseId": "F17-stage-character-move",
+      "title": "a behavior tries to stage a physics move",
+      "trigger": "ctx.physics.stageCharacterMove(...) from a behavior",
+      "code": "module_error",
+      "reason": "phase_violation",
+      "runtimeState": "failed",
+      "durableEffect": "none; the port is callable only from the controller phase (packet 17 §5)"
+    },
+    {
+      "caseId": "F18-log-not-captured",
+      "title": "console.* from behavior code is not a diagnostics channel",
+      "trigger": "a behavior calls console.log 1e6 times",
+      "code": null,
+      "reason": null,
+      "runtimeState": "running",
+      "durableEffect": "none on the diagnostics payload; the output goes to the browser devtools console and is explicitly out of contract (behaviors.md §2.2/§10)"
+    },
+    {
+      "caseId": "F19-undo-publication",
+      "title": "undo of a source publication",
+      "trigger": "undo() after publishBehavior{mode:\"source\"}",
+      "code": null,
+      "reason": null,
+      "runtimeState": "unchanged",
+      "durableEffect": "the previous record value is restored and the revision advances; the prepared artifact becomes unreferenced and inert (content-storage.md §4.3)"
+    },
+    {
+      "caseId": "F20-artifact-missing-at-play",
+      "title": "a source-bearing snapshot is played without a prepared artifact",
+      "trigger": "play with a published source whose derived artifact was deleted and never regenerated",
+      "code": "behavior_publication_unavailable",
+      "reason": "preparation_missing",
+      "runtimeState": "not presented",
+      "durableEffect": "none; the publication and the last good build artifact are untouched"
+    },
+    {
+      "caseId": "F21-trust-unacknowledged",
+      "title": "play/build of an unacknowledged source digest",
+      "trigger": "the digest is not in content.behaviorTrust.entries",
+      "code": "behavior_trust_unacknowledged",
+      "reason": "digest",
+      "runtimeState": "not presented",
+      "durableEffect": "none"
+    }
+  ],
+  "floods": [
+    {
+      "caseId": "L01-log-flood-single-step",
+      "title": "1 000 ctx.log calls in one step from one instance",
+      "callsPerStep": 1000,
+      "steps": 1,
+      "expect": {
+        "logCount": 1000,
+        "accepted": 16,
+        "stored": 16,
+        "dropped": 984,
+        "ring": 16,
+        "errorCount": 0
+      }
+    },
+    {
+      "caseId": "L02-log-spread",
+      "title": "one ctx.log call per step for 40 steps",
+      "callsPerStep": 1,
+      "steps": 40,
+      "expect": {
+        "logCount": 40,
+        "accepted": 40,
+        "stored": 40,
+        "dropped": 0,
+        "ring": 32
+      }
+    },
+    {
+      "caseId": "L03-log-two-steps",
+      "title": "20 ctx.log calls per step for 2 steps",
+      "callsPerStep": 20,
+      "steps": 2,
+      "expect": {
+        "logCount": 40,
+        "accepted": 32,
+        "stored": 32,
+        "dropped": 8,
+        "ring": 32
+      }
+    },
+    {
+      "caseId": "L04-intent-within-caps",
+      "title": "4 instances each emitting 4 intents in one step",
+      "instances": 4,
+      "intentsPerInstance": 4,
+      "expect": {
+        "accepted": 16,
+        "reason": null
+      }
+    },
+    {
+      "caseId": "L05-intent-per-step-cap",
+      "title": "17 instances each emitting 4 intents in one step (68 > 64)",
+      "instances": 17,
+      "intentsPerInstance": 4,
+      "expect": {
+        "accepted": 64,
+        "reason": "behavior_intent_limit",
+        "detail": "per_step"
+      }
+    },
+    {
+      "caseId": "L06-intent-per-instance-cap",
+      "title": "one instance emitting 6 intents in one step (the closed maximum is 5)",
+      "instances": 1,
+      "intentsPerInstance": 6,
+      "expect": {
+        "accepted": 5,
+        "reason": "behavior_intent_limit",
+        "detail": "per_instance"
+      }
+    }
+  ]
+}

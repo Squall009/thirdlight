@@ -13,8 +13,11 @@
  * the input.
  */
 
-import type { ModelError, ModelResult } from './errors';
+import type { ModelError, ModelResult, ModelResultV2 } from './errors';
 import type { Manifest, Scene } from './types';
+import type { SceneV2 } from './types-v2';
+import { validateScene } from './validate';
+import { validateSceneV2 } from './scene-v2';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -52,4 +55,27 @@ export function migrateManifest(doc: unknown, target: number): ModelResult<Manif
 /** §12.4: scene migration entry point (M1: identity at 1 → 1 only). */
 export function migrateScene(doc: unknown, target: number): ModelResult<Scene> {
   return migrate(doc, target) as ModelResult<Scene>;
+}
+
+/**
+ * Packet 20 pure M1 → M2 conversion (the packet's "pure migration"): a
+ * schemaVersion 1 logical scene is validated and re-emitted as the canonical
+ * schemaVersion 2 document with the same `sceneId`, `revision` and entity
+ * IDs. The caller's input is never mutated; on failure the source is
+ * retained unchanged and the validation errors are returned. This is a
+ * logical, in-memory conversion only — the workspace's filesystem
+ * migration-copy is packet 23's, and the M1 `migrateScene` entry point keeps
+ * its M1 behavior (identity at 1 → 1; `no_migration_path` otherwise).
+ */
+export function migrateSceneV1ToV2(doc: unknown): ModelResultV2<SceneV2> {
+  const source = validateScene(doc);
+  if (!source.ok) return { ok: false, errors: source.errors };
+  const scene = source.normalized;
+  const candidate = {
+    schemaVersion: 2,
+    sceneId: scene.sceneId,
+    revision: scene.revision,
+    entities: scene.entities,
+  };
+  return validateSceneV2(candidate);
 }

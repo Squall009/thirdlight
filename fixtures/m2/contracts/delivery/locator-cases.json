@@ -1,0 +1,238 @@
+{
+  "kind": "delivery-locator-cases",
+  "setVersion": 1,
+  "id": "delivery-locator-cases",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 6.2 Locator routes (preview origin, no credentials)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 6.3 Authorization, leakage and capability handling (normative)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 6.4 Locator lifetime"
+    }
+  ],
+  "locator": {
+    "idBytes": 32,
+    "idPattern": "^[A-Za-z0-9_-]{43}$",
+    "ttlSeconds": 900,
+    "graceSeconds": 60,
+    "cache": "private, max-age=<remaining>, immutable",
+    "referrerPolicy": "no-referrer",
+    "frameAncestors": "<exact authoringOrigin>",
+    "redaction": "<redacted:contentId>",
+    "excludedFromExport": true
+  },
+  "cases": [
+    {
+      "caseId": "L1-live-declared-read",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 10,
+      "pathKind": "declared",
+      "expect": {
+        "served": true,
+        "status": 200,
+        "code": null,
+        "cacheMaxAgeSeconds": 890
+      }
+    },
+    {
+      "caseId": "L2-live-declared-reload",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 899,
+      "pathKind": "declared",
+      "expect": {
+        "served": true,
+        "status": 200,
+        "code": null,
+        "cacheMaxAgeSeconds": 1
+      }
+    },
+    {
+      "caseId": "L3-expired-at-ttl",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 901,
+      "pathKind": "declared",
+      "expect": {
+        "served": false,
+        "status": 503,
+        "code": "play_locator_expired",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L4-expired-reload",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 1200,
+      "pathKind": "declared",
+      "expect": {
+        "served": false,
+        "status": 503,
+        "code": "play_locator_expired",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L5-terminal-within-grace",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": 100,
+      "requestAtSeconds": 150,
+      "pathKind": "declared",
+      "expect": {
+        "served": true,
+        "status": 200,
+        "code": null,
+        "cacheMaxAgeSeconds": 750
+      }
+    },
+    {
+      "caseId": "L6-terminal-after-grace",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": 100,
+      "requestAtSeconds": 161,
+      "pathKind": "declared",
+      "expect": {
+        "served": false,
+        "status": 404,
+        "code": "play_locator_invalid",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L7-listing",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "listing",
+      "expect": {
+        "served": false,
+        "status": 400,
+        "code": "path_rejected",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L8-traversal",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "traversal",
+      "expect": {
+        "served": false,
+        "status": 400,
+        "code": "path_rejected",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L9-other-content-id",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "other-content-id",
+      "expect": {
+        "served": false,
+        "status": 400,
+        "code": "path_rejected",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L10-undeclared-path",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "undeclared",
+      "expect": {
+        "served": false,
+        "status": 400,
+        "code": "path_rejected",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L11-build-missing",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "build-missing",
+      "expect": {
+        "served": false,
+        "status": 503,
+        "code": "play_build_unavailable",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L12-build-in-flight",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "build-in-flight",
+      "expect": {
+        "served": false,
+        "status": 409,
+        "code": "play_content_not_ready",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L13-malformed-id",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "malformed-id",
+      "expect": {
+        "served": false,
+        "status": 404,
+        "code": "play_locator_invalid",
+        "cacheMaxAgeSeconds": 0
+      }
+    },
+    {
+      "caseId": "L14-blob-corrupt",
+      "issuedAtSeconds": 0,
+      "terminalAtSeconds": null,
+      "requestAtSeconds": 5,
+      "pathKind": "corrupt-blob",
+      "expect": {
+        "served": false,
+        "status": 500,
+        "code": "blob_corrupt",
+        "cacheMaxAgeSeconds": 0
+      }
+    }
+  ],
+  "negativeCases": [
+    {
+      "caseId": "N7",
+      "code": "play_locator_invalid"
+    },
+    {
+      "caseId": "N8",
+      "code": "path_rejected"
+    },
+    {
+      "caseId": "N9",
+      "code": "play_locator_expired"
+    },
+    {
+      "caseId": "N10",
+      "code": null,
+      "note": "reload within the TTL returns identical bytes + ETag"
+    },
+    {
+      "caseId": "N11",
+      "code": null,
+      "note": "logs redact the locator value"
+    }
+  ]
+}

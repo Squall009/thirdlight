@@ -1,0 +1,16 @@
+
+> thirdlight@0.0.0 test
+> vitest run
+
+
+ RUN  v5.0.1 /tmp/tl37-clean
+
+
+ Test Files  135 passed (135)
+      Tests  1701 passed (1701)
+   Start at  11:05:54
+   Duration  40.65s (tests 87%, import 8%, transform 5%)
+
+    Isolate  135 workers spawned · ~204ms startup each (spawn + environment, per file)
+             at least ~5.31s faster with isolate: false — reuses workers across files instead of one per file
+

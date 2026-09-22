@@ -1,0 +1,200 @@
+{
+  "indexVersion": 1,
+  "packet": 21,
+  "contracts": {
+    "commands": "docs/contracts/commands.md (M2 \u00a73.1.1/\u00a73.1.4\u2013\u00a73.1.8, \u00a75.3\u2013\u00a75.6, \u00a76, \u00a78.5\u2013\u00a78.12, \u00a79)",
+    "projectModel": "docs/contracts/project-model.md (\u00a712, \u00a718\u2013\u00a722)",
+    "workspace": "docs/contracts/workspace.md (\u00a74.5, \u00a713.3.1)"
+  },
+  "notes": [
+    "Packet 21 adds the non-prefab M2 content/property command fixtures. The packet-16 accepted fixtures under fixtures/m2/contracts/commands/ are unchanged and are also replayed by packages/commands/src/m2-content.test.ts (the byte-exact M1 publishBehavior and M2 setBehaviorProperties pairs, plus the base/r3/r4 atomic-rejection cases).",
+    "content-ops.messages.json is a declarative scenario: `base.state` (relative to fixtures/m2/) is the packet-16 released-state before envelope at revision 2, and the demo-0003 manifest is the one in contracts/commands/queries.json. Each `out` is the exact pure-layer payload (success \u00a75.1 or failure \u00a75.2) produced by applying the request to the state accumulated by the preceding steps; the vitest suite asserts them byte-for-byte.",
+    "Prefab operations (createPrefab/instantiatePrefab) and queryPrefabs are packet 22 and are deliberately absent from this index. No workspace executor exists here: publishAsset carries prepared, digest-addressed facts only and never reads a file or stage.",
+    "S8 (no-change component write), S9 (unknown settings key) and S10 (stale revision reported before argument validation) are failures and consume no revision.",
+    "Packet 27 repair (C27-1/C28-1) adds commands/model-authoring.messages.json: byte-exact request/result pairs for createEntity kind=model (whole-GLB placement), undo/redo of the create, asset_reference_missing, and collider/controller add/edit/remove (including component_conflict and collider_shape_invalid-class rejection). Replayed byte-for-byte by packages/commands tests."
+  ],
+  "files": [
+    {
+      "file": "commands/content-ops.messages.json",
+      "kind": "command-scenario",
+      "project": "demo-0003",
+      "baseRevision": 2,
+      "finalRevision": 9,
+      "steps": 10,
+      "outcomes": [
+        {
+          "stepId": "S1",
+          "op": "publishAsset",
+          "result": "success",
+          "revision": 3,
+          "changeType": "publishAsset",
+          "mode": "create"
+        },
+        {
+          "stepId": "S2",
+          "op": "publishAsset",
+          "result": "success",
+          "revision": 4,
+          "changeType": "publishAsset",
+          "mode": "reimport"
+        },
+        {
+          "stepId": "S3",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 5,
+          "changeType": "setComponent",
+          "component": "box"
+        },
+        {
+          "stepId": "S4",
+          "op": "setSettings",
+          "result": "success",
+          "revision": 6,
+          "changeType": "setSettings"
+        },
+        {
+          "stepId": "S5",
+          "op": "acknowledgeBehaviorTrust",
+          "result": "success",
+          "revision": 7,
+          "changeType": "acknowledgeBehaviorTrust"
+        },
+        {
+          "stepId": "S6",
+          "op": "undo",
+          "result": "success",
+          "revision": 8,
+          "changeType": "acknowledgeBehaviorTrust",
+          "appliedOf": "req-00000000000000000000000000000005"
+        },
+        {
+          "stepId": "S7",
+          "op": "redo",
+          "result": "success",
+          "revision": 9,
+          "changeType": "acknowledgeBehaviorTrust",
+          "appliedOf": "req-00000000000000000000000000000005"
+        },
+        {
+          "stepId": "S8",
+          "op": "setComponent",
+          "result": "error",
+          "code": "no_change"
+        },
+        {
+          "stepId": "S9",
+          "op": "setSettings",
+          "result": "error",
+          "code": "setting_unknown"
+        },
+        {
+          "stepId": "S10",
+          "op": "setComponent",
+          "result": "error",
+          "code": "revision_conflict"
+        }
+      ]
+    },
+    {
+      "file": "commands/model-authoring.messages.json",
+      "kind": "command-scenario",
+      "project": "demo-0003",
+      "baseRevision": 2,
+      "finalRevision": 12,
+      "steps": 12,
+      "outcomes": [
+        {
+          "stepId": "S1",
+          "op": "createEntity",
+          "result": "success",
+          "revision": 3,
+          "changeType": "createEntity"
+        },
+        {
+          "stepId": "S2",
+          "op": "undo",
+          "result": "success",
+          "revision": 4,
+          "changeType": "deleteEntity",
+          "appliedOf": "req-00000000000000000000000000000001"
+        },
+        {
+          "stepId": "S3",
+          "op": "redo",
+          "result": "success",
+          "revision": 5,
+          "changeType": "createEntity",
+          "appliedOf": "req-00000000000000000000000000000001"
+        },
+        {
+          "stepId": "S4",
+          "op": "createEntity",
+          "result": "error",
+          "code": "asset_reference_missing"
+        },
+        {
+          "stepId": "S5",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 6,
+          "changeType": "setComponent",
+          "component": "collider"
+        },
+        {
+          "stepId": "S6",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 7,
+          "changeType": "setComponent",
+          "component": "collider"
+        },
+        {
+          "stepId": "S7",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 8,
+          "changeType": "setComponent",
+          "component": "collider"
+        },
+        {
+          "stepId": "S8",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 9,
+          "changeType": "setComponent",
+          "component": "controller"
+        },
+        {
+          "stepId": "S9",
+          "op": "setComponent",
+          "result": "error",
+          "code": "component_conflict"
+        },
+        {
+          "stepId": "S10",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 10,
+          "changeType": "setComponent",
+          "component": "controller"
+        },
+        {
+          "stepId": "S11",
+          "op": "setComponent",
+          "result": "success",
+          "revision": 11,
+          "changeType": "setComponent",
+          "component": "collider"
+        },
+        {
+          "stepId": "S12",
+          "op": "createEntity",
+          "result": "success",
+          "revision": 12,
+          "changeType": "createEntity"
+        }
+      ]
+    }
+  ]
+}

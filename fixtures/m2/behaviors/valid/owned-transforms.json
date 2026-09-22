@@ -1,0 +1,17 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [
+    "model-0001",
+    "model-0002"
+  ],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "export default {\n  step() {}\n};\n"
+    }
+  ]
+}

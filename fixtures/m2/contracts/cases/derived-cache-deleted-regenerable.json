@@ -1,0 +1,63 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "derived-cache-deleted-regenerable",
+  "title": "Derived caches are regenerable and never authoritative",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 8. Reading content: integrity, tamper and derived caches"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "onDisk": {
+      ".thirdlight/derived/": "deleted entirely while the project is open"
+    },
+    "operation": {
+      "op": "inspectAsset",
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "version": 2
+    }
+  },
+  "steps": [
+    {
+      "at": "inspect",
+      "action": "look up .thirdlight/derived/<sourceDigest>/<recipeDigest>/import.json",
+      "expect": {
+        "outcome": "absent"
+      }
+    },
+    {
+      "at": "regenerate",
+      "action": "re-run the pinned recipe over the authoritative blob",
+      "expect": {
+        "outcome": "derived cache rewritten",
+        "networkRequests": 0
+      }
+    },
+    {
+      "at": "project",
+      "action": "observe the project state",
+      "expect": {
+        "revisionUnchanged": true,
+        "envelopeWritten": false
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "success",
+    "codes": [
+      "derived_cache_unavailable"
+    ],
+    "durableEffects": [
+      ".thirdlight/derived/<sourceDigest>/<recipeDigest>/ rebuilt from sources/sha256/<digest>"
+    ],
+    "observations": [
+      "derived content is never fetched from an arbitrary URL and never read to determine project state",
+      "if regeneration is impossible, previews fail with derived_cache_unavailable while the project, scene and catalog are unaffected"
+    ]
+  },
+  "notes": "A10: derived cache deletion is recoverable."
+}

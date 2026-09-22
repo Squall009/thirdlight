@@ -1,0 +1,1768 @@
+{
+  "kind": "command-failure-set",
+  "setVersion": 1,
+  "id": "prefab-failures",
+  "title": "Atomic rejection fixtures for the packet-16 prefab/property/component/settings command surface",
+  "base": {
+    "state": "commands/prefab-scenario.before.json",
+    "revision": 2
+  },
+  "stateSnapshots": {
+    "base": {
+      "state": "commands/prefab-scenario.before.json",
+      "revision": 2
+    },
+    "r3-after-M1": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M1",
+      "revision": 3
+    },
+    "r4-after-M2": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M2",
+      "revision": 4
+    },
+    "r5-after-M3": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M3",
+      "revision": 5
+    },
+    "r6-after-M4": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M4",
+      "revision": 6
+    },
+    "r7-after-M5": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M5",
+      "revision": 7
+    },
+    "r8-after-M6": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M6",
+      "revision": 8
+    },
+    "r11-after-M10": {
+      "scenario": "commands/prefab-scenario.messages.json",
+      "through": "M10",
+      "revision": 11
+    }
+  },
+  "revisionRule": "Every step runs at the snapshot revision plus one per preceding step; a request never consumes a revision (durableStateUnchanged is true for the whole case).",
+  "cases": [
+    {
+      "caseId": "F01-nested-prefab-capture",
+      "title": "A prefab instance subtree cannot be captured into a new definition",
+      "state": "r6-after-M4",
+      "steps": [
+        {
+          "in": {
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 6,
+            "requestId": "req-70100000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0002",
+              "displayName": "Copy",
+              "sourceEntityId": "group-0002"
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70100000000000000000000000000000",
+            "error": {
+              "code": "prefab_nested_forbidden",
+              "cls": "validation",
+              "sourceEntityId": "group-0002",
+              "prefabInstanceIds": [
+                "group-0002",
+                "box-0002",
+                "model-0003",
+                "model-0004"
+              ],
+              "message": "the selected subtree contains a prefab instance (components.prefab); M2 definitions cannot contain prefab instances"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_nested_forbidden"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 6.3 Forbidden capture contents"
+        }
+      ],
+      "notes": "Nested instances are unrepresentable in M2: capture rejects rather than flattening."
+    },
+    {
+      "caseId": "F02-camera-capture",
+      "title": "The required scene camera cannot be captured",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-70200000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0002",
+              "displayName": "World",
+              "sourceEntityId": "group-0000"
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70200000000000000000000000000000",
+            "error": {
+              "code": "prefab_camera_capture_forbidden",
+              "cls": "validation",
+              "sourceEntityId": "group-0000",
+              "cameraId": "cam-main",
+              "message": "the selected subtree contains the scene camera; a prefab definition may not contain a camera component"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_camera_capture_forbidden"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 6.3 Forbidden capture contents"
+        }
+      ],
+      "notes": "Every v2 scene has exactly one camera (project-model §10.3); capturing it would make the scene invalid on undo/instantiate."
+    },
+    {
+      "caseId": "F03-external-entity-reference",
+      "title": "An entity-reference property value pointing outside the subtree rejects the capture",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-70300000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0002",
+              "displayName": "Lantern Only",
+              "sourceEntityId": "model-0001"
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70300000000000000000000000000000",
+            "error": {
+              "code": "prefab_external_reference_forbidden",
+              "cls": "validation",
+              "sourceEntityId": "model-0001",
+              "localId": "model-0001",
+              "key": "target",
+              "entityId": "group-0001",
+              "message": "a definition may only contain references that are internal to its own subtree"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_external_reference_forbidden"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 6.3 Forbidden capture contents"
+        }
+      ],
+      "notes": "model-0001 values target=group-0001, which is outside the selected subtree."
+    },
+    {
+      "caseId": "F04-duplicate-prefab-id",
+      "title": "prefabId is unique and never reused",
+      "state": "r5-after-M3",
+      "steps": [
+        {
+          "in": {
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 5,
+            "requestId": "req-70400000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "displayName": "Second Copy",
+              "sourceEntityId": "group-0001"
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "createPrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70400000000000000000000000000000",
+            "error": {
+              "code": "prefab_id_duplicate",
+              "cls": "validation",
+              "prefabId": "prefab-0001",
+              "message": "a prefab definition with this id already exists"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_id_duplicate"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 4. Identity and immutability"
+        }
+      ],
+      "notes": "M2 has no prefab deletion, so reusing an id can never be legitimate."
+    },
+    {
+      "caseId": "F05-unknown-prefab",
+      "title": "Unknown prefabId",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-70500000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "prefabId": "prefab-0099",
+              "parentId": null
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70500000000000000000000000000000",
+            "error": {
+              "code": "prefab_not_found",
+              "cls": "validation",
+              "prefabId": "prefab-0099",
+              "message": "no prefab definition with this id exists in content.prefabs"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_not_found"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 7. `instantiatePrefab`"
+        }
+      ],
+      "notes": "Instantiation resolves the definition before any ID allocation; nothing is created."
+    },
+    {
+      "caseId": "F06-unknown-override-local",
+      "title": "Override names a localId the definition does not contain",
+      "state": "r7-after-M5",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 7,
+            "requestId": "req-70600000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "parentId": null,
+              "overrides": [
+                {
+                  "localId": "model-9999",
+                  "key": "speed",
+                  "value": 5
+                }
+              ]
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70600000000000000000000000000000",
+            "error": {
+              "code": "prefab_local_unknown",
+              "cls": "validation",
+              "prefabId": "prefab-0001",
+              "localId": "model-9999",
+              "message": "the definition contains no entity with this localId"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "prefab_local_unknown"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 7.3 Declared-property overrides"
+        }
+      ],
+      "notes": "Overrides address (localId, key); both parts must resolve before any entity is created."
+    },
+    {
+      "caseId": "F07-unknown-property-key",
+      "title": "Override names an undeclared property key",
+      "state": "r7-after-M5",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 7,
+            "requestId": "req-70700000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "parentId": null,
+              "overrides": [
+                {
+                  "localId": "model-0001",
+                  "key": "speedx",
+                  "value": 5
+                }
+              ]
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70700000000000000000000000000000",
+            "error": {
+              "code": "property_unknown",
+              "cls": "validation",
+              "behaviorId": "behavior-0001",
+              "key": "speedx",
+              "message": "the behavior declaration for this component does not declare this property key",
+              "hint": "declare the key or drop the override; unknown overrides are never silently dropped"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "property_unknown"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "### 6.4 Compatibility rules"
+        }
+      ],
+      "notes": "Unknown overrides are a hard failure at every entry point (acceptance: definition changes cannot silently erase user data)."
+    },
+    {
+      "caseId": "F08-property-type",
+      "title": "Override value does not match the declared type",
+      "state": "r7-after-M5",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 7,
+            "requestId": "req-70800000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "parentId": null,
+              "overrides": [
+                {
+                  "localId": "model-0001",
+                  "key": "speed",
+                  "value": "fast"
+                }
+              ]
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70800000000000000000000000000000",
+            "error": {
+              "code": "property_type",
+              "cls": "validation",
+              "key": "speed",
+              "found": "fast",
+              "expected": "finite number in [-1000, 1000]",
+              "message": "the declared property type is number"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "property_type"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 2. Property type vocabulary"
+        }
+      ],
+      "notes": "Types are data, never evaluated: no coercion is attempted."
+    },
+    {
+      "caseId": "F09-override-entity-ref-missing",
+      "title": "Override entity reference resolves to nothing",
+      "state": "r7-after-M5",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 7,
+            "requestId": "req-70900000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "parentId": null,
+              "overrides": [
+                {
+                  "localId": "model-0001",
+                  "key": "target",
+                  "value": "group-0099"
+                }
+              ]
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-70900000000000000000000000000000",
+            "error": {
+              "code": "reference_missing",
+              "cls": "validation",
+              "found": "group-0099",
+              "expected": "a localId of prefab-0001 or an existing scene entity ID",
+              "message": "entity reference does not resolve"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "reference_missing"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 2. Property type vocabulary"
+        }
+      ],
+      "notes": "An entityRef override may name a definition localId (remapped) or an existing scene entity; anything else fails."
+    },
+    {
+      "caseId": "F10-set-behavior-unknown-key",
+      "title": "setBehaviorProperties with an undeclared key",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-71000000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "model-0002",
+              "behaviorId": "behavior-0001",
+              "values": {
+                "speedx": 1
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "requestId": "req-71000000000000000000000000000000",
+            "error": {
+              "code": "property_unknown",
+              "cls": "validation",
+              "behaviorId": "behavior-0001",
+              "key": "speedx",
+              "message": "the behavior declaration does not declare this property key"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "property_unknown"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 7. `setBehaviorProperties`"
+        }
+      ],
+      "notes": "Attaching a behavior to a second entity with an unknown key changes nothing."
+    },
+    {
+      "caseId": "F11-set-behavior-type",
+      "title": "setBehaviorProperties with a mistyped value",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-71100000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "model-0002",
+              "behaviorId": "behavior-0001",
+              "values": {
+                "visible": "yes"
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "requestId": "req-71100000000000000000000000000000",
+            "error": {
+              "code": "property_type",
+              "cls": "validation",
+              "key": "visible",
+              "found": "yes",
+              "expected": "boolean",
+              "message": "the declared property type is boolean"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "property_type"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 7. `setBehaviorProperties`"
+        }
+      ],
+      "notes": "Boolean properties accept only true/false."
+    },
+    {
+      "caseId": "F12-behavior-not-found",
+      "title": "setBehaviorProperties names an unknown behavior",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-71200000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "model-0002",
+              "behaviorId": "behavior-9999",
+              "values": {}
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "requestId": "req-71200000000000000000000000000000",
+            "error": {
+              "code": "behavior_not_found",
+              "cls": "validation",
+              "behaviorId": "behavior-9999",
+              "message": "no behavior record with this id exists in content.behaviors"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "behavior_not_found"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 7. `setBehaviorProperties`"
+        }
+      ],
+      "notes": "The declaration must exist before any value is written."
+    },
+    {
+      "caseId": "F13-asset-ref-missing",
+      "title": "An assetRef property value that no asset record resolves",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-71300000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "model-0002",
+              "behaviorId": "behavior-0001",
+              "values": {
+                "material": "asset-0000000000000000"
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "requestId": "req-71300000000000000000000000000000",
+            "error": {
+              "code": "asset_reference_missing",
+              "cls": "validation",
+              "assetId": "asset-0000000000000000",
+              "message": "asset reference does not resolve in content.assets"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "asset_reference_missing"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 2. Property type vocabulary"
+        }
+      ],
+      "notes": "Asset references are whole-record references, exactly like components.model.asset.assetId (assets.md §3.2)."
+    },
+    {
+      "caseId": "F14-declaration-incompatible",
+      "title": "Removing a declared key that an existing component uses rejects the update",
+      "state": "r4-after-M2",
+      "steps": [
+        {
+          "in": {
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "expectedRevision": 4,
+            "requestId": "req-71400000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "behaviorId": "behavior-0001",
+              "displayName": "Lantern Glow",
+              "mode": "declaration-update",
+              "declaration": {
+                "properties": [
+                  {
+                    "key": "speed",
+                    "label": "Speed",
+                    "type": "number",
+                    "default": 3.5,
+                    "min": -1000,
+                    "max": 1000,
+                    "step": 0.25
+                  },
+                  {
+                    "key": "label",
+                    "label": "Label",
+                    "type": "string",
+                    "default": "Lantern",
+                    "maxLength": 64
+                  },
+                  {
+                    "key": "visible",
+                    "label": "Visible",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  {
+                    "key": "offset",
+                    "label": "Offset",
+                    "type": "vec3",
+                    "default": [
+                      0,
+                      0.5,
+                      0
+                    ],
+                    "bounds": {
+                      "min": [
+                        -1000,
+                        -1000,
+                        -1000
+                      ],
+                      "max": [
+                        1000,
+                        1000,
+                        1000
+                      ]
+                    }
+                  },
+                  {
+                    "key": "material",
+                    "label": "Material",
+                    "type": "assetRef",
+                    "default": "asset-7f3a2c9e1b4d5068"
+                  }
+                ]
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "requestId": "req-71400000000000000000000000000000",
+            "error": {
+              "code": "property_declaration_incompatible",
+              "cls": "validation",
+              "behaviorId": "behavior-0001",
+              "reason": "declared_key_removed",
+              "uses": [
+                {
+                  "entityId": "model-0001",
+                  "key": "target"
+                }
+              ],
+              "message": "the new declaration is incompatible with existing behavior components; nothing was written"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "property_declaration_incompatible"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "### 6.4 Compatibility rules"
+        }
+      ],
+      "notes": "A declaration update validates every existing use first and never drops stored values."
+    },
+    {
+      "caseId": "F15-behavior-source-unavailable",
+      "title": "Behavior source publication is unavailable without the packet-33 preparer",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-71500000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "behaviorId": "behavior-0002",
+              "displayName": "Glow",
+              "mode": "source",
+              "declaration": {
+                "properties": [
+                  {
+                    "key": "speed",
+                    "label": "Speed",
+                    "type": "number",
+                    "default": 3.5,
+                    "min": -1000,
+                    "max": 1000,
+                    "step": 0.25
+                  },
+                  {
+                    "key": "label",
+                    "label": "Label",
+                    "type": "string",
+                    "default": "Lantern",
+                    "maxLength": 64
+                  },
+                  {
+                    "key": "visible",
+                    "label": "Visible",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  {
+                    "key": "offset",
+                    "label": "Offset",
+                    "type": "vec3",
+                    "default": [
+                      0,
+                      0.5,
+                      0
+                    ],
+                    "bounds": {
+                      "min": [
+                        -1000,
+                        -1000,
+                        -1000
+                      ],
+                      "max": [
+                        1000,
+                        1000,
+                        1000
+                      ]
+                    }
+                  },
+                  {
+                    "key": "target",
+                    "label": "Target",
+                    "type": "entityRef",
+                    "default": null
+                  },
+                  {
+                    "key": "material",
+                    "label": "Material",
+                    "type": "assetRef",
+                    "default": "asset-7f3a2c9e1b4d5068"
+                  }
+                ]
+              },
+              "source": {
+                "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+                "sourceByteLength": 26
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "requestId": "req-71500000000000000000000000000000",
+            "error": {
+              "code": "behavior_publication_unavailable",
+              "cls": "unavailable",
+              "behaviorId": "behavior-0002",
+              "mode": "source",
+              "reason": "preparer_unavailable",
+              "message": "public behavior source publication requires the packet-33 digest-bound compiled preparation record; no unchecked write path exists in M2"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "behavior_publication_unavailable"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "### 5.2 Source mode is unavailable in M2"
+        }
+      ],
+      "notes": "Staging without the preparation record must not become an authoritative write (packet-15 publication pipeline, content-storage.md §6.1)."
+    },
+    {
+      "caseId": "F16-behavior-id-duplicate",
+      "title": "declaration-create with an existing behaviorId",
+      "state": "r3-after-M1",
+      "steps": [
+        {
+          "in": {
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "expectedRevision": 3,
+            "requestId": "req-71600000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "behaviorId": "behavior-0001",
+              "displayName": "Other",
+              "mode": "declaration-create",
+              "declaration": {
+                "properties": [
+                  {
+                    "key": "speed",
+                    "label": "Speed",
+                    "type": "number",
+                    "default": 3.5,
+                    "min": -1000,
+                    "max": 1000,
+                    "step": 0.25
+                  },
+                  {
+                    "key": "label",
+                    "label": "Label",
+                    "type": "string",
+                    "default": "Lantern",
+                    "maxLength": 64
+                  },
+                  {
+                    "key": "visible",
+                    "label": "Visible",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  {
+                    "key": "offset",
+                    "label": "Offset",
+                    "type": "vec3",
+                    "default": [
+                      0,
+                      0.5,
+                      0
+                    ],
+                    "bounds": {
+                      "min": [
+                        -1000,
+                        -1000,
+                        -1000
+                      ],
+                      "max": [
+                        1000,
+                        1000,
+                        1000
+                      ]
+                    }
+                  },
+                  {
+                    "key": "target",
+                    "label": "Target",
+                    "type": "entityRef",
+                    "default": null
+                  },
+                  {
+                    "key": "material",
+                    "label": "Material",
+                    "type": "assetRef",
+                    "default": "asset-7f3a2c9e1b4d5068"
+                  }
+                ]
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "requestId": "req-71600000000000000000000000000000",
+            "error": {
+              "code": "behavior_id_duplicate",
+              "cls": "validation",
+              "behaviorId": "behavior-0001",
+              "message": "a behavior record with this id already exists"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "behavior_id_duplicate"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 5. `publishBehavior`"
+        }
+      ],
+      "notes": "behaviorId is stable and never reassigned (no deletion in M2)."
+    },
+    {
+      "caseId": "F17-behavior-update-not-found",
+      "title": "declaration-update for an unknown behaviorId",
+      "state": "r3-after-M1",
+      "steps": [
+        {
+          "in": {
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "expectedRevision": 3,
+            "requestId": "req-71700000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "behaviorId": "behavior-9999",
+              "displayName": "None",
+              "mode": "declaration-update",
+              "declaration": {
+                "properties": [
+                  {
+                    "key": "speed",
+                    "label": "Speed",
+                    "type": "number",
+                    "default": 3.5,
+                    "min": -1000,
+                    "max": 1000,
+                    "step": 0.25
+                  },
+                  {
+                    "key": "label",
+                    "label": "Label",
+                    "type": "string",
+                    "default": "Lantern",
+                    "maxLength": 64
+                  },
+                  {
+                    "key": "visible",
+                    "label": "Visible",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  {
+                    "key": "offset",
+                    "label": "Offset",
+                    "type": "vec3",
+                    "default": [
+                      0,
+                      0.5,
+                      0
+                    ],
+                    "bounds": {
+                      "min": [
+                        -1000,
+                        -1000,
+                        -1000
+                      ],
+                      "max": [
+                        1000,
+                        1000,
+                        1000
+                      ]
+                    }
+                  },
+                  {
+                    "key": "target",
+                    "label": "Target",
+                    "type": "entityRef",
+                    "default": null
+                  },
+                  {
+                    "key": "material",
+                    "label": "Material",
+                    "type": "assetRef",
+                    "default": "asset-7f3a2c9e1b4d5068"
+                  }
+                ]
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "publishBehavior",
+            "projectId": "demo-0003",
+            "requestId": "req-71700000000000000000000000000000",
+            "error": {
+              "code": "behavior_not_found",
+              "cls": "validation",
+              "behaviorId": "behavior-9999",
+              "message": "no behavior record with this id exists"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "behavior_not_found"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 5. `publishBehavior`"
+        }
+      ],
+      "notes": "A create does not upgrade into an update: the mode is explicit."
+    },
+    {
+      "caseId": "F18-set-component-unknown-name",
+      "title": "setComponent cannot address transform (or behavior/prefab)",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-71800000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "entityId": "box-0001",
+              "component": "transform",
+              "value": {
+                "position": [
+                  1,
+                  0,
+                  0
+                ]
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "requestId": "req-71800000000000000000000000000000",
+            "error": {
+              "code": "field_value",
+              "cls": "validation",
+              "path": "/args/component",
+              "found": "transform",
+              "expected": "one of \"box\", \"camera\", \"model\", \"collider\", \"controller\"",
+              "message": "component is owned by another operation"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "field_value"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 8. `setComponent`"
+        }
+      ],
+      "notes": "transform is owned by the accepted setTransform op; behavior by setBehaviorProperties; prefab provenance is read-only. One mutation path per component."
+    },
+    {
+      "caseId": "F19-set-component-unknown-field",
+      "title": "setComponent rejects an unknown field inside the component value",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-71900000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "entityId": "box-0001",
+              "component": "box",
+              "value": {
+                "colour": "#ffffff"
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "requestId": "req-71900000000000000000000000000000",
+            "error": {
+              "code": "field_unexpected",
+              "cls": "validation",
+              "path": "/args/value/colour",
+              "found": "#ffffff",
+              "expected": "one of \"size\", \"material\"",
+              "message": "unknown component field"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "field_unexpected"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 8. `setComponent`"
+        }
+      ],
+      "notes": "Strict like every other args object: nothing is silently dropped."
+    },
+    {
+      "caseId": "F20-setting-unknown-key",
+      "title": "setSettings accepts only keys declared by the settings registry",
+      "state": "base",
+      "steps": [
+        {
+          "in": {
+            "op": "setSettings",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-72000000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "settings": {
+                "gravity": 9.8
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setSettings",
+            "projectId": "demo-0003",
+            "requestId": "req-72000000000000000000000000000000",
+            "error": {
+              "code": "setting_unknown",
+              "cls": "validation",
+              "key": "gravity",
+              "message": "the settings key registry (packet 17) does not declare this key",
+              "hint": "packet 17 pins the M2 settings keys; until then every key is unknown"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "setting_unknown"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 9. `setSettings`"
+        }
+      ],
+      "notes": "Packet 16 fixes the container/command shape; the gameplay key registry is packet 17s, and is empty until it is pinned."
+    },
+    {
+      "caseId": "F21-delete-reference-in-use",
+      "title": "Subtree deletion is rejected when an outside entity-reference property names a deleted entity",
+      "state": "r7-after-M5",
+      "steps": [
+        {
+          "in": {
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "expectedRevision": 7,
+            "requestId": "req-72100000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "model-0005",
+              "behaviorId": "behavior-0001",
+              "values": {
+                "target": "group-0001"
+              }
+            }
+          },
+          "out": {
+            "ok": true,
+            "op": "setBehaviorProperties",
+            "projectId": "demo-0003",
+            "requestId": "req-72100000000000000000000000000000",
+            "revision": 8,
+            "duplicated": false,
+            "change": {
+              "type": "setBehaviorProperties",
+              "id": "model-0005",
+              "previous": {
+                "behaviorId": "behavior-0001",
+                "values": {
+                  "speed": 4.5,
+                  "label": "Lantern",
+                  "visible": true,
+                  "offset": [
+                    0,
+                    0.5,
+                    0
+                  ],
+                  "target": "group-0003",
+                  "material": "asset-7f3a2c9e1b4d5068"
+                }
+              },
+              "next": {
+                "behaviorId": "behavior-0001",
+                "values": {
+                  "speed": 4.5,
+                  "label": "Lantern",
+                  "visible": true,
+                  "offset": [
+                    0,
+                    0.5,
+                    0
+                  ],
+                  "target": "group-0001",
+                  "material": "asset-7f3a2c9e1b4d5068"
+                }
+              },
+              "changedKeys": [
+                "target"
+              ]
+            },
+            "history": {
+              "undoDepth": 6,
+              "redoDepth": 0
+            }
+          }
+        },
+        {
+          "in": {
+            "op": "deleteEntity",
+            "projectId": "demo-0003",
+            "expectedRevision": 8,
+            "requestId": "req-72200000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "entityId": "group-0001"
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "deleteEntity",
+            "projectId": "demo-0003",
+            "requestId": "req-72200000000000000000000000000000",
+            "error": {
+              "code": "reference_in_use",
+              "cls": "validation",
+              "entityIds": [
+                "group-0001",
+                "box-0001",
+                "model-0001",
+                "model-0002"
+              ],
+              "referencingEntityIds": [
+                "model-0005"
+              ],
+              "message": "an entity outside the deleted subtree references an entity inside it",
+              "hint": "clear the referencing property values first, or delete the referencing entity too"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "reference_in_use"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 10. Deletion and references"
+        }
+      ],
+      "notes": "This is what keeps the no-dangling-reference invariant true for entityRef property values; the deletion is all-or-nothing."
+    },
+    {
+      "caseId": "F22-no-change",
+      "title": "A component write that changes nothing is rejected",
+      "state": "r8-after-M6",
+      "steps": [
+        {
+          "in": {
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "expectedRevision": 8,
+            "requestId": "req-72300000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "entityId": "box-0002",
+              "component": "box",
+              "value": {
+                "material": {
+                  "color": "#c05050"
+                }
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "requestId": "req-72300000000000000000000000000000",
+            "error": {
+              "code": "no_change",
+              "cls": "validation",
+              "message": "the resulting scene and content are byte-identical to the current state"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "no_change"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 11. Change, inverse and projection"
+        }
+      ],
+      "notes": "no_change compares the whole durable state (scene + content), not the scene alone."
+    },
+    {
+      "caseId": "F23-stale-revision",
+      "title": "A stale expectedRevision is reported as stale, not validated",
+      "state": "r11-after-M10",
+      "steps": [
+        {
+          "in": {
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "expectedRevision": 2,
+            "requestId": "req-72400000000000000000000000000000",
+            "origin": {
+              "kind": "browser",
+              "clientId": "browser-demo"
+            },
+            "args": {
+              "prefabId": "prefab-0001",
+              "parentId": null
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "instantiatePrefab",
+            "projectId": "demo-0003",
+            "requestId": "req-72400000000000000000000000000000",
+            "error": {
+              "code": "revision_conflict",
+              "cls": "conflict",
+              "expectedRevision": 2,
+              "currentRevision": 11,
+              "message": "expected revision does not match the current project revision",
+              "hint": "re-read the project (queryProject) and re-issue the command with a fresh requestId and the current revision"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "revision_conflict"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 9. Execution semantics"
+        }
+      ],
+      "notes": "Revision checking precedes argument validation (accepted commands.md §6.1 step 4), for every new op.",
+      "stale": true
+    },
+    {
+      "caseId": "F24-request-id-reused",
+      "title": "A recorded requestId reused with different content",
+      "state": "r11-after-M10",
+      "steps": [
+        {
+          "in": {
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "expectedRevision": 11,
+            "requestId": "req-60600000000000000000000000000000",
+            "origin": {
+              "kind": "mcp",
+              "clientId": "pi-harness"
+            },
+            "args": {
+              "entityId": "box-0003",
+              "component": "box",
+              "value": {
+                "material": {
+                  "color": "#00ff00"
+                }
+              }
+            }
+          },
+          "out": {
+            "ok": false,
+            "op": "setComponent",
+            "projectId": "demo-0003",
+            "requestId": "req-60600000000000000000000000000000",
+            "error": {
+              "code": "request_id_reused",
+              "cls": "conflict",
+              "currentRevision": 11,
+              "message": "requestId was already used with different content",
+              "hint": "re-read the project, then re-issue the command with a fresh requestId and the current expectedRevision"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "codes": [
+          "request_id_reused"
+        ],
+        "durableStateUnchanged": true
+      },
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 11. Change, inverse and projection"
+        }
+      ],
+      "notes": "req-6…06 is the M6 requestId (commands/prefab-scenario.messages.json). Dedup precedes the revision check and is served from the live retry-record map; the envelope fixtures are released-state snapshots and carry no records (packet-15 convention)."
+    }
+  ],
+  "constructed": [
+    {
+      "caseId": "C1-prefab-entities-overflow",
+      "title": "Definition with 257 local entities",
+      "code": "limits_exceeded",
+      "limit": "prefab_entities",
+      "current": 257,
+      "max": 256,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 5. Limits"
+        }
+      ]
+    },
+    {
+      "caseId": "C2-prefab-depth-overflow",
+      "title": "Definition with depth 17",
+      "code": "limits_exceeded",
+      "limit": "prefab_depth",
+      "current": 17,
+      "max": 16,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 5. Limits"
+        }
+      ]
+    },
+    {
+      "caseId": "C3-prefab-bytes-overflow",
+      "title": "Definition whose canonical bytes exceed 131 072",
+      "code": "limits_exceeded",
+      "limit": "prefab_bytes",
+      "current": 131073,
+      "max": 131072,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 5. Limits"
+        }
+      ]
+    },
+    {
+      "caseId": "C4-prefabs-count-overflow",
+      "title": "A 129th prefab definition",
+      "code": "limits_exceeded",
+      "limit": "prefabs",
+      "current": 129,
+      "max": 128,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 5. Limits"
+        }
+      ]
+    },
+    {
+      "caseId": "C5-scene-entities-overflow",
+      "title": "Instantiation that would take the scene past 1024 entities",
+      "code": "limits_exceeded",
+      "limit": "entities",
+      "current": 1027,
+      "max": 1024,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 9. Execution semantics"
+        }
+      ]
+    },
+    {
+      "caseId": "C6-scene-depth-overflow",
+      "title": "Instantiation under a depth-32 parent (definition depth 2)",
+      "code": "limits_exceeded",
+      "limit": "depth",
+      "current": 34,
+      "max": 32,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "## 9. Execution semantics"
+        }
+      ]
+    },
+    {
+      "caseId": "C7-request-bytes-overflow",
+      "title": "Request canonical bytes above 65 536",
+      "code": "limits_exceeded",
+      "limit": "request_bytes",
+      "current": 65537,
+      "max": 65536,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 4. Bounds"
+        }
+      ]
+    },
+    {
+      "caseId": "C8-properties-overflow",
+      "title": "Declaration with 33 properties",
+      "code": "limits_exceeded",
+      "limit": "properties",
+      "current": 33,
+      "max": 32,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/properties.md",
+          "section": "## 4. Bounds"
+        }
+      ]
+    },
+    {
+      "caseId": "C9-overrides-overflow",
+      "title": "Instantiation with 65 overrides",
+      "code": "limits_exceeded",
+      "limit": "overrides",
+      "current": 65,
+      "max": 64,
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 7.3 Declared-property overrides"
+        }
+      ]
+    },
+    {
+      "caseId": "C10-id-exhaustion",
+      "title": "Every group-NNNN ID in 0001..9999 taken",
+      "code": "id_exhaustion",
+      "kind": "group",
+      "pins": [
+        {
+          "file": "docs/planning/m2-contracts/prefabs.md",
+          "section": "### 7.2 Deterministic entity-ID allocation"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Each case starts from a byte-exact durable state (the base envelope or the scenario step named by stateSnapshots) and asserts the final error code plus an unchanged durable state. Intermediate successful steps exist only to build the state a failure needs.",
+    "The constructed list holds cases that cannot be expressed as a small fixture (count/byte boundaries); they are normative expected outcomes and are implemented by packets 21/22 without weakening a bound.",
+    "Retry/duplicate semantics (F24) additionally rely on the live retry-record map; envelope fixtures carry an empty retry block by the packet-15 released-state convention."
+  ]
+}

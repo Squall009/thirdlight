@@ -1,0 +1,142 @@
+{
+  "note": "67-B: the protocol is frozen here; the numerical table is BLOCKED (reference-device.md §2/§3 — no representative hardware in this container; SwiftShader is never a hardware GPU claim; early box-only data is not representative calibration). Ratification checkpoint: docs/handoffs/67-budget-ratification.md — no scored 79 run until target review/promotion AND owner confirmation; 79 may run its candidate-assembly preflight first (after 76/78).",
+  "namedDevice": {
+    "status": "BLOCKED — owner pending (reference-device.md §2)",
+    "proposedMinimum": "x86-64 consumer desktop; real (non-SwiftShader) WebGL2 GPU with the GL_RENDERER string recorded; ≥ 1080p/60 Hz physical display; ≥ 4 cores / ≥ 8 GB (throttling disabled or recorded); physical keyboard + one gamepad; ≥ 1 audio output; backend on loopback; warm-cache conditions + observer tooling + clock resolution recorded per run"
+  },
+  "frozenScenes": [
+    {
+      "id": "S1",
+      "name": "the v3 demo envelope",
+      "identity": {
+        "file": "fixtures/m3/storage/project-v3-demo-0003/scenes/main.json",
+        "sha256": "a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414"
+      },
+      "why": "the committed baseline scene (2 zones, 2 spawns, no assets)"
+    },
+    {
+      "id": "S2",
+      "name": "the Beacon Reach captured project",
+      "identity": {
+        "file": "samples/beacon-reach/captured/project.json",
+        "sha256": "c6125b1469c2ffa4d5461bcdf8eaef6d0a2672a4cb185512e4294951635baa66"
+      },
+      "why": "the Gate P content scene (r26 — the full M3 content set)"
+    },
+    {
+      "id": "S3",
+      "name": "the template starter final scene",
+      "identity": {
+        "derivation": "the 30-command packet-65 recipe replayed from the template base scene through the real @thirdlight/commands engine (deterministic requestIds; the admin origin substitution of templates.md §7.1); the canonical envelope serialization {storageVersion,type,projectId,scene,content,retry} (JSON, 2-space, trailing newline)",
+        "sha256": "c433f454628c62d4731606e642edb9e290263de995d48f20e9400d2e5712415a"
+      },
+      "derived": {
+        "revision": 30,
+        "entityCount": 20
+      },
+      "why": "the M4 canonical game scene (20 entities, 7 assets, 1 prefab, 2 decoration instances, the animated courier)"
+    }
+  ],
+  "protocol": {
+    "environmentRecord": [
+      "OS/kernel",
+      "CPU model + core count + throttling state",
+      "GPU + GL_RENDERER (software GL ⇒ the run is invalidated, not scored)",
+      "display resolution/refresh",
+      "Node version",
+      "the engine pin (the packet-66 kit identity)",
+      "the game pin (game.json)",
+      "the scene digest (must match a frozen row — else budget_scene_unfrozen)",
+      "browser + real (non-headless software-GL) viewport",
+      "cache state (warm-cache-only claims require the cache record)",
+      "clock source + resolution",
+      "observer tooling"
+    ],
+    "trials": "10-minute warmup; N ≥ 30 scored trials per metric (soak: the plan §2.6 duration); per-trial record { value, ts, trialIndex, environmentRecordHash }; statistics of record: median + p95 (p99 requires N ≥ 100 — below that it is marked insufficient_samples); no outlier discarding (recorded, not removed)",
+    "metricsClosed": [
+      "play-present latency (POST → presented)",
+      "scene load time (iframe src → first frame presented)",
+      "frame-time p95/p99 (rAF delta, frameCount-tagged)",
+      "input-to-visible latency (key event → first rendered step with that input)",
+      "export duration (route → complete closure)",
+      "memory high-water (process RSS, per phase)",
+      "soak stability (30-min: dropped steps, error count, frame-time-ring GC observability)"
+    ],
+    "noEarlyBoxData": "the container samples (baseline.md §6) are reproducibility samples only; a box-only number submitted as a threshold candidate is refused (budget_source_not_representative)"
+  },
+  "thresholdTable": {
+    "status": "BLOCKED — every threshold is unmeasured; filling the rows is the post-ratification 67-B resume (owner device + 76/78 complete + the 79 scored runs + the owner ratification)",
+    "rows": [
+      {
+        "metric": "play-present latency",
+        "scene": "S3",
+        "condition": "warm cache",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "scene load time",
+        "scene": "S3",
+        "condition": "warm cache",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "frame-time p95",
+        "scene": "S3",
+        "condition": "the 60 Hz display record",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "frame-time p99",
+        "scene": "S3",
+        "condition": "the 60 Hz display record",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "input-to-visible latency",
+        "scene": "S3",
+        "condition": "physical keyboard",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "export duration",
+        "scene": "S3",
+        "condition": "the kit-built game",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "memory high-water",
+        "scene": "S3",
+        "condition": "30-min soak",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "soak stability",
+        "scene": "S3",
+        "condition": "30-min run",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "the S1 baseline (no-assets floor)",
+        "scene": "S1",
+        "condition": "warm cache",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      },
+      {
+        "metric": "the S2 content floor",
+        "scene": "S2",
+        "condition": "warm cache",
+        "threshold": "BLOCKED — unmeasured",
+        "sourceOfRecord": "the 79 scored runs on the owner device"
+      }
+    ]
+  }
+}

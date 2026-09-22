@@ -1,0 +1,55 @@
+{
+  "storageVersion": 2,
+  "type": "authoring-state",
+  "projectId": "demo-m1-v2",
+  "scene": {
+    "schemaVersion": 2,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    }
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

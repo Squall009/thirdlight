@@ -1,0 +1,62 @@
+{
+  "acknowledgement": {
+    "success": "after W step 4 (directory flush) and step 5 (verification read); in-memory state published at the same point",
+    "failure": "before any file write for validation/conflict classes; after the on-disk state is classified for write_failed; never a success ack"
+  },
+  "crashPoints": [
+    {
+      "at": "before-envelope-rename",
+      "onDisk": "old-envelope",
+      "retry": "fresh-execution"
+    },
+    {
+      "at": "after-envelope-rename-before-directory-flush",
+      "onDisk": "new-envelope",
+      "retry": "durable-replay"
+    },
+    {
+      "at": "after-directory-flush-before-ack",
+      "onDisk": "new-envelope-with-record",
+      "retry": "durable-replay"
+    },
+    {
+      "at": "after-ack",
+      "onDisk": "new-envelope-with-record",
+      "retry": "durable-replay"
+    }
+  ],
+  "mutableAuthoritativeFiles": [
+    "scenes/main.json"
+  ],
+  "forbiddenSidecars": [
+    "game.json",
+    "settings.json",
+    "scene.json",
+    "content.json"
+  ],
+  "envelopeStorageVersions": [
+    1,
+    2,
+    3
+  ],
+  "markerStorageVersions": [
+    1,
+    3
+  ],
+  "v3EnvelopeTopLevelKeys": [
+    "storageVersion",
+    "type",
+    "projectId",
+    "scene",
+    "content",
+    "retry"
+  ],
+  "v3ContentKeys": [
+    "assets",
+    "prefabs",
+    "behaviors",
+    "settings",
+    "behaviorTrust",
+    "game"
+  ]
+}

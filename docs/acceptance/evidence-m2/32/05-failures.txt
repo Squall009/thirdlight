@@ -1,0 +1,26 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+stdout | tests/m2-controller/failures.test.ts > long tab stall and dropped wall time (A13) > executes at most 8 steps, drops the remaining wall time and produces no phantom steps
+[stall] executed=8 dropped=592 inputSamples=28 physicsSteps=40 stepIndex=40 dx=0.26628177240490913
+
+stdout | tests/m2-controller/failures.test.ts > long tab stall and dropped wall time (A13) > consumes one jump edge exactly once across the catch-up burst
+[catch-up-jump] starts=1 maxVy=6.8365 stepIndex=40
+
+stdout | tests/m2-controller/failures.test.ts > fail-stop after a physics-phase mutation (A14) > abandons the step, retains the last committed render state and never resumes
+[fail-stop] physicsSteps=31 failedStepIndex=30 module=thirdlight.platformer:controller phase=controller
+
+ ✓ tests/m2-controller/failures.test.ts > long tab stall and dropped wall time (A13) > executes at most 8 steps, drops the remaining wall time and produces no phantom steps 83ms
+ ✓ tests/m2-controller/failures.test.ts > long tab stall and dropped wall time (A13) > consumes one jump edge exactly once across the catch-up burst 16ms
+ ✓ tests/m2-controller/failures.test.ts > fail-stop after a physics-phase mutation (A14) > abandons the step, retains the last committed render state and never resumes 9ms
+stdout | tests/m2-controller/failures.test.ts > stop/start retains the controller private state (platformer.md §6) > resumes with the same velocity and window counters (no reset)
+[stop-start] vxBefore=4 vxAfter=4
+
+ ✓ tests/m2-controller/failures.test.ts > stop/start retains the controller private state (platformer.md §6) > resumes with the same velocity and window counters (no reset) 9ms
+ ✓ tests/m2-controller/failures.test.ts > snapshot immutability and disposal > deep-freezes the snapshot and never writes it back 10ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  07:56:02
+   Duration  560ms (transform 56%, tests 30%, import 13%, worker 1%)
+

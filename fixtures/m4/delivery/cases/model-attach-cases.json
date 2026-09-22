@@ -1,0 +1,171 @@
+{
+  "description": "Observable rendered + numeric expectations for the M4 model attachment (delivery.md §2). The checker independently re-derives the GLB facts and the selector/crossfade math; the browser-level realization (attached holders, per-instance mixers, counters) is evidenced by packet 70.",
+  "constants": {
+    "RUN_SPEED_EPS": 0.05,
+    "ANIMATION_CROSSFADE_SECONDS": 0.2,
+    "ANIMATION_MAX_DELTA_SECONDS": 0.25
+  },
+  "glb": {
+    "glb/runner-m4.glb": {
+      "expectation": "positive rigid 3-clip profile",
+      "clips": [
+        "Idle",
+        "Run",
+        "Airborne"
+      ],
+      "meshes": 2,
+      "nodes": 3,
+      "skins": 0,
+      "rootTranslationChannels": 0,
+      "jointsAttributes": 0,
+      "channelsPerClip": [
+        1,
+        1,
+        1
+      ],
+      "channelTargets": "all rotation on node 2 (non-root)",
+      "verdict": "accepted by the §41.3.3 A1–A6 profile (1 ≤ clips ≤ 8; no skin; no root translation; tracks/keyframes under the caps)"
+    },
+    "glb/bad-root-motion-m4.glb": {
+      "expectation": "A6 negative — a translation channel on the scene root node",
+      "clips": [
+        "Idle",
+        "Run",
+        "Airborne"
+      ],
+      "rootTranslationChannels": 1,
+      "verdict": "rejected with animation_root_motion (A6: root motion would double-move the entity holder)"
+    },
+    "glb/bad-skin-m4.glb": {
+      "expectation": "A2 negative — a skins array + node.skin",
+      "clips": [
+        "Idle"
+      ],
+      "skins": 1,
+      "verdict": "rejected with animation_skin_unsupported (A2: the M3 profile has no skeletal animation)"
+    },
+    "glb/undeclared-m4.glb": {
+      "expectation": "valid GLB that the case manifest does NOT declare (the undeclared-fetch negative)",
+      "clips": [
+        "Spin"
+      ],
+      "verdict": "a fetch of its path by the preview/export is a contract violation (delivery.md §2.8: only manifest-declared paths are read); never silently substituted for a declared asset"
+    },
+    "glb/corrupt-m4.glb": {
+      "expectation": "the runner GLB truncated to 60% of its length (declared total ≠ file length; the BIN chunk is cut)",
+      "verdict": "rejected at the wrapper layer before the loader: tl.error phase \"assets\", code asset_corrupt (L2/L3); no runtime is instantiated"
+    }
+  },
+  "realization": [
+    {
+      "id": "R1-holder-parenting",
+      "rule": "The prepared ModelInstance root is attached as a child of the entity holder Object3D. The runtime interpolated transform moves the holder; the animation writes only mixer time/weights (never the holder or any entity transform). No physics-root animation write (C02).",
+      "check": "in the scene graph: objects.get(entityId).children includes the model root; after a committed player step, the holder position equals the interpolated transform and the model root local transform is unchanged by the mixer"
+    },
+    {
+      "id": "R2-per-instance-independence",
+      "rule": "Two instances of the same asset (model-player-0001 [player, animated] and model-deco-0001 [non-player, no modelAnimation → static]) own independent state; one instance weight change never touches the other (accepted §41.3.6 rule 5).",
+      "check": "instance A (player) in role run (committed grounded + speed 2.0) and the deco entity static: A.state().weights = { idle: 0, run: 1, airborne: 0 } at a settled step; the deco has no controller (state() absent) and its holder moves with the committed transform while its mixer time stays 0"
+    },
+    {
+      "id": "R3-role-selection-boundaries",
+      "rule": "The accepted pure selection: airborne iff !grounded; else run iff speed > RUN_SPEED_EPS (0.05); else idle.",
+      "cases": [
+        {
+          "view": {
+            "grounded": true,
+            "speed": 0
+          },
+          "expected": "idle"
+        },
+        {
+          "view": {
+            "grounded": true,
+            "speed": 0.05
+          },
+          "expected": "idle",
+          "note": "the boundary is strict: speed == 0.05 is idle (run requires speed > 0.05)"
+        },
+        {
+          "view": {
+            "grounded": true,
+            "speed": 0.0501
+          },
+          "expected": "run"
+        },
+        {
+          "view": {
+            "grounded": false,
+            "speed": 2
+          },
+          "expected": "airborne"
+        },
+        {
+          "view": {
+            "grounded": false,
+            "speed": 0
+          },
+          "expected": "airborne",
+          "note": "airborne takes precedence over the speed test"
+        }
+      ]
+    },
+    {
+      "id": "R4-non-player-neutral-pinning",
+      "rule": "A non-player animated entity (hypothetical: the deco entity given a modelAnimation) pins the constant neutral motion { speed: 0, grounded: true } → idle, no blending, no run/airborne (delivery.md §2.4; the committed view carries only player motion).",
+      "cases": [
+        {
+          "view": {
+            "grounded": true,
+            "speed": 3,
+            "playerEntity": false
+          },
+          "expected": "idle",
+          "note": "the player speed 3.0 is NOT used for a non-player entity"
+        }
+      ]
+    },
+    {
+      "id": "R5-crossfade-weights",
+      "rule": "ANIMATION_CROSSFADE_SECONDS = 0.2; weights over the fade are (1 − t/0.2, t/0.2); blending is false afterwards.",
+      "cases": [
+        {
+          "t": 0,
+          "outgoing": 1,
+          "incoming": 0,
+          "blending": true
+        },
+        {
+          "t": 0.1,
+          "outgoing": 0.5,
+          "incoming": 0.5,
+          "blending": true
+        },
+        {
+          "t": 0.19,
+          "outgoing": 0.05,
+          "incoming": 0.95,
+          "blending": true
+        },
+        {
+          "t": 0.2,
+          "outgoing": 0,
+          "incoming": 1,
+          "blending": false
+        }
+      ],
+      "tolerance": 1e-9
+    },
+    {
+      "id": "R6-static-on-unresolved",
+      "rule": "A mapping that fails the stage 5–6 re-check (setRoles → animation_role_unresolved) renders the model statically at its committed transform with one bounded diagnostic; the run proceeds (L6 / §41.3.6 rule 7 clarification).",
+      "check": "case: the runner clips are renamed so idle.clipName ≠ clips[0].name → setRoles returns ok:false (animation_role_unresolved); the host observation still reports state playing; the model instance exists and is static (mixer time frozen at 0); the models diagnostic records the code once (bounded, no repeat per frame)"
+    },
+    {
+      "id": "R7-ownership-counters-baseline",
+      "rule": "After N repeated prepare/create/dispose cycles the ownership counters return to baseline: no cumulative leak (C13). The last instance dispose releases the shared LoadedGlb exactly once (accepted §41.6 rule 2).",
+      "check": "diagnostics().models after the cycle: assets 0, instances 0, pending 0, animations 0, failed 0 (the baseline before any models load); the store ledger counters (geometries/materials) at their pre-model baseline",
+      "cycles": 3
+    }
+  ]
+}

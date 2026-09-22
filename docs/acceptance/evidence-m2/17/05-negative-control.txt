@@ -1,0 +1,22 @@
+# packet 17 — negative control: the p17 checks are not vacuous (actual)
+date: 2026-09-19T01:03:55Z
+
+## corruption applied to a copy of fixtures/m2/contracts at /tmp/tl17-neg/contracts
+platformer/traces.json      : jump-hold-full-height sample[5].position.y += 0.05
+physics/numerics.json       : derived.accelStepsToRunSpeed = 11 (was 12);
+                              constants[groundSnap].value = 0.2 (was 0.1)
+runtime/catchup.json        : C3-stall-drop-and-resync expect.droppedSteps = 100 (was 112)
+input/action-sequences.json : M5-stick-rescaled expectFrame.moveX = 0.75 (was 0.5)
+platformer/failures.json    : F01-focus-loss codes = ['input_phantom'] (undeclared)
+# the copy was re-canonicalized (--write) so only semantic checks can fail
+
+## TL15_REPO_ROOT=$PWD node /tmp/tl17-neg/contracts/tools/check-fixtures.mjs
+exit=1
+FAIL code-registry: platformer/failures.json: code "input_phantom" is not declared in expected.json registry
+FAIL p17-numerics: constant groundSnap = 0.2, expected 0.1
+FAIL p17-numerics: accelStepsToRunSpeed must be 12
+FAIL p17-traces: jump-hold-full-height/41: position (0,2.0264375) != (0,2.0764375)
+FAIL p17-input: M5-stick-rescaled: frame {"stepIndex":12,"moveX":0.5,"jump":"none"} != {"stepIndex":12,"moveX":0.75,"jump":"none"}
+FAIL p17-catchup: C3-stall-drop-and-resync: droppedSteps 112 != 100
+FAIL p17-failures: F01-focus-loss: code input_phantom is not in the runtime/model registry
+check FAILED: 21 check group(s) passed, 7 problem(s)

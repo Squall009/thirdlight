@@ -1,0 +1,35 @@
+packet 33 verification — 2026-09-19T08:55:28Z
+
+$ npm test
+exit=0
+ Test Files  123 passed (123)
+      Tests  1594 passed (1594)
+
+$ npm run typecheck
+exit=0
+typecheck: tsc --noEmit -p packages/workspace
+
+$ npm run check-deps
+exit=0
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+$ npm run check-boundaries
+exit=0
+check-boundaries: OK — 15 package(s) [asset-pipeline, backend, behavior-build, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 261 source file(s), 959 specifier(s) checked; no boundary violations.
+
+$ npm run build
+exit=0
+build: done (4 built, 0 skipped).
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs
+exit=0
+check OK: 34 check group(s) passed, 0 problem(s)
+
+$ node fixtures/m2/behaviors/tools/check.mjs
+exit=0
+ok   containers: 33 container case(s) re-hashed, canonical-checked and re-analyzed (2 valid)
+ok   sample-products: manifest/output/recipe digests and per-file digests re-derived from the committed bytes
+ok   declaration-cases: 2 declaration bound case(s) re-derived
+ok   injected-cases: 4 injected bound/failure case(s) re-derived
+check: OK — all behavior-build fixture rows re-derived

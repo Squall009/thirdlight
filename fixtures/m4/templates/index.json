@@ -1,0 +1,66 @@
+{
+  "cases/failure-cases.json": {
+    "byteLength": 7429,
+    "sha256": "dc716dafb24bfaed1f584455b333fbea4c8af4debd769eaaa98fa5b4d8ef13b4"
+  },
+  "cases/identity-cases.json": {
+    "byteLength": 28611,
+    "sha256": "03a518aae8d8fd1ec90dbbb9443caf5e97324d6abf69140cd94f9135a416e22e"
+  },
+  "cases/layout-cases.json": {
+    "byteLength": 4275,
+    "sha256": "f2402d8ed0fb49e7bdfa1c57df67640335788954aec8a0e9c665ddd65930cfaf"
+  },
+  "cases/module-cases.json": {
+    "byteLength": 6846,
+    "sha256": "612792d91c5ac16de602c6ba267c411608d1c1f01b51e70c18dc3a8a0bde061f"
+  },
+  "cases/recipe-cases.json": {
+    "byteLength": 5985,
+    "sha256": "c2b73bbf2ed09e92a176910e0936df856f0901a8e85827dcb1157a16ccf37b11"
+  },
+  "templates/platformer-starter/NOTICE": {
+    "byteLength": 1573,
+    "sha256": "07782ef475804effa83c4562aa97b0a7cc47885edcc9eccf6034d3cde6f64059"
+  },
+  "templates/platformer-starter/base/scene.json": {
+    "byteLength": 883,
+    "sha256": "14c5320414734063b3e34c760a2b9068f4acacafdc27eaf651dd940a753bfaf8"
+  },
+  "templates/platformer-starter/descriptor.json": {
+    "byteLength": 2703,
+    "sha256": "ce6bba300294fff775bcfbed849eb450284cc2f990b89150e7d0b30245a86b94"
+  },
+  "templates/platformer-starter/recipe/commands.json": {
+    "byteLength": 20119,
+    "sha256": "d1adfc0ab8c89cfed3e74fb029c0a8803138bd36025179eb368a9863fe90e6e8"
+  },
+  "templates/platformer-starter/sources/audio/cue-checkpoint.wav": {
+    "byteLength": 21164,
+    "sha256": "e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df"
+  },
+  "templates/platformer-starter/sources/audio/cue-death.wav": {
+    "byteLength": 30764,
+    "sha256": "4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed"
+  },
+  "templates/platformer-starter/sources/audio/cue-goal.wav": {
+    "byteLength": 40364,
+    "sha256": "ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac"
+  },
+  "templates/platformer-starter/sources/audio/cue-jump.wav": {
+    "byteLength": 13484,
+    "sha256": "98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e"
+  },
+  "templates/platformer-starter/sources/audio/cue-start.wav": {
+    "byteLength": 17324,
+    "sha256": "608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a"
+  },
+  "templates/platformer-starter/sources/model/beacon.glb": {
+    "byteLength": 1772,
+    "sha256": "b80e27cc44af407e347cb3b4ea07a8b3860fd36be2775fd8e40a389a23675eb6"
+  },
+  "templates/platformer-starter/sources/model/courier.glb": {
+    "byteLength": 3440,
+    "sha256": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be"
+  }
+}

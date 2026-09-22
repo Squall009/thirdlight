@@ -1,0 +1,34 @@
+{
+  "note": "The §1.3 backup-manifest shape instantiated on the committed v3 fixture (project-v3-demo-0003 — manifest + envelope, the empty asset catalog ⇒ 0 blobs; the consistent set of workspace.md §15). Every digest is re-derived from the live committed bytes by the checker.",
+  "manifest": {
+    "v": 1,
+    "backupId": "bkp-00000000000000000000000000000000",
+    "createdAt": "2026-09-22T00:00:00Z",
+    "engineVersion": "0.1.0",
+    "dataRootLabel": "thirdlight-data",
+    "inventory": [
+      {
+        "path": "projects/demo-0003/project.json",
+        "byteLength": 229,
+        "sha256": "4d73ad2055237a730b38c7be8df046ace6425a4d99b9dd0848d135e074e5f72f"
+      },
+      {
+        "path": "projects/demo-0003/scenes/main.json",
+        "byteLength": 6980,
+        "sha256": "a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414"
+      }
+    ],
+    "inventoryDigest": "sha256:cd783d0a9ec12ee8476e06d075a6ac9760c8300544aac82ca4a77847a906de93",
+    "projects": [
+      {
+        "projectId": "demo-0003",
+        "manifestDigest": "sha256:4d73ad2055237a730b38c7be8df046ace6425a4d99b9dd0848d135e074e5f72f",
+        "envelopeDigest": "sha256:a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414",
+        "revision": 3,
+        "blobCount": 0,
+        "catalogComplete": true
+      }
+    ],
+    "retention": "manual"
+  }
+}

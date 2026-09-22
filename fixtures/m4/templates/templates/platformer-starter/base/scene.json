@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 3,
+  "sceneId": "scene-main",
+  "revision": 0,
+  "entities": [
+    {
+      "id": "br-cam-main",
+      "name": "Gameplay camera",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            4,
+            12
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 45,
+          "near": 0.1,
+          "far": 100
+        },
+        "cameraFollow": {
+          "deadZone": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "smoothing": 0.2,
+          "bounds": {
+            "minX": 0,
+            "maxX": 48,
+            "minY": -10,
+            "maxY": 8
+          }
+        }
+      }
+    }
+  ]
+}

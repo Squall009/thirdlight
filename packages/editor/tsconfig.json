@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "types": ["react", "react-dom"]
+    "types": ["react", "react-dom"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "esnext.disposable"]
   },
   "include": ["src"]
 }

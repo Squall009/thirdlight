@@ -1,0 +1,332 @@
+{
+  "indexVersion": 1,
+  "packet": 41,
+  "status": "PROPOSED — not accepted",
+  "files": {
+    "activation/appearance-cases.json": {
+      "kind": "fixture",
+      "bytes": 1999,
+      "sha256": "ecbbd4e348fc2ad4027a0e0fb391f00f8082fb444143385cf66bb4a3fa7133e5"
+    },
+    "audio/audio-cases.json": {
+      "kind": "fixture",
+      "bytes": 1835,
+      "sha256": "cb9be69595c1ad95caa74aa25cfc2cb57545969079736d4e319004095cc03984"
+    },
+    "errors/codes.json": {
+      "kind": "fixture",
+      "bytes": 1242,
+      "sha256": "519b732fd01f57d303cc9e23778e3d613f5fa45f11f41042857c71367faaabc2"
+    },
+    "glb/bad-joints.glb": {
+      "kind": "binary",
+      "bytes": 2468,
+      "sha256": "b8ab6c1b16dbe58e8445f0a8ba0456ed5bde69322da0b6f9ab779dc1da0dfb63"
+    },
+    "glb/bad-root-motion.glb": {
+      "kind": "binary",
+      "bytes": 2368,
+      "sha256": "ebc00724a2c290d1455c3c5b21adaa5122f104701a1a32c25398d3491bf302ca"
+    },
+    "glb/bad-skin-root.glb": {
+      "kind": "binary",
+      "bytes": 2416,
+      "sha256": "d7f364e825fb10240cc104b55c48ab6f38514d99a857d8658c18f0470fab2151"
+    },
+    "glb/bad-skin.glb": {
+      "kind": "binary",
+      "bytes": 2180,
+      "sha256": "7ce222925d1c38a20ba68ac0ee74765f098bff42b792b2e0c0b5b82621dcc45c"
+    },
+    "glb/clip-10s.glb": {
+      "kind": "binary",
+      "bytes": 2132,
+      "sha256": "7f759d332982398847e738ecb2205c88475822e1e6bf0ee8386e810fae2f6963"
+    },
+    "glb/clips-at-cap.glb": {
+      "kind": "binary",
+      "bytes": 4224,
+      "sha256": "93cec3966442656fcab65923d41a84fb147acfb66edac466c3a324bdf94ff353"
+    },
+    "glb/courier-reordered.glb": {
+      "kind": "binary",
+      "bytes": 2132,
+      "sha256": "c244cc775401deb4cdf9483624013ff5bb1b928ba09c1edad65b6fd70b6072ed"
+    },
+    "glb/courier-roles.glb": {
+      "kind": "binary",
+      "bytes": 2132,
+      "sha256": "c74104c76ec035363263e7fbf7a58475fd0dc82fb1af60a5f1c3dac410cf2e27"
+    },
+    "glb/dup-names.glb": {
+      "kind": "binary",
+      "bytes": 2128,
+      "sha256": "94d07294e0afd6927c5a5c4c46e7048d5a723316cf65bc3134761367410cf84f"
+    },
+    "glb/keyframes-at-cap.glb": {
+      "kind": "binary",
+      "bytes": 83952,
+      "sha256": "53d828043779f51a3b9e152716b87facc47c92c1045699fd728d783952f439aa"
+    },
+    "glb/long-clip.glb": {
+      "kind": "binary",
+      "bytes": 2136,
+      "sha256": "6ba119dc273ccc177edbbf211cd13fc2cbf607151dad562eb3b0a7153d2279f8"
+    },
+    "glb/many-clips.glb": {
+      "kind": "binary",
+      "bytes": 4644,
+      "sha256": "d599170294b977ff7d2fe6afadb376788f56d6855b2b89ef4a01e6f6eeb0da39"
+    },
+    "glb/many-keyframes.glb": {
+      "kind": "binary",
+      "bytes": 84052,
+      "sha256": "0c68d7c962b5ecbbcd5eca4d8f62ef7dfba6e56c04c100f68b01f236741c4e4d"
+    },
+    "glb/many-tracks-per-clip.glb": {
+      "kind": "binary",
+      "bytes": 7112,
+      "sha256": "9334a9fa3bc4c830961c09b4a3ce6bf0ed33c45f6b13840bdaf03388f2292adc"
+    },
+    "glb/many-tracks.glb": {
+      "kind": "binary",
+      "bytes": 5396,
+      "sha256": "e1d7825f2078ab7a418b0417aeaeb27805e38298de8a8b83fcfbb26b2d0cdc6a"
+    },
+    "glb/profile-cases.json": {
+      "kind": "fixture",
+      "bytes": 10122,
+      "sha256": "65eb406af1d3b708600ede12b2e9b3c8d9dc65f1ee2113d5eecca954e9945db4"
+    },
+    "glb/tracks-at-cap.glb": {
+      "kind": "binary",
+      "bytes": 5292,
+      "sha256": "a547b1db8843a1a9224e3181e25003576ed7d3fac13a0bb4c4952dab576e92d7"
+    },
+    "ownership/ownership-cases.json": {
+      "kind": "fixture",
+      "bytes": 2642,
+      "sha256": "d892f5565b1fda79431d8a0fc48d5d61aa4eaacab08d5af61b6f62fe608958aa"
+    },
+    "render/light-surface-cases.json": {
+      "kind": "fixture",
+      "bytes": 6034,
+      "sha256": "58520801c4bac5e50402d3844dc0a84a47d51ce2a21634e3e2b0b3a3dcc59888"
+    },
+    "roles/roles-cases.json": {
+      "kind": "fixture",
+      "bytes": 1881,
+      "sha256": "dde79f326b466b1dfae41ab36dee270ab6588a73f41be48e9a6607427e24bbd5"
+    },
+    "wav/cue-checkpoint.wav": {
+      "kind": "binary",
+      "bytes": 14444,
+      "sha256": "d047c8167d5fc7a26b026a489ed0198fdd84126923b11127abcf521afb961d23"
+    },
+    "wav/cue-death.wav": {
+      "kind": "binary",
+      "bytes": 19244,
+      "sha256": "63d32f64eca55ff7b80fe110d1a68fb31c5b0731fa4a23cd8dfe339a6bf05b41"
+    },
+    "wav/cue-goal.wav": {
+      "kind": "binary",
+      "bytes": 28844,
+      "sha256": "de81959f10ead0682adbbe2693d35611405471ff0abe2774c3d9ea69e4d5b7f6"
+    },
+    "wav/cue-jump.wav": {
+      "kind": "binary",
+      "bytes": 9644,
+      "sha256": "d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8"
+    },
+    "wav/cue-max.wav": {
+      "kind": "binary",
+      "bytes": 192044,
+      "sha256": "f72a3208e25253873858b9f9161e0851e336eb5e97d717a01679df729c428a63"
+    },
+    "wav/cue-min.wav": {
+      "kind": "binary",
+      "bytes": 46,
+      "sha256": "c00744703f8b1cc40f0178e56ba45d9f6e6f64d5491303b7a2ffd8e58c346401"
+    },
+    "wav/cue-preimage.wav": {
+      "kind": "binary",
+      "bytes": 236,
+      "sha256": "6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb"
+    },
+    "wav/cue-start.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "1485db60315e083dd6f8d74330169989c8ea9b0ef9ac58c8f751508cee07450a"
+    },
+    "wav/rejections/adpcm.wav": {
+      "kind": "binary",
+      "bytes": 2444,
+      "sha256": "30af1c81302c5fc460c472dbd1b6c34ffa5c7693ff7cfd3ada4d9a74da53399f"
+    },
+    "wav/rejections/alaw.wav": {
+      "kind": "binary",
+      "bytes": 2444,
+      "sha256": "e436e41f6c96d274ee2e1ad5277b0d7e0a00d279ad0605ac53dfa9b5bc453569"
+    },
+    "wav/rejections/bad-block-align.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "0ce8bc8fd57f833291113e8c3cfb9f779ac2fd73935172ae11a2d7714921239c"
+    },
+    "wav/rejections/bad-byte-rate.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "91b7d236e05780d1eb892810acc8efe0dc06efc04f36c7eb2af1e807b88f07f2"
+    },
+    "wav/rejections/bad-fmt-size.wav": {
+      "kind": "binary",
+      "bytes": 4846,
+      "sha256": "f5185bd27f53c5d17d043770a6dc1fe0625959672a2ea2dc09bf8109b4343d8c"
+    },
+    "wav/rejections/bad-magic.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "3f9c4b64d90cf7ead05bc8580f8f81d9b76270b46614e09978e2fc296dba72d7"
+    },
+    "wav/rejections/bad-riff-size.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "297fd94bd8a514ef1a6e43d68b5dc42f68394c35edb32dd99565904bba6b9385"
+    },
+    "wav/rejections/bext-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4856,
+      "sha256": "1c18a412bcc520a94cd740f7352c405174d36ab7716237fb59fcc7fd7b63b284"
+    },
+    "wav/rejections/bit-depth-8.wav": {
+      "kind": "binary",
+      "bytes": 2444,
+      "sha256": "736a6812e3f5923c3ff14076ebcba14eb6f5b1d02d5dc91f82dab8a2e1db9d38"
+    },
+    "wav/rejections/bw64.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "4ff2616c1e74129be5a08494ce51bc84fea7930a8845af88a71da6e0239300b2"
+    },
+    "wav/rejections/compressed.bin": {
+      "kind": "binary",
+      "bytes": 2376,
+      "sha256": "e04c9de500fb92957924c3429ec7bf727965cbeee74ce398380fa90381216326"
+    },
+    "wav/rejections/cue-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4856,
+      "sha256": "ae62bb034110eea5a6d1ce616111771d2bae6e808e77d0d2a979f7dfcb930a64"
+    },
+    "wav/rejections/data-overrun.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "8f5af86ebd6dbc022c3972419ec99a8ec0d028fd131ce857fe3bf308954732e4"
+    },
+    "wav/rejections/data-url.txt": {
+      "kind": "binary",
+      "bytes": 339,
+      "sha256": "34a8da17c8c2b7f6f91a65d155cc81b5eb4520f2a0d048e263cdbd3a70a30f3b"
+    },
+    "wav/rejections/duplicate-fmt-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4868,
+      "sha256": "d5f8000392596a9e327e615f0443a5e04438408f5de897fff8ac2fed91b6c782"
+    },
+    "wav/rejections/extra-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4856,
+      "sha256": "9d153ca09e1f6427c4d196a9e398e85ca9ef664b3287d7538f3850cca6af0cad"
+    },
+    "wav/rejections/fact-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4856,
+      "sha256": "e70a71a03a33f55ff693f9f1951b99a26cc2cc29c6326675bc6e41f6b5ee32ea"
+    },
+    "wav/rejections/float32.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "eca64d95a51d5918c067b0599450c5a0c22ba267fb35ba17b5d600aeae7d75a5"
+    },
+    "wav/rejections/huge-source.wav": {
+      "kind": "binary",
+      "bytes": 200000,
+      "sha256": "120c4f4c408b4a041e3da74a9bf52068708c94da0b43e709519344fb923c0039"
+    },
+    "wav/rejections/mulaw.wav": {
+      "kind": "binary",
+      "bytes": 2444,
+      "sha256": "5653988f72f6d2ec55eed301ed56bb510f36c51cf7cc29b6fa881f03abe20a9f"
+    },
+    "wav/rejections/non-wav.bin": {
+      "kind": "binary",
+      "bytes": 61,
+      "sha256": "7b3547ef72bb9e6fbb35d4d995fb9ea6c4224ea4c6573d5f477e38cbe6df3ca1"
+    },
+    "wav/rejections/odd-data.wav": {
+      "kind": "binary",
+      "bytes": 49,
+      "sha256": "80d3e0f39dac08e14f315d949911711aa8a7e983346d0338561b63a267aec387"
+    },
+    "wav/rejections/oversized-pcm.wav": {
+      "kind": "binary",
+      "bytes": 192046,
+      "sha256": "9bc542aa79f3782b3d68bcebe5adadaf2b301921651d1f6e0a8e0f15d68fe41c"
+    },
+    "wav/rejections/rate-44100.wav": {
+      "kind": "binary",
+      "bytes": 4454,
+      "sha256": "821f37d3489c1b6bea503d8188cf8fee2f3a783de4a1c88cd6e86c4937deee4a"
+    },
+    "wav/rejections/remote-url.txt": {
+      "kind": "binary",
+      "bytes": 83,
+      "sha256": "9b7a6df314eb7195f0d723ab8203c7db66f58725cb5ca93ed7d83cb711a76065"
+    },
+    "wav/rejections/rf64.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "b09bf5ffb01ea66760668c64a0a32b5d33631cba48ac6b57aff827044fe5780e"
+    },
+    "wav/rejections/smpl-chunk.wav": {
+      "kind": "binary",
+      "bytes": 4856,
+      "sha256": "82e65febdd8f112f36792efb536fa196e4314b70211257747d7df8a23c2c8918"
+    },
+    "wav/rejections/source-at-bound.wav": {
+      "kind": "binary",
+      "bytes": 196608,
+      "sha256": "afb278e43b5addd19dad20b084508449884b7cce090e8ad55d1b6e2b8f74bd0f"
+    },
+    "wav/rejections/source-over-bound.wav": {
+      "kind": "binary",
+      "bytes": 196610,
+      "sha256": "1c6c3f94166c40a5c9f164b7a0674ebe7342059a8ed76188b6d6fd84735b5e1a"
+    },
+    "wav/rejections/stereo.wav": {
+      "kind": "binary",
+      "bytes": 4844,
+      "sha256": "ad77125357c979328193dab9706734f0b8f63057dcb4a24ad9225bd3651a3c4c"
+    },
+    "wav/rejections/trailing-byte.wav": {
+      "kind": "binary",
+      "bytes": 4845,
+      "sha256": "4780dcdd41eac832998cd972513eb4f6319a372d827a7046ee79f2a4f6f4d7dd"
+    },
+    "wav/rejections/truncated.wav": {
+      "kind": "binary",
+      "bytes": 100,
+      "sha256": "6020bb870c2deb7f3ccd7597c846e41a6c11171413b3d2219a2387e9a9e5b35e"
+    },
+    "wav/rejections/zero-frames.wav": {
+      "kind": "binary",
+      "bytes": 44,
+      "sha256": "531cd597b25052b4845ef2f3887dec2183240802a93b6e044960de8ba017caa0"
+    },
+    "wav/wav-cases.json": {
+      "kind": "fixture",
+      "bytes": 5878,
+      "sha256": "8f20f1c9d61b98893dc0daa8fd2adc29aa9d10a6d10786986a71a9089159276b"
+    }
+  }
+}

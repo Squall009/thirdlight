@@ -1,0 +1,268 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Resize is presentation-only (gameplay.md §7.5): the viewport changes the clamp only; non-finite/non-positive/oversized dimensions are rejected and the previous record is kept.",
+    "Viewport token values: the strings \"NaN\", \"Infinity\" and \"-Infinity\" stand for the non-finite numbers that JSON cannot carry; the checker decodes them."
+  ],
+  "cases": [
+    {
+      "id": "camera-resize-aspect-change",
+      "fovY": 45,
+      "viewport": [
+        1280,
+        720
+      ],
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0,
+      "start": [
+        24,
+        2
+      ],
+      "steps": [
+        {
+          "player": [
+            47,
+            6
+          ]
+        },
+        {
+          "viewport": [
+            1024,
+            768
+          ],
+          "player": [
+            47,
+            6
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 6.6274169979695206,
+        "positions": [
+          [
+            39.16344400270731,
+            3.029437251522859
+          ],
+          [
+            41.37258300203048,
+            3.029437251522859
+          ]
+        ],
+        "targets": [
+          [
+            46.5,
+            5.5
+          ],
+          [
+            46.5,
+            5.5
+          ]
+        ],
+        "moved": [
+          true,
+          true
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 6.6274169979695206,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              6.6274169979695206,
+              41.37258300203048
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "camera-resize-physics-identity",
+      "fovY": 45,
+      "viewport": [
+        1280,
+        720
+      ],
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "bounds": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": 0,
+        "maxY": 8
+      },
+      "deadZone": [
+        0.5,
+        0.5
+      ],
+      "smoothing": 0.5,
+      "start": [
+        24,
+        2
+      ],
+      "steps": [
+        {
+          "player": [
+            26,
+            2
+          ]
+        },
+        {
+          "viewport": [
+            1024,
+            768
+          ],
+          "player": [
+            26,
+            2
+          ]
+        },
+        {
+          "viewport": [
+            1280,
+            720
+          ],
+          "player": [
+            26,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "halfH": 4.970562748477141,
+        "halfW": 8.836555997292695,
+        "positions": [
+          [
+            24.75,
+            2
+          ],
+          [
+            25.125,
+            2
+          ],
+          [
+            25.3125,
+            2
+          ]
+        ],
+        "targets": [
+          [
+            25.5,
+            2
+          ],
+          [
+            25.5,
+            2
+          ],
+          [
+            25.5,
+            2
+          ]
+        ],
+        "moved": [
+          true,
+          true,
+          true
+        ],
+        "clips": [],
+        "range": {
+          "halfW": 8.836555997292695,
+          "halfH": 4.970562748477141,
+          "x": {
+            "clamped": [
+              8.836555997292695,
+              39.16344400270731
+            ]
+          },
+          "y": {
+            "clamped": [
+              0.9705627484771409,
+              3.029437251522859
+            ]
+          }
+        }
+      },
+      "physicsNote": "The player pose sequence is the input and is identical in every step; only the aspect changes. The checker asserts the camera output depends only on (player pose, camera pose, dz, k, bounds, level, aspect) and that no aspect value reaches any other state; packet 51's runtime evidence proves the physics identity end to end."
+    }
+  ],
+  "rejected": [
+    {
+      "width": "NaN",
+      "height": 720,
+      "reason": "non_finite"
+    },
+    {
+      "width": 1280,
+      "height": "Infinity",
+      "reason": "non_finite"
+    },
+    {
+      "width": "-Infinity",
+      "height": 720,
+      "reason": "non_finite"
+    },
+    {
+      "width": 0,
+      "height": 720,
+      "reason": "non_positive"
+    },
+    {
+      "width": 1280,
+      "height": -1,
+      "reason": "non_positive"
+    },
+    {
+      "width": 20000,
+      "height": 720,
+      "reason": "oversized"
+    },
+    {
+      "width": 1280,
+      "height": 20000,
+      "reason": "oversized"
+    }
+  ],
+  "accepted": [
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "width": 1,
+      "height": 1
+    },
+    {
+      "width": 16384,
+      "height": 16384
+    }
+  ]
+}

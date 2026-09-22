@@ -1,0 +1,71 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "staging-harness-edit-publish-succeeds",
+  "title": "Harness staging edits are a supported path and publish without conflict",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 5. The supported staging area (BR-4)"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "ownership": "this backend owns the project; the harness writes only under .thirdlight/staging/",
+    "stage": {
+      "path": "<project>/.thirdlight/staging/stg-harness01/source.bin",
+      "editedBy": "harness (direct filesystem write, supported path)",
+      "edit": "file replaced while the backend owns the project, before the publish command"
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000010",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-harness01"
+    }
+  },
+  "steps": [
+    {
+      "at": "edit",
+      "action": "harness writes .thirdlight/staging/stg-harness01/source.bin",
+      "expect": {
+        "externalChangeDetected": false,
+        "writePaused": false,
+        "recoverySnapshotWritten": false
+      }
+    },
+    {
+      "at": "pre-write",
+      "action": "the next mutation runs the §5.2 pre-write check",
+      "expect": {
+        "targetHashed": "scenes/main.json only",
+        "stagingHashed": false
+      }
+    },
+    {
+      "at": "publish",
+      "action": "publish the staged bytes",
+      "expect": {
+        "outcome": "success",
+        "digestRecomputedFromDisk": true,
+        "blobPublished": true,
+        "envelopeCommitted": true
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "success",
+    "codes": [],
+    "durableEffects": [
+      "the staged bytes are copied to sources/sha256/<digest> and referenced by the catalog; the staged file itself stays non-authoritative"
+    ],
+    "observations": [
+      "§5.2 and §7 are scoped to scenes/main.json; no supported path may extend them to .thirdlight/**",
+      "the staged bytes are treated as untrusted input: traversal/symlink checks, size caps and the full import profile apply",
+      "the digest is recomputed from the bytes on disk at publish time; a caller-supplied digest is never trusted"
+    ]
+  },
+  "notes": "BR-4 (docs/handoffs/m2-plan-review.md): the failure this prevents is §7 treating a harness staging write as an unexpected external modification, pausing writes and quarantining the staged bytes."
+}

@@ -1,0 +1,97 @@
+{
+  "note": "C12: the kit installs EXACTLY this lockfile (npm ci — lockfile-authoritative; no re-resolution → a transitive floating dependency is impossible by construction). Top-level pins classified per distribution.md §5; every transitive entry is pinned by the lockfile integrity hashes.",
+  "pins": [
+    {
+      "name": "three",
+      "version": "0.186.0",
+      "license": null,
+      "class": "runtime-browser",
+      "bundles": [
+        "preview",
+        "preview-m3",
+        "export"
+      ]
+    },
+    {
+      "name": "react",
+      "version": "19.3.0",
+      "license": null,
+      "class": "runtime-browser",
+      "bundles": [
+        "editor"
+      ]
+    },
+    {
+      "name": "react-dom",
+      "version": "19.3.0",
+      "license": null,
+      "class": "runtime-browser",
+      "bundles": [
+        "editor"
+      ]
+    },
+    {
+      "name": "ws",
+      "version": "8.21.3",
+      "license": null,
+      "class": "runtime-node",
+      "bundles": [
+        "backend"
+      ]
+    },
+    {
+      "name": "@dimforge/rapier2d-compat",
+      "version": "0.20.0",
+      "license": null,
+      "class": "runtime-browser",
+      "bundles": [
+        "preview",
+        "preview-m3",
+        "export"
+      ]
+    },
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "version": "1.30.0",
+      "license": null,
+      "class": "runtime-node",
+      "bundles": [
+        "mcp-adapter"
+      ]
+    },
+    {
+      "name": "esbuild",
+      "version": "0.28.2",
+      "license": null,
+      "class": "build-only-at-runtime",
+      "bundles": [
+        "(none — external in the backend bundle; resolved from node_modules at export/compile time)"
+      ]
+    },
+    {
+      "name": "typescript",
+      "version": "5.9.3",
+      "license": null,
+      "class": "build-only",
+      "bundles": [
+        "(none — typecheck)"
+      ]
+    },
+    {
+      "name": "vitest",
+      "version": "5.0.1",
+      "license": null,
+      "class": "build-only-test",
+      "bundles": [
+        "(none — tests)"
+      ]
+    }
+  ],
+  "lockfile": {
+    "version": 3,
+    "entryCount": 235,
+    "esbuildPlatformPackages": 26,
+    "nodeModulesNeverVendored": true,
+    "reason": "machine-dependent platform binaries (25 @esbuild/<platform> packages) — install via npm ci --prefix <kit>"
+  }
+}

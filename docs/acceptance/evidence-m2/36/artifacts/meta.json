@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 2,
+  "type": "thirdlight-export",
+  "engineVersion": "0.1.0",
+  "projectId": "demo-store-01",
+  "snapshotId": "demo-store-01@r13",
+  "revision": 13,
+  "exportedAt": "2026-09-19T10:47:42Z",
+  "dependencies": {
+    "three": "0.186.0",
+    "typescript": "5.9.3",
+    "esbuild": "0.28.2",
+    "runtime": {
+      "fixedStepHz": 120,
+      "modules": [
+        "thirdlight.input:keyboard-gamepad",
+        "thirdlight.physics-rapier:2d",
+        "thirdlight.platformer:controller",
+        "thirdlight.three-adapter:gltf-loader"
+      ]
+    }
+  },
+  "scene": {
+    "entityCount": 4,
+    "cameraId": "cam-main",
+    "boxCount": 0
+  },
+  "behaviors": [
+    {
+      "behaviorId": "behavior-p36-01",
+      "sourceDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+      "sourceByteLength": 922,
+      "manifestDigest": "ee8fc8fdd3c64b93755ae1b55ff99fff640ed5a1386ff0d291f2b24e48c503d6",
+      "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+      "outputByteLength": 500,
+      "apiVersion": 1,
+      "enginePins": [
+        {
+          "id": "@thirdlight/input",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/physics-rapier",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/platformer",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/runtime",
+          "version": "0.1.0",
+          "apiVersion": 1
+        },
+        {
+          "id": "@thirdlight/three",
+          "version": "0.186.0",
+          "apiVersion": 0
+        },
+        {
+          "id": "@thirdlight/three-adapter",
+          "version": "0.1.0",
+          "apiVersion": 1
+        }
+      ]
+    }
+  ],
+  "behaviorTrust": {
+    "acknowledgedSourceDigests": [
+      "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f"
+    ]
+  },
+  "manifest": {
+    "manifestVersion": 1,
+    "snapshotId": "demo-store-01@r13",
+    "revision": 13,
+    "contentDigest": "3e0f013723bb6edb8e92b72cf31825c7e9fa61aa6cee97ffa749003810be770a",
+    "buildId": "aaedfa81c90365e02a9996c825018d24db6853e596f836b50d2d2c315a02fec5",
+    "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
+  },
+  "licenses": [
+    {
+      "id": "@dimforge/rapier2d-compat",
+      "version": "0.20.0",
+      "license": "Apache-2.0",
+      "source": "npm"
+    },
+    {
+      "id": "esbuild",
+      "version": "0.28.2",
+      "license": "MIT",
+      "source": "npm"
+    },
+    {
+      "id": "three",
+      "version": "0.186.0",
+      "license": "MIT",
+      "source": "npm"
+    },
+    {
+      "id": "typescript",
+      "version": "5.9.3",
+      "license": "Apache-2.0",
+      "source": "npm"
+    }
+  ],
+  "artifacts": {
+    "assets": {
+      "count": 1,
+      "bytes": 1552
+    },
+    "behaviors": {
+      "count": 1,
+      "bytes": 500
+    },
+    "total": {
+      "count": 2,
+      "bytes": 2052
+    }
+  },
+  "outputDigest": "c5e2097fcc2b0fca6635e8ba39d3009e909e01d64c27f173978e993112a950db"
+}

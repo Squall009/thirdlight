@@ -1,0 +1,613 @@
+{
+  "kind": "command-scenario-m2",
+  "scenarioVersion": 1,
+  "id": "content-ops",
+  "title": "Non-prefab M2 content/property commands (packet 21): asset publish/reimport, component and settings edits, trust acknowledgment, undo/redo, no-change, unknown setting and stale revision",
+  "projectId": "demo-0003",
+  "base": {
+    "state": "contracts/commands/prefab-scenario.before.json",
+    "revision": 2
+  },
+  "notes": [
+    "Byte-exact request/result pairs for the packet-21 pure layer against the packet-16 released-state before envelope (revision 2) plus the demo-0003 manifest from contracts/commands/queries.json.",
+    "`base.state` is relative to fixtures/m2/. Every successful step consumes exactly one revision; S8, S9 and S10 are failures that leave the durable state byte-identical.",
+    "The M1/M2 packet-16 scenario steps are replayed separately against contracts/commands/prefab-scenario.messages.json by packages/commands/src/m2-content.test.ts."
+  ],
+  "steps": [
+    {
+      "stepId": "S1",
+      "in": {
+        "op": "publishAsset",
+        "projectId": "demo-0003",
+        "expectedRevision": 2,
+        "requestId": "req-00000000000000000000000000000001",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "mode": "create",
+          "assetId": "asset-0123456789abcdef",
+          "displayName": "Crate",
+          "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sourceByteLength": 26,
+          "importRecipe": {
+            "profile": "gltf-glb",
+            "recipeVersion": 1,
+            "toolchain": {
+              "three": "0.186.0"
+            },
+            "extensions": []
+          },
+          "metrics": {
+            "nodes": 4,
+            "meshes": 1,
+            "primitives": 2,
+            "materials": 2,
+            "images": 1,
+            "textures": 1,
+            "vertices": 96,
+            "triangles": 48,
+            "animations": 1,
+            "animationChannels": 3,
+            "clipDurationMs": 1000,
+            "decodedGeometryBytes": 4096,
+            "decodedImageBytes": 2048
+          },
+          "importedAt": "2026-09-18T10:00:00Z"
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "publishAsset",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000001",
+        "revision": 3,
+        "duplicated": false,
+        "change": {
+          "type": "publishAsset",
+          "mode": "create",
+          "assetId": "asset-0123456789abcdef",
+          "previous": null,
+          "next": {
+            "assetId": "asset-0123456789abcdef",
+            "kind": "model",
+            "displayName": "Crate",
+            "currentVersion": 1,
+            "versions": [
+              {
+                "version": 1,
+                "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sourceByteLength": 26,
+                "importRecipe": {
+                  "profile": "gltf-glb",
+                  "recipeVersion": 1,
+                  "toolchain": {
+                    "three": "0.186.0"
+                  },
+                  "extensions": []
+                },
+                "metrics": {
+                  "nodes": 4,
+                  "meshes": 1,
+                  "primitives": 2,
+                  "materials": 2,
+                  "images": 1,
+                  "textures": 1,
+                  "vertices": 96,
+                  "triangles": 48,
+                  "animations": 1,
+                  "animationChannels": 3,
+                  "clipDurationMs": 1000,
+                  "decodedGeometryBytes": 4096,
+                  "decodedImageBytes": 2048
+                },
+                "importedAt": "2026-09-18T10:00:00Z",
+                "publishedRevision": 3
+              }
+            ]
+          }
+        },
+        "history": {
+          "undoDepth": 1,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S2",
+      "in": {
+        "op": "publishAsset",
+        "projectId": "demo-0003",
+        "expectedRevision": 3,
+        "requestId": "req-00000000000000000000000000000002",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "mode": "reimport",
+          "assetId": "asset-0123456789abcdef",
+          "displayName": "Crate",
+          "sourceDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceByteLength": 30,
+          "importRecipe": {
+            "profile": "gltf-glb",
+            "recipeVersion": 1,
+            "toolchain": {
+              "three": "0.186.0"
+            },
+            "extensions": []
+          },
+          "metrics": {
+            "nodes": 4,
+            "meshes": 1,
+            "primitives": 2,
+            "materials": 2,
+            "images": 1,
+            "textures": 1,
+            "vertices": 96,
+            "triangles": 48,
+            "animations": 1,
+            "animationChannels": 3,
+            "clipDurationMs": 1000,
+            "decodedGeometryBytes": 4096,
+            "decodedImageBytes": 2048
+          },
+          "importedAt": "2026-09-18T10:05:00Z"
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "publishAsset",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000002",
+        "revision": 4,
+        "duplicated": false,
+        "change": {
+          "type": "publishAsset",
+          "mode": "reimport",
+          "assetId": "asset-0123456789abcdef",
+          "previous": {
+            "assetId": "asset-0123456789abcdef",
+            "kind": "model",
+            "displayName": "Crate",
+            "currentVersion": 1,
+            "versions": [
+              {
+                "version": 1,
+                "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sourceByteLength": 26,
+                "importRecipe": {
+                  "profile": "gltf-glb",
+                  "recipeVersion": 1,
+                  "toolchain": {
+                    "three": "0.186.0"
+                  },
+                  "extensions": []
+                },
+                "metrics": {
+                  "nodes": 4,
+                  "meshes": 1,
+                  "primitives": 2,
+                  "materials": 2,
+                  "images": 1,
+                  "textures": 1,
+                  "vertices": 96,
+                  "triangles": 48,
+                  "animations": 1,
+                  "animationChannels": 3,
+                  "clipDurationMs": 1000,
+                  "decodedGeometryBytes": 4096,
+                  "decodedImageBytes": 2048
+                },
+                "importedAt": "2026-09-18T10:00:00Z",
+                "publishedRevision": 3
+              }
+            ]
+          },
+          "next": {
+            "assetId": "asset-0123456789abcdef",
+            "kind": "model",
+            "displayName": "Crate",
+            "currentVersion": 2,
+            "versions": [
+              {
+                "version": 1,
+                "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sourceByteLength": 26,
+                "importRecipe": {
+                  "profile": "gltf-glb",
+                  "recipeVersion": 1,
+                  "toolchain": {
+                    "three": "0.186.0"
+                  },
+                  "extensions": []
+                },
+                "metrics": {
+                  "nodes": 4,
+                  "meshes": 1,
+                  "primitives": 2,
+                  "materials": 2,
+                  "images": 1,
+                  "textures": 1,
+                  "vertices": 96,
+                  "triangles": 48,
+                  "animations": 1,
+                  "animationChannels": 3,
+                  "clipDurationMs": 1000,
+                  "decodedGeometryBytes": 4096,
+                  "decodedImageBytes": 2048
+                },
+                "importedAt": "2026-09-18T10:00:00Z",
+                "publishedRevision": 3
+              },
+              {
+                "version": 2,
+                "sourceDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "sourceByteLength": 30,
+                "importRecipe": {
+                  "profile": "gltf-glb",
+                  "recipeVersion": 1,
+                  "toolchain": {
+                    "three": "0.186.0"
+                  },
+                  "extensions": []
+                },
+                "metrics": {
+                  "nodes": 4,
+                  "meshes": 1,
+                  "primitives": 2,
+                  "materials": 2,
+                  "images": 1,
+                  "textures": 1,
+                  "vertices": 96,
+                  "triangles": 48,
+                  "animations": 1,
+                  "animationChannels": 3,
+                  "clipDurationMs": 1000,
+                  "decodedGeometryBytes": 4096,
+                  "decodedImageBytes": 2048
+                },
+                "importedAt": "2026-09-18T10:05:00Z",
+                "publishedRevision": 4
+              }
+            ]
+          }
+        },
+        "history": {
+          "undoDepth": 2,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S3",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 4,
+        "requestId": "req-00000000000000000000000000000003",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "box-0001",
+          "component": "box",
+          "value": {
+            "material": {
+              "color": "#C05050"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000003",
+        "revision": 5,
+        "duplicated": false,
+        "change": {
+          "type": "setComponent",
+          "id": "box-0001",
+          "component": "box",
+          "previous": {
+            "size": [
+              2,
+              0.5,
+              2
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          },
+          "next": {
+            "size": [
+              2,
+              0.5,
+              2
+            ],
+            "material": {
+              "color": "#c05050"
+            }
+          },
+          "changedFields": [
+            "material"
+          ]
+        },
+        "history": {
+          "undoDepth": 3,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S4",
+      "in": {
+        "op": "setSettings",
+        "projectId": "demo-0003",
+        "expectedRevision": 5,
+        "requestId": "req-00000000000000000000000000000004",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "settings": {
+            "run_speed": 6,
+            "jump_velocity": 8
+          }
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "setSettings",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000004",
+        "revision": 6,
+        "duplicated": false,
+        "change": {
+          "type": "setSettings",
+          "previous": {},
+          "next": {
+            "jump_velocity": 8,
+            "run_speed": 6
+          },
+          "changedKeys": [
+            "jump_velocity",
+            "run_speed"
+          ]
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S5",
+      "in": {
+        "op": "acknowledgeBehaviorTrust",
+        "projectId": "demo-0003",
+        "expectedRevision": 6,
+        "requestId": "req-00000000000000000000000000000005",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "out": {
+        "ok": true,
+        "op": "acknowledgeBehaviorTrust",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000005",
+        "revision": 7,
+        "duplicated": false,
+        "change": {
+          "type": "acknowledgeBehaviorTrust",
+          "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "previous": [],
+          "next": [
+            {
+              "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "acknowledgedRevision": 7
+            }
+          ]
+        },
+        "history": {
+          "undoDepth": 5,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S6",
+      "in": {
+        "op": "undo",
+        "projectId": "demo-0003",
+        "expectedRevision": 7,
+        "requestId": "req-00000000000000000000000000000006",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {}
+      },
+      "out": {
+        "ok": true,
+        "op": "undo",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000006",
+        "revision": 8,
+        "duplicated": false,
+        "change": {
+          "type": "acknowledgeBehaviorTrust",
+          "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "previous": [
+            {
+              "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "acknowledgedRevision": 7
+            }
+          ],
+          "next": []
+        },
+        "appliedOf": "req-00000000000000000000000000000005",
+        "originOfApplied": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 1
+        }
+      }
+    },
+    {
+      "stepId": "S7",
+      "in": {
+        "op": "redo",
+        "projectId": "demo-0003",
+        "expectedRevision": 8,
+        "requestId": "req-00000000000000000000000000000007",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {}
+      },
+      "out": {
+        "ok": true,
+        "op": "redo",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000007",
+        "revision": 9,
+        "duplicated": false,
+        "change": {
+          "type": "acknowledgeBehaviorTrust",
+          "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "previous": [],
+          "next": [
+            {
+              "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "acknowledgedRevision": 7
+            }
+          ]
+        },
+        "appliedOf": "req-00000000000000000000000000000005",
+        "originOfApplied": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "history": {
+          "undoDepth": 5,
+          "redoDepth": 0
+        }
+      }
+    },
+    {
+      "stepId": "S8",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 9,
+        "requestId": "req-00000000000000000000000000000008",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "box-0001",
+          "component": "box",
+          "value": {
+            "material": {
+              "color": "#c05050"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": false,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000008",
+        "error": {
+          "code": "no_change",
+          "cls": "validation",
+          "message": "the resulting scene and content are byte-identical to the current state"
+        }
+      }
+    },
+    {
+      "stepId": "S9",
+      "in": {
+        "op": "setSettings",
+        "projectId": "demo-0003",
+        "expectedRevision": 9,
+        "requestId": "req-00000000000000000000000000000009",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "settings": {
+            "gravity": 9.8
+          }
+        }
+      },
+      "out": {
+        "ok": false,
+        "op": "setSettings",
+        "projectId": "demo-0003",
+        "requestId": "req-00000000000000000000000000000009",
+        "error": {
+          "code": "setting_unknown",
+          "cls": "validation",
+          "key": "gravity",
+          "message": "the settings key registry (packet 17) does not declare this key",
+          "hint": "packet 17 pins the M2 settings keys; until then every key is unknown"
+        }
+      }
+    },
+    {
+      "stepId": "S10",
+      "in": {
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "expectedRevision": 0,
+        "requestId": "req-0000000000000000000000000000000a",
+        "origin": {
+          "kind": "mcp",
+          "clientId": "pi-harness"
+        },
+        "args": {
+          "entityId": "box-0001",
+          "component": "box",
+          "value": {
+            "material": {
+              "color": "#111111"
+            }
+          }
+        }
+      },
+      "out": {
+        "ok": false,
+        "op": "setComponent",
+        "projectId": "demo-0003",
+        "requestId": "req-0000000000000000000000000000000a",
+        "error": {
+          "code": "revision_conflict",
+          "cls": "conflict",
+          "expectedRevision": 0,
+          "currentRevision": 9,
+          "message": "expected revision does not match the current project revision",
+          "hint": "re-read the project (queryProject) and re-issue the command with a fresh requestId and the current revision"
+        }
+      }
+    }
+  ]
+}

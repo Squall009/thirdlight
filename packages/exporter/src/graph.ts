@@ -55,6 +55,58 @@ export function checkBundleGraph(
   metafile: { inputs: Record<string, unknown> },
   bootstrapEntry: string,
 ): GraphReport {
+  return checkGraph(metafile, bootstrapEntry, 'm1');
+}
+
+/**
+ * Packet 36 — the M2 export bundle graph check (dependencies.md §4.2 export
+ * row): the M2 bootstrap file plus `runtime`, `three-adapter` (incl. the
+ * GLTFLoader subpath), `project-model`, `input`, `platformer`,
+ * `physics-rapier`, `three` and the pinned `@dimforge/rapier2d-compat`, PLUS
+ * the per-snapshot virtual modules the export build generates in memory:
+ *
+ *   `export-artifacts`, `export-behaviors`, `thirdlight/behavior-output:<id>`.
+ *
+ * Still forbidden in the graph (any node): `backend`, `editor`, `workspace`,
+ * `commands`, `mcp-adapter`, `protocol`, `exporter` (beyond the bootstrap
+ * file), `behavior-build`, `asset-pipeline` and any `node:` builtin.
+ */
+export function checkBundleGraphM2(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string): GraphReport {
+  return checkGraph(metafile, bootstrapEntry, 'm2');
+}
+
+/** The two virtual-module keys the export build generates (esbuild namespaces them). */
+const M2_VIRTUAL_KEYS = new Set(['thirdlight-export:export-artifacts', 'thirdlight-export:export-behaviors']);
+
+/**
+ * The M2 exporter files allowed in the bundle graph: the M2 bootstrap (that
+ * file only) plus the shared composition module it imports
+ * (`export-composition.ts`). Recorded as contract-change request C36-5 (the
+ * C36-1 layout addition needs a second exporter file in the graph).
+ */
+const M2_EXPORTER_FILES = [
+  'packages/exporter/src/export-bootstrap-m2.ts',
+  'packages/exporter/src/export-composition.ts',
+  'packages/exporter/src/export-page.ts',
+];
+
+interface GraphOptions {
+  profile: 'm1' | 'm2' | 'm3';
+}
+
+/** The virtual-module keys the M3 export build generates (esbuild
+ *  namespaces them): the declared asset paths + one relative fetch each. */
+const M3_VIRTUAL_KEYS = new Set(['thirdlight-export:export-artifacts']);
+
+/**
+ * The M3 exporter files allowed in the bundle graph: the M3 bootstrap (that
+ * file only). The M3 composition is owned by `game-host` (delivery.md §1/§3),
+ * so no second exporter file enters the graph (unlike M2's
+ * `export-composition.ts`).
+ */
+const M3_EXPORTER_FILES = ['packages/exporter/src/export-bootstrap-m3.ts'];
+
+function checkGraph(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string, profile: GraphOptions['profile']): GraphReport {
   const boot = toRepoRel(normalize(bootstrapEntry));
   const forbidden: string[] = [];
 
@@ -67,10 +119,21 @@ export function checkBundleGraph(
       continue;
     }
 
+    if (profile === 'm2' && (M2_VIRTUAL_KEYS.has(p) || p.startsWith('thirdlight-behavior:thirdlight:behavior-output:'))) {
+      continue;
+    }
+
+    if (profile === 'm3' && M3_VIRTUAL_KEYS.has(p)) {
+      continue;
+    }
+
     if (toRepoRel(p) === boot) continue;
 
-    // The exporter package: ONLY its bootstrap file is allowed.
+    // The exporter package: ONLY its bootstrap file (plus, for M2, the shared
+    // composition module) is allowed.
     if (p.includes('packages/exporter/')) {
+      if (profile === 'm2' && M2_EXPORTER_FILES.some((f) => p.endsWith(f))) continue;
+      if (profile === 'm3' && M3_EXPORTER_FILES.some((f) => p.endsWith(f))) continue;
       if (forbidden.length < MAX_REPORTED) forbidden.push(p);
       continue;
     }
@@ -79,17 +142,45 @@ export function checkBundleGraph(
       p.includes('packages/runtime/src/') ||
       p.includes('packages/three-adapter/src/') ||
       p.includes('packages/project-model/src/') ||
-      p.includes('node_modules/three/')
+      nodeModulesAllowlist(p, profile)
     ) {
       continue;
     }
 
     // Everything else (backend, editor, workspace, commands, mcp-adapter,
-    // protocol, or any other package/tooling) is forbidden.
+    // protocol, behavior-build, asset-pipeline or any other package/tooling)
+    // is forbidden.
     if (forbidden.length < MAX_REPORTED) {
       forbidden.push(p);
     }
   }
 
   return { ok: forbidden.length === 0, forbidden };
+}
+
+function nodeModulesAllowlist(p: string, profile: GraphOptions['profile']): boolean {
+  if (p.includes('node_modules/three/')) return true;
+  if (profile !== 'm2' && profile !== 'm3') return false;
+  if (p.includes('packages/input/src/') || p.includes('packages/platformer/src/') || p.includes('packages/physics-rapier/src/')) return true;
+  if (profile === 'm3' && (p.includes('packages/game-host/src/') || p.includes('packages/platformer-game/src/'))) return true;
+  // The approved physics pin (dependencies.md §7): the compat build and its
+  // inlined WASM module only.
+  return p.includes('node_modules/@dimforge/rapier2d-compat/');
+}
+
+/**
+ * Packet 58 — the M3 export bundle graph check (delivery.md §3, export.md §4
+ * step 4): the M3 bootstrap file plus the single shared production composition
+ * (`game-host`) and its transitive packages — `runtime`, `platformer`,
+ * `platformer-game`, `three-adapter`, `project-model`, `input`,
+ * `physics-rapier`, `three` and the pinned `@dimforge/rapier2d-compat` — PLUS
+ * the per-snapshot virtual module the export build generates in memory
+ * (`thirdlight:export-artifacts`).
+ *
+ * Still forbidden in the graph (any node): `backend`, `editor`, `workspace`,
+ * `commands`, `mcp-adapter`, `protocol`, `exporter` (beyond the bootstrap
+ * file), `behavior-build`, `asset-pipeline` and any `node:` builtin.
+ */
+export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string): GraphReport {
+  return checkGraph(metafile, bootstrapEntry, 'm3');
 }

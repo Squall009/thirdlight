@@ -1,0 +1,20 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/a.ts",
+      "text": "import { b } from './b.ts';\n\nexport const a = 1; void b;\n"
+    },
+    {
+      "path": "src/b.ts",
+      "text": "import { a } from './a.ts';\n\nexport const b = a;\n"
+    },
+    {
+      "path": "src/index.ts",
+      "text": "import { a } from './a.ts';\n\nexport default { prepare() { return {}; }, instantiate() { return {}; }, step() { void a; }, dispose() {} };\n"
+    }
+  ]
+}

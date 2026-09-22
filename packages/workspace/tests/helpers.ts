@@ -27,15 +27,28 @@ let backstopInstalled = false;
 function backstop(): void {
   if (backstopInstalled) return;
   backstopInstalled = true;
-  try {
-    process.on('exit', () => {
-      for (const r of roots) {
-        try {
-          rmSync(r, { recursive: true, force: true });
-        } catch {
-          // best effort
-        }
+  const cleanup = (): void => {
+    for (const r of roots) {
+      try {
+        rmSync(r, { recursive: true, force: true });
+      } catch {
+        // best effort
       }
+    }
+  };
+  try {
+    // 'exit' covers normal exit and process.exit(); signal kills do NOT run
+    // 'exit' handlers, so also clean up on the SIGTERM/SIGINT paths a
+    // supervisor takes before escalating to SIGKILL. SIGKILL residue is
+    // reaped by the next suite start (tests/test-hygiene.ts globalSetup).
+    process.on('exit', cleanup);
+    process.once('SIGTERM', () => {
+      cleanup();
+      process.exit(143);
+    });
+    process.once('SIGINT', () => {
+      cleanup();
+      process.exit(130);
     });
   } catch {
     // backstop is optional

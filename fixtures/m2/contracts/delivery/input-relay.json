@@ -1,0 +1,215 @@
+{
+  "kind": "delivery-input-relay",
+  "setVersion": 1,
+  "id": "delivery-input-relay",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 8.1 Route and shape"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 8.2 Result"
+    },
+    {
+      "file": "docs/planning/m2-contracts/diffs/sessions.md",
+      "section": "### S19-13 — new §18 \"Bounded input-exercise relay (MCP)\""
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 3.1 One frame per executed fixed step"
+    }
+  ],
+  "constants": {
+    "maxFrames": 600,
+    "maxBodyBytes": 16384,
+    "ackTimeoutMs": 10000,
+    "mode": "exclusive-test",
+    "neutralMoveX": 0,
+    "neutralJump": "none"
+  },
+  "cases": [
+    {
+      "caseId": "R1-valid-sequence",
+      "mode": "exclusive-test",
+      "frameCount": 51,
+      "bodyBytes": 1400,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 1481,
+      "expect": {
+        "applied": true,
+        "appliedFromStep": 1481,
+        "appliedToStep": 1531,
+        "code": null,
+        "mode": "test",
+        "clearedOnCompletion": true
+      }
+    },
+    {
+      "caseId": "R2-neutral-clear",
+      "mode": "exclusive-test",
+      "frameCount": 1,
+      "bodyBytes": 64,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 100,
+      "expect": {
+        "applied": true,
+        "appliedFromStep": 100,
+        "appliedToStep": 100,
+        "code": null,
+        "mode": "test",
+        "clearedOnCompletion": true
+      }
+    },
+    {
+      "caseId": "R3-no-browser",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": true,
+      "browserPresent": false,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "session_unavailable",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R4-physical-engaged",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": true,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "input_relay_conflict",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R5-over-cap",
+      "mode": "exclusive-test",
+      "frameCount": 601,
+      "bodyBytes": 16000,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "input_relay_limits_exceeded",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R6-body-over-cap",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 16385,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "input_relay_limits_exceeded",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R7-non-ascending",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": false,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "field_value",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R8-bad-mode",
+      "mode": "inject",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "field_value",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R9-timeout",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "ackWithinMs": 10001,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "input_relay_timeout",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    },
+    {
+      "caseId": "R10-unknown-play",
+      "mode": "exclusive-test",
+      "frameCount": 10,
+      "bodyBytes": 300,
+      "ascending": true,
+      "browserPresent": true,
+      "physicalEngaged": false,
+      "baseStepIndex": 0,
+      "playExists": false,
+      "expect": {
+        "applied": false,
+        "appliedFromStep": null,
+        "appliedToStep": null,
+        "code": "play_not_found",
+        "mode": null,
+        "clearedOnCompletion": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+
+> thirdlight@0.0.0 typecheck
+> node tools/typecheck.mjs
+
+typecheck: tsc --noEmit -p packages/asset-pipeline
+typecheck: tsc --noEmit -p packages/backend
+typecheck: tsc --noEmit -p packages/behavior-build
+typecheck: tsc --noEmit -p packages/commands
+typecheck: tsc --noEmit -p packages/editor
+typecheck: tsc --noEmit -p packages/exporter
+typecheck: tsc --noEmit -p packages/input
+typecheck: tsc --noEmit -p packages/mcp-adapter
+typecheck: tsc --noEmit -p packages/physics-rapier
+typecheck: tsc --noEmit -p packages/platformer
+typecheck: tsc --noEmit -p packages/project-model
+typecheck: tsc --noEmit -p packages/protocol
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace

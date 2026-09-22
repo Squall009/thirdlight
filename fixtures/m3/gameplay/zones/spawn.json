@@ -1,0 +1,359 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "Reset-destination validation (gameplay.md §5.1 R2 / §5.4): a spawn is refused, never retried and never replaced by a fallback coordinate."
+  ],
+  "level": {
+    "minX": 0,
+    "maxX": 48,
+    "minY": -4,
+    "maxY": 8
+  },
+  "killY": -4,
+  "cases": [
+    {
+      "id": "spawn-ok-start",
+      "target": [
+        3,
+        0.91
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "spawn-ok-checkpoint",
+      "target": [
+        24,
+        0.91
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "spawn-inside-hazard",
+      "target": [
+        10.9,
+        0.91
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "game_spawn_blocked",
+        "reason": "hazard"
+      }
+    },
+    {
+      "id": "spawn-outside-level-x",
+      "target": [
+        49,
+        0.91
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "game_spawn_invalid",
+        "reason": "outside_level"
+      }
+    },
+    {
+      "id": "spawn-outside-level-y",
+      "target": [
+        24,
+        9
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "game_spawn_invalid",
+        "reason": "outside_level"
+      }
+    },
+    {
+      "id": "spawn-below-kill",
+      "target": [
+        24,
+        -4.5
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "game_spawn_invalid",
+        "reason": "outside_level"
+      }
+    },
+    {
+      "id": "spawn-inside-goal-allowed",
+      "target": [
+        44.5,
+        0.91
+      ],
+      "zones": [
+        {
+          "id": "zone-0002",
+          "role": "hazard",
+          "center": [
+            10.9,
+            0.125
+          ],
+          "size": [
+            0.8,
+            0.25
+          ]
+        },
+        {
+          "id": "zone-0003",
+          "role": "checkpoint",
+          "center": [
+            22,
+            1
+          ],
+          "size": [
+            2,
+            2
+          ]
+        },
+        {
+          "id": "zone-0001",
+          "role": "goal",
+          "center": [
+            44.5,
+            1
+          ],
+          "size": [
+            1,
+            2
+          ]
+        }
+      ],
+      "expect": {
+        "ok": true
+      }
+    }
+  ]
+}

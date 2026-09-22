@@ -1,0 +1,159 @@
+{
+  "done": true,
+  "probe": {
+    "wasmCompile": "ok",
+    "physicsOk": true,
+    "physicsImplementation": "rapier2d-compat@0.20.0",
+    "settleLast": {
+      "grounded": true,
+      "position": {
+        "x": 3,
+        "y": 0.9099825265185791
+      }
+    },
+    "moveTrace": [
+      {
+        "step": 0,
+        "x": 3.033333335071802,
+        "y": 0.9669533612506348,
+        "grounded": false,
+        "vy": 6.8365
+      },
+      {
+        "step": 12,
+        "x": 3.433333355933428,
+        "y": 1.5443283597307165,
+        "grounded": false,
+        "vy": 4.8745
+      },
+      {
+        "step": 24,
+        "x": 3.8333333767950535,
+        "y": 1.9255033599512537,
+        "grounded": false,
+        "vy": 2.9125000000000005
+      },
+      {
+        "step": 36,
+        "x": 4.233333397656679,
+        "y": 2.110478360980924,
+        "grounded": false,
+        "vy": 0.9505000000000008
+      },
+      {
+        "step": 47,
+        "x": 4.600000083446503,
+        "y": 2.107682527701545,
+        "grounded": false,
+        "vy": -0.8479999999999991
+      }
+    ],
+    "diagnostics": {
+      "stallSteps": 0,
+      "penetrationCorrectedCount": 49,
+      "implementation": "rapier2d-compat@0.20.0",
+      "worldColliderCount": 3,
+      "worldBodyCount": 2,
+      "staticColliderCount": 2,
+      "characterColliderCount": 1,
+      "steps": 61,
+      "snapSteps": 2,
+      "groundedDownwardClampedCount": 0,
+      "maxCorrection": 0.0014239655946264975,
+      "live": true
+    },
+    "physicsDisposed": true,
+    "glbBytes": 1864,
+    "glbSha256": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "glbLoaded": true,
+    "glbClipNames": [
+      "Spin2"
+    ],
+    "glbClipCount": 1,
+    "glbOwnership": {
+      "geometries": 1,
+      "materials": 2,
+      "textures": 0,
+      "listeners": 0,
+      "objectUrls": 0
+    },
+    "glbInstanceChildren": 1,
+    "mixerCrossfade": {
+      "clips": [
+        "probe-idle",
+        "probe-airborne"
+      ],
+      "startWeights": [
+        1,
+        1
+      ],
+      "midWeights": [
+        0.5,
+        0.5
+      ],
+      "endWeights": [
+        0,
+        1
+      ],
+      "mixerTime": 0.6,
+      "otherMixerTime": 0.1,
+      "independentOtherWeight": 1,
+      "instanceChildren": [
+        1,
+        1,
+        1
+      ]
+    },
+    "rigidAnimationProfileFeasible": true,
+    "glbDisposed": true,
+    "inputRight": {
+      "stepIndex": 0,
+      "moveX": 1,
+      "jump": "none"
+    },
+    "inputSpaceHeld": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputSpaceLatch": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputEnter": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "none"
+    },
+    "inputGamepadButton": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "pressed"
+    },
+    "inputGamepadAxis": {
+      "stepIndex": 0,
+      "moveX": 0.875,
+      "jump": "none"
+    },
+    "inputNonStandardPad": {
+      "stepIndex": 0,
+      "moveX": 0,
+      "jump": "none"
+    },
+    "controllerConstants": {
+      "capsuleRadius": 0.3,
+      "capsuleHalfHeight": 0.6,
+      "offsetSkin": 0.01,
+      "groundSnap": 0.1,
+      "autostep": false,
+      "moveAccel": 40,
+      "moveDecel": 60,
+      "coyoteSteps": 6,
+      "jumpBufferSteps": 8,
+      "jumpReleaseFactor": 0.5,
+      "settlePreRollSteps": 12
+    },
+    "errors": []
+  }
+}

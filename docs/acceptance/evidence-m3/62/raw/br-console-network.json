@@ -1,0 +1,131 @@
+{
+  "requests": [
+    "http://127.0.0.1:39563/games/beacon-reach/",
+    "http://127.0.0.1:39563/games/beacon-reach/js/main.js",
+    "http://127.0.0.1:39563/games/beacon-reach/manifest.json",
+    "http://127.0.0.1:39563/favicon.ico",
+    "http://127.0.0.1:39563/games/beacon-reach/scene.json",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+    "http://127.0.0.1:39563/favicon.ico",
+    "http://127.0.0.1:39563/games/beacon-reach/manifest.json",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+    "http://127.0.0.1:39563/games/beacon-reach/content/sha256/608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a"
+  ],
+  "responses": [
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/",
+      "status": 200,
+      "mimeType": "text/html",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/js/main.js",
+      "status": 200,
+      "mimeType": "text/javascript",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/manifest.json",
+      "status": 200,
+      "mimeType": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/favicon.ico",
+      "status": 404,
+      "mimeType": "text/plain",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/scene.json",
+      "status": 200,
+      "mimeType": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/favicon.ico",
+      "status": 404,
+      "mimeType": "text/plain",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/manifest.json",
+      "status": 200,
+      "mimeType": "application/json",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/e6b2cf51e7284cbc344b37c3917c04557857af7569ac7e1283134536878ce6df",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/4a06bf9794add57f500c4c8e011aedc84c66d38543196cece32613c8fd225fed",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/ad8bbb559f207db2a56802c70e16e0ddeef9a31a138310e5fae58d80ea45f7ac",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/98ad6b706d5bea539329d2c35385db139e4ab8701e04f55d265a82edc21ed22e",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    },
+    {
+      "url": "http://127.0.0.1:39563/games/beacon-reach/content/sha256/608e87a893d77e9cd1e652b3e88d59caa4513acbe5f59a8c1efb8a8c3b99420a",
+      "status": 200,
+      "mimeType": "application/octet-stream",
+      "fromDiskCache": false
+    }
+  ],
+  "failures": [],
+  "consoleMessages": [],
+  "errors": [
+    "log.error(network): Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "log.error(network): Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

@@ -1,0 +1,7 @@
+packet-18 independent recompute (python3, second implementation)
+OK   p18-container-hash: 16 committed container(s) re-hashed with hashlib
+OK   p18-source-graphs: 16 container + 25 constructed case(s) re-derived in python
+OK   p18-example: manifest/output digests and the declared numeric property trace re-derived in python
+OK   p18-intents: 6 quantization + 18 step case(s) re-derived in python
+OK   p18-runtime-failures: 6 flood case(s) re-derived in python
+verdict: OK (5 group(s) re-derived, 0 mismatch(es))

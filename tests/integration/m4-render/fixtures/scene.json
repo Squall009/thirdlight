@@ -1,0 +1,758 @@
+{
+  "schemaVersion": 3,
+  "sceneId": "scene-main",
+  "revision": 31,
+  "entities": [
+    {
+      "id": "br-cam-main",
+      "name": "Gameplay camera",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            4,
+            12
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 45,
+          "near": 0.1,
+          "far": 100
+        },
+        "cameraFollow": {
+          "deadZone": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "smoothing": 0.2,
+          "bounds": {
+            "minX": 0,
+            "maxX": 48,
+            "minY": -10,
+            "maxY": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0001",
+      "name": "Start ground",
+      "components": {
+        "transform": {
+          "position": [
+            8,
+            -0.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            16,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#6f6f6f"
+          }
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 8,
+            "hy": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0002",
+      "name": "Low step",
+      "components": {
+        "transform": {
+          "position": [
+            6.5,
+            0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#7d7d7d"
+          }
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 0.5,
+            "hy": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0003",
+      "name": "First hazard",
+      "components": {
+        "transform": {
+          "position": [
+            10.9,
+            0.125,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            0.8,
+            0.25,
+            1
+          ],
+          "material": {
+            "color": "#b03030"
+          }
+        },
+        "gameZone": {
+          "role": "hazard",
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      }
+    },
+    {
+      "id": "box-0004",
+      "name": "Middle ground",
+      "components": {
+        "transform": {
+          "position": [
+            24.75,
+            -0.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            14.5,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#6f6f6f"
+          }
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 7.25,
+            "hy": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "spawn-0001",
+      "name": "Checkpoint spawn",
+      "components": {
+        "transform": {
+          "position": [
+            24,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "playerSpawn": {}
+      }
+    },
+    {
+      "id": "box-0005",
+      "name": "Checkpoint",
+      "components": {
+        "transform": {
+          "position": [
+            22,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1.5,
+            2,
+            1
+          ],
+          "material": {
+            "color": "#3fae6a"
+          }
+        },
+        "gameZone": {
+          "role": "checkpoint",
+          "size": [
+            1.5,
+            2
+          ],
+          "safeSpawnId": "spawn-0001",
+          "activation": {
+            "emissive": "#1bc8ff",
+            "emissiveIntensity": 1.2,
+            "cueAssetId": null
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0006",
+      "name": "Second hazard",
+      "components": {
+        "transform": {
+          "position": [
+            28.4,
+            0.125,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            0.8,
+            0.25,
+            1
+          ],
+          "material": {
+            "color": "#b03030"
+          }
+        },
+        "gameZone": {
+          "role": "hazard",
+          "size": [
+            0.8,
+            0.25
+          ]
+        }
+      }
+    },
+    {
+      "id": "box-0007",
+      "name": "Final ground",
+      "components": {
+        "transform": {
+          "position": [
+            40.75,
+            -0.2,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            14.5,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#6f6f6f"
+          }
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 7.25,
+            "hy": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0008",
+      "name": "Final step",
+      "components": {
+        "transform": {
+          "position": [
+            36.5,
+            0.1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            0.4,
+            1
+          ],
+          "material": {
+            "color": "#7d7d7d"
+          }
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 0.5,
+            "hy": 0.2
+          }
+        }
+      }
+    },
+    {
+      "id": "box-0009",
+      "name": "Beacon",
+      "components": {
+        "transform": {
+          "position": [
+            44.5,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            2,
+            1
+          ],
+          "material": {
+            "color": "#2f7fd4"
+          }
+        },
+        "gameZone": {
+          "role": "goal",
+          "size": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "group-0001",
+      "name": "Player",
+      "components": {
+        "transform": {
+          "position": [
+            3,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-courier"
+          }
+        },
+        "controller": {},
+        "modelAnimation": {
+          "assetId": "br-model-courier",
+          "version": 1,
+          "roles": {
+            "idle": {
+              "clipIndex": 0,
+              "clipName": "Idle"
+            },
+            "run": {
+              "clipIndex": 1,
+              "clipName": "Run"
+            },
+            "airborne": {
+              "clipIndex": 2,
+              "clipName": "Airborne"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "spawn-0002",
+      "name": "Start spawn",
+      "components": {
+        "transform": {
+          "position": [
+            3,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "playerSpawn": {}
+      }
+    },
+    {
+      "id": "light-0001",
+      "name": "Key light",
+      "components": {
+        "transform": {
+          "position": [
+            24,
+            10,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "directional",
+          "color": "#fff4e0",
+          "intensity": 1.2,
+          "direction": [
+            0.4,
+            -1,
+            -0.3
+          ],
+          "castShadow": true
+        }
+      }
+    },
+    {
+      "id": "light-0002",
+      "name": "Ambient fill",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "light": {
+          "type": "ambient",
+          "color": "#404860",
+          "intensity": 0.6
+        }
+      }
+    },
+    {
+      "id": "model-0001",
+      "name": "Courier",
+      "components": {
+        "transform": {
+          "position": [
+            3.4,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-courier"
+          }
+        },
+        "modelAnimation": {
+          "assetId": "br-model-courier",
+          "version": 1,
+          "roles": {
+            "idle": {
+              "clipIndex": 0,
+              "clipName": "Idle"
+            },
+            "run": {
+              "clipIndex": 1,
+              "clipName": "Run"
+            },
+            "airborne": {
+              "clipIndex": 2,
+              "clipName": "Airborne"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "model-0002",
+      "name": "Beacon pillar A",
+      "components": {
+        "transform": {
+          "position": [
+            44.5,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-beacon"
+          }
+        }
+      }
+    },
+    {
+      "id": "model-0003",
+      "name": "Beacon pillar B",
+      "components": {
+        "transform": {
+          "position": [
+            18,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-beacon"
+          }
+        }
+      }
+    },
+    {
+      "id": "model-0004",
+      "name": "Beacon pillar A",
+      "components": {
+        "transform": {
+          "position": [
+            8,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-beacon"
+          }
+        },
+        "prefab": {
+          "prefabId": "prefab-0001",
+          "localId": "model-0002"
+        }
+      }
+    },
+    {
+      "id": "model-0005",
+      "name": "Beacon pillar A",
+      "components": {
+        "transform": {
+          "position": [
+            32,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "br-model-beacon"
+          }
+        },
+        "prefab": {
+          "prefabId": "prefab-0001",
+          "localId": "model-0002"
+        }
+      }
+    }
+  ]
+}

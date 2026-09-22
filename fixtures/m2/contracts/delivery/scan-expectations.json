@@ -1,0 +1,212 @@
+{
+  "kind": "delivery-scan-expectations",
+  "setVersion": 1,
+  "id": "delivery-scan-expectations",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 4.4 Format-aware resource validation (normative)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 4.3 Engine-fetch policy (replaces M1's one-fetch rule, by explicit diff)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 10.2 Bundle and export scans (format-aware)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/diffs/export.md",
+      "section": "### E19-6 — §5.3/§5.4 engine fetches + scan: reword + insert"
+    },
+    {
+      "file": "docs/contracts/export.md",
+      "section": "### 5.4 Forbidden-content scan (normative patterns)"
+    }
+  ],
+  "validators": [
+    {
+      "id": "text",
+      "appliesTo": [
+        "js",
+        "html",
+        "json"
+      ],
+      "binary": false,
+      "patterns": "export.md §5.4 a-j + §5.4.1"
+    },
+    {
+      "id": "glb",
+      "appliesTo": [
+        "glb"
+      ],
+      "binary": true,
+      "checks": [
+        "magic",
+        "version-2",
+        "declared-length",
+        "chunk-table",
+        "strict-json-chunk",
+        "uri-absolute",
+        "uri-embedded-only"
+      ]
+    },
+    {
+      "id": "wasm",
+      "appliesTo": [
+        "wasm"
+      ],
+      "binary": true,
+      "checks": [
+        "magic",
+        "version-1",
+        "declared-sha256",
+        "mime-application/wasm",
+        "host-import-allowlist-empty"
+      ]
+    },
+    {
+      "id": "closure",
+      "appliesTo": [
+        "tree"
+      ],
+      "binary": false,
+      "checks": [
+        "relative-only",
+        "declared-set"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "S1-text-remote-locator",
+      "format": "js",
+      "fault": "text-absolute-locator",
+      "textScanApplied": true,
+      "expect": {
+        "code": "export_bundle_forbidden_content",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S1b-text-credential",
+      "format": "js",
+      "fault": "text-credential",
+      "textScanApplied": true,
+      "expect": {
+        "code": "export_bundle_forbidden_content",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S2-glb-remote-uri",
+      "format": "glb",
+      "fault": "glb-remote-uri",
+      "textScanApplied": false,
+      "expect": {
+        "code": "asset_uri_rejected",
+        "status": 400
+      }
+    },
+    {
+      "caseId": "S3-glb-external-buffer",
+      "format": "glb",
+      "fault": "glb-external-buffer",
+      "textScanApplied": false,
+      "expect": {
+        "code": "asset_uri_rejected",
+        "status": 400
+      }
+    },
+    {
+      "caseId": "S3b-glb-bad-magic",
+      "format": "glb",
+      "fault": "glb-bad-magic",
+      "textScanApplied": false,
+      "expect": {
+        "code": "import_rejected",
+        "status": 400
+      }
+    },
+    {
+      "caseId": "S4-wasm-digest-mismatch",
+      "format": "wasm",
+      "fault": "wasm-digest-mismatch",
+      "textScanApplied": false,
+      "expect": {
+        "code": "scan_forbidden_content",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S4b-wasm-host-import",
+      "format": "wasm",
+      "fault": "wasm-host-import",
+      "textScanApplied": false,
+      "expect": {
+        "code": "scan_forbidden_content",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S5-undeclared-fetch",
+      "format": "tree",
+      "fault": "undeclared-fetch",
+      "textScanApplied": false,
+      "expect": {
+        "code": "export_bundle_graph_forbidden",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S5b-double-fetch",
+      "format": "tree",
+      "fault": "duplicate-declared-fetch",
+      "textScanApplied": false,
+      "expect": {
+        "code": "export_bundle_graph_forbidden",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S6-locator-value",
+      "format": "js",
+      "fault": "text-locator-value",
+      "textScanApplied": true,
+      "expect": {
+        "code": "export_bundle_forbidden_content",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S7-forbidden-graph-node",
+      "format": "tree",
+      "fault": "graph-forbidden-package",
+      "textScanApplied": false,
+      "expect": {
+        "code": "export_bundle_graph_forbidden",
+        "status": 500
+      }
+    },
+    {
+      "caseId": "S8-closure-absolute",
+      "format": "tree",
+      "fault": "closure-absolute-path",
+      "textScanApplied": false,
+      "expect": {
+        "code": "export_manifest_invalid",
+        "status": 400
+      }
+    },
+    {
+      "caseId": "S9-closure-missing",
+      "format": "tree",
+      "fault": "closure-missing-artifact",
+      "textScanApplied": false,
+      "expect": {
+        "code": "export_manifest_invalid",
+        "status": 400
+      }
+    }
+  ]
+}

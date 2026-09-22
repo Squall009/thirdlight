@@ -9,7 +9,14 @@
     "./bridge": "./src/preview/bridge.ts",
     "./client": "./src/session/client.ts",
     "./gesture": "./src/session/gesture.ts",
-    "./projection": "./src/session/projection.ts"
+    "./projection": "./src/session/projection.ts",
+    "./snapping": "./src/session/snapping.ts",
+    "./asset-browser": "./src/session/asset-browser.ts",
+    "./content-projection": "./src/session/content-projection.ts",
+    "./placement": "./src/session/placement.ts",
+    "./property-controls": "./src/session/property-controls.ts",
+    "./prefab-authoring": "./src/session/prefab-authoring.ts",
+    "./prefab-projection": "./src/session/prefab-projection.ts"
   },
   "dependencies": {
     "@thirdlight/protocol": "0.1.0",

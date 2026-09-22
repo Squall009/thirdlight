@@ -1,0 +1,191 @@
+{
+  "storageVersion": 2,
+  "type": "authoring-state",
+  "projectId": "demo-store-01",
+  "scene": {
+    "schemaVersion": 2,
+    "sceneId": "scene-main",
+    "revision": 3,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "model-0001",
+        "name": "Alpha Model",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "asset-00000000000000a1"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-00000000000000a1",
+        "kind": "model",
+        "displayName": "Alpha",
+        "currentVersion": 2,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "bc592e7f9eb753abffb040e37fdabc5d19eeda9b85a6a5660fc730fa8051cae5",
+            "sourceByteLength": 27,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 1,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 3,
+              "triangles": 1,
+              "animations": 0,
+              "animationChannels": 0,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 36,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-18T12:00:00Z",
+            "publishedRevision": 3
+          },
+          {
+            "version": 2,
+            "sourceDigest": "e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20",
+            "sourceByteLength": 28,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 1,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 3,
+              "triangles": 1,
+              "animations": 0,
+              "animationChannels": 0,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 36,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-18T12:00:00Z",
+            "publishedRevision": 3
+          }
+        ]
+      },
+      {
+        "assetId": "asset-00000000000000b2",
+        "kind": "model",
+        "displayName": "Beta",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "bc592e7f9eb753abffb040e37fdabc5d19eeda9b85a6a5660fc730fa8051cae5",
+            "sourceByteLength": 27,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 1,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 3,
+              "triangles": 1,
+              "animations": 0,
+              "animationChannels": 0,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 36,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-18T12:00:00Z",
+            "publishedRevision": 3
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    }
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

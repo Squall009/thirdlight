@@ -65,7 +65,7 @@ declare module 'node:http' {
 
 declare module 'node:fs' {
   export function existsSync(path: string): boolean;
-  export function statSync(path: string): { isFile(): boolean; isDirectory(): boolean };
+  export function statSync(path: string): { isFile(): boolean; isDirectory(): boolean; size: number; mtimeMs: number };
   export function readFileSync(path: string): Uint8Array;
   export function readFileSync(path: string, encoding: 'utf8'): string;
   export function readdirSync(path: string): string[];
@@ -85,6 +85,22 @@ declare module 'node:fs' {
   export function rmdirSync(path: string): void;
   export function symlinkSync(target: string, path: string, type?: string): void;
   export function chmodSync(path: string, mode: number): void;
+  /** Numeric flags (content-store: O_RDONLY|O_NOFOLLOW blob reads). */
+  export function openSync(path: string, flags: number): number;
+  /** Positional read for the O_NOFOLLOW blob read. */
+  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number;
+  /** Numeric open flags (`O_RDONLY`, `O_NOFOLLOW`). */
+  export const constants: { readonly O_RDONLY: number; readonly O_NOFOLLOW: number };
+  /** lstat (never follows a symlink) — the workspace artifact-path rules. */
+  export function lstatSync(path: string): {
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+    size: number;
+    mtimeMs: number;
+  };
+  /** Filesystem space report (the workspace device-space quota). */
+  export function statfsSync(path: string): { bavail: number | bigint; bsize: number | bigint };
 }
 
 declare module 'node:path' {
@@ -136,6 +152,7 @@ declare class Buffer extends Uint8Array {}
 /** The Node `process` global (used by the stdio executable entry only). */
 declare const process: {
   readonly pid: number;
+  cwd(): string;
   readonly env: Record<string, string | undefined>;
   exitCode: number;
   readonly stderr: { write(s: string): void };

@@ -1,0 +1,55 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "staging-traversal-symlink-rejected",
+  "title": "Traversal and symlinked staging paths are refused before any write",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 5. The supported staging area (BR-4)"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "attempts": [
+      {
+        "stageId": "../scenes",
+        "refusedBecause": "stageId must match project-model ID syntax (no path separators)"
+      },
+      {
+        "path": ".thirdlight/staging/stg-sym01",
+        "refusedBecause": "staging directory is a symlink to a directory outside the project"
+      },
+      {
+        "path": "sources/sha256",
+        "refusedBecause": "artifact directory replaced by a symlink"
+      },
+      {
+        "path": "sources/sha256/<digest>",
+        "refusedBecause": "authoritative blob path is a symlink (opened with O_NOFOLLOW)"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "at": "check",
+      "action": "lstat every artifact path and compare realpath with the project root",
+      "expect": {
+        "outcome": "refused"
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "path_rejected"
+    ],
+    "durableEffects": [],
+    "observations": [
+      "the checks run before the first write and before any read of the target",
+      "a refusal never deletes or repairs the offending path"
+    ]
+  },
+  "notes": "Traversal/symlink failure class of the packet-15 failure list."
+}

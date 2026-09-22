@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 3,
+  "sceneId": "scene-main",
+  "revision": 12,
+  "entities": [
+    {
+      "id": "camera-main",
+      "name": "Camera",
+      "parentId": null,
+      "transform": {
+        "position": [
+          0,
+          0,
+          10
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "camera": {
+          "fovY": 45,
+          "near": 0.1,
+          "far": 100
+        },
+        "cameraFollow": {
+          "deadZone": {
+            "x": 3,
+            "y": 2
+          },
+          "bounds": {
+            "minX": -40,
+            "maxX": 40,
+            "minY": -6,
+            "maxY": 20
+          }
+        }
+      }
+    },
+    {
+      "id": "player-0001",
+      "name": "Courier",
+      "parentId": null,
+      "transform": {
+        "position": [
+          0,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "controller": {},
+        "model": {
+          "asset": {
+            "assetId": "asset-0001",
+            "version": 2
+          }
+        },
+        "modelAnimation": {
+          "assetId": "asset-0001",
+          "version": 2,
+          "roles": {
+            "idle": {
+              "clipIndex": 0,
+              "clipName": "Idle"
+            },
+            "run": {
+              "clipIndex": 1,
+              "clipName": "Run"
+            },
+            "airborne": {
+              "clipIndex": 2,
+              "clipName": "Airborne"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "spawn-0002",
+      "name": "Start",
+      "parentId": null,
+      "transform": {
+        "position": [
+          -20,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "playerSpawn": {}
+      }
+    },
+    {
+      "id": "spawn-0003",
+      "name": "Safe 24",
+      "parentId": null,
+      "transform": {
+        "position": [
+          24,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "playerSpawn": {}
+      }
+    },
+    {
+      "id": "zone-0004",
+      "name": "Checkpoint",
+      "parentId": null,
+      "transform": {
+        "position": [
+          24,
+          3,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "gameZone": {
+          "role": "checkpoint",
+          "size": [
+            2,
+            4
+          ],
+          "safeSpawnId": "spawn-0003",
+          "activation": {
+            "cueAssetId": "asset-0003",
+            "emissive": "#22d3ee"
+          }
+        }
+      }
+    }
+  ]
+}

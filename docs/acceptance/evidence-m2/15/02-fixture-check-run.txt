@@ -1,0 +1,16 @@
+# node fixtures/m2/contracts/tools/check-fixtures.mjs --report docs/acceptance/evidence-m2/15/01-fixture-check.json
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 40 JSON fixture(s) checked
+ok   index: 42 index entries, 45 files on disk
+ok   code-registry: 10 code(s) used by fixtures, all declared in expected.json.registry; 65 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 28 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   preimage: 2 preimage(s) re-hashed
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 13 check group(s) passed, 0 problem(s)
+exit=0

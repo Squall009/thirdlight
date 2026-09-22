@@ -1,0 +1,52 @@
+# Packet 34 — commands and actual results (captured 2026-09-19T09:15:05Z)
+
+## npm test
+ Test Files  126 passed (126)
+      Tests  1641 passed (1641)
+   Start at  09:15:06
+   Duration  32.76s (tests 87%, import 9%, transform 4%, worker 1%)
+
+    Isolate  126 workers spawned · ~212ms startup each (spawn + environment, per file)
+             at least ~5.14s faster with isolate: false — reuses workers across files instead of one per file
+
+
+## npm run typecheck
+typecheck: tsc --noEmit -p packages/runtime
+typecheck: tsc --noEmit -p packages/three-adapter
+typecheck: tsc --noEmit -p packages/workspace
+exit=0
+
+## npm run check-deps
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+exit=0
+
+## npm run check-boundaries
+> node tools/check-boundaries.mjs
+
+check-boundaries: OK — 15 package(s) [asset-pipeline, backend, behavior-build, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 267 source file(s), 986 specifier(s) checked; no boundary violations.
+
+## npm run build
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+## node fixtures/m2/contracts/tools/check-fixtures.mjs
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 34 check group(s) passed, 0 problem(s)
+
+## node fixtures/m2/behaviors/tools/check.mjs
+ok   injected-cases: 4 injected bound/failure case(s) re-derived
+check: OK — all behavior-build fixture rows re-derived
+
+## VM host transcript (P34 lines)
+P34_MEASUREMENT {"behaviorId":"behavior-0100","outputDigest":"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69","property":"speed","speedLow":3.5,"speedHigh":6.5,"steps":40,"xLow":0.14900000000000002,"xHigh":0.279,"intentCommitCount":52,"sourceDigestUnchanged":"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69"}
+P34_FAILSTOP {"code":"module_error","message":"behavior \"behavior-0201\" step threw: hostile-throw","stepIndex":0,"reason":"behavior_step_failed","moduleId":"thirdlight.behavior:behavior-0201","phase":"intent"}
+P34_LOGBOUND {"logCount":208,"logDropped":312,"ring":32}
+      Tests  9 passed (9)
+
+## browser harness build probe
+  ../../../../tmp/p34-behaviors/host.js  1.2mb ⚠️
+
+⚡ Done in 53ms

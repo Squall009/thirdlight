@@ -1,0 +1,61 @@
+{
+  "indexVersion": 1,
+  "packet": 46,
+  "contract": "docs/contracts/workspace.md §16 (storage v3 and the v2→v3 copy migration)",
+  "note": "Every sha256 is the real digest of the committed bytes; tools/check-fixtures.mjs recomputes all of them. The v2 source is a real-pipeline-loadable copy of fixtures/m3/contracts/migration/v2-source (whose retry record stub is not a valid §5.1 result); the v3 destination is compared byte-for-byte against fixtures/m3/contracts/migration/expected-v3-destination/envelope.json (projectId demo-0003).",
+  "projectV2": {
+    "projectId": "demo-0002",
+    "storageVersion": 2,
+    "sceneSchemaVersion": 2,
+    "contentKeys": [
+      "assets",
+      "prefabs",
+      "behaviors",
+      "settings",
+      "behaviorTrust"
+    ]
+  },
+  "projectV3": {
+    "projectId": "demo-0003",
+    "storageVersion": 3,
+    "sceneSchemaVersion": 3,
+    "contentKeys": [
+      "assets",
+      "prefabs",
+      "behaviors",
+      "settings",
+      "behaviorTrust",
+      "game"
+    ]
+  },
+  "files": {
+    "cases/durability.json": {
+      "sha256": "beef9e944296159056ce6347bc5eaf132d5be347c24fad02fe4e818afd75fb37",
+      "bytes": 1348
+    },
+    "cases/media.json": {
+      "sha256": "2bc6d91c44d576eeec395e9de265cde12a4f9e28b00a22879460c9af5ca252d3",
+      "bytes": 428
+    },
+    "cases/migration.json": {
+      "sha256": "1a87b3e9bc21bbd63a6193efa8e3619a655cac32dbdcd72df17600c225705a81",
+      "bytes": 1341
+    },
+    "project-v2-demo-0002/project.json": {
+      "sha256": "145a387b628ff42435e72b446f4fc59b29a94965a8a347a4b39ab89a53efc66f",
+      "bytes": 228
+    },
+    "project-v2-demo-0002/scenes/main.json": {
+      "sha256": "ce20177890d779557e073e4b64b3507d955cb8f280337475db8188b4bc8c7398",
+      "bytes": 3380
+    },
+    "project-v3-demo-0003/project.json": {
+      "sha256": "4d73ad2055237a730b38c7be8df046ace6425a4d99b9dd0848d135e074e5f72f",
+      "bytes": 229
+    },
+    "project-v3-demo-0003/scenes/main.json": {
+      "sha256": "a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414",
+      "bytes": 6980
+    }
+  }
+}

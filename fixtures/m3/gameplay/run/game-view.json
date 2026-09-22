@@ -1,0 +1,175 @@
+{
+  "fixtureVersion": 1,
+  "snapshotId": "demo-0003@r7",
+  "notes": [
+    "View identity and staleness (gameplay.md §6): (runId, replayEpoch, stepIndex) identify a view; stale = runId differs or stepIndex is lower.",
+    "view-player-motion-*: the committed GameView.playerMotion derivation (gameplay.md §6, C41-1): speed = |lastCompletedSegment| x SIM_HZ (120), grounded = the committed controller grounding; awaitingStart/won have no completed step, so { speed: 0, grounded: true }."
+  ],
+  "cases": [
+    {
+      "id": "view-identity-epoch0",
+      "op": "identity",
+      "snapshotId": "demo-0003@r7",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "runId": "demo-0003@r7#0",
+        "state": "playing",
+        "stepIndex": 1,
+        "staleAgainstSelf": false
+      }
+    },
+    {
+      "id": "view-identity-after-replay",
+      "op": "identity",
+      "snapshotId": "demo-0003@r7",
+      "script": [
+        {
+          "op": "submit",
+          "command": "start"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        },
+        {
+          "op": "submit",
+          "command": "replay"
+        },
+        {
+          "op": "step",
+          "from": [
+            3,
+            0.91
+          ],
+          "to": [
+            3.0333,
+            0.91
+          ]
+        }
+      ],
+      "expect": {
+        "runId": "demo-0003@r7#1",
+        "state": "playing",
+        "stepIndex": 2,
+        "staleAgainstSelf": false
+      }
+    },
+    {
+      "id": "view-stale-step",
+      "op": "staleness",
+      "view": {
+        "runId": "demo-0003@r7#0",
+        "stepIndex": 12
+      },
+      "current": {
+        "runId": "demo-0003@r7#0",
+        "stepIndex": 13
+      },
+      "expect": {
+        "stale": true
+      }
+    },
+    {
+      "id": "view-stale-epoch",
+      "op": "staleness",
+      "view": {
+        "runId": "demo-0003@r7#0",
+        "stepIndex": 50
+      },
+      "current": {
+        "runId": "demo-0003@r7#1",
+        "stepIndex": 12
+      },
+      "expect": {
+        "stale": true
+      }
+    },
+    {
+      "id": "view-fresh",
+      "op": "staleness",
+      "view": {
+        "runId": "demo-0003@r7#0",
+        "stepIndex": 13
+      },
+      "current": {
+        "runId": "demo-0003@r7#0",
+        "stepIndex": 13
+      },
+      "expect": {
+        "stale": false
+      }
+    },
+    {
+      "id": "view-player-motion-running",
+      "op": "motion",
+      "runState": "playing",
+      "lastCompletedSegment": {
+        "from": [
+          3,
+          0.91
+        ],
+        "to": [
+          3.0333,
+          0.91
+        ]
+      },
+      "grounded": true,
+      "expect": {
+        "speed": 3.996,
+        "grounded": true
+      }
+    },
+    {
+      "id": "view-player-motion-airborne",
+      "op": "motion",
+      "runState": "playing",
+      "lastCompletedSegment": {
+        "from": [
+          3.0333,
+          0.91
+        ],
+        "to": [
+          3.0666,
+          1.2
+        ]
+      },
+      "grounded": false,
+      "expect": {
+        "speed": 35.028674,
+        "grounded": false
+      }
+    },
+    {
+      "id": "view-player-motion-awaiting-start",
+      "op": "motion",
+      "runState": "awaitingStart",
+      "expect": {
+        "speed": 0,
+        "grounded": true
+      }
+    }
+  ]
+}

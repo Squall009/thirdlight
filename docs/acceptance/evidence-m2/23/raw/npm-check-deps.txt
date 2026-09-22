@@ -1,0 +1,21 @@
+
+> thirdlight@0.0.0 check-deps
+> node tools/check-deps.mjs
+
+check-deps: OK
+  installed (npm ls --depth=0, non-workspace):
+    ws 8.21.3 (= §7 pin)
+    @types/react-dom 19.3.0 (= §7 pin)
+    @types/react 19.3.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    react-dom 19.3.0 (= §7 pin)
+    react 19.3.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    @modelcontextprotocol/sdk 1.30.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)

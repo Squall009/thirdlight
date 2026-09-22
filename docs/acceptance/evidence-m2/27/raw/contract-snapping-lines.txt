@@ -1,0 +1,8 @@
+# docs/contracts/sessions.md §9 — the accepted snapping table (verbatim lines)
+455:| Translate | increment `SNAP_TRANSLATE_M = 0.25 m`, independently per world axis in the scene's Y-up/right-handed metre space (project-model §2); the **gesture delta** is snapped, not the absolute position, so repeated moves do not accumulate drift |
+456:| Rotate | increment `SNAP_ROTATE_DEG = 15°` about the gizmo axis; the accumulated gesture angle is snapped, the quaternion is rebuilt from the snapped angle and re-normalized (project-model §12.2 quaternion rule) |
+457:| Scale | increment `SNAP_SCALE = 0.25` on the uniform scale factor; result clamped to `[SCALE_MIN 0.01, SCALE_MAX 100]` (a snap never produces a zero/negative/non-finite scale) |
+458:| Rounding | `snapped = clamp(round(value / increment) * increment)` with round-half-away-from-zero, then quantized to `1e-4` before it is displayed or committed (the committed value is the quantized value) |
+459:| Coordinate space | world-space axis-aligned deltas for translate, the gizmo's rotation axis for rotate, the entity's uniform scale for scale; no parent-space or local-space snapping in M2 |
+460:| Disable for one gesture | holding `Shift` during the gesture disables snapping for that gesture only (local UI state; **no persistent setting, no project field, no localStorage/backend write**) |
+461:| Commands | **zero** commands during the drag; snapping never changes the number of commands; on release **exactly one** `setTransform` carrying the snapped, quantized final values with `expectedRevision = baseRevision`; on cancel **none** |

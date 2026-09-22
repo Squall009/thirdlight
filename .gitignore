@@ -9,3 +9,7 @@ dist/
 
 # Game project data lives OUTSIDE this repository:
 # /home/dadmin/thirdlight/projects/<project-id>/ (decision 0001 §6)
+
+# Test-run bundle dirs (tests/integration harnesses; per-pid bundles are
+# reaped by tests/test-hygiene.ts on each suite start/finish)
+.tl*-bundles/

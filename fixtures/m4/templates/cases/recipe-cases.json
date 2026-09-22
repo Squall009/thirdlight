@@ -1,0 +1,222 @@
+{
+  "description": "The command-recipe validity cases (templates.md §14.2). The checker re-derives the final envelope from (base scene + recipe) through the real @thirdlight/commands engine (the accepted capture-tool pattern) and asserts every fact here; a mismatch is a fixture failure.",
+  "n": 30,
+  "recipeRequestIds": [
+    "req-3208166fb10f4d70e04554f2b5b2852f",
+    "req-5b963ea40abcef2ac780fa222bc74899",
+    "req-c492ae043862e3ca8cb0c4c3a6df9b56",
+    "req-91c4c497ba9749fdc7422f76a5db9382",
+    "req-8917db67fbb62a4a14c4c7676548e40f",
+    "req-e17c83893d129c8323631d6be7dc4a4e",
+    "req-53bd8d6f59caa836dd856c743c7644be",
+    "req-35b6337e8d9f8687784f7fbb4c8d7dec",
+    "req-17cfdc60a74c53ccc565119389547806",
+    "req-4b5b0a10b7eadfe2712ecc8e23b98e48",
+    "req-460371347169df4e959ff186bcdf9f5f",
+    "req-d35ce679f36b5df0a7729ac46cfed2a0",
+    "req-e03cb0553b21315ac70a836df1dbc319",
+    "req-169cf47a8d291e8d5daf6d76418dc5e5",
+    "req-feede0518942e254b33e712504058e0e",
+    "req-f0324d8dce240ae3a48709bbb5beb91c",
+    "req-89496fe96ecc237d654352bd5159fad8",
+    "req-c9557d8d6b4e71151cc5cf0bc4027c5c",
+    "req-0939b32d71a8ffdeb1c7393bce00440f",
+    "req-2d42d8b8af3c80f5589f3b6ea5e471b4",
+    "req-3543460c4caeb0d400d9d5bc00f3322e",
+    "req-3adf19d249751035c9e400a1ada4b1fb",
+    "req-acffde34c6b123d8693bb3ad6fce13fc",
+    "req-e53a0d05beb6e4024f4d87d4fec6ced5",
+    "req-fa7a4767aae11d908cfb225c77f0f456",
+    "req-49c80afed260008e723290e50289dbce",
+    "req-bc05e691e76634fd69fc888c45ebcac7",
+    "req-ced0194f361625ae4809e0d710c68dde",
+    "req-ae96f2ea5e1f07fec49e92aed9cb96ff",
+    "req-4fae0609875138969092d3452ea6f724"
+  ],
+  "origin": {
+    "kind": "template",
+    "clientId": "platformer-starter@1",
+    "replaySubstitution": {
+      "kind": "admin",
+      "note": "pre-promotion engine replay; templates.md §7.1"
+    }
+  },
+  "baseScene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "br-cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          },
+          "cameraFollow": {
+            "deadZone": {
+              "x": 0.5,
+              "y": 0.5
+            },
+            "smoothing": 0.2,
+            "bounds": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": -10,
+              "maxY": 8
+            }
+          }
+        }
+      }
+    ]
+  },
+  "baseContent": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  },
+  "replay": {
+    "everyCommandApplies": true,
+    "finalRevision": 30,
+    "entityIds": [
+      "br-cam-main",
+      "box-0001",
+      "box-0002",
+      "box-0003",
+      "box-0004",
+      "spawn-0001",
+      "box-0005",
+      "box-0006",
+      "box-0007",
+      "box-0008",
+      "box-0009",
+      "group-0001",
+      "spawn-0002",
+      "light-0001",
+      "light-0002",
+      "model-0001",
+      "model-0002",
+      "model-0003",
+      "model-0004",
+      "model-0005"
+    ],
+    "entityCount": 20,
+    "assetIds": [
+      "br-audio-checkpoint",
+      "br-audio-death",
+      "br-audio-goal",
+      "br-audio-jump",
+      "br-audio-start",
+      "br-model-beacon",
+      "br-model-courier"
+    ],
+    "prefabIds": [
+      "prefab-0001"
+    ],
+    "settings": {
+      "gravity_y": -19.62,
+      "jump_velocity": 7,
+      "max_fall_speed": -30,
+      "max_slope_climb_deg": 45,
+      "min_slope_slide_deg": 30,
+      "run_speed": 4
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "Platformer Starter",
+      "objective": "Reach the beacon across the course",
+      "instructions": "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
+      "playerId": "group-0001",
+      "cameraId": "br-cam-main",
+      "spawnId": "spawn-0002",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -10,
+        "maxY": 8
+      },
+      "killY": -4,
+      "cues": {
+        "start": "br-audio-start",
+        "jump": "br-audio-jump",
+        "checkpoint": "br-audio-checkpoint",
+        "death": "br-audio-death",
+        "goal": "br-audio-goal"
+      }
+    }
+  },
+  "prefabIndependence": {
+    "description": "the two instantiatePrefab results are independent entities with distinct IDs, each carrying the prefab provenance component; editing one never touches the other (the Gate P F4/B17 closure — the in-browser edit-independence evidence is 81).",
+    "instanceIds": [
+      "model-0004",
+      "model-0005"
+    ],
+    "positions": [
+      [
+        8,
+        0,
+        0
+      ],
+      [
+        32,
+        0,
+        0
+      ]
+    ],
+    "prefabComponent": {
+      "prefabId": "prefab-0001"
+    },
+    "distinctFromSource": true
+  },
+  "animatedContent": {
+    "description": "visible animated content (templates.md §1.2): the courier carries modelAnimation bound to its committed clips; the binding is version-local (version 1) and the clip indices/names match the committed courier.glb animation order.",
+    "entityId": "model-0001",
+    "assetId": "br-model-courier",
+    "version": 1,
+    "roles": {
+      "idle": {
+        "clipIndex": 0,
+        "clipName": "Idle"
+      },
+      "run": {
+        "clipIndex": 1,
+        "clipName": "Run"
+      },
+      "airborne": {
+        "clipIndex": 2,
+        "clipName": "Airborne"
+      }
+    },
+    "glbClipOrder": [
+      "Idle",
+      "Run",
+      "Airborne"
+    ]
+  }
+}

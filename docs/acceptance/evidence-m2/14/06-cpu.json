@@ -1,0 +1,77 @@
+{
+  "runId": "tl14-2026-09-18-a",
+  "candidate": "@dimforge/rapier2d-compat@0.20.0",
+  "rapierVersion": "0.20.0",
+  "mode": "cpu",
+  "phases": {},
+  "cpu": {
+    "machine": "container (NOT the reference desktop — directional only, plan-review BR-2)",
+    "node": "v22.22.1",
+    "fixture": "1 kinematic capsule + 64 static colliders (course-spec.json)",
+    "warmupS": 5,
+    "measureS": 30,
+    "runs": [
+      {
+        "run": 0,
+        "samples": 3600,
+        "controllerMs": {
+          "p50": 0.004802,
+          "p95": 0.016105,
+          "p99": 0.021974
+        },
+        "worldStepMs": {
+          "p50": 0.003054,
+          "p95": 0.007618,
+          "p99": 0.011365
+        },
+        "totalStepMs": {
+          "p50": 0.008306,
+          "p95": 0.022991,
+          "p99": 0.031347
+        },
+        "tickBudgetMs": 8.333
+      },
+      {
+        "run": 1,
+        "samples": 3600,
+        "controllerMs": {
+          "p50": 0.003756,
+          "p95": 0.006051,
+          "p99": 0.006971
+        },
+        "worldStepMs": {
+          "p50": 0.002245,
+          "p95": 0.003477,
+          "p99": 0.004677
+        },
+        "totalStepMs": {
+          "p50": 0.005997,
+          "p95": 0.009555,
+          "p99": 0.011239
+        },
+        "tickBudgetMs": 8.333
+      },
+      {
+        "run": 2,
+        "samples": 3600,
+        "controllerMs": {
+          "p50": 0.003721,
+          "p95": 0.005349,
+          "p99": 0.006306
+        },
+        "worldStepMs": {
+          "p50": 0.002171,
+          "p95": 0.003131,
+          "p99": 0.004009
+        },
+        "totalStepMs": {
+          "p50": 0.005894,
+          "p95": 0.008419,
+          "p99": 0.00997
+        },
+        "tickBudgetMs": 8.333
+      }
+    ],
+    "profilingLimits": "process.hrtime.bigint(); no GC isolation (spikes included in percentiles); single-threaded; Node, not a browser — no GPU involvement"
+  }
+}

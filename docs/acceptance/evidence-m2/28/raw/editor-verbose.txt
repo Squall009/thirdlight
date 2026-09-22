@@ -1,0 +1,9 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+
+ Test Files  12 passed (12)
+      Tests  127 passed (127)
+   Start at  05:57:53
+   Duration  733ms (transform 59%, import 25%, tests 12%, worker 5%)
+

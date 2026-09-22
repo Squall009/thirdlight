@@ -1,0 +1,25 @@
+== GET asset bytes (raw HTTP response headers + body digest) ==
+HTTP/1.1 200 OK
+content-type: application/octet-stream
+content-length: 28
+x-thirdlight-digest: e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20
+etag: "e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20"
+cache-control: private, max-age=31536000, immutable
+Date: Sat, 19 Sep 2026 04:28:03 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+body sha256: e0189bd4d2357e3603b7347303dba29fc95d7f988f2921cc403e08e392d76a20
+
+== content/assets list (bounded query) ==
+{"ok":true,"assets":[{"assetId":"asset-00000000000000a1","kind":"model","displayName":"Alpha","currentVersion":2,"versionCount":2},{"assetId":"asset-00000000000000b2","kind":"model","displayName":"Beta","currentVersion":1,"versionCount":1}],"total":2,"nextCursor":null}
+== negative: unauthenticated asset read ==
+status=401
+
+== negative: path-shaped identifier ==
+{"ok":false,"error":{"code":"path_rejected","cls":"validation","message":"an identifier segment contains a path separator or an encoded separator","path":"/","found":"demo-store-01 | ..%2f..%2fetc | 1","expected":"bare identifiers only (no /, \\, %xx or ..)"}}
+status=400
+
+== backend startup log (bounded) ==
+thirdlight-backend: listening (authoring port 8611, preview port 8612)
+thirdlight-backend: closed

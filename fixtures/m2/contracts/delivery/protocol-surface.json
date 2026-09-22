@@ -1,0 +1,664 @@
+{
+  "kind": "delivery-protocol-surface",
+  "setVersion": 1,
+  "id": "delivery-protocol-surface",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 5. Authoring content reads (authenticated, immutable version)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "### 6.2 Locator routes (preview origin, no credentials)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 7. Versioned bridge (v2)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 8. Bounded input-exercise relay (MCP)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 15. Content, job and query service surface (packet 25 shape)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/delivery.md",
+      "section": "## 10. Negative-test matrix (normative)"
+    }
+  ],
+  "statusMap": {
+    "validation": 400,
+    "conflict": 409,
+    "not_found": 404,
+    "unavailable": 503,
+    "internal": 500
+  },
+  "constants": {
+    "PLAY_CONTENT_TTL": 900,
+    "PLAY_CONTENT_GRACE": 60,
+    "PLAY_CONTENT_ID_BYTES": 32,
+    "uploadFrameBytes": 1048576,
+    "uploadStageBytes": 33554432,
+    "assetReadBytes": 33554432,
+    "manifestBytes": 262144,
+    "proposalBytes": 262144,
+    "relayFrames": 600,
+    "relayBodyBytes": 16384,
+    "relayAckMs": 10000,
+    "bridgeMessageBytes": 65536,
+    "wsStateFrameBytes": 1048576
+  },
+  "wsStatePayloadRule": {
+    "binaryAllowed": false,
+    "maxBytes": 1048576,
+    "note": "no GLB bytes or compiled scripts in full-state/change frames"
+  },
+  "routes": [
+    {
+      "id": "asset-version-bytes",
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/content/assets/:assetId/versions/:version/bytes",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "assetId",
+        "version"
+      ],
+      "responseKind": "binary",
+      "responseCap": 33554432,
+      "cache": "private, max-age=31536000, immutable",
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "bad_origin",
+          "status": 403,
+          "cls": "validation"
+        },
+        {
+          "code": "asset_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "asset_version_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "path_rejected",
+          "status": 400,
+          "cls": "validation"
+        },
+        {
+          "code": "blob_missing",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "blob_corrupt",
+          "status": 500,
+          "cls": "internal"
+        }
+      ]
+    },
+    {
+      "id": "content-stage-create",
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/content/stages",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId"
+      ],
+      "responseKind": "json",
+      "responseCap": 4096,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "stage_limits_exceeded",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    },
+    {
+      "id": "content-stage-bytes",
+      "method": "PUT",
+      "path": "/api/v1/projects/:projectId/content/stages/:stageId/bytes",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "stageId"
+      ],
+      "responseKind": "json",
+      "responseCap": 4096,
+      "requestMaxBytes": 1048576,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "content_frame_invalid",
+          "status": 400,
+          "cls": "validation"
+        },
+        {
+          "code": "stage_limits_exceeded",
+          "status": 400,
+          "cls": "validation"
+        },
+        {
+          "code": "stage_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "stage_expired",
+          "status": 503,
+          "cls": "unavailable"
+        }
+      ]
+    },
+    {
+      "id": "content-stage-inspect",
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/content/stages/:stageId/inspect",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "stageId"
+      ],
+      "responseKind": "json",
+      "responseCap": 262144,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "stage_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "stage_expired",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "import_rejected",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    },
+    {
+      "id": "content-stage-discard",
+      "method": "DELETE",
+      "path": "/api/v1/projects/:projectId/content/stages/:stageId",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "stageId"
+      ],
+      "responseKind": "json",
+      "responseCap": 4096,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "stage_not_found",
+          "status": 404,
+          "cls": "not_found"
+        }
+      ]
+    },
+    {
+      "id": "content-assets-list",
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/content/assets",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId"
+      ],
+      "responseKind": "json",
+      "responseCap": 262144,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "field_value",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    },
+    {
+      "id": "content-asset-record",
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/content/assets/:assetId",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "assetId"
+      ],
+      "responseKind": "json",
+      "responseCap": 262144,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "asset_not_found",
+          "status": 404,
+          "cls": "not_found"
+        }
+      ]
+    },
+    {
+      "id": "content-integrity",
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/content/integrity",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId"
+      ],
+      "responseKind": "json",
+      "responseCap": 262144,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "project_not_found",
+          "status": 404,
+          "cls": "not_found"
+        }
+      ]
+    },
+    {
+      "id": "content-job",
+      "method": "GET",
+      "path": "/api/v1/projects/:projectId/content/jobs/:jobId",
+      "surface": "authoring",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "jobId"
+      ],
+      "responseKind": "json",
+      "responseCap": 16384,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "job_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "job_expired",
+          "status": 503,
+          "cls": "unavailable"
+        }
+      ]
+    },
+    {
+      "id": "play-input-relay",
+      "method": "POST",
+      "path": "/api/v1/projects/:projectId/play/:playSessionId/input",
+      "surface": "authoring-or-admin",
+      "auth": "project-token",
+      "origin": "authoring-allowlist",
+      "identifierParams": [
+        "projectId",
+        "playSessionId"
+      ],
+      "responseKind": "json",
+      "responseCap": 16384,
+      "requestMaxBytes": 16384,
+      "errors": [
+        {
+          "code": "unauthorized",
+          "status": 401,
+          "cls": "validation"
+        },
+        {
+          "code": "play_not_found",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "session_unavailable",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "input_relay_conflict",
+          "status": 409,
+          "cls": "conflict"
+        },
+        {
+          "code": "input_relay_limits_exceeded",
+          "status": 400,
+          "cls": "validation"
+        },
+        {
+          "code": "input_relay_timeout",
+          "status": 503,
+          "cls": "unavailable"
+        }
+      ]
+    },
+    {
+      "id": "play-shell",
+      "method": "GET",
+      "path": "/play/:playSessionId",
+      "surface": "preview-capability",
+      "auth": "locator-capability",
+      "origin": "none",
+      "identifierParams": [
+        "playSessionId"
+      ],
+      "responseKind": "html",
+      "responseCap": 262144,
+      "errors": [
+        {
+          "code": "play_locator_invalid",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "play_locator_expired",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "path_rejected",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    },
+    {
+      "id": "play-content-manifest",
+      "method": "GET",
+      "path": "/play-content/:contentId/manifest.json",
+      "surface": "preview-capability",
+      "auth": "locator-capability",
+      "origin": "none",
+      "identifierParams": [
+        "contentId"
+      ],
+      "responseKind": "json",
+      "responseCap": 262144,
+      "cache": "private, max-age=<remaining>, immutable",
+      "errors": [
+        {
+          "code": "play_locator_invalid",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "play_locator_expired",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "play_content_not_ready",
+          "status": 409,
+          "cls": "conflict"
+        },
+        {
+          "code": "play_build_unavailable",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "path_rejected",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    },
+    {
+      "id": "play-content-asset",
+      "method": "GET",
+      "path": "/play-content/:contentId/content/:assetId/:version",
+      "surface": "preview-capability",
+      "auth": "locator-capability",
+      "origin": "none",
+      "identifierParams": [
+        "contentId",
+        "assetId",
+        "version"
+      ],
+      "responseKind": "binary",
+      "responseCap": 33554432,
+      "cache": "private, max-age=<remaining>, immutable",
+      "errors": [
+        {
+          "code": "play_locator_invalid",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "play_locator_expired",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "path_rejected",
+          "status": 400,
+          "cls": "validation"
+        },
+        {
+          "code": "blob_missing",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "blob_corrupt",
+          "status": 500,
+          "cls": "internal"
+        }
+      ]
+    },
+    {
+      "id": "play-content-behavior",
+      "method": "GET",
+      "path": "/play-content/:contentId/behaviors/:outputDigest.js",
+      "surface": "preview-capability",
+      "auth": "locator-capability",
+      "origin": "none",
+      "identifierParams": [
+        "contentId",
+        "outputDigest"
+      ],
+      "responseKind": "binary",
+      "responseCap": 131072,
+      "cache": "private, max-age=<remaining>, immutable",
+      "errors": [
+        {
+          "code": "play_locator_invalid",
+          "status": 404,
+          "cls": "not_found"
+        },
+        {
+          "code": "play_locator_expired",
+          "status": 503,
+          "cls": "unavailable"
+        },
+        {
+          "code": "path_rejected",
+          "status": 400,
+          "cls": "validation"
+        }
+      ]
+    }
+  ],
+  "bridgeMessages": [
+    {
+      "name": "tl.handshake",
+      "version": 2,
+      "direction": "editor->preview",
+      "maxBytes": 4096,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "bridgeVersion",
+        "playSessionId",
+        "nonce",
+        "demo",
+        "contentId",
+        "buildId"
+      ]
+    },
+    {
+      "name": "tl.playContent.expect",
+      "version": 2,
+      "direction": "editor->preview",
+      "maxBytes": 4096,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "contentId",
+        "buildId"
+      ]
+    },
+    {
+      "name": "tl.input.request",
+      "version": 2,
+      "direction": "editor->preview",
+      "maxBytes": 16384,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "requestId",
+        "frames"
+      ]
+    },
+    {
+      "name": "tl.load.progress",
+      "version": 2,
+      "direction": "preview->editor",
+      "maxBytes": 1024,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "phase",
+        "loadedBytes",
+        "totalBytes"
+      ]
+    },
+    {
+      "name": "tl.input.result",
+      "version": 2,
+      "direction": "preview->editor",
+      "maxBytes": 4096,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "requestId",
+        "ok",
+        "appliedFromStep",
+        "appliedToStep"
+      ]
+    },
+    {
+      "name": "tl.ready",
+      "version": 2,
+      "direction": "preview->editor",
+      "maxBytes": 4096,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "snapshotId",
+        "revision",
+        "buildId",
+        "contentDigest",
+        "stepIndex"
+      ]
+    },
+    {
+      "name": "tl.error",
+      "version": 2,
+      "direction": "preview->editor",
+      "maxBytes": 4096,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "code",
+        "phase",
+        "message"
+      ]
+    },
+    {
+      "name": "tl.snapshot",
+      "version": 2,
+      "direction": "editor->preview",
+      "maxBytes": 1048576,
+      "carriesBinary": false,
+      "fields": [
+        "v",
+        "playSessionId",
+        "nonce",
+        "snapshot"
+      ]
+    }
+  ],
+  "forbiddenBinaryCarriers": [
+    "tl.snapshot",
+    "mutation.applied",
+    "full-state",
+    "change"
+  ]
+}

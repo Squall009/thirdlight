@@ -1,0 +1,18 @@
+{
+  "m1BuildBaseline": {
+    "command": "npm run build (repo root; repo lockfile/node_modules)",
+    "result": "GREEN — typecheck (three-adapter, workspace) + 4 builds, 0 skipped: editor main.js, preview preview.js, mcp-adapter mcp.mjs, backend backend.mjs, editor index.html"
+  },
+  "standaloneSubpathServing": {
+    "setup": "two independent python3 http.server origins on 127.0.0.1 (8141 = repo dist + tests; 8142 = eval out dir), both stopped after the check",
+    "method": "curl -s -o /dev/null -w code/size/content-type per URL",
+    "results": [
+      { "url": "http://127.0.0.1:8141/dist/editor/index.html", "status": 200, "bytes": 5901, "content_type": "text/html" },
+      { "url": "http://127.0.0.1:8141/dist/editor/main.js", "status": 200, "bytes": 3124882, "content_type": "text/javascript" },
+      { "url": "http://127.0.0.1:8141/dist/preview/preview.js", "status": 200, "bytes": 1912903, "content_type": "text/javascript" },
+      { "url": "http://127.0.0.1:8141/tests/evaluations/m2-physics/course-spec.json", "status": 200, "bytes": 5604, "content_type": "application/json" },
+      { "url": "http://127.0.0.1:8142/probe-iife.js", "status": 200, "bytes": 2169354, "content_type": "text/javascript" }
+    ],
+    "meaning": "dist assets and eval assets serve standalone over plain-HTTP LAN-style URLs from independent origins (satisfies the one-fetch topology's serving side); actual BROWSER rendering and gamepad exposure are UNVERIFIED here (no browser) — desktop procedure in manifest.md"
+  }
+}

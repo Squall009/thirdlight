@@ -1,0 +1,35 @@
+{
+  "tuple": [
+    "playSessionId",
+    "snapshotId",
+    "buildId",
+    "runId",
+    "stepIndex"
+  ],
+  "definitions": {
+    "playSessionId": "the backend play record (sessions.md §10.1)",
+    "snapshotId": "<projectId>@r<revision> (runtime.md §2)",
+    "buildId": "the immutable runtime-content manifest buildId (delivery.md §2)",
+    "runId": "`${snapshotId}#${replayEpoch}` (gameplay.md §6)",
+    "stepIndex": "the published GameView.stepIndex (completed steps after a commit)"
+  },
+  "staleness": [
+    {
+      "detect": "view.runId !== current.runId",
+      "meaning": "another run/replay"
+    },
+    {
+      "detect": "view.stepIndex < current.stepIndex",
+      "meaning": "older publication"
+    },
+    {
+      "detect": "view.snapshotId !== play.snapshotId",
+      "meaning": "stale capture"
+    },
+    {
+      "detect": "view.buildId !== manifest.buildId",
+      "meaning": "stale build"
+    }
+  ],
+  "requirement": "a host never mixes views from two runtime instances (gameplay.md §6)"
+}

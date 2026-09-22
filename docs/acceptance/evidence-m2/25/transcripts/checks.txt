@@ -1,0 +1,32 @@
+# Packet 25 verification transcript (actual command output)
+# 2026-09-19T04:34:56Z
+
+$ npm test
+ Test Files  81 passed (81)
+      Tests  1131 passed (1131)
+   Duration  29.65s (tests 89%, import 7%, transform 4%)
+
+$ npm run typecheck
+> thirdlight@0.0.0 typecheck
+> node tools/typecheck.mjs
+
+typecheck exit=0
+
+$ npm run check-deps
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+$ npm run check-boundaries
+
+check-boundaries: OK — 11 package(s) [asset-pipeline, backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 187 source file(s), 680 specifier(s) checked; no boundary violations.
+
+$ npm run build
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 33 check group(s) passed, 0 problem(s)

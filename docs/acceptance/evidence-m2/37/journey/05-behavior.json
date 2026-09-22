@@ -1,0 +1,21 @@
+{
+  "behaviorSourceDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+  "behaviorOutputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+  "sourceOk": true,
+  "hostileStatus": 400,
+  "hostileError": {
+    "code": "behavior_import_forbidden",
+    "cls": "validation",
+    "message": "network",
+    "diagnostics": [
+      {
+        "code": "behavior_import_forbidden",
+        "reason": "network",
+        "message": "file \"src/index.ts\" imports \"https://cdn.example.com/widget.js\" (network)",
+        "path": "src/index.ts"
+      }
+    ]
+  },
+  "stillDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+  "trustNoticeTextPresent": true
+}

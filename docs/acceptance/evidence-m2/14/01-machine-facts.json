@@ -1,0 +1,10 @@
+{
+  "dateUtc": "2026-09-18",
+  "cpuModel": "12th Gen Intel(R) Core(TM) i5-12600H (/proc/cpuinfo 'model name')",
+  "coresVisible": 6,
+  "ramGiB": 16,
+  "runtime": "Node v22.22.1 (all probes + tsc + esbuild run under this Node in the container)",
+  "environment": "container (NOT the reference desktop) — every CPU/init number here is DIRECTIONAL per plan-review BR-2; CPU acceptance needs a labeled desktop measurement",
+  "browser": "none available in the container — browser rendering/gamepad items are UNVERIFIED with a recorded manual desktop procedure",
+  "npmRegistry": "reachable (candidates installed in disposable prefixes with --prefix, never the repo lockfile/node_modules — plan-review BR-1)"
+}

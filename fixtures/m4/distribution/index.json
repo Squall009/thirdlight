@@ -1,0 +1,30 @@
+{
+  "note": "byte length + sha256 of every generated data file (UTF-8 byte lengths). Regenerate with the committed tool; verify with check-kit.mjs (independent re-derivation from the live tree).",
+  "files": [
+    {
+      "path": "cases/build-tool-cases.json",
+      "byteLength": 5503,
+      "sha256": "a6f5abeb7a2a9ebf5803654db9f217bcd117cd2a8a0908ffb1e151fea8a56de2"
+    },
+    {
+      "path": "cases/kit-identity.json",
+      "byteLength": 64874,
+      "sha256": "78c086dc22650d17de55359a7ee602ffdccad0afa57b48c8f8a4a85dd310b792"
+    },
+    {
+      "path": "cases/kit-inventory.json",
+      "byteLength": 109383,
+      "sha256": "d9a511aa09e2d6af4413cafe82855c82db74d9e2fef8d7a9931b815b60b5c5ff"
+    },
+    {
+      "path": "cases/license-inventory.json",
+      "byteLength": 2292,
+      "sha256": "7837592f88469db2f97bb00c3fc3db54f0a863c1d92e6b6c526238718ca99370"
+    },
+    {
+      "path": "cases/pin-cases.json",
+      "byteLength": 3506,
+      "sha256": "16c7ef0dbbcfd70c2356920afa5a0e90a956637dfe5c7ad53f568a9c3b297b78"
+    }
+  ]
+}

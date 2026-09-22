@@ -1,0 +1,11 @@
+{
+  "property": "speed",
+  "slow": 3.5,
+  "fast": 6.5,
+  "steps": 120,
+  "characterStartX": -2,
+  "xSlow": -0.499564501689747,
+  "xFast": 0.7639840019401163,
+  "delta": 1.2635485036298633,
+  "note": "real published behavior output + production composeExportRuntime (the export bundle composition); sampled moveX = 0 so only the behavior intent drives the character"
+}

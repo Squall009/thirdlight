@@ -1,0 +1,516 @@
+{
+  "kind": "controller-input-sequences",
+  "setVersion": 1,
+  "note": "RawInputSnapshot atoms and inclusive step spans. A span expands to one step-source entry per executed step (strictly ascending); an unmapped step is the neutral frame. `jumpLatch` is true on exactly the press step (input.md §3.2).",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "## 3. Step-indexed sampling"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "## 4. Device binding"
+    }
+  ],
+  "atoms": {
+    "idle": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": false
+    },
+    "right": {
+      "keyboardLeft": false,
+      "keyboardRight": true,
+      "keyboardJump": false
+    },
+    "left": {
+      "keyboardLeft": true,
+      "keyboardRight": false,
+      "keyboardJump": false
+    },
+    "jump_press": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": true,
+      "jumpLatch": true
+    },
+    "jump_held": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": true
+    },
+    "right_jump_press": {
+      "keyboardLeft": false,
+      "keyboardRight": true,
+      "keyboardJump": true,
+      "jumpLatch": true
+    },
+    "right_jump_held": {
+      "keyboardLeft": false,
+      "keyboardRight": true,
+      "keyboardJump": true
+    },
+    "pad_right": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": false,
+      "gamepad": {
+        "index": 0,
+        "id": "Standard Gamepad",
+        "mapping": "standard",
+        "axis0": 1,
+        "button0": false,
+        "button14": false,
+        "button15": false
+      }
+    },
+    "pad_idle": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": false,
+      "gamepad": {
+        "index": 0,
+        "id": "Standard Gamepad",
+        "mapping": "standard",
+        "axis0": 0,
+        "button0": false,
+        "button14": false,
+        "button15": false
+      }
+    },
+    "pad_jump_press": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": false,
+      "gamepad": {
+        "index": 0,
+        "id": "Standard Gamepad",
+        "mapping": "standard",
+        "axis0": 0,
+        "button0": true,
+        "button14": false,
+        "button15": false
+      }
+    },
+    "pad_jump_held": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": false,
+      "gamepad": {
+        "index": 0,
+        "id": "Standard Gamepad",
+        "mapping": "standard",
+        "axis0": 0,
+        "button0": true,
+        "button14": false,
+        "button15": false
+      }
+    },
+    "preheld_jump": {
+      "keyboardLeft": false,
+      "keyboardRight": false,
+      "keyboardJump": true
+    }
+  },
+  "sequences": [
+    {
+      "id": "idle-120",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 131,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "idle-160",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 171,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "run-right-120",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 131,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "run-right-240",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 251,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "run-right-20-stop-16",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 31,
+          "raw": "right"
+        },
+        {
+          "from": 32,
+          "to": 47,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "jump-hold-60",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 30,
+          "raw": "idle"
+        },
+        {
+          "from": 31,
+          "to": 31,
+          "raw": "jump_press"
+        },
+        {
+          "from": 32,
+          "to": 90,
+          "raw": "jump_held"
+        },
+        {
+          "from": 91,
+          "to": 140,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "jump-tap",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 30,
+          "raw": "idle"
+        },
+        {
+          "from": 31,
+          "to": 31,
+          "raw": "jump_press"
+        },
+        {
+          "from": 32,
+          "to": 32,
+          "raw": "jump_held"
+        },
+        {
+          "from": 33,
+          "to": 90,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "no-air-jump",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 30,
+          "raw": "idle"
+        },
+        {
+          "from": 31,
+          "to": 31,
+          "raw": "jump_press"
+        },
+        {
+          "from": 32,
+          "to": 45,
+          "raw": "jump_held"
+        },
+        {
+          "from": 46,
+          "to": 46,
+          "raw": "jump_press"
+        },
+        {
+          "from": 47,
+          "to": 70,
+          "raw": "jump_held"
+        },
+        {
+          "from": 71,
+          "to": 120,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "buffer-in-window",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 60,
+          "raw": "idle"
+        },
+        {
+          "from": 61,
+          "to": 61,
+          "raw": "jump_press"
+        },
+        {
+          "from": 62,
+          "to": 70,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "buffer-expired",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 20,
+          "raw": "idle"
+        },
+        {
+          "from": 21,
+          "to": 21,
+          "raw": "jump_press"
+        },
+        {
+          "from": 22,
+          "to": 80,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "ramp-a43-climb",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 311,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "ramp-b47-refuse",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 143,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "ceiling-head-bump",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 180,
+          "raw": "right"
+        },
+        {
+          "from": 181,
+          "to": 181,
+          "raw": "right_jump_press"
+        },
+        {
+          "from": 182,
+          "to": 215,
+          "raw": "right_jump_held"
+        },
+        {
+          "from": 216,
+          "to": 260,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "ledge-block-and-jump",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 120,
+          "raw": "right"
+        },
+        {
+          "from": 121,
+          "to": 121,
+          "raw": "right_jump_press"
+        },
+        {
+          "from": 122,
+          "to": 160,
+          "raw": "right_jump_held"
+        },
+        {
+          "from": 161,
+          "to": 220,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "seam-cross",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 71,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "wall-stop",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 71,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "high-speed-wall",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 131,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "snap-walk",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 251,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "slope-idle",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 131,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "ledge-run-off",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 151,
+          "raw": "right"
+        }
+      ]
+    },
+    {
+      "id": "pad-run-right-120",
+      "device": "gamepad",
+      "spans": [
+        {
+          "from": 12,
+          "to": 131,
+          "raw": "pad_right"
+        }
+      ]
+    },
+    {
+      "id": "pad-jump-hold",
+      "device": "gamepad",
+      "spans": [
+        {
+          "from": 12,
+          "to": 30,
+          "raw": "pad_idle"
+        },
+        {
+          "from": 31,
+          "to": 31,
+          "raw": "pad_jump_press"
+        },
+        {
+          "from": 32,
+          "to": 90,
+          "raw": "pad_jump_held"
+        },
+        {
+          "from": 91,
+          "to": 140,
+          "raw": "pad_idle"
+        }
+      ]
+    },
+    {
+      "id": "focus-preheld-jump",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 20,
+          "raw": "idle"
+        },
+        {
+          "from": 21,
+          "to": 40,
+          "raw": "preheld_jump"
+        },
+        {
+          "from": 41,
+          "to": 80,
+          "raw": "idle"
+        }
+      ]
+    },
+    {
+      "id": "snap-walk-420",
+      "device": "keyboard",
+      "spans": [
+        {
+          "from": 12,
+          "to": 431,
+          "raw": "right"
+        }
+      ]
+    }
+  ]
+}

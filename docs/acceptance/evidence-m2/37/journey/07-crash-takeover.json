@@ -1,0 +1,76 @@
+{
+  "revBeforeAcked": 25,
+  "revAcked": 26,
+  "ackedEntityId": "box-0004",
+  "staleCode": "stale_ownership",
+  "staleError": {
+    "code": "project_unavailable",
+    "cls": "unavailable",
+    "message": "project cannot be used right now: stale_ownership",
+    "hint": "run takeoverWorkspace to take over the stale ownership record (explicit operator action; never automatic)",
+    "reason": "stale_ownership",
+    "holder": {
+      "backendId": "tb-a104ed74efa0c365cb89717f450bcc89",
+      "pid": 3152432,
+      "openedAt": "2026-09-19T12:59:46Z",
+      "lockEpoch": 0,
+      "state": "owned"
+    }
+  },
+  "takeoverStatus": 200,
+  "afterTakeover": 200,
+  "replay": {
+    "ok": true,
+    "op": "createEntity",
+    "projectId": "demo-m1-v2",
+    "requestId": "req-47e8c9d5d8a8de5b842572e962a6dde0",
+    "revision": 26,
+    "duplicated": true,
+    "createdId": "box-0004",
+    "change": {
+      "type": "createEntity",
+      "id": "box-0004",
+      "entity": {
+        "id": "box-0004",
+        "name": "Durable Box",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          }
+        }
+      }
+    },
+    "history": {
+      "undoDepth": 24,
+      "redoDepth": 0
+    }
+  },
+  "replayDuplicated": true,
+  "durable": true,
+  "orphanStage": "stg-b4ed9755a5e231a9a367853b9b7e4899"
+}

@@ -1,0 +1,27 @@
+{
+  "note": "Each export performs a fresh esbuild 0.28.2 bundle build (no cache); the backend child process is fresh per test file (M1 U-2 arrangement).",
+  "runs": [
+    {
+      "run": 1,
+      "ms": 337,
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "run": 2,
+      "ms": 335,
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "run": 3,
+      "ms": 343,
+      "result": {
+        "ok": true
+      }
+    }
+  ],
+  "failures": 0
+}

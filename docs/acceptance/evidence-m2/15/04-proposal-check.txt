@@ -1,0 +1,22 @@
+# proposal/document consistency (grep-based; actual output)
+
+## PROPOSED markers
+docs/planning/m2-contracts/content-storage.md:1
+docs/planning/m2-contracts/assets.md:1
+
+## diff files
+15
+17
+
+## fixture files excluding tooling/index
+42
+
+## expected.json entries
+42
+
+## accepted contract / lockfile status (git status --porcelain)
+(empty = unchanged)
+
+## decisions/0002 status
+?? docs/decisions/0002-m2-content-and-behavior.md
+(packet-14 draft, untracked before packet 15 and NOT modified by packet 15)

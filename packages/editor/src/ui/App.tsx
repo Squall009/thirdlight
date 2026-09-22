@@ -5,21 +5,165 @@
  * checked §13.5 bridge). React renders the panels + the canvas element; it
  * never instantiates or mutates Object3Ds (the viewport owns those).
  *
+ * Packet 28 adds the prefab (copy) authoring path and the schema-driven
+ * declared-property inspector. Every authoring decision is delegated to the
+ * pure `session/*` modules; React renders controls and issues ordinary typed
+ * commands through the same single client path.
+ *
  * Browser-only.
  */
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { createRoot } from 'react-dom/client';
 import { readEditorConfig } from '../config';
-import { SessionClient, type ClientUiState, type PlayStartResult } from '../session/client';
+import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
+import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
+import type { AssetView } from '../session/content-projection';
+import {
+  importFailed,
+  initialImportState,
+  publishArgsFromProposal,
+  utcSecondTimestamp,
+  type AssetImportState,
+  type AssetQueryState,
+  type ImportTarget,
+} from '../session/asset-browser';
+import { assetPlacementAvailable, planAssetPlacement } from '../session/placement';
+import {
+  collectOverrides,
+  newPrefabDraft,
+  overrideDraftKey,
+  planCreatePrefab,
+  planInstantiatePrefab,
+  recoverPrefabCommandFailure,
+  type CaptureEntityView,
+} from '../session/prefab-authoring';
+import {
+  deriveOverrideTargets,
+  derivePropertyControls,
+  parseColliderBox,
+  parseControlInput,
+  planAddController,
+  planRemovePhysicsComponent,
+  planSetBehaviorProperties,
+  planSetCollider,
+} from '../session/property-controls';
+import type { PrefabSummaryView } from '../session/prefab-projection';
+import type { BehaviorDeclarationView } from '../session/prefab-projection';
+import {
+  initialPublicationState,
+  publicationFailed,
+  published,
+  sourceStaged,
+  trustObserved,
+  type BehaviorPublicationState,
+} from '../session/behavior-publication';
 import { Gesture, type Transform } from '../session/gesture';
+import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
+import {
+  DEFAULT_ZONE_SIZE,
+  planCreateSpawn,
+  planCreateZone,
+  planEditZone,
+  type GameConfigLike,
+  type ZoneRole,
+} from '../session/gameplay';
+import type { ZonePose } from '../session/zone-gesture';
 import { Viewport } from '../viewport/viewport';
+import type { ZoneTool } from '../viewport/zone-overlay';
+import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy } from './Hierarchy';
 import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
+import { AssetBrowser, type AssetPreviewView } from './AssetBrowser';
+import { PrefabPanel } from './PrefabPanel';
+import { BehaviorPanel } from './BehaviorPanel';
+import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
+import { MediaPanel } from './MediaPanel';
+import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
+import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
 import type { GizmoMode } from '../viewport/gizmo';
+import type { PropertyDeclaration } from '@thirdlight/project-model';
+
+/** A bounded, actionable error the panels display. */
+interface UiError {
+  code: string;
+  message: string;
+}
+
+/** The bounded backend error for a failed command (the panels explain it, never lose it). */
+function commandError(res: { response: MutationResponse }): GameplayBackendError {
+  const r = res.response;
+  if (r.ok) return { code: 'unexpected_response', message: 'unexpected response shape' };
+  return { code: r.code, message: r.message ?? r.code };
+}
+
+/**
+ * M3 (packet 56): issue a zone gesture's single commit command (the gesture
+ * DECIDED it; this issues it + the bounded conflict rebase for a move).
+ * Returns the outcome — the caller owns the UI state (error surfacing, tool
+ * clearing, undo enablement).
+ */
+async function issueZoneCommand(
+  client: SessionClient,
+  gesture: ZoneGesture,
+  command: ZoneCommit,
+): Promise<{ ok: true } | { ok: false; error: GameplayBackendError }> {
+  if (command.op === 'createEntity') {
+    const res = await client.createGameEntity(command.args as unknown as Record<string, unknown>, gesture.expectedRevision);
+    if (res.ok) return { ok: true };
+    return { ok: false, error: commandError(res) };
+  }
+  if (command.op === 'setTransform') {
+    const res = await client.command('setTransform', { entityId: command.entityId, transform: command.args.transform }, gesture.expectedRevision);
+    if (res.ok) return { ok: true };
+    if (res.response.ok === false && res.response.code === 'revision_conflict') {
+      const retried = gesture.handleResult(
+        { ok: false, code: 'revision_conflict', currentRevision: res.response.currentRevision ?? 0 },
+        () => {
+          const e = client.projection.getEntity(command.entityId);
+          return e
+            ? { position: [e.position[0] ?? 0, e.position[1] ?? 0, e.position[2] ?? 0], size: [e.gameZone?.size[0] ?? 1, e.gameZone?.size[1] ?? 1] }
+            : { position: [0, 0, 0], size: [1, 1] };
+        },
+      );
+      if (retried.kind === 'commit') {
+        const cmd = retried.command;
+        if (cmd.op !== 'setTransform') {
+          return { ok: false, error: { code: 'unexpected_command', message: 'the zone gesture decided an unexpected command' } };
+        }
+        const r2 = await client.command('setTransform', { entityId: cmd.entityId, transform: cmd.args.transform }, gesture.expectedRevision);
+        if (r2.ok) return { ok: true };
+        return { ok: false, error: commandError(r2) };
+      }
+      if (retried.kind === 'conflict') {
+        return {
+          ok: false,
+          error: { code: 'revision_conflict', message: `the zone moved while you were dragging (the scene is now at revision ${retried.conflict.currentRevision}) — the edit was not applied; try again` },
+        };
+      }
+      return { ok: false, error: { code: 'revision_conflict', message: 'the zone edit was rebased but no change remained to apply' } };
+    }
+    return { ok: false, error: commandError(res) };
+  }
+  // resize: one `setComponent(gameZone, { size })`.
+  const res = await client.setComponent(command.entityId, 'gameZone', command.args.value, gesture.expectedRevision);
+  if (res.ok) return { ok: true };
+  return { ok: false, error: commandError(res) };
+}
+
+/** The capture preflight view of one projected entity (packet 28). */
+function toCaptureView(e: ProjectedEntity): CaptureEntityView {
+  return {
+    id: e.id,
+    parentId: e.parentId,
+    camera: e.kind === 'camera',
+    prefab: e.prefab ?? null,
+    behavior: e.behaviorId ? { behaviorId: e.behaviorId, values: e.behaviorValues ?? {} } : null,
+  };
+}
 
 interface PlayInfo {
   playSessionId: string;
@@ -27,6 +171,10 @@ interface PlayInfo {
   snapshot: unknown | null;
   snapshotId: string;
   revision: number;
+  /** Packet 35: the immutable locator capability + build identity. */
+  contentId: string | null;
+  buildId: string | null;
+  contentPath: string | null;
 }
 
 function EditorApp(): JSX.Element {
@@ -49,10 +197,103 @@ function EditorApp(): JSX.Element {
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
 
+  // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
+  const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
+  const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
+  const [gameConfig, setGameConfig] = useState<GameConfigLike | null>(null);
+  const [gameConfigLoaded, setGameConfigLoaded] = useState(false);
+  const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
+
+  // ---- packet 27: content browser + local snapping -------------------------
+  const [assets, setAssets] = useState<AssetView[]>([]);
+  const [assetQuery, setAssetQuery] = useState<AssetQueryState>({ total: 0, offset: 0, limit: 50, hasMore: false });
+  const [importState, setImportState] = useState<AssetImportState>(initialImportState);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [assetPreview, setAssetPreview] = useState<AssetPreviewView | null>(null);
+  const [snapping, setSnapping] = useState(true);
+  const modelInstancesRef = useRef<ModelInstances | null>(null);
+  const previewSessionRef = useRef<AssetPreviewSession | null>(null);
+  const pendingProposalRef = useRef<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>(null);
+  // M3 (packet 57): the media import context the panel shows between the
+  // inspect and the publish — the kind the drop decided, the inspected clip
+  // names (a model proposal) and the §8.5.1 animated-reimport obligation.
+  const mediaPendingRef = useRef<{ kind: 'model' | 'audio'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
+  const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
+  const [reimportEntity, setReimportEntity] = useState('');
+  const importStateRef = useRef<AssetImportState>(initialImportState);
+  const selectedAssetIdRef = useRef<string | null>(null);
+  const shiftRef = useRef(false);
+  const snappingRef = useRef(true);
+  useEffect(() => {
+    importStateRef.current = importState;
+  }, [importState]);
+  useEffect(() => {
+    selectedAssetIdRef.current = selectedAssetId;
+    setAssetPreview(null);
+  }, [selectedAssetId]);
+  useEffect(() => {
+    snappingRef.current = snapping;
+  }, [snapping]);
+
+  // ---- packet 28: prefab copies + declared-property controls ---------------
+  const [prefabSummaries, setPrefabSummaries] = useState<PrefabSummaryView[]>([]);
+  const [declarations, setDeclarations] = useState<Map<string, PropertyDeclaration>>(() => new Map());
+  const [selectedPrefabId, setSelectedPrefabId] = useState<string | null>(null);
+  const [captureName, setCaptureName] = useState('');
+  const [captureError, setCaptureError] = useState<UiError | null>(null);
+  const [copyError, setCopyError] = useState<UiError | null>(null);
+  const [placementError, setPlacementError] = useState<UiError | null>(null);
+  const [propertyError, setPropertyError] = useState<UiError | null>(null);
+  const [componentError, setComponentError] = useState<UiError | null>(null);
+  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
+  // Packet 34: behavior publication workflow (trust, staging, publication).
+  const [behaviorViews, setBehaviorViews] = useState<BehaviorDeclarationView[]>([]);
+  const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
+  const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
+  const [sourceDraft, setSourceDraft] = useState('');
+  const [behaviorError, setBehaviorError] = useState<UiError | null>(null);
+  const [newBehaviorId, setNewBehaviorId] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newPropertyKey, setNewPropertyKey] = useState('speed');
+  const [newPropertyDefault, setNewPropertyDefault] = useState('3.5');
+  // The generated prefabId for the current selection (stable while selected).
+  const captureIdRef = useRef<string | null>(null);
+
+  /**
+   * A fresh capture draft whenever the selection changes. The draft is a local
+   * form value; the prefabId is generated once per selection so typing a name
+   * does not churn it.
+   */
+  useEffect(() => {
+    const c = clientRef.current;
+    const sel = selectedId ? (c?.projection.getEntity(selectedId) ?? null) : null;
+    if (!c || !sel) {
+      captureIdRef.current = null;
+      setCaptureName('');
+      setCaptureError(null);
+      return;
+    }
+    const draft = newPrefabDraft({ id: sel.id, name: sel.name }, c.prefabs.prefabIds);
+    captureIdRef.current = draft.prefabId;
+    setCaptureName(draft.displayName);
+    setCaptureError(null);
+  }, [selectedId]);
+
   const refreshEntities = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
     setEntities([...c.projection.listEntities()]);
+    setAssets(c.content.listAssets());
+    setPrefabSummaries(c.prefabs.listSummaries());
+    setDeclarations(c.prefabs.declarationMap());
+    setBehaviorViews([...c.prefabs.listDeclarations()]);
+    // M3 (packet 56): the game block + settings map converge from the client
+    // state (full states + the applied change records — the backend stays
+    // the sole authority).
+    setGameConfig(c.getGameConfig());
+    setGameConfigLoaded(c.getGameConfigLoaded());
+    setSettings(c.getSettings());
     setUi((s) => ({ ...s, revision: c.projection.revision }));
   }, []);
 
@@ -71,6 +312,9 @@ function EditorApp(): JSX.Element {
           snapshot: r.snapshot,
           snapshotId: r.snapshotId,
           revision: r.revision,
+          contentId: p?.contentId ?? null,
+          buildId: p?.buildId ?? null,
+          contentPath: p?.contentPath ?? null,
         }));
       },
       onPlayStopped: () => {
@@ -129,8 +373,107 @@ function EditorApp(): JSX.Element {
           gestureRef.current = null;
         }
       },
-    });
+      // ---- M3 (packet 56): zone gesture routing --------------------------------
+      // The overlay (viewport) reports the pointer's game-plane WORLD hits;
+      // the pure ZoneGesture decides the single commit; the client issues it
+      // (zero commands during the gesture, one on release, none on cancel).
+      onZoneGestureBegin: (g) => {
+        setGameplayError(null);
+        if (g.kind === 'create') {
+          const tool = g.tool;
+          const role: ZoneRole = tool.kind === 'zone' ? tool.role : 'hazard';
+          zoneGestureRef.current = {
+            gesture: new ZoneGesture('create', client.projection.revision, { position: [g.anchor.x, g.anchor.y, 0], size: [1, 1] }, {
+              role,
+              ...(tool.kind === 'zone' && tool.safeSpawnId ? { safeSpawnId: tool.safeSpawnId } : {}),
+            }),
+            anchor: { x: g.anchor.x, y: g.anchor.y },
+            tool,
+          };
+          return;
+        }
+        const e = client.projection.getEntity(g.entityId);
+        if (!e) return;
+        zoneGestureRef.current = {
+          gesture: new ZoneGesture(
+            g.kind,
+            client.projection.revision,
+            { position: [e.position[0] ?? 0, e.position[1] ?? 0, e.position[2] ?? 0], size: e.gameZone ? [e.gameZone.size[0], e.gameZone.size[1]] : [1, 1] },
+            { entityId: g.entityId },
+          ),
+          anchor: { x: g.anchor.x, y: g.anchor.y },
+          tool: null,
+        };
+      },
+      onZoneGestureFrame: (hit) => {
+        const zg = zoneGestureRef.current;
+        if (!zg) return;
+        const pose = zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
+        const isSpawn = zg.tool !== null && zg.tool.kind === 'spawn';
+        const role = zg.tool !== null && zg.tool.kind === 'zone' ? zg.tool.role : undefined;
+        viewportRef.current?.previewZonePose(pose, isSpawn, role);
+      },
+      onZoneGestureEnd: (hit) => {
+        const zg = zoneGestureRef.current;
+        if (!zg) return;
+        zg.gesture.preview({ dx: hit.x - zg.anchor.x, dy: hit.y - zg.anchor.y });
+        const outcome = zg.gesture.decideCommit();
+        const tool = zg.tool;
+        zoneGestureRef.current = null;
+        if (outcome.kind !== 'commit') {
+          // A finished (noop/cancelled) placement clears the one-shot tool.
+          if (tool !== null) setGameplayTool(null);
+          return;
+        }
+        // The spawn tool rides the same create gesture for position tracking;
+        // the entity it creates is a spawn marker, not a zone (row 10).
+        if (tool !== null && tool.kind === 'spawn' && outcome.command.op === 'createEntity') {
+          const pos = outcome.command.args.transform.position;
+          const args = planCreateSpawn([pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0]);
+          void client.createGameEntity(args as unknown as Record<string, unknown>, zg.gesture.expectedRevision).then((res) => {
+            if (res.ok) {
+              setGameplayTool(null);
+              setCanUndo(true);
+              refreshEntities();
+              return;
+            }
+            setGameplayError(commandError(res));
+          });
+          return;
+        }
+        void issueZoneCommand(client, zg.gesture, outcome.command).then((r) => {
+          if (r.ok) {
+            if (tool !== null) setGameplayTool(null);
+            setCanUndo(true);
+            refreshEntities();
+            return;
+          }
+          setGameplayError(r.error);
+        });
+      },
+      onZoneGestureCancel: () => {
+        const zg = zoneGestureRef.current;
+        if (zg) zg.gesture.cancel();
+        zoneGestureRef.current = null;
+        // The placement tool stays armed (Esc cancels the GESTURE, not the
+        // tool — the user can try again; the panel's button disarms it).
+      },
+    }, { snapping: () => snappingRef.current && !shiftRef.current });
     viewportRef.current = viewport;
+    // Packet 27: one shared GLB realization path for placements + preview. The
+    // resolver is the editor's authenticated byte read; the renderer never
+    // receives the token (sessions.md §16.1).
+    const models = new ModelInstances(viewport.scene, {
+      resolve: client.assetByteResolver(),
+      descriptorFor: (assetId) => {
+        const v = client.content.resolveVersion(assetId);
+        if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return null;
+        return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
+      },
+      onChanged: () => viewport.requestRender(),
+    });
+    viewport.setModelInstances(models);
+    modelInstancesRef.current = models;
     viewport.resize();
     void client.connect();
     refreshEntities();
@@ -140,7 +483,10 @@ function EditorApp(): JSX.Element {
     return () => {
       window.removeEventListener('resize', onResize);
       client.dispose();
+      models.dispose();
       viewport.dispose();
+      modelInstancesRef.current = null;
+      previewSessionRef.current = null;
       clientRef.current = null;
       viewportRef.current = null;
     };
@@ -152,6 +498,51 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  // A ref mirror of the armed zone tool (stable-closure Esc handler, packet 56).
+  const gameplayToolRef = useRef<ZoneTool | null>(null);
+  useEffect(() => {
+    gameplayToolRef.current = gameplayTool;
+  }, [gameplayTool]);
+
+  // Push the projection into the viewport (packet 27: placements must be
+  // visible; the viewport renders the projection, never the reverse).
+  useEffect(() => {
+    viewportRef.current?.syncEntities(entities);
+  }, [entities]);
+
+  // Local snapping is a gesture option: default on, Shift disables it for the
+  // gesture in flight (never persisted — sessions.md §9). Esc cancels the
+  // gesture and sends nothing.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Shift') shiftRef.current = true;
+      if (e.key === 'Escape' && viewportRef.current?.cancelGesture()) {
+        gestureRef.current = null;
+        return;
+      }
+      // M3 (packet 56): with no gesture in flight, Esc clears the armed zone
+      // placement tool (nothing is sent either way).
+      if (e.key === 'Escape' && gameplayToolRef.current !== null) {
+        setGameplayTool(null);
+        viewportRef.current?.setZoneTool(null);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent): void => {
+      if (e.key === 'Shift') shiftRef.current = false;
+    };
+    const onBlur = (): void => {
+      shiftRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
 
   // Selection → gizmo.
   useEffect(() => {
@@ -179,15 +570,32 @@ function EditorApp(): JSX.Element {
     bridge.on('tl.handshake.ack', () => {
       if (snapshotSent) return;
       snapshotSent = true;
+      if (playInfo.contentId !== null && playInfo.buildId !== null) {
+        bridge.sendPlayContentExpect(playInfo.playSessionId, playInfo.contentId, playInfo.buildId);
+      }
       bridge.sendSnapshot(playInfo.playSessionId, playInfo.snapshot);
     });
     bridge.on('tl.ready', (m) => {
       const r = m as { snapshotId?: string; revision?: number };
       setPlayInfo((p) => (p ? { ...p, snapshotId: r.snapshotId ?? p.snapshotId, revision: r.revision ?? p.revision } : p));
+      // M4 (packet 70, D-63-4 repair): the editor presented the preview and
+      // received its `tl.ready` → send the WS `play.preview.ready` exactly
+      // once (sessions.md §10.2); the backend marks the play `presented`
+      // (lifting the 15 s present-timeout).
+      clientRef.current?.sendPlayPreviewReady(playInfo.playSessionId);
     });
     bridge.on('tl.stopped', () => {
       setPlaying(false);
       setPlayInfo(null);
+    });
+    // M4 (packet 70, D-63-4 repair — failure side): the preview could not
+    // start → relay it over WS (`play.preview.failed`, sessions.md §10.2);
+    // the backend stops the play `preview_failed` (truthful + immediate, not
+    // the 15 s present-timeout). The editor also surfaces the code locally.
+    bridge.on('tl.error', (m) => {
+      const r = m as { code?: string; message?: string; phase?: string };
+      setGameplayError({ code: r?.code ?? 'play_content_not_ready', message: r?.message ?? `preview failed${r?.phase ? ` (${r.phase})` : ''}` });
+      void clientRef.current?.sendPlayPreviewFailed(playInfo.playSessionId, r?.code ?? 'play_content_not_ready', r?.message);
     });
     bridge.on('tl.screenshot.result', () => {
       /* handled by the MCP/backend relay path; the editor only relays */
@@ -195,8 +603,9 @@ function EditorApp(): JSX.Element {
 
     const onLoad = (): void => {
       // §13.4: the editor holds the retained play.started snapshot; on the
-      // iframe load it runs the handshake, then sends the snapshot.
-      bridge.beginHandshake(playInfo.playSessionId, false);
+      // iframe load it runs the handshake, then sends the snapshot. The v2
+      // handshake also carries the locator capability + build identity.
+      bridge.beginHandshake(playInfo.playSessionId, false, playInfo.contentId ?? '', playInfo.buildId ?? '');
     };
     const onMsg = (ev: MessageEvent): void => {
       bridge.handleMessage({ origin: ev.origin, source: ev.source, data: ev.data });
@@ -209,7 +618,7 @@ function EditorApp(): JSX.Element {
       bridgeRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, playInfo?.playSessionId, playInfo?.playBase, playInfo?.snapshot]);
+  }, [playing, playInfo?.playSessionId, playInfo?.playBase, playInfo?.snapshot, playInfo?.contentId, playInfo?.buildId]);
 
   // ---- toolbar actions (all delegated to the backend) ---------------------
   const newBox = useCallback(async () => {
@@ -251,7 +660,16 @@ function EditorApp(): JSX.Element {
     const r = await c.playStart(false);
     // The snapshot arrives via the retained play.started WS event; the iframe
     // is created once both playBase (HTTP) and snapshot (WS) are present.
-    setPlayInfo((p) => ({ playSessionId: r.playSessionId, playBase: r.playBase, snapshot: p?.snapshot ?? null, snapshotId: r.snapshotId, revision: r.revision }));
+    setPlayInfo((p) => ({
+      playSessionId: r.playSessionId,
+      playBase: r.playBase,
+      snapshot: p?.snapshot ?? null,
+      snapshotId: r.snapshotId,
+      revision: r.revision,
+      contentId: r.playContent?.contentId ?? null,
+      buildId: r.playContent?.buildId ?? null,
+      contentPath: r.playContent?.path ?? null,
+    }));
   }, []);
   const stop = useCallback(async () => {
     const c = clientRef.current;
@@ -267,6 +685,807 @@ function EditorApp(): JSX.Element {
     void c.fullResync().then(() => refreshEntities());
   }, [refreshEntities]);
 
+  // ---- packet 56: M3 gameplay authoring actions (all delegated to the
+  // backend through the ordinary command path; one command per action) ------
+
+  const armZoneTool = useCallback((tool: ZoneTool | null) => {
+    setGameplayTool(tool);
+    setGameplayError(null);
+    viewportRef.current?.setZoneTool(tool);
+  }, []);
+
+  const saveGameConfig = useCallback(
+    async (game: Record<string, unknown> | null) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const res = await c.setGameConfig(game, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  const addZone = useCallback(
+    async (role: ZoneRole, safeSpawnId: string | null) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const plan = planCreateZone({ role, size: DEFAULT_ZONE_SIZE[role], position: [0, 0, 0], safeSpawnId: safeSpawnId ?? undefined });
+      if (!plan.ok) {
+        setGameplayError({ code: plan.error.code, message: plan.error.message });
+        return;
+      }
+      const res = await c.createGameEntity(plan.args as unknown as Record<string, unknown>, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  const editZone = useCallback(
+    async (entityId: string, next: { role?: ZoneRole; size?: [number, number]; safeSpawnId?: string }) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const zone = c.projection.getEntity(entityId)?.gameZone;
+      if (!zone) return;
+      const plan = planEditZone(entityId, zone, next);
+      if (plan.kind === 'noop') return;
+      // The steps are issued sequentially (the two-step checkpoint role
+      // switch advances the revision between them); each step is one
+      // undoable command.
+      let rev = c.projection.revision;
+      for (const step of plan.steps) {
+        const res = await c.setComponent(step.args.entityId, step.args.component, step.args.value, rev);
+        if (!res.ok) {
+          setGameplayError(commandError(res));
+          return;
+        }
+        rev = res.revision;
+      }
+      setCanUndo(true);
+      refreshEntities();
+    },
+    [refreshEntities],
+  );
+
+  const deleteZone = useCallback(
+    async (entityId: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const res = await c.deleteEntityCommand(entityId, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  const addSpawn = useCallback(
+    async () => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const args = planCreateSpawn([0, 0, 0]);
+      const res = await c.createGameEntity(args as unknown as Record<string, unknown>, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  const deleteSpawn = useCallback(deleteZone, [deleteZone]);
+
+  const saveCameraFollow = useCallback(
+    async (entityId: string, value: Record<string, unknown> | null) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const res = await c.setComponent(entityId, 'cameraFollow', value, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  const saveSettings = useCallback(
+    async (settings: Record<string, number>) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setGameplayError(null);
+      const res = await c.setSettings(settings, c.projection.revision);
+      if (res.ok) {
+        setCanUndo(true);
+        refreshEntities();
+        return;
+      }
+      setGameplayError(commandError(res));
+    },
+    [refreshEntities],
+  );
+
+  // ---- packet 57: M3 media / lighting / animation authoring -----------------
+  const [mediaError, setMediaError] = useState<GameplayBackendError | null>(null);
+  // The cue PREVIEW owner (the packet's "injected owner"): one per session,
+  // disposed on teardown; the panel renders its status + bounded diagnostics.
+  const previewOwnerRef = useRef<PreviewAudioOwner | null>(null);
+  if (previewOwnerRef.current === null) previewOwnerRef.current = createPreviewAudioOwner();
+  // A state bump after each gesture/preview: the owner's status + diagnostics
+  // are read fresh on the re-render it triggers (the value itself is ignored).
+  const [, bumpPreview] = useState(0);
+  useEffect(() => {
+    return () => {
+      void previewOwnerRef.current?.dispose();
+    };
+  }, []);
+
+  const unlockPreview = useCallback(() => {
+    void previewOwnerRef.current?.unlock().then(() => bumpPreview((n) => n + 1));
+  }, [bumpPreview]);
+
+  /** Register + preview one committed cue (bytes from the editor's content
+   * read — the authoring token is that read's credential, never a resource). */
+  const previewCue = useCallback(
+    async (assetId: string) => {
+      const c = clientRef.current;
+      const owner = previewOwnerRef.current;
+      if (!c || !owner) return;
+      const version = c.content.currentVersion(assetId);
+      if (version === null) return;
+      try {
+        const bytes = await c.assetByteResolver()({ assetId, version });
+        owner.registerCue(assetId, bytes);
+        owner.preview(assetId);
+        bumpPreview((n) => n + 1);
+      } catch {
+        // A failed read is the ordinary network path; the panel stays usable.
+      }
+    },
+    [bumpPreview],
+  );
+
+  const mediaCommandResult = useCallback((res: { ok: boolean; response?: { ok?: boolean; code?: string; message?: string } }, onOk: () => void): void => {
+    if (res.ok) {
+      onOk();
+      return;
+    }
+    const r = res.response as { ok?: boolean; code?: string; message?: string } | undefined;
+    setMediaError({ code: r?.code ?? 'network', message: r?.message ?? r?.code ?? 'the media command was rejected' });
+  }, []);
+
+  const saveCues = useCallback(
+    async (args: { cues: Record<string, string | null> }) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.setGameConfig(args as Record<string, unknown>, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const addLight = useCallback(
+    async (type: 'directional' | 'ambient') => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const light =
+        type === 'directional'
+          ? { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.35, -1, 0.55], castShadow: false }
+          : { type: 'ambient', color: '#ffffff', intensity: 0.5 };
+      const res = await c.createGameEntity(
+        {
+          kind: 'group',
+          name: type === 'directional' ? 'key-light' : 'fill-light',
+          transform: { position: [0, 4, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+          components: { light },
+        },
+        c.projection.revision,
+      );
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const saveLight = useCallback(
+    async (entityId: string, value: Record<string, unknown>) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.setComponent(entityId, 'light', value, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const saveSurface = useCallback(
+    async (entityId: string, value: Record<string, unknown>) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.setComponent(entityId, 'surface', value, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const applyPreset = useCallback(
+    async (entityId: string, preset: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.command('applySurfacePreset', { entityId, preset }, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const saveAnimation = useCallback(
+    async (entityId: string, value: Record<string, unknown>) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.setComponent(entityId, 'modelAnimation', value, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const saveActivation = useCallback(
+    async (entityId: string, value: Record<string, unknown>) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setMediaError(null);
+      const res = await c.setComponent(entityId, 'gameZone', value, c.projection.revision);
+      mediaCommandResult(res, () => {
+        setCanUndo(true);
+        refreshEntities();
+      });
+    },
+    [refreshEntities, mediaCommandResult],
+  );
+
+  const importFile = useCallback(async (file: File, mode: 'create' | 'reimport') => {
+    const c = clientRef.current;
+    if (!c) return;
+    // M3 (packet 57): the extension decides the kind (`.glb` model / `.wav`
+    // audio); an invalid drop creates no stage and no job.
+    const candidate = validateMediaDrop(file.name, file.size);
+    if (!candidate.ok) {
+      setImportState(importFailed(initialImportState, candidate.error));
+      return;
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const target: ImportTarget =
+      mode === 'reimport'
+        ? { mode: 'reimport', assetId: selectedAssetIdRef.current, displayName: null }
+        : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
+    const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, onState: setImportState });
+    if (res.ok) {
+      pendingProposalRef.current = { proposal: res.proposal, target };
+      const inspection = (res.proposal.proposal as { inspection?: { clipNames?: unknown } } | null)?.inspection;
+      const clipNames = Array.isArray(inspection?.clipNames) ? (inspection.clipNames as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+      // §8.5.1: a model reimport whose asset is referenced by modelAnimation
+      // components MUST carry the atomic `animation` — the panel collects the
+      // new version's role bindings before the publish is enabled.
+      const referencingEntityIds =
+        candidate.kind === 'model' && mode === 'reimport'
+          ? c.projection.listEntities().filter((e) => e.modelAnimation !== undefined && e.modelAnimation.assetId === target.assetId).map((e) => e.id)
+          : [];
+      mediaPendingRef.current = { kind: candidate.kind, clipNames, referencingEntityIds };
+      if (mode === 'reimport') {
+        setReimportRoles({ idle: '', run: '', airborne: '' });
+        setReimportEntity(referencingEntityIds[0] ?? '');
+      }
+      setSelectedAssetId(target.assetId);
+    } else {
+      pendingProposalRef.current = null;
+      mediaPendingRef.current = null;
+    }
+  }, []);
+
+  /** M3 (packet 57): the §8.5.1 `animation` args for the pending reimport, or
+   * `null` (a create / an audio reimport / a model reimport with no referencing
+   * entities). `complete` reports whether the role draft is ready (all three
+   * bindings named) — the publish is disabled until it is. */
+  const animatedReimportArgs = useCallback((): { animation: { entityId: string; roles: unknown } | null; complete: boolean } => {
+    const pending = pendingProposalRef.current;
+    const media = mediaPendingRef.current;
+    if (pending === null || media === null) return { animation: null, complete: true };
+    if (pending.target.mode !== 'reimport' || media.kind !== 'model' || media.referencingEntityIds.length === 0) return { animation: null, complete: true };
+    const clipNames = media.clipNames ?? [];
+    const roles = {} as Record<string, { clipIndex: number; clipName: string } >;
+    for (const k of ['idle', 'run', 'airborne'] as AnimationRoleKey[]) {
+      const name = reimportRoles[k].trim();
+      const idx = clipNames.indexOf(name);
+      roles[k] = { clipIndex: idx >= 0 ? idx : 0, clipName: name };
+    }
+    const complete = (['idle', 'run', 'airborne'] as AnimationRoleKey[]).every((k) => reimportRoles[k].trim() !== '') && reimportEntity !== '' && media.referencingEntityIds.includes(reimportEntity);
+    return { animation: complete ? { entityId: reimportEntity, roles } : null, complete };
+  }, [reimportRoles, reimportEntity]);
+
+  const publish = useCallback(async () => {
+    const c = clientRef.current;
+    const pending = pendingProposalRef.current;
+    const media = mediaPendingRef.current;
+    if (!c || !pending || !media) return;
+    const animated = animatedReimportArgs();
+    if (!animated.complete) return; // the panel keeps the publish disabled
+    const args = publishArgsFromProposal(pending.proposal, pending.target, utcSecondTimestamp(), media.kind, animated.animation ?? undefined);
+    if (!args.ok) {
+      setImportState(importFailed(importStateRef.current, args.error));
+      return;
+    }
+    let s = c.markPublishing(importStateRef.current);
+    setImportState(s);
+    // Exactly one publishAsset command; the catalog advances only through the
+    // applied `mutation.applied` change (never a local write). A rejected
+    // reimport (stale job, limits, role range/mismatch) preserves the old
+    // version AND the old animation component (the command is all-or-nothing).
+    const res = await c.command('publishAsset', args.args, c.projection.revision);
+    if (res.ok) {
+      s = c.markCommitted(s);
+      setImportState(s);
+      pendingProposalRef.current = null;
+      mediaPendingRef.current = null;
+      await c.fullResync();
+      refreshEntities();
+    } else {
+      const response = res.response;
+      setImportState(importFailed(s, response.ok === false ? { code: response.code, message: response.message ?? response.code } : { code: 'network', message: 'the command response was lost' }));
+    }
+  }, [refreshEntities, animatedReimportArgs]);
+
+  const cancelImportFlow = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const s = c.cancelImport(importStateRef.current);
+    setImportState(s);
+    pendingProposalRef.current = null;
+    mediaPendingRef.current = null;
+    if (s.stageId) {
+      try {
+        await c.discardStage(s.stageId);
+      } catch {
+        /* the stage TTL bounds an abandoned stage */
+      }
+    }
+  }, []);
+
+  const discardImportFlow = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const stageId = importStateRef.current.stageId;
+    setImportState(c.resetImport(importStateRef.current));
+    pendingProposalRef.current = null;
+    mediaPendingRef.current = null;
+    if (stageId) {
+      try {
+        await c.discardStage(stageId);
+      } catch {
+        /* already discarded / expired */
+      }
+    }
+  }, []);
+
+  const loadPreview = useCallback(async (assetId: string) => {
+    const c = clientRef.current;
+    const m = modelInstancesRef.current;
+    if (!c || !m) return;
+    const v = c.content.resolveVersion(assetId);
+    if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) {
+      setImportState(importFailed(importStateRef.current, { code: 'asset_not_found', message: `no immutable version facts for ${assetId}` }));
+      return;
+    }
+    const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength });
+    if (!res.ok) {
+      setImportState(importFailed(importStateRef.current, { code: res.code, message: res.message }));
+      return;
+    }
+    previewSessionRef.current = res.session;
+    setAssetPreview({ assetId, clips: res.session.clips, clipIndex: null, playing: false, timeSeconds: 0, durationSeconds: 0 });
+  }, []);
+
+  const publishPreviewState = useCallback(() => {
+    const s = previewSessionRef.current?.controller.state();
+    if (!s) return;
+    setAssetPreview((p) => (p ? { ...p, playing: s.playing, clipIndex: s.clipIndex, timeSeconds: s.timeSeconds, durationSeconds: s.durationSeconds } : p));
+  }, []);
+
+  const previewPlay = useCallback(() => {
+    const ctrl = previewSessionRef.current?.controller;
+    if (!ctrl) return;
+    ctrl.play();
+    publishPreviewState();
+  }, [publishPreviewState]);
+
+  const previewPause = useCallback(() => {
+    const ctrl = previewSessionRef.current?.controller;
+    if (!ctrl) return;
+    ctrl.pause();
+    publishPreviewState();
+  }, [publishPreviewState]);
+
+  const previewScrub = useCallback(
+    (seconds: number) => {
+      const ctrl = previewSessionRef.current?.controller;
+      if (!ctrl) return;
+      ctrl.scrub(seconds);
+      publishPreviewState();
+    },
+    [publishPreviewState],
+  );
+
+  // The host owns the preview frame loop (the controller installs none).
+  useEffect(() => {
+    if (!assetPreview?.playing) return;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number): void => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      modelInstancesRef.current?.updatePreview(dt);
+      publishPreviewState();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [assetPreview?.playing, publishPreviewState]);
+
+  const placement = selectedAssetId !== null ? planAssetPlacement(selectedAssetId) : null;
+
+  // ---- packet 28: prefab capture / copy / property edit ---------------------
+
+  /**
+   * Issue one typed prefab/property command with the contract's client
+   * recovery (commands.md §5.5/§6.4): a `revision_conflict` re-reads the state
+   * and re-issues ONCE with a fresh requestId; a backend-rejected instance
+   * limit or any other failure is surfaced with its exact bound (never
+   * swallowed).
+   */
+  const runTypedCommand = useCallback(
+    async (op: string, args: unknown, onError: (e: UiError) => void): Promise<boolean> => {
+      const c = clientRef.current;
+      if (!c) return false;
+      let reissues = 0;
+      for (;;) {
+        const res = await c.command(op, args, c.projection.revision);
+        if (res.ok) return true;
+        if (res.response.ok) {
+          onError({ code: 'internal', message: 'unexpected success response for a failed command' });
+          return false;
+        }
+        const r = res.response;
+        const recovery = recoverPrefabCommandFailure(
+          { code: r.code, message: r.message, currentRevision: r.currentRevision, limit: r.limit, current: r.current, max: r.max },
+          { reissues },
+        );
+        if (recovery.kind === 'reissue') {
+          reissues += 1;
+          await c.fullResync();
+          refreshEntities();
+          continue;
+        }
+        onError({ code: r.code, message: recovery.message });
+        return false;
+      }
+    },
+    [refreshEntities],
+  );
+
+  const placeAsset = useCallback(async () => {
+    const c = clientRef.current;
+    const assetId = selectedAssetIdRef.current;
+    if (!c || !assetId) return;
+    const command = planAssetPlacement(assetId);
+    setPlacementError(null);
+    await runTypedCommand('createEntity', command.args, setPlacementError);
+  }, [runTypedCommand]);
+
+  const capturePrefab = useCallback(async () => {
+    const c = clientRef.current;
+    const sourceEntityId = selectedIdRef.current;
+    const prefabId = captureIdRef.current;
+    if (!c || !sourceEntityId || !prefabId) return;
+    const scene = c.projection.listEntities();
+    const plan = planCreatePrefab({
+      prefabId,
+      displayName: captureName,
+      sourceEntityId,
+      scene: scene.map(toCaptureView),
+      existingPrefabIds: c.prefabs.prefabIds,
+      declarations: c.prefabs.declarationMap(),
+      cameraId: scene.find((e) => e.kind === 'camera')?.id ?? null,
+    });
+    if (!plan.ok) {
+      setCaptureError({ code: plan.error.code, message: plan.error.message });
+      return;
+    }
+    setCaptureError(null);
+    const ok = await runTypedCommand('createPrefab', plan.command.args, setCaptureError);
+    if (ok) setSelectedPrefabId(plan.command.args.prefabId);
+  }, [captureName, runTypedCommand]);
+
+  const overrideTargets = useMemo(() => {
+    const c = clientRef.current;
+    if (!c || !selectedPrefabId) return [];
+    const definition = c.prefabs.getDefinition(selectedPrefabId);
+    if (!definition) return [];
+    return deriveOverrideTargets(definition, declarations);
+  }, [selectedPrefabId, declarations]);
+
+  const commitOverride = useCallback((localId: string, key: string, raw: string) => {
+    setOverrideDrafts((prev) => ({ ...prev, [overrideDraftKey(localId, key)]: raw }));
+  }, []);
+
+  const placeCopy = useCallback(
+    async (prefabId: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      const definition = c.prefabs.getDefinition(prefabId) ?? null;
+      const decls = c.prefabs.declarationMap();
+      const targets = definition ? deriveOverrideTargets(definition, decls) : [];
+      const entitiesNow = c.projection.listEntities();
+      const refs = { entityIds: entitiesNow.map((e) => e.id), assetIds: c.content.listAssets().map((a) => a.assetId) };
+      const collected = collectOverrides(targets, new Map(Object.entries(overrideDrafts)), refs);
+      if (!collected.ok) {
+        setCopyError({ code: collected.error.code, message: collected.error.message });
+        return;
+      }
+      const plan = planInstantiatePrefab({
+        prefabId,
+        definition,
+        declarations: decls,
+        parentId: null,
+        sceneEntityIds: refs.entityIds,
+        assetIds: refs.assetIds,
+        sceneEntityCount: entitiesNow.length,
+        parentDepth: 0,
+        overrides: collected.overrides,
+      });
+      if (!plan.ok) {
+        setCopyError({ code: plan.error.code, message: plan.error.message });
+        return;
+      }
+      setCopyError(null);
+      const ok = await runTypedCommand('instantiatePrefab', plan.command.args, setCopyError);
+      if (ok) setOverrideDrafts({});
+    },
+    [overrideDrafts, runTypedCommand],
+  );
+
+  /**
+   * One declared-property edit = one ordinary typed `setBehaviorProperties`
+   * command. The whole declared values map is sent (omitted keys take their
+   * declaration default), so editing one property never resets the others.
+   */
+  const editProperty = useCallback(
+    async (entityId: string, key: string, raw: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      const entity = c.projection.getEntity(entityId);
+      if (!entity?.behaviorId) {
+        setPropertyError({ code: 'behavior_reference_missing', message: `${entityId} carries no behavior component` });
+        return;
+      }
+      const declaration = c.prefabs.getDeclaration(entity.behaviorId);
+      if (!declaration) {
+        setPropertyError({ code: 'behavior_not_found', message: `${entity.behaviorId} is not published in content.behaviors` });
+        return;
+      }
+      const control = derivePropertyControls(declaration, entity.behaviorValues ?? {}).find((x) => x.key === key);
+      if (!control) {
+        setPropertyError({ code: 'property_unknown', message: `"${key}" is not declared by ${entity.behaviorId}` });
+        return;
+      }
+      const parsed = parseControlInput(control, raw, {
+        entityIds: c.projection.listEntities().map((e) => e.id),
+        assetIds: c.content.listAssets().map((a) => a.assetId),
+      });
+      if (!parsed.ok) {
+        setPropertyError({ code: parsed.error.code, message: parsed.error.message });
+        return;
+      }
+      const plan = planSetBehaviorProperties(entityId, entity.behaviorId, declaration, entity.behaviorValues ?? {}, key, parsed.value);
+      if (!plan.ok) {
+        setPropertyError({ code: plan.error.code, message: plan.error.message });
+        return;
+      }
+      setPropertyError(null);
+      await runTypedCommand('setBehaviorProperties', plan.args, setPropertyError);
+    },
+    [runTypedCommand],
+  );
+
+  /** Collider/controller authoring: one typed `setComponent` per action. */
+  const addComponent = useCallback(
+    async (entityId: string, component: 'collider' | 'controller') => {
+      const c = clientRef.current;
+      if (!c) return;
+      const args =
+        component === 'controller'
+          ? planAddController(entityId)
+          : planSetCollider(entityId, { type: 'box', hx: 1, hy: 1 });
+      setComponentError(null);
+      await runTypedCommand('setComponent', args, setComponentError);
+    },
+    [runTypedCommand],
+  );
+
+  const removeComponent = useCallback(
+    async (entityId: string, component: 'collider' | 'controller') => {
+      const c = clientRef.current;
+      if (!c) return;
+      setComponentError(null);
+      await runTypedCommand('setComponent', planRemovePhysicsComponent(entityId, component), setComponentError);
+    },
+    [runTypedCommand],
+  );
+
+  const editColliderBox = useCallback(
+    async (entityId: string, hxRaw: string, hyRaw: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      const parsed = parseColliderBox(hxRaw, hyRaw);
+      if (!parsed.ok) {
+        setComponentError({ code: parsed.error.code, message: parsed.error.message });
+        return;
+      }
+      setComponentError(null);
+      await runTypedCommand('setComponent', planSetCollider(entityId, parsed.shape), setComponentError);
+    },
+    [runTypedCommand],
+  );
+
+  const refreshAssets = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const page = await c.loadAssetPage(assetQuery, {});
+    setAssetQuery(page.state);
+    setAssets(c.content.listAssets());
+  }, [assetQuery]);
+
+  // ---- packet 34: behavior publication workflow ----------------------------
+
+  const stageBehaviorSource = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    setBehaviorError(null);
+    const bytes = new TextEncoder().encode(sourceDraft);
+    try {
+      JSON.parse(sourceDraft);
+    } catch (e) {
+      setPublication((s) =>
+        publicationFailed(s, {
+          code: 'behavior_source_invalid',
+          message: `staged source is not JSON: ${String((e as Error).message).slice(0, 200)}`,
+        }),
+      );
+      return;
+    }
+    const staged = await c.stageBehaviorSource(bytes);
+    if (!staged.ok) {
+      setPublication((s) => publicationFailed(s, staged.error));
+      return;
+    }
+    setPublication((s) => sourceStaged(s, staged));
+  }, [sourceDraft]);
+
+  const acknowledgeDigest = useCallback(
+    async (sourceDigest: string) => {
+      const c = clientRef.current;
+      if (!c) return;
+      setBehaviorError(null);
+      const res = await c.acknowledgeBehaviorTrust(sourceDigest, c.projection.revision);
+      if (!res.ok) {
+        const r = res.response;
+        setPublication((s) =>
+          publicationFailed(s, r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code }),
+        );
+        return;
+      }
+      // Optimistic convergence: the authoritative record arrives with the same
+      // command's `mutation.applied` change; the observed set is also used.
+      setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest, acknowledgedRevision: res.revision }]));
+      refreshEntities();
+    },
+    [refreshEntities],
+  );
+
+  const publishStagedSource = useCallback(async () => {
+    const c = clientRef.current;
+    const view = behaviorViews.find((b) => b.behaviorId === selectedBehaviorId);
+    const staged = publication.staged;
+    if (!c || !view || !staged) return;
+    setBehaviorError(null);
+    const res = await c.publishBehaviorSource(
+      {
+        behaviorId: view.behaviorId,
+        displayName: view.displayName,
+        declaration: view.declaration,
+        sourceDigest: staged.digest,
+        sourceByteLength: staged.byteLength,
+      },
+      c.projection.revision,
+    );
+    if (!res.ok) {
+      const r = res.response;
+      setPublication((s) =>
+        publicationFailed(s, r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code }),
+      );
+      return;
+    }
+    setPublication((s) => published(s, { revision: res.revision }));
+    refreshEntities();
+  }, [behaviorViews, selectedBehaviorId, publication, refreshEntities]);
+
+  const createDeclaration = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    setBehaviorError(null);
+    const parsed = Number(newPropertyDefault);
+    const declaration = {
+      properties: [
+        {
+          key: newPropertyKey,
+          label: newPropertyKey,
+          type: 'number' as const,
+          default: Number.isFinite(parsed) ? parsed : 0,
+        },
+      ],
+    };
+    const res = await c.publishBehaviorDeclaration(
+      { behaviorId: newBehaviorId, displayName: newDisplayName || newBehaviorId, mode: 'declaration-create', declaration },
+      c.projection.revision,
+    );
+    if (!res.ok) {
+      const r = res.response;
+      setBehaviorError(r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code });
+      return;
+    }
+    setSelectedBehaviorId(newBehaviorId);
+    refreshEntities();
+  }, [newBehaviorId, newDisplayName, newPropertyDefault, newPropertyKey, refreshEntities]);
+
   if (configError) {
     return (
       <div className="tl-config-error">
@@ -278,7 +1497,11 @@ function EditorApp(): JSX.Element {
   }
 
   const selected = entities.find((e) => e.id === selectedId) ?? null;
-  const previewSrc = playInfo?.playBase ? `${playInfo.playBase}/?play=${playInfo.playSessionId}` : null;
+  const previewSrc = playInfo?.playBase
+    ? playInfo.contentId !== null && playInfo.contentPath !== null
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}`
+      : `${playInfo.playBase.replace(/\/$/, '')}/?play=${playInfo.playSessionId}`
+    : null;
 
   return (
     <div className="tl-app">
@@ -287,6 +1510,8 @@ function EditorApp(): JSX.Element {
         canRedo={canRedo}
         selectedId={selectedId}
         playing={playing}
+        snapping={snapping}
+        onToggleSnapping={() => setSnapping((v) => !v)}
         onNewBox={() => void newBox()}
         onDelete={() => void del()}
         onUndo={() => void undo()}
@@ -296,6 +1521,122 @@ function EditorApp(): JSX.Element {
       />
       <div className="tl-app__body">
         <Hierarchy entities={entities} selectedId={selectedId} onSelect={setSelectedId} />
+        <PrefabPanel
+          selection={selected}
+          definitions={prefabSummaries}
+          selectedPrefabId={selectedPrefabId}
+          targets={overrideTargets}
+          captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
+          captureError={captureError}
+          copyError={copyError}
+          overrideCount={Object.keys(overrideDrafts).length}
+          onCaptureName={setCaptureName}
+          onCapture={() => void capturePrefab()}
+          onSelect={(id) => {
+            setSelectedPrefabId(id);
+            setOverrideDrafts({});
+            setCopyError(null);
+          }}
+          onPlaceCopy={(id) => void placeCopy(id)}
+          onOverrideCommit={commitOverride}
+        />
+        <AssetBrowser
+          assets={assets}
+          query={assetQuery}
+          importState={importState}
+          selectedAssetId={selectedAssetId}
+          placementAvailable={placement !== null && assetPlacementAvailable()}
+          placementMessage={placementError?.message ?? null}
+          preview={assetPreview}
+          onRefresh={() => void refreshAssets()}
+          onSelect={setSelectedAssetId}
+          onImport={(f) => void importFile(f, 'create')}
+          onReimport={(f) => void importFile(f, 'reimport')}
+          onPublish={() => void publish()}
+          onCancel={() => void cancelImportFlow()}
+          onDiscard={() => void discardImportFlow()}
+          onPreview={(id) => void loadPreview(id)}
+          onPreviewPlay={previewPlay}
+          onPreviewPause={previewPause}
+          onPreviewScrub={previewScrub}
+          onPlace={() => void placeAsset()}
+          roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
+          roleEntity={reimportEntity}
+          roleDraft={reimportRoles}
+          onRoleEntityChange={setReimportEntity}
+          onRoleDraftChange={setReimportRoles}
+        />
+        <BehaviorPanel
+          behaviors={behaviorViews}
+          selectedBehaviorId={selectedBehaviorId}
+          publication={publication}
+          sourceDraft={sourceDraft}
+          activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
+          error={behaviorError}
+          newBehaviorId={newBehaviorId}
+          newDisplayName={newDisplayName}
+          newPropertyKey={newPropertyKey}
+          newPropertyDefault={newPropertyDefault}
+          onSelect={(id) => {
+            setSelectedBehaviorId(id);
+            setBehaviorError(null);
+          }}
+          onSourceDraft={setSourceDraft}
+          onStage={() => void stageBehaviorSource()}
+          onAcknowledge={(digest) => void acknowledgeDigest(digest)}
+          onPublishSource={() => void publishStagedSource()}
+          onNewBehaviorId={setNewBehaviorId}
+          onNewDisplayName={setNewDisplayName}
+          onNewPropertyKey={setNewPropertyKey}
+          onNewPropertyDefault={setNewPropertyDefault}
+          onCreateDeclaration={() => void createDeclaration()}
+        />
+        <GameplayPanel
+          entities={entities}
+          gameConfig={gameConfig}
+          gameConfigLoaded={gameConfigLoaded}
+          settings={settings}
+          tool={gameplayTool}
+          onArmTool={armZoneTool}
+          onSaveGameConfig={(g) => void saveGameConfig(g)}
+          onAddZone={(r, s) => void addZone(r, s)}
+          onEditZone={(id, n) => void editZone(id, n)}
+          onDeleteZone={(id) => void deleteZone(id)}
+          onAddSpawn={() => void addSpawn()}
+          onDeleteSpawn={(id) => void deleteSpawn(id)}
+          onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
+          onSaveSettings={(s) => void saveSettings(s)}
+          backendError={gameplayError}
+        />
+        <MediaPanel
+          entities={entities}
+          selected={selected}
+          gameConfig={gameConfig}
+          gameConfigLoaded={gameConfigLoaded}
+          assets={assets}
+          clipNames={
+            selected !== null && selected.kind === 'model' && selected.assetId !== undefined
+              ? (assetPreview !== null && assetPreview.assetId === selected.assetId
+                  ? assetPreview.clips.map((c) => c.name)
+                  : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
+                    ? mediaPendingRef.current.clipNames
+                    : null)
+              : null
+          }
+          backendError={mediaError}
+          onDismissError={() => setMediaError(null)}
+          onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
+          onAddLight={(t) => void addLight(t)}
+          onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
+          onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
+          onApplyPreset={(id, p) => void applyPreset(id, p)}
+          onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
+          onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
+          previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
+          previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
+          onUnlockPreview={unlockPreview}
+          onPreviewCue={(id) => void previewCue(id)}
+        />
         <div className="tl-app__stage">
           <canvas ref={canvasRef} className="tl-viewport" />
           {playing && previewSrc && (
@@ -308,11 +1649,24 @@ function EditorApp(): JSX.Element {
                 className="tl-app__preview-frame"
                 src={previewSrc}
                 title="Thirdlight play preview"
+                allow="gamepad"
               />
             </div>
           )}
         </div>
-        <Inspector entity={selected} gizmoMode={gizmoMode} onGizmoMode={setGizmoMode} />
+        <Inspector
+          entity={selected}
+          gizmoMode={gizmoMode}
+          onGizmoMode={setGizmoMode}
+          declarations={declarations}
+          prefabDisplayName={(prefabId) => prefabSummaries.find((d) => d.prefabId === prefabId)?.displayName ?? prefabId}
+          propertyError={propertyError}
+          componentError={componentError}
+          onEditProperty={(entityId, key, raw) => void editProperty(entityId, key, raw)}
+          onAddComponent={(entityId, component) => void addComponent(entityId, component)}
+          onRemoveComponent={(entityId, component) => void removeComponent(entityId, component)}
+          onEditColliderBox={(entityId, hx, hy) => void editColliderBox(entityId, hx, hy)}
+        />
       </div>
       <StatusBar state={ui} onResync={resync} />
     </div>

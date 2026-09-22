@@ -37,7 +37,16 @@ export interface CommandEnvelope {
  */
 export type MutationResponse =
   | { ok: true; revision: number; duplicated: boolean; change: unknown }
-  | { ok: false; code: string; message?: string; currentRevision?: number };
+  | {
+      ok: false;
+      code: string;
+      message?: string;
+      currentRevision?: number;
+      /** `limits_exceeded` detail: the declared bound that was exceeded. */
+      limit?: string;
+      current?: number;
+      max?: number;
+    };
 
 /** A transport-level outcome for a command the browser sent. */
 export type CommandOutcome =

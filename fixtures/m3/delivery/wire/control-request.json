@@ -1,0 +1,18 @@
+{
+  "route": "POST /api/v1/projects/:projectId/play/:playSessionId/control",
+  "origin": "authoring",
+  "auth": "project bearer token or admin scope",
+  "body": {
+    "command": "start",
+    "expectedRunId": "demo-0001@r12#0"
+  },
+  "commands": [
+    "start",
+    "replay",
+    "mute",
+    "unmute"
+  ],
+  "bounds": {
+    "bodyBytes": 4096
+  }
+}

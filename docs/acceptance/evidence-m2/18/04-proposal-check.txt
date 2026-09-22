@@ -1,0 +1,32 @@
+# packet 18 proposal check (docs-only packet; accepted contracts and decisions untouched)
+
+$ git diff --stat HEAD -- docs/contracts docs/decisions package.json package-lock.json packages tools
+(empty above = no accepted contract, decision, package, tool or lockfile change)
+
+$ git status --porcelain -- docs/contracts docs/decisions package.json package-lock.json packages tools
+?? docs/decisions/0002-m2-content-and-behavior.md
+(empty above = nothing staged/modified in those paths; docs/decisions/0002 is untracked from packet 17 and was not written by packet 18)
+
+$ sha256sum docs/decisions/0002-m2-content-and-behavior.md docs/contracts/runtime.md docs/contracts/sessions.md docs/contracts/export.md docs/contracts/dependencies.md
+2d6aa6c977368a786b06478079a76d760d35fe93ae047d29ebf31135d8fb46de  docs/decisions/0002-m2-content-and-behavior.md
+300d2f519bb3e85fd6d922b955f02eb8d0924daca68a9f5250bf04881f655720  docs/contracts/runtime.md
+16e80db207bacd7588c47debf2139d60504feb654b33089651aff83ea6a1b91c  docs/contracts/sessions.md
+5337e1a22f20e5ef830fdabfc029ff8fa51c7e0d8f8b8c0fd144aad84164cb52  docs/contracts/export.md
+8416a529d953ac53b9f81eaf93389b8b3b460b3884a03dac12ae7bdcd5250c31  docs/contracts/dependencies.md
+
+$ sha256sum package-lock.json
+a71f4c0bbe8aed0f6a890ee18c9d2df53ea165f512c7b9a7ba3273e3da5c0e0e  package-lock.json
+
+# files created by packet 18 (explicit list; no other file was written by this packet)
+docs/planning/m2-contracts/behaviors.md                                              (new)
+docs/planning/m2-contracts/diffs/dependencies.md                                     (new)
+docs/planning/m2-contracts/diffs/export.md                                           (new)
+docs/planning/m2-contracts/diffs/runtime.md                                          (appended: "Packet 18 additions", R19-R30; packet-17 text preserved)
+docs/planning/m2-contracts/diffs/project-model.md                                    (appended: "Packet 18 additions", P18-A1-A9; packet-15/16/17 text preserved)
+docs/acceptance/evidence-m2/18/**                                                    (new, this directory)
+fixtures/m2/contracts/behaviors/**                                                   (new: 5 fixtures + containers.json + 16 containers + 1 stand-in output)
+fixtures/m2/contracts/tools/check-fixtures.mjs                                       (extended: p18-* groups, behavior code registry, container digest merge, 5 new pin kinds)
+fixtures/m2/contracts/expected.json                                                  (extended: contracts/registry/notes/entries)
+fixtures/m2/contracts/cases/constructed-cases.md                                     (appended: section C11 only)
+docs/handoffs/18.md                                                                  (new)
+docs/STATUS.md                                                                       (packet-18 row only)

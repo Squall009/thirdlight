@@ -106,6 +106,40 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(r.violations).toEqual([]);
   });
 
+  it('restricts three-adapter to the approved three subpaths (dependencies.md §4.2/§7 GLTFLoader note)', () => {
+    const root = makeRoot();
+    addPkg(root, 'three-adapter', {
+      files: {
+        'src/index.ts':
+          "import * as THREE from 'three';\n" +
+          "import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';\n" +
+          "import { AnimationMixer } from 'three';\n" +
+          'export const x = [THREE, GLTFLoader, AnimationMixer];\n',
+      },
+    });
+    expect(checkWorkspace(root).violations).toEqual([]);
+
+    const bad = makeRoot();
+    addPkg(bad, 'three-adapter', {
+      files: {
+        'src/index.ts': "import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';\nexport const c = OrbitControls;\n",
+      },
+    });
+    const v = checkWorkspace(bad).violations;
+    expect(v).toHaveLength(1);
+    expect(v[0].rule).toBe('external-subpath-forbidden');
+    expect(v[0].file).toBe('packages/three-adapter/src/index.ts');
+    expect(v[0].line).toBe(1);
+    expect(v[0].message).toContain('examples/jsm');
+
+    // Other packages keep their own §4.1 external edges (no incidental change).
+    const editor = makeRoot();
+    addPkg(editor, 'editor', {
+      files: { 'src/index.ts': "import * as THREE from 'three';\nexport const s = THREE.Scene;\n" },
+    });
+    expect(checkWorkspace(editor).violations).toEqual([]);
+  });
+
   it('fails runtime → three (forbidden, dependencies.md §4.3)', () => {
     const root = makeRoot();
     addPkg(root, 'runtime', {

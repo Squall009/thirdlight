@@ -1,0 +1,195 @@
+{
+  "channels": {
+    "gameplay": {
+      "frames": [
+        "moveX",
+        "jump"
+      ],
+      "bindings": [
+        "KeyA/ArrowLeft",
+        "KeyD/ArrowRight",
+        "Space",
+        "pad axis 0 / D-pad 14-15 / button 0"
+      ],
+      "owner": "@thirdlight/input"
+    },
+    "menu": {
+      "actions": [
+        "start",
+        "replay",
+        "mute",
+        "menuConfirm"
+      ],
+      "bindings": [
+        "Enter or Space or fresh pad button 0 -> menuConfirm",
+        "KeyM -> mute toggle"
+      ],
+      "owner": "@thirdlight/game-host (consumes the input owner menu sample)"
+    }
+  },
+  "cases": [
+    {
+      "id": "C1",
+      "case": "held Start at title",
+      "sequence": [
+        "menuConfirm down at step 0",
+        "held through step 30"
+      ],
+      "expect": {
+        "startSubmits": true,
+        "jumpFramesEmitted": 0,
+        "phantomJump": false,
+        "releaseRequiredBeforeJump": true
+      }
+    },
+    {
+      "id": "C2",
+      "case": "release then press",
+      "sequence": [
+        "menuConfirm down/up",
+        "Space down"
+      ],
+      "expect": {
+        "jump": "pressed",
+        "menuConsumed": true
+      }
+    },
+    {
+      "id": "C3",
+      "case": "menu press while playing",
+      "sequence": [
+        "Enter down"
+      ],
+      "expect": {
+        "command": "none",
+        "note": "Enter is not a gameplay binding; no jump"
+      }
+    },
+    {
+      "id": "C4",
+      "case": "control with no physics tick at title",
+      "sequence": [
+        "frame tick at awaitingStart",
+        "menuConfirm"
+      ],
+      "expect": {
+        "startSubmits": true,
+        "movementSteps": 0
+      }
+    },
+    {
+      "id": "C5",
+      "case": "control with no physics tick at won",
+      "sequence": [
+        "menuConfirm at won"
+      ],
+      "expect": {
+        "replaySubmits": true,
+        "movementSteps": 0
+      }
+    },
+    {
+      "id": "C6",
+      "case": "gamepad takeover",
+      "sequence": [
+        "keyboard held right",
+        "pad connected and moved"
+      ],
+      "expect": {
+        "arbitration": "deterministic keyboard -> D-pad -> stick, no summation"
+      }
+    },
+    {
+      "id": "C7",
+      "case": "gamepad disconnect",
+      "sequence": [
+        "pad button held",
+        "disconnect"
+      ],
+      "expect": {
+        "heldCleared": true,
+        "keyboardUnaffected": true,
+        "stuckControl": false
+      }
+    },
+    {
+      "id": "C8",
+      "case": "gamepad API blocked in iframe without allow=gamepad",
+      "sequence": [
+        "getGamepads() throws SecurityError"
+      ],
+      "expect": {
+        "unavailable": true,
+        "keyboardPlay": true,
+        "secondOwner": false
+      }
+    },
+    {
+      "id": "C9",
+      "case": "injected-vs-physical race",
+      "sequence": [
+        "exclusive-test relay active",
+        "physical Space down"
+      ],
+      "expect": {
+        "physicalIgnored": true,
+        "inputMode": "test",
+        "conflictCodeOnOverlap": "input_relay_conflict"
+      }
+    },
+    {
+      "id": "C10",
+      "case": "injected input pretends to unlock sound",
+      "sequence": [
+        "relay start",
+        "no local gesture"
+      ],
+      "expect": {
+        "soundStatus": "blocked",
+        "fabricatedRunning": false,
+        "trustedGesture": false
+      }
+    },
+    {
+      "id": "C11",
+      "case": "hidden tab resume",
+      "sequence": [
+        "playing",
+        "visibilitychange hidden",
+        "hidden 5 s",
+        "visible"
+      ],
+      "expect": {
+        "inputSuspended": true,
+        "accumulatedTimeReset": true,
+        "fastForward": false,
+        "replayedStaleEdges": false,
+        "soundSuspended": true
+      }
+    },
+    {
+      "id": "C12",
+      "case": "focus loss",
+      "sequence": [
+        "blur"
+      ],
+      "expect": {
+        "heldCleared": true,
+        "menuLatchCleared": true
+      }
+    },
+    {
+      "id": "C13",
+      "case": "mute",
+      "sequence": [
+        "KeyM"
+      ],
+      "expect": {
+        "persistedInSnapshot": false,
+        "authoringState": false,
+        "scope": "browser session"
+      }
+    }
+  ],
+  "freshReleaseRule": "a consumed menu press requires a release before any later press can become a jump"
+}

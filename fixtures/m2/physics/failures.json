@@ -1,0 +1,1664 @@
+{
+  "kind": "physics-failures",
+  "setVersion": 1,
+  "packet": 31,
+  "baseNote": "Each create case replaces the whole init config; successful cases use the base floor + character config.",
+  "codes": {
+    "physics_init_failed": "createPhysicsPort resolved { ok: false } with an actionable reason (physics.md §6/§10); no world and no port escape",
+    "physics_init_cancelled": "the AbortSignal fired; everything allocated is released and nothing escapes",
+    "physics_port_disposed": "thrown from any port call except dispose()/diagnostics() after disposal",
+    "physics_port_error": "thrown from step()/reset() for a movement that cannot be swept safely or a non-finite reset position; the capsule does not move (reasons: collision_correction_failed, invalid_reset)",
+    "physics_transform_unsupported": "the project-model §21.2 reason carried by the adapter as physics_init_failed.reason (never flattened)"
+  },
+  "cases": [
+    {
+      "id": "shape-box-hx-zero",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 0,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "box hx must satisfy 0 < hx <= 1e6"
+    },
+    {
+      "id": "shape-box-hx-negative",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": -1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "box hy must be positive"
+    },
+    {
+      "id": "shape-box-too-large",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1000001,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "box hx above the 1e6 length bound"
+    },
+    {
+      "id": "shape-box-non-finite",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": "NaN"
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "box hy must be finite"
+    },
+    {
+      "id": "shape-unknown-type",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "circle",
+              "radius": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "shape type must be \"box\" or \"polygon\""
+    },
+    {
+      "id": "shape-box-extra-field",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1,
+              "radius": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "unexpected box field"
+    },
+    {
+      "id": "shape-polygon-two-vertices",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "collider_vertices limit: 3-8 vertices"
+    },
+    {
+      "id": "shape-polygon-nine-vertices",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  2,
+                  0.5
+                ],
+                [
+                  2.5,
+                  1
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  1,
+                  2.5
+                ],
+                [
+                  0,
+                  2
+                ],
+                [
+                  -0.5,
+                  1
+                ],
+                [
+                  -0.4,
+                  0.4
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "collider_vertices limit: 3-8 vertices"
+    },
+    {
+      "id": "shape-polygon-clockwise",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "counter-clockwise order required"
+    },
+    {
+      "id": "shape-polygon-non-convex",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  0
+                ],
+                [
+                  1,
+                  0.5
+                ],
+                [
+                  2,
+                  2
+                ],
+                [
+                  0,
+                  2
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "strict convexity (collinear triples allowed)"
+    },
+    {
+      "id": "shape-polygon-tiny-area",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.001,
+                  0
+                ],
+                [
+                  0,
+                  0.001
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "area >= 1e-6 m^2"
+    },
+    {
+      "id": "shape-polygon-duplicate-vertex",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "no duplicate adjacent vertices"
+    },
+    {
+      "id": "shape-polygon-non-finite",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0,
+                  "Infinity"
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "vertices must be finite"
+    },
+    {
+      "id": "shape-polygon-extent",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  65,
+                  0
+                ],
+                [
+                  0,
+                  1
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "bounding half-extent <= 64 m"
+    },
+    {
+      "id": "shape-polygon-malformed-vertex",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "polygon",
+              "vertices": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1,
+                  0
+                ],
+                [
+                  0
+                ]
+              ]
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_shape"
+      },
+      "note": "each vertex must be an [x, y] pair"
+    },
+    {
+      "id": "transform-parented-static",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0,
+            "parentId": "group-0001"
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "parented"
+      },
+      "note": "physics_transform_unsupported reason \"parented\""
+    },
+    {
+      "id": "transform-scaled-static",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0,
+            "scale": [
+              2,
+              1,
+              1
+            ]
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "scale"
+      },
+      "note": "physics_transform_unsupported reason \"scale\""
+    },
+    {
+      "id": "transform-rotated-static",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": 0,
+            "rotation": [
+              0.1,
+              0,
+              0,
+              0.99498743710662
+            ]
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "rotation"
+      },
+      "note": "physics_transform_unsupported reason \"rotation\" (off-Z)"
+    },
+    {
+      "id": "transform-tilted-controller",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9,
+          "rotation": [
+            0,
+            0,
+            0.1,
+            0.99498743710662
+          ]
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "upright"
+      },
+      "note": "physics_transform_unsupported reason \"upright\""
+    },
+    {
+      "id": "transform-parented-controller",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9,
+          "parentId": "group-0001"
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "parented"
+      },
+      "note": "the controller must be a root"
+    },
+    {
+      "id": "transform-scaled-controller",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9,
+          "scale": [
+            1,
+            1,
+            0.5
+          ]
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "scale"
+      },
+      "note": "the capsule is never scaled"
+    },
+    {
+      "id": "transform-non-finite-position",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            },
+            "position": {
+              "x": "NaN",
+              "y": 0.5
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_transform"
+      },
+      "note": "non-finite position is refused, never flattened"
+    },
+    {
+      "id": "transform-non-finite-rotation",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "s0",
+            "shape": {
+              "type": "box",
+              "hx": 1,
+              "hy": 1
+            },
+            "position": {
+              "x": 2,
+              "y": 0.5
+            },
+            "rotationZ": "NaN"
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_transform"
+      },
+      "note": "non-finite rotationZ is refused, never flattened"
+    },
+    {
+      "id": "transform-non-finite-character",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": "Infinity",
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_transform"
+      },
+      "note": "non-finite character position"
+    },
+    {
+      "id": "config-hz",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 60,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "solver.hz is the 120 Hz contract constant"
+    },
+    {
+      "id": "config-skin",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.02,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "offsetSkin 0.01 is a contract constant"
+    },
+    {
+      "id": "config-snap",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.05,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "groundSnap 0.1 is a contract constant"
+    },
+    {
+      "id": "config-autostep",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": true
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "autostep is disabled by contract"
+    },
+    {
+      "id": "config-gravity",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": "NaN"
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "gravityY must be finite"
+    },
+    {
+      "id": "config-climb-angle",
+      "op": "create",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_failed",
+        "reason": "invalid_config"
+      },
+      "note": "the climb angle must be a real angle"
+    },
+    {
+      "id": "init-cancelled-pre-aborted",
+      "op": "createPreAborted",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_cancelled"
+      },
+      "note": "an aborted signal before init allocates nothing; physics.md §6"
+    },
+    {
+      "id": "init-cancelled-during-preparation",
+      "op": "createAbortDuringInit",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "code": "physics_init_cancelled",
+        "thenInit": "ok"
+      },
+      "note": "abort during WASM preparation releases everything and a later init succeeds"
+    },
+    {
+      "id": "dispose-during-preparation",
+      "op": "disposeTwice",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "staleOps": [
+          "stageCharacterMove",
+          "step",
+          "reset"
+        ],
+        "disposableTwice": true,
+        "diagnosticsLive": false
+      },
+      "note": "idempotent dispose; diagnostics after disposal is the frozen snapshot; every world call throws"
+    },
+    {
+      "id": "stale-world-handle",
+      "op": "staleAfterDispose",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "errorCode": "physics_port_disposed",
+        "staleOps": [
+          "stageCharacterMove",
+          "step",
+          "reset"
+        ]
+      },
+      "note": "a disposed port never touches the freed WASM world — it throws a structured error (physics.md §6)"
+    },
+    {
+      "id": "collision-correction-non-finite",
+      "op": "nonFiniteDelta",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "errorCode": "physics_port_error",
+        "reason": "collision_correction_failed",
+        "moved": false
+      },
+      "note": "a non-finite staged delta is refused instead of being swept to a silent zero movement"
+    },
+    {
+      "id": "reset-invalid",
+      "op": "resetInvalid",
+      "config": {
+        "character": {
+          "x": 0,
+          "y": 0.9
+        },
+        "statics": [
+          {
+            "entityId": "floor",
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.25
+            },
+            "position": {
+              "x": 0,
+              "y": -0.25
+            },
+            "rotationZ": 0
+          }
+        ],
+        "solver": {
+          "hz": 120,
+          "gravityY": -19.62
+        },
+        "controller": {
+          "offsetSkin": 0.01,
+          "groundSnap": 0.1,
+          "maxSlopeClimbRad": 0.785398163397,
+          "minSlopeSlideRad": 0.523598775598,
+          "autostep": false
+        }
+      },
+      "expect": {
+        "errorCode": "physics_port_error",
+        "reason": "invalid_reset"
+      },
+      "note": "reset() is a diagnostics/test helper and still refuses a non-finite position"
+    }
+  ],
+  "nonFiniteEncoding": "JSON cannot carry NaN/Infinity: non-finite values are encoded as the strings \"NaN\", \"Infinity\" and \"-Infinity\" and revived by the test harness before building the config."
+}

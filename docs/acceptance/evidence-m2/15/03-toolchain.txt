@@ -1,0 +1,27 @@
+### npm test
+ Test Files  66 passed (66)
+      Tests  841 passed (841)
+   Duration  28.64s (tests 92%, import 5%, transform 3%)
+
+### npm run typecheck
+packages typechecked (tsc --noEmit, exit 0 each): backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace (10)
+
+### npm run check-deps
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+### npm run check-boundaries
+
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 150 source file(s), 514 specifier(s) checked; no boundary violations.
+
+### npm run build
+typecheck: tsc --noEmit -p packages/workspace
+build: editor: packages/editor/src/index.tsx -> dist/editor/main.js
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+run: 2026-09-19T00:24:41Z (UTC) · Node v22.22.1 · docs/fixtures-only packet (no source, package or lockfile change)

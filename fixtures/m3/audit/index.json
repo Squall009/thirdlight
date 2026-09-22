@@ -1,0 +1,428 @@
+{
+  "auditVersion": 1,
+  "packet": 43,
+  "status": "PROPOSED — not accepted. Gate K records accept/reject per contract-diffs.md row.",
+  "notes": [
+    "Cross-pack audit expectations for fixtures/m3/audit/tools/check-audit.mjs. They are derived from the packet 38-42 proposals and the packet-43 reconciliation; they are not an implementation of any contract.",
+    "The audit checker must exit non-zero on any violation and supports a deliberate-corruption negative control."
+  ],
+  "subCheckers": [
+    {
+      "name": "contracts",
+      "script": "contracts/tools/check-fixtures.mjs",
+      "env": "TL39_FIXTURE_ROOT",
+      "root": "contracts"
+    },
+    {
+      "name": "gameplay",
+      "script": "gameplay/tools/check-fixtures.mjs",
+      "env": "TL40_FIXTURE_ROOT",
+      "root": "."
+    },
+    {
+      "name": "media",
+      "script": "media/tools/check-fixtures.mjs",
+      "env": "TL41_FIXTURE_ROOT",
+      "root": "media"
+    },
+    {
+      "name": "delivery",
+      "script": "delivery/tools/check-fixtures.mjs",
+      "env": "TL42_FIXTURE_ROOT",
+      "root": "delivery"
+    }
+  ],
+  "fileOwner": {
+    "model.md": 39,
+    "storage.md": 39,
+    "authoring.md": 39,
+    "gameplay.md": 40,
+    "presentation.md": 41,
+    "delivery.md": 42,
+    "diffs/project-model.md": 39,
+    "diffs/commands.md": 39,
+    "diffs/workspace.md": 39,
+    "diffs/runtime.md": 40,
+    "diffs/sessions.md": 42,
+    "diffs/export.md": 42,
+    "diffs/dependencies.md": 42
+  },
+  "ownerSectionSwitch": [
+    {
+      "match": "^## Packet 41 additions",
+      "owner": 41
+    },
+    {
+      "match": "^## Packet 42 additions",
+      "owner": 42
+    }
+  ],
+  "codeOwners": {
+    "game_reference_missing": 39,
+    "game_reference_in_use": 39,
+    "zone_transform_unsupported": 39,
+    "spawn_transform_unsupported": 39,
+    "zone_checkpoint_count_invalid": 39,
+    "zone_goal_missing": 39,
+    "asset_kind_mismatch": 39,
+    "game_config_invalid": 39,
+    "migration_version_unsupported": 39,
+    "game_command_invalid": 40,
+    "game_spawn_invalid": 40,
+    "game_spawn_blocked": 40,
+    "camera_viewport_invalid": 40,
+    "game_session_unavailable": 40,
+    "animation_role_out_of_range": 41,
+    "animation_role_duplicate": 41,
+    "animation_role_mismatch": 41,
+    "animation_role_ambiguous": 41,
+    "animation_skin_unsupported": 41,
+    "animation_root_motion": 41,
+    "animation_role_unresolved": 41,
+    "audio_source_bytes_exceeded": 41,
+    "audio_container_invalid": 41,
+    "audio_chunk_invalid": 41,
+    "audio_format_unsupported": 41,
+    "audio_channel_unsupported": 41,
+    "audio_sample_rate_unsupported": 41,
+    "audio_bit_depth_unsupported": 41,
+    "audio_data_size_invalid": 41,
+    "audio_empty": 41,
+    "audio_decode_failed": 41,
+    "audio_unsupported": 41,
+    "audio_disposed": 41,
+    "audio_invalid_bytes": 41,
+    "game_run_stale": 42,
+    "game_relay_rejected": 42,
+    "game_relay_timeout": 42,
+    "input_relay_conflict": 42
+  },
+  "acceptedCodes": [
+    "animation_asset",
+    "asset_limits_exceeded",
+    "asset_reference_missing",
+    "bad_origin",
+    "camera_count_invalid",
+    "component_conflict",
+    "component_missing",
+    "component_unknown",
+    "config_invalid",
+    "cue",
+    "duplicate_key",
+    "encoding_invalid",
+    "envelope_invalid",
+    "export_failed",
+    "field_missing",
+    "field_unexpected",
+    "field_type",
+    "field_value",
+    "id_duplicate",
+    "id_invalid",
+    "json_parse_error",
+    "limits_exceeded",
+    "module_error",
+    "no_change",
+    "number_out_of_range",
+    "parented",
+    "physics_port_error",
+    "play_locator_expired",
+    "play_not_found",
+    "player",
+    "reference_missing",
+    "revision_conflict",
+    "revision_invalid",
+    "scene_invalid",
+    "schema_version_unsupported",
+    "session_unavailable",
+    "storage_version_unsupported",
+    "version_combination_unsupported"
+  ],
+  "reasonAllowlist": [
+    "animation_asset",
+    "autoplay_denied",
+    "blocked",
+    "camera_owner",
+    "cue",
+    "field_missing",
+    "field_value",
+    "gameplay_invalid",
+    "hazard",
+    "module_threw",
+    "no_audio_context",
+    "no_device",
+    "non_finite",
+    "non_positive",
+    "not_presented",
+    "outside_level",
+    "oversized",
+    "parented",
+    "pending",
+    "phase_violation",
+    "player",
+    "query_failed",
+    "reference",
+    "replay",
+    "reset",
+    "result",
+    "safe_spawn",
+    "spawn",
+    "start",
+    "state",
+    "unknown",
+    "zone_and_spawn",
+    "no_support",
+    "scale",
+    "rotation",
+    "frame-ancestors is ignored in a meta policy and the export is not framed",
+    "gameplay_module",
+    "scene_version",
+    "game_config",
+    "camera_follow"
+  ],
+  "versionAssertions": [
+    {
+      "file": "model.md",
+      "mustContain": [
+        "manifest `[1]`; scene `[1, 2, 3]`",
+        "`schemaVersion` | 1 | **1 (unchanged)**",
+        "the authoring manifest is **not** the runtime manifest"
+      ]
+    },
+    {
+      "file": "model.md",
+      "mustContain": [
+        "| 1 | 3 | 3 | **valid**",
+        "| 1 | 1 | 3 | `version_combination_unsupported`",
+        "| 1 | 2 | 3 | `version_combination_unsupported`",
+        "| 1 | 3 | 1 | `version_combination_unsupported`",
+        "| 1 | 3 | 2 | `version_combination_unsupported`",
+        "any | any | ≥ 4 or ≤ 0 | `storage_version_unsupported`",
+        "any | ≥ 4 | any | `schema_version_unsupported`"
+      ]
+    },
+    {
+      "file": "storage.md",
+      "mustContain": [
+        "`storageVersion` known set is `[1, 2, 3]`",
+        "| 1 | 3 | 3 | **valid**",
+        "| 1 | 1 or 2 | 3 | `version_combination_unsupported`",
+        "| 1 | 3 | 1 or 2 | `version_combination_unsupported`",
+        "| any | any | ≥ 4 or ≤ 0 | `storage_version_unsupported`"
+      ]
+    },
+    {
+      "file": "diffs/workspace.md",
+      "mustContain": [
+        "+| 1 | 3 | 3 | **valid**",
+        "+| any | any | ≥4 or ≤0 | `storage_version_unsupported`",
+        "-| any | any | ≥3 or ≤0 | `storage_version_unsupported`",
+        "exactly **three** passable combinations"
+      ]
+    },
+    {
+      "file": "delivery.md",
+      "mustContain": [
+        "moves **1 → 2**",
+        "A v1 reader must reject a v2 document",
+        "stays `schemaVersion` 1"
+      ]
+    },
+    {
+      "file": "diffs/sessions.md",
+      "mustContain": [
+        "\"manifestVersion\": 2,",
+        "`manifestVersion` | exactly `2` for an M3 capture"
+      ]
+    }
+  ],
+  "inventory": {
+    "note": "Gate K bounded repair (2026-09-19, docs/handoffs/gate-k-repair.md): the 96 rows Gate K accepted plus the repair-authored R40-17 stay `open`; the 9 accepted-with-diff, 2 deferred and 1 repaired rejected row carry `repaired (...)`; PM13 stays the one non-promotable row.",
+    "rows": 110,
+    "openRows": 97,
+    "nonOpenRows": 13,
+    "repairedRows": {
+      "PM5": "repaired (FU-1/K-13)",
+      "PM9": "repaired (FU-2/K-4; FU-3)",
+      "PM13": "rejected (superseded by PM41-1)",
+      "PM19": "repaired (FU-3)",
+      "C9": "repaired (FU-2/K-4; FU-3)",
+      "C11": "repaired (FU-3)",
+      "R40-16": "repaired (FU-6/K-1)",
+      "R41-1": "repaired (FU-4/K-2)",
+      "S42-7": "repaired (FU-5/K-5)",
+      "E42-7": "repaired (FU-5/K-5)",
+      "D42-2": "repaired (FU-7/K-3)",
+      "NC-1": "repaired (FU-4/K-2; FU-7/K-3)",
+      "NC-2": "repaired (FU-4/K-2)"
+    }
+  },
+  "components": [
+    "gameZone",
+    "playerSpawn",
+    "cameraFollow",
+    "light",
+    "surface",
+    "modelAnimation"
+  ],
+  "phaseOrder": [
+    "intent",
+    "controller",
+    "transform",
+    "gameplay",
+    "camera"
+  ],
+  "moduleOwners": {
+    "thirdlight.platformer-game:session": {
+      "owner": 40,
+      "phases": [
+        "gameplay"
+      ]
+    },
+    "thirdlight.platformer-game:camera": {
+      "owner": 40,
+      "phases": [
+        "camera"
+      ]
+    }
+  },
+  "artifactPathToken": "content/sha256/",
+  "pr1Values": [
+    {
+      "id": "instructions",
+      "owner": 39,
+      "createOp": "setGameConfig({instructions})",
+      "traceabilityToken": "setGameConfig.instructions",
+      "doc": "model.md"
+    },
+    {
+      "id": "safeSpawnId",
+      "owner": 39,
+      "createOp": "setComponent(zoneId,\"gameZone\",{role:\"checkpoint\",safeSpawnId,activation})",
+      "traceabilityToken": "safeSpawnId})` with an existing `playerSpawn`",
+      "doc": "model.md"
+    },
+    {
+      "id": "activation",
+      "owner": 41,
+      "createOp": "setComponent(zoneId,\"gameZone\",{…,activation})",
+      "traceabilityToken": "activation:{emissive,emissiveIntensity,cueAssetId}",
+      "doc": "presentation.md"
+    }
+  ],
+  "sampleRowRange": [
+    1,
+    21
+  ],
+  "acceptanceRows": [
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B09",
+    "B10",
+    "B11",
+    "B12",
+    "B13",
+    "B14",
+    "B15",
+    "B16",
+    "B17",
+    "B18",
+    "B19",
+    "B20",
+    "B21",
+    "B22",
+    "B23",
+    "B24"
+  ],
+  "requestIds": [
+    "C38-1",
+    "C38-2",
+    "C39-1",
+    "C39-2",
+    "C39-3",
+    "C39-4",
+    "C39-5",
+    "C39-6",
+    "C39-7",
+    "C40-1",
+    "C40-2",
+    "C40-3",
+    "C40-4",
+    "C40-5",
+    "C40-6",
+    "C40-7",
+    "C40-8",
+    "C40-9",
+    "C40-10",
+    "C40-11",
+    "C40-12",
+    "C41-1",
+    "C41-2",
+    "C41-3",
+    "C41-4",
+    "C41-5",
+    "C41-6",
+    "C41-7",
+    "C41-8",
+    "C42-1",
+    "C42-2",
+    "C42-3",
+    "C42-4",
+    "C42-5"
+  ],
+  "supersededQuotes": [
+    {
+      "row": "PM43-1",
+      "file": "contracts/project-model.md",
+      "fileQuote": "no lights, no multi-scene projects.",
+      "quote": "no shader or material graphs, no assets (boxes are procedural primitives with an inline material), no lights, no multi-scene projects.",
+      "promotedQuote": "no lights, no multi-scene projects — all scoped to M1's schemaVersion 1.",
+      "replaced": true
+    },
+    {
+      "row": "PM43-2",
+      "file": "contracts/project-model.md",
+      "fileQuote": "no materials beyond `box.material.color`",
+      "quote": "no lights, and no materials beyond `box.material.color`",
+      "promotedQuote": "That bullet is scoped to scene schemaVersion 1/2."
+    },
+    {
+      "row": "PM43-3",
+      "file": "contracts/export.md",
+      "fileQuote": "sset pipeline, no textures",
+      "quote": "no GLB/glTF, no asset identities or reimport (charter §3/M2), no lights, no audio files.",
+      "promotedQuote": "This §8 list is scoped to an M1 export."
+    }
+  ],
+  "corruptControls": [
+    {
+      "id": "version-table",
+      "target": "docs",
+      "file": "planning/m3-contracts/storage.md",
+      "find": "| 1 | 3 | 3 | **valid**",
+      "replace": "| 1 | 3 | 3 | `version_combination_unsupported`",
+      "expectCheck": "version"
+    },
+    {
+      "id": "inventory-row",
+      "target": "docs",
+      "file": "planning/m3-contracts/contract-diffs.md",
+      "find": "| PM41-2 | 41 |",
+      "replace": "| PM41-2-removed | 41 |",
+      "expectCheck": "inventory"
+    },
+    {
+      "id": "fixture-code",
+      "target": "fixtures",
+      "file": "media/glb/profile-cases.json",
+      "find": "\"code\": \"animation_role_out_of_range\"",
+      "replace": "\"code\": \"totally_bogus_code\"",
+      "expectCheck": "unregistered code"
+    }
+  ]
+}

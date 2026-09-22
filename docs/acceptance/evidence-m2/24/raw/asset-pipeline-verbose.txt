@@ -1,0 +1,111 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > two runs of the same bytes and options are byte-identical (no job port) 13ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > two runs with equal job values are byte-identical (fresh port objects) 6ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > the injected job identity does not affect the recipe or metadata digest 4ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > does not read the system clock (wall time only enters via the job port) 4ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > truncated display lists are deterministic and flagged 52ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > distinct sources of the same whole model keep the recipe digest and differ in metadata 1ms
+ ✓ packages/asset-pipeline/src/determinism.test.ts > determinism > rejected proposals are deterministic too 9ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > indexes every committed fixture and nothing else 10ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > accessor-overflow.glb — accessor/buffer overflow: accessor count overruns its bufferView 10ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > bad-chunk.glb — bad chunk framing: the second chunk type is not BIN 6ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > bad-json.glb — malformed JSON: a repeated object member name 5ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > bom-json.glb — malformed JSON: a byte-order mark in the JSON chunk 5ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > compression.glb — compression extension (Draco) is not in the M2 profile 4ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > count-limit.glb — decoded-resource cap: 4097 nodes exceed the node cap 29ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > decoded-limit.glb — decoded-resource cap: header-declared image pixels exceed the decoded cap 7ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > empty-model.glb — empty model: a mesh with no primitives carries no geometry 4ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > external-uri-buffer.glb — external URI: the buffer is a remote URL 2ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > external-uri-image.glb — external URI: the image is a data: URI 2ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > image-count-limit.glb — decoded-resource cap: 65 images exceed the image-count cap 3ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > malformed-clip.glb — malformed clip: animation input times are not strictly increasing 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > mime-mismatch.glb — image magic bytes do not match the declared mimeType 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > required-extension.glb — unsupported required extension outside the empty allowlist 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > tiny-v1.glb — valid tiny model: one triangle, two materials, one rotation clip 2ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > tiny-v2.glb — second version of the same whole model: changed geometry, reordered materials/nodes, rewritten clip 2ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > truncated.glb — truncation: the header declares the full length, the bytes are cut short 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > accepted metrics satisfy every decoded-resource cap 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > the proposal metrics/recipe shapes match the accepted model shape lists 1ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > the exported profile limits are exactly the contract values (§18.6/§18.7.2) 0ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > fixture index > the effective extension allowlist is empty and frozen (§18.8.1) 0ms
+ ✓ packages/asset-pipeline/src/fixture-index.test.ts > reimport of the same whole model (acceptance A02/A03 identity) > keeps the recipe and changes only the source facts when the file is re-exported 2ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > public surface (dependencies.md §3) > exports exactly the approved runtime values 7ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > public surface (dependencies.md §3) > has no plugin registry, loader or URL input on the surface 3ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > no network and no I/O > inspects every fixture with fetch/XHR/WebSocket stubbed to throw 146ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > no network and no I/O > rejects remote/data URIs without ever resolving them 1ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > immutability of the proposal > is deep-frozen, so a caller cannot mutate authoring-facing data 1ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > immutability of the proposal > exposes no functions on the returned value (validated data only) 2ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad bytes 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad options 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad profile 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad recipeVersion 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad toolchain missing 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad toolchain extra tool 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad toolchain wrong pin 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad job proposalId 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad job stageId 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad job expiresAt 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > throws TypeError for a bad job timeoutMs 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > option validation (caller programming errors throw) > is total over hostile bytes: never throws for bad input data 18ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > suggested display name sanitization > strips control characters, trims and caps at 128 characters 0ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > suggested display name sanitization > is used for the proposal field and never as a path or an identity 1ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > digest helpers > recipe digest is the SHA-256 of the canonical recipe JSON 3ms
+ ✓ packages/asset-pipeline/src/surface.test.ts > digest helpers > metadata digest of an accepted model changes with the metrics and is stable otherwise 2ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > decoded-resource caps (adversarial) > rejects a model whose vertex count exceeds the cap, with limit/found 253ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > decoded-resource caps (adversarial) > accepts the same model one vertex under the cap 145ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 1 — size > rejects empty and oversized sources without throwing 423ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 2 — container > rejects a shorter-than-header source 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 2 — container > rejects a bad magic 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 2 — container > rejects a container version other than 2 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 2 — container > rejects a declared length mismatch (truncation and padding alike) 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 3 — chunk framing > rejects a chunk length that is not a multiple of 4 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 3 — chunk framing > rejects trailing bytes after the last chunk 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 3 — chunk framing > rejects a JSON-only container 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 4 — JSON > rejects invalid UTF-8 in the JSON chunk 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 4 — JSON > rejects duplicated member names with the offending JSON Pointer 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 4 — JSON > rejects a non-object root and trailing garbage 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 4 — JSON > rejects a JSON chunk above the 8 MiB cap with the byte cap as the failed limit 58ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 5 — glTF version, extensions and compression > rejects a glTF 1.0 asset version 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 5 — glTF version, extensions and compression > rejects an undeclared extension object anywhere it is visited 3ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 5 — glTF version, extensions and compression > rejects a required extension that is not declared in extensionsUsed 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 5 — glTF version, extensions and compression > reports the compression code for Draco and meshopt 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 6/7 — buffers and bufferViews > rejects two buffers, an over-long buffer and excessive BIN padding 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 6/7 — buffers and bufferViews > rejects a bufferView target, range overrun and 4-byte misalignment 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 8 — accessors > rejects a sparse accessor with the unsupported code 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 8 — accessors > rejects a bad componentType, type, count and missing bufferView 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 8 — accessors > rejects a component-misaligned accessor byteOffset and an arithmetic overflow 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 9 — meshes and primitives > rejects a missing mesh array, a missing POSITION and a missing primitives array 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 9 — meshes and primitives > rejects a non-triangle mode, an unknown attribute and a primitive extension 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 9 — meshes and primitives > rejects a signed index accessor 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 10/12 — materials and textures > rejects a non-core material field, a bad alphaMode and an out-of-range factor 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 10/12 — materials and textures > rejects unresolved texture references from materials and from textures 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 10/12 — materials and textures > rejects an out-of-range sampler wrap enum 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 11 — images > rejects an image without a bufferView and a non-image mimeType 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 11 — images > rejects an image whose bytes are neither PNG nor JPEG 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 11 — images > rejects a PNG signature whose header cannot be read 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 13 — animations > rejects a bad target path, a missing target node and a mismatched output type 2ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 13 — animations > rejects KHR_animation_pointer with the animation code 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 14 — nodes and scenes > rejects a hierarchy cycle, matrix+TRS together and a dangling child 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.7.2 step 14 — nodes and scenes > rejects a missing scene, an out-of-range scene index and a dangling scene node 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.8.2 — bounded diagnostics > returns at most 10 diagnostics plus the true count 0ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > §18.8.2 — bounded diagnostics > reports several independent diagnostics for one step 1ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > diagnostic hygiene > never leaks a path, a URL we fetched, or credential-shaped data 2ms
+ ✓ packages/asset-pipeline/src/profile-rejections.test.ts > diagnostic hygiene > rebuild() helper keeps the base fixture legal for the untouched steps 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > decoded-resource caps (adversarial) > reports every exceeded cap of one source, in table order 166ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > decoded-resource caps (adversarial) > keeps the decoded geometry cap above what a 32 MiB source can decode 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: bounded timeout > rejects with asset_timeout when the injected clock exceeds the budget 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: bounded timeout > honours a caller-supplied timeoutMs 0ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: bounded timeout > accepts the file when the clock stays inside the budget 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: cancellation > rejects immediately when the job is already cancelled 0ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: cancellation > rejects when the caller cancels mid-inspection, without metrics 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > injected job port: cancellation > cancellation beats a malformed source: no file-level diagnostic is reported 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > prepareImport (the job-bound entry) > is identical to inspectGlb for the same bytes and job values 1ms
+ ✓ packages/asset-pipeline/src/limits-and-jobs.test.ts > prepareImport (the job-bound entry) > requires an injected job port 0ms
+
+ Test Files  5 passed (5)
+      Tests  102 passed (102)
+   Start at  04:02:54
+   Duration  955ms (tests 66%, transform 24%, import 9%, worker 1%)
+

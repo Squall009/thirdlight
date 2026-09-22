@@ -1,0 +1,48 @@
+{
+  "accepted": "default-src 'none'; script-src 'self'; connect-src 'self';\nimg-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none';\nobject-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';\nframe-ancestors <exact authoringOrigin>",
+  "acceptedToken": "script-src 'self'",
+  "replacementToken": "script-src 'self' 'wasm-unsafe-eval'",
+  "exactOneTokenDiff": {
+    "remove": "script-src 'self'",
+    "add": "script-src 'self' 'wasm-unsafe-eval'"
+  },
+  "evidence": [
+    {
+      "file": "docs/acceptance/evidence-m3/38/raw/engine.json",
+      "expectation": "physicsOk false; wasmCompile blocked by \"script-src 'self'\""
+    },
+    {
+      "file": "docs/acceptance/evidence-m3/38/raw/engine-nocsp.json",
+      "expectation": "physicsOk true (no CSP)"
+    },
+    {
+      "file": "docs/acceptance/evidence-m3/38/raw/engine-csp-wasm.json",
+      "expectation": "physicsOk true (production CSP + wasm-unsafe-eval)"
+    }
+  ],
+  "wasmUnsafeEvalIsNotEval": true,
+  "exportOwnPolicy": {
+    "carrier": "index.html <meta http-equiv=\"Content-Security-Policy\">",
+    "tokens": [
+      "default-src 'none'",
+      "script-src 'self' 'wasm-unsafe-eval'",
+      "connect-src 'self'",
+      "img-src 'self' data:",
+      "style-src 'self'",
+      "font-src 'none'",
+      "worker-src 'none'",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'"
+    ],
+    "omittedTokens": [
+      "frame-ancestors"
+    ],
+    "reason": "frame-ancestors is ignored in a meta policy and the export is not framed"
+  },
+  "iframeGamepad": {
+    "attribute": "allow=\"gamepad\"",
+    "requiredOn": "every play iframe embedding (preview wrapper and the M3 locator shell)",
+    "evidence": "docs/acceptance/evidence-m3/38/raw/summary.json records allow=\"gamepad 'none'\" making getGamepads() throw SecurityError"
+  }
+}

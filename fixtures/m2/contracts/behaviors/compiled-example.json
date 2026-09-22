@@ -1,0 +1,233 @@
+{
+  "kind": "behavior-compiled-example",
+  "setVersion": 1,
+  "id": "behavior-compiled-example",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 5.2 `BehaviorManifest` (canonical, the digest-bound compile result)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 5.3 Pinned module set"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "## 7. `content.behaviorTrust`"
+    },
+    {
+      "file": "docs/planning/m2-contracts/behaviors.md",
+      "section": "### 8.4 Preparation (packet 33) — the digest-bound result"
+    }
+  ],
+  "behaviorId": "behavior-0002",
+  "displayName": "Drift",
+  "declaration": {
+    "properties": [
+      {
+        "key": "speed",
+        "label": "Speed",
+        "type": "number",
+        "default": 3.5,
+        "min": -1000,
+        "max": 1000,
+        "step": 0.25
+      }
+    ]
+  },
+  "source": {
+    "container": "behaviors/source-preimages/drift-example.json",
+    "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+    "sourceByteLength": 677,
+    "entryPath": "src/index.ts",
+    "fileCount": 1,
+    "manifestDigest": "5e97f3c92b136e685506d06749f4d1e80f923c650cbb3dff7a7996bc6fee70c7",
+    "outputDigest": "fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6",
+    "outputByteLength": 489,
+    "requiredModules": [
+      "@thirdlight/runtime"
+    ],
+    "publishedRevision": 4
+  },
+  "outputArtifact": {
+    "path": "behaviors/source-preimages/drift-example.output.js",
+    "digest": "fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6",
+    "byteLength": 489,
+    "note": "FIXTURE STAND-IN output bytes: no real compiler exists before packet 33. The digest/byteLength are the real SHA-256/length of this committed file; the file is not claimed to be a compiler product."
+  },
+  "enginePins": [
+    {
+      "id": "@thirdlight/runtime",
+      "version": "0.2.0",
+      "apiVersion": 1
+    }
+  ],
+  "manifest": {
+    "manifestVersion": 1,
+    "behaviorId": "behavior-0002",
+    "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+    "sourceByteLength": 677,
+    "entryPath": "src/index.ts",
+    "files": [
+      {
+        "path": "src/index.ts",
+        "digest": "4fbd061610a3a61cd1a926e805d1e89a849c248fdf05785c67eb65da92dfe61f",
+        "byteLength": 443
+      }
+    ],
+    "requiredModules": [
+      "@thirdlight/runtime"
+    ],
+    "ownedTransforms": [],
+    "enginePins": [
+      {
+        "id": "@thirdlight/runtime",
+        "version": "0.2.0",
+        "apiVersion": 1
+      }
+    ],
+    "declaration": {
+      "properties": [
+        {
+          "key": "speed",
+          "label": "Speed",
+          "type": "number",
+          "default": 3.5,
+          "min": -1000,
+          "max": 1000,
+          "step": 0.25
+        }
+      ]
+    },
+    "apiVersion": 1,
+    "compiler": {
+      "id": "thirdlight.behavior-compiler",
+      "version": "1",
+      "esbuild": "0.28.2",
+      "typescript": "5.9.3"
+    },
+    "outputDigest": "fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6",
+    "outputByteLength": 489
+  },
+  "manifestBytes": {
+    "encoding": "utf8",
+    "canonical": true,
+    "digest": "5e97f3c92b136e685506d06749f4d1e80f923c650cbb3dff7a7996bc6fee70c7",
+    "byteLength": 1065,
+    "note": "manifestBytes = JSON.stringify(manifest, null, 2) + \"\\n\"; the digest is recomputed by the checker"
+  },
+  "record": {
+    "behaviorId": "behavior-0002",
+    "displayName": "Drift",
+    "declaration": {
+      "properties": [
+        {
+          "key": "speed",
+          "label": "Speed",
+          "type": "number",
+          "default": 3.5,
+          "min": -1000,
+          "max": 1000,
+          "step": 0.25
+        }
+      ]
+    },
+    "source": {
+      "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+      "sourceByteLength": 677,
+      "entryPath": "src/index.ts",
+      "fileCount": 1,
+      "manifestDigest": "5e97f3c92b136e685506d06749f4d1e80f923c650cbb3dff7a7996bc6fee70c7",
+      "outputDigest": "fd6fa9a1b412003590cadc606d11cfb95f87a13aa5f97302a18117c3bd6332b6",
+      "outputByteLength": 489,
+      "requiredModules": [
+        "@thirdlight/runtime"
+      ],
+      "publishedRevision": 4
+    },
+    "publishedRevision": 4
+  },
+  "trust": {
+    "sourceDigest": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+    "acknowledgedRevision": 3,
+    "note": "the acknowledgment precedes the publication (behaviors.md §2.3/§8.4 step 6)"
+  },
+  "intentTrace": {
+    "model": "move = round(clamp(speed / 10, -1, 1) * 1e4) / 1e4, emitted once per step in the intent phase (behaviors.md §9.4 quantization)",
+    "rows": [
+      {
+        "speed": 3.5,
+        "expectedMove": 0.35,
+        "note": "the declaration default"
+      },
+      {
+        "speed": 7.7,
+        "expectedMove": 0.77
+      },
+      {
+        "speed": 12.345,
+        "expectedMove": 1
+      },
+      {
+        "speed": 1000,
+        "expectedMove": 1
+      },
+      {
+        "speed": -0.05,
+        "expectedMove": -0.005
+      },
+      {
+        "speed": 0,
+        "expectedMove": 0
+      }
+    ],
+    "sequence": {
+      "entityId": "model-0001",
+      "usedValues": {
+        "speed": 3.5
+      },
+      "steps": [
+        0,
+        1,
+        2
+      ],
+      "expectedMoves": [
+        0.35,
+        0.35,
+        0.35
+      ],
+      "note": "the example emits the same intent every step; per-instance state is private and resets on a fresh play instance (behaviors.md §9.3)"
+    }
+  },
+  "effectiveFrame": {
+    "note": "an empty IntentSet is the packet-17 identity: effective = sampled (behaviors.md §9.5)",
+    "emptyIdentity": {
+      "action": {
+        "stepIndex": 40,
+        "moveX": 0.5,
+        "jump": "held"
+      },
+      "expected": {
+        "stepIndex": 40,
+        "moveX": 0.5,
+        "jump": "held"
+      }
+    },
+    "withIntent": {
+      "action": {
+        "stepIndex": 41,
+        "moveX": 0.5,
+        "jump": "none"
+      },
+      "intents": {
+        "move": 0.35,
+        "jump": null
+      },
+      "expected": {
+        "stepIndex": 41,
+        "moveX": 0.35,
+        "jump": "none"
+      }
+    }
+  }
+}

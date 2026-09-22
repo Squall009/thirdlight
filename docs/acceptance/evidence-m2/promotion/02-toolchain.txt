@@ -1,0 +1,42 @@
+# Post-promotion toolchain runs (2026-09-18) — executed in this session (final capture)
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs
+check OK: 33 check group(s) passed, 0 problem(s)
+exit=0
+
+$ node docs/acceptance/evidence-m2/19/inventory-check.mjs
+inventory-consistency OK: 6 check(s), 0 problem(s)
+exit=0
+
+$ node docs/acceptance/evidence-m2/promotion/promotion-check.mjs
+promotion-check OK: 11 check group(s) passed, 0 problem(s)
+exit=0
+
+$ npm test
+ Test Files  66 passed (66)
+      Tests  841 passed (841)
+exit=0
+
+$ npm run typecheck
+exit=0
+
+$ npm run check-deps
+exit=0
+
+$ npm run check-boundaries
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 150 source file(s), 514 specifier(s) checked; no boundary violations.
+exit=0
+
+$ npm run build
+build: done (4 built, 0 skipped).
+exit=0
+
+$ git diff --stat 5b746ee -- docs/contracts
+ docs/contracts/commands.md      |  799 ++++++++++++++++++-
+ docs/contracts/dependencies.md  |  166 +++-
+ docs/contracts/export.md        |  200 ++++-
+ docs/contracts/project-model.md | 1672 ++++++++++++++++++++++++++++++++++++++-
+ docs/contracts/runtime.md       | 1001 ++++++++++++++++++++++-
+ docs/contracts/sessions.md      |  578 +++++++++++++-
+ docs/contracts/workspace.md     |  806 ++++++++++++++++++-
+ 7 files changed, 5077 insertions(+), 145 deletions(-)

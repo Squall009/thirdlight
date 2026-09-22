@@ -1,0 +1,12 @@
+{
+    "graphVersion": 1,
+    "entryPath": "src/index.ts",
+    "requiredModules": [],
+    "ownedTransforms": [],
+    "files": [
+        {
+            "path": "src/index.ts",
+            "text": "export default { step() {} };\n"
+        }
+    ]
+}

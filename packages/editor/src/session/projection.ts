@@ -21,18 +21,52 @@
  * Pure: no DOM, no I/O, no Node builtins.
  */
 
-import type { Entity } from '@thirdlight/project-model';
-import type { ChangeData } from '@thirdlight/commands';
+import type { Entity, GameZoneComponent, CameraFollowComponent, LightComponent, SurfaceComponent, ModelAnimationComponent } from '@thirdlight/project-model';
+import type { ChangeData, SetBehaviorPropertiesChange } from '@thirdlight/commands';
 
 /** One projected entity (the display projection of a backend Entity). */
 export interface ProjectedEntity {
   id: string;
   name: string;
   parentId: string | null;
-  kind: 'box' | 'camera' | 'entity';
+  kind: 'box' | 'camera' | 'model' | 'entity';
   position: number[];
   rotation: number[];
   scale: number[];
+  /**
+   * M2 (packet 27): the whole-GLB reference a model entity resolves through
+   * (`components.model.asset.assetId`). Reimport never changes it — only the
+   * asset's `currentVersion` moves — so placements keep their entity ID,
+   * transform and reference (project-model §18.1).
+   */
+  assetId?: string;
+  /**
+   * M2 (packet 28): the informational prefab provenance a materialized copy
+   * carries (`components.prefab`, project-model §20.4). It is what lets the
+   * inspector label the entity "Copy of <displayName> — copies are
+   * independent"; it grants no inheritance, override or revert behavior.
+   */
+  prefab?: { prefabId: string; localId: string };
+  /** M2 (packet 28): the entity's behavior component, when present (§10.5). */
+  behaviorId?: string;
+  /** M2 (packet 28): the stored declared-property values (declaration order). */
+  behaviorValues?: Record<string, unknown>;
+  /** M2 (packet 28): the physics collider shape, when present (§10.7/§21.3). */
+  collider?: unknown;
+  /** M2 (packet 28): the controller marker component is present (§10.8). */
+  controller?: boolean;
+  /** M3 (packet 56): the game-zone component, when present (project-model §23.3.1). */
+  gameZone?: GameZoneComponent;
+  /** M3 (packet 56): the field-less spawn marker is present (project-model §23.3.2). */
+  playerSpawn?: boolean;
+  /** M3 (packet 56): the camera-follow data, when present (project-model §23.3.3). */
+  cameraFollow?: CameraFollowComponent;
+  /** M3 (packet 57): the light component, when present (project-model §23.3.4). */
+  light?: LightComponent;
+  /** M3 (packet 57): the copied surface values, when present (project-model §23.3.5). */
+  surface?: SurfaceComponent;
+  /** M3 (packet 57): the model-animation profile, when present (project-model §23.3.6). */
+  modelAnimation?: ModelAnimationComponent;
 }
 
 /** The result of applying one `mutation.applied` to the projection. */
@@ -69,8 +103,23 @@ export interface ConflictInfo {
 }
 
 function toProjected(e: Entity): ProjectedEntity {
-  const kind = e.components.box ? 'box' : e.components.camera ? 'camera' : 'entity';
-  return {
+  const c = e.components as {
+    box?: unknown;
+    camera?: unknown;
+    model?: { asset?: { assetId?: string } };
+    behavior?: { behaviorId?: string; values?: Record<string, unknown> };
+    prefab?: { prefabId?: string; localId?: string };
+    collider?: unknown;
+    controller?: unknown;
+    gameZone?: GameZoneComponent;
+    playerSpawn?: unknown;
+    cameraFollow?: CameraFollowComponent;
+    light?: LightComponent;
+    surface?: SurfaceComponent;
+    modelAnimation?: ModelAnimationComponent;
+  };
+  const kind = c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : 'entity';
+  const projected: ProjectedEntity = {
     id: e.id,
     name: e.name ?? e.id,
     parentId: e.parentId ?? null,
@@ -78,7 +127,20 @@ function toProjected(e: Entity): ProjectedEntity {
     position: [...e.components.transform.position],
     rotation: [...e.components.transform.rotation],
     scale: [...e.components.transform.scale],
+    ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
+    ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
+    ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
+    ...(c.behavior?.values ? { behaviorValues: { ...c.behavior.values } } : {}),
+    ...(c.collider !== undefined ? { collider: c.collider } : {}),
+    ...(c.controller !== undefined ? { controller: true } : {}),
+    ...(c.gameZone !== undefined ? { gameZone: { ...c.gameZone, size: [...c.gameZone.size] as [number, number] } } : {}),
+    ...(c.playerSpawn !== undefined ? { playerSpawn: true } : {}),
+    ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, bounds: { ...c.cameraFollow.bounds } } } : {}),
+    ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
+    ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
+    ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
   };
+  return projected;
 }
 
 /**
@@ -193,9 +255,113 @@ export class Projection {
         }
         return true;
       }
+      // ---- M2 scene changes (packet 27) ---------------------------------
+      case 'instantiatePrefab': {
+        // The change carries the full created entity values with their
+        // insertion indices (commands.md §5.3/§8.7.6). Applying them is a
+        // projection update — never a local mutation path of its own.
+        const entries = [...change.entries].sort((a, b) => a.index - b.index);
+        for (const entry of entries) {
+          const p = toProjected(entry.entity as unknown as Entity);
+          if (this.entities.has(p.id)) continue; // idempotent
+          const at = Math.max(0, Math.min(this.order.length, entry.index));
+          this.order.splice(at, 0, p.id);
+          this.entities.set(p.id, p);
+        }
+        return true;
+      }
+      case 'setComponent': {
+        const p = this.entities.get(change.id);
+        if (!p) return false;
+        if (change.component === 'model') {
+          const next = change.next as { asset?: { assetId?: string } } | null;
+          if (next?.asset?.assetId) {
+            p.assetId = next.asset.assetId;
+            p.kind = 'model';
+          }
+        } else if (change.component === 'collider') {
+          // C28-1 repair: add/edit/remove converge without a reload (§5.3).
+          if (change.next === null) delete p.collider;
+          else p.collider = change.next;
+        } else if (change.component === 'controller') {
+          if (change.next === null) delete p.controller;
+          else p.controller = true;
+        } else if (change.component === 'gameZone') {
+          // M3 (packet 56): the zone component converges add/edit/remove the
+          // same way (the change carries the full component value or null).
+          if (change.next === null) delete p.gameZone;
+          else {
+            const z = change.next as GameZoneComponent;
+            p.gameZone = { ...z, size: [...z.size] as [number, number] };
+          }
+        } else if (change.component === 'playerSpawn') {
+          if (change.next === null) delete p.playerSpawn;
+          else p.playerSpawn = true;
+        } else if (change.component === 'cameraFollow') {
+          if (change.next === null) delete p.cameraFollow;
+          else {
+            const f = change.next as CameraFollowComponent;
+            p.cameraFollow = { deadZone: { ...f.deadZone }, smoothing: f.smoothing, bounds: { ...f.bounds } };
+          }
+        } else if (change.component === 'light') {
+          // M3 (packet 57): the light component converges add/edit/remove the
+          // same way (the change carries the full component value or null).
+          if (change.next === null) delete p.light;
+          else {
+            const l = change.next as LightComponent;
+            p.light = { ...l, ...(l.direction ? { direction: [...l.direction] as [number, number, number] } : {}) };
+          }
+        } else if (change.component === 'surface') {
+          if (change.next === null) delete p.surface;
+          else p.surface = { ...(change.next as SurfaceComponent) };
+        } else if (change.component === 'modelAnimation') {
+          if (change.next === null) delete p.modelAnimation;
+          else {
+            const a = change.next as ModelAnimationComponent;
+            p.modelAnimation = { assetId: a.assetId, version: a.version, roles: { idle: { ...a.roles.idle }, run: { ...a.roles.run }, airborne: { ...a.roles.airborne } } };
+          }
+        }
+        return true;
+      }
+      // Content-only changes advance the revision without touching the scene
+      // (the content projection consumes the same records — sessions.md §8).
+      case 'publishAsset':
+      case 'publishBehavior':
+      case 'setSettings':
+      case 'acknowledgeBehaviorTrust':
+      case 'createPrefab':
+      case 'removePrefab':
+        return true;
+      // M2 (packet 28): a declared-property edit converges the projection
+      // without a reload — an MCP-origin change is applied exactly like a
+      // browser-origin one (sessions.md §6.2).
+      case 'setBehaviorProperties':
+        return this.applySetBehaviorProperties(change);
+      // M3 (packet 56): a `setGameConfig` change is content-only (the client
+      // tracks the block from the change data); an `applySurfacePreset`
+      // change (packet 57) updates a component the 56 projection does not
+      // display — advance the revision (no gap) and let the next full state
+      // / `queryEntity` carry the value.
+      case 'setGameConfig':
+      case 'applySurfacePreset':
+        return true;
       default:
         return false;
     }
+  }
+
+  private applySetBehaviorProperties(change: SetBehaviorPropertiesChange): boolean {
+    const p = this.entities.get(change.id);
+    if (!p) return false;
+    const next = change.next;
+    if (next === null) {
+      delete p.behaviorId;
+      delete p.behaviorValues;
+      return true;
+    }
+    p.behaviorId = next.behaviorId;
+    p.behaviorValues = { ...next.values };
+    return true;
   }
 
   /**

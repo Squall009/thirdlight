@@ -1,0 +1,16 @@
+{
+  "prefabId": "prefab-0001",
+  "mapping": [
+    {
+      "localId": "group-0001",
+      "entityId": "group-0002"
+    },
+    {
+      "localId": "box-0001",
+      "entityId": "box-0002"
+    }
+  ],
+  "overrideOk": true,
+  "staleCode": "revision_conflict",
+  "applied": true
+}

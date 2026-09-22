@@ -11,12 +11,14 @@
  * The screen-space drag model (framework-free, no per-frame traffic):
  *  - translate: pointer delta mapped to a camera-aligned screen plane
  *    (dx → camera right, dy → camera up);
- *  - rotate: horizontal delta → world-Y, vertical delta → world-X (arcball
- *    lite);
+ *  - rotate: horizontal delta → accumulated yaw about +Y, vertical delta →
+ *    accumulated pitch about +X (each snapped to 15° and the composed
+ *    quaternion re-normalized — sessions.md §9); the helper shows both axes;
  *  - scale: horizontal delta → uniform multiplicative scale.
  */
 
 import * as THREE from 'three';
+import { snapScaleFactor, snapTranslateDelta, snapRotationAngle } from '../session/snapping';
 
 export type GizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -29,6 +31,12 @@ export interface GizmoTransform {
 export interface GizmoCallbacks {
   onFrame: (t: GizmoTransform) => void;
   onEnd: (t: GizmoTransform) => void;
+}
+
+/** The local snapping option (sessions.md §9): a gesture option, never persisted. */
+export interface GizmoOptions {
+  /** Whether snapping is active for the CURRENT gesture (Shift disables it). */
+  snapping?: () => boolean;
 }
 
 const AXIS_COLORS = { x: 0xff5252, y: 0x52d273, z: 0x5299ff } as const;
@@ -50,13 +58,24 @@ export class Gizmo {
   private mode: GizmoMode = 'translate';
   private active = false;
   private base: GizmoTransform | null = null;
+  /** Accumulated gesture delta since pointer down (per-gesture, snap-stable). */
+  private accumDx = 0;
+  private accumDy = 0;
   /** Visual gizmo helpers (rebuilt per attach). */
   private helpers: THREE.Object3D[] = [];
 
-  constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, _renderer: THREE.WebGLRenderer, cb: GizmoCallbacks) {
+  constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, _renderer: THREE.WebGLRenderer, cb: GizmoCallbacks, options: GizmoOptions = {}) {
     this.scene = scene;
     this.camera = camera;
     this.cb = cb;
+    this.snapping = options.snapping ?? (() => false);
+  }
+
+  private readonly snapping: () => boolean;
+
+  /** Whether snapping applies to the current preview (local option only). */
+  private snapActive(): boolean {
+    return this.snapping();
   }
 
   get targetId(): string | null {
@@ -106,13 +125,19 @@ export class Gizmo {
   pointerDown(_e: PointerEvent): boolean {
     if (!this.target || !this.base) return false;
     this.active = true;
+    this.accumDx = 0;
+    this.accumDy = 0;
     return true;
   }
 
   /** Advance the local preview (pointer delta). No commit. */
   pointerMove(dx: number, dy: number): void {
     if (!this.active || !this.target || !this.base) return;
-    const t = this.step(this.base, dx, dy);
+    // The gesture ACCUMULATES its delta from pointer-down (so a drag is a drag,
+    // and snapping the accumulated delta cannot drift — sessions.md §9).
+    this.accumDx += dx;
+    this.accumDy += dy;
+    const t = this.step(this.base, this.accumDx, this.accumDy);
     this.writeTransform(t);
     this.cb.onFrame(t);
   }
@@ -124,31 +149,57 @@ export class Gizmo {
     this.cb.onEnd(this.readTransform());
   }
 
+  /**
+   * Cancel the gesture (Esc / cancel control): revert the target to the base
+   * transform captured at pointer-down and report nothing. No command is
+   * issued, no revision moves, nothing is observable to another client
+   * (sessions.md §9).
+   */
+  cancel(): boolean {
+    if (!this.active || !this.target || !this.base) return false;
+    this.active = false;
+    this.accumDx = 0;
+    this.accumDy = 0;
+    this.writeTransform(this.base);
+    return true;
+  }
+
   private step(base: GizmoTransform, dx: number, dy: number): GizmoTransform {
     const pos = [...base.position];
     const quat = new THREE.Quaternion(base.rotation[0], base.rotation[1], base.rotation[2], base.rotation[3]);
     const scl = [...base.scale];
     const SENS = 0.01; // pixels → world units
+    const snap = this.snapActive();
     if (this.mode === 'translate') {
       // Camera-aligned screen plane: dx → right, dy → up.
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
       const delta = new THREE.Vector3().addScaledVector(right, dx * SENS).addScaledVector(up, -dy * SENS);
-      pos[0] = N(pos[0]) + delta.x;
-      pos[1] = N(pos[1]) + delta.y;
-      pos[2] = N(pos[2]) + delta.z;
+      // Snapping is applied to the accumulated WORLD-AXIS delta (never the
+      // absolute position), so repeated moves cannot accumulate drift.
+      const snapped = snap ? snapTranslateDelta([delta.x, delta.y, delta.z]) : [delta.x, delta.y, delta.z];
+      pos[0] = N(pos[0]) + (snapped[0] ?? 0);
+      pos[1] = N(pos[1]) + (snapped[1] ?? 0);
+      pos[2] = N(pos[2]) + (snapped[2] ?? 0);
     } else if (this.mode === 'rotate') {
-      const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dx * SENS * 0.5);
-      const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -dy * SENS * 0.5);
+      const yaw = dx * SENS * 0.5;
+      const pitch = -dy * SENS * 0.5;
+      const snappedYaw = snap ? snapRotationAngle(yaw, [0, 1, 0]).angleRad : yaw;
+      const snappedPitch = snap ? snapRotationAngle(pitch, [1, 0, 0]).angleRad : pitch;
+      const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), snappedYaw);
+      const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), snappedPitch);
       const nq = new THREE.Quaternion().multiply(qy).multiply(qx).multiply(quat);
+      nq.normalize();
       return {
         position: pos,
         rotation: [nq.x, nq.y, nq.z, nq.w],
         scale: scl,
       };
     } else {
-      // scale: horizontal delta → uniform multiplicative
-      const f = Math.max(0.05, 1 + dx * SENS * 0.5);
+      // scale: horizontal delta → uniform multiplicative factor (snapped on the
+      // uniform factor and clamped to the accepted scale range).
+      const rawFactor = Math.max(0.05, 1 + dx * SENS * 0.5);
+      const f = snap ? snapScaleFactor(rawFactor) : rawFactor;
       scl[0] = N(base.scale[0]) * f;
       scl[1] = N(base.scale[1]) * f;
       scl[2] = N(base.scale[2]) * f;
@@ -180,13 +231,20 @@ export class Gizmo {
       );
       group.add(box);
     } else {
-      // rotate: a ring around Y (practical single-ring gizmo)
-      const ring = new THREE.Mesh(
+      // rotate: two rings — yaw about +Y and pitch about +X (the two
+      // accumulated axes sessions.md §9 names and the step() math applies).
+      const ringY = new THREE.Mesh(
         new THREE.TorusGeometry(0.9, 0.03, 8, 32),
         new THREE.MeshBasicMaterial({ color: 0xffd166 }),
       );
-      ring.rotation.x = Math.PI / 2;
-      group.add(ring);
+      ringY.rotation.x = Math.PI / 2;
+      group.add(ringY);
+      const ringX = new THREE.Mesh(
+        new THREE.TorusGeometry(0.9, 0.03, 8, 32),
+        new THREE.MeshBasicMaterial({ color: 0x5299ff }),
+      );
+      ringX.rotation.y = Math.PI / 2;
+      group.add(ringX);
     }
     this.scene.add(group);
     this.helpers.push(group);

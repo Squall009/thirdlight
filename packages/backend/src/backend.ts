@@ -23,10 +23,13 @@ import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import {
+  classifyLocatorPath,
+  isContentId,
   isProjectId,
   makeAttached,
   makeDiagnosticsRequest,
   makeErrorEvent,
+  makeInputRelayRequest,
   makePong,
   makePlayStarted,
   makeScreenshotRequest,
@@ -34,23 +37,42 @@ import {
   parseAdminCreateProjectRequest,
   parseCommandEnvelope,
   parseEstablishRequest,
+  parseInputRelayRequest,
   parsePlayStartRequest,
   parseScreenshotRequest,
   parseStrictJsonBytes,
   parseInboundEvent,
+  encodeBinaryFreeStateFrame,
+  redactContentId,
   sessionError,
   statusFor,
   WS_OUT_FRAME_MAX,
   WS_SCREENSHOT_ACK_MAX,
   enforceDefaultFrameBound,
   isMutationOp,
+  makeGameControlRequest,
+  makeGameObserveRequest,
+  parseAdminMigrateCopyV3Request,
+  parseGameControlRequest,
+  parseGameObserveRequest,
+  validateGameControlResult,
+  validateGameObservation,
+  GAME_CONTROL_BODY_MAX_BYTES,
+  GAME_CONTROL_COMMANDS,
+  GAME_OBSERVE_BODY_MAX_BYTES,
+  type InputRelayRequest,
+  type LocatorPath,
   type RuntimeSnapshotDoc,
   type SessionError,
 } from '@thirdlight/protocol';
 import { openWorkspaceService, type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
+import { publishBehaviorSource } from './behavior';
+import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
+import { PlayContentStore, buildPlayContent, type PlayArtifact, type PlayContentSet } from './play-content';
+import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
-import { PlayManager, type PlayRecord, type RelayOutcome } from './play';
+import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
 
 // ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
 
@@ -132,6 +154,8 @@ export interface Backend {
     plays: PlayManager;
     startupLog: Array<{ ts: number; message: string }>;
     service: WorkspaceService;
+    contentRoutes: ContentRoutes;
+    playContent: PlayContentStore;
   };
 }
 
@@ -166,10 +190,21 @@ export function createBackend(
   mkdirSync(config.dataRoot, { recursive: true });
   if (config.exportRoot !== undefined) mkdirSync(config.exportRoot, { recursive: true });
 
+  // Packet 35: one compiler instance for both the injected workspace path and
+  // the play build's deterministic behavior-output recompilation.
+  const behaviorCompiler = createBehaviorCompilerPort(nowMs);
   const service: WorkspaceService = openWorkspaceService({
     root: config.dataRoot,
     backendId: config.backendId,
     processMarker: config.processMarker,
+    // Packet 25: the backend constructs the pure `asset-pipeline` inspector
+    // and injects it into the workspace (dependencies.md §4.1). The
+    // workspace owns the staged-byte read; the transport never touches a file.
+    assetInspector: createAssetInspector(),
+    // Packet 33: the backend constructs the pinned behavior-source compiler
+    // (`behavior-build`) and injects it — the workspace's preparation layer
+    // drives it; the compiler never reads a path or executes project source.
+    behaviorCompiler,
   });
   const sessions = new SessionRegistry();
   const tokenScopes = new Map<string, string>();
@@ -178,6 +213,9 @@ export function createBackend(
   logStartup(
     `starting: dataRoot=${config.dataRoot} authoring=${config.authoringOrigin} preview=${config.previewOrigin}`,
   );
+
+  // Packet 35: the immutable play-content artifact store (sessions.md §17).
+  const playContent = new PlayContentStore({ now: nowMs });
 
   const plays = new PlayManager({
     sendToOwner: (ownerSessionId, payload) => {
@@ -202,11 +240,15 @@ export function createBackend(
     relayTimeoutMs: () => timeouts.relayTimeoutSeconds * 1000,
     stopAckTimeoutMs: () => timeouts.stopAckTimeoutSeconds * 1000,
     presentTimeoutMs: () => timeouts.presentTimeoutSeconds * 1000,
+    inputRelayTimeoutMs: () => 10_000,
+    onTerminal: (playSessionId) => playContent.markTerminal(playSessionId),
     nowMs,
   });
 
-  const wss = new WebSocketServer({ noServer: true });
-  const authoringServer = createServer();
+  /** The §11.5 relay ack timeout (the §20 control relay shares it). */
+  const relayTimeoutMs = (): number => timeouts.relayTimeoutSeconds * 1000;
+
+  const wss = new WebSocketServer({ noServer: true });  const authoringServer = createServer();
   const previewServer = createServer();
   let closed = false;
   let sweepTimer: number | undefined;
@@ -265,6 +307,19 @@ export function createBackend(
     return sessionError('unauthorized', 'validation', 'the token scope does not cover this project');
   };
 
+  // Packet 25 content transport (bounded uploads, jobs, content queries and
+  // the authenticated asset-byte read). It delegates every write/read to the
+  // injected workspace service and performs no filesystem work itself.
+  const contentRoutes = new ContentRoutes({
+    service,
+    now: nowMs,
+    sendJson,
+    sendError,
+    requireAuth,
+    log: logStartup,
+  });
+
+
   const readBody = (req: IncomingMessage): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; error: SessionError }> =>
     new Promise((resolve) => {
       const chunks: Uint8Array[] = [];
@@ -321,6 +376,27 @@ export function createBackend(
    * workspace), composed from the workspace's public query API (the
    * transport never reads files directly).
    */
+  /**
+   * The bounded content projection for the full-state payload (packet 25):
+   * summary pages only (never definitions, declarations, versions or bytes),
+   * composed from the workspace's public query surface. Returns undefined for
+   * a project whose queries fail (the scene full state is still served).
+   */
+  const contentProjection = (projectId: string): Record<string, unknown> | undefined => {
+    const assets = service.query({ op: 'queryAssets', projectId, args: { limit: 128, offset: 0 } });
+    const prefabs = service.query({ op: 'queryPrefabs', projectId, args: { limit: 128, offset: 0 } });
+    const behaviors = service.query({ op: 'queryBehaviors', projectId, args: { limit: 128, offset: 0 } });
+    if (!assets.ok || !prefabs.ok || !behaviors.ok) return undefined;
+    const a = assets as unknown as { assets: unknown };
+    const p = prefabs as unknown as { prefabs: unknown };
+    const b = behaviors as unknown as { behaviors: unknown };
+    return {
+      assets: a.assets,
+      prefabs: p.prefabs,
+      behaviors: b.behaviors,
+    };
+  };
+
   const fullState = (projectId: string):
     | {
         ok: true;
@@ -329,6 +405,7 @@ export function createBackend(
         scene: Record<string, unknown>;
         history: Record<string, unknown>;
         workspace: Record<string, unknown>;
+        content?: Record<string, unknown>;
       }
     | { ok: false; error: SessionError; status: number } => {
     const q = service.query({ op: 'queryProject', projectId });
@@ -355,11 +432,14 @@ export function createBackend(
       };
     }
     const scene: Record<string, unknown> = {
-      schemaVersion: q.manifest.schemaVersion,
+      // C35-5 / sessions.md §19.x: the SCENE document's `schemaVersion`
+      // (1/2/3) — never the manifest's (always 1).
+      schemaVersion: q.scene.schemaVersion,
       sceneId: q.scene.sceneId,
       revision: q.revision,
       entities: [...e.entities],
     };
+    const content = contentProjection(projectId);
     return {
       ok: true,
       revision: q.revision,
@@ -367,6 +447,7 @@ export function createBackend(
       scene,
       history: q.history as unknown as Record<string, unknown>,
       workspace: q.workspace as unknown as Record<string, unknown>,
+      ...(content !== undefined ? { content } : {}),
     };
   };
 
@@ -425,9 +506,10 @@ export function createBackend(
   ): void => {
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
-    const payload = JSON.stringify({ type: 'mutation.applied', requestId, revision, origin, change });
-    if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
-      logStartup('mutation.applied frame exceeds the 1 MiB bound; dropped (internal)');
+    // §11.6/§17.6: a full-state/change frame never carries GLB or source bytes.
+    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change }, WS_OUT_FRAME_MAX);
+    if (payload === null) {
+      logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; dropped (internal)');
       return;
     }
     try {
@@ -561,6 +643,35 @@ export function createBackend(
         sessions.record(session, kind, inbound.relayId, target.revision, nowMs(), inbound.ok ? 'ok' : 'failed');
         return;
       }
+      case 'input.result': {
+        const target = plays.findRelayByInput(inbound.requestId);
+        if (target === undefined || target.ownerSessionId !== session.sessionId) {
+          sessions.record(session, 'play', inbound.requestId, undefined, nowMs(), 'unknown_input_relay');
+          return;
+        }
+        plays.resolveInputRelay(target.playSessionId, inbound.requestId, inbound);
+        sessions.record(session, 'play', inbound.requestId, target.revision, nowMs(), inbound.ok ? 'input_ok' : 'input_failed');
+        return;
+      }
+      case 'game.control.ack':
+      case 'game.observe.ack': {
+        // §20.1: the editor relays the preview's EXACT result (never fabricates).
+        // The relay map is authoritative for routing by relayId; an
+        // unknown/wrong-session ack is dropped and counted (it never resolves a
+        // pending relay owned by another session).
+        const target = plays.findGameRelay(inbound.relayId);
+        if (target === undefined || target.ownerSessionId !== session.sessionId) {
+          sessions.record(session, 'play', inbound.relayId, undefined, nowMs(), inbound.type === 'game.control.ack' ? 'unknown_game_relay' : 'unknown_game_observe_relay');
+          return;
+        }
+        const validate =
+          inbound.type === 'game.control.ack'
+            ? (r: unknown): boolean => validateGameControlResult(r).ok
+            : (r: unknown): boolean => validateGameObservation(r).ok;
+        plays.resolveGameRelay(target.playSessionId, inbound.relayId, inbound, validate);
+        sessions.record(session, 'play', inbound.relayId, target.revision, nowMs(), inbound.ok ? 'game_ok' : 'game_failed');
+        return;
+      }
       default:
         return;
     }
@@ -685,6 +796,7 @@ export function createBackend(
       scene: state.scene,
       history: state.history,
       workspace: state.workspace,
+      ...(state.content !== undefined ? { content: state.content } : {}),
     });
   };
 
@@ -787,6 +899,22 @@ export function createBackend(
     sendJson(res, statusFor(qres.error.cls), { ok: false, error: qres.error });
   };
 
+  /** The prebuilt play bundle bytes served as `game.js` (bounded read). */
+  const readGameBundle = (file = 'preview.js'): Uint8Array | null => {
+    const path = join(config.previewStaticDir, file);
+    try {
+      if (!existsSync(path) || !statSync(path).isFile()) return null;
+      const bytes = new Uint8Array(readFileSync(path));
+      if (bytes.length === 0 || bytes.length > 33_554_432) return null;
+      return bytes;
+    } catch {
+      return null;
+    }
+  };
+
+  /** A UTC second stamp in the project-model §7.2 format. */
+  const utcSecond = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
   const playStartRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
     const authError = requireAuth(req, projectId, false);
     if (authError !== null) {
@@ -839,12 +967,20 @@ export function createBackend(
       return;
     }
     const snapshotId = `${projectId}@r${state.revision}`;
+    // C35-5 / sessions.md §19.x: the SCENE document's `schemaVersion` (1/2/3).
+    // The full-state projection now carries it directly.
+    const sceneSchemaVersion =
+      typeof state.scene.schemaVersion === 'number'
+        ? state.scene.schemaVersion
+        : state.content !== undefined
+          ? 2
+          : 1;
     const snapshot: RuntimeSnapshotDoc = {
       snapshotId,
       projectId,
       revision: state.revision,
       scene: {
-        schemaVersion: state.scene.schemaVersion as number,
+        schemaVersion: sceneSchemaVersion,
         sceneId: state.scene.sceneId as string,
         revision: state.revision,
         entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
@@ -852,7 +988,120 @@ export function createBackend(
     };
     const playSessionId = newPlaySessionId();
     const now = nowMs();
-    const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, now);
+    // Packet 35: build the immutable runtime-content manifest + artifact set
+    // BEFORE the play record exists (a failed build writes nothing and leaves
+    // the previous artifact/locator untouched — delivery §2.2). Each branch
+    // reads its own prebuilt play bundle (M2 `preview.js` / M3 `preview-m3.js`).
+    // Packet 59: v3 play builds the SHARED M3 closure from the captured v3
+    // content (the single acknowledged envelope read — readCapturedV3); v1/v2
+    // play is the unchanged M2 path.
+    let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
+    if (sceneSchemaVersion === 3) {
+      const captured = service.readCapturedV3(projectId);
+      if (!captured.ok) {
+        sendError(res, workspaceError(captured.error), statusFor(captured.error.cls));
+        return;
+      }
+      if (captured.read.revision !== state.revision) {
+        sendError(
+          res,
+          sessionError('play_build_unavailable', 'conflict', 'the captured revision changed before the play build', { reason: 'revision_conflict' }),
+          409,
+        );
+        return;
+      }
+      // The v3 play bundle (the M3 preview wrapper entry — the single shared
+      // createGameHost composition), served as the locator's game.js.
+      const gameBundleM3 = readGameBundle('preview-m3.js');
+      if (gameBundleM3 === null) {
+        sendError(
+          res,
+          sessionError('play_build_unavailable', 'unavailable', 'the prebuilt M3 play bundle is missing (run the workspace build)', {
+            reason: 'game_bundle_missing',
+          }),
+          503,
+        );
+        return;
+      }
+      const builtM3 = await buildPlayContentM3({
+        service,
+        compiler: behaviorCompiler,
+        projectId,
+        revision: state.revision,
+        capturedAt: utcSecond(now),
+        scene: {
+          schemaVersion: 3,
+          sceneId: state.scene.sceneId as string,
+          revision: state.revision,
+          entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
+        },
+        content: captured.read.content as Record<string, unknown>,
+        gameBundle: gameBundleM3,
+      });
+      if (!builtM3.ok) {
+        sendError(res, builtM3.error, statusFor(builtM3.error.cls));
+        return;
+      }
+      builtCore = {
+        buildId: builtM3.built.buildId,
+        contentDigest: builtM3.built.contentDigest,
+        manifestBytes: builtM3.built.manifestBytes,
+        artifacts: builtM3.built.artifacts,
+      };
+    } else {
+      // The M2 play bundle (the M2 preview wrapper entry), served as game.js.
+      const gameBundle = readGameBundle();
+      if (gameBundle === null) {
+        sendError(
+          res,
+          sessionError('play_build_unavailable', 'unavailable', 'the prebuilt play bundle is missing (run the workspace build)', {
+            reason: 'game_bundle_missing',
+          }),
+          503,
+        );
+        return;
+      }
+      const built = await buildPlayContent({
+        service,
+        compiler: behaviorCompiler,
+        projectId,
+        revision: state.revision,
+        capturedAt: utcSecond(now),
+        demo: parsedReq.request.demo,
+        scene: {
+          schemaVersion: sceneSchemaVersion,
+          sceneId: state.scene.sceneId as string,
+          revision: state.revision,
+          entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
+        },
+        gameBundle,
+      });
+      if (!built.ok) {
+        sendError(res, built.error, statusFor(built.error.cls));
+        return;
+      }
+      builtCore = {
+        buildId: built.built.buildId,
+        contentDigest: built.built.contentDigest,
+        manifestBytes: built.built.manifestBytes,
+        artifacts: built.built.artifacts,
+      };
+    }
+    const published = playContent.publish({
+      playSessionId,
+      projectId,
+      revision: state.revision,
+      snapshotId,
+      buildId: builtCore.buildId,
+      contentDigest: builtCore.contentDigest,
+      manifestBytes: builtCore.manifestBytes,
+      artifacts: builtCore.artifacts,
+    });
+    if (!published.ok) {
+      sendError(res, published.error, statusFor(published.error.cls));
+      return;
+    }
+    const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, builtCore.buildId, now);
     session.playSessionId = playSessionId;
     // `startedBy` = the origin of the caller that started the play
     // (interpretation recorded in handoff 09: derived from the token
@@ -887,6 +1136,13 @@ export function createBackend(
       revision: rec.revision,
       demo: rec.demo,
       expiresAt: new Date(rec.expiresAt).toISOString(),
+      playContent: {
+        contentId: published.contentId,
+        buildId: builtCore.buildId,
+        path: `/play-content/${published.contentId}/`,
+        manifestPath: 'manifest.json',
+        expiresAt: new Date(published.set.expiresAtMs).toISOString(),
+      },
     });
   };
 
@@ -1028,6 +1284,365 @@ export function createBackend(
     );
   };
 
+  /**
+   * `POST /api/v1/projects/:projectId/play/:playSessionId/input` — the bounded
+   * input-exercise relay (sessions.md §18.1). The mode is exclusive: the frame
+   * sequence is applied by the preview through the checked bridge, and the
+   * result reports the applied step range plus the pinned snapshot/build
+   * identity. No browser ⇒ the structured `session_unavailable` outcome.
+   */
+  const inputRelayRoute = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    projectId: string,
+    playSessionId: string,
+  ): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    // The 16 KiB body bound is checked before the strict parse (§18.1.1).
+    if (body.bytes.length > 16_384) {
+      sendError(
+        res,
+        sessionError('input_relay_limits_exceeded', 'validation', 'the relay body exceeds the 16384-byte bound', {
+          limit: 'body_bytes',
+          current: body.bytes.length,
+          max: 16_384,
+        }),
+        400,
+      );
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const parsedReq = parseInputRelayRequest(strict.value);
+    if (!parsedReq.ok) {
+      sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
+      return;
+    }
+    const rec = plays.get(playSessionId);
+    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
+      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
+      return;
+    }
+    const owner = connectedOwner(rec);
+    if (owner === undefined) {
+      sendError(res, unavailableError(rec.playSessionId, 'the editor browser must be connected for the input relay'), 503);
+      return;
+    }
+    const requestId = `req-${hex(16)}`;
+    const payload = makeInputRelayRequest(requestId, parsedReq.request.frames);
+    const outcome: InputRelayOutcome = await plays.relayInput(rec.playSessionId, requestId, payload);
+    if (outcome.ok) {
+      sessions.record(owner, 'play', requestId, rec.revision, nowMs(), 'input_relay');
+      sendJson(res, 200, {
+        ok: true,
+        mode: 'exclusive-test',
+        playSessionId,
+        snapshotId: rec.snapshotId,
+        buildId: rec.buildId,
+        appliedFromStep: outcome.appliedFromStep,
+        appliedToStep: outcome.appliedToStep,
+        inputMode: 'test',
+        clearedAt: new Date(nowMs()).toISOString(),
+      });
+      return;
+    }
+    const code = outcome.code;
+    const cls = code === 'input_relay_conflict' ? 'conflict' : 'unavailable';
+    sendError(
+      res,
+      sessionError(code, cls, `input relay ${code === 'input_relay_timeout' ? 'timed out' : 'failed'}`, {
+        ...(outcome.cause !== undefined ? { cause: outcome.cause } : {}),
+      }),
+      statusFor(cls),
+    );
+  };
+
+  /**
+   * Surface a §20 relay failure as the closed-set session error (sessions.md
+   * §20.2). Unknown codes never leak through: they collapse to
+   * `game_relay_rejected` (dropped and counted). No credential, capability,
+   * absolute path or binary crosses.
+   */
+  const sendGameRelayFailure = (res: ServerResponse, code: GameRelayCode | 'bad_origin' | 'field_value' | 'play_not_found', cause?: string, runId?: string): void => {
+    if (code === 'bad_origin') {
+      sendError(res, badOriginError('forbidden'), 403);
+      return;
+    }
+    const cls =
+      code === 'game_run_stale' || code === 'input_relay_conflict'
+        ? 'conflict'
+        : code === 'play_not_found'
+          ? 'not_found'
+          : code === 'play_locator_expired' || code === 'game_relay_rejected' || code === 'game_relay_timeout' || code === 'session_unavailable'
+            ? 'unavailable'
+            : 'validation';
+    const message =
+      code === 'game_relay_timeout'
+        ? 'the game relay timed out waiting for the preview'
+        : code === 'session_unavailable'
+          ? 'the editor browser must be connected and presenting for the game relay'
+          : code === 'game_relay_rejected'
+            ? 'the game relay was rejected (wrong source/nonce or a malformed result)'
+            : `game relay failed (${code})`;
+    sendError(
+      res,
+      sessionError(code, cls, message, {
+        ...(cause !== undefined ? { cause } : {}),
+        ...(runId !== undefined ? { runId } : {}),
+      }),
+      statusFor(cls),
+    );
+  };
+
+  /** Resolve the play + its presented owner for a §20 relay (or send the error). */
+  const resolveGameRelayPlay = (
+    res: ServerResponse,
+    projectId: string,
+    playSessionId: string,
+  ): { rec: PlayRecord; owner: SessionRecord } | null => {
+    const rec = plays.get(playSessionId);
+    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
+      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
+      return null;
+    }
+    if (nowMs() > rec.expiresAt) {
+      sendGameRelayFailure(res, 'play_locator_expired');
+      return null;
+    }
+    const owner = connectedOwner(rec);
+    if (owner === undefined) {
+      sendGameRelayFailure(res, 'session_unavailable', 'no registered browser');
+      return null;
+    }
+    if (rec.state !== 'presented') {
+      sendError(
+        res,
+        sessionError('session_unavailable', 'unavailable', 'the play exists but is not presented yet', {
+          playSessionId,
+          reason: 'not_presented',
+        }),
+        503,
+      );
+      return null;
+    }
+    return { rec, owner };
+  };
+
+  /**
+   * `POST …/play/:playSessionId/control` — the bounded §20 game-control relay.
+   * The request is forwarded to the owner editor (which relays it to the
+   * verified preview) and only the preview's exact result is returned. Without
+   * a connected, presenting browser the contracted structured
+   * `session_unavailable` is returned — never a fabricated success. No relay
+   * request/result carries bytes, a token or a capability.
+   */
+  const gameControlRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string, playSessionId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    if (body.bytes.length > GAME_CONTROL_BODY_MAX_BYTES) {
+      sendError(
+        res,
+        sessionError('limits_exceeded', 'validation', 'the control body exceeds the 4096-byte bound', { limit: 'body_bytes', current: body.bytes.length, max: GAME_CONTROL_BODY_MAX_BYTES }),
+        400,
+      );
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const parsedReq = parseGameControlRequest(strict.value);
+    if (!parsedReq.ok) {
+      sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
+      return;
+    }
+    const found = resolveGameRelayPlay(res, projectId, playSessionId);
+    if (found === null) return;
+    const { rec, owner } = found;
+    // §20.3: a stale expectedRunId is refused with the current run identity and
+    // NO command is applied (409 conflict).
+    if (parsedReq.request.expectedRunId !== undefined && parsedReq.request.expectedRunId !== rec.gameRunId) {
+      sendGameRelayFailure(res, 'game_run_stale', `${parsedReq.request.expectedRunId} != ${rec.gameRunId}`, rec.gameRunId);
+      return;
+    }
+    const relayId = `relay-${hex(16)}`;
+    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId);
+    const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'control', relayId, payload, relayTimeoutMs());
+    if (outcome.ok) {
+      sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_control');
+      sendJson(res, 200, outcome.result);
+      return;
+    }
+    sendGameRelayFailure(res, outcome.code, outcome.cause, outcome.runId);
+  };
+
+  /**
+   * `POST …/play/:playSessionId/observe` — the bounded §20 observation relay.
+   * The observation is read by the preview from the committed read-only
+   * `GameView`; the backend performs no gameplay or observation math and only
+   * validates the returned document's shape/bounds.
+   */
+  const gameObserveRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string, playSessionId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    if (body.bytes.length > GAME_OBSERVE_BODY_MAX_BYTES) {
+      sendError(
+        res,
+        sessionError('limits_exceeded', 'validation', 'the observe body exceeds the 4096-byte bound', { limit: 'body_bytes', current: body.bytes.length, max: GAME_OBSERVE_BODY_MAX_BYTES }),
+        400,
+      );
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const parsedReq = parseGameObserveRequest(strict.value);
+    if (!parsedReq.ok) {
+      sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
+      return;
+    }
+    const found = resolveGameRelayPlay(res, projectId, playSessionId);
+    if (found === null) return;
+    const { rec, owner } = found;
+    const relayId = `relay-${hex(16)}`;
+    const payload = makeGameObserveRequest(relayId, parsedReq.request.timeoutMs);
+    const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'observe', relayId, payload, parsedReq.request.timeoutMs);
+    if (outcome.ok) {
+      sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_observe');
+      sendJson(res, 200, outcome.result);
+      return;
+    }
+    sendGameRelayFailure(res, outcome.code, outcome.cause, outcome.runId);
+  };
+
+  /**
+   * `POST /api/v1/projects/:projectId/content/behaviors/source` — the additive
+   * behavior-source preparation+publication route (packet 35; contract-change
+   * request C35-4: sessions.md §19.1 lists no behavior-build route, so the
+   * packet-34 editor path could only surface `behavior_publication_unavailable`).
+   *
+   * It runs the EXISTING packet-33 facade: stage read → trust gate → injected
+   * compile → immutable blob, then the ordinary `publishBehavior{mode:'source'}`
+   * command through `workspace.runCommand` (the sole executor). No second
+   * commit path, no code evaluation.
+   */
+  const behaviorSourceRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const value = strict.value as Record<string, unknown>;
+    for (const key of Object.keys(value)) {
+      if (!['stageId', 'bytesBase64', 'behaviorId', 'displayName', 'declaration', 'expectedRevision', 'requestId'].includes(key)) {
+        sendError(res, sessionError('field_unexpected', 'validation', `unknown field "${key}"`, { path: `/${key}` }));
+        return;
+      }
+    }
+    const behaviorId = value.behaviorId;
+    const displayName = value.displayName;
+    const declaration = value.declaration;
+    const expectedRevision = value.expectedRevision;
+    const requestId = value.requestId;
+    const stageId = value.stageId;
+    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+      sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
+      return;
+    }
+    if (typeof displayName !== 'string' || displayName.length < 1 || displayName.length > 128) {
+      sendError(res, sessionError('field_value', 'validation', 'displayName must be a 1–128 character string', { path: '/displayName' }));
+      return;
+    }
+    if (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration)) {
+      sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
+      return;
+    }
+    if (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
+      sendError(res, sessionError('field_value', 'validation', 'expectedRevision must be an integer ≥ 0', { path: '/expectedRevision' }));
+      return;
+    }
+    if (typeof requestId !== 'string' || !/^req-[0-9a-f]{32}$/.test(requestId)) {
+      sendError(res, sessionError('field_value', 'validation', 'requestId must be req- + 32 hex', { path: '/requestId' }));
+      return;
+    }
+    const session = sessions.sessionForProject(projectId);
+    const outcome = await publishBehaviorSource(service, {
+      projectId,
+      ...(typeof stageId === 'string' ? { stageId } : {}),
+      behaviorId,
+      displayName,
+      declaration: declaration as never,
+      expectedRevision,
+      requestId,
+      origin: session !== undefined ? { kind: 'browser', clientId: session.sessionId } : { kind: 'admin', clientId: 'operator' },
+    });
+    if (outcome.ok) {
+      sendJson(res, 200, {
+        ok: true,
+        behaviorId,
+        sourceDigest: outcome.prepared.sourceDigest,
+        outputDigest: outcome.prepared.outputDigest,
+        revision: outcome.result.revision,
+        requestId,
+      });
+      return;
+    }
+    if (outcome.kind === 'compile') {
+      sendJson(res, 400, {
+        ok: false,
+        error: {
+          code: outcome.failure.code,
+          cls: 'validation',
+          message: outcome.failure.reason.slice(0, 256),
+          diagnostics: outcome.failure.diagnostics.slice(0, 32),
+        },
+      });
+      return;
+    }
+    sendJson(res, statusFor(outcome.error.cls), { ok: false, error: outcome.error });
+  };
+
   const adminCreateProject = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const authError = requireAuth(req, '', true);
     if (authError !== null) {
@@ -1105,6 +1720,43 @@ export function createBackend(
     sendError(res, workspaceError(result.error), statusFor(result.error.cls));
   };
 
+  /**
+   * `POST /api/v1/admin/projects/:projectId/migrate-copy-v3` (workspace.md
+   * §16.5/§16.8, packet 48): the explicit, admin-scoped v2→v3 operator copy.
+   * It delegates to the workspace service method (the sole authority), returns
+   * the §16.5.2 reported object verbatim, and surfaces the §16.8 codes. Every
+   * refusal writes nothing (the workspace guarantees it; no transport-side
+   * write exists here). Never a browser command, never an MCP tool.
+   */
+  const adminMigrateCopyV3Route = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, true);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const parsedReq = parseAdminMigrateCopyV3Request(strict.value);
+    if (!parsedReq.ok) {
+      sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
+      return;
+    }
+    const result = service.migrateProjectCopyV3(projectId, parsedReq.request.newProjectId);
+    if (result.ok) {
+      sendJson(res, 200, result);
+      return;
+    }
+    sendError(res, workspaceError(result.error), statusFor(result.error.cls));
+  };
+
   // ---------- export (sessions.md §6.3; export.md §2/§4) ----------
 
   /**
@@ -1172,6 +1824,10 @@ export function createBackend(
       previewOrigin: config.previewOrigin,
       tokenValues: config.tokens.map((t) => t.token),
       bootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap.ts'),
+      // Packet 36: the M2 export bundle entry + the SAME injected packet-33
+      // compiler instance the play build uses (one compiler, one closure).
+      m2BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m2.ts'),
+      compiler: behaviorCompiler,
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
       typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
       lockfile: join(engineRoot, 'package-lock.json'),
@@ -1228,12 +1884,47 @@ export function createBackend(
     }
   };
 
+  /**
+   * The preview-origin CSP (sessions.md §17.4). `script-src` carries the
+   * per-response nonce for the shell's injected page config (delivery §7); the
+   * artifact responses use the same policy without a nonce.
+   */
+  const previewCsp = (nonce?: string): string =>
+    "default-src 'none'; script-src 'self'" +
+    (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
+    "; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none'; " +
+    "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
+    `frame-ancestors ${config.authoringOrigin}`;
+
+  const locatorBaseHeaders = (res: ServerResponse): void => {
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('cross-origin-resource-policy', 'same-origin');
+    res.setHeader('content-security-policy', previewCsp());
+  };
+
+  /** The `GET /` M1 compatibility page (no active play). */
   const previewTemplate = (): string => {
     const origin = config.authoringOrigin.replace(/"/g, '\\"');
     return (
       '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
-      `    <script>window.__thirdlightPreview = { v: 1, authoringOrigin: "${origin}" };</script>\n` +
+      `    <script>window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };</script>\n` +
       '    <script src="./preview.js"></script>\n  </body>\n</html>\n'
+    );
+  };
+
+  /**
+   * The M2 locator shell (sessions.md §17.2.1): the only dynamic page. It
+   * injects the §13.2/§17.6 page config (no tokens, no API URLs) and loads the
+   * pinned play bundle from the artifact root.
+   */
+  const previewShellHtml = (playSessionId: string, contentId: string, nonce: string): string => {
+    const origin = config.authoringOrigin.replace(/"/g, '\\"');
+    const root = `/play-content/${contentId}/`;
+    return (
+      '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
+      `    <script nonce="${nonce}">window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: "${playSessionId}", contentId: "${contentId}", manifestPath: "./manifest.json" };window.__thirdlightContentRoot = "${root}";</script>\n` +
+      `    <script src="${root}game.js"></script>\n` +
+      '  </body>\n</html>\n'
     );
   };
 
@@ -1255,6 +1946,21 @@ export function createBackend(
 
     try {
       if (parts[0] === 'api' && parts[1] === 'v1') {
+        // Packet 35: the additive behavior-source preparation route (before the
+        // content route table so it is never shadowed).
+        if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'behaviors' && parts[6] === 'source') {
+          if (method === 'POST') {
+            await behaviorSourceRoute(req, res, parts[3]!);
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
+          return;
+        }
+        // Packet 25 content routes (before the M1-length dispatch table).
+        if (parts[2] === 'projects' && parts[4] === 'content') {
+          const handled = await contentRoutes.handle(req, res, method, parts, query);
+          if (handled) return;
+        }
         // POST/GET /api/v1/sessions
         if (parts.length === 3 && parts[2] === 'sessions') {
           if (method === 'POST') {
@@ -1295,7 +2001,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
-        // POST /api/v1/projects/:projectId/play/:playSessionId/stop|screenshot|diagnostics
+        // POST /api/v1/projects/:projectId/play/:playSessionId/stop|screenshot|diagnostics|input
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'play') {
           const projectId = parts[3]!;
           const psid = parts[5]!;
@@ -1310,6 +2016,19 @@ export function createBackend(
           }
           if (action === 'screenshot' || action === 'diagnostics') {
             await relayRoute(req, res, projectId, psid, action);
+            return;
+          }
+          if (action === 'input') {
+            await inputRelayRoute(req, res, projectId, psid);
+            return;
+          }
+          // Packet 48: the §20 bounded game control/observation relay.
+          if (action === 'control') {
+            await gameControlRoute(req, res, projectId, psid);
+            return;
+          }
+          if (action === 'observe') {
+            await gameObserveRoute(req, res, projectId, psid);
             return;
           }
           sendError(res, sessionError('invalid_request', 'not_found', 'unknown route'));
@@ -1335,6 +2054,12 @@ export function createBackend(
             await adminProjectOp(req, res, op, parts[4]!);
             return;
           }
+          // Packet 48: the explicit v2→v3 operator copy (workspace.md §16.5/§16.8).
+          // Admin-scoped, never a browser command and never an MCP tool.
+          if (op === 'migrate-copy-v3') {
+            await adminMigrateCopyV3Route(req, res, parts[4]!);
+            return;
+          }
           if (op === 'export') {
             await adminExportRoute(req, res, parts[4]!);
             return;
@@ -1355,16 +2080,128 @@ export function createBackend(
     serveStatic(res, config.editorStaticDir, p);
   };
 
+  /**
+   * The TTL/terminal verdict for a locator set. `null` ⇒ serveable; otherwise
+   * the structured failure (`play_locator_expired`, cls unavailable).
+   */
+  const locatorStatus = (
+    set: PlayContentSet,
+  ): { error: SessionError; status: number } | null => {
+    const status = playContent.status(set);
+    if (status !== 'expired') return null;
+    const expiresAt = new Date(set.terminalAtMs !== null ? set.terminalAtMs + 60_000 : set.expiresAtMs).toISOString();
+    return {
+      error: sessionError('play_locator_expired', 'unavailable', 'this play-content locator has expired; start a new play', { expiresAt }),
+      status: 503,
+    };
+  };
+
+  /** Send a locator failure with the §17.4 redaction applied to the message/hint. */
+  const locatorError = (res: ServerResponse, error: SessionError, status: number): void => {
+    for (const contentId of playContent.allContentIds()) {
+      error.message = redactContentId(error.message, contentId);
+      if (error.hint !== undefined) error.hint = redactContentId(error.hint, contentId);
+    }
+    locatorBaseHeaders(res);
+    sendJson(res, status, { ok: false, error });
+  };
+
   const dispatchPreview = (req: IncomingMessage, res: ServerResponse): void => {
     const qIdx = req.url?.indexOf('?') ?? -1;
     const p = qIdx === -1 ? (req.url ?? '') : req.url.slice(0, qIdx);
+    const query = parseQuery(qIdx === -1 ? '' : (req.url ?? '').slice(qIdx + 1));
     const method = req.method ?? 'GET';
     if (method !== 'GET' && method !== 'HEAD') {
       sendJson(res, 405, { ok: false, error: sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }) });
       return;
     }
+    try {
+      // M2 locator shell by play session (sessions.md §17.2.1).
+      if (p === '/play' || p.startsWith('/play/')) {
+        const psid = p === '/play' ? '' : p.slice('/play/'.length);
+        const contentId = query.get('content');
+        if (psid.length === 0 || !isContentId(contentId)) {
+          locatorError(res, sessionError('play_locator_invalid', 'not_found', 'the play/content pairing is malformed'), 404);
+          return;
+        }
+        const set = playContent.get(contentId);
+        if (set === undefined || set.playSessionId !== psid) {
+          locatorError(res, sessionError('play_locator_invalid', 'not_found', 'unknown or unpaired play-content locator'), 404);
+          return;
+        }
+        const verdict = locatorStatus(set);
+        if (verdict !== null) {
+          locatorError(res, verdict.error, verdict.status);
+          return;
+        }
+        const nonce = hex(16);
+        res.setHeader('content-type', 'text/html; charset=utf-8');
+        res.setHeader('content-security-policy', previewCsp(nonce));
+        res.setHeader('referrer-policy', 'no-referrer');
+        res.setHeader('cache-control', 'no-store');
+        res.end(previewShellHtml(psid, contentId, nonce));
+        return;
+      }
+      // M2 locator paths (artifact root + shell).
+      if (p === '/play-content' || p.startsWith('/play-content/')) {
+        const locator = classifyLocatorPath(p);
+        if (locator.kind === 'invalid') {
+          locatorError(res, sessionError('path_rejected', 'validation', 'no locator route matches this path (listing/traversal/undeclared path rejected)'), 400);
+          return;
+        }
+        const set = playContent.get(locator.contentId);
+        if (set === undefined) {
+          locatorError(res, sessionError('play_locator_invalid', 'not_found', 'unknown or unpaired play-content locator'), 404);
+          return;
+        }
+        if (locator.kind === 'shell') {
+          const psid = query.get('play');
+          if (psid !== undefined && psid !== set.playSessionId) {
+            locatorError(res, sessionError('play_locator_invalid', 'not_found', 'unknown or unpaired play-content locator'), 404);
+            return;
+          }
+          const verdict = locatorStatus(set);
+          if (verdict !== null) {
+            locatorError(res, verdict.error, verdict.status);
+            return;
+          }
+          const nonce = hex(16);
+          res.setHeader('content-type', 'text/html; charset=utf-8');
+          res.setHeader('content-security-policy', previewCsp(nonce));
+          res.setHeader('referrer-policy', 'no-referrer');
+          res.setHeader('cache-control', 'no-store');
+          res.end(previewShellHtml(set.playSessionId, set.contentId, nonce));
+          return;
+        }
+        const verdict = locatorStatus(set);
+        if (verdict !== null) {
+          locatorError(res, verdict.error, verdict.status);
+          return;
+        }
+        const artifact = playContent.artifactFor(set, locator);
+        if (artifact === undefined) {
+          // Undeclared artifact of a served set: never a filesystem fallback.
+          locatorError(res, sessionError('path_rejected', 'validation', 'the requested artifact is not declared by the served manifest'), 400);
+          return;
+        }
+        const maxAge = playContent.remainingMaxAge(set);
+        res.setHeader('content-type', artifact.contentType);
+        res.setHeader('content-length', String(artifact.bytes.length));
+        res.setHeader('x-thirdlight-digest', artifact.digest);
+        res.setHeader('etag', `"${artifact.digest}"`);
+        res.setHeader('cache-control', `private, max-age=${maxAge}, immutable`);
+        locatorBaseHeaders(res);
+        res.end(artifact.bytes);
+        return;
+      }
+    } catch (err) {
+      logStartup(`locator error: ${err instanceof Error ? err.message : String(err)}`);
+      sendJson(res, 500, { ok: false, error: sessionError('invalid_request', 'internal', 'internal error') });
+      return;
+    }
     if (p === '/' || p === '/index.html') {
       res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.setHeader('content-security-policy', previewCsp());
       res.end(previewTemplate());
       return;
     }
@@ -1425,6 +2262,8 @@ export function createBackend(
         closed = true;
         if (sweepTimer !== undefined) clearInterval(sweepTimer);
         plays.dispose();
+        contentRoutes.dispose();
+        playContent.dispose();
         for (const s of sessions.all()) {
           if (s.connected && s.socket !== null) {
             try {
@@ -1443,7 +2282,7 @@ export function createBackend(
           });
         });
       }),
-    _test: { sessions, plays, startupLog, service },
+    _test: { sessions, plays, startupLog, service, contentRoutes, playContent },
   };
 
   return { ok: true, backend };
@@ -1467,7 +2306,7 @@ export function previewTemplateFor(authoringOrigin: string): string {
   const origin = authoringOrigin.replace(/"/g, '\\"');
   return (
     '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
-    `    <script>window.__thirdlightPreview = { v: 1, authoringOrigin: "${origin}" };</script>\n` +
+    `    <script>window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };</script>\n` +
     '    <script src="./preview.js"></script>\n  </body>\n</html>\n'
   );
 }

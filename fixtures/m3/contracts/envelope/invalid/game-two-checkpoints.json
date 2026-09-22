@@ -1,0 +1,406 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "demo-0003",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 3,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Gameplay camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              4,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 45,
+            "near": 0.1,
+            "far": 100
+          },
+          "cameraFollow": {
+            "deadZone": {
+              "x": 0.5,
+              "y": 0.5
+            },
+            "smoothing": 0.2,
+            "bounds": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": 0,
+              "maxY": 8
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "name": "Start ground",
+        "components": {
+          "transform": {
+            "position": [
+              8,
+              -0.2,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              16,
+              0.4,
+              1
+            ],
+            "material": {
+              "color": "#6f6f6f"
+            }
+          },
+          "collider": {
+            "shape": {
+              "type": "box",
+              "hx": 8,
+              "hy": 0.2
+            }
+          }
+        }
+      },
+      {
+        "id": "group-0001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "controller": {}
+        }
+      },
+      {
+        "id": "spawn-0001",
+        "name": "Start spawn",
+        "components": {
+          "transform": {
+            "position": [
+              3,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "zone-0001",
+        "name": "Beacon",
+        "components": {
+          "transform": {
+            "position": [
+              44.5,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#2f7fd4"
+            }
+          },
+          "gameZone": {
+            "role": "goal",
+            "size": [
+              1,
+              2
+            ]
+          }
+        }
+      },
+      {
+        "id": "zone-0003",
+        "name": "Mid checkpoint",
+        "components": {
+          "transform": {
+            "position": [
+              22,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              2,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#2f7fd4"
+            }
+          },
+          "gameZone": {
+            "role": "checkpoint",
+            "size": [
+              2,
+              2
+            ],
+            "safeSpawnId": "spawn-0002",
+            "activation": {
+              "emissive": "#00c8ff",
+              "emissiveIntensity": 1,
+              "cueAssetId": null
+            }
+          }
+        }
+      },
+      {
+        "id": "spawn-0002",
+        "name": "Checkpoint spawn",
+        "components": {
+          "transform": {
+            "position": [
+              24,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Key light",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              6,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#ffffff",
+            "intensity": 1.4,
+            "direction": [
+              -0.3,
+              -0.8,
+              -0.5
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-0002",
+        "name": "Ambient fill",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#404860",
+            "intensity": 0.6
+          }
+        }
+      },
+      {
+        "id": "zone-0004",
+        "name": "Mid checkpoint",
+        "components": {
+          "transform": {
+            "position": [
+              22,
+              1,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              2,
+              2,
+              1
+            ],
+            "material": {
+              "color": "#2f7fd4"
+            }
+          },
+          "gameZone": {
+            "role": "checkpoint",
+            "size": [
+              2,
+              2
+            ],
+            "safeSpawnId": "spawn-0002",
+            "activation": {
+              "emissive": "#00c8ff",
+              "emissiveIntensity": 1,
+              "cueAssetId": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": {
+      "configVersion": 1,
+      "title": "Beacon Reach",
+      "objective": "Reach the beacon",
+      "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+      "playerId": "group-0001",
+      "cameraId": "cam-main",
+      "spawnId": "spawn-0001",
+      "level": {
+        "minX": 0,
+        "maxX": 48,
+        "minY": -4,
+        "maxY": 8
+      },
+      "killY": -4,
+      "cues": {
+        "start": null,
+        "jump": null,
+        "checkpoint": null,
+        "death": null,
+        "goal": null
+      }
+    }
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

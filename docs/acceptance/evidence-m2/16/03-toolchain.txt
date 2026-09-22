@@ -1,0 +1,78 @@
+# packet-16 verification run (actual output)
+
+## node fixtures/m2/contracts/tools/check-fixtures.mjs
+ok   self-test: 9 invalid + 3 valid parser controls, canon() order-insensitivity
+ok   canonical-form: 45 JSON fixture(s) checked
+ok   index: 47 index entries, 50 files on disk
+ok   code-registry: 32 code(s) used by fixtures, all declared in expected.json.registry; 61 declared (accepted M1 / proposed M2) code(s) are not exercised by a fixture
+ok   case-pins: 62 case->section pin(s) verified
+ok   cross-ref: content-block-example.json equals envelope/valid/demo-0002-rev7-v2.json content block
+ok   cross-ref: 2 catalog records, 2 scene reference(s) resolved
+ok   migration: source v1 -> destination v2 transformation verified (identity, versions, revision policy, verbatim entities)
+ok   source-retention: 2 source file(s) re-hashed (original-preserving migration evidence)
+ok   interrupted-copy: marker phase "manifest", no envelope present (never auto-completed)
+ok   p16-replay: 10 scenario steps replayed; deterministic ID allocation, internal-reference remap, one-undo subtree removal and exact-ID redo/retry verified; final scene deep-equals the after envelope
+ok   p16-failures: 24 failure case(s) checked (revision arithmetic, error shape, expected codes)
+ok   p16-queries: query examples checked against the after envelope (counts, ids, definitions, declarations)
+ok   preimage: 2 preimage(s) re-hashed
+ok   digest-claims: every sourceDigest/sourceByteLength pair matches a committed preimage
+ok   content-digest: captured-content-view.json contentDigest 8b7116a759bd251c… verified
+check OK: 16 check group(s) passed, 0 problem(s)
+exit=0
+
+## npm test (full run 1)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/ownership-claim-2026-09-18.test.ts > T2: two real processes race the claim-file gate (workspace.md §6.3 single-winner) > absent claim: fresh project (record absent) ⇒ exactly one winner; the loser is refused; the on-disk record + claim file are the winner
+ Test Files  1 failed | 65 passed (66)
+      Tests  1 failed | 840 passed (841)
+exit=1 (see the 2026-09-18 concurrency-test flake below)
+
+## isolated re-runs of the failing file
+run1:
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+exit=0
+run2:
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+exit=0
+
+## npm test (full run 2)
+ Test Files  66 passed (66)
+      Tests  841 passed (841)
+exit=0
+
+## npm run typecheck
+exit=0
+
+## npm run check-deps
+    esbuild 0.28.2 (= §7 pin)
+    @modelcontextprotocol/sdk 1.30.0 (= §7 pin)
+    @types/three 0.186.0 (= §7 pin)
+    three 0.186.0 (= §7 pin)
+    esbuild 0.28.2 (= §7 pin)
+    typescript 5.9.3 (= §7 pin)
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+exit=0
+
+## npm run check-boundaries
+
+check-boundaries: OK — 10 package(s) [backend, commands, editor, exporter, mcp-adapter, project-model, protocol, runtime, three-adapter, workspace], 150 source file(s), 514 specifier(s) checked; no boundary violations.
+exit=0
+
+## npm run build
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+exit=0
+
+## flake note (honest, not a packet-16 defect)
+Run 1 failed tests/ownership-claim-2026-09-18.test.ts (a pre-existing packet-07 concurrency test that spawns two real processes racing the claim-file gate): the child crashed with EEXIST mkdir before writing its done line. Two isolated re-runs of that file and a second full run were green (841/841). Packet 16 changed no source, dependency, lockfile or test file.
+
+## final re-verification (after the last docs edits: STATUS row, handoff, manifest, properties.md fixture-index line)
+checker: check OK: 16 check group(s) passed, 0 problem(s) exit=0
+npm test: Tests  841 passed (841) exit=0
+npm run typecheck: exit=0
+npm run check-deps: exit=0
+npm run check-boundaries: exit=0
+npm run build: exit=0 (4 built, 0 skipped)

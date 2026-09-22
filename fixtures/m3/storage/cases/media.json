@@ -1,0 +1,26 @@
+{
+  "preparedMediaFacts": [
+    "assetId",
+    "kind",
+    "version",
+    "sourceDigest",
+    "sourceByteLength",
+    "importRecipe"
+  ],
+  "kinds": [
+    "model",
+    "audio"
+  ],
+  "byteRead": {
+    "operation": "readBlob",
+    "verified": true,
+    "copySafe": true,
+    "failureCodes": [
+      "asset_not_found",
+      "asset_version_not_found",
+      "blob_missing",
+      "blob_corrupt",
+      "path_rejected"
+    ]
+  }
+}

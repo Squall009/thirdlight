@@ -1,0 +1,132 @@
+{
+  "kind": "physics-course",
+  "id": "tl-m2-convex-course",
+  "packet": 31,
+  "setVersion": 1,
+  "provenance": {
+    "source": "authored",
+    "note": "Convex-polygon course: two bounded convex-ramp quads (about 30 and 45 degrees) and a polygon wall, all 4-vertex CCW hulls."
+  },
+  "solver": {
+    "hz": 120,
+    "gravityY": -19.62
+  },
+  "character": {
+    "start": {
+      "x": -1,
+      "y": 0.9
+    },
+    "capsule": {
+      "radius": 0.3,
+      "halfHeight": 0.6
+    },
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "maxSlopeClimbRad": 0.785398163397,
+    "minSlopeSlideRad": 0.523598775598,
+    "autostep": false
+  },
+  "statics": [
+    {
+      "entityId": "poly-floor",
+      "shape": {
+        "type": "box",
+        "hx": 12,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 6,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "poly-ramp-30",
+      "shape": {
+        "type": "polygon",
+        "vertices": [
+          [
+            0,
+            0
+          ],
+          [
+            3,
+            0
+          ],
+          [
+            3,
+            1.732050807569
+          ]
+        ]
+      },
+      "position": {
+        "x": 0.5,
+        "y": 0
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "poly-ramp-45",
+      "shape": {
+        "type": "polygon",
+        "vertices": [
+          [
+            0,
+            0
+          ],
+          [
+            2.5,
+            0
+          ],
+          [
+            2.5,
+            2.5
+          ]
+        ]
+      },
+      "position": {
+        "x": 6,
+        "y": 0
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "poly-wall",
+      "shape": {
+        "type": "polygon",
+        "vertices": [
+          [
+            0,
+            0
+          ],
+          [
+            0.5,
+            0
+          ],
+          [
+            0.5,
+            3
+          ],
+          [
+            0,
+            3
+          ]
+        ]
+      },
+      "position": {
+        "x": 11,
+        "y": 0
+      },
+      "rotationZ": 0
+    }
+  ],
+  "counts": {
+    "statics": 4,
+    "polygonStatics": 3
+  }
+}

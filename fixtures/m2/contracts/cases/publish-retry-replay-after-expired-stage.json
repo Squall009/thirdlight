@@ -1,0 +1,72 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-retry-replay-after-expired-stage",
+  "title": "An identical command retry replays before any staging lookup",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "stage": {
+      "stageId": "stg-replay01",
+      "state": "cleaned",
+      "reason": "stage TTL expired and the abandoned-stage retention removed the directory"
+    },
+    "command": {
+      "op": "createAssetVersion",
+      "requestId": "req-50000000000000000000000000000002",
+      "expectedRevision": 7,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "argsCarryStagingHandle": false,
+      "digestDependsOnStagedBytes": false
+    },
+    "retryRecord": {
+      "present": true,
+      "digestMatches": true,
+      "appliedRevision": 8
+    },
+    "stageLookupAttempted": false
+  },
+  "steps": [
+    {
+      "at": "step-2",
+      "action": "deduplication lookup by requestId in the retry record map (commands.md 6.1 step 2)",
+      "expect": {
+        "outcome": "recorded result found and digest equal",
+        "stageLookupPerformed": false
+      }
+    },
+    {
+      "at": "ack",
+      "action": "return the recorded result verbatim",
+      "expect": {
+        "duplicated": true,
+        "revision": 8,
+        "bytesPublished": 0,
+        "envelopeWrites": 0
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "replay",
+    "codes": [],
+    "durableEffects": [],
+    "observations": [
+      "the expired staging handle is never consulted: the authoritative command is stage-free (content-storage.md 6.1) and its request digest is computed over request bytes only",
+      "no blob publication and no envelope write occur",
+      "a composition that resolves a stage before issuing the command must first rule out a replay via the same pure retry-map read"
+    ]
+  },
+  "notes": "commands.md §6.1 step 2 (dedup) precedes §6.1 step 5 (validation, where a stage handle is resolved). An implementation that resolves the stage before dedup breaks lost-ack retry."
+}

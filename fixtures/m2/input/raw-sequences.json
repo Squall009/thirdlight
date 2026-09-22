@@ -1,0 +1,1007 @@
+{
+  "kind": "input-raw-sequences",
+  "setVersion": 1,
+  "id": "input-raw-sequences",
+  "packet": 30,
+  "constants": {
+    "deadZone": 0.2,
+    "moveQuantum": 0.0001,
+    "neutralFrame": {
+      "moveX": 0,
+      "jump": "none"
+    }
+  },
+  "pins": [
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "#### 12.5.2 Press latch — exactly one edge per executed step"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "#### 12.5.3 Quantization"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 4.2 Gamepad dead zone and rescaling"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 4.3 Simultaneous-source arbitration (deterministic, no summation)"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 5.3 Suspension: focus loss, hidden tab, page hide"
+    },
+    {
+      "file": "docs/planning/m2-contracts/input.md",
+      "section": "### 5.4 Hot disconnect"
+    }
+  ],
+  "sequences": [
+    {
+      "caseId": "S1-keyboard-digital",
+      "description": "A/D and arrow digital controls; holding both cancels to zero (no summation).",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": -1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": true,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": true,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S2-dead-zone-boundary",
+      "description": "Radial dead zone 0.2 including the exact boundary; linear rescaling above it.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.2,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": -0.2,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.2001,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0.0001,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.6,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": 0.5,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 16,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": -0.6,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 16,
+              "moveX": -0.5,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 17,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 1,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 17,
+              "moveX": 1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 18,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": -2,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 18,
+              "moveX": -1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S3-source-arbitration",
+      "description": "Keyboard beats D-pad beats stick; opposing D-pad buttons cancel; a non-standard mapping contributes nothing.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": false,
+              "button14": true,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": -1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.9,
+              "button0": false,
+              "button14": false,
+              "button15": true
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": true,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": false,
+              "button14": true,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": false,
+              "button14": true,
+              "button15": true
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 16,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "",
+              "axis0": -0.9,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 16,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 17,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": null
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 17,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S4-jump-phase-chain",
+      "description": "Press/hold/release chain over consecutive executed steps.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0,
+              "jump": "pressed"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "released"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S5-press-latch-and-repeat",
+      "description": "A tap shorter than one step latches exactly one edge; repeat events never create a second edge.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "jumpLatch": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0,
+              "jump": "pressed"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "jumpLatch": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "released"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S6-suspension-fresh-activation",
+      "description": "After a suspension/blur/disconnect the control is awaiting release: a down control is held, never pressed, until observed up once.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": true
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": true
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": 0,
+              "jump": "pressed"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "down": false,
+        "awaitingRelease": true
+      }
+    },
+    {
+      "caseId": "S7-simultaneous-sources",
+      "description": "Keyboard and gamepad OR for jump (one edge); keyboard beats the stick for movement.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0,
+              "jump": "pressed"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": true,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "held"
+            },
+            "next": {
+              "down": true,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 15,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.9,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 15,
+              "moveX": -1,
+              "jump": "released"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S8-absent-and-nonstandard",
+      "description": "Absent gamepad and non-standard mapping leave keyboard play intact and the pad contributing nothing.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": null
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": -1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": true,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "xinput",
+              "axis0": 0.8,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": 1,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": false,
+            "keyboardRight": false,
+            "keyboardJump": false,
+            "gamepad": null
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "S9-both-keys-cancel-then-stick",
+      "description": "input.md 4.3 item 1 prose ('moveX = 0') vs the accepted packet-17 fixture M3-both-keys-cancel (moveX 0.75): the two digital keys cancel each other (never sum) and the stick then applies. Pinned here as the implemented reading; recorded as contract-change request C30-2.",
+      "steps": [
+        {
+          "stepIndex": 12,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": true,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": 0.8,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 12,
+              "moveX": 0.75,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 13,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": true,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "standard",
+              "axis0": -0.8,
+              "button0": false,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 13,
+              "moveX": -0.75,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        },
+        {
+          "stepIndex": 14,
+          "raw": {
+            "keyboardLeft": true,
+            "keyboardRight": true,
+            "keyboardJump": false,
+            "gamepad": {
+              "index": 0,
+              "id": "pad-0",
+              "mapping": "",
+              "axis0": 0.8,
+              "button0": true,
+              "button14": false,
+              "button15": false
+            }
+          },
+          "expect": {
+            "frame": {
+              "stepIndex": 14,
+              "moveX": 0,
+              "jump": "none"
+            },
+            "next": {
+              "down": false,
+              "awaitingRelease": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

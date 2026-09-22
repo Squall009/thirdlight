@@ -1,0 +1,22 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — the contract increment table (sessions.md §9) > fixes the exact approved constants 2ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — round-half-away-from-zero and 1e-4 quantization > rounds half away from zero in both directions 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — round-half-away-from-zero and 1e-4 quantization > quantizes to the 1e-4 grid and normalizes negative zero 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — round-half-away-from-zero and 1e-4 quantization > snapValue snaps on the grid with half-away-from-zero 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — translate (world-axis delta, drift-free) > snaps each axis independently and never accumulates drift 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — rotate (15° about the gizmo axis, rebuilt + renormalized) > snaps the accumulated angle to the 15° grid 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — rotate (15° about the gizmo axis, rebuilt + renormalized) > rebuilds a unit quaternion about the axis 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — rotate (15° about the gizmo axis, rebuilt + renormalized) > normalizes the axis (a zero axis falls back to +Y) 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — scale (0.25 on the uniform factor, clamped [0.01, 100]) > snaps the factor and clamps it into the accepted scale range 1ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — scale (0.25 on the uniform factor, clamped [0.01, 100]) > applies the snapped factor to the entity uniform scale and clamps per axis 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — Shift disables snapping for one gesture only > snapActive is a pure local option, never a persistent setting 0ms
+ ✓ packages/editor/src/session/snapping.test.ts > snapping — Shift disables snapping for one gesture only > snapGesture returns the snapped delta or null when inactive 0ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  05:41:32
+   Duration  195ms (transform 63%, import 18%, tests 13%, worker 5%)
+
+exit=0

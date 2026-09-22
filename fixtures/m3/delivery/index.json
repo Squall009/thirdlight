@@ -1,0 +1,122 @@
+{
+  "indexVersion": 1,
+  "packet": 42,
+  "status": "PROPOSED — not accepted",
+  "files": {
+    "manifest/scene-preimage.json": {
+      "kind": "fixture",
+      "bytes": 3135,
+      "sha256": "01f5d5bad3859daf15739cda94a5c1198fa9ca3e54c976c1464d64068519954e"
+    },
+    "manifest/content-view-preimage.json": {
+      "kind": "fixture",
+      "bytes": 1909,
+      "sha256": "e6c929569443c9dd0121f0e706bf904f94092efd3de1d7cc2389aa306a3780cb"
+    },
+    "manifest/manifest-v2-preimage.json": {
+      "kind": "fixture",
+      "bytes": 4604,
+      "sha256": "41b5a60bc73c3a8f8dd65edd4acf95622ca1e80f1ae577502ba00cecbf2ee536"
+    },
+    "manifest/manifest-v2-example.json": {
+      "kind": "fixture",
+      "bytes": 4685,
+      "sha256": "ed53f33ae668cb71203cf4ce509ca51a4f8a76a2ff5fbb066fb7f3b10c33b5eb"
+    },
+    "manifest/v1-v2-rules.json": {
+      "kind": "fixture",
+      "bytes": 2070,
+      "sha256": "fad6956c966ba0b623365c3ab0a2948b5e982b889e2bccbbdb3066adca2bcad1"
+    },
+    "manifest/reproducibility.json": {
+      "kind": "fixture",
+      "bytes": 1051,
+      "sha256": "c87b15ccc60be0d0030a141f0094deb858e279dd796e2a84d59073a413f102b6"
+    },
+    "manifest/variants/changed-content-view-preimage.json": {
+      "kind": "fixture",
+      "bytes": 1906,
+      "sha256": "99531988663cba305b56a9566faf4fbb3b0c533661a1e729780cd81759351a40"
+    },
+    "manifest/variants/settings-variant.json": {
+      "kind": "fixture",
+      "bytes": 2383,
+      "sha256": "6df300dbb1d9c3974ea961ff6d03e90859e4b54ea7bc04ab29d71d3030913d9b"
+    },
+    "settings/pinned-run.json": {
+      "kind": "fixture",
+      "bytes": 935,
+      "sha256": "689a08ed4be2a82dc06bf49f6f9831b458332b457af3a4040237d9e022882a28"
+    },
+    "wire/control-request.json": {
+      "kind": "fixture",
+      "bytes": 346,
+      "sha256": "3ec45777701415dbc92e2579b7560e72191749420ba50c1ea86cb9524767d0e6"
+    },
+    "wire/control-result.json": {
+      "kind": "fixture",
+      "bytes": 315,
+      "sha256": "5c60f14d61b89f4f8a8fcecc0fb7df1ed4149544d1469230f4c9d2d355705784"
+    },
+    "wire/observe-request.json": {
+      "kind": "fixture",
+      "bytes": 344,
+      "sha256": "3c20aff2b1ed37554f1a56219018eb12fdad7a3b8415dbf4348767b36f2321e0"
+    },
+    "wire/observe-result.json": {
+      "kind": "fixture",
+      "bytes": 1215,
+      "sha256": "576e799fe935e23b69ba23458eb205e9a8ddf3b4aabbaefccd1a867abfebbf06"
+    },
+    "wire/relay-cases.json": {
+      "kind": "fixture",
+      "bytes": 3063,
+      "sha256": "58a25015affe4e50e8d89aed56be46c571ceebaa1bcd2fe8ff71236333844f18"
+    },
+    "runs/run-identity.json": {
+      "kind": "fixture",
+      "bytes": 1004,
+      "sha256": "a80c2b2627d261e2f37566bf0998110a7d957db0ec30ad4914987016f7780cdc"
+    },
+    "controls/control-cases.json": {
+      "kind": "fixture",
+      "bytes": 4245,
+      "sha256": "e20b9192ff360f1cc3da9060721ec6b9a65e3c60a6af025cab43b379ff7aee9f"
+    },
+    "closure/csp-rows.json": {
+      "kind": "fixture",
+      "bytes": 1850,
+      "sha256": "abbcc8a8347a2944ca420f1df0c0bf6b15b0aba77452a5cbfc4811ac3e5c3d75"
+    },
+    "closure/mime-cache-rows.json": {
+      "kind": "fixture",
+      "bytes": 755,
+      "sha256": "15d33cbbb18230e4004c859b4bc8e7a9605f068d6f57c4bcf634dd07b8fbc442"
+    },
+    "closure/fetch-graph.json": {
+      "kind": "fixture",
+      "bytes": 1504,
+      "sha256": "9c24ba0485651f2ed8e900f28f0e628da45672b51efa6e15b60aa2d1b57c246f"
+    },
+    "closure/scan-rows.json": {
+      "kind": "fixture",
+      "bytes": 1406,
+      "sha256": "c609ad246d7aa8e4302e82ecaef6e2d7e0bcf5767129668e6d76af48ad631824"
+    },
+    "closure/export-tree.json": {
+      "kind": "fixture",
+      "bytes": 712,
+      "sha256": "6ea8cc207415932839d6c73a1106226a8d5a6e33b6b01976a9e46979b4480a3b"
+    },
+    "deps/dependency-rows.json": {
+      "kind": "fixture",
+      "bytes": 2974,
+      "sha256": "54da2e379e938fb7c72380220f16889916f273e4c84dc9541076444719e9b74b"
+    },
+    "digests/expected.json": {
+      "kind": "fixture",
+      "bytes": 870,
+      "sha256": "6d2c870b4b839f67fb1a279bef27f5a921a00ab05b91889a98ebdd555b6d149f"
+    }
+  }
+}

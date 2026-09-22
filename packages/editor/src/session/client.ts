@@ -26,7 +26,41 @@ import {
   type Origin,
 } from './envelope';
 import { Projection, type FullState } from './projection';
+import { ContentProjection, type AssetView } from './content-projection';
+import { PrefabProjection } from './prefab-projection';
+import type { GameConfigLike } from './gameplay';
+import {
+  applyAssetQueryPage,
+  beginImport,
+  canPublish,
+  cancelImport,
+  committed,
+  discardImport,
+  frameSent,
+  importFailed,
+  initialImportState,
+  inspectionSucceeded,
+  jobUpdated,
+  planAssetQuery,
+  planUploadFrames,
+  publishStarted,
+  stageCreated,
+  uploadCompleted,
+  validateDropCandidate,
+  type AssetImportState,
+  type AssetQueryState,
+  type ImportProposal,
+  type ImportTarget,
+} from './asset-browser';
 import { Gesture, type Transform } from './gesture';
+import {
+  planAcknowledgeTrust,
+  planPublishDeclaration,
+  planPublishSource,
+  sourceDigestOf,
+} from './behavior-publication';
+import type { ContentJobView } from '@thirdlight/protocol';
+import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
 
 export interface ClientConfig {
   projectId: string;
@@ -51,7 +85,7 @@ export interface ClientUiState {
   revision: number;
 }
 
-/** A play-start result (sessions.md §10.1). */
+/** A play-start result (sessions.md §10.1 + §17.2). */
 export interface PlayStartResult {
   playSessionId: string;
   /** The preview iframe base (the backend's preview origin). */
@@ -59,6 +93,14 @@ export interface PlayStartResult {
   snapshotId: string;
   revision: number;
   expiresAt: number;
+  /** Packet 35: the immutable play-content locator (capability + build id). */
+  playContent?: {
+    contentId: string;
+    buildId: string;
+    path: string;
+    manifestPath: string;
+    expiresAt: string;
+  };
 }
 
 export interface ClientCallbacks {
@@ -75,8 +117,64 @@ function makeSessionId(rng: () => number = Math.random): string {
   return `sess-${hex}`;
 }
 
+/** A caller-assigned opaque `assetId` (project-model §18.1.1 ID syntax). */
+export function makeAssetId(rng: () => number = Math.random): string {
+  let hex = '';
+  for (let i = 0; i < 16; i++) hex += Math.floor(rng() * 16).toString(16);
+  return `asset-${hex}`;
+}
+
+/** The bounded `queryAssets` result (commands.md §5.6). */
+export interface AssetQueryResult {
+  ok: true;
+  projectId: string;
+  revision: number;
+  total: number;
+  offset: number;
+  limit: number;
+  assets: AssetView[];
+}
+
+/** The bounded `queryPrefabs` result (commands.md §5.6, packet 28). */
+export interface PrefabQueryResult {
+  ok: true;
+  projectId: string;
+  revision: number;
+  total: number;
+  offset: number;
+  limit: number;
+  prefabs: PrefabDefinition[];
+}
+
+/** The bounded `queryBehaviors` result with `includeDeclaration` (packet 28). */
+export interface BehaviorQueryResult {
+  ok: true;
+  projectId: string;
+  revision: number;
+  total: number;
+  offset: number;
+  limit: number;
+  behaviors: BehaviorRecord[];
+}
+
+/** Merge one asset page into the cached summaries (page entries win). */
+function mergeAssets(existing: readonly AssetView[], page: readonly AssetView[]): AssetView[] {
+  const byId = new Map<string, AssetView>();
+  for (const a of existing) byId.set(a.assetId, a);
+  for (const a of page) byId.set(a.assetId, a);
+  return [...byId.values()].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
+}
+
 export class SessionClient {
   readonly projection = new Projection();
+  /** The additive M2 content projection (asset summaries; sessions.md §8/§19.4). */
+  readonly content = new ContentProjection();
+  /**
+   * M2 (packet 28): the prefix/declaration projection. Definitions are the
+   * capture/instantiation source; declarations are the only schema source for
+   * the property controls (never behavior code).
+   */
+  readonly prefabs = new PrefabProjection();
   private readonly cfg: ClientConfig;
   private readonly cb: ClientCallbacks;
   private readonly sessionId: string;
@@ -89,7 +187,33 @@ export class SessionClient {
   private disposed = false;
   /** Active play (the retained `play.started` snapshot + preview bridge). */
   private activePlay: (PlayStartResult & { snapshot: unknown }) | null = null;
+  /** M4 (packet 70, D-63-4 repair): the playSessionId the WS
+   * `play.preview.ready` was already sent for (sent exactly once per play
+   * session — sessions.md §10.2). */
+  private playReadySentFor: string | null = null;
+  /** M4 (packet 70, D-63-4 repair): the §5.2 heartbeat timer (a WS `ping`
+   * at least every 20 s; the server drops a 60 s-silent connection). */
+  private heartbeatTimer: number | null = null;
   private reconnectTimer: number | null = null;
+  /**
+   * M3 (packet 56): the `content.game` block projection. Hydrated from
+   * `queryGameConfig` on every full state and advanced from the SAME
+   * applied `setGameConfig` change records the scene projection uses
+   * (sessions.md §8 — the backend remains the sole authority).
+   */
+  private gameConfig: GameConfigLike | null = null;
+  /** Whether the last full state read the game block (vs a v2 project). */
+  private gameConfigLoaded = false;
+  /**
+   * M3 (packet 56): the last-known `content.settings` map. No accepted query
+   * returns settings VALUES (the `queryProject` summary carries only the
+   * `settingsKeys` count — commands.md §5.6), so the baseline is `null`
+   * (unknown) until the session observes an applied `setSettings` change
+   * (whose `next` is the full map, commands.md §5.3/§8.11). The settings
+   * panel seeds from the registry defaults in the unknown case and submits
+   * only the touched keys (partial semantics preserve the rest).
+   */
+  private settings: Record<string, unknown> | null = null;
 
   constructor(cfg: ClientConfig, cb: ClientCallbacks, sessionId?: string) {
     this.cfg = cfg;
@@ -132,6 +256,30 @@ export class SessionClient {
     return json as T;
   }
 
+  /** A bounded authenticated request (content routes need PUT/DELETE + raw bodies). */
+  private async request<T>(path: string, init: { method: string; headers?: Record<string, string>; body?: BodyInit | null }): Promise<T> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1${path}`, {
+      method: init.method,
+      headers: {
+        authorization: `Bearer ${this.cfg.authoringToken}`,
+        origin: this.cfg.authoringOrigin,
+        ...(init.headers ?? {}),
+      },
+      body: init.body ?? undefined,
+    });
+    if (!res.ok) {
+      let body: unknown = null;
+      try {
+        body = JSON.parse(await res.text());
+      } catch {
+        body = null;
+      }
+      throw { status: res.status, body };
+    }
+    const text = await res.text();
+    return (text.length === 0 ? null : JSON.parse(text)) as T;
+  }
+
   /** Establish the authoring session + upgrade the WS (§5.1/§4.3). */
   async connect(): Promise<void> {
     if (this.disposed) return;
@@ -162,10 +310,14 @@ export class SessionClient {
       const url = `${this.cfg.authoringOrigin.replace(/^http/, 'ws')}/api/v1/ws?sessionId=${this.sessionId}&wsToken=${wsToken}`;
       const ws = new WebSocket(url);
       this.ws = ws;
-      ws.onopen = () => resolve();
+      ws.onopen = () => {
+        this.startHeartbeat(); // §5.2: the client pings at least every 20 s
+        resolve();
+      };
       ws.onerror = () => reject(new Error('ws upgrade failed'));
       ws.onclose = (ev) => {
         this.ws = null;
+        this.stopHeartbeat();
         if (this.disposed) return;
         // Reconnect: re-establish (re-attach) + resync + re-upgrade.
         if (ev.code === 1000 || ev.reason === 'detached') {
@@ -199,6 +351,39 @@ export class SessionClient {
     );
     if (q.ok) {
       this.projection.hydrate({ revision: q.revision, entities: q.entities as FullState['entities'] });
+    }
+    // M3 (packet 56): the game block re-reads on every full state —
+    // reopening the editor retains the authored game configuration
+    // (authoring §A8 row 1; `null` for a v2 project or an absent block).
+    try {
+      const g = await this.queryGameConfig();
+      if (g.ok) {
+        this.gameConfig = g.game === null ? null : { ...g.game, level: { ...g.game.level }, cues: { ...g.game.cues } };
+        this.gameConfigLoaded = true;
+      }
+    } catch {
+      // A missing game page is resolved by the next full state; it never
+      // corrupts the scene projection.
+    }
+    // The additive content projection is rebuilt from the same full state
+    // (sessions.md §8): a bounded `queryAssets` page, never a partial merge.
+    try {
+      const assets = await this.queryAssets({ limit: 128, offset: 0, includeVersions: true });
+      if (assets.ok) this.content.hydrate({ assets: assets.assets });
+    } catch {
+      // A missing content page is resolved by the next full state; it never
+      // corrupts the scene projection.
+    }
+    // M2 (packet 28): reopening rebuilds definitions and published
+    // declarations from bounded queries — no in-memory assumption.
+    try {
+      const [defs, behaviors] = await Promise.all([
+        this.queryPrefabs({ limit: 128, offset: 0, includeEntities: true }),
+        this.queryBehaviors({ limit: 128, offset: 0, includeDeclaration: true }),
+      ]);
+      if (defs.ok && behaviors.ok) this.prefabs.hydrate(defs.prefabs, behaviors.behaviors);
+    } catch {
+      // A missing content page is resolved by the next full state.
     }
   }
 
@@ -245,6 +430,25 @@ export class SessionClient {
       return;
     }
     if (res.applied) {
+      // The content projection advances from the SAME applied change records
+      // the scene projection uses (sessions.md §8); a failed or stale job
+      // never reaches this path, so previous committed content is preserved.
+      this.content.applyChange(ev.change as ChangeData);
+      // M2 (packet 28): definitions/declarations converge from the same
+      // records, so an MCP-origin edit is visible without a reload.
+      this.prefabs.applyChange(ev.change as ChangeData);
+      // M3 (packet 56): the game block + settings map converge from the same
+      // records (the `setGameConfig` change carries the full next block or
+      // `null`; the `setSettings` change carries the full next map —
+      // commands.md §5.3/§8.11). An MCP-origin edit is visible without a
+      // reload.
+      const change = ev.change as ChangeData;
+      if (change.type === 'setGameConfig') {
+        this.gameConfig = change.next === null ? null : ({ ...change.next, level: { ...change.next.level }, cues: { ...change.next.cues } } as GameConfigLike);
+        this.gameConfigLoaded = true;
+      } else if (change.type === 'setSettings') {
+        this.settings = { ...(change.next as Record<string, unknown>) };
+      }
       this.save = 'saved';
       this.cb.onSceneChanged();
       this.emit();
@@ -261,6 +465,10 @@ export class SessionClient {
       snapshotId: base.snapshotId ?? '',
       revision: base.revision ?? 0,
       expiresAt: base.expiresAt ?? 0,
+      // M4 (packet 70, D-63-7 repair): the play-content locator (contentId /
+      // buildId / path) is retained — the preview bootstrap's handshake +
+      // `tl.playContent.expect` gate read it from the onPlayStarted result.
+      playContent: base.playContent,
       snapshot: m.snapshot,
     };
     this.cb.onPlayStarted(this.activePlay);
@@ -352,7 +560,21 @@ export class SessionClient {
             response: { ok: false, code: 'revision_conflict', currentRevision: (body.error as { currentRevision?: number }).currentRevision ?? 0 },
           };
         }
-        return { status: 'response', response: { ok: false, code, message: body.error.message } };
+        // `limits_exceeded` carries the declared bound (limit/current/max,
+        // commands.md §5.4) so the UI can surface the exact rejected limit
+        // instead of a generic message.
+        const details = body.error as { limit?: string; current?: number; max?: number };
+        return {
+          status: 'response',
+          response: {
+            ok: false,
+            code,
+            message: body.error.message,
+            ...(details.limit !== undefined ? { limit: details.limit } : {}),
+            ...(details.current !== undefined ? { current: details.current } : {}),
+            ...(details.max !== undefined ? { max: details.max } : {}),
+          },
+        };
       }
       // A network-level failure (no response) = a lost ack.
       return { status: 'lost' };
@@ -363,6 +585,7 @@ export class SessionClient {
   async playStart(demo = false): Promise<PlayStartResult> {
     const r = await this.api<PlayStartResult>('/projects/' + this.cfg.projectId + '/play', { options: { demo } });
     this.activePlay = { ...r, snapshot: null };
+    this.playReadySentFor = null; // a new play session: the ready send resets
     return r;
   }
 
@@ -370,6 +593,67 @@ export class SessionClient {
   async playStop(playSessionId: string): Promise<void> {
     await this.api(`/projects/${this.cfg.projectId}/play/${playSessionId}/stop`, {});
     this.activePlay = null;
+    if (this.playReadySentFor === playSessionId) this.playReadySentFor = null;
+  }
+
+  /**
+   * M4 (packet 70, D-63-4 repair): send the WS `play.preview.ready` EXACTLY
+   * ONCE per play session (sessions.md §10.2 — the editor presented the
+   * preview and received the preview's `tl.ready`; the backend marks the play
+   * `presented`, lifting the 15 s present-timeout). Idempotent per
+   * playSessionId; a closed socket drops the frame (the play is then bounded
+   * by the accepted present-timeout — no retry, no fabrication).
+   */
+  sendPlayPreviewReady(playSessionId: string): boolean {
+    if (this.playReadySentFor === playSessionId) return true; // already sent
+    const ok = this.sendWsFrame({ type: 'play.preview.ready', playSessionId });
+    if (ok) this.playReadySentFor = playSessionId;
+    return ok;
+  }
+
+  /** M4 (packet 70, D-63-4 repair — failure side): send the WS
+   * `play.preview.failed` when the preview could not start (sessions.md
+   * §10.2 — the editor relays the preview's `tl.error`; the backend stops the
+   * play `preview_failed` instead of waiting out the 15 s present-timeout).
+   * The message is truncated to the accepted ≤ 256 bound. */
+  sendPlayPreviewFailed(playSessionId: string, code: string, message?: string): boolean {
+    return this.sendWsFrame({
+      type: 'play.preview.failed',
+      playSessionId,
+      code,
+      ...(message !== undefined ? { message: message.slice(0, 256) } : {}),
+    });
+  }
+
+  /** The one WS client→server send path (sessions.md §5.2): a strict JSON
+   * text frame on the live socket. Returns false when no live socket exists
+   * (the caller treats a dropped frame as bounded by the session's accepted
+   * timeouts — never a fabricated ack). */
+  private sendWsFrame(obj: unknown): boolean {
+    if (this.ws === null || this.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      this.ws.send(JSON.stringify(obj));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The §5.2 heartbeat: a WS `ping` at least every 20 s while the socket is
+   * live (the server replies `pong`; a 60 s-silent connection is dropped
+   * `heartbeat_timeout`). M4 (packet 70, D-63-4 repair). */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = window.setInterval(() => {
+      this.sendWsFrame({ type: 'ping' });
+    }, 15_000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      window.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   getActivePlay(): (PlayStartResult & { snapshot: unknown }) | null {
@@ -381,6 +665,446 @@ export class SessionClient {
     const e = this.projection.getEntity(entityId);
     if (!e) return null;
     return { position: e.position, rotation: e.rotation, scale: e.scale };
+  }
+
+  // ---- M3 gameplay authoring (packet 56) ---------------------------------
+
+  /**
+   * The projected `content.game` block (the `queryGameConfig` result), or
+   * `null` (absent / not yet read). Advanced from full states and applied
+   * `setGameConfig` change records only.
+   */
+  getGameConfig(): GameConfigLike | null {
+    return this.gameConfig === null ? null : { ...this.gameConfig, level: { ...this.gameConfig.level }, cues: { ...this.gameConfig.cues } };
+  }
+
+  /** Whether the game block has been read from the backend (vs unknown). */
+  getGameConfigLoaded(): boolean {
+    return this.gameConfigLoaded;
+  }
+
+  /**
+   * The last-known `content.settings` map (tracked from applied
+   * `setSettings` changes; `null` until one is observed — no accepted query
+   * returns settings values, so a fresh session seeds the panel from the
+   * registry defaults). See the `settings` field note above.
+   */
+  getSettings(): Record<string, unknown> | null {
+    return this.settings === null ? null : { ...this.settings };
+  }
+
+  /**
+   * A bounded `queryGameConfig` (commands.md §4/§5.6, authoring §A6): the
+   * full normalized `content.game` block or `null`; read-only.
+   */
+  async queryGameConfig(): Promise<{ ok: true; revision: number; game: GameConfigLike | null } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.api<{ ok: true; projectId: string; revision: number; game: GameConfigLike | null }>(
+        `/projects/${this.cfg.projectId}/commands`,
+        { op: 'queryGameConfig', projectId: this.cfg.projectId, args: {} },
+      );
+      return { ok: true, revision: r.revision, game: r.game };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * A bounded `queryEntities` page with the `component` filter (commands.md
+   * §4, packet 45/48): the page contains only entities carrying `component`,
+   * still in document order. Read-only.
+   */
+  async queryEntitiesByComponent(
+    component: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<{ ok: true; revision: number; total: number; entities: unknown[] } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.api<{ ok: true; projectId: string; revision: number; total: number; offset: number; limit: number; entities: unknown[] }>(
+        `/projects/${this.cfg.projectId}/commands`,
+        { op: 'queryEntities', projectId: this.cfg.projectId, args: { limit: options.limit ?? 1024, offset: options.offset ?? 0, component } },
+      );
+      return { ok: true, revision: r.revision, total: r.total, entities: r.entities };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * `setGameConfig` through the ordinary command path (authoring §A3.4):
+   * `game` is the complete canonical block (create), a non-empty partial edit
+   * (changed top-level fields only) or `null` (remove the block).
+   */
+  async setGameConfig(
+    game: Record<string, unknown> | null,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('setGameConfig', { game }, expectedRevision, requestId);
+  }
+
+  /** `setSettings` through the ordinary command path (the touched keys only). */
+  async setSettings(
+    settings: Record<string, number>,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('setSettings', { settings }, expectedRevision, requestId);
+  }
+
+  /**
+   * `setComponent` through the ordinary command path (the v3 union,
+   * commands.md §8.10): `value` is the partial field replacement or `null`
+   * (remove the add-capable component).
+   */
+  async setComponent(
+    entityId: string,
+    component: string,
+    value: unknown,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('setComponent', { entityId, component, value }, expectedRevision, requestId);
+  }
+
+  /** `createEntity` with M3 `components` (a zone / spawn creation). */
+  async createGameEntity(
+    args: Record<string, unknown>,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('createEntity', args, expectedRevision, requestId);
+  }
+
+  /** `deleteEntity` through the ordinary command path (zone/spawn removal). */
+  async deleteEntityCommand(
+    entityId: string,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('deleteEntity', { entityId }, expectedRevision, requestId);
+  }
+
+  // ---- M2 content browser (packet 27) -------------------------------------
+
+  /**
+   * A bounded `queryAssets` (commands.md §4/§5.6). Read-only: it carries no
+   * `expectedRevision`/`requestId` and is never deduplicated.
+   */
+  async queryAssets(options: { limit?: number; offset?: number; includeVersions?: boolean; assetId?: string } = {}): Promise<AssetQueryResult> {
+    const page = planAssetQuery(options);
+    return this.api<AssetQueryResult>(`/projects/${this.cfg.projectId}/commands`, {
+      op: 'queryAssets',
+      projectId: this.cfg.projectId,
+      args: {
+        ...page,
+        ...(options.includeVersions ? { includeVersions: true } : {}),
+        ...(options.assetId ? { assetId: options.assetId } : {}),
+      },
+    });
+  }
+
+  /**
+   * A bounded `queryPrefabs` (commands.md §4/§5.6). Read-only. With
+   * `includeEntities` the entries are full `PrefabDefinition` values — the
+   * capture/instantiation source; never bytes and never a projection.
+   */
+  async queryPrefabs(
+    options: { limit?: number; offset?: number; includeEntities?: boolean; prefabId?: string } = {},
+  ): Promise<PrefabQueryResult> {
+    return this.api<PrefabQueryResult>(`/projects/${this.cfg.projectId}/commands`, {
+      op: 'queryPrefabs',
+      projectId: this.cfg.projectId,
+      args: {
+        ...planAssetQuery({ limit: options.limit, offset: options.offset }),
+        ...(options.includeEntities ? { includeEntities: true } : {}),
+        ...(options.prefabId ? { prefabId: options.prefabId } : {}),
+      },
+    });
+  }
+
+  /**
+   * A bounded `queryBehaviors` (commands.md §4/§5.6). With `includeDeclaration`
+   * the entries are the exact published records — the declaration data the
+   * property controls are derived from. Source bytes are never returned.
+   */
+  async queryBehaviors(
+    options: { limit?: number; offset?: number; includeDeclaration?: boolean; behaviorId?: string } = {},
+  ): Promise<BehaviorQueryResult> {
+    return this.api<BehaviorQueryResult>(`/projects/${this.cfg.projectId}/commands`, {
+      op: 'queryBehaviors',
+      projectId: this.cfg.projectId,
+      args: {
+        ...planAssetQuery({ limit: options.limit, offset: options.offset }),
+        ...(options.includeDeclaration ? { includeDeclaration: true } : {}),
+        ...(options.behaviorId ? { behaviorId: options.behaviorId } : {}),
+      },
+    });
+  }
+
+  // ---- M2 behavior publication (packet 34) --------------------------------
+
+  /**
+   * Stage one source container through the EXISTING non-authoritative content
+   * stage route (`POST /content/stages` + the bounded frame PUTs; packet 25).
+   * Staging writes no authoritative state and advances no revision. The digest
+   * is computed client-side over the exact container bytes (the same SHA-256
+   * the preparer binds), because no accepted query returns a behavior digest.
+   */
+  async stageBehaviorSource(
+    bytes: Uint8Array,
+  ): Promise<{ ok: true; stageId: string; digest: string; byteLength: number } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const stage = await this.request<{ ok: true; stageId: string; expiresAt: string }>(
+        `/projects/${this.cfg.projectId}/content/stages`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
+      );
+      for (const frame of planUploadFrames(bytes.length)) {
+        await this.request(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/octet-stream',
+            'x-thirdlight-offset': String(frame.offset),
+            'x-thirdlight-total': String(bytes.length),
+          },
+          body: bytes.slice(frame.offset, frame.offset + frame.length),
+        });
+      }
+      const digest = await sourceDigestOf(bytes);
+      return { ok: true, stageId: stage.stageId, digest, byteLength: bytes.length };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** `acknowledgeBehaviorTrust` through the ordinary command path (§3.1.8). */
+  async acknowledgeBehaviorTrust(
+    sourceDigest: string,
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('acknowledgeBehaviorTrust', planAcknowledgeTrust(sourceDigest), expectedRevision, requestId);
+  }
+
+  /** `publishBehavior` declaration modes through the ordinary command path (§8.8). */
+  async publishBehaviorDeclaration(
+    args: {
+      behaviorId: string;
+      displayName: string;
+      mode: 'declaration-create' | 'declaration-update';
+      declaration: PropertyDeclaration;
+    },
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('publishBehavior', planPublishDeclaration(args), expectedRevision, requestId);
+  }
+
+  /**
+   * `publishBehavior{mode:"source"}` through the ordinary command path. The
+   * preparation step is the workspace's digest-bound preparation layer
+   * (project-model §22.4.1); until a wire route exists for it the backend
+   * returns `behavior_publication_unavailable` (`preparation_missing`), which
+   * the panel surfaces verbatim instead of faking a build.
+   */
+  async publishBehaviorSource(
+    args: {
+      behaviorId: string;
+      displayName: string;
+      declaration: PropertyDeclaration;
+      sourceDigest: string;
+      sourceByteLength: number;
+    },
+    expectedRevision: number,
+    requestId?: string,
+  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+    return this.command('publishBehavior', planPublishSource(args), expectedRevision, requestId);
+  }
+
+  /** The observed trust digests (from the projection; advanced by changes only). */
+  acknowledgedDigests(): string[] {
+    return this.prefabs.listTrust().map((e) => e.sourceDigest);
+  }
+
+  /** Fetch one bounded asset page and fold it into the paging state. */
+  async loadAssetPage(
+    state: AssetQueryState | null,
+    request: Partial<{ limit: number; offset: number }> = {},
+  ): Promise<{ state: AssetQueryState; assets: AssetView[] }> {
+    const page = planAssetQuery(request);
+    const result = await this.queryAssets({ ...page, includeVersions: true });
+    if (result.ok) this.content.hydrate({ assets: mergeAssets(this.content.listAssets(), result.assets) });
+    return {
+      state: applyAssetQueryPage(state, { total: result.total, offset: result.offset, limit: result.limit, count: result.assets.length }),
+      assets: result.assets,
+    };
+  }
+
+  /** `POST /content/stages` + the bounded frame PUTs + the inspect (the §19.1 upload bounds).
+   * M3 (packet 57): `kind` selects the inspector (`'audio'` = the bounded
+   * PCM-WAV inspector; absent = the accepted M2 GLB inspector, byte-unchanged)
+   * and `animation` requests the role-aware animated GLB profile (stages 3–6
+   * validate the bindings against the staged bytes' real clip list). */
+  async uploadAsset(
+    bytes: Uint8Array,
+    options: {
+      target?: ImportTarget;
+      displayName?: string | null;
+      kind?: 'model' | 'audio';
+      animation?: { entityId: string; roles: unknown };
+      onState?: (s: AssetImportState) => void;
+    } = {},
+  ): Promise<{ ok: true; stageId: string; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
+    const target: ImportTarget = options.target ?? { mode: 'create', assetId: makeAssetId(), displayName: options.displayName ?? null };
+    let state = beginImport(initialImportState, target);
+    const emit = (): void => options.onState?.(state);
+    emit();
+    const inspectBody = JSON.stringify({
+      ...(options.kind !== undefined ? { kind: options.kind } : {}),
+      ...(options.animation !== undefined ? { animation: options.animation } : {}),
+    });
+    try {
+      const stage = await this.request<{ ok: true; stageId: string; expiresAt: string }>(
+        `/projects/${this.cfg.projectId}/content/stages`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(options.displayName ? { displayName: options.displayName } : {}) },
+      );
+      state = stageCreated(state, stage.stageId, bytes.length);
+      emit();
+      for (const frame of planUploadFrames(bytes.length)) {
+        await this.request(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/octet-stream',
+            'x-thirdlight-offset': String(frame.offset),
+            'x-thirdlight-total': String(bytes.length),
+          },
+          body: bytes.slice(frame.offset, frame.offset + frame.length),
+        });
+        state = frameSent(state, frame.offset + frame.length);
+        emit();
+      }
+      state = uploadCompleted(state);
+      emit();
+      const inspected = await this.request<{ ok: true; proposal: ImportProposal['proposal'] & { proposalId?: string; stageId?: string; sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
+        `/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/inspect`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: inspectBody },
+      );
+      const proposal: ImportProposal = {
+        stageId: stage.stageId,
+        digest: String(inspected.proposal?.sourceDigest ?? ''),
+        byteLength: Number(inspected.proposal?.sourceByteLength ?? bytes.length),
+        status: String(inspected.proposal?.status ?? 'ok'),
+        proposal: inspected.proposal,
+      };
+      state = inspectionSucceeded(state, proposal);
+      emit();
+      if (!canPublish(state)) {
+        return { ok: false, error: state.error ?? { code: 'import_rejected', message: 'the inspection result was stale' } };
+      }
+      return { ok: true, stageId: stage.stageId, proposal };
+    } catch (e) {
+      const described = this.describeError(e);
+      state = importFailed(state, described);
+      emit();
+      return { ok: false, error: described };
+    }
+  }
+
+  /**
+   * M3 (packet 57): a second inspect of the SAME stage with the role-aware
+   * animated GLB profile (presentation.md §41.3.3 A1–A6): the staged bytes
+   * stay, the new job validates the supplied role bindings against the real
+   * clip list (stages 3–6) and returns the role-aware proposal the publish
+   * carries. A stale/expired result never becomes publishable (the accepted
+   * job TTL rule — the caller re-stages on `stale`/`expired`).
+   */
+  async reinspectStageAnimation(
+    stageId: string,
+    animation: { entityId: string; roles: unknown },
+  ): Promise<
+    | { ok: true; proposal: ImportProposal }
+    | { ok: false; error: { code: string; message: string } }
+  > {
+    try {
+      const inspected = await this.request<{ ok: true; proposal: ImportProposal['proposal'] & { proposalId?: string; stageId?: string; sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
+        `/projects/${this.cfg.projectId}/content/stages/${stageId}/inspect`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ animation }) },
+      );
+      const proposal: ImportProposal = {
+        stageId,
+        digest: String(inspected.proposal?.sourceDigest ?? ''),
+        byteLength: Number(inspected.proposal?.sourceByteLength ?? 0),
+        status: String(inspected.proposal?.status ?? 'ok'),
+        proposal: inspected.proposal,
+      };
+      return { ok: true, proposal };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** Poll one bounded job record; a stale/expired result never becomes publishable. */
+  async getJob(jobId: string): Promise<ContentJobView> {
+    return this.request<ContentJobView>(`/projects/${this.cfg.projectId}/content/jobs/${jobId}`, { method: 'GET' });
+  }
+
+  /** Fold a job read into the pure flow state. */
+  applyJobState(state: AssetImportState, job: ContentJobView): AssetImportState {
+    return jobUpdated(state, job);
+  }
+
+  /** Mark the flow publishing (the catalog updates only from `mutation.applied`). */
+  markPublishing(state: AssetImportState): AssetImportState {
+    return publishStarted(state);
+  }
+
+  /** Mark the flow committed after a successful `publishAsset` ack. */
+  markCommitted(state: AssetImportState): AssetImportState {
+    return committed(state);
+  }
+
+  /** Cancel a flow locally (the caller discards the stage through `discardStage`). */
+  cancelImport(state: AssetImportState): AssetImportState {
+    return cancelImport(state);
+  }
+
+  /** `DELETE /content/stages/:stageId` (non-authoritative cleanup). */
+  async discardStage(stageId: string): Promise<void> {
+    await this.request(`/projects/${this.cfg.projectId}/content/stages/${stageId}`, { method: 'DELETE' });
+  }
+
+  /** Reset the flow state after a discard. */
+  resetImport(state: AssetImportState): AssetImportState {
+    return discardImport(state);
+  }
+
+  /** Validate a dropped file before any network call. */
+  validateDrop(candidate: { name: string; byteLength: number }): ReturnType<typeof validateDropCandidate> {
+    return validateDropCandidate(candidate);
+  }
+
+  /**
+   * The authenticated committed asset-byte read (sessions.md §16.1). This is
+   * the editor's only byte path: the renderer never receives the token and the
+   * adapter never fetches (it calls the injected resolver this returns).
+   */
+  async assetBytes(assetId: string, version: number): Promise<Uint8Array> {
+    const res = await fetch(
+      `${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/assets/${assetId}/versions/${version}/bytes`,
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+      },
+    );
+    if (!res.ok) throw { status: res.status, body: null };
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  /**
+   * A descriptor resolver for the three-adapter visual path (packet 26): it
+   * receives only the immutable version facts and returns the verified bytes.
+   */
+  assetByteResolver(): (descriptor: { assetId: string; version: number }) => Promise<Uint8Array> {
+    return (descriptor) => this.assetBytes(descriptor.assetId, descriptor.version);
   }
 
   describeError(e: unknown): { code: string; message: string } {
@@ -397,6 +1121,7 @@ export class SessionClient {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close(1000, 'editor closed');

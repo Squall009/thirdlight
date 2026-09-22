@@ -1,0 +1,893 @@
+{
+  "indexVersion": 1,
+  "contracts": {
+    "contentStorage": "docs/planning/m2-contracts/content-storage.md (PROPOSED — pending Gate E)",
+    "assets": "docs/planning/m2-contracts/assets.md (PROPOSED — pending Gate E)",
+    "prefabs": "docs/planning/m2-contracts/prefabs.md (PROPOSED — pending Gate E)",
+    "properties": "docs/planning/m2-contracts/properties.md (PROPOSED — pending Gate E)",
+    "projectModelDiff": "docs/planning/m2-contracts/diffs/project-model.md",
+    "workspaceDiff": "docs/planning/m2-contracts/diffs/workspace.md",
+    "commandsDiff": "docs/planning/m2-contracts/diffs/commands.md",
+    "input": "docs/planning/m2-contracts/input.md (PROPOSED — pending Gate E)",
+    "platformer": "docs/planning/m2-contracts/platformer.md (PROPOSED — pending Gate E)",
+    "physics": "docs/planning/m2-contracts/physics.md (PROPOSED — pending Gate E)",
+    "runtimeDiff": "docs/planning/m2-contracts/diffs/runtime.md",
+    "behaviors": "docs/planning/m2-contracts/behaviors.md (PROPOSED — pending Gate E)",
+    "dependenciesDiff": "docs/planning/m2-contracts/diffs/dependencies.md (PROPOSED — pending Gate E)",
+    "exportDiff": "docs/planning/m2-contracts/diffs/export.md (PROPOSED — pending Gate E)",
+    "delivery": "docs/planning/m2-contracts/delivery.md (PROPOSED — pending Gate E)",
+    "deliveryDiffs": "docs/planning/m2-contracts/diffs/sessions.md + the \"Packet 19 additions\" sections of diffs/{export,dependencies}.md (PROPOSED — pending Gate E)",
+    "contractInventory": "docs/planning/m2-contracts/contract-diffs.md (consolidated proposal ⇒ destination inventory; PROPOSED — pending Gate E)"
+  },
+  "notes": [
+    "PROPOSED fixtures for packet 15. Nothing here is accepted: docs/contracts/*.md is unchanged and Gate E records accept/reject per diff before the docs-only promotion step (m2-packets.md \"Contract drafting and promotion\").",
+    "Envelope fixtures are standalone envelope DOCUMENTS: the projectId/directory-name equality is a load-time check (workspace.md §4.3 step 5) and is not asserted by these files.",
+    "Every digest and byte length is real: sourceDigest values are SHA-256 of the committed files under source-preimages/, and tools/check-fixtures.mjs recomputes all of them. The preimages are opaque placeholders, not GLB files — no import-profile claim is made by them (packet 24 owns the real GLB fixtures).",
+    "Error codes are the accepted M1 sets (project-model §12.6, workspace §11, commands §5.4) plus the codes this proposal adds; the registry below is what the checker validates fixture codes against.",
+    "Files excluded from the fixture index: README.md, verification.md, expected.json, tools/check-fixtures.mjs (tooling/index prose).",
+    "Case fixtures are declarative: they describe input state, ordered steps and expected outcome so packet 23/24 can turn them into executable tests; they are not executable tests themselves.",
+    "Packet 16 added commands/prefab-scenario.{before,messages,after}.json (a byte-exact mixed human/MCP command scenario replayed by the checker), commands/prefab-failures.json (atomic rejection set) and commands/queries.json (bounded content-query examples). The before/after envelopes are released-state snapshots: retry.records is empty by the packet-15 convention.",
+    "Packet 17 added input/action-sequences.json (ActionFrame mapping/latch/suspension cases replayed by the checker), physics/numerics.json (constants, tolerances, slope-threshold classification, settings-registry cases, collider/controller validation cases), platformer/traces.json (12 scripted trace sets with per-step expectation tables replayed against an independent controller+port reference model), platformer/failures.json (22 failure cases) and runtime/catchup.json (scheduler/drop/ownership cases). The expectation tables were produced by a separate python3 implementation (docs/acceptance/evidence-m2/17/independent-recompute.py) and are re-derived by tools/check-fixtures.mjs (check groups p17-*).",
+    "Packet 18 added behaviors/source-preimages/*.json (canonical source-graph containers, real SHA-256/lengths recomputed by the checker and merged into the digest check), behaviors/source-preimages/containers.json (their index), behaviors/source-preimages/drift-example.output.js (an opaque FIXTURE STAND-IN for a prepared output; no compiler exists before packet 33), behaviors/source-graphs.json (the source-graph failure taxonomy and the compiler bounds, re-derived by check group p18-source-graphs), behaviors/compiled-example.json (one valid manifest with a declared numeric property, digest-bound and re-derived by p18-example), behaviors/intents.json (the intent validation order, caps and effective-frame rule, replayed by p18-intents), behaviors/runtime-failures.json (runtime failures and log/intent flood accounting, re-derived by p18-runtime-failures) and behaviors/publication-cases.json (the prepare/publish/build state machine, replayed by p18-publication).",
+    "Packet 18 is a contract-drafting packet: no compiler, runtime host or command exists. Every expected code/limit in the packet-18 fixtures is re-derived by the checker's own independent implementation of the proposed rules (and, outside the checker, by docs/acceptance/evidence-m2/18/independent-recompute.py). The drift-example output artifact is a placeholder, not a compiler product, and no measured export/behavior bundle is claimed.",
+    "Packet 19 added delivery/{protocol-surface,locator-cases,upload-bounds,scan-expectations,manifest-example,input-relay}.json (the delivery/protocol/export boundary shapes: routes + messages + error→status mappings, locator expiry/negative cases, upload/stage bounds, format-aware scan expectations, one digest-bound runtime-content manifest with a recomputable buildId/buildOptionsDigest, and the bounded input relay). They are re-derived by tools/check-fixtures.mjs check groups p19-protocol, p19-locator, p19-upload, p19-scans, p19-manifest and p19-relay.",
+    "Packet 19 registry additions: sessionErrorCodes/exportErrorCodes are accepted M1 codes the delivery fixtures reference; deliveryErrorCodes are the codes this packet proposes. registry.importDiagnosticCodes is now included in the checker's declared-code union so asset-pipeline diagnostics (e.g. asset_uri_rejected) can be referenced by the scan fixtures. The consolidated proposal ⇒ destination inventory is docs/planning/m2-contracts/contract-diffs.md (packet 19 output; later packets read it instead of every proposal). Nothing here is accepted.",
+    "Packet 20 (C19-D7 closure): every v2 envelope/content fixture now carries the promoted contract's required fifth content key `behaviorTrust: { entries: [] }` (project-model.md §12.2/§18.9.2 step 6/§22.5); catalog/content-block-example.json and the packet-16 command envelopes were updated with it, expected.json notes updated, and tools/check-fixtures.mjs's packet-16 content key-order assertion extended to `assets, prefabs, behaviors, settings, behaviorTrust`. The envelope load/validation itself is packet 23's workspace work, not packet 20's.",
+    "Packet 27 repair (GG-1/GG-2) added commands/model-authoring.messages.json (the C27-1/C28-1 command surface) and its expected.json entry; the checker re-derives the ID allocation, revision/history arithmetic and the add/edit/remove change shapes in group p27-authoring."
+  ],
+  "registry": {
+    "modelErrorCodes": [
+      "encoding_invalid",
+      "json_parse_error",
+      "duplicate_key",
+      "schema_version_unsupported",
+      "field_missing",
+      "field_unexpected",
+      "field_type",
+      "field_value",
+      "id_invalid",
+      "id_duplicate",
+      "reference_missing",
+      "hierarchy_cycle",
+      "order_parent_before_child",
+      "number_not_finite",
+      "number_out_of_range",
+      "quaternion_invalid",
+      "component_unknown",
+      "component_missing",
+      "component_conflict",
+      "camera_count_invalid",
+      "limits_exceeded",
+      "revision_invalid",
+      "manifest_scene_mismatch",
+      "no_migration_path",
+      "version_combination_unsupported",
+      "asset_reference_missing",
+      "digest_invalid",
+      "asset_version_invalid",
+      "recipe_invalid",
+      "behavior_reference_missing",
+      "prefab_reference_missing",
+      "prefab_component_forbidden",
+      "property_unknown",
+      "property_type",
+      "property_value",
+      "setting_unknown",
+      "collider_shape_invalid",
+      "physics_transform_unsupported",
+      "controller_count_invalid"
+    ],
+    "workspaceErrorCodes": [
+      "envelope_invalid",
+      "storage_version_unsupported",
+      "envelope_project_mismatch",
+      "scene_invalid",
+      "retry_records_invalid",
+      "manifest_invalid",
+      "ownership_conflict",
+      "claim_inconsistent",
+      "stale_ownership",
+      "workspace_closed",
+      "external_change_invalid",
+      "external_change_unreadable",
+      "external_change_evidence_missing",
+      "no_pending_change",
+      "project_exists_invalid",
+      "content_invalid",
+      "version_combination_unsupported",
+      "stage_not_found",
+      "stage_expired",
+      "stage_limits_exceeded",
+      "path_rejected",
+      "import_rejected",
+      "asset_id_duplicate",
+      "asset_not_found",
+      "asset_version_not_found",
+      "blob_missing",
+      "blob_corrupt",
+      "content_quota_exceeded",
+      "content_publish_failed",
+      "derived_cache_unavailable",
+      "migration_source_invalid",
+      "migration_destination_exists",
+      "migration_marker_conflict",
+      "migration_resume_required"
+    ],
+    "commandErrorCodes": [
+      "invalid_request",
+      "field_missing",
+      "project_not_found",
+      "project_unavailable",
+      "workspace_closed",
+      "revision_conflict",
+      "request_id_reused",
+      "revision_exhausted",
+      "entity_not_found",
+      "reference_missing",
+      "camera_count_invalid",
+      "limits_exceeded",
+      "id_exhaustion",
+      "no_change",
+      "external_change_unresolved",
+      "history_empty",
+      "history_invalid",
+      "write_failed",
+      "prefab_not_found",
+      "prefab_id_duplicate",
+      "prefab_camera_capture_forbidden",
+      "prefab_nested_forbidden",
+      "prefab_external_reference_forbidden",
+      "prefab_local_unknown",
+      "prefab_reference_missing",
+      "prefab_component_forbidden",
+      "behavior_not_found",
+      "behavior_id_duplicate",
+      "behavior_reference_missing",
+      "behavior_publication_unavailable",
+      "property_unknown",
+      "property_type",
+      "property_value",
+      "property_declaration_incompatible",
+      "setting_unknown",
+      "reference_in_use",
+      "asset_not_found",
+      "asset_reference_missing"
+    ],
+    "importDiagnosticCodes": [
+      "asset_size_exceeded",
+      "asset_container_invalid",
+      "asset_json_invalid",
+      "asset_version_unsupported",
+      "asset_uri_rejected",
+      "asset_extension_unsupported",
+      "asset_compression_unsupported",
+      "asset_buffer_invalid",
+      "asset_accessor_invalid",
+      "asset_accessor_unsupported",
+      "asset_mesh_invalid",
+      "asset_primitive_unsupported",
+      "asset_material_invalid",
+      "asset_image_invalid",
+      "asset_image_mime_mismatch",
+      "asset_texture_invalid",
+      "asset_animation_invalid",
+      "asset_node_invalid",
+      "asset_scene_invalid",
+      "asset_limits_exceeded",
+      "asset_empty_model",
+      "asset_timeout"
+    ],
+    "runtimeErrorCodes": [
+      "config_invalid",
+      "snapshot_invalid",
+      "runtime_already_started",
+      "runtime_not_running",
+      "runtime_disposed",
+      "tick_not_allowed",
+      "module_error",
+      "runtime_failed",
+      "module_combination_unsupported",
+      "transform_owner_conflict",
+      "transform_owner_forbidden",
+      "physics_port_error",
+      "input_frame_invalid",
+      "physics_init_failed",
+      "physics_init_cancelled"
+    ],
+    "behaviorErrorCodes": [
+      "behavior_source_invalid",
+      "behavior_source_duplicate",
+      "behavior_source_missing",
+      "behavior_source_escape",
+      "behavior_source_cycle",
+      "behavior_import_forbidden",
+      "behavior_import_unpinned",
+      "behavior_dynamic_code",
+      "behavior_source_limits_exceeded",
+      "behavior_compile_timeout",
+      "behavior_compile_failed",
+      "behavior_output_limits_exceeded",
+      "behavior_output_forbidden_content",
+      "behavior_declaration_mismatch",
+      "behavior_trust_unacknowledged",
+      "behavior_build_failed"
+    ],
+    "sessionErrorCodes": [
+      "unauthorized",
+      "bad_origin",
+      "session_unavailable",
+      "play_not_found"
+    ],
+    "exportErrorCodes": [
+      "export_bundle_forbidden_content",
+      "export_bundle_graph_forbidden"
+    ],
+    "deliveryErrorCodes": [
+      "play_locator_invalid",
+      "play_locator_expired",
+      "play_content_not_ready",
+      "play_build_unavailable",
+      "content_frame_invalid",
+      "job_not_found",
+      "job_expired",
+      "input_relay_conflict",
+      "input_relay_limits_exceeded",
+      "input_relay_timeout",
+      "scan_forbidden_content",
+      "export_manifest_invalid",
+      "export_build_unavailable"
+    ]
+  },
+  "entries": [
+    {
+      "path": "envelope/valid/demo-0002-rev7-v2.json",
+      "kind": "envelope",
+      "valid": true,
+      "projectId": "demo-0002",
+      "storageVersion": 2,
+      "sceneSchemaVersion": 2,
+      "revision": 7,
+      "assets": 2,
+      "assetVersions": 3,
+      "notes": "The supported M2 combination (manifest v1 + scene v2 + storage v2) with a bounded content block. retry.records is intentionally empty (released state, workspace.md §9 step 1): retry-record semantics are pinned by fixtures/commands/envelope/*, and a content-publish record shape does not exist before packet 21/23. Documents the v2 canonical key order: storageVersion, type, projectId, scene, content, retry."
+    },
+    {
+      "path": "envelope/valid/migration-minimal-v2.json",
+      "kind": "envelope",
+      "valid": true,
+      "projectId": "demo-m1-v2",
+      "storageVersion": 2,
+      "sceneSchemaVersion": 2,
+      "revision": 0,
+      "assets": 0,
+      "assetVersions": 0,
+      "notes": "Empty content containers are required (not optional) in a v2 envelope: assets [], prefabs [], behaviors [], settings {}, behaviorTrust { entries: [] }. Also the expected destination envelope shape of the migration example."
+    },
+    {
+      "path": "envelope/invalid/storage-version-3.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "storage_version_unsupported",
+      "notes": "Unknown storage version: one error, deeper checks stop, bytes retained untouched (workspace.md §4.3 step 3)."
+    },
+    {
+      "path": "envelope/invalid/version-combination-v2-v1-scene.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "version_combination_unsupported",
+      "notes": "storageVersion 2 with scene.schemaVersion 1. Exactly one supported combination exists (manifest v1 + scene v2 + storage v2); the check runs before any scene/content field validation, so the fixture pins one error and no field errors."
+    },
+    {
+      "path": "envelope/invalid/content-missing.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "envelope_invalid",
+      "innerCodes": [
+        "field_missing"
+      ],
+      "notes": "A v2 envelope must carry the content block; unknown/missing top-level fields are structural envelope failures, not content failures."
+    },
+    {
+      "path": "envelope/invalid/content-unknown-field.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "field_unexpected"
+      ],
+      "innerErrorCount": 1,
+      "notes": "Strict content validation: nothing is stripped (workspace.md §4.2 strictness extended to the content block). Path /content/assets/0/region."
+    },
+    {
+      "path": "envelope/invalid/content-digest-invalid.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "digest_invalid"
+      ],
+      "innerErrorCount": 1,
+      "notes": "sourceDigest must be 64 lowercase hex characters (a path segment of sources/sha256/<digest>)."
+    },
+    {
+      "path": "envelope/invalid/content-version-order.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "asset_version_invalid"
+      ],
+      "innerErrorCount": 1,
+      "notes": "versions must be contiguous 1..N, append-only, never reordered or removed; currentVersion is set to 3 so exactly one error is produced."
+    },
+    {
+      "path": "envelope/invalid/content-current-version-mismatch.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "field_value"
+      ],
+      "innerErrorCount": 1,
+      "notes": "currentVersion is a derived pointer: it must equal the last (highest) version of its own record. A redundant pointer that disagrees is rejected rather than normalized."
+    },
+    {
+      "path": "envelope/invalid/content-duplicate-asset-id.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "id_duplicate"
+      ],
+      "innerErrorCount": 1,
+      "notes": "assetId is unique within the catalog; first occurrence wins and the error points at the later occurrence (project-model §12.3 duplicate-ID convention)."
+    },
+    {
+      "path": "envelope/invalid/content-limits-vertices.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "content_invalid",
+      "innerCodes": [
+        "limits_exceeded"
+      ],
+      "innerErrorCount": 1,
+      "notes": "Decoded-resource caps report limits_exceeded with limit: \"vertices\" (found 2000001, cap 2000000), not number_out_of_range."
+    },
+    {
+      "path": "envelope/invalid/asset-reference-missing.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "asset_reference_missing",
+      "notes": "Scene v2 model reference that no catalog record resolves. Scene and content are individually valid, so exactly the cross-block code is produced (the check runs only when both pass)."
+    },
+    {
+      "path": "envelope/invalid/scene-invalid-v2.json",
+      "kind": "envelope",
+      "valid": false,
+      "code": "scene_invalid",
+      "innerCodes": [
+        "component_conflict"
+      ],
+      "notes": "A v2 envelope whose embedded scene fails scene validation: model and camera are mutually exclusive on one entity."
+    },
+    {
+      "path": "catalog/content-block-example.json",
+      "kind": "content-block",
+      "notes": "The content block value alone, in canonical form and key order (assets, prefabs, behaviors, settings, behaviorTrust). Must deep-equal the content block of envelope/valid/demo-0002-rev7-v2.json (checked by tools/check-fixtures.mjs)."
+    },
+    {
+      "path": "catalog/captured-content-view.json",
+      "kind": "captured-content-view",
+      "projectId": "demo-0002",
+      "revision": 7,
+      "assets": 2,
+      "notes": "The captured immutable content view for revision 7: only the assets reachable from the captured scene, each resolved to its currentVersion, with the recipe + digest needed to deliver bytes and regenerate derived caches. contentDigest = SHA-256 of the canonical JSON of this value with the contentDigest member removed (recomputed by the checker)."
+    },
+    {
+      "path": "migration/v1-source/project.json",
+      "kind": "migration-source-manifest",
+      "notes": "Source project manifest (M1, schemaVersion 1). Re-hashed by expected.json sourceHashes to prove the source is retained byte-for-byte."
+    },
+    {
+      "path": "migration/v1-source/scenes/main.json",
+      "kind": "migration-source-envelope",
+      "storageVersion": 1,
+      "sceneSchemaVersion": 1,
+      "revision": 3,
+      "notes": "Source v1 envelope in a released state (revision 3, retry.records []) so the fixture carries no fabricated request digests."
+    },
+    {
+      "path": "migration/expected-v2-destination/project.json",
+      "kind": "migration-destination-manifest",
+      "notes": "Destination manifest: NEW project id (demo-m1-v2), display name carried over, new createdAt, manifest schemaVersion stays 1."
+    },
+    {
+      "path": "migration/expected-v2-destination/scenes/main.json",
+      "kind": "migration-destination-envelope",
+      "storageVersion": 2,
+      "sceneSchemaVersion": 2,
+      "revision": 0,
+      "notes": "Expected v2 destination: scene schemaVersion 1->2 with entities carried verbatim, storageVersion 1->2, empty content containers, retry reset, revision policy reset-to-zero. The storage-level transformation is pinned here; if Gate E accepts additional defaulted scene-v2 fields from packet 20, this expected file is updated in the same promotion step (entities remain verbatim)."
+    },
+    {
+      "path": "migration/interrupted-copy/.thirdlight/migration.json",
+      "kind": "migration-marker",
+      "notes": "The marker written FIRST by migrateProjectCopy. Its presence suppresses the §8.3 default-envelope completion for a manifest-only directory and makes the resume deterministic."
+    },
+    {
+      "path": "migration/interrupted-copy/project.json",
+      "kind": "migration-partial-manifest",
+      "notes": "Interrupted copy state: marker + manifest, no envelope. Never auto-completed; resumed by migrateProjectCopy or removed by an operator (nothing authoritative exists yet)."
+    },
+    {
+      "path": "cases/blob-missing-fails-closed.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/blob-tamper-detected.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/derived-cache-deleted-regenerable.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/migration-interrupted-copy-resume.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-concurrent-stale-import.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-crash-after-blob-before-envelope.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-crash-after-envelope-before-ack.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-enospc-during-blob.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-full-disk-before-publication.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-ownership-loss-before-commit.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-retry-replay-after-expired-stage.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-single-authoritative-commit.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/publish-stage-expired-new-request.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/reimport-undo-retains-old-bytes.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/staging-crash-mid-publish-retry.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/staging-harness-edit-publish-succeeds.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "cases/staging-traversal-symlink-rejected.json",
+      "kind": "case",
+      "notes": "Declarative publish/staging/integrity/migration scenario (see the case file itself; pins name the proposal sections it exercises)."
+    },
+    {
+      "path": "source-preimages/preimages.json",
+      "kind": "preimage-index",
+      "notes": "Index of committed opaque preimage bytes; every digest used anywhere in these fixtures must match one entry."
+    },
+    {
+      "path": "source-preimages/placeholder-a.bin",
+      "kind": "preimage",
+      "notes": "Opaque placeholder bytes (26 bytes), NOT a GLB. Digest/length are recomputed by the checker."
+    },
+    {
+      "path": "source-preimages/placeholder-b.bin",
+      "kind": "preimage",
+      "notes": "Opaque placeholder bytes (26 bytes), NOT a GLB."
+    },
+    {
+      "path": "cases/constructed-cases.md",
+      "kind": "document",
+      "notes": "Cases that cannot be expressed as small fixtures (count/byte-limit boundaries, symlink trees, 1 MiB content budget, packet-16 prefab/scene/override boundaries and ID exhaustion)."
+    },
+    {
+      "path": "commands/prefab-scenario.before.json",
+      "kind": "envelope",
+      "valid": true,
+      "projectId": "demo-0003",
+      "storageVersion": 2,
+      "sceneSchemaVersion": 2,
+      "revision": 2,
+      "entities": 6,
+      "assets": 2,
+      "prefabs": 0,
+      "behaviors": 0,
+      "notes": "Start state of the packet-16 command scenario: two model references under a Station group under a World group that carries the required camera, plus a box child. Released state (retry.records empty, packet-15 convention)."
+    },
+    {
+      "path": "commands/prefab-scenario.messages.json",
+      "kind": "command-scenario",
+      "steps": 10,
+      "notes": "Byte-exact request/result pairs (M1..M10) for publishBehavior(declaration-create) -> setBehaviorProperties -> createPrefab -> instantiatePrefab x2 (one legal initial override) -> ordinary setComponent -> deleteEntity -> undo -> redo -> identical retry. Origins alternate browser/mcp over one shared history stack. Replayed independently by tools/check-fixtures.mjs."
+    },
+    {
+      "path": "commands/model-authoring.messages.json",
+      "kind": "command-scenario",
+      "projectId": "demo-0003",
+      "baseRevision": 2,
+      "finalRevision": 12,
+      "steps": 12,
+      "notes": "Packet-27 repair (C27-1/C28-1) whole-GLB placement + collider/controller authoring scenario: byte-exact pairs for createEntity kind=model, undo/redo of the create, asset_reference_missing, collider add/edit/remove, controller add/remove, the collider+controller conflict and a polygon collider. Replayed independently by tools/check-fixtures.mjs (group p27-authoring) and byte-for-byte by packages/commands tests."
+    },
+    {
+      "path": "commands/prefab-scenario.after.json",
+      "kind": "envelope",
+      "valid": true,
+      "projectId": "demo-0003",
+      "storageVersion": 2,
+      "sceneSchemaVersion": 2,
+      "revision": 11,
+      "entities": 10,
+      "assets": 2,
+      "prefabs": 1,
+      "behaviors": 1,
+      "notes": "Durable state after M10: instance #1 removed by the redo, instance #2 present, one immutable prefab definition and one behavior declaration. Must deep-equal the checker's replay of the scenario."
+    },
+    {
+      "path": "commands/prefab-failures.json",
+      "kind": "command-failure-set",
+      "cases": 24,
+      "constructed": 10,
+      "notes": "Atomic rejection set: nested-prefab/camera capture, forbidden external entity reference, duplicate ids, unknown prefab/localId/key, property type and reference failures, incompatible declaration update, unavailable source publication, component/settings ownership failures, reference_in_use, no_change, stale revision and reused requestId, plus constructed count/byte/depth boundaries. Every case must leave the durable state unchanged."
+    },
+    {
+      "path": "commands/queries.json",
+      "kind": "command-query-examples",
+      "revision": 11,
+      "notes": "Bounded read-only content queries against commands/prefab-scenario.after.json: queryProject (with the content summary), queryAssets, queryPrefabs (summary and includeEntities), queryBehaviors (summary and includeDeclaration)."
+    },
+    {
+      "path": "input/action-sequences.json",
+      "kind": "input-action-sequences",
+      "mappingCases": 15,
+      "sequenceCases": 5,
+      "invalidFrames": 8,
+      "notes": "ActionFrame strict shape, digital/analog arbitration, dead-zone rescaling, press latch, suspension/awaitingRelease, step-indexed sequences, invalid-frame rejection and replay tolerances. Replayed by tools/check-fixtures.mjs (p17-input)."
+    },
+    {
+      "path": "physics/numerics.json",
+      "kind": "physics-numerics",
+      "constants": 34,
+      "slopeRows": 8,
+      "settingsCases": 10,
+      "validationCases": 20,
+      "notes": "physics.md 7 constants with packet-14-measured vs contract-selected source labels, slope-threshold classification, the six-key gameplay settings registry with resolution cases, and collider/controller validation cases. Replayed by tools/check-fixtures.mjs (p17-numerics)."
+    },
+    {
+      "path": "platformer/traces.json",
+      "kind": "platformer-traces",
+      "traces": 16,
+      "notes": "Step-indexed action frames + per-step expectation tables for flat accel/decel, full jump, release cut, buffer (in-window and expired), coyote (last step and one late), no air jump, wall stop, head bump, ledge block + jump-on, 12 m/s high speed, no-Z-drift, a 2 cm seam crossing and ground snap within (0.06 m) / beyond (0.15 m) the 0.1 m snap distance. Replayed against an independent controller+scripted-port model by tools/check-fixtures.mjs (p17-traces)."
+    },
+    {
+      "path": "platformer/failures.json",
+      "kind": "platformer-failure-set",
+      "cases": 21,
+      "notes": "Required failure paths: focus loss, hot disconnect, hidden tab, invalid parenting/scale/rotation, duplicate writer, unsupported module combination, module throw after physics mutation (fail-stop), initialization cancellation/failure, repeated jump edges during catch-up, dropped wall time, camera claim, phase violation, malformed port result, duplicate staged move, wrong scene version, controller-target count, missing port, throwing input source. Each declares the expected code, runtime state and durable effect."
+    },
+    {
+      "path": "runtime/catchup.json",
+      "kind": "runtime-catchup",
+      "cases": 7,
+      "ownershipCases": 9,
+      "notes": "The accepted runtime.md 5 scheduler replayed: ~60 Hz cadence, the 8-step catch-up cap with drop-and-resync, sub-step frames, non-monotonic clocks, one sample per executed step, no phantom steps and no replayed jump edges, plus the pre-roll and the module ownership/combination matrix (including the reachable zero-controller `controller_target` case and the count-2 `snapshot_invalid`/`controller_count_invalid` scene-validation case).",
+      "phaseOrder": [
+        "sample",
+        "intent",
+        "controller",
+        "physics",
+        "transform",
+        "render"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/drift-example.json",
+      "kind": "behavior-source-container",
+      "container": "drift-example",
+      "sha256": "e75ed7cf6f7c202ffa93f52ef7fc029ffba17a035300a2f8f89fd54589ca6e24",
+      "byteLength": 677,
+      "fileCount": 1,
+      "valid": true
+    },
+    {
+      "path": "behaviors/source-preimages/multi-file-valid.json",
+      "kind": "behavior-source-container",
+      "container": "multi-file-valid",
+      "sha256": "8b90e47c8a6f7e0bdbd7df33edcee4d261a463cb59f67694e8fc79fe32debc8f",
+      "byteLength": 721,
+      "fileCount": 2,
+      "valid": true
+    },
+    {
+      "path": "behaviors/source-preimages/bare-import.json",
+      "kind": "behavior-source-container",
+      "container": "bare-import",
+      "sha256": "e64b053b117726882a395b32c50debaf388f28d634a3a2b6e05e3416f6c5469f",
+      "byteLength": 349,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_import_forbidden"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/node-builtin-import.json",
+      "kind": "behavior-source-container",
+      "container": "node-builtin-import",
+      "sha256": "da0dcf4ac5fc265b08b58221f8841eb48c4150e882de7d9f4a3bfb20a623a7f6",
+      "byteLength": 359,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_import_forbidden"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/network-import.json",
+      "kind": "behavior-source-container",
+      "container": "network-import",
+      "sha256": "b52a1e56ae049296973adf4f4926752bef2a273220eaa0dcefc66bbdc0f51b2d",
+      "byteLength": 370,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_import_forbidden"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/dynamic-import.json",
+      "kind": "behavior-source-container",
+      "container": "dynamic-import",
+      "sha256": "e7725b25c90ec6248bb61941f5125fdb9fe0e31e90232a83b682d3100079e54e",
+      "byteLength": 369,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_dynamic_code"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/eval-call.json",
+      "kind": "behavior-source-container",
+      "container": "eval-call",
+      "sha256": "462b49a17cc647efa47e6ab3161c76eb868816fec8627226f7d8bb54064c3456",
+      "byteLength": 344,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_dynamic_code"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/graph-escape.json",
+      "kind": "behavior-source-container",
+      "container": "graph-escape",
+      "sha256": "14dc818dd011c2eb69b50b6330f139f524222235115955b3f565738a02fd70c3",
+      "byteLength": 357,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_source_escape"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/graph-cycle.json",
+      "kind": "behavior-source-container",
+      "container": "graph-cycle",
+      "sha256": "c2628a0353e586fa7d7a0a3e5afe823dc8d756469c7f1e698e15a01db2473fc8",
+      "byteLength": 547,
+      "fileCount": 3,
+      "valid": false,
+      "codes": [
+        "behavior_source_cycle"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/missing-import.json",
+      "kind": "behavior-source-container",
+      "container": "missing-import",
+      "sha256": "c480c610c715301ba9088b6aece3a0a034f2a07bc525eacfa0011597e1134292",
+      "byteLength": 346,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_source_missing"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/engine-value-import.json",
+      "kind": "behavior-source-container",
+      "container": "engine-value-import",
+      "sha256": "f1a0001061c4cd13b44277e0322cacae6cba77daaca0dff5a4f2733d0179d3a1",
+      "byteLength": 417,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_import_forbidden"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/entry-absent.json",
+      "kind": "behavior-source-container",
+      "container": "entry-absent",
+      "sha256": "695b8e39c02337845578b4a72a666a29ca91330e0dcc40489ca5d6c84a77cffe",
+      "byteLength": 207,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_source_invalid"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/duplicate-path.json",
+      "kind": "behavior-source-container",
+      "container": "duplicate-path",
+      "sha256": "2b1d3b49cdc9aba65dd7053c7bdab7547937319845e09cbb662c1640647281fc",
+      "byteLength": 284,
+      "fileCount": 2,
+      "valid": false,
+      "codes": [
+        "behavior_source_duplicate"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/not-sorted.json",
+      "kind": "behavior-source-container",
+      "container": "not-sorted",
+      "sha256": "3d084168a39c0059c7169864e2eea87540aba6520d13b78368ee220d49c0d0e6",
+      "byteLength": 272,
+      "fileCount": 2,
+      "valid": false,
+      "codes": [
+        "behavior_source_invalid"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/extension-tsx.json",
+      "kind": "behavior-source-container",
+      "container": "extension-tsx",
+      "sha256": "66f9a6bae97c2aee9525d4bdf29e418510cadb74f1a3e611fe8f7ce151300cc7",
+      "byteLength": 664,
+      "fileCount": 2,
+      "valid": false,
+      "codes": [
+        "behavior_source_invalid"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/file-too-large.json",
+      "kind": "behavior-source-container",
+      "container": "file-too-large",
+      "sha256": "df20f7dbad81ac28ee5a8e0f365f6b00d6e9ca939c1c9b284d0a8b5bb5ffa662",
+      "byteLength": 65834,
+      "fileCount": 1,
+      "valid": false,
+      "codes": [
+        "behavior_source_limits_exceeded"
+      ]
+    },
+    {
+      "path": "behaviors/source-preimages/containers.json",
+      "kind": "behavior-source-container-index",
+      "containers": 16
+    },
+    {
+      "path": "behaviors/source-preimages/drift-example.output.js",
+      "kind": "behavior-output-artifact",
+      "note": "opaque FIXTURE STAND-IN prepared output; sha256/byteLength are the real values and are recomputed by check group p18-example"
+    },
+    {
+      "path": "behaviors/source-graphs.json",
+      "kind": "behavior-source-graph-set",
+      "cases": 16,
+      "constructed": 25
+    },
+    {
+      "path": "behaviors/compiled-example.json",
+      "kind": "behavior-compiled-example",
+      "behaviorId": "behavior-0002"
+    },
+    {
+      "path": "behaviors/intents.json",
+      "kind": "behavior-intent-analysis"
+    },
+    {
+      "path": "behaviors/runtime-failures.json",
+      "kind": "behavior-runtime-failure-set"
+    },
+    {
+      "path": "behaviors/publication-cases.json",
+      "kind": "behavior-publication-case-set"
+    },
+    {
+      "path": "delivery/protocol-surface.json",
+      "kind": "delivery-protocol-surface",
+      "routes": 15,
+      "bridgeMessages": 8,
+      "notes": "The M2 public boundary: asset-byte reads, content upload/stage/inspect/discard, content queries/job, the input relay (authoring origin + project token) and the preview locator routes (capability only, no token). Every error code is registry-checked and every status must equal the sessions.md §11.2 cls mapping. Re-derived by p19-protocol."
+    },
+    {
+      "path": "delivery/locator-cases.json",
+      "kind": "delivery-locator-cases",
+      "cases": 14,
+      "notes": "Locator TTL/grace arithmetic, declared vs listing/traversal/other-content-id/undeclared paths, build-missing/in-flight, malformed id and corrupt-blob cases, plus cache/no-referrer/redaction/exclusion rules. Re-derived by p19-locator."
+    },
+    {
+      "path": "delivery/upload-bounds.json",
+      "kind": "delivery-upload-bounds",
+      "cases": 7,
+      "notes": "Frame/offset/stage/open-stage/project-cap classification for binary uploads with the exact limit reason. Re-derived by p19-upload."
+    },
+    {
+      "path": "delivery/scan-expectations.json",
+      "kind": "delivery-scan-expectations",
+      "cases": 13,
+      "notes": "Format-aware validation: text bundles use the export.md §5.4 a-j scan; GLB/WASM/closure are judged by their own validators and never by the text scan. Fault→code mapping re-derived by p19-scans."
+    },
+    {
+      "path": "delivery/manifest-example.json",
+      "kind": "delivery-manifest",
+      "notes": "One immutable runtime-content manifest captured at revision 7, with a recomputable buildId (canonical document digest without buildId) and buildOptionsDigest, resolved asset/behavior digests taken from committed preimages, relative closure paths and the fetch count (1 manifest + one per declared artifact). Re-derived by p19-manifest."
+    },
+    {
+      "path": "delivery/input-relay.json",
+      "kind": "delivery-input-relay",
+      "cases": 10,
+      "notes": "The bounded semantic input relay: step-range arithmetic, exclusive test mode, limits, timeout, no-browser unavailable and the not-a-command-path rule. Re-derived by p19-relay."
+    }
+  ],
+  "sourceHashes": [
+    {
+      "path": "migration/v1-source/project.json",
+      "sha256": "c25e3de2727ade405be38b29391adee914e135a8efe2daf9003ae441161e5266"
+    },
+    {
+      "path": "migration/v1-source/scenes/main.json",
+      "sha256": "55a1bc03b91a0790ae20a05444487a16c0cbe3215c382dffe4a5b86ffdd0c4d4"
+    }
+  ]
+}

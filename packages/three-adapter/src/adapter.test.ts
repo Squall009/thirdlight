@@ -68,19 +68,31 @@ describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
     runtime.dispose();
   });
 
-  it('diagnostics in Node report the ABSENT backend (null) with the §8 field set', () => {
+  it('diagnostics in Node report the ABSENT backend (null) with the §8 field set + the M3 shadow fields', () => {
     const { runtime, snapshot } = makeRuntime();
     const adapter = createSceneAdapter(stubCanvas(), { runtime, snapshot });
     const res = adapter.diagnostics();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const d = res.diagnostics;
-    expect(Object.keys(d).sort()).toEqual(['canvasSize', 'pixelRatio', 'renderBackend', 'rendererInfo']);
+    // The M1 fields (runtime.md §8) + the two M3 fields (presentation.md
+    // §41.1.4); `shadowReason` is present iff `shadows === 'off'` — a v1
+    // scene has no shadow-casting light, so it is `cast_shadow_false`.
+    expect(Object.keys(d).sort()).toEqual([
+      'canvasSize',
+      'pixelRatio',
+      'renderBackend',
+      'rendererInfo',
+      'shadowReason',
+      'shadows',
+    ]);
     expect(d.renderBackend).toBeNull(); // no successful render yet (non-browser absent value)
     expect(d.rendererInfo).toBeNull();
     expect(d.canvasSize).toEqual([640, 480]);
     expect(typeof d.pixelRatio).toBe('number');
     expect(d.pixelRatio).toBe(1); // Node: no window.devicePixelRatio
+    expect(d.shadows).toBe('off');
+    expect(d.shadowReason).toBe('cast_shadow_false');
     adapter.dispose();
     runtime.dispose();
   });

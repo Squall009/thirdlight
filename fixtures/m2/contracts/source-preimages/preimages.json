@@ -1,0 +1,26 @@
+{
+  "kind": "source-preimage-index",
+  "indexVersion": 1,
+  "notes": [
+    "Opaque byte placeholders. They are NOT GLB files and no import-profile claim is made about them: they exist so that every sha256/sourceByteLength value used by the content fixtures is a real, independently recomputable digest of a committed file (tools/check-fixtures.mjs recomputes all of them).",
+    "Packet 24 owns the real GLB fixtures of the M2 import profile."
+  ],
+  "preimages": [
+    {
+      "file": "placeholder-a.bin",
+      "sha256": "dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967",
+      "byteLength": 26,
+      "usedBy": [
+        "envelope/valid/demo-0002-rev7-v2.json sourceDigest v1"
+      ]
+    },
+    {
+      "file": "placeholder-b.bin",
+      "sha256": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
+      "byteLength": 26,
+      "usedBy": [
+        "envelope/valid/demo-0002-rev7-v2.json sourceDigest v2"
+      ]
+    }
+  ]
+}

@@ -477,6 +477,11 @@ These are intentionally planning-only. Run them individually after the preceding
 
 ### M2: assets, basic prefabs, input, and physics
 
+Planning output against accepted M1: [M2 draft plan](m2-plan.md),
+[packets 14–37](m2-packets.md), [acceptance scenario](m2-acceptance.md), and
+[physics evaluation brief](m2-physics.md). Architectural plan review is pending;
+these documents do not authorize implementation or replace accepted M1 contracts.
+
 ```text
 Plan Thirdlight M2 against the accepted M1 repository. Read the charter, public
 module contracts, and M1 acceptance report; inspect implementations selectively.
@@ -500,6 +505,11 @@ architectural review before implementation.
 
 ### M3: one complete short platformer
 
+Planning output (2026-09-19): [M3 draft plan](m3-plan.md),
+[packets 38–62](m3-packets.md), [sample-level brief](m3-sample.md), and
+[acceptance plan](m3-acceptance.md). Architectural plan review is **accepted with bounded follow-ups (2026-09-19)**;
+these documents do not authorize implementation or replace accepted contracts.
+
 ```text
 Plan Thirdlight M3 after M2 acceptance. Specify one short 2.5D level that can be
 completed from a start screen to a clear goal. Include camera, hazards, respawn/
@@ -511,6 +521,12 @@ Planning only; return for review.
 ```
 
 ### M4: reusable template and reliability
+
+Planning output: [M4 draft plan](m4-plan.md), [packets 63–82](m4-packets.md),
+[acceptance matrix](m4-acceptance.md), and
+[final owner review checklist](../acceptance/m4-owner-checklist.md).
+Architectural plan review is **pending**. Planning does not authorize
+implementation or replace accepted contracts.
 
 ```text
 Plan Thirdlight M4 after the sample platformer is accepted. Specify a reusable

@@ -1,0 +1,73 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-enospc-during-blob",
+  "title": "ENOSPC during blob publication leaves the envelope untouched",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "fault": {
+      "op": "fsync",
+      "target": "sources/.e5a1...eb41.tmp-<pid>-<nonce>",
+      "errno": "ENOSPC"
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000007",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-commit01"
+    }
+  },
+  "steps": [
+    {
+      "at": "phase-3",
+      "action": "publish the blob with the §5.1 write procedure",
+      "expect": {
+        "retries": 3,
+        "outcome": "write_failed",
+        "onDiskState": "blobs: partial or previous"
+      }
+    },
+    {
+      "at": "after",
+      "action": "classify the on-disk state and return",
+      "expect": {
+        "envelopeUnchanged": true,
+        "revisionUnchanged": true,
+        "recordAdded": false
+      }
+    },
+    {
+      "at": "open",
+      "action": "next open removes leftover temp files",
+      "expect": {
+        "tempRemoved": true
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "content_publish_failed"
+    ],
+    "durableEffects": [
+      "at most a leftover temp file under sources/ (removed on the next open)"
+    ],
+    "observations": [
+      "retry of the same requestId re-runs the publication (no record was written)",
+      "an existing blob with a different content but the same name is never overwritten (content-addressed name + digest verification)"
+    ]
+  },
+  "notes": "Maps §5.1 write failure onto the content phase without weakening the envelope guarantees."
+}

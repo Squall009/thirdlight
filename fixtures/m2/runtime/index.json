@@ -1,0 +1,20 @@
+{
+  "kind": "runtime-fixture-index",
+  "setVersion": 1,
+  "id": "runtime-fixtures",
+  "packet": 29,
+  "files": [
+    {
+      "path": "scheduler-traces.json",
+      "sha256": "2839f438faace87d53473b28d41a648b498b439047a6d9b035eeb467fe43106d"
+    },
+    {
+      "path": "demo-traces.json",
+      "sha256": "634f2712b30f63e2a1120c0233377baf4f02f1c5b30f5179b479c8446255db4d"
+    },
+    {
+      "path": "failstop.json",
+      "sha256": "2515543dba13489f5419b0528279aef0128d1604b50e39d5286a8de1e9cb0545"
+    }
+  ]
+}

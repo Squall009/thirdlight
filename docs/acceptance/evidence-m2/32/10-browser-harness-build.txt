@@ -1,0 +1,6 @@
+
+  ../../../../tmp/m2-controller-harness.js  3.4mb ⚠️
+
+⚡ Done in 75ms
+bytes: 3513230
+sha256: e352e98d6c1346ad984537c282216849c216acf9f348a0f87aecb75f5d763d52

@@ -1,0 +1,12 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+
+ Test Files  22 passed (22)
+      Tests  178 passed (178)
+   Start at  12:42:33
+   Duration  2.65s (tests 58%, transform 22%, import 19%, worker 1%)
+
+    Isolate  22 workers spawned · ~165ms startup each (spawn + environment, per file)
+             at least ~559ms faster with isolate: false — reuses workers across files instead of one per file
+

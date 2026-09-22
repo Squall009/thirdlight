@@ -1,0 +1,126 @@
+{
+  "kind": "platformer-course",
+  "id": "tl-m2-slope-course",
+  "packet": 32,
+  "setVersion": 1,
+  "provenance": {
+    "source": "fixtures/m2/physics/slope-course.json (packet 31)",
+    "note": "Slope-threshold course: 2 m ramps at 29.9/30.0/44.9/45.0/45.1 degrees on a shared floor. Copied for the packet-32 controller slope classification and C32-1 slide measurements."
+  },
+  "solver": {
+    "hz": 120,
+    "gravityY": -19.62
+  },
+  "character": {
+    "start": {
+      "x": -1.5,
+      "y": 0.9
+    },
+    "capsule": {
+      "radius": 0.3,
+      "halfHeight": 0.6
+    },
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "maxSlopeClimbRad": 0.785398163397,
+    "minSlopeSlideRad": 0.523598775598,
+    "autostep": false
+  },
+  "settings": {
+    "gravity_y": -19.62,
+    "run_speed": 4,
+    "jump_velocity": 7,
+    "max_fall_speed": -30,
+    "max_slope_climb_deg": 45,
+    "min_slope_slide_deg": 30
+  },
+  "statics": [
+    {
+      "entityId": "slope-floor",
+      "shape": {
+        "type": "box",
+        "hx": 20,
+        "hy": 0.25
+      },
+      "position": {
+        "x": 12,
+        "y": -0.25
+      },
+      "rotationZ": 0
+    },
+    {
+      "entityId": "slope-29.9",
+      "shape": {
+        "type": "box",
+        "hx": 2,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 1.733793497871,
+        "y": 0.996975479508
+      },
+      "rotationZ": 0.521853446346
+    },
+    {
+      "entityId": "slope-30.0",
+      "shape": {
+        "type": "box",
+        "hx": 2,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 7.732050807569,
+        "y": 1
+      },
+      "rotationZ": 0.523598775598
+    },
+    {
+      "entityId": "slope-44.9",
+      "shape": {
+        "type": "box",
+        "hx": 2,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 13.416679675449,
+        "y": 1.411743141357
+      },
+      "rotationZ": 0.783652834145
+    },
+    {
+      "entityId": "slope-45.0",
+      "shape": {
+        "type": "box",
+        "hx": 2,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 19.414213562373,
+        "y": 1.414213562373
+      },
+      "rotationZ": 0.785398163397
+    },
+    {
+      "entityId": "slope-45.1",
+      "shape": {
+        "type": "box",
+        "hx": 2,
+        "hy": 0.1
+      },
+      "position": {
+        "x": 25.411743141357,
+        "y": 1.416679675449
+      },
+      "rotationZ": 0.787143492649
+    }
+  ],
+  "counts": {
+    "statics": 6,
+    "polygonStatics": 0
+  }
+}

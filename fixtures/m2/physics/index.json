@@ -1,0 +1,36 @@
+{
+  "kind": "physics-fixture-index",
+  "setVersion": 1,
+  "id": "physics-fixtures",
+  "packet": 31,
+  "files": [
+    {
+      "path": "cases.json",
+      "sha256": "e8ed70e627b7724f669441138987630847757ff8209edb3b68657d3115c44777"
+    },
+    {
+      "path": "convex-course.json",
+      "sha256": "d25e2c704dbbcadde16cb4f578f7f1a5f10c06042924e15c594cde052adc4fee"
+    },
+    {
+      "path": "course.json",
+      "sha256": "9973cd4790484bd8d55293cf3fc838796bd3db78299885a5adc278b6e551bff0"
+    },
+    {
+      "path": "failures.json",
+      "sha256": "9fa366197a1f1ff976e7b0cb0ff5f564455aa9a844f4e03ffe884474fe08b19b"
+    },
+    {
+      "path": "slope-course.json",
+      "sha256": "8fbb75edab56f42d3eb62ab4bd6f70d2ab79113be29c0da3d2071ddb96fc2b27"
+    },
+    {
+      "path": "snap-course.json",
+      "sha256": "e4690f46375811d7797ad37e2011608caddfc21aac38a3e8076ee7ba11a4e91a"
+    },
+    {
+      "path": "tolerances.json",
+      "sha256": "2ac3e7726989ed90c4468374a06deb1239e5d5f96e378dd8bfa225a54f08d9b6"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "note": "The §4 normative matrix — one row per crash/fault point. F1/F2/F6/F8 are the accepted machinery (workspace §5.1/§6.3/§7.5/§13.5); F3/F7 are the packet-65/66 surfaces; F4/F5 are the 67 operations. Every row: the on-disk state, the detection, the recovery, and the original-preservation outcome.",
+  "rows": [
+    {
+      "id": "F1",
+      "fault": "crash mid-envelope write (any revision)",
+      "state": "the pre-write envelope intact (the §5.1 atomic W: temp + rename + fsync — a torn write is impossible)",
+      "detection": "open: the load pipeline succeeds at the previous revision (no error)",
+      "recovery": "none",
+      "originals": "intact (the envelope is either the old or the new whole document — §5.5)"
+    },
+    {
+      "id": "F2",
+      "fault": "crash between claim-file create and content write",
+      "state": "orphan claim file at the target epoch",
+      "detection": "open: claim_inconsistent (the §6.3 orphan)",
+      "recovery": "operator file operation (prove the holder dead, remove the orphan claim file, re-issue the open — the accepted error hint; NO backend command)",
+      "originals": "intact"
+    },
+    {
+      "id": "F3",
+      "fault": "crash in a template phase (packet 65 §5: reserved/blobs/envelope/replayed)",
+      "state": "the reservation marker + the partial per-phase state",
+      "detection": "open/scan: template_initialization_incomplete (the phase is recorded in the marker)",
+      "recovery": "resume (the operator re-issues the same createProjectFromTemplate call — the dedup-safe deterministic requestIds) or delete the destination (operator file op)",
+      "originals": "the template sources and every other project untouched (the destination is the only partial)"
+    },
+    {
+      "id": "F4",
+      "fault": "crash mid-backup (67)",
+      "state": "a partial destDir without a valid backup-manifest.json (the manifest is written last)",
+      "detection": "every 67 tool: backup_incomplete (the manifest is the gate)",
+      "recovery": "delete-and-recreate (the tool refuses the nonempty destination — no merge, no partial adoption)",
+      "originals": "the source project byte-identical (the backup is read-only on the source)"
+    },
+    {
+      "id": "F5",
+      "fault": "crash mid-restore/create (67)",
+      "state": "a partial destination project directory",
+      "detection": "the tool: restore_destination_nonempty on the re-run (the destination guard, checked before the first write)",
+      "recovery": "delete the destination (operator file op), re-run from the verified backup",
+      "originals": "the source backup and every existing project untouched"
+    },
+    {
+      "id": "F6",
+      "fault": "disk/write fault during any durable write",
+      "state": "the W procedure surfaces the fault; the file is either the old or the new whole document",
+      "detection": "the operation's failure code (content_publish_failed / the write-fault class); the envelope last-written hash check on next open",
+      "recovery": "the accepted retry/takeover rules; no operator file op beyond the accepted claim rules",
+      "originals": "intact (atomic replacement — no torn state)"
+    },
+    {
+      "id": "F7",
+      "fault": "a kit file tampered between vendor and use (66)",
+      "state": "the vendored kit ≠ its kit.json identity",
+      "detection": "the game-build tool's pre-build re-hash (before the pin comparison — a tampered kit is refused regardless of the pin)",
+      "recovery": "re-vendor the pinned kit (the operator re-assembles from the kit identity)",
+      "originals": "the game project + game.json untouched (the refusal is before any build output)"
+    },
+    {
+      "id": "F8",
+      "fault": "a source blob corrupts (disk rot)",
+      "state": "the catalog digest ≠ the file hash",
+      "detection": "contentIntegrity (open/scan): blob_corrupt for the named version",
+      "recovery": "the accepted §13.5 handling; a backup taken before the rot restores the bytes (the blob is the recoverable class)",
+      "originals": "the envelope intact (the manifest + envelope are untouched by blob rot)"
+    }
+  ],
+  "invariant": "no-ready-partial (C09): no fault point leaves a destination that opens as valid while actually partial — every partial state is detected with a named code before any valid-open claim."
+}

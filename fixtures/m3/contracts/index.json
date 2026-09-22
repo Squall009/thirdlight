@@ -1,0 +1,382 @@
+{
+  "indexVersion": 1,
+  "packet": 39,
+  "status": "PROPOSED — not accepted. Gate K records accept/reject per diff.",
+  "contracts": {
+    "model": "docs/planning/m3-contracts/model.md (project-model §23)",
+    "storage": "docs/planning/m3-contracts/storage.md (workspace §16)",
+    "authoring": "docs/planning/m3-contracts/authoring.md (commands additions)",
+    "diffs": "docs/planning/m3-contracts/diffs/{project-model,commands,workspace}.md"
+  },
+  "notes": [
+    "Every sha256 is the real digest of the committed fixture bytes; tools/check-fixtures.mjs recomputes all of them.",
+    "Envelope fixtures are standalone documents: projectId == directory name is a load-time check and is not asserted here.",
+    "source-preimages/cue-start.wav is a real 48 kHz mono 16-bit PCM WAV (96 samples, 236 bytes, sha256 6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb). The audio AssetRecord importRecipe/metrics fields in catalog/audio-asset-record-v3.json, envelope/valid/demo-0003-media-v3.json and envelope/invalid/cue-kind-mismatch.json are the real presentation.md §41.4.3 profile (recipe { profile: pcm-wav, recipeVersion: 1, toolchain { asset-pipeline: 0.1.0 } }, PcmWavMetrics frames 96 / durationMs 2 / pcmBytes 192) derived from that preimage by packet 47 (CC-44-2).",
+    "model/modelAnimation role bindings in envelope/valid/demo-0003-media-v3.json are packet-41 placeholders: 39 fixes only the three role keys, requiredness, the assetId/version binding and the byte bound.",
+    "Invalid fixtures isolate one rule each; check-fixtures.mjs re-derives the expected result independently for the version-combination, registry, reference, count and field rules it can and otherwise asserts the declared expectation and code.",
+    "Expected results for envelope-level refusals are single errors; deeper checks stop (storage.md §S2/S4).",
+    "The command scenario is replayed from recorded change data (contract consistency): revision/history arithmetic, derived-ID allocation, inverse/redo equality and the final document are re-derived.",
+    "CC-44-3 repair (2026-09-19): `migration/v2-source/envelope.json` is a genuinely v2-loadable scene. It declared `schemaVersion: 2` while carrying the v3-only `cameraFollow` component, contradicting storage.md §16.5.1; the component was removed from the source and (verbatim carry) from the destination, and the checker now re-derives that a v2 source carries no v3-only component. No contract rule was relaxed: §23.11 clarifies that the v3-registry superset claim covers every v2-valid entity, not a v2 document carrying v3 components.",
+    "CC-44-4 repair (2026-09-19): the migration destination is loadable. workspace.md §16.5.2 now resets the derived revision metadata on copy (`publishedRevision`, `behaviors[i].source.publishedRevision`, `behaviorTrust[].acknowledgedRevision` → 0) because the destination is a new project identity whose revision restarts at 0; the destination fixture's asset `publishedRevision` moved 2 → 0 and the checker re-derives the reset and the loadability."
+  ],
+  "registry": {
+    "modelErrorCodes": [
+      "encoding_invalid",
+      "json_parse_error",
+      "duplicate_key",
+      "schema_version_unsupported",
+      "field_missing",
+      "field_unexpected",
+      "field_type",
+      "field_value",
+      "id_invalid",
+      "id_duplicate",
+      "reference_missing",
+      "component_unknown",
+      "component_conflict",
+      "component_missing",
+      "camera_count_invalid",
+      "limits_exceeded",
+      "number_out_of_range",
+      "revision_invalid",
+      "version_combination_unsupported",
+      "asset_reference_missing",
+      "asset_version_invalid",
+      "asset_kind_mismatch",
+      "game_reference_missing",
+      "game_reference_in_use",
+      "zone_transform_unsupported",
+      "spawn_transform_unsupported",
+      "zone_checkpoint_count_invalid",
+      "zone_goal_missing",
+      "game_config_invalid"
+    ],
+    "workspaceErrorCodes": [
+      "envelope_invalid",
+      "storage_version_unsupported",
+      "version_combination_unsupported",
+      "content_invalid",
+      "scene_invalid",
+      "migration_version_unsupported",
+      "migration_source_invalid",
+      "migration_destination_exists",
+      "migration_marker_conflict"
+    ],
+    "commandErrorCodes": [
+      "no_change",
+      "revision_conflict",
+      "entity_not_found",
+      "game_reference_in_use",
+      "component_missing",
+      "component_conflict",
+      "field_missing",
+      "field_unexpected",
+      "field_type",
+      "field_value",
+      "limits_exceeded"
+    ]
+  },
+  "fixtures": {
+    "source-preimages/cue-start.wav": {
+      "kind": "source-preimage",
+      "sha256": "6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb",
+      "bytes": 236,
+      "note": "real 48 kHz mono 16-bit PCM WAV, 96 samples (packet-41 profile placeholder)"
+    },
+    "source-preimages/courier.glb": {
+      "kind": "source-preimage",
+      "sha256": "ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc",
+      "bytes": 47,
+      "note": "opaque placeholder bytes; not a GLB and not an import-profile claim"
+    },
+    "envelope/valid/demo-0003-beacon-min-v3.json": {
+      "sha256": "a932b05ade9aa1b1c0398c3050f46af8e39809170a57198b4cea79b196be9414",
+      "bytes": 6980,
+      "kind": "v3-envelope-valid"
+    },
+    "envelope/valid/demo-0003-fresh-v3.json": {
+      "sha256": "63fc527c886f8ddeee4aa77cb7daafd9ac3ff53668c521fa74aedde3110754c3",
+      "bytes": 1753,
+      "kind": "v3-envelope-valid"
+    },
+    "envelope/valid/demo-0003-media-v3.json": {
+      "sha256": "636ea9f3ade71a7560ad1659b1893fc4c8a0fa9027effb510d1d5d2f4d3fb6a5",
+      "bytes": 8216,
+      "kind": "v3-envelope-valid"
+    },
+    "catalog/audio-asset-record-v3.json": {
+      "sha256": "78f9361f1c1759a39cd4ac4a2f46f39a1550f483b3320497d959f221d95e9f46",
+      "bytes": 1207,
+      "kind": "catalog"
+    },
+    "envelope/invalid/combination-scene3-storage2.json": {
+      "sha256": "69718a58e6bb13e5dbfb19ef88ae18d46fd2149241b74e59e1f80639c937dd3e",
+      "bytes": 6980,
+      "expect": {
+        "result": "version_combination_unsupported",
+        "path": "/storageVersion"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/storage-unknown-4.json": {
+      "sha256": "a808ff2d7b0ce9e44ed6867bfa30a83959f523da9264770f3ebcc6dbb93fa245",
+      "bytes": 6980,
+      "expect": {
+        "result": "storage_version_unsupported",
+        "path": "/storageVersion"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/scene-unknown-4.json": {
+      "sha256": "26a62c24b4c8dc3786b776a3abc259a466f44dac4c70b4cba5c3d6d958d857cd",
+      "bytes": 6980,
+      "expect": {
+        "result": "version_combination_unsupported",
+        "path": "/storageVersion",
+        "note": "v3 row requires scene 3; a scene-4 document alone is schema_version_unsupported"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/content-missing-game.json": {
+      "sha256": "aae27d96d90324d10a135b99713612cac9d563cecb0771839b7014c5a7fa0a81",
+      "bytes": 6421,
+      "expect": {
+        "result": "envelope_invalid",
+        "path": "/content/game",
+        "reason": "field_missing"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/unknown-component.json": {
+      "sha256": "7b001be6508d3c9345b6d82b5ca38b90dbcca686be7a7b07966297ef64b4eb0f",
+      "bytes": 7007,
+      "expect": {
+        "result": "component_unknown",
+        "path": "/scene/entities/4/components/lightBeam"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-missing-key.json": {
+      "sha256": "41bd5ca1660889fcf5fcbd7e5e325a9002304b0cfbf02cac962d2c5fdc2d05d3",
+      "bytes": 6838,
+      "expect": {
+        "result": "game_config_invalid",
+        "path": "/content/game/cues",
+        "reason": "field_missing"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/combination-scene2-storage3.json": {
+      "sha256": "1dd7b56ba0fdbff73a15915863489ec7bad337816be00e1e700b4dfac0f42385",
+      "bytes": 6980,
+      "expect": {
+        "result": "version_combination_unsupported",
+        "path": "/storageVersion"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-dangling-player.json": {
+      "sha256": "310ee2d0580809ccbbade5f0be623d834560dee600eb341db796a35d56449176",
+      "bytes": 6980,
+      "expect": {
+        "result": "game_reference_missing",
+        "path": "/content/game/playerId",
+        "reason": "player"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-no-goal.json": {
+      "sha256": "405d98bd29bbc7314ebfae67a9edfeb007c8d6bf23ceffe687cf00cbc8a35fe5",
+      "bytes": 6224,
+      "expect": {
+        "result": "zone_goal_missing",
+        "path": "/scene/entities"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-two-checkpoints.json": {
+      "sha256": "5af5f86b1bbb0e08791e7be36c879a80ac1d7360ce005a91bc0a0d8e607b955f",
+      "bytes": 7940,
+      "expect": {
+        "result": "zone_checkpoint_count_invalid",
+        "path": "/scene/entities"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/checkpoint-missing-safespawn.json": {
+      "sha256": "2ff7cae0e70550d0b40876aaace2e8c13f873484eb0398c75bf47d02912f51b5",
+      "bytes": 6939,
+      "expect": {
+        "result": "field_missing",
+        "path": "/scene/entities/5/components/gameZone/safeSpawnId"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/zone-parented.json": {
+      "sha256": "ba901db737c8ad0f84f5dba44e40638da128d521087e3527087478e1ef3ecd79",
+      "bytes": 7012,
+      "expect": {
+        "result": "zone_transform_unsupported",
+        "path": "/scene/entities/5/parentId",
+        "reason": "parented"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/spawn-parented.json": {
+      "sha256": "e7ef32a1f2cfd5f81ee914c58fa99cfbcd606cea04d05f94573eedfd75d2a7d4",
+      "bytes": 7012,
+      "expect": {
+        "result": "spawn_transform_unsupported",
+        "path": "/scene/entities/3/parentId",
+        "reason": "parented"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/cue-kind-mismatch.json": {
+      "sha256": "b3abe342ff8f8c78014a52450cc28cba25ddac8b143d8f7264bbff8a871cbbe7",
+      "bytes": 9168,
+      "expect": {
+        "result": "asset_kind_mismatch",
+        "path": "/content/game/cues/goal",
+        "reason": "cue"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/cue-unresolved.json": {
+      "sha256": "74d5122f34fcc773992b8d38a2b713c38108ee374255e230649857a5e1c488bb",
+      "bytes": 6997,
+      "expect": {
+        "result": "asset_reference_missing",
+        "path": "/content/game/cues/goal"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/surface-on-group.json": {
+      "sha256": "47fdf0ae5e81e971d1ad7f31847c89825f296e82f61e6fa192945a088011dbde",
+      "bytes": 7177,
+      "expect": {
+        "result": "component_missing",
+        "path": "/scene/entities/2/components/surface"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/light-ambient-with-direction.json": {
+      "sha256": "f1d76c515cafa7203bd0f8cee7d0863e0446b1bd1cf6091857366b211bcb80ec",
+      "bytes": 7075,
+      "expect": {
+        "result": "field_value",
+        "path": "/scene/entities/8/components/light/direction"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-kill-above-max.json": {
+      "sha256": "a758e51d4960164c59bd3d5a47848eaaf56be63aad06fb80f7b517d134eab034",
+      "bytes": 6979,
+      "expect": {
+        "result": "game_config_invalid",
+        "path": "/content/game/killY",
+        "reason": "field_value"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-extra-field.json": {
+      "sha256": "f7ea705ea6cf0aae47e15eae14c1e3fc183842f22033539a8ca9b130afffe2b5",
+      "bytes": 7008,
+      "expect": {
+        "result": "game_config_invalid",
+        "path": "/content/game/difficulty",
+        "reason": "field_unexpected"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/game-instructions-too-long.json": {
+      "sha256": "4dfe19add89b3f5802a35a790dc5304407e70130092719a659b0fae138738cc3",
+      "bytes": 7241,
+      "expect": {
+        "result": "game_config_invalid",
+        "path": "/content/game/instructions",
+        "reason": "field_value"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "envelope/invalid/model-animation-asset-mismatch.json": {
+      "sha256": "8153f5e317f83594de5d0377df00f97cd73031141811d3bea2e6e9ed5e4f7ec1",
+      "bytes": 9088,
+      "expect": {
+        "result": "component_conflict",
+        "path": "/scene/entities/9/components/modelAnimation/assetId",
+        "reason": "animation_asset",
+        "p41Placeholder": true,
+        "note": "the entity-level equality rule is checked before cross-block resolution (model.md §23.8)"
+      },
+      "kind": "v3-envelope-invalid"
+    },
+    "migration/v2-source/envelope.json": {
+      "sha256": "ce20177890d779557e073e4b64b3507d955cb8f280337475db8188b4bc8c7398",
+      "bytes": 3380,
+      "kind": "migration",
+      "expect": {
+        "sceneSchemaVersion": 2,
+        "v3OnlyComponents": 0
+      },
+      "note": "CC-46-1 repair (2026-09-19): the source is genuinely v2-pipeline-loadable. Its single retry record carried `result: {\"ok\": true}`, which fails the §4.3 step-7 §5.1 result shape (`retry_records_invalid` / `/result/op`) and so contradicted §16.5.1; the record is removed (an empty retry block is a legal v2 envelope). CC-44-3 repair: the camera entity's v3-only `cameraFollow` component was removed so the document no longer contradicts §16.5.1; the destination carries the same entities verbatim."
+    },
+    "migration/v2-source/project.json": {
+      "sha256": "145a387b628ff42435e72b446f4fc59b29a94965a8a347a4b39ab89a53efc66f",
+      "bytes": 228,
+      "kind": "migration"
+    },
+    "migration/expected-v3-destination/envelope.json": {
+      "sha256": "5cd03e73eadf1ffef3fa9a7060e88a8dc7a9eb65956359928715909344238cba",
+      "bytes": 3398,
+      "kind": "migration",
+      "expect": {
+        "sceneSchemaVersion": 3,
+        "revision": 0,
+        "derivedRevisionsReset": true,
+        "loadable": true
+      },
+      "note": "CC-44-4 repair: the asset version's `publishedRevision` is reset to 0 with the destination `revision`, per workspace.md §16.5.2 (a new project identity with reset revision/history). Before the repair it stayed 2 and the destination failed the §18.9.2 rule 4 / §13.2 rule 5 bound `publishedRevision ≤ scene.revision`."
+    },
+    "migration/expected-v3-destination/project.json": {
+      "sha256": "e28a4f91ac88fcf63e4ee4ec10fa2f1408b04be990d2f4537df80eaa4f158c72",
+      "bytes": 228,
+      "kind": "migration"
+    },
+    "migration/interrupted-copy/marker.json": {
+      "sha256": "b63793e6f98c0248970a36c526c27e52f330dd4a7514226f1f046f385a807772",
+      "bytes": 221,
+      "kind": "migration"
+    },
+    "migration/interrupted-copy/case.json": {
+      "sha256": "eb07a16f2908bc3b26ea32d907746156e652e69631212628c0860b752ce587f9",
+      "bytes": 706,
+      "kind": "migration"
+    },
+    "commands/scenario.before.json": {
+      "sha256": "7e15e2caa3ebf8bd6ffa2bd913589b01f37c728d5c20701b51fdf3d33ac3a689",
+      "bytes": 3754,
+      "kind": "command"
+    },
+    "commands/scenario.messages.json": {
+      "sha256": "6941a58c1f802bebc9f75c5d8906148158e51bae6349e3f34ec2cefe9ae59d5d",
+      "bytes": 10812,
+      "kind": "command"
+    },
+    "commands/scenario.after.json": {
+      "sha256": "09e78f88baa6ff25c8d1ab5c56e27aaca7643c625d8a797d53162f8e453a504f",
+      "bytes": 6312,
+      "kind": "command"
+    },
+    "commands/no-change.json": {
+      "sha256": "09cc7edaf35fae40fac231a3b03439a292eef8916d0065f9f2562a84b7e440c6",
+      "bytes": 1759,
+      "kind": "command"
+    },
+    "commands/failures.json": {
+      "sha256": "3475ee40adf5b3451080f4dff67d847f7ce2c10fb727314dc76309b35f1d8ae8",
+      "bytes": 4772,
+      "kind": "command"
+    }
+  }
+}

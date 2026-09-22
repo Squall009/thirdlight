@@ -16,6 +16,7 @@ import {
   isSessionId,
   REQUEST_ID_RE,
 } from './ids';
+import { V3_MUTATION_OPS, V3_QUERY_OPS } from './m3';
 import {
   checkField,
   checkOptionalObject,
@@ -188,8 +189,21 @@ export function parseAdminNoArgsBody(value: unknown): FieldErrorResult {
  * authoritative validator — commands.md §6.1). Anything else is a
  * session-layer `invalid_request`.
  */
-const MUTATION_OPS: readonly MutationOp[] = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'];
-export const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities'] as const;
+const MUTATION_OPS: readonly MutationOp[] = [
+  // M1 (unchanged)
+  'createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo',
+  // M2 content/property/prefab ops (commands.md §2/§8.5–§8.12, packets 21/22)
+  'publishAsset', 'publishBehavior', 'setBehaviorProperties', 'setComponent', 'setSettings',
+  'acknowledgeBehaviorTrust', 'createPrefab', 'instantiatePrefab',
+  // M3 v3 game/presentation ops (commands.md §2/§8.13/§8.14, packet 45/48)
+  ...(V3_MUTATION_OPS as readonly MutationOp[]),
+];
+export const QUERY_OPS = [
+  'queryProject', 'queryEntity', 'queryEntities',
+  'queryAssets', 'queryPrefabs', 'queryBehaviors',
+  // M3 v3 query (commands.md §4, packet 45/48)
+  ...V3_QUERY_OPS,
+] as const;
 const ALL_OPS: readonly string[] = [...MUTATION_OPS, ...QUERY_OPS];
 
 export function parseCommandEnvelope(value: unknown):
@@ -214,9 +228,9 @@ export function parseCommandEnvelope(value: unknown):
       error: {
         code: 'invalid_request',
         cls: 'validation',
-        message: `op must be one of the M1 ops (got ${JSON.stringify(String(op)).slice(0, 64)})`,
+        message: `op must be one of the accepted ops (got ${JSON.stringify(String(op)).slice(0, 64)})`,
         path: '/op',
-        expected: 'one of: createEntity, setTransform, deleteEntity, undo, redo, queryProject, queryEntity, queryEntities',
+        expected: `one of: ${ALL_OPS.join(', ')}`,
       },
     };
   }

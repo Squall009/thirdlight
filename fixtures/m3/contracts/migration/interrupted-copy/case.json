@@ -1,0 +1,20 @@
+{
+  "setVersion": 1,
+  "description": "interrupted v2→v3 copy: the destination contains the marker (stored at .thirdlight/migration.json) and NO envelope; the startup scan must suppress the default-envelope completion and report an interrupted migration destination",
+  "destinationFiles": [
+    "project.json? absent",
+    "marker.json → .thirdlight/migration.json",
+    "envelope: ABSENT"
+  ],
+  "expect": {
+    "startupScan": "migration_resume_required",
+    "defaultEnvelopeSuppressed": true,
+    "authoritativeBytes": 0
+  },
+  "resume": {
+    "op": "migrateProjectCopyV3",
+    "from": "phase:created",
+    "idempotent": true,
+    "outcome": "migration/expected-v3-destination/envelope.json"
+  }
+}

@@ -41,7 +41,7 @@ describe('queries (§5.6)', () => {
     expect(p.projectId).toBe('demo-0001');
     expect(p.revision).toBe(5);
     expect(p.manifest.id).toBe('demo-0001');
-    expect(p.scene).toEqual({ sceneId: 'scene-main', entityCount: 4, cameraId: 'cam-main' });
+    expect(p.scene).toEqual({ sceneId: 'scene-main', schemaVersion: 1, entityCount: 4, cameraId: 'cam-main' });
     expect(p.workspace).toEqual({ writePaused: false });
     svc.dispose();
     rmSync(root, { recursive: true, force: true });

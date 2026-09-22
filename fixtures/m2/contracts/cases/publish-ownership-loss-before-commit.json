@@ -1,0 +1,63 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "publish-ownership-loss-before-commit",
+  "title": "Ownership loss between blob publication and the commit changes nothing durable",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 6. Publication pipeline and crash boundaries"
+    },
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 7. Failure and recovery matrix"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "fault": {
+      "at": "phase-4",
+      "event": "another backend claimed the project (explicit takeover after this process was killed)"
+    },
+    "request": {
+      "requestId": "req-50000000000000000000000000000008",
+      "expectedRevision": 8,
+      "mode": "create",
+      "assetId": "asset-11aa22bb33cc44dd",
+      "stageId": "stg-commit01"
+    }
+  },
+  "steps": [
+    {
+      "at": "phase-4",
+      "action": "recheck ownership and revision under the mutation lock",
+      "expect": {
+        "outcome": "ownership no longer self"
+      }
+    },
+    {
+      "at": "after",
+      "action": "return without writing",
+      "expect": {
+        "envelopeWrites": 0,
+        "revision": 8,
+        "recordsAdded": 0
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "ownership_conflict"
+    ],
+    "durableEffects": [
+      "possibly one unreferenced immutable blob from phase 3"
+    ],
+    "observations": [
+      "the revision is rechecked in the same lock acquisition, so a stale owner can never publish over newer work",
+      "the retry after takeover re-runs the publish; the blob publication is idempotent"
+    ]
+  },
+  "notes": "Concurrency rule: the mutation lock is held only for the authoritative phases, and ownership/revision are rechecked inside it."
+}

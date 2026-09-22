@@ -1,0 +1,3 @@
+backend bundle contains thirdlight.behavior-compiler: yes
+backend bundle size: 911420 bytes
+external esbuild import present: yes

@@ -11,20 +11,42 @@
  *   wins): strict parse → root object → `storageVersion` → `type` →
  *   `projectId` → `validateScene` → retry block → (manifest handled by the
  *   caller: §4.3 step 8 reads a separate file).
+ * - §16.3/§16.4 (packet 46): the `storageVersion` 3 branch — the same
+ *   six-key set, the §16.2 combination check before any field validation,
+ *   the six-key v3 content block (`validateContentV3`) and the v3 scene
+ *   (`validateSceneV3`). The cross-block `validateProjectV3` (game/cue/
+ *   animation references) needs the manifest and runs in the session loader
+ *   (`loadProjectDir`), exactly like `validateProjectV2` for v2.
  *
  * The envelope is the ONLY mutable authoring file; the workspace decodes it
  * and passes only the embedded scene to the scene validator (workspace.md
  * §4.2, project-model §3).
  */
 
-import type { Scene } from '@thirdlight/project-model';
+import type {
+  ContentCatalog,
+  ContentCatalogV3,
+  Scene,
+  SceneV2,
+  SceneV3,
+} from '@thirdlight/project-model';
 import type { LoadDetail, UnavailableReason } from './errors';
-import { parseDocumentBytes, validateScene } from '@thirdlight/project-model';
+import {
+  parseDocumentBytes,
+  validateContent,
+  validateContentV3,
+  validateProjectV2,
+  validateScene,
+  validateSceneV2,
+  validateSceneV3,
+} from '@thirdlight/project-model';
 import type { MutationSuccess } from '@thirdlight/commands';
 
 import { isPlainObject, isSafeInt, pointerSegment } from './errors';
 
-/** The envelope's storageVersion known to M1 (workspace.md §4.2). */
+/** The envelope storageVersions M3 knows (workspace.md §16.2). */
+export const ENVELOPE_STORAGE_VERSIONS = [1, 2, 3] as const;
+/** The M1 storageVersion (workspace.md §4.2). */
 export const ENVELOPE_STORAGE_VERSION = 1;
 /** The constant recorded in every retry block (workspace.md §4.2). */
 export const RETRY_RETENTION = 128;
@@ -47,9 +69,19 @@ export interface RetryRecord {
   result: MutationSuccess;
 }
 
-/** §4.3 pipeline outcome for one envelope byte blob. */
+/** §4.3 pipeline outcome for one envelope byte blob. `content` is `null` for
+ * a `storageVersion` 1 envelope (workspace.md §4.5: the passable
+ * combinations; §16.2 adds the v3 row). */
 export type EnvelopeLoad =
-  | { ok: true; scene: Scene; records: RetryRecord[] }
+  | { ok: true; storageVersion: 1; scene: Scene; content: null; records: RetryRecord[] }
+  | { ok: true; storageVersion: 2; scene: SceneV2; content: ContentCatalog; records: RetryRecord[] }
+  | {
+      ok: true;
+      storageVersion: 3;
+      scene: SceneV3;
+      content: ContentCatalogV3;
+      records: RetryRecord[];
+    }
   | {
       ok: false;
       reason: UnavailableReason;
@@ -84,6 +116,63 @@ export function buildEnvelopeBytes(
 }
 
 /**
+ * Build the canonical `storageVersion` 2 envelope bytes (workspace.md
+ * §4.4/§4.5): key order `storageVersion, type, projectId, scene, content,
+ * retry`; `content` in the canonical content key order
+ * (`assets, prefabs, behaviors, settings, behaviorTrust`). `scene` and
+ * `content` must already be model-normalized canonical values; `records` in
+ * strictly ascending `appliedRevision` order (≤ 128).
+ */
+export function buildEnvelopeBytesV2(
+  projectId: string,
+  scene: SceneV2,
+  content: ContentCatalog,
+  records: readonly RetryRecord[],
+): Uint8Array {
+  const doc = {
+    storageVersion: 2,
+    type: ENVELOPE_TYPE,
+    projectId,
+    scene,
+    content,
+    retry: {
+      retention: RETRY_RETENTION,
+      records,
+    },
+  };
+  return new TextEncoder().encode(JSON.stringify(doc, null, 2) + '\n');
+}
+
+/**
+ * Build the canonical `storageVersion` 3 envelope bytes (workspace.md
+ * §16.3/§4.4): the same top-level key order `storageVersion, type, projectId,
+ * scene, content, retry` with the six-key `content` block in the §23.7 order
+ * (`assets, prefabs, behaviors, settings, behaviorTrust, game`). `scene` and
+ * `content` must already be model-normalized canonical values (the key order
+ * comes from the object; `validateContentV3` emits the canonical six-key
+ * order); `records` in strictly ascending `appliedRevision` order (≤ 128).
+ */
+export function buildEnvelopeBytesV3(
+  projectId: string,
+  scene: SceneV3,
+  content: ContentCatalogV3,
+  records: readonly RetryRecord[],
+): Uint8Array {
+  const doc = {
+    storageVersion: 3,
+    type: ENVELOPE_TYPE,
+    projectId,
+    scene,
+    content,
+    retry: {
+      retention: RETRY_RETENTION,
+      records,
+    },
+  };
+  return new TextEncoder().encode(JSON.stringify(doc, null, 2) + '\n');
+}
+
+/**
  * Run the §4.3 load validation pipeline over raw envelope bytes (steps 1–7;
  * step 8, the manifest + cross-document checks, needs the separate manifest
  * file and runs in the session loader).
@@ -106,20 +195,22 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
       },
     ]);
   }
-  // 3. storageVersion present and known (M1 knows [1]); unknown stops deeper checks.
+  // 3. storageVersion present and known (M3 knows [1, 2, 3]); unknown stops
+  //    deeper checks. The value selects the pipeline branch (step 6a/§16.4).
   const sv = root['storageVersion'];
-  if (!isSafeInt(sv) || sv !== ENVELOPE_STORAGE_VERSION) {
+  if (!isSafeInt(sv) || (sv !== 1 && sv !== 2 && sv !== 3)) {
     return fail('storage_version_unsupported', [
       {
         code: 'storage_version_unsupported',
         path: '/storageVersion',
-        message: 'envelope storageVersion is not known to M1',
+        message: 'envelope storageVersion is not known to M3',
         found: bounded(sv),
-        expected: '1 (known versions: [1])',
-        knownVersions: [ENVELOPE_STORAGE_VERSION],
+        expected: '1, 2 or 3 (known versions: [1,2,3])',
+        knownVersions: [1, 2, 3],
       },
     ]);
   }
+  const storageVersion: 1 | 2 | 3 = sv === 3 ? 3 : sv === 2 ? 2 : 1;
   // 4. type discriminator (no auto-detection or fallback to a bare scene).
   if (root['type'] !== ENVELOPE_TYPE) {
     return fail('envelope_invalid', [
@@ -145,22 +236,28 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
       },
     ]);
   }
-  // Strictness (workspace.md §4.2): unknown fields at the envelope level.
+  if (storageVersion === 3) return validateV3Envelope(root, pid);
+  if (storageVersion === 2) return validateV2Envelope(root, pid);
+  return validateV1Envelope(root, pid);
+}
+
+/** The accepted M1 branch (workspace.md §4.3 steps 6–7 at storageVersion 1):
+ * exactly the five-key set, `validateScene`, the retry block. `content` is
+ * never present in a v1 envelope. */
+function validateV1Envelope(root: Record<string, unknown>, pid: string): EnvelopeLoad {
   for (const k of Object.keys(root)) {
     if (!['storageVersion', 'type', 'projectId', 'scene', 'retry'].includes(k)) {
       return fail('envelope_invalid', [
         {
           code: 'field_unexpected',
           path: `/${pointerSegment(k)}`,
-          message: 'unknown field is not permitted in the envelope (strict M1 schema drops nothing)',
+          message: 'unknown field is not permitted in a storageVersion 1 envelope (strict M1 schema drops nothing)',
           found: k,
           expected: 'known fields: storageVersion, type, projectId, scene, retry',
         },
       ]);
     }
   }
-  // 6. Embedded scene → validateScene (the workspace never passes the
-  //    envelope itself to the scene validator).
   const sceneRes = validateScene(root['scene']);
   if (!sceneRes.ok) {
     return {
@@ -170,14 +267,237 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
       count: sceneRes.errors.length,
     };
   }
-  const scene = sceneRes.normalized;
-  // 7. Retry block (validated against the envelope's projectId: record
-  //    result payloads must belong to THIS project — R13).
-  const retryRes = validateRetryBlock(root['retry'], scene, pid);
+  const scene = sceneRes.normalized as Scene;
+  const retryRes = validateRetryBlock(root['retry'], scene.revision, pid, 1);
   if (!retryRes.ok) {
     return { ok: false, reason: 'retry_records_invalid', errors: [retryRes.error], count: 1 };
   }
-  return { ok: true, scene, records: retryRes.records };
+  return { ok: true, storageVersion: 1, scene, content: null, records: retryRes.records };
+}
+
+/**
+ * The `storageVersion` 2 branch (workspace.md §4.3 steps 6a–6g). 6a envelope
+ * key set exactly six; 6b version-combination check (single error, deeper
+ * checks stop); 6c/6d scene + content validation, both evaluated and both
+ * error sets reported when both fail; 6e cross-block is run by the caller
+ * that holds the manifest (session `loadProjectDir`, project-model §13.1); 6f
+ * the canonical content byte budget is enforced by `validateContent`
+ * (`limits_exceeded` `content_bytes`); 6g the retry block.
+ */
+function validateV2Envelope(root: Record<string, unknown>, pid: string): EnvelopeLoad {
+  // 6a — envelope key set exactly {storageVersion, type, projectId, scene, content, retry}.
+  const WANT = ['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry'] as const;
+  for (const k of WANT) {
+    if (!(k in root)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_missing',
+          path: `/${k}`,
+          message: `required envelope field '${k}' is missing`,
+          expected: 'present',
+        },
+      ]);
+    }
+  }
+  for (const k of Object.keys(root)) {
+    if (!(WANT as readonly string[]).includes(k)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_unexpected',
+          path: `/${pointerSegment(k)}`,
+          message: 'unknown field is not permitted in the envelope (strict schema drops nothing)',
+          found: k,
+          expected: `known fields: ${WANT.join(', ')}`,
+        },
+      ]);
+    }
+  }
+  // 6b — version-combination check BEFORE any scene/content field validation:
+  // a v2 envelope must carry a schemaVersion 2 scene and a content block.
+  const sceneRaw = root['scene'];
+  const sceneSchema = isPlainObject(sceneRaw) ? sceneRaw['schemaVersion'] : undefined;
+  if (sceneSchema !== 2) {
+    return fail('version_combination_unsupported', [
+      {
+        code: 'version_combination_unsupported',
+        path: '/scene/schemaVersion',
+        message: 'a storageVersion 2 envelope requires scene schemaVersion 2 (the only passable M2 combination)',
+        found: bounded(sceneSchema),
+        expected: '2',
+      },
+    ]);
+  }
+  // 6c/6d — scene and content validation; both are evaluated, and both error
+  // sets are reported when both fail (workspace.md §4.3 step 6c/6d).
+  const sceneRes = validateSceneV2(sceneRaw);
+  const contentRes = validateContent(root['content']);
+  if (!sceneRes.ok || !contentRes.ok) {
+    const errors: LoadDetail[] = [];
+    let count = 0;
+    if (!sceneRes.ok) {
+      errors.push(...sceneRes.errors.slice(0, 10));
+      count += sceneRes.errors.length;
+    }
+    if (!contentRes.ok) {
+      errors.push(...contentRes.errors.slice(0, 10));
+      count += contentRes.errors.length;
+    }
+    return {
+      ok: false,
+      reason: !sceneRes.ok ? 'scene_invalid' : 'content_invalid',
+      errors,
+      count,
+    };
+  }
+  // 6g — retry block (the accepted step 7 unchanged; v2 records may carry the
+  // packet-21/22 content ops).
+  const scene = sceneRes.normalized as SceneV2;
+  const retryRes = validateRetryBlock(root['retry'], scene.revision, pid, 2);
+  if (!retryRes.ok) {
+    return { ok: false, reason: 'retry_records_invalid', errors: [retryRes.error], count: 1 };
+  }
+  return {
+    ok: true,
+    storageVersion: 2,
+    scene,
+    content: contentRes.normalized as ContentCatalog,
+    records: retryRes.records,
+  };
+}
+
+/**
+ * The `storageVersion` 3 branch (workspace.md §16.3/§16.4). Normative order:
+ * the six-key envelope set ⇒ `envelope_invalid`; the §16.2 combination check
+ * (`scene.schemaVersion` must be 3) **before** any scene/content field
+ * validation ⇒ a single `version_combination_unsupported`; then the six-key
+ * `content` block (`validateContentV3` — it enforces the canonical
+ * `content_bytes` ≤ 1 048 576 and `game_bytes` ≤ 16 384 budgets) and the v3
+ * scene (`validateSceneV3`), both evaluated and both error sets reported when
+ * both fail; finally the retry block. The cross-block `validateProjectV3`
+ * (game/cue/animation references) runs in the session loader, which holds the
+ * manifest, exactly like `validateProjectV2` for v2.
+ */
+function validateV3Envelope(root: Record<string, unknown>, pid: string): EnvelopeLoad {
+  // §16.3 — the same top-level six-key set as v2.
+  const WANT = ['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry'] as const;
+  for (const k of WANT) {
+    if (!(k in root)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_missing',
+          path: `/${k}`,
+          message: `required envelope field '${k}' is missing`,
+          expected: 'present',
+        },
+      ]);
+    }
+  }
+  for (const k of Object.keys(root)) {
+    if (!(WANT as readonly string[]).includes(k)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_unexpected',
+          path: `/${pointerSegment(k)}`,
+          message: 'unknown field is not permitted in the envelope (strict schema drops nothing)',
+          found: k,
+          expected: `known fields: ${WANT.join(', ')}`,
+        },
+      ]);
+    }
+  }
+  // §16.2 — the version-combination check BEFORE any scene/content field
+  // validation: a v3 envelope must carry a schemaVersion 3 scene.
+  const sceneRaw = root['scene'];
+  const sceneSchema = isPlainObject(sceneRaw) ? sceneRaw['schemaVersion'] : undefined;
+  if (sceneSchema !== 3) {
+    return fail('version_combination_unsupported', [
+      {
+        code: 'version_combination_unsupported',
+        path: '/scene/schemaVersion',
+        message: 'a storageVersion 3 envelope requires scene schemaVersion 3 (the only passable v3 combination)',
+        found: bounded(sceneSchema),
+        expected: '3',
+      },
+    ]);
+  }
+  // §16.3 content key set — exactly the six v3 keys; a missing or unknown
+  // key is `envelope_invalid` (the envelope's own key-set rule, matching the
+  // model's v3 envelope branch).
+  const contentRaw = root['content'];
+  if (!isPlainObject(contentRaw)) {
+    return fail('envelope_invalid', [
+      {
+        code: 'field_type',
+        path: '/content',
+        message: 'the content block must be an object',
+        found: bounded(contentRaw),
+        expected: 'object',
+      },
+    ]);
+  }
+  const WANT_CONTENT = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game'] as const;
+  for (const k of WANT_CONTENT) {
+    if (!(k in contentRaw)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_missing',
+          path: `/content/${k}`,
+          message: `required v3 content key '${k}' is missing`,
+          expected: 'present',
+        },
+      ]);
+    }
+  }
+  for (const k of Object.keys(contentRaw)) {
+    if (!(WANT_CONTENT as readonly string[]).includes(k)) {
+      return fail('envelope_invalid', [
+        {
+          code: 'field_unexpected',
+          path: `/content/${pointerSegment(k)}`,
+          message: 'unknown v3 content key is not permitted (the six-key set is exact)',
+          found: k,
+          expected: `known keys: ${WANT_CONTENT.join(', ')}`,
+        },
+      ]);
+    }
+  }
+  // §16.4 step 4 — content (six-key v3 block, incl. both byte budgets) and
+  // scene; both are evaluated and both error sets are reported when both
+  // fail.
+  const sceneRes = validateSceneV3(sceneRaw);
+  const contentRes = validateContentV3(contentRaw);
+  if (!sceneRes.ok || !contentRes.ok) {
+    const errors: LoadDetail[] = [];
+    let count = 0;
+    if (!sceneRes.ok) {
+      errors.push(...(sceneRes.errors.slice(0, 10) as readonly LoadDetail[]));
+      count += sceneRes.errors.length;
+    }
+    if (!contentRes.ok) {
+      errors.push(...(contentRes.errors.slice(0, 10) as readonly LoadDetail[]));
+      count += contentRes.errors.length;
+    }
+    return {
+      ok: false,
+      reason: !sceneRes.ok ? 'scene_invalid' : 'content_invalid',
+      errors,
+      count,
+    };
+  }
+  // §16.4 step 6 — retry block (unchanged; v3 records may carry the M1/M2/v3
+  // op set).
+  const scene = sceneRes.normalized as SceneV3;
+  const retryRes = validateRetryBlock(root['retry'], scene.revision, pid, 3);
+  if (!retryRes.ok) {
+    return { ok: false, reason: 'retry_records_invalid', errors: [retryRes.error], count: 1 };
+  }
+  return {
+    ok: true,
+    storageVersion: 3,
+    scene,
+    content: contentRes.normalized as ContentCatalogV3,
+    records: retryRes.records,
+  };
 }
 
 function fail(
@@ -209,8 +529,9 @@ function bounded(v: unknown): unknown {
  */
 function validateRetryBlock(
   retry: unknown,
-  scene: Scene,
+  sceneRevision: number,
   projectId: string,
+  storageVersion: 1 | 2 | 3,
 ): { ok: true; records: RetryRecord[] } | { ok: false; error: LoadDetail } {
   if (!isPlainObject(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
@@ -272,11 +593,11 @@ function validateRetryBlock(
     if (!isSafeInt(applied) || applied < 0) {
       return bad('record appliedRevision must be a non-negative safe integer', applied, 'integer >= 0', `${at}/appliedRevision`);
     }
-    if (applied > scene.revision) {
+    if (applied > sceneRevision) {
       return bad(
-        `record appliedRevision ${applied} exceeds the scene revision ${scene.revision}`,
+        `record appliedRevision ${applied} exceeds the scene revision ${sceneRevision}`,
         applied,
-        `<= ${scene.revision}`,
+        `<= ${sceneRevision}`,
         `${at}/appliedRevision`,
       );
     }
@@ -289,7 +610,7 @@ function validateRetryBlock(
       );
     }
     prev = applied;
-    const resultErr = validateRecordResult(r['result'], rid, applied, projectId);
+    const resultErr = validateRecordResult(r['result'], rid, applied, projectId, storageVersion);
     if (resultErr !== null) {
       return { ok: false, error: resultErr };
     }
@@ -316,28 +637,68 @@ function bad(message: string, found: unknown, expected: string, path: string): {
 
 // ---- record result shape (commands.md §5.1) --------------------------------
 
-const MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'];
+const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'];
+/** The packet-21/22 content/prefab operation set (commands.md §8.5–§8.12). */
+const M2_RESULT_OPS = [
+  'publishAsset',
+  'publishBehavior',
+  'setBehaviorProperties',
+  'setComponent',
+  'setSettings',
+  'acknowledgeBehaviorTrust',
+  'createPrefab',
+  'instantiatePrefab',
+];
+
+/** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig'];
 
 /**
  * Strict shape check of a recorded §5.1 success payload (fields and types
  * per commands.md §5.1; unknown fields rejected — envelope strictness).
  * Returns a LoadDetail describing the first problem, or null when well-formed.
+ *
+ * `storageVersion` selects the accepted op set and the change validator:
+ * a `storageVersion` 1 envelope accepts exactly the five M1 ops (unchanged),
+ * a `storageVersion` 2 envelope additionally accepts the packet-21/22
+ * content ops, and a `storageVersion` 3 envelope additionally accepts the
+ * packet-45 v3 ops (`applySurfacePreset`, `setGameConfig`) and validates
+ * their historical change payloads structurally.
+ * The deep M1 historical-entity validation is NOT applied to v2/v3 records (a
+ * v2/v3 entity may legitimately carry v2/v3-only components the M1 scene
+ * validator rejects); workspace.md §4.2 record well-formedness for the
+ * content ops is the structural check below.
  */
 function validateRecordResult(
   result: unknown,
   recordRequestId: string,
   recordAppliedRevision: number,
   envelopeProjectId: string,
+  storageVersion: 1 | 2 | 3,
 ): LoadDetail | null {
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
+  const acceptedOps =
+    storageVersion === 1
+      ? M1_MUTATION_OPS
+      : storageVersion === 2
+        ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS]
+        : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS];
   // R12: the op discriminator must be a primitive string BEFORE any
   // coercion — a JSON object such as `{"toString":0}` is corrupt shape,
   // not a valid op.
   const opRaw = result['op'];
-  if (typeof opRaw !== 'string' || !MUTATION_OPS.includes(opRaw)) {
-    return rerr('recorded result op is not one of the five M1 mutation ops', opRaw, '/result/op');
+  if (typeof opRaw !== 'string' || !acceptedOps.includes(opRaw)) {
+    return rerr(
+      storageVersion === 1
+        ? 'recorded result op is not one of the five M1 mutation ops'
+        : storageVersion === 2
+          ? 'recorded result op is not a known M1/M2 mutation op'
+          : 'recorded result op is not a known M1/M2/v3 mutation op',
+      opRaw,
+      '/result/op',
+    );
   }
   const op = opRaw;
   let allowed: string[];
@@ -385,7 +746,10 @@ function validateRecordResult(
   if (result['duplicated'] !== false) {
     return rerr('recorded result duplicated must be false (the originally acked payload)', result['duplicated'], '/result/duplicated');
   }
-  const changeErr = validateChangeShape(result['change'], op);
+  const changeErr =
+    storageVersion === 1
+      ? validateChangeShape(result['change'], op)
+      : validateChangeShapeV2(result['change'], op);
   if (changeErr !== null) return changeErr;
   if (op === 'createEntity') {
     if (typeof result['createdId'] !== 'string' || result['createdId'] !== (result['change'] as { id: string })['id']) {
@@ -537,6 +901,109 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
       return null;
   }
 }
+
+/**
+ * Structural change validation for a `storageVersion` 2 record result
+ * (packet-21/22 content and prefab changes, plus the M1 change types that a
+ * v2 project still produces). Exact key sets and primitive discriminators
+ * are checked; historical record payloads (assets/behaviors/prefabs) are not
+ * re-validated against the model here because a v2 entity/record may carry
+ * v2-only components the M1 validators reject (the live content block is
+ * validated separately by `validateContent`).
+ */
+function validateChangeShapeV2(change: unknown, op: string): LoadDetail | null {
+  if (!isPlainObject(change)) return rerr('recorded change must be an object', undefined, '/result/change');
+  const t = change['type'];
+  if (typeof t !== 'string' || !V2_CHANGE_TYPES.includes(t)) {
+    return rerr('recorded change type is not a known change type', t, '/result/change/type');
+  }
+  // op ↔ change.type correspondence; undo/redo carry any inverse change type
+  // (commands.md §5.3/§8.4).
+  if (op !== 'undo' && op !== 'redo') {
+    const expected = M2_CHANGE_TYPE_BY_OP[op];
+    if (expected !== undefined && expected !== t) {
+      return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
+    }
+    if (expected === undefined) {
+      // M1 ops keep their exact correspondence (createEntity/setTransform/
+      // deleteEntity); any other op/type pair is corrupt shape.
+      const m1Expected: Record<string, string> = {
+        createEntity: 'createEntity',
+        setTransform: 'setTransform',
+        deleteEntity: 'deleteEntity',
+      };
+      if (m1Expected[op] !== t) {
+        return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
+      }
+    }
+  }
+  const keys = Object.keys(change);
+  const required = V2_CHANGE_KEYS[t];
+  if (required !== undefined) {
+    for (const k of required) {
+      if (!(k in change)) {
+        return rerr(`recorded ${t} change is missing required field '${k}'`, undefined, `/result/change/${k}`);
+      }
+    }
+  }
+  if (keys.length > 32) {
+    return rerr('recorded change carries an implausible number of fields', keys.length, '/result/change');
+  }
+  return null;
+}
+
+/** All change types a `storageVersion` 2 or 3 envelope's records may carry
+ * (the v3 additions are `applySurfacePreset`/`setGameConfig`). */
+const V2_CHANGE_TYPES: readonly string[] = [
+  'createEntity',
+  'setTransform',
+  'deleteEntity',
+  'restoreSubtree',
+  'publishAsset',
+  'publishBehavior',
+  'setBehaviorProperties',
+  'setComponent',
+  'setSettings',
+  'acknowledgeBehaviorTrust',
+  'createPrefab',
+  'removePrefab',
+  'instantiatePrefab',
+  'applySurfacePreset',
+  'setGameConfig',
+];
+
+/** Required field names per v2 change type (structural well-formedness). */
+const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
+  createEntity: ['type', 'id', 'entity'],
+  setTransform: ['type', 'id', 'previous', 'next', 'changedFields'],
+  deleteEntity: ['type', 'rootId', 'deletedIds'],
+  restoreSubtree: ['type', 'rootId', 'entities'],
+  publishAsset: ['type', 'mode', 'assetId', 'previous', 'next'],
+  publishBehavior: ['type', 'behaviorId', 'previous', 'next'],
+  setBehaviorProperties: ['type', 'id', 'previous', 'next', 'changedKeys'],
+  setComponent: ['type', 'id', 'component', 'previous', 'next', 'changedFields'],
+  setSettings: ['type', 'previous', 'next', 'changedKeys'],
+  acknowledgeBehaviorTrust: ['type', 'sourceDigest', 'previous', 'next'],
+  createPrefab: ['type', 'prefabId', 'definition'],
+  removePrefab: ['type', 'prefabId'],
+  instantiatePrefab: ['type', 'prefabId', 'rootId', 'entries', 'mapping'],
+  applySurfacePreset: ['type', 'id', 'preset', 'previous', 'next', 'changedFields'],
+  setGameConfig: ['type', 'previous', 'next', 'changedFields'],
+};
+
+/** Forward-op → change-type correspondence for the M2 ops. */
+const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
+  publishAsset: 'publishAsset',
+  publishBehavior: 'publishBehavior',
+  setBehaviorProperties: 'setBehaviorProperties',
+  setComponent: 'setComponent',
+  setSettings: 'setSettings',
+  acknowledgeBehaviorTrust: 'acknowledgeBehaviorTrust',
+  createPrefab: 'createPrefab',
+  instantiatePrefab: 'instantiatePrefab',
+  applySurfacePreset: 'applySurfacePreset',
+  setGameConfig: 'setGameConfig',
+};
 
 /**
  * R13 (2026-09-18 review): strict validation of historical entity payload(s)

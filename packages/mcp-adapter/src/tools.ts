@@ -38,8 +38,28 @@ export interface ToolDefinition {
 }
 
 /** The M1 command ops (commands.md §2/§4). */
-const MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'] as const;
-const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities'] as const;
+const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'] as const;
+/** The M2 content/property/prefab mutation ops (commands.md §8.5–§8.12). */
+const M2_MUTATION_OPS = [
+  'publishAsset',
+  'publishBehavior',
+  'setBehaviorProperties',
+  'setComponent',
+  'setSettings',
+  'acknowledgeBehaviorTrust',
+  'createPrefab',
+  'instantiatePrefab',
+] as const;
+/** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig'] as const;
+const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
+const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
+/** The closed §20 control command set (sessions.md §20.1). */
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute'] as const;
+/** The largest single upload frame accepted by the backend (sessions.md §11.5). */
+const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
+/** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
+const CONTENT_STAGE_MAX = 33_554_432;
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -69,10 +89,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_command',
     description:
-      'Submit one undoable editing command (createEntity, setTransform, deleteEntity, undo, redo) ' +
-      'to the project, with optimistic concurrency (expectedRevision). Returns the new revision on ' +
-      'success, or a structured error (e.g. revision_conflict with currentRevision) on failure. ' +
-      'Read-only queries use tl_inspect, not this tool.',
+      'Submit one undoable editing command to the project, with optimistic concurrency ' +
+      '(expectedRevision). M1 ops: createEntity, setTransform, deleteEntity, undo, redo. ' +
+      'M2 content ops: publishAsset, publishBehavior (declaration modes only — source publication is ' +
+      'unavailable until packet 33), setBehaviorProperties, setComponent, setSettings, ' +
+      'acknowledgeBehaviorTrust, createPrefab, instantiatePrefab. M3 v3 game ops: ' +
+      'applySurfacePreset, setGameConfig. Returns the new revision on success, ' +
+      'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
+      'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -82,6 +106,140 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },
       required: ['op', 'expectedRevision'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_content_query',
+    description:
+      'Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ 128, default 50); ' +
+      'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
+      'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
+      'optional); target="integrity" returns the bounded content-integrity report; target="game" returns the ' +
+      'full normalized `content.game` block (the v3 `queryGameConfig`, or null). Never returns bytes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game'] },
+        assetId: { type: 'string' },
+        prefabId: { type: 'string' },
+        behaviorId: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 128 },
+        offset: { type: 'integer', minimum: 0 },
+        includeVersions: { type: 'boolean' },
+        includeEntities: { type: 'boolean' },
+        includeDeclaration: { type: 'boolean' },
+      },
+      required: ['target'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_content_upload',
+    description:
+      'Stage and inspect a source file over the real backend content routes (no filesystem bypass): creates a ' +
+      'bounded upload stage, uploads ≤ 1 MiB frames, and returns the bounded import proposal (or the structured ' +
+      'import_rejected error carrying the ordered diagnostics). dataBase64 ≤ 32 MiB decoded. The command that ' +
+      'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dataBase64: { type: 'string', description: 'base64 of the source bytes (≤ 32 MiB decoded)' },
+        displayName: { type: 'string' },
+        kind: { type: 'string', enum: ['model', 'audio'] },
+        animation: {
+          type: 'object',
+          description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
+          properties: {
+            entityId: { type: 'string' },
+            roles: { type: 'object' },
+          },
+          required: ['roles'],
+          additionalProperties: false,
+        },
+      },
+      required: ['dataBase64'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_content_job',
+    description:
+      'Read one bounded content job by its jobId (a bounded uploaded/inspected job record). Unknown jobs are ' +
+      'job_not_found (404); an expired/late job is job_expired (503) and its result is never applied.',
+    inputSchema: {
+      type: 'object',
+      properties: { jobId: { type: 'string', pattern: '^job-[0-9a-f]{32}$' } },
+      required: ['jobId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_input_exercise',
+    description:
+      'Run a bounded, step-indexed semantic action sequence against an explicitly presented play session in ' +
+      'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
+      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released. Returns the applied ' +
+      'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
+      'connected (never a simulated success). No DOM injection, no eval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        playSessionId: { type: 'string' },
+        frames: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 600,
+          items: {
+            type: 'object',
+            properties: {
+              stepOffset: { type: 'integer', minimum: 0 },
+              moveX: { type: 'number', minimum: -1, maximum: 1 },
+              jump: { type: 'string', enum: ['none', 'pressed', 'held', 'released'] },
+            },
+            required: ['stepOffset', 'moveX', 'jump'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['playSessionId', 'frames'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_game_control',
+    description:
+      'Submit one bounded §20 game-control command (start, replay, mute, unmute) to an explicitly presented play ' +
+      'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
+      'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
+      'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +
+      'never a fabricated success. Body <= 4 KiB; no gameplay simulation, no eval.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        playSessionId: { type: 'string' },
+        command: { type: 'string', enum: [...GAME_CONTROL_COMMANDS] },
+        expectedRunId: { type: 'string' },
+      },
+      required: ['playSessionId', 'command'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_game_observe',
+    description:
+      'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
+      'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
+      'GLB/WAV bytes, base64 media, authoring token or locator capability. timeoutMs 250-15000 (default 5000). ' +
+      'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
+      'timeoutMs is game_relay_timeout (503) - never a simulated value.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        playSessionId: { type: 'string' },
+        timeoutMs: { type: 'integer', minimum: 250, maximum: 15000 },
+      },
+      required: ['playSessionId'],
       additionalProperties: false,
     },
   },
@@ -163,7 +321,6 @@ function surfaceBackendError(res: { status: number; body: unknown }): CallToolRe
 
 const MUTATION_SET = new Set<string>(MUTATION_OPS);
 const QUERY_SET = new Set<string>(QUERY_OPS);
-
 /** Dispatch one `tools/call` to the backend services. Never throws. */
 export async function handleToolCall(
   ctx: McpContext,
@@ -187,6 +344,18 @@ export async function handleToolCall(
         return await diagnostics(ctx, a);
       case 'tl_screenshot':
         return await screenshot(ctx, a);
+      case 'tl_input_exercise':
+        return await inputExercise(ctx, a);
+      case 'tl_game_control':
+        return await gameControl(ctx, a);
+      case 'tl_game_observe':
+        return await gameObserve(ctx, a);
+      case 'tl_content_query':
+        return await contentQuery(ctx, a);
+      case 'tl_content_upload':
+        return await contentUpload(ctx, a);
+      case 'tl_content_job':
+        return await contentJob(ctx, a);
       default:
         return toolError(`unknown tool "${String(name).slice(0, 64)}"`);
     }
@@ -296,5 +465,204 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
     maxWidth = a.maxWidth;
   }
   const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth);
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+
+/** sessions.md §18.1: bounded exclusive-test input relay (semantic actions only). */
+async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
+  if (!Array.isArray(a.frames) || a.frames.length < 1 || a.frames.length > 600) {
+    return toolError('frames must be an array of 1–600 entries');
+  }
+  const frames: Array<Record<string, unknown>> = [];
+  let previous = -1;
+  for (let i = 0; i < a.frames.length; i += 1) {
+    const raw = a.frames[i];
+    if (!isObj(raw)) return toolError(`frames[${i}] must be an object`);
+    const { stepOffset, moveX, jump } = raw;
+    if (!isInt(stepOffset) || stepOffset < 0) return toolError(`frames[${i}].stepOffset must be an integer ≥ 0`);
+    if (stepOffset <= previous) return toolError('frames must be strictly ascending by stepOffset');
+    previous = stepOffset;
+    if (typeof moveX !== 'number' || !Number.isFinite(moveX) || moveX < -1 || moveX > 1) {
+      return toolError(`frames[${i}].moveX must be a finite number in [-1, 1]`);
+    }
+    if (jump !== 'none' && jump !== 'pressed' && jump !== 'held' && jump !== 'released') {
+      return toolError(`frames[${i}].jump must be one of none | pressed | held | released`);
+    }
+    frames.push({ stepOffset, moveX, jump });
+  }
+  const body = JSON.stringify({ mode: 'exclusive-test', frames });
+  if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');
+  const res = await ctx.client.inputRelay(ctx.projectId, a.playSessionId, { mode: 'exclusive-test', frames });
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+
+// ---- packet 25 content tools --------------------------------------------------
+
+/** Bounded M2 content queries (commands.md §4/§5.6 + the content routes). */
+async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  const target = a.target;
+  if (target === 'integrity') {
+    const res = await ctx.client.contentIntegrity(ctx.projectId);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  // Packet 48 repair: the v3 game-config query (commands.md §3.1.11/§A6) over
+  // the same shared command surface; no args.
+  if (target === 'game') {
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryGameConfig' });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  if (target === 'assets' || target === 'asset') {
+    if (target === 'asset') {
+      if (typeof a.assetId !== 'string' || a.assetId.length === 0) return toolError('assetId is required for target="asset"');
+      const one = await ctx.client.contentAsset(ctx.projectId, a.assetId);
+      return isObj(one.body) && one.body.ok === true ? toolOk(one.body) : surfaceBackendError(one);
+    }
+    const args: Record<string, unknown> = {};
+    if (a.includeVersions !== undefined) {
+      if (typeof a.includeVersions !== 'boolean') return toolError('includeVersions must be a boolean');
+      args.includeVersions = a.includeVersions;
+    }
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryAssets', args: { ...args, ...paged.args } });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  if (target === 'prefabs') {
+    const args: Record<string, unknown> = {};
+    if (a.prefabId !== undefined) {
+      if (typeof a.prefabId !== 'string') return toolError('prefabId must be a string');
+      args.prefabId = a.prefabId;
+    }
+    if (a.includeEntities !== undefined) {
+      if (typeof a.includeEntities !== 'boolean') return toolError('includeEntities must be a boolean');
+      args.includeEntities = a.includeEntities;
+    }
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryPrefabs', args: { ...args, ...paged.args } });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  if (target === 'behaviors') {
+    const args: Record<string, unknown> = {};
+    if (a.behaviorId !== undefined) {
+      if (typeof a.behaviorId !== 'string') return toolError('behaviorId must be a string');
+      args.behaviorId = a.behaviorId;
+    }
+    if (a.includeDeclaration !== undefined) {
+      if (typeof a.includeDeclaration !== 'boolean') return toolError('includeDeclaration must be a boolean');
+      args.includeDeclaration = a.includeDeclaration;
+    }
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryBehaviors', args: { ...args, ...paged.args } });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", or "game"');
+}
+
+function pageArgs(a: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; error: CallToolResult } {
+  const args: Record<string, unknown> = {};
+  if (a.limit !== undefined) {
+    if (!isInt(a.limit) || a.limit < 1 || a.limit > 128) return { ok: false, error: toolError('limit must be an integer 1–128') };
+    args.limit = a.limit;
+  }
+  if (a.offset !== undefined) {
+    if (!isInt(a.offset) || a.offset < 0) return { ok: false, error: toolError('offset must be an integer ≥ 0') };
+    args.offset = a.offset;
+  }
+  return { ok: true, args };
+}
+
+/** Decode base64 without a `node:` import (the global Web `atob`). */
+function decodeBase64(text: string): Uint8Array | null {
+  const fn = (globalThis as { atob?: (data: string) => string }).atob;
+  if (typeof fn !== 'function') return null;
+  let binary: string;
+  try {
+    binary = fn(text);
+  } catch {
+    return null;
+  }
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i) & 0xff;
+  return out;
+}
+
+/** Stage + upload (bounded frames) + inspect over the real backend routes. */
+async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return toolError('dataBase64 is required');
+  const bytes = decodeBase64(a.dataBase64);
+  if (bytes === null) return toolError('dataBase64 is not valid base64');
+  if (bytes.length === 0) return toolError('dataBase64 decodes to zero bytes');
+  if (bytes.length > CONTENT_STAGE_MAX) return toolError(`dataBase64 exceeds the ${CONTENT_STAGE_MAX}-byte stage cap`);
+  const body: Record<string, unknown> = {};
+  if (a.displayName !== undefined) {
+    if (typeof a.displayName !== 'string' || a.displayName.length < 1 || a.displayName.length > 128) {
+      return toolError('displayName must be a 1–128 character string');
+    }
+    body.displayName = a.displayName;
+  }
+  const created = await ctx.client.createStage(ctx.projectId, body);
+  if (!(isObj(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) {
+    return surfaceBackendError(created);
+  }
+  const stageId = created.body.stageId;
+  for (let offset = 0; offset < bytes.length; offset += CONTENT_UPLOAD_FRAME_MAX) {
+    const frame = bytes.subarray(offset, Math.min(offset + CONTENT_UPLOAD_FRAME_MAX, bytes.length));
+    const put = await ctx.client.uploadFrame(ctx.projectId, stageId, offset, bytes.length, frame);
+    if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
+  }
+  // Packet 48: the additive inspect request selects the bounded PCM-WAV
+  // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
+  const inspectBody: Record<string, unknown> = {};
+  if (a.kind !== undefined) {
+    if (a.kind !== 'model' && a.kind !== 'audio') return toolError('kind must be "model" or "audio"');
+    inspectBody.kind = a.kind;
+  }
+  if (a.animation !== undefined) {
+    if (!isObj(a.animation)) return toolError('animation must be an object');
+    const roles = a.animation.roles;
+    if (!isObj(roles)) return toolError('animation.roles must be an object');
+    inspectBody.animation = a.animation;
+  }
+  const inspected = await ctx.client.inspectStage(ctx.projectId, stageId, inspectBody);
+  return isObj(inspected.body) && inspected.body.ok === true ? toolOk(inspected.body) : surfaceBackendError(inspected);
+}
+
+// ---- packet 48 §20 game control/observation relay tools -----------------------
+
+/** sessions.md §20.1: bounded game-control relay (never a simulation). */
+async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
+  if (typeof a.command !== 'string' || !(GAME_CONTROL_COMMANDS as readonly string[]).includes(a.command)) {
+    return toolError(`command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`);
+  }
+  const body: Record<string, unknown> = { command: a.command };
+  if (a.expectedRunId !== undefined) {
+    if (typeof a.expectedRunId !== 'string' || a.expectedRunId.length === 0 || a.expectedRunId.length > 128) {
+      return toolError('expectedRunId must be a bounded non-empty string');
+    }
+    body.expectedRunId = a.expectedRunId;
+  }
+  const res = await ctx.client.gameControl(ctx.projectId, a.playSessionId, body);
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+
+/** sessions.md §20.1: bounded read-only observation relay (never a simulation). */
+async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
+  const body: Record<string, unknown> = {};
+  if (a.timeoutMs !== undefined) {
+    if (!isInt(a.timeoutMs) || a.timeoutMs < 250 || a.timeoutMs > 15000) return toolError('timeoutMs must be an integer 250–15000');
+    body.timeoutMs = a.timeoutMs;
+  }
+  const res = await ctx.client.gameObserve(ctx.projectId, a.playSessionId, body);
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+
+async function contentJob(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.jobId !== 'string' || !/^job-[0-9a-f]{32}$/.test(a.jobId)) return toolError('jobId must be job- + 32 hex');
+  const res = await ctx.client.contentJob(ctx.projectId, a.jobId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }

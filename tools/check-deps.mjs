@@ -46,6 +46,7 @@ export const PINS = {
   'react-dom': '19.3.0',
   '@types/react': '19.3.0',
   '@types/react-dom': '19.3.0',
+  '@dimforge/rapier2d-compat': '0.20.0',
 };
 
 /** §7 scope/consumer notes for the pending-pin report. */
@@ -61,6 +62,8 @@ const PIN_CONSUMERS = {
   typescript: 'workspace (root dev)',
   esbuild: 'workspace build script (root dev) + exporter (packet 12)',
   vitest: 'workspace (root dev)',
+  '@dimforge/rapier2d-compat':
+    'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',
 };
 
 /** Exact semver string: no ^, ~, ranges, *, file:, workspace:, etc. */

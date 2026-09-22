@@ -1,0 +1,76 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "migration-interrupted-copy-resume",
+  "title": "An interrupted migration copy is detected, never auto-completed, and resumes",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 12. Migration: M1 project → M2 project copy"
+    }
+  ],
+  "input": {
+    "source": "migration/v1-source",
+    "destination": "demo-m1-v2",
+    "state": "migration/interrupted-copy",
+    "marker": {
+      "type": "migration-copy",
+      "phase": "manifest",
+      "sourceProjectId": "demo-m1",
+      "newProjectId": "demo-m1-v2"
+    },
+    "onDisk": [
+      "<dest>/.thirdlight/migration.json",
+      "<dest>/project.json",
+      "no envelope"
+    ]
+  },
+  "steps": [
+    {
+      "at": "scan",
+      "action": "startup scan of the data root",
+      "expect": {
+        "entry": "project with an interrupted migration destination",
+        "autoCompleted": false,
+        "reason": "the migration marker suppresses the §8.3 default-envelope completion"
+      }
+    },
+    {
+      "at": "resume",
+      "action": "migrateProjectCopy(\"demo-m1\", \"demo-m1-v2\") again",
+      "expect": {
+        "outcome": "resume from the recorded phase",
+        "idempotent": true
+      }
+    },
+    {
+      "at": "complete",
+      "action": "write the v2 envelope last and remove the marker",
+      "expect": {
+        "destination": "equals migration/expected-v2-destination",
+        "markerRemoved": true
+      }
+    },
+    {
+      "at": "source",
+      "action": "re-hash the source project",
+      "expect": {
+        "bytesChanged": false
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "resume-then-success",
+    "codes": [
+      "migration_resume_required"
+    ],
+    "durableEffects": [
+      "the destination becomes loadable only once its v2 envelope exists; the marker is removed last"
+    ],
+    "observations": [
+      "an operator may instead delete the partial destination directory (it has never been authoritative for anything)",
+      "the source project is never opened for writing, never released and never claimed by the migration"
+    ]
+  },
+  "notes": "Packet-15 acceptance: interrupted migration-copy creation has a deterministic completion rule and preserves the original byte-for-byte."
+}

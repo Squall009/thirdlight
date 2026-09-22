@@ -1,0 +1,18 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/index.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/index.ts",
+      "text": "import type { BehaviorStepContext } from '@thirdlight/runtime';\nimport { drift } from './util';\n\nexport default {\n  prepare() {\n    return { t: 0 };\n  },\n  instantiate(prepared: unknown, inst: { properties: { speed: number } }) {\n    return { t: 0, speed: inst.properties.speed };\n  },\n  step(state: { t: number; speed: number }, ctx: BehaviorStepContext) {\n    state.t += 1;\n    ctx.emit({ kind: 'control_move', value: drift(state.t, state.speed) });\n  },\n  dispose() {},\n};\n"
+    },
+    {
+      "path": "src/util.ts",
+      "text": "export function drift(t: number, speed: number): number {\n  const wobble = ((t % 10) - 5) / 100;\n  return Math.max(-1, Math.min(1, speed / 10 + wobble));\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# negative control: corrupt one fixture digest in a COPY of the tree, expect the digest check to fail
+#   rm -rf /tmp/tl15-neg && cp -r fixtures/m2/contracts /tmp/tl15-neg
+#   set content.assets[0].versions[0].sourceDigest = 'deadbeef'x8 in /tmp/tl15-neg/envelope/valid/demo-0002-rev7-v2.json
+#   TL15_REPO_ROOT=$PWD node /tmp/tl15-neg/tools/check-fixtures.mjs
+#
+# Re-recorded 2026-09-18 (GE-3 bounded follow-up). The packet-15 record showed
+# "11 check group(s) passed, 2 problem(s)" because it predates the packet-16/17/
+# 18/19 checker groups; the recorded digest-claims FAIL line is unchanged. The
+# current checker emits the same single corrupted fixture twice (the placeholder
+# digest occurs in two nodes of that envelope) — a cosmetic duplicate-entry
+# defect in the checker's offender list, not a second defect. The negative
+# control stays non-vacuous and both intended checks fail.
+
+FAIL cross-ref: catalog/content-block-example.json does not equal the valid envelope content block
+FAIL digest-claims: envelope/valid/demo-0002-rev7-v2.json: sourceDigest deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef matches no committed preimage
+FAIL digest-claims: envelope/valid/demo-0002-rev7-v2.json: sourceDigest deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef matches no committed preimage
+check FAILED: 31 check group(s) passed, 3 problem(s)

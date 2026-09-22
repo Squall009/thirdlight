@@ -1,0 +1,16 @@
+# Independent recompute (packet 20, sanitized)
+# node 22.22.1 + node:crypto (allowed here: this is evidence tooling outside packages/)
+# 1) pure project-model sha256.ts vs node:crypto on fixed vectors
+  input="" pure=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 node=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 match=true
+  input="abc" pure=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad node=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad match=true
+  input="hello world" pure=b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 node=b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9 match=true
+  input="aaaaaaaaaaaaaaaaaaaa" pure=41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3 node=41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3 match=true
+  input="{\"b\":1,\"a\":[1,2,3]}" pure=7edb7e52919bf94782ae346ff36299e029e13a1e2cb7b446ad05fb82ee63938e node=7edb7e52919bf94782ae346ff36299e029e13a1e2cb7b446ad05fb82ee63938e match=true
+  captured-view canonical JSON: {"assets":[{"assetId":"asset-7f3a2c9e1b4d5068","importRecipe":{"extensions":[],"profile":"gltf-glb","recipeVersion":1,"toolchain":{"three":"0.186.0"}},"sourceByteLength":26,"sourceDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","version":2}],"contentVersion":1,"projectId":"demo-m2","revision":4}
+  captured-view contentDigest (node:crypto): e85de67fe3a1ae162dc106de45fe599b07164b674ecfbfa52f0c8c4f12563fe6
+  asserted in m2-model.test.ts:               e85de67fe3a1ae162dc106de45fe599b07164b674ecfbfa52f0c8c4f12563fe6
+# 2) the promoted M2 envelope fixtures (C19-D7 closed) pass the packet-20 validators
+  envelope/valid/demo-0002-rev7-v2 scene  valid: true
+  envelope/valid/demo-0002-rev7-v2 content valid: true
+  envelope/valid/migration-minimal-v2 scene valid: true
+  envelope/valid/migration-minimal-v2 content valid: true

@@ -1,0 +1,26 @@
+# proposal/document consistency (packet 16; actual output)
+
+## PROPOSED markers
+docs/planning/m2-contracts/prefabs.md:1
+docs/planning/m2-contracts/properties.md:1
+docs/planning/m2-contracts/diffs/commands.md:1
+
+## packet-16 fixture files (commands/)
+prefab-failures.json
+prefab-scenario.after.json
+prefab-scenario.before.json
+prefab-scenario.messages.json
+queries.json
+
+## expected.json entries / files on disk (checker 'index' line)
+ok   index: 47 index entries, 50 files on disk
+
+## accepted contract / lockfile status (git status --porcelain) — empty = unchanged
+(end)
+
+## decisions/0002 status (untracked packet-14 draft, sha256 recorded, NOT modified by packet 16)
+?? docs/decisions/0002-m2-content-and-behavior.md
+2d6aa6c977368a786b06478079a76d760d35fe93ae047d29ebf31135d8fb46de  docs/decisions/0002-m2-content-and-behavior.md
+
+## docs/contracts diff vs HEAD
+(empty = no accepted contract text changed)

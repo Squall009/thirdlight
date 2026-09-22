@@ -37,11 +37,13 @@ describe('preview origin (sessions.md §2/§13.2)', () => {
     await tb.teardown();
   });
 
-  it('the template at / injects exactly { v, authoringOrigin } + the static script; no credentials', async () => {
+  it('the template at / injects exactly the v2 config (null locator) + the static script; no credentials', async () => {
     const res = await fetch(`${tb.prevUrl}/`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain(`window.__thirdlightPreview = { v: 1, authoringOrigin: "${AUTHORING_ORIGIN}" };`);
+    expect(html).toContain(
+      `window.__thirdlightPreview = { v: 2, authoringOrigin: "${AUTHORING_ORIGIN}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };`,
+    );
     expect(html).toContain('<script src="./preview.js"></script>');
     // no tokens, no API URLs (the preview never talks to the backend)
     expect(html).not.toContain('token');

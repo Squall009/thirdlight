@@ -1,0 +1,71 @@
+# Packet 35 — actual command outputs (2026-09-19; owner pre-approval tag)
+
+$ npx vitest run tests/integration/m2-play/play-delivery.test.ts
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  09:49:57
+   Duration  11.75s (tests 99%, transform 1%)
+
+$ npx vitest run tests/integration/m2-play/bundle-scan.test.ts
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  09:50:10
+   Duration  399ms (tests 81%, transform 9%, import 8%, worker 1%)
+
+
+$ npx vitest run packages/backend/src/play-content.test.ts
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  09:50:11
+   Duration  400ms (transform 76%, import 19%, tests 3%, worker 1%)
+
+
+$ npm test
+ Test Files  129 passed (129)
+      Tests  1672 passed (1672)
+
+$ npm run typecheck
+typecheck exit=0
+
+$ npm run check-deps
+    vitest 5.0.1 (= §7 pin)
+  declared dependency specs: all exact versions (no ranges)
+
+$ npm run check-boundaries
+check-boundaries: OK — 15 package(s) [asset-pipeline, backend, behavior-build, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 270 source file(s), 1006 specifier(s) checked; no boundary violations.
+
+$ npm run build
+build: editor: packages/editor/src/index.tsx -> dist/editor/main.js
+build: preview: packages/editor/src/preview/preview-bootstrap.ts -> dist/preview/preview.js
+build: mcp-adapter (stdio server): packages/mcp-adapter/src/index.ts -> dist/mcp-adapter/mcp.mjs
+build: backend (deployment bundle): packages/backend/src/index.ts -> dist/backend/backend.mjs
+build: editor page: -> dist/editor/index.html
+build: done (4 built, 0 skipped).
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs
+check OK: 34 check group(s) passed, 0 problem(s)
+
+=== final verification (packet 35) ===
+$ npm test
+ Test Files  129 passed (129)
+      Tests  1672 passed (1672)
+
+$ npm run typecheck
+typecheck exit 0
+
+$ npm run check-deps
+check-deps: OK
+
+$ npm run check-boundaries
+check-boundaries: OK — 15 package(s) [asset-pipeline, backend, behavior-build, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 270 source file(s), 1006 specifier(s) checked; no boundary violations.
+
+$ npm run build
+build: done (4 built, 0 skipped).
+
+$ node fixtures/m2/contracts/tools/check-fixtures.mjs
+check OK: 34 check group(s) passed, 0 problem(s)

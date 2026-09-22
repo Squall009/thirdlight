@@ -1,0 +1,204 @@
+{
+  "e1": {
+    "ok": true,
+    "outputDir": "demo-m1-v2@r27",
+    "snapshotId": "demo-m1-v2@r27",
+    "revision": 27,
+    "files": {
+      "index.html": 626,
+      "js/main.js": 4456185,
+      "manifest.json": 3393,
+      "scene.json": 3030,
+      "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f": 1864,
+      "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js": 500,
+      "meta.json": 3100
+    },
+    "scanHits": 0,
+    "schemaVersion": 2,
+    "buildId": "a6c0adc0dc46edc377a77b5cf3ef09499f5cbc0234ea430381dc23bee8bbdbe1",
+    "contentDigest": "1dad09e20e4badf2046fc5ef99f2a8497f9c8f38cf074534b1029925813794f0",
+    "outputDigest": "10524084e0173415327aea91fbfe859b17581d5f088f99be0fdbb237b3a25379"
+  },
+  "e2": {
+    "ok": true,
+    "outputDir": "demo-m1-v2@r27",
+    "snapshotId": "demo-m1-v2@r27",
+    "revision": 27,
+    "files": {
+      "index.html": 626,
+      "js/main.js": 4456185,
+      "manifest.json": 3393,
+      "scene.json": 3030,
+      "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f": 1864,
+      "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js": 500,
+      "meta.json": 3100
+    },
+    "scanHits": 0,
+    "schemaVersion": 2,
+    "buildId": "442bffc5760f528bf996335335bd9c1948718c667d0163299955078b8feea606",
+    "contentDigest": "1dad09e20e4badf2046fc5ef99f2a8497f9c8f38cf074534b1029925813794f0",
+    "outputDigest": "daa5dca8096665039461f97176db3fab14269dd068e6e0327b973ad484d6225d"
+  },
+  "exportRoots": {
+    "first": "/tmp/tl37-journey-Nf4j3V/exports",
+    "second": "/tmp/tl37-journey-Nf4j3V/exports-2"
+  },
+  "export2TakeoverStatus": 200,
+  "tree1Hash": {
+    "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+    "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "index.html": "6eec262b5becea7b0d77c2bcdd82af7781e293b60dee7c7908ad7be8ebb407d5",
+    "js/main.js": "9e3ea3d976ea284986ec81fedfaea7d264d5e1e128736de9939074ddc3d6ba85",
+    "manifest.json": "5b1d21d2ec04c445878e59c17be73f5c76b261f7281e288a4c595483a6cf8858",
+    "meta.json": "336492cc34519840395636a7462ff831f1d7981851f234a95b1371e078c540e3",
+    "scene.json": "689592f10295677184bce7243429e09b64b7717d1e5416cfb376af55390c7fb4"
+  },
+  "tree2Hash": {
+    "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+    "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "index.html": "6eec262b5becea7b0d77c2bcdd82af7781e293b60dee7c7908ad7be8ebb407d5",
+    "js/main.js": "9e3ea3d976ea284986ec81fedfaea7d264d5e1e128736de9939074ddc3d6ba85",
+    "manifest.json": "b66f29df8ffbdcf17e6618cb6c08f63dc7be49b11e84bd209291f37fc6eff518",
+    "meta.json": "db2bf41047fc7f2be2c45489127d8be89ad0f6965f3da566df3b24718899509b",
+    "scene.json": "689592f10295677184bce7243429e09b64b7717d1e5416cfb376af55390c7fb4"
+  },
+  "differing": [
+    "manifest.json",
+    "meta.json"
+  ],
+  "sameTree": true,
+  "timestampOnly": true,
+  "nonTimestampIdentical": true,
+  "rederivedBuildIdMatchesFirst": true,
+  "capturedAt1": "2026-09-19T12:59:48Z",
+  "capturedAt2": "2026-09-19T12:59:50Z",
+  "manifest": {
+    "manifestVersion": 1,
+    "type": "thirdlight-runtime-content",
+    "projectId": "demo-m1-v2",
+    "revision": 27,
+    "snapshotId": "demo-m1-v2@r27",
+    "capturedAt": "2026-09-19T12:59:50Z",
+    "sceneDigest": "689592f10295677184bce7243429e09b64b7717d1e5416cfb376af55390c7fb4",
+    "contentDigest": "1dad09e20e4badf2046fc5ef99f2a8497f9c8f38cf074534b1029925813794f0",
+    "assets": [
+      {
+        "assetId": "asset-00000000000037a1",
+        "version": 2,
+        "sourceDigest": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+        "sourceByteLength": 1864,
+        "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
+        "metricsDigest": "364e741db0f37c29334fc8c7858459b0072e57d7c4bfd1c3860d7ae0865c066d",
+        "path": "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f"
+      }
+    ],
+    "behaviors": [
+      {
+        "behaviorId": "behavior-0002",
+        "sourceDigest": "2dc14760fe1d4c2c4d1511133e8f31786b95bb9f86c6ea4a1e1eabb8e8a6311f",
+        "sourceByteLength": 922,
+        "manifestDigest": "bf72035518f1858c072a0196abd24d8536d0ad0ddf5f31de7b4a15ede0700427",
+        "outputDigest": "55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69",
+        "outputByteLength": 500,
+        "apiVersion": 1,
+        "declaration": {
+          "properties": [
+            {
+              "key": "speed",
+              "label": "Speed",
+              "type": "number",
+              "default": 3.5,
+              "min": -1000,
+              "max": 1000,
+              "step": 0.25
+            }
+          ]
+        },
+        "ownedTransforms": [],
+        "requiredModules": [
+          "@thirdlight/runtime"
+        ],
+        "path": "behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js"
+      }
+    ],
+    "modules": [
+      {
+        "id": "thirdlight.input:keyboard-gamepad",
+        "apiVersion": 1,
+        "package": "@thirdlight/input",
+        "version": "0.1.0"
+      },
+      {
+        "id": "thirdlight.physics-rapier:2d",
+        "apiVersion": 1,
+        "package": "@thirdlight/physics-rapier",
+        "version": "0.1.0"
+      },
+      {
+        "id": "thirdlight.platformer:controller",
+        "apiVersion": 1,
+        "package": "@thirdlight/platformer",
+        "version": "0.1.0"
+      },
+      {
+        "id": "thirdlight.three-adapter:gltf-loader",
+        "apiVersion": 1,
+        "package": "@thirdlight/three-adapter",
+        "version": "0.1.0"
+      }
+    ],
+    "enginePins": [
+      {
+        "id": "@thirdlight/input",
+        "version": "0.1.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/physics-rapier",
+        "version": "0.1.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/platformer",
+        "version": "0.1.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/runtime",
+        "version": "0.1.0",
+        "apiVersion": 1
+      },
+      {
+        "id": "@thirdlight/three",
+        "version": "0.186.0",
+        "apiVersion": 0
+      },
+      {
+        "id": "@thirdlight/three-adapter",
+        "version": "0.1.0",
+        "apiVersion": 1
+      }
+    ],
+    "recipes": {
+      "gltf-glb": 1,
+      "behavior-source": 1
+    },
+    "toolchain": {
+      "esbuild": "0.28.2",
+      "typescript": "5.9.3",
+      "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
+    },
+    "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+    "buildId": "442bffc5760f528bf996335335bd9c1948718c667d0163299955078b8feea606"
+  },
+  "staticOk": true,
+  "mimeOk": true,
+  "externalRequests": 0,
+  "serverRequests": [
+    "/games/demo-m1-v2@r27/index.html",
+    "/games/demo-m1-v2@r27/manifest.json",
+    "/games/demo-m1-v2@r27/scene.json",
+    "/games/demo-m1-v2@r27/content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+    "/games/demo-m1-v2@r27/behaviors/55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69.js"
+  ]
+}

@@ -30,6 +30,9 @@ describe('envelope canonical bytes (workspace.md §4.4)', () => {
       const res = validateEnvelope(bytes, dirName);
       expect(res.ok, `fixture ${name} should load: ${JSON.stringify(res).slice(0, 400)}`).toBe(true);
       if (res.ok !== true) return;
+      // The M1 fixture tree is storageVersion 1 by construction (the v2
+      // envelopes live in fixtures/m2/contracts/envelope).
+      if (res.storageVersion !== 1) throw new Error(`M1 fixture ${name} must be storageVersion 1`);
       const rebuilt = buildEnvelopeBytes(dirName, res.scene, res.records);
       expect(Array.from(rebuilt)).toEqual(Array.from(bytes));
     });
@@ -38,7 +41,7 @@ describe('envelope canonical bytes (workspace.md §4.4)', () => {
   it('is deterministic (two rebuilds are equal)', () => {
     const bytes = new Uint8Array(readFileSync(join(VALID_DIR, 'demo-0001-rev5.json')));
     const res = validateEnvelope(bytes, 'demo-0001');
-    if (res.ok !== true) throw new Error('fixture must load');
+    if (res.ok !== true || res.storageVersion !== 1) throw new Error('fixture must load as v1');
     const a = buildEnvelopeBytes('demo-0001', res.scene, res.records);
     const b = buildEnvelopeBytes('demo-0001', res.scene, res.records);
     expect(Array.from(a)).toEqual(Array.from(b));
@@ -50,7 +53,14 @@ const INVALID_REASONS: Record<string, string> = {
   'embedded-scene-invalid.json': 'scene_invalid',
   'project-mismatch.json': 'envelope_project_mismatch',
   'retry-records-non-ascending.json': 'retry_records_invalid',
-  'storage-version-unsupported.json': 'storage_version_unsupported',
+  // M2 (workspace.md §4.3 step 3/6a): storageVersion 2 is now KNOWN, so this
+  // M1-era fixture (storageVersion 2, scene schemaVersion 1, no content) is
+  // no longer `storage_version_unsupported` — it enters the v2 branch and its
+  // missing `content` key fails the step-6a key-set check (`envelope_invalid`
+  // with `field_missing`). The fixture bytes are unchanged; the M2 semantics
+  // for an UNKNOWN version are pinned in the packet-23 tests
+  // (`storageVersion: 3` ⇒ `storage_version_unsupported`).
+  'storage-version-unsupported.json': 'envelope_invalid',
   'type-missing.json': 'envelope_invalid',
 };
 

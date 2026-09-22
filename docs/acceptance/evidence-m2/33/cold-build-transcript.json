@@ -1,0 +1,47 @@
+{
+  "arrangement": "packet-13 backend node bundle: bundle/platform node/format esm/packages bundle/external esbuild/require banner",
+  "date": "2026-09-19",
+  "machine": "linux x64 node v22.22.1",
+  "runs": [
+    {
+      "run": 0,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":15}",
+      "stderr": ""
+    },
+    {
+      "run": 1,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":17}",
+      "stderr": ""
+    },
+    {
+      "run": 2,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":14}",
+      "stderr": ""
+    },
+    {
+      "run": 3,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":14}",
+      "stderr": ""
+    },
+    {
+      "run": 4,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":15}",
+      "stderr": ""
+    },
+    {
+      "run": 5,
+      "status": 0,
+      "stdout": "{\"ok\":true,\"outputDigest\":\"55ff57e06358123daa303aeab202f391245eebd695e25b49432e166e4d12bd69\",\"manifestDigest\":\"86ebf51fe7c0eb32271f07a495ab6a492a29f1910eba59996d393f27a7268136\",\"recipeDigest\":\"081d4d22bba8358d890db1c5fc8dcfcdca4a38d0888b58be01132b8af0ecf34d\",\"outputByteLength\":500,\"elapsedMs\":14}",
+      "stderr": ""
+    }
+  ],
+  "sentinel": {
+    "status": 0,
+    "stdout": "{\"sentinel\":true,\"ok\":true,\"executed\":false}"
+  }
+}

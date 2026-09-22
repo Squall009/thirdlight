@@ -1,0 +1,35 @@
+
+ RUN  v5.0.1 /home/dadmin/projects/thirdlight
+
+ ✓ packages/platformer/src/api-surface.test.ts > public exports (dependencies.md §3 platformer row) > exports exactly the contracted names 4ms
+ ✓ packages/platformer/src/api-surface.test.ts > public exports (dependencies.md §3 platformer row) > declares the platformer.md §2 module metadata 1ms
+ ✓ packages/platformer/src/api-surface.test.ts > module behaviour through the contracted StepContext only > owns exactly the single controller entity declared at create 1ms
+ ✓ packages/platformer/src/api-surface.test.ts > module behaviour through the contracted StepContext only > refuses an ambiguous controller target (defensive; the runtime validates first) 1ms
+ ✓ packages/platformer/src/api-surface.test.ts > module behaviour through the contracted StepContext only > stages one move in the controller phase and records the result in the transform phase 2ms
+ ✓ packages/platformer/src/controller.test.ts > contract constants (dependencies.md §3 platformer row) > exposes the module id and the platformer.md §12 constants 4ms
+ ✓ packages/platformer/src/controller.test.ts > contract constants (dependencies.md §3 platformer row) > starts at the authored transform with the platformer.md §4 state 1ms
+ ✓ packages/platformer/src/controller.test.ts > contract constants (dependencies.md §3 platformer row) > approach() never overshoots and arrives exactly (§7.2 1e-9 snap) 1ms
+ ✓ packages/platformer/src/controller.test.ts > grounding from support normals (physics.md §8) > is grounded only with a support normal at or above the climb angle 1ms
+ ✓ packages/platformer/src/controller.test.ts > grounding from support normals (physics.md §8) > keeps applying gravity on a steepSlope ground even though the port flagged it grounded 1ms
+ ✓ packages/platformer/src/controller.test.ts > jump (platformer.md §7 A–G) > starts one jump on the press edge and integrates gravity the same step 1ms
+ ✓ packages/platformer/src/controller.test.ts > jump (platformer.md §7 A–G) > never air-jumps: the maximum vy is the press-step jump velocity 1ms
+ ✓ packages/platformer/src/controller.test.ts > jump (platformer.md §7 A–G) > halves the ascending velocity once on release (variable height) 0ms
+ ✓ packages/platformer/src/controller.test.ts > jump (platformer.md §7 A–G) > clamps a head contact to vy = 0 (no ceiling hover) 1ms
+ ✓ packages/platformer/src/controller.test.ts > jump (platformer.md §7 A–G) > clamps the fall to max_fall_speed 1ms
+ ✓ packages/platformer/src/controller.test.ts > coyote and buffer windows (platformer.md §7.1) > allows the jump at the last coyote step and refuses one step later (fixture boundary) 0ms
+ ✓ packages/platformer/src/controller.test.ts > coyote and buffer windows (platformer.md §7.1) > fires a buffered press on the landing step 7 steps after the press 0ms
+ ✓ packages/platformer/src/controller.test.ts > coyote and buffer windows (platformer.md §7.1) > expires a buffered press after the 8-step window 0ms
+ ✓ packages/platformer/src/controller.test.ts > horizontal movement and staging (§7 H–I) > reaches run_speed in exactly 12 steps and stops in exactly 8 0ms
+ ✓ packages/platformer/src/controller.test.ts > horizontal movement and staging (§7 H–I) > stages exactly one plain { x, y } delta per step (no Z, no third key) 1ms
+ ✓ packages/platformer/src/controller.test.ts > horizontal movement and staging (§7 H–I) > keeps the horizontal intent into a wall (the port owns the clamp) 0ms
+ ✓ packages/platformer/src/controller.test.ts > horizontal movement and staging (§7 H–I) > never raises a grounded character on its own (no autostep / stair climbing) 0ms
+ ✓ packages/platformer/src/controller.test.ts > slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg) > classifies a slide-steep support normal 0ms
+ ✓ packages/platformer/src/controller.test.ts > slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg) > classifies a bounded downward ground-contact correction as a descending support 0ms
+ ✓ packages/platformer/src/controller.test.ts > slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg) > drives an idle character downhill but never overrides commanded movement 0ms
+ ✓ packages/platformer/src/controller.test.ts > slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg) > does not slide on flat ground 0ms
+
+ Test Files  2 passed (2)
+      Tests  26 passed (26)
+   Start at  07:53:40
+   Duration  239ms (transform 66%, tests 15%, import 15%, worker 4%)
+

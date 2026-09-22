@@ -1,0 +1,83 @@
+{
+  "kind": "physics-tolerances",
+  "setVersion": 1,
+  "packet": 31,
+  "source": "docs/planning/m2-contracts/physics.md §7/§8 (Gate-E accepted) + tests/evaluations/m2-physics/course-spec.json (frozen packet-14 fixture)",
+  "solver": {
+    "hz": 120,
+    "dtSeconds": 0.008333333333333333,
+    "gravityY": -19.62,
+    "tickBudgetMs": 8.333
+  },
+  "character": {
+    "capsuleRadius": 0.3,
+    "capsuleHalfHeight": 0.6,
+    "reach": 0.9,
+    "runSpeed": 4,
+    "jumpVelocity": 7,
+    "maxFallSpeed": -30
+  },
+  "controller": {
+    "offsetSkin": 0.01,
+    "groundSnap": 0.1,
+    "autostep": false,
+    "maxSlopeClimbRad": 0.7853981633974483,
+    "minSlopeSlideRad": 0.5235987755982988,
+    "groundNormalTolerance": 0.000001
+  },
+  "course": {
+    "settlePrerollSteps": 12,
+    "settledRestCenterM": 0.91,
+    "settledRestCenterToleranceM": 0.0005,
+    "staticPenetrationLimitM": 0.005,
+    "maxStepDeltaIdleM": 0.001,
+    "speedBand": 0.05,
+    "seamMaxUngroundedSteps": 2,
+    "rampClimbGroundedFractionMin": 0.95,
+    "tooSteepHeightGainLimitM": 0.3,
+    "wallStopBandM": 0.05,
+    "headContactMaxCenterY": 3.095,
+    "headContactRisePerStepLimitM": 0.0005,
+    "highSpeedApproachMps": 12,
+    "jumpApexGainM": 1.249,
+    "jumpApexToleranceM": 0.05
+  },
+  "slopeThresholds": [
+    {
+      "angleDeg": 44.9,
+      "cosNormalY": 0.70833984,
+      "grounded": true,
+      "steepSlope": false
+    },
+    {
+      "angleDeg": 45,
+      "cosNormalY": 0.70710678,
+      "grounded": true,
+      "steepSlope": false
+    },
+    {
+      "angleDeg": 45.1,
+      "cosNormalY": 0.70587157,
+      "grounded": false,
+      "steepSlope": true,
+      "contractTableValue": 0.70608759,
+      "note": "the contract table prints 0.70608759; the derived cos(45.1°) is 0.70587157 — the grounded/steepSlope conclusion is unaffected (both are below cos 45°). Recorded as contract-change request C31-1 in docs/handoffs/31.md."
+    },
+    {
+      "angleDeg": 29.9,
+      "cosNormalY": 0.86689675,
+      "slides": false
+    },
+    {
+      "angleDeg": 30,
+      "cosNormalY": 0.8660254,
+      "slides": true
+    }
+  ],
+  "notes": [
+    "The adapter classifies grounded = computedGrounded() && supportNormal.y >= cos(maxSlopeClimbRad) - 1e-6; a normal-flagged ground below that is reported as contacts.steepSlope (physics.md §8 item 4).",
+    "snapped = the controller moved the capsule further down than commanded by more than 1e-6 m and at most the 0.1 m snap distance; snap never grounds an airborne character.",
+    "contacts.wall = |supportNormal.x| > cos(maxSlopeClimbRad); contacts.head = supportNormal.y < -cos(maxSlopeClimbRad).",
+    "The 1-step horizontal stall jitter (packet 14) is passed through, never smoothed; the adapter counts it in diagnostics.stallSteps."
+  ]
+}

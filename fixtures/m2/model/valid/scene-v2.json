@@ -1,0 +1,243 @@
+{
+  "schemaVersion": 2,
+  "sceneId": "scene-main",
+  "revision": 4,
+  "entities": [
+    {
+      "id": "cam-main",
+      "name": "Main Camera",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            0.5,
+            4
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "camera": {
+          "type": "perspective",
+          "fovY": 60,
+          "near": 0.1,
+          "far": 100
+        }
+      }
+    },
+    {
+      "id": "group-0001",
+      "name": "Station",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "model-0001",
+      "name": "Lantern Instance",
+      "parentId": "group-0001",
+      "components": {
+        "transform": {
+          "position": [
+            2,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "asset-7f3a2c9e1b4d5068"
+          }
+        },
+        "behavior": {
+          "behaviorId": "behavior-0001",
+          "values": {
+            "speed": 4.5,
+            "visible": true,
+            "label": "Lantern",
+            "mode": "pulse",
+            "offset": [
+              0,
+              0.5,
+              0
+            ],
+            "target": "group-0001",
+            "material": "asset-7f3a2c9e1b4d5068"
+          }
+        }
+      }
+    },
+    {
+      "id": "collider-0001",
+      "name": "Floor",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            -0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "collider": {
+          "shape": {
+            "type": "box",
+            "hx": 20,
+            "hy": 0.25
+          }
+        }
+      }
+    },
+    {
+      "id": "ramp-0001",
+      "name": "Ramp",
+      "components": {
+        "transform": {
+          "position": [
+            6,
+            0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "collider": {
+          "shape": {
+            "type": "polygon",
+            "vertices": [
+              [
+                -1,
+                0
+              ],
+              [
+                1,
+                0
+              ],
+              [
+                1,
+                1
+              ],
+              [
+                -1,
+                1
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ctrl-0001",
+      "name": "Character",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "controller": {}
+      }
+    },
+    {
+      "id": "model-0002",
+      "name": "Placed Copy",
+      "components": {
+        "transform": {
+          "position": [
+            -2,
+            0.5,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "asset-7f3a2c9e1b4d5068"
+          }
+        },
+        "prefab": {
+          "prefabId": "prefab-0001",
+          "localId": "model-0001"
+        }
+      }
+    }
+  ]
+}

@@ -44,10 +44,28 @@ declare module 'node:fs' {
   export function statSync(path: string): {
     isDirectory(): boolean;
     isFile(): boolean;
+    size: number;
+    mtimeMs: number;
   };
   /** Canonical path (resolves symlinks) — the symlink-escape check. */
   export function realpathSync(path: string): string;
   export function chmodSync(path: string, mode: number): void;
+  /** Numeric flags (content-store: O_RDONLY|O_NOFOLLOW blob reads). */
+  export function openSync(path: string, flags: number): number;
+  /** Positional read for the O_NOFOLLOW blob read. */
+  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number;
+  /** Numeric open flags (`O_RDONLY`, `O_NOFOLLOW`). */
+  export const constants: { readonly O_RDONLY: number; readonly O_NOFOLLOW: number };
+  /** lstat (never follows a symlink) — the workspace artifact-path rules. */
+  export function lstatSync(path: string): {
+    isDirectory(): boolean;
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+    size: number;
+    mtimeMs: number;
+  };
+  /** Filesystem space report (the workspace device-space quota). */
+  export function statfsSync(path: string): { bavail: number | bigint; bsize: number | bigint };
 }
 
 declare module 'node:path' {
@@ -88,3 +106,34 @@ declare const process: {
    */
   uptime(): number;
 };
+/**
+ * Packet 36 — the per-snapshot virtual bundle modules the export build
+ * generates in memory (`export-bundle.ts`, esbuild plugin namespaces). They
+ * exist only inside the M2 export bundle build; the declarations keep
+ * `tsc --noEmit` able to typecheck the bootstrap source. The bundle graph
+ * check allows exactly these two specifiers plus the
+ * `thirdlight/behavior-output:<behaviorId>` namespace.
+ */
+declare module 'thirdlight:export-artifacts' {
+  /** The manifest-declared asset artifact paths (relative to the output root). */
+  export const assetPaths: readonly string[];
+  /** The single relative reader for one declared asset path (null when undeclared). */
+  export function readAsset(path: string, signal: AbortSignal | undefined): Promise<Response> | null;
+}
+
+declare module 'thirdlight:export-behaviors' {
+  /** The statically linked compiled behavior outputs of this snapshot. */
+  export const behaviors: readonly {
+    behaviorId: string;
+    declaration: unknown;
+    artifact: {
+      behaviorId: string;
+      sourceDigest: string;
+      manifestDigest: string;
+      outputDigest: string;
+      ownedTransforms: readonly string[];
+      requiredModules: readonly string[];
+    };
+    namespace: unknown;
+  }[];
+}

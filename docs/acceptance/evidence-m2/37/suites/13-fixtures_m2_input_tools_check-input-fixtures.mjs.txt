@@ -1,0 +1,6 @@
+ok   canonical: 2 fixture file(s) byte-canonical
+ok   index: 1 fixture file(s) hashed and cross-checked
+ok   sequences: 9 sequence(s), 38 step(s) re-derived
+ok   pins: 6 pin(s) resolved to real headings
+ok   secrets: no credential-like strings
+check OK: input fixtures consistent

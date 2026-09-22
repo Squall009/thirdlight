@@ -1,0 +1,53 @@
+{
+  "kind": "runtime-demo-traces",
+  "setVersion": 1,
+  "id": "runtime-demo-traces",
+  "pins": [
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "## 7. Built-in moving-box demonstration (M1 behavior)"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "### 7.1 Exact behavior (normative math)"
+    }
+  ],
+  "constants": {
+    "amplitude": 0.5,
+    "periodSeconds": 4,
+    "fixedStepHz": 120,
+    "x0": 0.5
+  },
+  "entityId": "box-0001",
+  "samples": [
+    {
+      "completedSteps": 1,
+      "x": 0.5130884741539365
+    },
+    {
+      "completedSteps": 59,
+      "x": 0.8535533905932737
+    },
+    {
+      "completedSteps": 119,
+      "x": 1
+    },
+    {
+      "completedSteps": 120,
+      "x": 0.9999571637870035
+    },
+    {
+      "completedSteps": 239,
+      "x": 0.5000000000000003
+    },
+    {
+      "completedSteps": 240,
+      "x": 0.4934552022143278
+    },
+    {
+      "completedSteps": 479,
+      "x": 0.49999999999999944
+    }
+  ],
+  "note": "x(completedSteps) = x0 + A*sin(2pi(completedSteps+1)/(hz*T)); the authored x0 holds at completedSteps 0 (no step executed)."
+}

@@ -1,0 +1,485 @@
+{
+  "fixtureVersion": 1,
+  "contract": "docs/planning/m3-contracts/presentation.md §41.3",
+  "roles": [
+    "idle",
+    "run",
+    "airborne"
+  ],
+  "profileCaps": {
+    "clips": 8,
+    "tracks": 64,
+    "tracksPerClip": 32,
+    "trackTimes": 4096,
+    "clipMs": 10000,
+    "profileBytes": 4096
+  },
+  "rootNodeIndex": 0,
+  "cases": [
+    {
+      "id": "roles-ok-stored-order",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-ok-reordered",
+      "file": "courier-reordered.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 2,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 0,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "role-missing-airborne",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "field_missing",
+        "path": "/roles/airborne"
+      }
+    },
+    {
+      "id": "role-extra-key",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        },
+        "walk": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "field_unexpected",
+        "path": "/roles/walk"
+      }
+    },
+    {
+      "id": "role-out-of-range",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 3,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_role_out_of_range"
+      }
+    },
+    {
+      "id": "role-duplicate-index",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_role_duplicate"
+      }
+    },
+    {
+      "id": "role-name-mismatch",
+      "file": "courier-roles.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Idle"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_role_mismatch"
+      }
+    },
+    {
+      "id": "role-name-ambiguous",
+      "file": "dup-names.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Idle"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_role_ambiguous"
+      }
+    },
+    {
+      "id": "role-skin-rejected",
+      "file": "bad-skin.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_skin_unsupported"
+      }
+    },
+    {
+      "id": "role-root-motion-rejected",
+      "file": "bad-root-motion.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_root_motion"
+      }
+    },
+    {
+      "id": "role-too-many-clips",
+      "file": "many-clips.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "C1"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "C2"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C3"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "asset_limits_exceeded",
+        "limit": "animation_clips"
+      }
+    },
+    {
+      "id": "role-too-many-tracks",
+      "file": "many-tracks.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "A"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "B"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "asset_limits_exceeded",
+        "limit": "animation_tracks"
+      }
+    },
+    {
+      "id": "role-clip-too-long",
+      "file": "long-clip.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "asset_limits_exceeded",
+        "limit": "animation_clip_duration"
+      }
+    },
+    {
+      "id": "role-joints-rejected",
+      "file": "bad-joints.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_skin_unsupported",
+        "path": "/meshes/0/primitives/0/attributes/JOINTS_0"
+      }
+    },
+    {
+      "id": "role-skin-before-root-motion",
+      "file": "bad-skin-root.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "animation_skin_unsupported",
+        "path": "/skins"
+      }
+    },
+    {
+      "id": "role-too-many-keyframes",
+      "file": "many-keyframes.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "A"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "B"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "asset_limits_exceeded",
+        "limit": "animation_track_times"
+      }
+    },
+    {
+      "id": "role-too-many-tracks-per-clip",
+      "file": "many-tracks-per-clip.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "A"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "B"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C"
+        }
+      },
+      "expect": {
+        "verdict": "rejected",
+        "code": "asset_limits_exceeded",
+        "limit": "animation_tracks"
+      }
+    },
+    {
+      "id": "roles-ok-clips-at-cap",
+      "file": "clips-at-cap.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "C1"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "C2"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C3"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-ok-tracks-at-cap",
+      "file": "tracks-at-cap.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "A"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "B"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-ok-keyframes-at-cap",
+      "file": "keyframes-at-cap.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "A"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "B"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "C"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    },
+    {
+      "id": "roles-ok-clip-at-10s",
+      "file": "clip-10s.glb",
+      "roles": {
+        "idle": {
+          "clipIndex": 0,
+          "clipName": "Idle"
+        },
+        "run": {
+          "clipIndex": 1,
+          "clipName": "Run"
+        },
+        "airborne": {
+          "clipIndex": 2,
+          "clipName": "Airborne"
+        }
+      },
+      "expect": {
+        "verdict": "accepted"
+      }
+    }
+  ]
+}

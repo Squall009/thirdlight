@@ -1,0 +1,63 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "blob-tamper-detected",
+  "title": "A tampered authoritative blob is detected and retained",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 8. Reading content: integrity, tamper and derived caches"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 8,
+    "onDisk": {
+      "sources/sha256/e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41": "bytes replaced by a different file with the same name"
+    },
+    "operation": {
+      "op": "readBlob",
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "version": 2
+    }
+  },
+  "steps": [
+    {
+      "at": "open",
+      "action": "content integrity evaluation",
+      "expect": {
+        "report": "digest mismatch for the referenced version"
+      }
+    },
+    {
+      "at": "read",
+      "action": "readBlob(assetId, version)",
+      "expect": {
+        "outcome": "failure",
+        "hashedBeforeUse": true
+      }
+    },
+    {
+      "at": "cleanup",
+      "action": "any automatic deletion or in-place repair",
+      "expect": {
+        "performed": false
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "failure",
+    "codes": [
+      "blob_corrupt"
+    ],
+    "durableEffects": [
+      "the tampered bytes are retained byte-for-byte in place"
+    ],
+    "observations": [
+      "every read verifies the digest before the bytes are handed to a renderer/importer (content addressing makes this cheap and mandatory)",
+      "a symlinked sources/ path or artifact directory is refused (path_rejected) rather than followed",
+      "an external-source tamper can therefore never silently change rendered or exported content"
+    ]
+  },
+  "notes": "A10: source tampering is detected and source backup/restore retains playable content."
+}

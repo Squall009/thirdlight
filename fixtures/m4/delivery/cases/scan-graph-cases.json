@@ -1,0 +1,110 @@
+{
+  "description": "The per-bundle graph + scan expectations for the M4 model wiring (delivery.md §2.9; C64-6). The §5.4.1 GLTFLoader subpath row applies to exactly the two M3 bundles; the M1/M2 bundles stay loader-free. The real-bundle re-measurement (counts, metafile graphs) is packet 70 evidence — these rows pin the EXPECTED graph shape.",
+  "bundles": [
+    {
+      "name": "M3 play-preview",
+      "entry": "packages/editor/src/preview/preview-m3.ts",
+      "graphIncludes": [
+        "three-adapter (root)",
+        "three-adapter/gltf-loader",
+        "game-host",
+        "platformer-game",
+        "physics-rapier"
+      ],
+      "graphExcludes": [
+        "editor/src/ui/**",
+        "editor/src/session/**",
+        "editor/src/viewport/**",
+        "commands",
+        "workspace",
+        "backend",
+        "mcp-adapter"
+      ],
+      "fetchCount": "1 (manifest.json) + |unique declared asset paths|",
+      "scanRows": {
+        "gltfLoader": {
+          "https": 12,
+          "gltfLoaderIdentifier": 37,
+          "additionalDfgij": 0
+        },
+        "note": "the accepted §5.4.1 GLTFLoader subpath row — re-measured at packet 70; any difference requests bounded re-review, never an exception widening"
+      }
+    },
+    {
+      "name": "M3 export",
+      "entry": "packages/exporter/src/export-bootstrap-m3.ts",
+      "graphIncludes": [
+        "three-adapter (root)",
+        "three-adapter/gltf-loader",
+        "game-host",
+        "platformer-game",
+        "physics-rapier"
+      ],
+      "graphExcludes": [
+        "exporter internals beyond export-bootstrap-m3.ts",
+        "game-host importing exporter internals",
+        "editor",
+        "workspace",
+        "backend"
+      ],
+      "fetchCount": "2 (manifest.json + scene.json) + |unique declared asset paths|",
+      "scanRows": {
+        "gltfLoader": {
+          "https": 12,
+          "gltfLoaderIdentifier": 37,
+          "additionalDfgij": 0
+        },
+        "note": "same GLTFLoader subpath row + the accepted C36-1 scene.json row (fetch +1)"
+      }
+    },
+    {
+      "name": "M2 play-preview (unchanged)",
+      "entry": "packages/editor/src/preview/preview-bootstrap.ts",
+      "graphIncludes": [
+        "three-adapter (root only — loader-free)",
+        "game-host",
+        "platformer-game"
+      ],
+      "graphExcludes": [
+        "three-adapter/gltf-loader"
+      ],
+      "fetchCount": "the accepted M2 set (manifest.json + scene.json + declared asset paths — unchanged)",
+      "scanRows": {
+        "gltfLoader": {
+          "https": 0,
+          "gltfLoaderIdentifier": 0
+        },
+        "note": "loader-free: the recorded §5.4.1 counts for this bundle are untouched"
+      }
+    },
+    {
+      "name": "editor bundle (until packet 70-B)",
+      "entry": "packages/editor/src/index.tsx",
+      "graphIncludes": [
+        "three-adapter (root only — loader-free until 70-B)"
+      ],
+      "graphExcludes": [
+        "game-host",
+        "three-adapter/gltf-loader"
+      ],
+      "note": "70-B (authoring-viewport model wiring) adds the gltf-loader subpath and re-measures; this row does not pre-empt 70-B"
+    }
+  ],
+  "negativeControls": [
+    {
+      "id": "NG1",
+      "change": "an M2 bundle graph that includes three-adapter/gltf-loader",
+      "expectation": "the bundle-graph check FAILS (the M2 row is loader-free; its recorded counts are bound without the subpath)"
+    },
+    {
+      "id": "NG2",
+      "change": "the preview/export fetches an undeclared asset path (e.g. glb/undeclared-m4.glb content)",
+      "expectation": "a contract violation (delivery.md §2.8: only manifest-declared paths are read) — the browser network evidence must show exactly 1 (+ scene for export) + |declared| requests"
+    },
+    {
+      "id": "NG3",
+      "change": "a second animation loop (a controller-installed requestAnimationFrame)",
+      "expectation": "C13 failure — one rAF consumer per page; the adapter controllers are driven only from the single renderFrame (delivery.md §2.4)"
+    }
+  ]
+}

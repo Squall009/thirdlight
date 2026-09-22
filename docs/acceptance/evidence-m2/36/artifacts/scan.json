@@ -1,0 +1,23 @@
+{
+  "bundleBytes": 4456197,
+  "bundleSha256": "9f377d63f547747b349b39d174c63d3bffdd824879142ae81682265d0ffca893",
+  "patterns": {
+    "a": 0,
+    "b": 0,
+    "c": 0,
+    "d": 7,
+    "e": 0,
+    "f": 3,
+    "g": 0,
+    "h": 38,
+    "i": 0,
+    "j": 5
+  },
+  "engineFetchSites": {
+    "manifest": 1,
+    "scene": 1,
+    "declaredAssetPaths": 1
+  },
+  "gltfLoaderIdentifierCount": 37,
+  "scanHitsReportedByExport": 0
+}

@@ -1,0 +1,80 @@
+{
+  "created": 201,
+  "boxOk": true,
+  "boxResponse": {
+    "ok": true,
+    "op": "createEntity",
+    "projectId": "m1-live",
+    "requestId": "req-411ae75da921f3078ac75d0e241def67",
+    "revision": 1,
+    "duplicated": false,
+    "createdId": "box-0001",
+    "change": {
+      "type": "createEntity",
+      "id": "box-0001",
+      "entity": {
+        "id": "box-0001",
+        "name": "M1 Box",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          }
+        }
+      }
+    },
+    "history": {
+      "undoDepth": 1,
+      "redoDepth": 0
+    }
+  },
+  "malformedStatus": 503,
+  "malformedError": {
+    "code": "project_unavailable",
+    "cls": "unavailable",
+    "reason": "storage_version_unsupported",
+    "details": [
+      {
+        "code": "storage_version_unsupported",
+        "path": "/storageVersion",
+        "message": "envelope storageVersion is not known to M2",
+        "found": 99,
+        "expected": "1 or 2 (known versions: [1,2])",
+        "knownVersions": [
+          1,
+          2
+        ]
+      }
+    ],
+    "detailCount": 1,
+    "message": "project cannot be used right now: storage_version_unsupported",
+    "hint": "the authoring state on disk is invalid or unreadable; the bytes are retained untouched — repair the file by hand (a recovery snapshot or backup, if available) and re-open"
+  },
+  "envBefore": "a94c4b30f53705296f33752a7725ab248efe3584de82853111bd543c59dcd3ff",
+  "badHash": "817d42b8788550f6739ac45c0a0da39f88f2ef82e95f1894ef13ad0a3ffea0c4",
+  "badHashAfter": "817d42b8788550f6739ac45c0a0da39f88f2ef82e95f1894ef13ad0a3ffea0c4"
+}

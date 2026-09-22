@@ -1,0 +1,82 @@
+{
+  "kind": "content-storage-case",
+  "caseVersion": 1,
+  "id": "reimport-undo-retains-old-bytes",
+  "title": "Reimport and undo retain every version and its bytes",
+  "pins": [
+    {
+      "file": "docs/planning/m2-contracts/content-storage.md",
+      "section": "## 10. Ownership, disposal and retention"
+    },
+    {
+      "file": "docs/planning/m2-contracts/assets.md",
+      "section": "## 13. Observable failure outcomes"
+    }
+  ],
+  "input": {
+    "project": "demo-0002",
+    "revision": 7,
+    "catalog": {
+      "assetId": "asset-7f3a2c9e1b4d5068",
+      "currentVersion": 2,
+      "versions": [
+        1,
+        2
+      ]
+    },
+    "reimport": {
+      "newVersion": 3,
+      "sourceDigest": "source-preimages/placeholder-a.bin"
+    }
+  },
+  "steps": [
+    {
+      "at": "publish",
+      "action": "append version 3 and set currentVersion 3",
+      "expect": {
+        "revision": 8,
+        "versions": [
+          1,
+          2,
+          3
+        ],
+        "blobsRetained": 3
+      }
+    },
+    {
+      "at": "undo",
+      "action": "undo the reimport command",
+      "expect": {
+        "revision": 9,
+        "currentVersion": 2,
+        "versions": [
+          1,
+          2,
+          3
+        ],
+        "blobRemoved": false
+      }
+    },
+    {
+      "at": "redo",
+      "action": "redo the reimport command",
+      "expect": {
+        "revision": 10,
+        "currentVersion": 3
+      }
+    }
+  ],
+  "expect": {
+    "outcome": "success",
+    "codes": [],
+    "durableEffects": [
+      "version 3 and its blob stay on disk after the undo",
+      "placed entities keep their entity IDs and transforms throughout (only currentVersion changes)"
+    ],
+    "observations": [
+      "no GC and no version eviction exist in M2, so undo, history, snapshots and recorded retries can never be invalidated by content removal",
+      "the undo/redo pointer move is part of the same single-revision command pipeline"
+    ]
+  },
+  "notes": "Acceptance A03: reimport changes one catalog version; undo restores the previous version; old bytes are retained."
+}

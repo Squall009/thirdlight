@@ -1,0 +1,44 @@
+{
+  "runId": "tl14-2026-09-18-a",
+  "candidate": "cannon-es@0.20.0",
+  "plane": "XY plane, Y up; Z is visual depth only (no collision dimension in 2D candidates)",
+  "notes": [
+    "3D engine constrained to XY (Z=0); planar constraint is M2 game logic, not an engine feature",
+    "KINEMATIC bodies are moved by velocity but get NO collision response — all course collisions must be custom game logic",
+    "grounding raycasts need explicit collision-filter groups to exclude the character body (self-hit measured: constant 0.89 m)",
+    "cannon-es 0.20.0 has NO Capsule shape — the course capsule (total height 1.8) is approximated by a sphere of radius 0.9; shape mismatch is a controller-work item",
+    "grounding = world.raycastClosest downward within 0.05 of the capsule reach (custom; no built-in ground classification)"
+  ],
+  "phases": {
+    "P1_flatWalk": {
+      "endPos": {
+        "x": -6,
+        "y": 0.9
+      },
+      "ungroundedSteps": 0,
+      "outOfBox": "walks at commanded speed with consistent raycast grounding (raycast is custom code — no built-in ground classification)"
+    },
+    "P2_wall": {
+      "endPos": {
+        "x": 16.4,
+        "y": 0.9
+      },
+      "maxPenetrationM": 7.8,
+      "outOfBox": "KINEMATIC BODY PASSES THROUGH THE STATIC WALL — no collision response; M2 must implement manual penetration correction"
+    },
+    "P3_ramp43": {
+      "endPos": {
+        "x": 9.2,
+        "y": 0.9
+      },
+      "maxHeightGainM": 0,
+      "outOfBox": "capsule does NOT climb the 43 deg ramp (no slope/edge response for kinematic bodies); M2 needs custom slope response + edge handling"
+    },
+    "P4_jump": {
+      "apexGainM": 1.278,
+      "expectedContinuous": 1.249,
+      "outOfBox": "jump works with game-logic velocity + raycast grounding (kinematic: no solver help); apex matches free-fall within step discretization"
+    }
+  },
+  "summary": "P1_flatWalk: end={\"x\":-6,\"y\":0.9} [walks at commanded speed with consistent raycast grounding (raycast is custom code — no bu]\nP2_wall: end={\"x\":16.4,\"y\":0.9} [KINEMATIC BODY PASSES THROUGH THE STATIC WALL — no collision response; M2 must implement m]\nP3_ramp43: end={\"x\":9.2,\"y\":0.9} [capsule does NOT climb the 43 deg ramp (no slope/edge response for kinematic bodies); M2 n]\nP4_jump: end=\"n/a\" [jump works with game-logic velocity + raycast grounding (kinematic: no solver help); apex ]"
+}

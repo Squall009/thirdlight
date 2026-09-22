@@ -1,0 +1,7 @@
+# independent recomputation (python3, separate implementation from tools/check-fixtures.mjs)
+preimage placeholder-a.bin: sha256=dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967 declared=dc3e9a88ab49347752fb5d66c0e39ab48f371fa57ecc1f4bcb4519259b8c0967 match=True length=26
+preimage placeholder-b.bin: sha256=e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41 declared=e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41 match=True length=26
+captured-view contentDigest recomputed=8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c declared=8b7116a759bd251cff21c7f0be2200615b339c34a24c718eb11c8904ddbc6b9c match=True
+step M4 allocation: recomputed=['group-0002', 'box-0002', 'model-0003', 'model-0004'] fixture=['group-0002', 'box-0002', 'model-0003', 'model-0004'] match=True; mapping match=True; entityRef remap match=True
+step M5 allocation: recomputed=['group-0003', 'box-0003', 'model-0005', 'model-0006'] fixture=['group-0003', 'box-0003', 'model-0005', 'model-0006'] match=True; mapping match=True; entityRef remap match=True
+independent ID-allocation/remap verdict: PASS

@@ -1,0 +1,9 @@
+=== disposable negative probe installed ===
+check-boundaries: FAIL — 4 violation(s):
+  packages/platformer/src/zz-negative-probe.test.ts:1: [node-builtin-forbidden] 'node:fs' — Node builtins are not in 'platformer's allowed edges (dependencies.md §4.1; runtime is three-free and I/O-free, §4.3)
+  packages/platformer/src/zz-negative-probe.test.ts:2: [forbidden-external] 'three' — 'three' is not in 'platformer's dependencies.md §4.1 allowed edges
+  packages/platformer/src/zz-negative-probe.test.ts:3: [types-only-edge] '@thirdlight/runtime' — 'platformer → runtime' is a types-only edge (dependencies.md §4.1: "types only"); value imports, value re-exports, and dynamic import() of it are executable imports — use `import type` / `export type` for the type-only forms (the no-second-mutation-path rule, §4.3)
+  packages/platformer/src/zz-negative-probe.test.ts:4: [forbidden-edge] '@thirdlight/physics-rapier' — 'platformer → physics-rapier' is not in the dependencies.md §4.1 allowed node-side edges (forbidden-edge table: §4.3)
+checker exit=1
+=== probe removed ===
+check-boundaries: OK — 14 package(s) [asset-pipeline, backend, commands, editor, exporter, input, mcp-adapter, physics-rapier, platformer, project-model, protocol, runtime, three-adapter, workspace], 251 source file(s), 908 specifier(s) checked; no boundary violations.

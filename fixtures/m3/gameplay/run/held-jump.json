@@ -1,0 +1,118 @@
+{
+  "fixtureVersion": 1,
+  "notes": [
+    "M3 effective-frame overrides (gameplay.md §2.5). `firstLive` marks the first playing step after a run-start/respawn/replay boundary; the jump column is forced to none there (the anti-phantom-jump gate), movement is not gated."
+  ],
+  "cases": [
+    {
+      "id": "held-during-awaitingStart",
+      "runState": "awaitingStart",
+      "firstLive": false,
+      "sampled": "held",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "pressed-during-awaitingStart",
+      "runState": "awaitingStart",
+      "firstLive": false,
+      "sampled": "pressed",
+      "sampledMoveX": 0,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "held-at-first-live",
+      "runState": "playing",
+      "firstLive": true,
+      "sampled": "held",
+      "sampledMoveX": 0,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "pressed-at-first-live",
+      "runState": "playing",
+      "firstLive": true,
+      "sampled": "pressed",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 1
+      }
+    },
+    {
+      "id": "pressed-after-first-live",
+      "runState": "playing",
+      "firstLive": false,
+      "sampled": "pressed",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "pressed",
+        "moveX": 1
+      }
+    },
+    {
+      "id": "move-at-first-live",
+      "runState": "playing",
+      "firstLive": true,
+      "sampled": "none",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 1
+      }
+    },
+    {
+      "id": "pressed-during-respawning",
+      "runState": "respawning",
+      "firstLive": false,
+      "sampled": "pressed",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "move-during-respawning",
+      "runState": "respawning",
+      "firstLive": false,
+      "sampled": "none",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "pressed-during-won",
+      "runState": "won",
+      "firstLive": false,
+      "sampled": "pressed",
+      "sampledMoveX": 1,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    },
+    {
+      "id": "none-after-first-live",
+      "runState": "playing",
+      "firstLive": false,
+      "sampled": "none",
+      "sampledMoveX": 0,
+      "expect": {
+        "jump": "none",
+        "moveX": 0
+      }
+    }
+  ]
+}

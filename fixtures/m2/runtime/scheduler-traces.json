@@ -1,0 +1,175 @@
+{
+  "kind": "runtime-scheduler-traces",
+  "setVersion": 1,
+  "id": "runtime-scheduler-traces",
+  "pins": [
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "## 5. Fixed steps with bounded catch-up"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "### 3.2 `start()`"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "#### 12.5.1 One frame per executed fixed step"
+    },
+    {
+      "file": "docs/contracts/runtime.md",
+      "section": "### 12.5.2 Press latch — exactly one edge per executed step"
+    }
+  ],
+  "constants": {
+    "fixedStepHz": 120,
+    "dt": 0.008333333333333333,
+    "maxCatchupSteps": 8,
+    "settlePreRollSteps": 12
+  },
+  "cases": [
+    {
+      "caseId": "S1-pre-roll-then-60hz",
+      "preRoll": 12,
+      "recordedFrames": [],
+      "frames": [
+        {
+          "id": "F1",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "stepIndex": 14,
+        "droppedSteps": 0,
+        "droppedInputSteps": 0,
+        "settleSteps": 12,
+        "sampledStepIndices": [
+          12,
+          13
+        ],
+        "preRollActionSamples": []
+      }
+    },
+    {
+      "caseId": "S2-stall-drop-and-resync",
+      "preRoll": 12,
+      "recordedFrames": [],
+      "frames": [
+        {
+          "id": "F1",
+          "elapsed": 1
+        },
+        {
+          "id": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "stepIndex": 22,
+        "droppedSteps": 112,
+        "droppedInputSteps": 112,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "droppedWindowOmittedFromSamples": true
+      }
+    },
+    {
+      "caseId": "S3-pressed-edge-once",
+      "preRoll": 12,
+      "recordedFrames": [
+        {
+          "stepIndex": 12,
+          "moveX": 1,
+          "jump": "pressed"
+        }
+      ],
+      "frames": [
+        {
+          "id": "F1",
+          "elapsed": 0.0668
+        }
+      ],
+      "expect": {
+        "stepIndex": 20,
+        "droppedSteps": 0,
+        "pressedCount": 1,
+        "pressedAtStepIndex": 12,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      }
+    },
+    {
+      "caseId": "S4-drop-does-not-replay",
+      "preRoll": 12,
+      "recordedFrames": [],
+      "frames": [
+        {
+          "id": "F1",
+          "elapsed": 0.5
+        },
+        {
+          "id": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "stepIndex": 22,
+        "droppedSteps": 52,
+        "sampledStepIndices": [
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "droppedWindowOmittedFromSamples": true,
+        "droppedInputSteps": 52
+      }
+    },
+    {
+      "caseId": "S5-zero-step-frame",
+      "preRoll": 12,
+      "recordedFrames": [],
+      "frames": [
+        {
+          "id": "F1",
+          "elapsed": 0.001
+        },
+        {
+          "id": "F2",
+          "elapsed": 0.0167
+        }
+      ],
+      "expect": {
+        "stepIndex": 14,
+        "droppedSteps": 0,
+        "sampledStepIndices": [
+          12,
+          13
+        ]
+      }
+    }
+  ]
+}

@@ -14,12 +14,29 @@
 import * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import { Gizmo, type GizmoMode } from './gizmo';
+import { ZoneOverlay, type ZoneTool } from './zone-overlay';
+import type { ModelInstances } from './model-instances';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
   onGestureBegin: (entityId: string) => void;
   onGestureFrame: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
   onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
+  /**
+   * M3 (packet 56): zone gesture routing. The overlay begins the gesture on
+   * a consumed pointer down (create from the placement tool; move/resize
+   * from a zone body / its resize handle); the frames carry the pointer's
+   * game-plane WORLD hits (the App owns the pure ZoneGesture decisions and
+   * the single commit command).
+   */
+  onZoneGestureBegin: (
+    g: { kind: 'create'; tool: ZoneTool; anchor: { x: number; y: number } }
+      | { kind: 'move'; entityId: string; anchor: { x: number; y: number } }
+      | { kind: 'resize'; entityId: string; anchor: { x: number; y: number } },
+  ) => void;
+  onZoneGestureFrame: (hit: { x: number; y: number }) => void;
+  onZoneGestureEnd: (hit: { x: number; y: number }) => void;
+  onZoneGestureCancel: () => void;
 }
 
 const GROUND_SIZE = 20;
@@ -42,8 +59,12 @@ export class Viewport {
   private readonly cb: ViewportCallbacks;
   private selectedId: string | null = null;
   private gizmo: Gizmo;
+  /** The packet-27 model realization path (shared with the asset browser). */
+  private models: ModelInstances | null = null;
   private readonly ground: THREE.Mesh;
   private readonly grid: THREE.GridHelper;
+  /** M3 (packet 56): the imperative zone/spawn/cameraFollow overlay. */
+  private readonly zones: ZoneOverlay;
 
   // Orbit state (a minimal, framework-free orbit control).
   private orbitTheta = Math.PI / 4;
@@ -52,10 +73,12 @@ export class Viewport {
   private orbitTarget = new THREE.Vector3(0, 0.5, 0);
   private dragging = false;
   private draggingGizmo = false;
+  /** M3 (packet 56): a zone gesture is in flight (the overlay consumed the down). */
+  private draggingZone = false;
   private lastPointer = { x: 0, y: 0 };
   private readonly raycaster = new THREE.Raycaster();
 
-  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks) {
+  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean } = {}) {
     this.root = canvas;
     this.cb = cb;
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
@@ -76,6 +99,8 @@ export class Viewport {
     this.scene.add(key);
     this.scene.add(new THREE.AmbientLight(0x8899bb, 0.6));
 
+    this.zones = new ZoneOverlay(this.scene, this.camera, canvas);
+
     this.gizmo = new Gizmo(this.scene, this.camera, this.renderer, {
       onFrame: (t) => this.cb.onGestureFrame(this.gizmoTargetId ?? '', t),
       onEnd: (t) => {
@@ -83,7 +108,7 @@ export class Viewport {
         this.draggingGizmo = false;
         if (id) this.cb.onGestureEnd(id, t);
       },
-    });
+    }, { snapping: options.snapping });
     this.bindEvents();
     this.applyOrbit();
     this.renderer.render(this.scene, this.camera);
@@ -91,11 +116,68 @@ export class Viewport {
 
   private gizmoTargetId: string | null = null;
 
+  /** Install the model realization path (packet 27). */
+  setModelInstances(models: ModelInstances | null): void {
+    this.models = models;
+  }
+
+  /** The Object3D a gizmo/selection targets (a realized model or a primitive). */
+  private targetFor(id: string): THREE.Object3D | null {
+    return this.models?.instanceFor(id) ?? this.meshes.get(id) ?? null;
+  }
+
+  private render(): void {
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Re-render (the model realization path calls this when a GLB resolves). */
+  requestRender(): void {
+    this.render();
+  }
+
+  /** M3 (packet 56): arm/clear a zone placement tool (the panel's action). */
+  setZoneTool(tool: ZoneTool | null): void {
+    this.zones.setTool(tool);
+  }
+
+  /** M3 (packet 56): the live zone placement tool, when armed. */
+  getZoneTool(): ZoneTool | null {
+    return this.zones.activeTool;
+  }
+
+  /** M3 (packet 56): render/clear the zone gesture preview at a pose. */
+  previewZonePose(pose: { position: [number, number, number]; size: [number, number] } | null, isSpawn = false, role?: 'hazard' | 'checkpoint' | 'goal'): void {
+    this.zones.setPreviewPose(pose, isSpawn, role);
+    this.render();
+  }
+
+  /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
+  cancelGesture(): boolean {
+    // M3 (packet 56): a zone gesture cancels through the overlay (the App
+    // reverts its preview from `onZoneGestureCancel`; nothing is sent).
+    if (this.draggingZone) {
+      this.draggingZone = false;
+      if (this.zones.cancel()) {
+        this.cb.onZoneGestureCancel();
+        this.render();
+        return true;
+      }
+    }
+    const cancelled = this.gizmo.cancel();
+    this.draggingGizmo = false;
+    this.render();
+    return cancelled;
+  }
+
   /** Sync the entity set from the projection (add/remove/update meshes). */
   syncEntities(entities: ProjectedEntity[]): void {
     const seen = new Set<string>();
     for (const e of entities) {
       seen.add(e.id);
+      // Model entities are realized by the packet-26/27 resource path; the
+      // viewport holds a hidden placeholder so picking + the gizmo keep a
+      // stable target while the GLB resolves asynchronously.
+      const isModel = e.kind === 'model';
       let m = this.meshes.get(e.id);
       if (!m) {
         m = this.buildMesh(e);
@@ -104,6 +186,7 @@ export class Viewport {
       } else {
         this.updateMesh(m, e);
       }
+      m.visible = !isModel;
     }
     // Remove meshes whose entities are gone.
     for (const [id, m] of this.meshes) {
@@ -114,21 +197,58 @@ export class Viewport {
         if (this.selectedId === id) this.setSelected(null);
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    this.models?.sync(entities);
+    // M3 (packet 56): the zone overlay syncs from the SAME projection pass.
+    this.zones.sync(entities);
+    this.render();
   }
 
   private buildMesh(e: ProjectedEntity): THREE.Object3D {
     const group = new THREE.Group();
     group.name = e.id;
     (group as { entityId?: string }).entityId = e.id;
+    if (e.kind === 'model') {
+      // A whole-GLB placement is realized by the packet-26 resource path; the
+      // placeholder only anchors picking/selection until the bytes resolve.
+      return group;
+    }
     if (e.kind === 'box') {
+      // M3 (packet 57): an authored `surface` color previews on the box in the
+      // editor viewport (the play renderer realizes the full material from the
+      // same component; the editor shows the copied color only).
+      const surfaceColor = e.surface !== undefined ? parseInt(e.surface.color.slice(1), 16) : 0x4f8cff;
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial({ color: 0x4f8cff }),
+        new THREE.MeshLambertMaterial({ color: surfaceColor }),
       );
       mesh.name = e.id;
       (mesh as { entityId?: string }).entityId = e.id;
       group.add(mesh);
+    } else if (e.light !== undefined) {
+      // M3 (packet 57): a light entity previews as a directional arrow (a line
+      // along `direction`) or a small sphere (ambient).
+      if (e.light.type === 'directional' && e.light.direction !== undefined) {
+        const d = e.light.direction;
+        const len = 2;
+        const geom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(d[0] * len, d[1] * len, d[2] * len),
+        ]);
+        const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffe08a }));
+        line.name = e.id;
+        (line as { entityId?: string }).entityId = e.id;
+        (line as { userData?: unknown }).userData = { lightKind: 'directional' };
+        group.add(line);
+      } else {
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 12, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffe08a }),
+        );
+        sphere.name = e.id;
+        (sphere as { entityId?: string }).entityId = e.id;
+        (sphere as { userData?: unknown }).userData = { lightKind: 'ambient' };
+        group.add(sphere);
+      }
     } else {
       // Cameras render as a small frustum marker (non-pickable body + label cone).
       const cone = new THREE.Mesh(
@@ -148,6 +268,16 @@ export class Viewport {
     obj.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
     obj.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
     obj.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
+    // M3 (packet 57): the box previews its authored surface color (or the
+    // default blue when the component is absent) — the highlight emissive is
+    // untouched (it is a separate material property).
+    obj.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
+      if (e.kind === 'box' && mat !== undefined && 'color' in mat && mesh.userData.lightKind === undefined) {
+        mat.color.setHex(e.surface !== undefined ? parseInt(e.surface.color.slice(1), 16) : 0x4f8cff);
+      }
+    });
   }
 
   private disposeMesh(obj: THREE.Object3D): void {
@@ -160,23 +290,26 @@ export class Viewport {
     });
   }
 
-  /** Set the selected entity (drives the gizmo). */
+  /** Set the selected entity (drives the gizmo + the zone overlay handle). */
   setSelected(id: string | null, mode: GizmoMode = 'translate'): void {
     this.selectedId = id;
     for (const [eid, m] of this.meshes) {
       this.setMeshHighlight(m, eid === id);
     }
-    if (id && this.meshes.has(id)) {
+    const target = id ? this.targetFor(id) : null;
+    if (id && target) {
       this.gizmoTargetId = id;
-      this.gizmo.attach(this.meshes.get(id)!, mode);
+      this.gizmo.attach(target, mode);
     } else {
       this.gizmoTargetId = null;
       this.gizmo.detach();
     }
+    this.zones.setSelected(id);
   }
 
   setGizmoMode(mode: GizmoMode): void {
-    if (this.gizmoTargetId) this.gizmo.attach(this.meshes.get(this.gizmoTargetId)!, mode);
+    const target = this.gizmoTargetId ? this.targetFor(this.gizmoTargetId) : null;
+    if (target) this.gizmo.attach(target, mode);
     this.gizmo.setMode(mode);
   }
 
@@ -199,7 +332,13 @@ export class Viewport {
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const pickables: THREE.Object3D[] = [];
-    for (const m of this.meshes.values()) pickables.push(m);
+    for (const m of this.meshes.values()) if (m.visible) pickables.push(m);
+    if (this.models) {
+      for (const id of this.meshes.keys()) {
+        const holder = this.models.instanceFor(id);
+        if (holder) pickables.push(holder);
+      }
+    }
     const hits = this.raycaster.intersectObjects(pickables, true);
     for (const h of hits) {
       let o: THREE.Object3D | null = h.object;
@@ -222,6 +361,20 @@ export class Viewport {
 
   private onPointerDown = (e: PointerEvent): void => {
     this.lastPointer = { x: e.clientX, y: e.clientY };
+    // M3 (packet 56): the zone overlay routes FIRST — a consumed pointer down
+    // drives a zone gesture (create/move/resize) and skips orbit/pick.
+    const zoneDown = this.zones.pointerDown(e.clientX, e.clientY);
+    if (zoneDown.consumed) {
+      this.draggingZone = true;
+      const g = zoneDown.gesture;
+      if (g.kind !== 'create') {
+        // A zone-body/resize gesture also selects the zone entity (the panel
+        // shows its fields; the overlay shows the resize handle).
+        this.cb.onPick(g.entityId);
+      }
+      this.cb.onZoneGestureBegin(g);
+      return;
+    }
     if (this.gizmo.pointerDown(e)) {
       this.draggingGizmo = true;
       if (this.gizmoTargetId) this.cb.onGestureBegin(this.gizmoTargetId);
@@ -234,6 +387,14 @@ export class Viewport {
     const dx = e.clientX - this.lastPointer.x;
     const dy = e.clientY - this.lastPointer.y;
     this.lastPointer = { x: e.clientX, y: e.clientY };
+    if (this.draggingZone) {
+      // M3 (packet 56): the frame carries the pointer's game-plane WORLD hit
+      // (the App computes the delta from its gesture anchor and feeds the
+      // pure ZoneGesture — zero commands, ever, during the drag).
+      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
+      if (hit) this.cb.onZoneGestureFrame(hit);
+      return;
+    }
     if (this.draggingGizmo) {
       this.gizmo.pointerMove(dx, dy);
       return;
@@ -246,6 +407,13 @@ export class Viewport {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    if (this.draggingZone) {
+      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
+      this.draggingZone = false;
+      this.zones.pointerUp();
+      if (hit) this.cb.onZoneGestureEnd(hit);
+      return;
+    }
     if (this.draggingGizmo) {
       this.gizmo.pointerUp();
       this.draggingGizmo = false;
@@ -298,6 +466,7 @@ export class Viewport {
       this.disposeMesh(m);
     }
     this.meshes.clear();
+    this.zones.dispose();
     this.gizmo.dispose();
     this.disposeMesh(this.ground);
     this.renderer.dispose();

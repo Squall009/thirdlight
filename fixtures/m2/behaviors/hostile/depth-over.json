@@ -1,0 +1,50 @@
+{
+  "graphVersion": 1,
+  "entryPath": "src/f0.ts",
+  "requiredModules": [
+    "@thirdlight/runtime"
+  ],
+  "ownedTransforms": [],
+  "files": [
+    {
+      "path": "src/f0.ts",
+      "text": "import { v as v0 } from './f1';\nexport const v = v0;\n"
+    },
+    {
+      "path": "src/f1.ts",
+      "text": "import { v as v1 } from './f2';\nexport const v = v1;\n"
+    },
+    {
+      "path": "src/f2.ts",
+      "text": "import { v as v2 } from './f3';\nexport const v = v2;\n"
+    },
+    {
+      "path": "src/f3.ts",
+      "text": "import { v as v3 } from './f4';\nexport const v = v3;\n"
+    },
+    {
+      "path": "src/f4.ts",
+      "text": "import { v as v4 } from './f5';\nexport const v = v4;\n"
+    },
+    {
+      "path": "src/f5.ts",
+      "text": "import { v as v5 } from './f6';\nexport const v = v5;\n"
+    },
+    {
+      "path": "src/f6.ts",
+      "text": "import { v as v6 } from './f7';\nexport const v = v6;\n"
+    },
+    {
+      "path": "src/f7.ts",
+      "text": "import { v as v7 } from './f8';\nexport const v = v7;\n"
+    },
+    {
+      "path": "src/f8.ts",
+      "text": "import { v as v8 } from './f9';\nexport const v = v8;\n"
+    },
+    {
+      "path": "src/f9.ts",
+      "text": "export const v = 1;\n"
+    }
+  ]
+}

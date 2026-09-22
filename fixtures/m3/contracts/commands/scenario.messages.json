@@ -1,0 +1,455 @@
+{
+  "setVersion": 1,
+  "projectId": "demo-0003",
+  "messages": [
+    {
+      "seq": 1,
+      "requestId": "req-00000000000000000000000000000001",
+      "op": "createEntity",
+      "expectedRevision": 0,
+      "args": {
+        "kind": "group",
+        "name": "First hazard",
+        "transform": {
+          "position": [
+            10.9,
+            0.125,
+            0
+          ]
+        },
+        "components": {
+          "gameZone": {
+            "role": "hazard",
+            "size": [
+              0.8,
+              0.25
+            ]
+          }
+        }
+      },
+      "result": {
+        "revision": 1,
+        "createdId": "zone-0002",
+        "change": {
+          "type": "createEntity",
+          "id": "zone-0002",
+          "entity": {
+            "id": "zone-0002",
+            "name": "First hazard",
+            "components": {
+              "transform": {
+                "position": [
+                  10.9,
+                  0.125,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "gameZone": {
+                "role": "hazard",
+                "size": [
+                  0.8,
+                  0.25
+                ]
+              }
+            }
+          }
+        },
+        "history": {
+          "undoDepth": 1,
+          "redoDepth": 0
+        }
+      },
+      "inverse": {
+        "kind": "delete",
+        "rootId": "zone-0002"
+      }
+    },
+    {
+      "seq": 2,
+      "requestId": "req-00000000000000000000000000000002",
+      "op": "createEntity",
+      "expectedRevision": 1,
+      "args": {
+        "kind": "group",
+        "name": "Checkpoint spawn",
+        "transform": {
+          "position": [
+            24,
+            0.91,
+            0
+          ]
+        },
+        "components": {
+          "playerSpawn": {}
+        }
+      },
+      "result": {
+        "revision": 2,
+        "createdId": "spawn-0002",
+        "change": {
+          "type": "createEntity",
+          "id": "spawn-0002",
+          "entity": {
+            "id": "spawn-0002",
+            "name": "Checkpoint spawn",
+            "components": {
+              "transform": {
+                "position": [
+                  24,
+                  0.91,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "playerSpawn": {}
+            }
+          }
+        },
+        "history": {
+          "undoDepth": 2,
+          "redoDepth": 0
+        }
+      },
+      "inverse": {
+        "kind": "delete",
+        "rootId": "spawn-0002"
+      }
+    },
+    {
+      "seq": 3,
+      "requestId": "req-00000000000000000000000000000003",
+      "op": "createEntity",
+      "expectedRevision": 2,
+      "args": {
+        "kind": "group",
+        "name": "Mid checkpoint",
+        "transform": {
+          "position": [
+            22,
+            1,
+            0
+          ]
+        },
+        "components": {
+          "gameZone": {
+            "role": "checkpoint",
+            "size": [
+              2,
+              2
+            ],
+            "safeSpawnId": "spawn-0002",
+            "activation": {
+              "emissive": "#00c8ff",
+              "emissiveIntensity": 1,
+              "cueAssetId": null
+            }
+          }
+        }
+      },
+      "result": {
+        "revision": 3,
+        "createdId": "zone-0003",
+        "change": {
+          "type": "createEntity",
+          "id": "zone-0003",
+          "entity": {
+            "id": "zone-0003",
+            "name": "Mid checkpoint",
+            "components": {
+              "transform": {
+                "position": [
+                  22,
+                  1,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "gameZone": {
+                "role": "checkpoint",
+                "size": [
+                  2,
+                  2
+                ],
+                "safeSpawnId": "spawn-0002",
+                "activation": {
+                  "emissive": "#00c8ff",
+                  "emissiveIntensity": 1,
+                  "cueAssetId": null
+                }
+              }
+            }
+          }
+        },
+        "history": {
+          "undoDepth": 3,
+          "redoDepth": 0
+        }
+      },
+      "inverse": {
+        "kind": "delete",
+        "rootId": "zone-0003"
+      }
+    },
+    {
+      "seq": 4,
+      "requestId": "req-00000000000000000000000000000004",
+      "op": "applySurfacePreset",
+      "expectedRevision": 3,
+      "args": {
+        "entityId": "box-0001",
+        "preset": "matte-ground"
+      },
+      "result": {
+        "revision": 4,
+        "change": {
+          "type": "applySurfacePreset",
+          "id": "box-0001",
+          "preset": "matte-ground",
+          "previous": null,
+          "next": {
+            "color": "#6f6f6f",
+            "roughness": 0.95,
+            "metalness": 0,
+            "emissive": "#000000",
+            "emissiveIntensity": 0
+          },
+          "changedFields": [
+            "color",
+            "roughness",
+            "metalness",
+            "emissive",
+            "emissiveIntensity"
+          ]
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 0
+        }
+      },
+      "inverse": {
+        "kind": "setComponent",
+        "id": "box-0001",
+        "component": "surface",
+        "restore": null
+      }
+    },
+    {
+      "seq": 5,
+      "requestId": "req-00000000000000000000000000000005",
+      "op": "setGameConfig",
+      "expectedRevision": 4,
+      "args": {
+        "game": {
+          "configVersion": 1,
+          "title": "Beacon Reach",
+          "objective": "Reach the beacon",
+          "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+          "playerId": "group-0001",
+          "cameraId": "cam-main",
+          "spawnId": "spawn-0001",
+          "level": {
+            "minX": 0,
+            "maxX": 48,
+            "minY": -4,
+            "maxY": 8
+          },
+          "killY": -4,
+          "cues": {
+            "start": null,
+            "jump": null,
+            "checkpoint": null,
+            "death": null,
+            "goal": null
+          }
+        }
+      },
+      "result": {
+        "revision": 5,
+        "change": {
+          "type": "setGameConfig",
+          "previous": null,
+          "next": {
+            "configVersion": 1,
+            "title": "Beacon Reach",
+            "objective": "Reach the beacon",
+            "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+            "playerId": "group-0001",
+            "cameraId": "cam-main",
+            "spawnId": "spawn-0001",
+            "level": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": -4,
+              "maxY": 8
+            },
+            "killY": -4,
+            "cues": {
+              "start": null,
+              "jump": null,
+              "checkpoint": null,
+              "death": null,
+              "goal": null
+            }
+          },
+          "changedFields": [
+            "configVersion",
+            "title",
+            "objective",
+            "instructions",
+            "playerId",
+            "cameraId",
+            "spawnId",
+            "level",
+            "killY",
+            "cues"
+          ]
+        },
+        "history": {
+          "undoDepth": 5,
+          "redoDepth": 0
+        }
+      },
+      "inverse": {
+        "kind": "setGameConfig",
+        "restore": null
+      }
+    },
+    {
+      "seq": 6,
+      "requestId": "req-00000000000000000000000000000006",
+      "op": "undo",
+      "expectedRevision": 5,
+      "args": {},
+      "result": {
+        "revision": 6,
+        "change": {
+          "type": "setGameConfig",
+          "previous": {
+            "configVersion": 1,
+            "title": "Beacon Reach",
+            "objective": "Reach the beacon",
+            "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+            "playerId": "group-0001",
+            "cameraId": "cam-main",
+            "spawnId": "spawn-0001",
+            "level": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": -4,
+              "maxY": 8
+            },
+            "killY": -4,
+            "cues": {
+              "start": null,
+              "jump": null,
+              "checkpoint": null,
+              "death": null,
+              "goal": null
+            }
+          },
+          "next": null,
+          "changedFields": [
+            "configVersion",
+            "title",
+            "objective",
+            "instructions",
+            "playerId",
+            "cameraId",
+            "spawnId",
+            "level",
+            "killY",
+            "cues"
+          ]
+        },
+        "history": {
+          "undoDepth": 4,
+          "redoDepth": 1
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "requestId": "req-00000000000000000000000000000007",
+      "op": "redo",
+      "expectedRevision": 6,
+      "args": {},
+      "result": {
+        "revision": 7,
+        "change": {
+          "type": "setGameConfig",
+          "previous": null,
+          "next": {
+            "configVersion": 1,
+            "title": "Beacon Reach",
+            "objective": "Reach the beacon",
+            "instructions": "A/D or arrows move. Space jumps. Start restarts a fresh run.",
+            "playerId": "group-0001",
+            "cameraId": "cam-main",
+            "spawnId": "spawn-0001",
+            "level": {
+              "minX": 0,
+              "maxX": 48,
+              "minY": -4,
+              "maxY": 8
+            },
+            "killY": -4,
+            "cues": {
+              "start": null,
+              "jump": null,
+              "checkpoint": null,
+              "death": null,
+              "goal": null
+            }
+          },
+          "changedFields": [
+            "configVersion",
+            "title",
+            "objective",
+            "instructions",
+            "playerId",
+            "cameraId",
+            "spawnId",
+            "level",
+            "killY",
+            "cues"
+          ]
+        },
+        "history": {
+          "undoDepth": 5,
+          "redoDepth": 0
+        }
+      }
+    }
+  ]
+}
