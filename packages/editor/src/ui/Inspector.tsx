@@ -17,7 +17,7 @@ import type { JSX } from 'react';
 import type { ColliderComponent, PropertyDeclaration } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
 import { deriveBehaviorControls, deriveComponentControls } from '../session/property-controls';
-import type { GizmoMode } from '../viewport/gizmo';
+import type { GizmoMode } from '../viewport/viewport';
 import { ComponentControlList, PropertyControlList, type ControlErrorView } from './PropertyControls';
 
 interface Props {

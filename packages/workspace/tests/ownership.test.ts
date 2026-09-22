@@ -62,7 +62,7 @@ describe('ownership (workspace.md §6)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('owner death ⇒ stale_ownership; explicit takeover claims epoch+1 with byte-pinned record', () => {
+  it('owner death ⇒ the next open reclaims automatically at epoch+1 with a byte-pinned record', () => {
     const root = makeRoot('own-stale');
     const dir = seedT7(root);
     const procRoot = buildFakeProc(root, { 5000: 'dead' }); // absent ⇒ dead
@@ -74,17 +74,6 @@ describe('ownership (workspace.md §6)', () => {
       procRoot,
       utcNow: () => '2026-09-17T10:30:00Z',
     });
-    const e = queryErr(b);
-    expect(e?.code).toBe('project_unavailable');
-    expect(e?.reason).toBe('stale_ownership');
-    expect(e?.holder?.pid).toBe(5000);
-
-    const to = b.takeoverWorkspace('demo-0001');
-    expect(to.ok).toBe(true);
-    if (!to.ok) throw new Error('takeover failed');
-    expect(to.lockEpoch).toBe(1);
-    expect(to.backendId).toBe('tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
-    expect(to.pid).toBe(5150);
 
     // The project is now usable by B.
     const q = b.query(QUERY) as QueryResult;
@@ -107,15 +96,17 @@ describe('ownership (workspace.md §6)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('pid reuse is dead: a process that started AFTER openedAt cannot own', () => {
+  it('pid reuse is dead: a process that started AFTER openedAt cannot own (reclaimed)', () => {
     const root = makeRoot('own-reuse');
     const dir = seedT7(root);
     // pid 5000 exists but started recently ⇒ pid reuse ⇒ dead.
     const procRoot = buildFakeProc(root, { 5000: 'reused' });
     const b = openWorkspaceService({ root, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
-    const e = queryErr(b);
-    expect(e?.code).toBe('project_unavailable');
-    expect(e?.reason).toBe('stale_ownership');
+    const q = b.query(QUERY) as QueryResult;
+    expect(q.ok).toBe(true);
+    const rec = JSON.parse(readFileSync(join(dir, '.thirdlight', 'ownership.json'), 'utf8'));
+    expect(rec.pid).toBe(5150);
+    expect(rec.lockEpoch).toBe(1);
     b.dispose();
     rmSync(root, { recursive: true, force: true });
   });

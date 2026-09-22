@@ -359,18 +359,12 @@ describe('packet 25 — content transport security', () => {
       { token: AUTH_TOKEN, scope: `authoring:${CONTENT_PROJECT}` },
       { token: ADMIN_TOKEN, scope: 'admin' },
     ]);
-    // The killed owner's record is stale: the operator takes over explicitly.
-    const takeover = await http(`${bp.origin}/api/v1/admin/projects/${CONTENT_PROJECT}/takeover`, {
-      body: {},
-      token: ADMIN_TOKEN,
-      origin: AUTHORING_ORIGIN,
-    });
-    expect(takeover.status).toBe(200);
+    // The restarted backend reclaims the project on its own (no takeover).
     mcp = await createMcp(bp.origin, 'packet-25-security-restarted');
 
     // The durable retry record replays the publication byte-identically.
     const replay = await http(`${bp.origin}/api/v1/projects/${CONTENT_PROJECT}/commands`, { body: envelope, token: AUTH_TOKEN });
-    expect((replay.body as Record<string, unknown>).ok).toBe(true);
+    expect((replay.body as Record<string, unknown>).ok, JSON.stringify(replay.body)).toBe(true);
     expect((replay.body as Record<string, unknown>).duplicated).toBe(true);
 
     // An in-memory upload stage does not survive the restart.

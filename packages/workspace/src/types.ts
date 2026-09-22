@@ -384,10 +384,12 @@ export interface WorkspaceService {
   scan(): ScanReport;
   /**
    * Discard all in-memory state without writing (process-exit semantics):
-   * the durable state is untouched; the ownership record persists (it
-   * becomes stale when the process exits — explicit takeover thereafter).
+   * the durable state is untouched; the ownership record persists and is
+   * reclaimed automatically once this process is dead.
    */
   dispose(): void;
+  /** Graceful shutdown: release every held project, then discard in-memory state. */
+  close(): void;
 
   /** The most recent scan report (initial or explicit `scan()`). */
   readonly lastScan: ScanReport;

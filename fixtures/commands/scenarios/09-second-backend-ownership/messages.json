@@ -30,43 +30,6 @@
       "projectId": "demo-0001"
     },
     "out": {
-      "ok": false,
-      "op": "queryProject",
-      "projectId": "demo-0001",
-      "error": {
-        "code": "project_unavailable",
-        "cls": "unavailable",
-        "reason": "stale_ownership",
-        "holder": {
-          "backendId": "tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "pid": 5000,
-          "openedAt": "2026-09-17T09:00:00Z",
-          "lockEpoch": 0,
-          "state": "owned"
-        },
-        "message": "project cannot be used right now: stale_ownership",
-        "hint": "run takeoverWorkspace to take over the stale ownership record (explicit operator action; never automatic)"
-      }
-    }
-  },
-  {
-    "in": {
-      "op": "takeoverWorkspace",
-      "projectId": "demo-0001"
-    },
-    "out": {
-      "ok": true,
-      "lockEpoch": 1,
-      "backendId": "tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "pid": 5150
-    }
-  },
-  {
-    "in": {
-      "op": "queryProject",
-      "projectId": "demo-0001"
-    },
-    "out": {
       "ok": true,
       "projectId": "demo-0001",
       "revision": 7,

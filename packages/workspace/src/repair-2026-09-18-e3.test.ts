@@ -558,7 +558,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
       b.dispose();
       dropRoot(root);
     }
-    // Case 2: conclusive pid reuse (+1.5 s) still reports stale.
+    // Case 2: conclusive pid reuse (+1.5 s) is dead: reclaimed.
     {
       const root = makeRoot('t3f2');
       seedScenario09(root);
@@ -580,10 +580,8 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
       writeProcEntry(procRoot, A_PID, now + 1500); // startMs = openedAtMs + 1500
 
       const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
-      const e = queryErr(b);
-      expect(e).not.toBeNull();
-      expect(e?.reason).toBe('stale_ownership'); // conclusive reuse ⇒ dead
-      expect(e?.holder?.pid).toBe(A_PID);
+      // Conclusive reuse ⇒ dead ⇒ reclaimed automatically.
+      expect(queryErr(b)).toBeNull();
       b.dispose();
       dropRoot(root);
     }

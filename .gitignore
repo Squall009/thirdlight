@@ -13,3 +13,6 @@ dist/
 # Test-run bundle dirs (tests/integration harnesses; per-pid bundles are
 # reaped by tests/test-hygiene.ts on each suite start/finish)
 .tl*-bundles/
+# Playwright output
+test-results/
+playwright-report/

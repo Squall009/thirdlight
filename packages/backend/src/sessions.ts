@@ -88,8 +88,10 @@ export class SessionRegistry {
 
   /**
    * Establish or re-attach (sessions.md §5.1). The one-active-session rule:
-   * same sessionId ⇒ re-attach; a different sessionId while one is active
-   * ⇒ conflict.
+   * same sessionId ⇒ re-attach; a different sessionId while one is
+   * connected ⇒ conflict; a different sessionId while the existing one has
+   * no live connection (closed tab, crashed browser) ⇒ the new session
+   * supersedes it.
    */
   establish(
     projectId: string,
@@ -98,9 +100,13 @@ export class SessionRegistry {
     connId: string,
     nowMs: number,
   ): EstablishOutcome {
-    const existing = this.byProject.get(projectId);
+    let existing = this.byProject.get(projectId);
     if (existing && existing.sessionId !== sessionId) {
-      return { result: 'conflict', activeSessionId: existing.sessionId, lastActivityAt: existing.lastActivityAt };
+      if (existing.connected) {
+        return { result: 'conflict', activeSessionId: existing.sessionId, lastActivityAt: existing.lastActivityAt };
+      }
+      this.remove(existing);
+      existing = undefined;
     }
     if (existing) {
       // Re-attach: the session binds to the new connection; the caller
@@ -133,6 +139,15 @@ export class SessionRegistry {
     this.bySessionId.set(sessionId, session);
     this.record(session, 'registered', sessionId, undefined, nowMs);
     return { result: 'created', session };
+  }
+
+  /** Forget a session and every wsToken issued to it. */
+  private remove(session: SessionRecord): void {
+    this.byProject.delete(session.projectId);
+    this.bySessionId.delete(session.sessionId);
+    for (const [token, rec] of this.tokens) {
+      if (rec.sessionId === session.sessionId) this.tokens.delete(token);
+    }
   }
 
   /** Allocate a single-use wsToken bound to (sessionId, connId) (§4.3). */

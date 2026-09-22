@@ -161,19 +161,11 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(rec.backendId).toBe(childId);
     expect(rec.pid).toBe(ex.pid);
 
-    // Restart: a new backend sees a STALE owner (the child's pid is gone
-    // from /proc) — takeover is explicit, never automatic.
+    // Restart: the child's pid is gone from /proc, so the new backend
+    // reclaims the project automatically.
     const svc = openWorkspaceService({ root });
-    const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as {
-      ok: boolean;
-      error?: { code: string; reason?: string; holder?: { pid: number } };
-    };
-    expect(q.ok).toBe(false);
-    expect(q.error?.code).toBe('project_unavailable');
-    expect(q.error?.reason).toBe('stale_ownership');
-    expect(q.error?.holder?.pid).toBe(ex.pid);
-    const to = svc.takeoverWorkspace('demo-0001');
-    expect(to.ok).toBe(true);
+    const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
+    expect(q.ok).toBe(true);
 
     // The crashed request left NO durable record: re-sending it executes
     // fresh (commands.md §7.3) — exactly once.
@@ -217,11 +209,8 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     const frozen = readFileSync(envPath);
 
     const svc = openWorkspaceService({ root });
-    const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; error?: { reason?: string } };
-    expect(q.ok).toBe(false);
-    expect(q.error?.reason).toBe('stale_ownership');
-    const to = svc.takeoverWorkspace('demo-0001');
-    expect(to.ok).toBe(true);
+    const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
+    expect(q.ok).toBe(true);
 
     // The retry (same requestId) is answered from the durable record —
     // replayed, never re-applied; the disk is byte-identical.
@@ -275,15 +264,11 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(to.ok).toBe(false);
     if (!to.ok) expect(to.error.code).toBe('ownership_conflict');
 
-    // Stop the holder; the record goes stale; the takeover then succeeds.
+    // Stop the holder; the project is reclaimed on the next access.
     holder.kill('SIGTERM');
     await new Promise<void>((resolve) => holder.on('exit', () => resolve()));
-    const q2 = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; error?: { reason?: string } };
-    expect(q2.ok).toBe(false);
-    expect(q2.error?.reason).toBe('stale_ownership');
-    const to2 = svc.takeoverWorkspace('demo-0001');
-    expect(to2.ok).toBe(true);
-    if (to2.ok) expect(to2.backendId).toBe(svc.backendId);
+    const q2 = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
+    expect(q2.ok).toBe(true);
     svc.dispose();
   }, 30000);
 });

@@ -148,7 +148,7 @@ describe('scenario 08 — unexpected external modification', () => {
 });
 
 describe('scenario 09 — second-backend ownership', () => {
-  it('conflicts with the live owner, reports stale after death, takes over explicitly', () => {
+  it('conflicts with the live owner, then reclaims automatically after its death', () => {
     const base = '09-second-backend-ownership';
     const root = makeRoot(base);
     const dir = seedProject(root, join(FIXTURES, 'scenarios', base, 'disk-before'), 'demo-0001');
@@ -171,24 +171,14 @@ describe('scenario 09 — second-backend ownership', () => {
       `message 1:\n  actual:   ${JSON.stringify(actual)}\n  expected: ${JSON.stringify(messages[0]['out'])}`,
     ).toBe(true);
 
-    // The owner process dies before message 2.
+    // The owner process dies before message 2: the project is reclaimed
+    // automatically (epoch 0 → 1) and served.
     rmSync(join(procRoot, '5000'), { recursive: true, force: true });
     actual = dispatch(svc, messages[1]['in'] as Record<string, unknown>);
     expect(
       deepEqual(actual, messages[1]['out']),
       `message 2:\n  actual:   ${JSON.stringify(actual)}\n  expected: ${JSON.stringify(messages[1]['out'])}`,
     ).toBe(true);
-
-    // Message 3: explicit takeover (the operator command; epoch 0 → 1).
-    actual = dispatch(svc, messages[2]['in'] as Record<string, unknown>);
-    expect(
-      deepEqual(actual, messages[2]['out']),
-      `message 3:\n  actual:   ${JSON.stringify(actual)}\n  expected: ${JSON.stringify(messages[2]['out'])}`,
-    ).toBe(true);
-
-    // Message 4: the project is usable.
-    actual = dispatch(svc, messages[3]['in'] as Record<string, unknown>);
-    expect(deepEqual(actual, messages[3]['out'])).toBe(true);
 
     expect(compareAuthoringDisk(dir, join(FIXTURES, 'scenarios', base, 'disk-after'))).toEqual([]);
     svc.dispose();

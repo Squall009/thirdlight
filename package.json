@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Thirdlight — self-hosted browser game editor built on three.js. See docs/STATUS.md.",
+  "description": "Thirdlight \u2014 self-hosted browser game editor built on three.js. See docs/STATUS.md.",
   "engines": {
     "node": "22"
   },
@@ -15,9 +15,11 @@
     "typecheck": "node tools/typecheck.mjs",
     "test": "vitest run",
     "check-deps": "node tools/check-deps.mjs",
-    "check-boundaries": "node tools/check-boundaries.mjs"
+    "check-boundaries": "node tools/check-boundaries.mjs",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "esbuild": "0.28.2",
     "typescript": "5.9.3",
     "vitest": "5.0.1"

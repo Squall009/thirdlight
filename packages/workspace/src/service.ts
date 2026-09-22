@@ -48,6 +48,7 @@ import {
 import {
   buildEnvelopeBytes,
   ID_RE,
+  mutationOpsForStorageVersion,
   validateEnvelope,
   type RetryRecord,
 } from './envelope';
@@ -136,6 +137,7 @@ import {
   loadProjectDir,
   pendingInfo,
   releaseProject,
+  releaseOnShutdown,
   resolveContained,
   serveQuery,
   setPendingUnreadable,
@@ -385,6 +387,21 @@ function buildService(core: Core): WorkspaceService {
     }
     if (s.preparedSources.size > 0) {
       commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+    }
+    // A project can only accept ops its storage version can durably record
+    // (otherwise the write succeeds and the next load rejects the envelope).
+    const op = (request as { op?: unknown }).op;
+    if (typeof op === 'string' && !mutationOpsForStorageVersion(s.storageVersion).includes(op)) {
+      return failRequest(
+        request,
+        invalidRequest(
+          '/op',
+          op,
+          `an op supported by storageVersion ${s.storageVersion}`,
+          `this project (storageVersion ${s.storageVersion}) does not support ${op}`,
+          'migrate the project to the current storage version',
+        ),
+      );
     }
     const outcome = applyMutation(commandState, request);
     if (!outcome.ok) return outcome.result;
@@ -940,9 +957,21 @@ function buildService(core: Core): WorkspaceService {
 
   function dispose(): void {
     // Process-exit semantics (workspace.md §9.4): discard all in-memory
-    // state without writing. The durable state is untouched; the ownership
-    // records persist and become stale when the process exits (explicit
-    // takeover thereafter).
+    // state without writing. The ownership records persist; the next
+    // backend reclaims them once this process is dead.
+    core.sessions.clear();
+  }
+
+  function close(): void {
+    // Graceful shutdown: mark every held project released (retry records
+    // kept) so the next backend claims it immediately.
+    for (const s of core.sessions.values()) {
+      try {
+        releaseOnShutdown(core, s);
+      } catch {
+        // best effort — see above
+      }
+    }
     core.sessions.clear();
   }
 
@@ -972,6 +1001,7 @@ function buildService(core: Core): WorkspaceService {
     prepareBehaviorSource: prepareBehaviorSourceOp,
     scan,
     dispose,
+    close,
     get lastScan() {
       return lastScanRef[0];
     },

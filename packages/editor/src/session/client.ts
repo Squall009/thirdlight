@@ -83,6 +83,9 @@ export interface ClientUiState {
   /** A revision_conflict to surface in the UI (with currentRevision). */
   conflict: { currentRevision: number; expectedRevision: number; message: string } | null;
   revision: number;
+  /** The backend's authoring history depths (undo/redo availability). */
+  undoDepth: number;
+  redoDepth: number;
 }
 
 /** A play-start result (sessions.md §10.1 + §17.2). */
@@ -115,6 +118,23 @@ function makeSessionId(rng: () => number = Math.random): string {
   let hex = '';
   for (let i = 0; i < 32; i++) hex += Math.floor(rng() * 16).toString(16);
   return `sess-${hex}`;
+}
+
+/**
+ * The tab's sessionId for a project: kept in sessionStorage so a reload of
+ * the same tab re-attaches to its own session instead of conflicting with it.
+ */
+function tabSessionId(projectId: string): string {
+  const key = `thirdlight.sessionId.${projectId}`;
+  try {
+    const existing = window.sessionStorage.getItem(key);
+    if (existing !== null && /^sess-[0-9a-f]{32}$/.test(existing)) return existing;
+    const fresh = makeSessionId();
+    window.sessionStorage.setItem(key, fresh);
+    return fresh;
+  } catch {
+    return makeSessionId();
+  }
 }
 
 /** A caller-assigned opaque `assetId` (project-model §18.1.1 ID syntax). */
@@ -185,6 +205,8 @@ export class SessionClient {
   private error: { code: string; message: string } | null = null;
   private conflict: { currentRevision: number; expectedRevision: number; message: string } | null = null;
   private disposed = false;
+  private history = { undoDepth: 0, redoDepth: 0 };
+  private historyRefreshQueued = false;
   /** Active play (the retained `play.started` snapshot + preview bridge). */
   private activePlay: (PlayStartResult & { snapshot: unknown }) | null = null;
   /** M4 (packet 70, D-63-4 repair): the playSessionId the WS
@@ -218,7 +240,7 @@ export class SessionClient {
   constructor(cfg: ClientConfig, cb: ClientCallbacks, sessionId?: string) {
     this.cfg = cfg;
     this.cb = cb;
-    this.sessionId = sessionId ?? makeSessionId();
+    this.sessionId = sessionId ?? tabSessionId(cfg.projectId);
   }
 
   get connectionStatus(): ConnectionStatus {
@@ -232,6 +254,8 @@ export class SessionClient {
       error: this.error,
       conflict: this.conflict,
       revision: this.projection.revision,
+      undoDepth: this.history.undoDepth,
+      redoDepth: this.history.redoDepth,
     });
   }
 
@@ -292,6 +316,7 @@ export class SessionClient {
       );
       this.connId = est.connId;
       await this.fullResync();
+      this.cb.onSceneChanged();
       await this.upgradeWs(est.wsToken);
       this.connection = 'connected';
       this.error = null;
@@ -300,7 +325,8 @@ export class SessionClient {
       this.connection = 'disconnected';
       this.error = this.describeError(e);
       this.emit();
-      this.scheduleReconnect();
+      // A bad token or unknown project will not fix itself by retrying.
+      if (this.error.code !== 'unauthorized' && this.error.code !== 'project_not_found') this.scheduleReconnect();
     }
   }
 
@@ -352,6 +378,7 @@ export class SessionClient {
     if (q.ok) {
       this.projection.hydrate({ revision: q.revision, entities: q.entities as FullState['entities'] });
     }
+    await this.refreshHistory();
     // M3 (packet 56): the game block re-reads on every full state —
     // reopening the editor retains the authored game configuration
     // (authoring §A8 row 1; `null` for a v2 project or an absent block).
@@ -385,6 +412,32 @@ export class SessionClient {
     } catch {
       // A missing content page is resolved by the next full state.
     }
+  }
+
+  /** Re-read the backend's undo/redo depths (the history is shared with MCP). */
+  private async refreshHistory(): Promise<void> {
+    try {
+      const q = await this.api<{ ok: boolean; history?: { undoDepth: number; redoDepth: number } }>(
+        `/projects/${this.cfg.projectId}/commands`,
+        { op: 'queryProject', projectId: this.cfg.projectId, args: {} },
+      );
+      if (q.ok && q.history) {
+        this.history = { undoDepth: q.history.undoDepth, redoDepth: q.history.redoDepth };
+        this.emit();
+      }
+    } catch {
+      // Depths are advisory; the next applied mutation re-reads them.
+    }
+  }
+
+  /** Coalesce history re-reads after a burst of applied mutations. */
+  private queueHistoryRefresh(): void {
+    if (this.historyRefreshQueued) return;
+    this.historyRefreshQueued = true;
+    queueMicrotask(() => {
+      this.historyRefreshQueued = false;
+      void this.refreshHistory();
+    });
   }
 
   /** Handle one WS message (sessions.md §7). */
@@ -452,6 +505,7 @@ export class SessionClient {
       this.save = 'saved';
       this.cb.onSceneChanged();
       this.emit();
+      this.queueHistoryRefresh();
     }
   }
 

@@ -22,15 +22,33 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-app__body { flex: 1; display: flex; min-height: 0; }
 .tl-app__stage { flex: 1; position: relative; min-width: 0; background: #0e1015; }
 .tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.tl-app__preview { position: absolute; right: 12px; top: 12px; width: 380px; height: 260px;
+.tl-app__preview { position: absolute; right: 12px; top: 12px; width: min(640px, 60%); aspect-ratio: 16 / 10;
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
   display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
 .tl-app__preview-label { padding: 6px 10px; font-size: 11px; color: var(--muted);
   border-bottom: 1px solid var(--border); background: var(--panel-2); }
 .tl-app__preview-frame { flex: 1; width: 100%; border: 0; background: #0e1015; }
 
-.tl-panel { width: 260px; background: var(--panel); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; min-height: 0; }
+.tl-panel { width: 100%; background: var(--panel); display: flex; flex-direction: column;
+  min-height: 0; flex: 1; overflow-y: auto; }
+
+/* Left sidebar: one tabbed column so the viewport keeps the space. */
+.tl-sidebar { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-right: 1px solid var(--border); }
+.tl-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 6px 0;
+  border-bottom: 1px solid var(--border); }
+.tl-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+  padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.tl-tab:hover { color: var(--text); }
+.tl-tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+
+.tl-connect { max-width: 360px; margin: 12vh auto; padding: 24px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 12px; }
+.tl-connect h1 { margin: 0 0 4px; font-size: 18px; }
+.tl-connect label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.tl-connect input { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px; font-size: 13px; }
+.tl-connect__message { margin: 0; color: var(--warn); }
 .tl-panel__title { padding: 10px 12px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; font-size: 11px; color: var(--muted);
   border-bottom: 1px solid var(--border); }
@@ -50,7 +68,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-row__kind--camera { color: #ffe08a; }
 .tl-row__name { overflow: hidden; text-overflow: ellipsis; }
 
-.tl-inspector { width: 260px; border-right: 0; border-left: 1px solid var(--border); }
+.tl-inspector { width: 300px; flex: none; border-left: 1px solid var(--border); }
 .tl-inspector__modes { display: flex; gap: 6px; padding: 10px; }
 .tl-inspector__body { padding: 10px 12px; }
 .tl-inspector__name { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; }
@@ -95,7 +113,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   border-radius: 6px; color: var(--err); overflow-x: auto; }
 /* Packet 27 — content browser panel (queries/jobs/placement). Practical
  * panels only; no decorative or graph UI (decision 0001 §10 scope guard). */
-.tl-assets { width: 300px; }
 .tl-panel__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tl-assets__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 42%; }
 .tl-assets__version { margin-left: auto; color: var(--muted); font-size: 11px; }
@@ -120,7 +137,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Packet 28 — prefab (copy) authoring + declared-property controls. Practical
  * form rows only; no decorative/graph UI and no link/apply/revert controls
  * (decision 0001 §10 scope guard; project-model §20.1). */
-.tl-prefabs { width: 280px; }
 .tl-prefabs__capture { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-prefabs__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .tl-prefabs__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40%; }
@@ -152,7 +168,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Packet 34 — trusted behavior publication (runtime.md §14.2; project-model
  * §22). Form rows, the normative trust notice and bounded diagnostics only;
  * there is deliberately no source evaluator or "run" control here. */
-.tl-behaviors { width: 300px; }
 .tl-behaviors__notice { padding: 8px 10px; border-bottom: 1px solid var(--border);
   background: rgba(255, 136, 0, 0.08); max-height: 30%; overflow-y: auto; }
 .tl-behaviors__notice-line { color: var(--warn); font-size: 10px; margin: 0 0 6px 0; line-height: 1.35; }
@@ -171,7 +186,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Packet 56 — M3 gameplay authoring (game config / zones / camera follow /
  * settings). Practical form rows + the imperative zone overlay; the backend
  * projection stays authoritative (sessions.md §6; authoring.md §A8). */
-.tl-gameplay { width: 320px; }
 .tl-gameplay__tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-gameplay__tabs .tl-btn { flex: 1; padding: 4px 6px; font-size: 11px; text-transform: capitalize; }
 .tl-gameplay__tab { padding: 10px; overflow-y: auto; flex: 1; min-height: 0; }
@@ -205,7 +219,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* ------------------------------------------------------------------ */
 
 .tl-media {
-  width: 300px;
   overflow-y: auto;
 }
 

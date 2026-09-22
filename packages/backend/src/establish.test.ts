@@ -3,7 +3,7 @@
  * sessions.md §5.1/§6.3/§11.4 (packet 09 acceptance, m1-acceptance §2.2).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { api, AUTHORING_ORIGIN, mkSessionId, sleep, startBackend, type TestBackend } from './test-helpers';
+import { api, AUTHORING_ORIGIN, establish, mkSessionId, sleep, startBackend, upgrade, type TestBackend, type TestWs } from './test-helpers';
 
 describe('establish / re-attach (sessions.md §5.1)', () => {
   let tb: TestBackend;
@@ -12,11 +12,13 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
   let connId1 = '';
   let wsToken1 = '';
   let established: Record<string, unknown> | undefined;
+  let liveWs: TestWs | undefined;
 
   beforeAll(async () => {
     tb = await startBackend();
   });
   afterAll(async () => {
+    liveWs?.close();
     await tb.teardown();
   });
 
@@ -88,7 +90,9 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     wsToken1 = j.wsToken as string;
   });
 
-  it('a different sessionId while an active session exists ⇒ 409 session_conflict', async () => {
+  it('a different sessionId while the session is connected ⇒ 409 session_conflict', async () => {
+    liveWs = await upgrade(tb, sid1, wsToken1);
+    await liveWs.waitFor((m) => (m as { type?: string }).type === 'attached');
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: 'demo-0001', sessionId: sid2 },
       token: tb.authToken,
@@ -178,7 +182,7 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     expect(j.sessions.length).toBe(1);
     expect(j.sessions[0]?.sessionId).toBe(sid1);
     expect(j.sessions[0]?.connId).toBe(connId1);
-    expect(j.sessions[0]?.connected).toBe(false); // no WS attached yet
+    expect(j.sessions[0]?.connected).toBe(true); // the WS attached above
   });
 
   it('GET /sessions/:sid/log ⇒ entries (default limit 32; bounds enforced)', async () => {
@@ -295,5 +299,32 @@ describe('admin operator operations (sessions.md §6.3; workspace.md §11)', () 
       token: tb.authToken, // authoring scope, not admin
     });
     expect(r.status).toBe(401);
+  });
+});
+
+describe('a closed tab does not lock the project (sessions supersede when disconnected)', () => {
+  let tb: TestBackend;
+  beforeAll(async () => {
+    tb = await startBackend();
+  });
+  afterAll(async () => {
+    await tb.teardown();
+  });
+
+  it('a new sessionId supersedes a disconnected session', async () => {
+    const a = await establish(tb, mkSessionId());
+    const ws = await upgrade(tb, a.sessionId, a.wsToken);
+    await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+    ws.close();
+    await ws.closed;
+    await sleep(50);
+
+    const b = await establish(tb, mkSessionId());
+    expect(b.status).toBe(200);
+    expect(b.sessionId).not.toBe(a.sessionId);
+
+    const listed = await api(`${tb.authUrl}/api/v1/sessions?projectId=demo-0001`, { method: 'GET', token: tb.authToken });
+    const sessions = (listed.json as { sessions?: Array<{ sessionId: string }> }).sessions ?? [];
+    expect(sessions.map((s) => s.sessionId)).toEqual([b.sessionId]);
   });
 });

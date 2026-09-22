@@ -653,6 +653,15 @@ const M2_RESULT_OPS = [
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
 const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig'];
 
+/** The mutation ops an envelope of `storageVersion` can record. */
+export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3): readonly string[] {
+  return storageVersion === 1
+    ? M1_MUTATION_OPS
+    : storageVersion === 2
+      ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS]
+      : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS];
+}
+
 /**
  * Strict shape check of a recorded §5.1 success payload (fields and types
  * per commands.md §5.1; unknown fields rejected — envelope strictness).
@@ -679,12 +688,7 @@ function validateRecordResult(
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
-  const acceptedOps =
-    storageVersion === 1
-      ? M1_MUTATION_OPS
-      : storageVersion === 2
-        ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS]
-        : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS];
+  const acceptedOps = mutationOpsForStorageVersion(storageVersion);
   // R12: the op discriminator must be a primitive string BEFORE any
   // coercion — a JSON object such as `{"toString":0}` is corrupt shape,
   // not a valid op.

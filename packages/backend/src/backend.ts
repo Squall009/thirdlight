@@ -2076,8 +2076,32 @@ export function createBackend(
       return;
     }
 
-    // Fallback: static editor bundle.
+    // Fallback: static editor bundle. The page gets its (non-secret) config
+    // injected here; access tokens are never part of any served page.
+    if (p === '/' || p === '/index.html') {
+      serveEditorPage(res);
+      return;
+    }
     serveStatic(res, config.editorStaticDir, p);
+  };
+
+  const serveEditorPage = (res: ServerResponse): void => {
+    let html: string;
+    try {
+      html = readFileSync(join(config.editorStaticDir, 'index.html'), 'utf8');
+    } catch {
+      sendJson(res, 404, { ok: false, error: sessionError('invalid_request', 'validation', 'no such file') });
+      return;
+    }
+    const pageConfig = JSON.stringify({ v: 1, previewOrigin: config.previewOrigin }).replace(/</g, '\\u003c');
+    const script = `<script>window.__thirdlightEditor = ${pageConfig};</script>`;
+    const i = html.indexOf('<script src="./main.js">');
+    const out = new TextEncoder().encode(i === -1 ? html.replace('</body>', `${script}</body>`) : html.slice(0, i) + script + '\n    ' + html.slice(i));
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('content-length', String(out.length));
+    res.statusCode = 200;
+    res.end(out);
   };
 
   /**
@@ -2276,7 +2300,7 @@ export function createBackend(
         wss.close(() => {
           authoringServer.close(() => {
             previewServer.close(() => {
-              service.dispose();
+              service.close();
               resolveClose();
             });
           });

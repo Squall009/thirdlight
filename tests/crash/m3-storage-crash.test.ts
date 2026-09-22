@@ -12,8 +12,7 @@
  *   - crash after each copy marker phase (created/manifest/blobs/envelope) and
  *     before/after the destination envelope replacement: the resume path is
  *     idempotent and completes the destination byte-exactly;
- *   - a SIGKILLed owner is reported stale and only an explicit takeover can
- *     resume writing;
+ *   - a SIGKILLed owner is reported stale by the scan and reclaimed on the next access;
  *   - a lost ack is replayed, never double-applied.
  *
  * Process-crash guarantees are proven here; power-loss durability is the
@@ -207,7 +206,7 @@ describe('packet 46 â€” real SIGKILL at the v3 envelope boundary (workspace.md Â
     svc.dispose();
   });
 
-  it('reports a SIGKILLed owner as stale and resumes only after an explicit takeover', async () => {
+  it('reports a SIGKILLed owner as stale and reclaims it on the next command', async () => {
     const root = makeRoot('v3-stale');
     seedV3(root);
     const ex = await runChild('stale-owner', root, 'tb-' + '3'.repeat(32));
@@ -216,12 +215,7 @@ describe('packet 46 â€” real SIGKILL at the v3 envelope boundary (workspace.md Â
     const svc = open(root);
     const entry = svc.scan().entries.find((e) => e.projectId === V3);
     expect(entry?.staleOwnership).toBe(true);
-    // No command is served while the stale record stands.
-    const blocked = svc.runCommand(editRequest(3)) as { ok: boolean; error?: { code: string; reason?: string } };
-    expect(blocked.ok).toBe(false);
-    if (!blocked.ok) expect(blocked.error?.code).toBe('project_unavailable');
-    // The explicit takeover succeeds and the accepted write resumes.
-    takeover(svc, V3);
+    // The owner is proven dead: the next command reclaims and is served.
     const r = svc.runCommand(editRequest(3)) as { ok: boolean; revision?: number };
     expect(r.ok, JSON.stringify(r)).toBe(true);
     expect(r.revision).toBe(4);

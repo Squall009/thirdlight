@@ -12,9 +12,9 @@
  *
  * Browser-only.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from 'react';
 import { createRoot } from 'react-dom/client';
-import { readEditorConfig } from '../config';
+import { forgetToken, readEditorConfig, rememberToken } from '../config';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
@@ -84,7 +84,7 @@ import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
 import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
-import type { GizmoMode } from '../viewport/gizmo';
+import type { GizmoMode } from '../viewport/viewport';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 
 /** A bounded, actionable error the panels display. */
@@ -183,17 +183,18 @@ function EditorApp(): JSX.Element {
   const clientRef = useRef<SessionClient | null>(null);
   const viewportRef = useRef<Viewport | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
-  const gestureBaseTransform = useRef<Transform | null>(null);
   const bridgeRef = useRef<Bridge | null>(null);
   const playIframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const [configError, setConfigError] = useState<string | null>(cfg.current.ok ? null : cfg.current.message);
+  const [configError, setConfigError] = useState<string | null>(cfg.current.ok || cfg.current.needsConnect ? null : cfg.current.message);
+  const [connectPrompt, setConnectPrompt] = useState<{ projectId: string; message?: string } | null>(
+    !cfg.current.ok && cfg.current.needsConnect ? { projectId: cfg.current.projectId } : null,
+  );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0 });
+  const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0 });
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+  const [leftTab, setLeftTab] = useState<LeftTab>('scene');
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
 
@@ -333,31 +334,28 @@ function EditorApp(): JSX.Element {
       },
       onGestureBegin: (id) => {
         const base = client.entityTransform(id);
-        gestureBaseTransform.current = base ? { position: [...base.position], rotation: [...base.rotation], scale: [...base.scale] } : null;
         gestureRef.current = base ? new Gesture(id, client.projection.revision, base) : null;
       },
-      onGestureFrame: () => {
-        // The viewport already moved the Object3D (local preview, no traffic).
-        // Refresh the inspector readout from the live mesh transform.
-        const id = selectedIdRef.current;
-        if (id) {
-          const t = client.entityTransform(id);
-          if (t) setEntities((prev) => prev.map((e) => (e.id === id ? { ...e, position: t.position, rotation: t.rotation, scale: t.scale } : e)));
-        }
+      onGestureFrame: (id, t) => {
+        // The viewport already moved the Object3D (local preview, no traffic);
+        // mirror the live transform into the inspector readout.
+        setEntities((prev) => prev.map((e) => (e.id === id ? { ...e, position: t.position, rotation: t.rotation, scale: t.scale } : e)));
       },
       onGestureEnd: async (id, transform) => {
         const g = gestureRef.current;
-        const base = gestureBaseTransform.current;
-        if (!g || !base) return;
+        gestureRef.current = null;
+        // Any outcome other than an accepted commit restores the projection
+        // (an accepted commit arrives as mutation.applied and refreshes it).
+        const restore = (): void => {
+          refreshEntities();
+          viewport.syncEntities([...client.projection.listEntities()]);
+        };
+        if (!g) return restore();
         g.setLocal(transform);
         const outcome = g.decideCommit();
-        if (outcome.kind !== 'commit') {
-          gestureRef.current = null;
-          return;
-        }
+        if (outcome.kind !== 'commit') return restore();
         const res = await client.command('setTransform', { entityId: id, transform: outcome.command.args.transform }, outcome.command.expectedRevision);
         if (res.ok) {
-          gestureRef.current = null;
           return;
         }
         if (res.response.ok === false && res.response.code === 'revision_conflict') {
@@ -365,13 +363,16 @@ function EditorApp(): JSX.Element {
           // the conflict is surfaced in the status bar (explained, not lost).
           const retried = g.handleResult(
             { ok: false, code: 'revision_conflict', currentRevision: res.response.currentRevision ?? 0 },
-            () => client.entityTransform(id) ?? base,
+            () => client.entityTransform(id) ?? transform,
           );
           if (retried.kind === 'commit') {
-            await client.command('setTransform', { entityId: id, transform: retried.command.args.transform }, retried.command.expectedRevision);
+            const r2 = await client.command('setTransform', { entityId: id, transform: retried.command.args.transform }, retried.command.expectedRevision);
+            if (r2.ok) {
+              return;
+            }
           }
-          gestureRef.current = null;
         }
+        restore();
       },
       // ---- M3 (packet 56): zone gesture routing --------------------------------
       // The overlay (viewport) reports the pointer's game-plane WORLD hits;
@@ -433,7 +434,6 @@ function EditorApp(): JSX.Element {
           void client.createGameEntity(args as unknown as Record<string, unknown>, zg.gesture.expectedRevision).then((res) => {
             if (res.ok) {
               setGameplayTool(null);
-              setCanUndo(true);
               refreshEntities();
               return;
             }
@@ -444,7 +444,6 @@ function EditorApp(): JSX.Element {
         void issueZoneCommand(client, zg.gesture, outcome.command).then((r) => {
           if (r.ok) {
             if (tool !== null) setGameplayTool(null);
-            setCanUndo(true);
             refreshEntities();
             return;
           }
@@ -624,8 +623,7 @@ function EditorApp(): JSX.Element {
   const newBox = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('createEntity', { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}` }, c.projection.revision);
-    if (res.ok) setCanUndo(true);
+    await c.command('createEntity', { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}` }, c.projection.revision);
   }, []);
   const del = useCallback(async () => {
     const c = clientRef.current;
@@ -633,26 +631,17 @@ function EditorApp(): JSX.Element {
     const res = await c.command('deleteEntity', { entityId: selectedIdRef.current }, c.projection.revision);
     if (res.ok) {
       setSelectedId(null);
-      setCanUndo(true);
     }
   }, []);
   const undo = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('undo', {}, c.projection.revision);
-    if (res.ok) {
-      setCanUndo(false);
-      setCanRedo(true);
-    }
+    await c.command('undo', {}, c.projection.revision);
   }, []);
   const redo = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
-    const res = await c.command('redo', {}, c.projection.revision);
-    if (res.ok) {
-      setCanRedo(false);
-      setCanUndo(true);
-    }
+    await c.command('redo', {}, c.projection.revision);
   }, []);
   const play = useCallback(async () => {
     const c = clientRef.current;
@@ -701,7 +690,6 @@ function EditorApp(): JSX.Element {
       setGameplayError(null);
       const res = await c.setGameConfig(game, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -722,7 +710,6 @@ function EditorApp(): JSX.Element {
       }
       const res = await c.createGameEntity(plan.args as unknown as Record<string, unknown>, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -752,7 +739,6 @@ function EditorApp(): JSX.Element {
         }
         rev = res.revision;
       }
-      setCanUndo(true);
       refreshEntities();
     },
     [refreshEntities],
@@ -765,7 +751,6 @@ function EditorApp(): JSX.Element {
       setGameplayError(null);
       const res = await c.deleteEntityCommand(entityId, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -782,7 +767,6 @@ function EditorApp(): JSX.Element {
       const args = planCreateSpawn([0, 0, 0]);
       const res = await c.createGameEntity(args as unknown as Record<string, unknown>, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -800,7 +784,6 @@ function EditorApp(): JSX.Element {
       setGameplayError(null);
       const res = await c.setComponent(entityId, 'cameraFollow', value, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -816,7 +799,6 @@ function EditorApp(): JSX.Element {
       setGameplayError(null);
       const res = await c.setSettings(settings, c.projection.revision);
       if (res.ok) {
-        setCanUndo(true);
         refreshEntities();
         return;
       }
@@ -881,7 +863,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.setGameConfig(args as Record<string, unknown>, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -907,7 +888,6 @@ function EditorApp(): JSX.Element {
         c.projection.revision,
       );
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -921,7 +901,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.setComponent(entityId, 'light', value, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -935,7 +914,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.setComponent(entityId, 'surface', value, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -949,7 +927,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.command('applySurfacePreset', { entityId, preset }, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -963,7 +940,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.setComponent(entityId, 'modelAnimation', value, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -977,7 +953,6 @@ function EditorApp(): JSX.Element {
       setMediaError(null);
       const res = await c.setComponent(entityId, 'gameZone', value, c.projection.revision);
       mediaCommandResult(res, () => {
-        setCanUndo(true);
         refreshEntities();
       });
     },
@@ -1486,6 +1461,22 @@ function EditorApp(): JSX.Element {
     refreshEntities();
   }, [newBehaviorId, newDisplayName, newPropertyDefault, newPropertyKey, refreshEntities]);
 
+  // A rejected token is forgotten; the connect form asks for a new one.
+  useEffect(() => {
+    if (ui.connection !== 'disconnected' || !cfg.current.ok) return;
+    const projectId = cfg.current.config.projectId;
+    if (ui.error?.code === 'unauthorized') {
+      forgetToken(projectId);
+      setConnectPrompt({ projectId, message: 'The backend rejected the access token for this project.' });
+    } else if (ui.error?.code === 'project_not_found') {
+      setConnectPrompt({ projectId, message: `Project "${projectId}" does not exist on this backend.` });
+    }
+  }, [ui.connection, ui.error]);
+
+  if (connectPrompt) {
+    return <ConnectForm projectId={connectPrompt.projectId} message={connectPrompt.message} />;
+  }
+
   if (configError) {
     return (
       <div className="tl-config-error">
@@ -1506,8 +1497,8 @@ function EditorApp(): JSX.Element {
   return (
     <div className="tl-app">
       <Toolbar
-        canUndo={canUndo}
-        canRedo={canRedo}
+        canUndo={ui.undoDepth > 0}
+        canRedo={ui.redoDepth > 0}
         selectedId={selectedId}
         playing={playing}
         snapping={snapping}
@@ -1520,123 +1511,144 @@ function EditorApp(): JSX.Element {
         onStop={() => void stop()}
       />
       <div className="tl-app__body">
-        <Hierarchy entities={entities} selectedId={selectedId} onSelect={setSelectedId} />
-        <PrefabPanel
-          selection={selected}
-          definitions={prefabSummaries}
-          selectedPrefabId={selectedPrefabId}
-          targets={overrideTargets}
-          captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
-          captureError={captureError}
-          copyError={copyError}
-          overrideCount={Object.keys(overrideDrafts).length}
-          onCaptureName={setCaptureName}
-          onCapture={() => void capturePrefab()}
-          onSelect={(id) => {
-            setSelectedPrefabId(id);
-            setOverrideDrafts({});
-            setCopyError(null);
-          }}
-          onPlaceCopy={(id) => void placeCopy(id)}
-          onOverrideCommit={commitOverride}
-        />
-        <AssetBrowser
-          assets={assets}
-          query={assetQuery}
-          importState={importState}
-          selectedAssetId={selectedAssetId}
-          placementAvailable={placement !== null && assetPlacementAvailable()}
-          placementMessage={placementError?.message ?? null}
-          preview={assetPreview}
-          onRefresh={() => void refreshAssets()}
-          onSelect={setSelectedAssetId}
-          onImport={(f) => void importFile(f, 'create')}
-          onReimport={(f) => void importFile(f, 'reimport')}
-          onPublish={() => void publish()}
-          onCancel={() => void cancelImportFlow()}
-          onDiscard={() => void discardImportFlow()}
-          onPreview={(id) => void loadPreview(id)}
-          onPreviewPlay={previewPlay}
-          onPreviewPause={previewPause}
-          onPreviewScrub={previewScrub}
-          onPlace={() => void placeAsset()}
-          roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
-          roleEntity={reimportEntity}
-          roleDraft={reimportRoles}
-          onRoleEntityChange={setReimportEntity}
-          onRoleDraftChange={setReimportRoles}
-        />
-        <BehaviorPanel
-          behaviors={behaviorViews}
-          selectedBehaviorId={selectedBehaviorId}
-          publication={publication}
-          sourceDraft={sourceDraft}
-          activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
-          error={behaviorError}
-          newBehaviorId={newBehaviorId}
-          newDisplayName={newDisplayName}
-          newPropertyKey={newPropertyKey}
-          newPropertyDefault={newPropertyDefault}
-          onSelect={(id) => {
-            setSelectedBehaviorId(id);
-            setBehaviorError(null);
-          }}
-          onSourceDraft={setSourceDraft}
-          onStage={() => void stageBehaviorSource()}
-          onAcknowledge={(digest) => void acknowledgeDigest(digest)}
-          onPublishSource={() => void publishStagedSource()}
-          onNewBehaviorId={setNewBehaviorId}
-          onNewDisplayName={setNewDisplayName}
-          onNewPropertyKey={setNewPropertyKey}
-          onNewPropertyDefault={setNewPropertyDefault}
-          onCreateDeclaration={() => void createDeclaration()}
-        />
-        <GameplayPanel
-          entities={entities}
-          gameConfig={gameConfig}
-          gameConfigLoaded={gameConfigLoaded}
-          settings={settings}
-          tool={gameplayTool}
-          onArmTool={armZoneTool}
-          onSaveGameConfig={(g) => void saveGameConfig(g)}
-          onAddZone={(r, s) => void addZone(r, s)}
-          onEditZone={(id, n) => void editZone(id, n)}
-          onDeleteZone={(id) => void deleteZone(id)}
-          onAddSpawn={() => void addSpawn()}
-          onDeleteSpawn={(id) => void deleteSpawn(id)}
-          onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
-          onSaveSettings={(s) => void saveSettings(s)}
-          backendError={gameplayError}
-        />
-        <MediaPanel
-          entities={entities}
-          selected={selected}
-          gameConfig={gameConfig}
-          gameConfigLoaded={gameConfigLoaded}
-          assets={assets}
-          clipNames={
-            selected !== null && selected.kind === 'model' && selected.assetId !== undefined
-              ? (assetPreview !== null && assetPreview.assetId === selected.assetId
-                  ? assetPreview.clips.map((c) => c.name)
-                  : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
-                    ? mediaPendingRef.current.clipNames
-                    : null)
-              : null
-          }
-          backendError={mediaError}
-          onDismissError={() => setMediaError(null)}
-          onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
-          onAddLight={(t) => void addLight(t)}
-          onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
-          onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
-          onApplyPreset={(id, p) => void applyPreset(id, p)}
-          onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
-          onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
-          previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
-          previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
-          onUnlockPreview={unlockPreview}
-          onPreviewCue={(id) => void previewCue(id)}
-        />
+        <div className="tl-sidebar">
+          <div className="tl-tabs" role="tablist">
+            {LEFT_TABS.map((t) => (
+              <button key={t.id} role="tab" aria-selected={leftTab === t.id} className={`tl-tab${leftTab === t.id ? ' is-active' : ''}`} onClick={() => setLeftTab(t.id)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {leftTab === 'scene' && (
+            <Hierarchy entities={entities} selectedId={selectedId} onSelect={setSelectedId} />
+          )}
+          {leftTab === 'assets' && (
+            <AssetBrowser
+              assets={assets}
+              query={assetQuery}
+              importState={importState}
+              selectedAssetId={selectedAssetId}
+              placementAvailable={placement !== null && assetPlacementAvailable()}
+              placementMessage={placementError?.message ?? null}
+              preview={assetPreview}
+              onRefresh={() => void refreshAssets()}
+              onSelect={setSelectedAssetId}
+              onImport={(f) => void importFile(f, 'create')}
+              onReimport={(f) => void importFile(f, 'reimport')}
+              onPublish={() => void publish()}
+              onCancel={() => void cancelImportFlow()}
+              onDiscard={() => void discardImportFlow()}
+              onPreview={(id) => void loadPreview(id)}
+              onPreviewPlay={previewPlay}
+              onPreviewPause={previewPause}
+              onPreviewScrub={previewScrub}
+              onPlace={() => void placeAsset()}
+              roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
+              roleEntity={reimportEntity}
+              roleDraft={reimportRoles}
+              onRoleEntityChange={setReimportEntity}
+              onRoleDraftChange={setReimportRoles}
+            />
+          )}
+          {leftTab === 'prefabs' && (
+            <PrefabPanel
+              selection={selected}
+              definitions={prefabSummaries}
+              selectedPrefabId={selectedPrefabId}
+              targets={overrideTargets}
+              captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
+              captureError={captureError}
+              copyError={copyError}
+              overrideCount={Object.keys(overrideDrafts).length}
+              onCaptureName={setCaptureName}
+              onCapture={() => void capturePrefab()}
+              onSelect={(id) => {
+                setSelectedPrefabId(id);
+                setOverrideDrafts({});
+                setCopyError(null);
+              }}
+              onPlaceCopy={(id) => void placeCopy(id)}
+              onOverrideCommit={commitOverride}
+            />
+          )}
+          {leftTab === 'behaviors' && (
+            <BehaviorPanel
+              behaviors={behaviorViews}
+              selectedBehaviorId={selectedBehaviorId}
+              publication={publication}
+              sourceDraft={sourceDraft}
+              activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
+              error={behaviorError}
+              newBehaviorId={newBehaviorId}
+              newDisplayName={newDisplayName}
+              newPropertyKey={newPropertyKey}
+              newPropertyDefault={newPropertyDefault}
+              onSelect={(id) => {
+                setSelectedBehaviorId(id);
+                setBehaviorError(null);
+              }}
+              onSourceDraft={setSourceDraft}
+              onStage={() => void stageBehaviorSource()}
+              onAcknowledge={(digest) => void acknowledgeDigest(digest)}
+              onPublishSource={() => void publishStagedSource()}
+              onNewBehaviorId={setNewBehaviorId}
+              onNewDisplayName={setNewDisplayName}
+              onNewPropertyKey={setNewPropertyKey}
+              onNewPropertyDefault={setNewPropertyDefault}
+              onCreateDeclaration={() => void createDeclaration()}
+            />
+          )}
+          {leftTab === 'gameplay' && (
+            <GameplayPanel
+              entities={entities}
+              gameConfig={gameConfig}
+              gameConfigLoaded={gameConfigLoaded}
+              settings={settings}
+              tool={gameplayTool}
+              onArmTool={armZoneTool}
+              onSaveGameConfig={(g) => void saveGameConfig(g)}
+              onAddZone={(r, s) => void addZone(r, s)}
+              onEditZone={(id, n) => void editZone(id, n)}
+              onDeleteZone={(id) => void deleteZone(id)}
+              onAddSpawn={() => void addSpawn()}
+              onDeleteSpawn={(id) => void deleteSpawn(id)}
+              onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
+              onSaveSettings={(s) => void saveSettings(s)}
+              backendError={gameplayError}
+            />
+          )}
+          {leftTab === 'media' && (
+            <MediaPanel
+              entities={entities}
+              selected={selected}
+              gameConfig={gameConfig}
+              gameConfigLoaded={gameConfigLoaded}
+              assets={assets}
+              clipNames={
+                selected !== null && selected.kind === 'model' && selected.assetId !== undefined
+                  ? (assetPreview !== null && assetPreview.assetId === selected.assetId
+                      ? assetPreview.clips.map((c) => c.name)
+                      : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
+                        ? mediaPendingRef.current.clipNames
+                        : null)
+                  : null
+              }
+              backendError={mediaError}
+              onDismissError={() => setMediaError(null)}
+              onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
+              onAddLight={(t) => void addLight(t)}
+              onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
+              onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
+              onApplyPreset={(id, p) => void applyPreset(id, p)}
+              onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
+              onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
+              previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
+              previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
+              onUnlockPreview={unlockPreview}
+              onPreviewCue={(id) => void previewCue(id)}
+            />
+          )}
+        </div>
         <div className="tl-app__stage">
           <canvas ref={canvasRef} className="tl-viewport" />
           {playing && previewSrc && (
@@ -1670,6 +1682,47 @@ function EditorApp(): JSX.Element {
       </div>
       <StatusBar state={ui} onResync={resync} />
     </div>
+  );
+}
+
+type LeftTab = 'scene' | 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media';
+
+const LEFT_TABS: ReadonlyArray<{ id: LeftTab; label: string }> = [
+  { id: 'scene', label: 'Scene' },
+  { id: 'assets', label: 'Assets' },
+  { id: 'prefabs', label: 'Prefabs' },
+  { id: 'behaviors', label: 'Behaviors' },
+  { id: 'gameplay', label: 'Gameplay' },
+  { id: 'media', label: 'Media' },
+];
+
+/** Asks for the project and its access token (kept in this browser only). */
+function ConnectForm(props: { projectId: string; message?: string }): JSX.Element {
+  const [projectId, setProjectId] = useState(props.projectId);
+  const [token, setToken] = useState('');
+  const submit = (e: FormEvent): void => {
+    e.preventDefault();
+    const id = projectId.trim();
+    if (id === '' || token.trim() === '') return;
+    rememberToken(id, token.trim());
+    window.location.search = `?project=${encodeURIComponent(id)}`;
+  };
+  return (
+    <form className="tl-connect" onSubmit={submit}>
+      <h1>Thirdlight editor</h1>
+      {props.message ? <p className="tl-connect__message">{props.message}</p> : null}
+      <label>
+        Project
+        <input name="project" value={projectId} onChange={(e) => setProjectId(e.target.value)} autoFocus={props.projectId === ''} />
+      </label>
+      <label>
+        Access token
+        <input name="token" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoFocus={props.projectId !== ''} />
+      </label>
+      <button className="tl-btn" type="submit">
+        Open
+      </button>
+    </form>
   );
 }
 

@@ -1014,20 +1014,6 @@ put(sc("09-second-backend-ownership", "disk-before/.thirdlight/claim-0"),
     },
     {
       in: { op: "queryProject", projectId: P },
-      out: mutationError({
-        op: "queryProject", projectId: P,
-        error: errObj("project_unavailable", "unavailable",
-          { reason: "stale_ownership", holder: holderA },
-          "project cannot be used right now: stale_ownership",
-          "run takeoverWorkspace to take over the stale ownership record (explicit operator action; never automatic)"),
-      }),
-    },
-    {
-      in: { op: "takeoverWorkspace", projectId: P },
-      out: { ok: true, lockEpoch: ownerB.lockEpoch, backendId: ownerB.backendId, pid: ownerB.pid },
-    },
-    {
-      in: { op: "queryProject", projectId: P },
       out: queryProjectResult({
         projectId: P, manifest: MAIN, scene: T7.scene, revision: 7,
         history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false },
@@ -1115,15 +1101,12 @@ for (const dir of ["01-retry-lost-ack", "02-request-id-reused", "04-invalid-no-p
       { dir: "scenarios/06-crash-before-replace", name: "crash before atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 6, writePaused: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["load after restart reports revision 6 (the temp is ignored and cleaned)", "leftover temp .main.json.tmp-4242-7 removed on open", "retry of A7 re-executes fresh (no record): createdId box-0004, duplicated false", "final envelope equals envelope/valid/demo-0001-rev7.json"] },
       { dir: "scenarios/07-crash-after-replace", name: "crash after atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 7, writePaused: false }, { kind: "success", revision: 7, duplicated: true }], finalRevision: 7, invariants: ["load reports revision 7 (the rename landed)", "retry of A7 replays the recorded result (duplicated true)", "no double-apply: 6 entities, disk-after identical to disk-before"] },
       { dir: "scenarios/08-external-modification", name: "unexpected external modification", outcomes: [{ kind: "error", code: "external_change_unresolved", cls: "unavailable" }, { kind: "success", revision: 7, duplicated: false }, { kind: "success", revision: 7, duplicated: false }, { kind: "success", revision: 8, duplicated: false }], finalRevision: 8, invariants: ["outcome 2 is a queryProject serving last-known-good with writePaused true and pendingChange", "outcome 3 is the admin acceptExternalState result", "recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/main.json", "final envelope carries the accepted color #ff8800, box-0004 position [0,1,0], and exactly 1 retry record (retry block cleared on accept, then the post-accept command)"] },
-      { dir: "scenarios/09-second-backend-ownership", name: "second-backend ownership rejection", outcomes: [{ kind: "error", code: "project_unavailable", cls: "unavailable" }, { kind: "error", code: "project_unavailable", cls: "unavailable" }, { kind: "success", revision: 7, duplicated: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["outcome 1 reason ownership_conflict (live owner pid 5000)", "outcome 2 reason stale_ownership (owner dead; explicit takeover required — never automatic)", "outcome 3 is the admin takeoverWorkspace result (lockEpoch 1, backend B)", "envelope bytes unchanged throughout"] },
+      { dir: "scenarios/09-second-backend-ownership", name: "second-backend ownership rejection", outcomes: [{ kind: "error", code: "project_unavailable", cls: "unavailable" }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["outcome 1 reason ownership_conflict (live owner pid 5000)", "outcome 2: the owner is dead, so backend B reclaims automatically (lockEpoch 1) and serves the project", "envelope bytes unchanged throughout"] },
     ],
     examples: "examples/commands.json (one request/result pair per mutation op, drawn from the mainline and scenario 05; query examples on the T5 state)",
   };
-  // outcome 2/3 in scenario 09: the takeoverWorkspace "success" has no revision; fix the mapping:
   idx.scenarios[8].outcomes = [
     { kind: "error", code: "project_unavailable", cls: "unavailable", reason: "ownership_conflict" },
-    { kind: "error", code: "project_unavailable", cls: "unavailable", reason: "stale_ownership" },
-    { kind: "admin", op: "takeoverWorkspace", lockEpoch: 1 },
     { kind: "query", op: "queryProject", revision: 7, writePaused: false },
   ];
   idx.scenarios[7].outcomes = [

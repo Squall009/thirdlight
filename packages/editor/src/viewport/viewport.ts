@@ -12,8 +12,10 @@
  */
 
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ProjectedEntity } from '../session/projection';
-import { Gizmo, type GizmoMode } from './gizmo';
+import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
 import type { ModelInstances } from './model-instances';
 
@@ -41,6 +43,17 @@ export interface ViewportCallbacks {
 
 const GROUND_SIZE = 20;
 
+export type GizmoMode = 'translate' | 'rotate' | 'scale';
+
+export interface GizmoTransform {
+  position: number[];
+  rotation: number[];
+  scale: number[];
+}
+
+/** A pointer that moved less than this (px) between down and up is a click. */
+const CLICK_SLOP_PX = 4;
+
 /** Safe numeric component read (transforms are always 3/4-element). */
 const N = (v: number | undefined): number => v ?? 0;
 
@@ -58,24 +71,25 @@ export class Viewport {
   private readonly meshes = new Map<string, THREE.Object3D>();
   private readonly cb: ViewportCallbacks;
   private selectedId: string | null = null;
-  private gizmo: Gizmo;
+  private gizmoMode: GizmoMode = 'translate';
   /** The packet-27 model realization path (shared with the asset browser). */
   private models: ModelInstances | null = null;
   private readonly ground: THREE.Mesh;
   private readonly grid: THREE.GridHelper;
   /** M3 (packet 56): the imperative zone/spawn/cameraFollow overlay. */
   private readonly zones: ZoneOverlay;
-
-  // Orbit state (a minimal, framework-free orbit control).
-  private orbitTheta = Math.PI / 4;
-  private orbitPhi = Math.PI / 3;
-  private orbitRadius = 8;
-  private orbitTarget = new THREE.Vector3(0, 0.5, 0);
-  private dragging = false;
+  private readonly orbit: OrbitControls;
+  private readonly gizmo: TransformControls;
+  private readonly snapping: () => boolean;
+  private gizmoTargetId: string | null = null;
+  /** A gizmo drag is in flight (between TransformControls mouseDown/mouseUp). */
   private draggingGizmo = false;
+  /** Esc during a gizmo drag: the object is reset and the release commits nothing. */
+  private gizmoCancelled = false;
   /** M3 (packet 56): a zone gesture is in flight (the overlay consumed the down). */
   private draggingZone = false;
-  private lastPointer = { x: 0, y: 0 };
+  private downAt: { x: number; y: number } | null = null;
+  private renderQueued = false;
   private readonly raycaster = new THREE.Raycaster();
 
   constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean } = {}) {
@@ -101,20 +115,44 @@ export class Viewport {
 
     this.zones = new ZoneOverlay(this.scene, this.camera, canvas);
 
-    this.gizmo = new Gizmo(this.scene, this.camera, this.renderer, {
-      onFrame: (t) => this.cb.onGestureFrame(this.gizmoTargetId ?? '', t),
-      onEnd: (t) => {
-        const id = this.gizmoTargetId;
-        this.draggingGizmo = false;
-        if (id) this.cb.onGestureEnd(id, t);
-      },
-    }, { snapping: options.snapping });
-    this.bindEvents();
-    this.applyOrbit();
-    this.renderer.render(this.scene, this.camera);
-  }
+    this.snapping = options.snapping ?? (() => false);
 
-  private gizmoTargetId: string | null = null;
+    this.orbit = new OrbitControls(this.camera, canvas);
+    this.orbit.target.set(0, 0.5, 0);
+    this.orbit.addEventListener('change', () => this.requestRender());
+
+    this.gizmo = new TransformControls(this.camera, canvas);
+    this.gizmo.setSize(0.9);
+    this.gizmo.addEventListener('change', () => this.requestRender());
+    this.gizmo.addEventListener('dragging-changed', (e) => {
+      this.orbit.enabled = !(e as unknown as { value: boolean }).value;
+    });
+    this.gizmo.addEventListener('mouseDown', () => {
+      const id = this.gizmoTargetId;
+      if (!id) return;
+      this.draggingGizmo = true;
+      this.gizmoCancelled = false;
+      this.applySnapping();
+      this.cb.onGestureBegin(id);
+    });
+    this.gizmo.addEventListener('objectChange', () => {
+      const id = this.gizmoTargetId;
+      if (this.draggingGizmo && id && !this.gizmoCancelled) this.cb.onGestureFrame(id, this.readTarget());
+    });
+    this.gizmo.addEventListener('mouseUp', () => {
+      const id = this.gizmoTargetId;
+      const cancelled = this.gizmoCancelled;
+      this.draggingGizmo = false;
+      this.gizmoCancelled = false;
+      if (id && !cancelled) this.cb.onGestureEnd(id, this.readTarget());
+    });
+    this.scene.add(this.gizmo.getHelper());
+
+    this.camera.position.set(6, 5, 6);
+    this.orbit.update();
+    this.bindEvents();
+    this.resize();
+  }
 
   /** Install the model realization path (packet 27). */
   setModelInstances(models: ModelInstances | null): void {
@@ -127,12 +165,35 @@ export class Viewport {
   }
 
   private render(): void {
-    this.renderer.render(this.scene, this.camera);
+    this.requestRender();
   }
 
-  /** Re-render (the model realization path calls this when a GLB resolves). */
+  /** Schedule one render on the next animation frame (coalesces bursts). */
   requestRender(): void {
-    this.render();
+    if (this.renderQueued) return;
+    this.renderQueued = true;
+    requestAnimationFrame(() => {
+      this.renderQueued = false;
+      this.renderer.render(this.scene, this.camera);
+    });
+  }
+
+  private readTarget(): GizmoTransform {
+    const t = this.gizmo.object;
+    if (!t) return { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+    return {
+      position: [t.position.x, t.position.y, t.position.z],
+      rotation: [t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w],
+      scale: [clampScale(t.scale.x), clampScale(t.scale.y), clampScale(t.scale.z)],
+    };
+  }
+
+  /** Grid snapping for the current drag (default on; Shift disables it). */
+  private applySnapping(): void {
+    const on = this.snapping();
+    this.gizmo.setTranslationSnap(on ? SNAP_TRANSLATE_M : null);
+    this.gizmo.setRotationSnap(on ? SNAP_ROTATE_RAD : null);
+    this.gizmo.setScaleSnap(on ? SNAP_SCALE : null);
   }
 
   /** M3 (packet 56): arm/clear a zone placement tool (the panel's action). */
@@ -163,10 +224,11 @@ export class Viewport {
         return true;
       }
     }
-    const cancelled = this.gizmo.cancel();
-    this.draggingGizmo = false;
+    if (!this.draggingGizmo || this.gizmoCancelled) return false;
+    this.gizmo.reset();
+    this.gizmoCancelled = true;
     this.render();
-    return cancelled;
+    return true;
   }
 
   /** Sync the entity set from the projection (add/remove/update meshes). */
@@ -183,7 +245,8 @@ export class Viewport {
         m = this.buildMesh(e);
         this.meshes.set(e.id, m);
         this.scene.add(m);
-      } else {
+      } else if (!(this.draggingGizmo && e.id === this.gizmoTargetId)) {
+        // A gizmo drag owns its target's transform until release.
         this.updateMesh(m, e);
       }
       m.visible = !isModel;
@@ -291,26 +354,29 @@ export class Viewport {
   }
 
   /** Set the selected entity (drives the gizmo + the zone overlay handle). */
-  setSelected(id: string | null, mode: GizmoMode = 'translate'): void {
+  setSelected(id: string | null, mode: GizmoMode = this.gizmoMode): void {
     this.selectedId = id;
+    this.gizmoMode = mode;
     for (const [eid, m] of this.meshes) {
       this.setMeshHighlight(m, eid === id);
     }
     const target = id ? this.targetFor(id) : null;
     if (id && target) {
+      if (this.gizmo.object !== target) this.gizmo.attach(target);
+      this.gizmo.setMode(mode);
       this.gizmoTargetId = id;
-      this.gizmo.attach(target, mode);
     } else {
-      this.gizmoTargetId = null;
       this.gizmo.detach();
+      this.gizmoTargetId = null;
     }
     this.zones.setSelected(id);
+    this.render();
   }
 
   setGizmoMode(mode: GizmoMode): void {
-    const target = this.gizmoTargetId ? this.targetFor(this.gizmoTargetId) : null;
-    if (target) this.gizmo.attach(target, mode);
+    this.gizmoMode = mode;
     this.gizmo.setMode(mode);
+    this.render();
   }
 
   private setMeshHighlight(obj: THREE.Object3D, on: boolean): void {
@@ -352,103 +418,69 @@ export class Viewport {
   }
 
   private bindEvents(): void {
-    this.root.addEventListener('pointerdown', this.onPointerDown);
-    this.root.addEventListener('pointermove', this.onPointerMove);
-    this.root.addEventListener('pointerup', this.onPointerUp);
-    this.root.addEventListener('wheel', this.onWheel, { passive: false });
-    this.root.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Capture phase: the zone overlay routes before the orbit/gizmo controls.
+    this.root.addEventListener('pointerdown', this.onPointerDown, { capture: true });
+    this.root.addEventListener('pointermove', this.onPointerMove, { capture: true });
+    this.root.addEventListener('pointerup', this.onPointerUp, { capture: true });
+    this.root.addEventListener('contextmenu', this.onContextMenu);
+    window.addEventListener('resize', this.onWindowResize);
   }
 
+  private onContextMenu = (e: Event): void => e.preventDefault();
+  private onWindowResize = (): void => this.resize();
+
   private onPointerDown = (e: PointerEvent): void => {
-    this.lastPointer = { x: e.clientX, y: e.clientY };
-    // M3 (packet 56): the zone overlay routes FIRST — a consumed pointer down
-    // drives a zone gesture (create/move/resize) and skips orbit/pick.
+    this.downAt = { x: e.clientX, y: e.clientY };
+    if (e.button !== 0) return;
+    // M3 (packet 56): a consumed pointer down drives a zone gesture
+    // (create/move/resize) and skips orbit/gizmo/pick.
     const zoneDown = this.zones.pointerDown(e.clientX, e.clientY);
     if (zoneDown.consumed) {
+      e.stopImmediatePropagation();
       this.draggingZone = true;
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
       const g = zoneDown.gesture;
-      if (g.kind !== 'create') {
-        // A zone-body/resize gesture also selects the zone entity (the panel
-        // shows its fields; the overlay shows the resize handle).
-        this.cb.onPick(g.entityId);
-      }
+      if (g.kind !== 'create') this.cb.onPick(g.entityId);
       this.cb.onZoneGestureBegin(g);
-      return;
     }
-    if (this.gizmo.pointerDown(e)) {
-      this.draggingGizmo = true;
-      if (this.gizmoTargetId) this.cb.onGestureBegin(this.gizmoTargetId);
-      return;
-    }
-    this.dragging = true;
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    const dx = e.clientX - this.lastPointer.x;
-    const dy = e.clientY - this.lastPointer.y;
-    this.lastPointer = { x: e.clientX, y: e.clientY };
     if (this.draggingZone) {
-      // M3 (packet 56): the frame carries the pointer's game-plane WORLD hit
-      // (the App computes the delta from its gesture anchor and feeds the
-      // pure ZoneGesture — zero commands, ever, during the drag).
+      e.stopImmediatePropagation();
+      // The frame carries the pointer's game-plane WORLD hit (zero commands
+      // during the drag).
       const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
       if (hit) this.cb.onZoneGestureFrame(hit);
       return;
     }
-    if (this.draggingGizmo) {
-      this.gizmo.pointerMove(dx, dy);
-      return;
-    }
-    if (this.dragging) {
-      this.orbitTheta -= dx * 0.01;
-      this.orbitPhi = Math.min(Math.PI - 0.05, Math.max(0.05, this.orbitPhi - dy * 0.01));
-      this.applyOrbit();
-    }
+    if (this.draggingGizmo) this.applySnapping();
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    const down = this.downAt;
+    this.downAt = null;
     if (this.draggingZone) {
+      e.stopImmediatePropagation();
       const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
       this.draggingZone = false;
+      this.orbit.enabled = true;
       this.zones.pointerUp();
       if (hit) this.cb.onZoneGestureEnd(hit);
       return;
     }
-    if (this.draggingGizmo) {
-      this.gizmo.pointerUp();
-      this.draggingGizmo = false;
-      return;
-    }
-    const wasDrag = this.dragging;
-    this.dragging = false;
-    // A click (not a drag) picks.
-    if (wasDrag) return;
-    const id = this.pick(e.clientX, e.clientY);
-    this.cb.onPick(id);
+    // A left click (no drag, not on a gizmo handle) picks or deselects.
+    if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null) return;
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
+    this.cb.onPick(this.pick(e.clientX, e.clientY));
   };
-
-  private onWheel = (e: WheelEvent): void => {
-    e.preventDefault();
-    this.orbitRadius = Math.min(60, Math.max(1.5, this.orbitRadius * (1 + e.deltaY * 0.001)));
-    this.applyOrbit();
-  };
-
-  private applyOrbit(): void {
-    const { orbitTheta: t, orbitPhi: p, orbitRadius: r, orbitTarget: c } = this;
-    this.camera.position.set(
-      c.x + r * Math.sin(p) * Math.cos(t),
-      c.y + r * Math.cos(p),
-      c.x + r * Math.sin(p) * Math.sin(t),
-    );
-    this.camera.lookAt(c);
-    this.renderer.render(this.scene, this.camera);
-  }
 
   /** Fit the camera to the current content (called on resync). */
   frameScene(): void {
-    this.orbitRadius = 8;
-    this.orbitTarget.set(0, 0.5, 0);
-    this.applyOrbit();
+    this.orbit.target.set(0, 0.5, 0);
+    this.camera.position.set(6, 5, 6);
+    this.orbit.update();
   }
 
   resize(): void {
@@ -457,7 +489,8 @@ export class Viewport {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.requestRender();
   }
 
   dispose(): void {
@@ -467,7 +500,14 @@ export class Viewport {
     }
     this.meshes.clear();
     this.zones.dispose();
+    this.root.removeEventListener('pointerdown', this.onPointerDown, { capture: true });
+    this.root.removeEventListener('pointermove', this.onPointerMove, { capture: true });
+    this.root.removeEventListener('pointerup', this.onPointerUp, { capture: true });
+    this.root.removeEventListener('contextmenu', this.onContextMenu);
+    window.removeEventListener('resize', this.onWindowResize);
+    this.gizmo.detach();
     this.gizmo.dispose();
+    this.orbit.dispose();
     this.disposeMesh(this.ground);
     this.renderer.dispose();
   }

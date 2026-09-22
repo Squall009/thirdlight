@@ -650,6 +650,22 @@ export function ensureSession(
   projectId: string,
   caller: 'command' | 'query' = 'command',
 ): OpenOutcome {
+  const first = ensureSessionOnce(core, projectId, caller);
+  if (first.kind === 'unavailable' && first.reason === 'stale_ownership') {
+    // The previous owner is PROVEN dead (same-host liveness check), so
+    // reclaim the project instead of demanding a manual takeover after every
+    // crash or restart. A live or unknown holder still conflicts.
+    const t = takeover(core, projectId);
+    if (t.ok) return ensureSessionOnce(core, projectId, caller);
+  }
+  return first;
+}
+
+function ensureSessionOnce(
+  core: Core,
+  projectId: string,
+  caller: 'command' | 'query',
+): OpenOutcome {
   const existing = core.sessions.get(projectId);
   if (existing !== undefined) {
     if (existing.mode === 'open') {
@@ -1938,6 +1954,22 @@ export function releaseProject(
   // ownership from disk first (R4 — no acting on cached ownership).
   s.ownershipReverify = true;
   return { ok: false, error: writeFailed('previous', rel.failed?.errno) };
+}
+
+/**
+ * Graceful-shutdown release: mark the ownership record released WITHOUT
+ * rewriting the envelope, so retry records survive and a client that lost
+ * an ack can still replay it against the next backend. Best effort: on any
+ * failure the record stays owned and the next backend reclaims it once this
+ * process is dead.
+ */
+export function releaseOnShutdown(core: Core, s: ProjectSession): void {
+  if (s.mode !== 'open' || s.ownership === null) return;
+  const rel = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
+  if (rel.ok || rel.failed?.onDiskState === 'new-undurable') {
+    s.ownership = { ...s.ownership, state: 'released' };
+    s.mode = 'released';
+  }
 }
 
 // ---- query serving (commands.md §5.6) ------------------------------------------------
