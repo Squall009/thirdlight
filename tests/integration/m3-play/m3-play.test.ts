@@ -139,13 +139,16 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     expect(res.error.reason).toBe('game_bundle_bytes');
   });
 
-  it('FAILS CLOSED on a source-bearing behavior (CC-55-3 — behaviors_unsupported)', async () => {
+  it('compiles source-bearing behaviors; a missing source blob fails closed', async () => {
     const { scene, content, blobs } = syntheticV3();
     const res = await buildPlayContentM3({
-      service: fakeService({
-        blobs,
-        behaviors: [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }],
-      }) as unknown as WorkspaceService,
+      service: {
+        ...fakeService({
+          blobs,
+          behaviors: [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }],
+        }),
+        readSourceBlob: () => ({ ok: false, error: { code: 'blob_missing', cls: 'not_found', message: 'source blob missing' } }),
+      } as unknown as WorkspaceService,
       compiler: {} as never,
       projectId: CTX.projectId,
       revision: CTX.revision,
@@ -156,8 +159,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe('export_build_unavailable');
-    expect(res.error.reason).toBe('behaviors_unsupported');
+    expect(res.error.code).toBe('blob_missing');
   });
 
   it('surfaces the closure closed-set on a missing blob / digest mismatch', async () => {

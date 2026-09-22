@@ -46,8 +46,10 @@ import {
   browserContextFactory,
   createGameAudioOwner,
   createGameHost,
+  linkBehaviorModules,
   type GameHostConfig,
   type HostDomNode,
+  type ManifestBehaviorRow,
 } from '@thirdlight/game-host';
 import { createSceneAdapter } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -258,9 +260,16 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // factory (host-called inside `mount()`) assigns `current`, which the
   // settle watch below reads after the mount.
   const adapterRef: { current: SceneAdapter | null } = { current: null };
+  // The project's compiled behaviors ship as behaviors/<digest>.js next to index.html.
+  const behaviorModules = await linkBehaviorModules(
+    (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [],
+    (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [],
+    (path) => import(/* @vite-ignore */ new URL(path, document.baseURI).href),
+  );
   const config: GameHostConfig = {
     snapshot,
     settings,
+    behaviorModules,
     ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(canvas, {

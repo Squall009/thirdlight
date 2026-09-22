@@ -39,10 +39,13 @@
  */
 import {
   BUILTIN_MODULES,
+  behaviorModuleId,
+  createBehaviorModuleSpec,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
   type ActionFrame,
+  type SimulationModuleSpec,
   type GameEvent,
   type GameView,
   type GameplaySettings,
@@ -141,6 +144,8 @@ export interface GameHostConfig {
   /** The injected physics port (physics-rapier in the preview; a fake in
    * tests). Absent for a scene without a game block (scene mode). */
   readonly physics?: PhysicsPort;
+  /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
+  readonly behaviorModules?: readonly SimulationModuleSpec[];
   /** ADDITIVE (CC-55-2): the render-adapter FACTORY — the three-adapter
    * instance requires the runtime it renders, which the host creates inside
    * `mount()`. `null` = no adapter (headless composition). */
@@ -259,6 +264,7 @@ function validateConfig(config: GameHostConfig): string | null {
   if (!isPlainObject(config.snapshot)) return 'config.snapshot must be the runtime snapshot document';
   if (typeof config.settings !== 'object' || config.settings === null) return 'config.settings must be the resolved gameplay settings';
   if (config.physics !== undefined && !isPlainObject(config.physics)) return 'config.physics must be the injected physics port';
+  if (config.behaviorModules !== undefined && !Array.isArray(config.behaviorModules)) return 'config.behaviorModules must be an array of behavior module specs';
   if (typeof config.adapter !== 'function') return 'config.adapter must be the render-adapter factory (CC-55-2)';
   if (!isPlainObject(config.input)) return 'config.input must be the injected browser input owner';
   if (typeof config.input.sample !== 'function') return 'config.input.sample must be a function (ActionSource.sample)';
@@ -468,10 +474,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // controller + platformer-game session + linked behavior modules").
     // The registry carries the runtime built-ins (inert unless selected —
     // the M2 export-composition pattern); the SELECTED modules are the
-    // M3 game set. The 55 sample game carries no behavior records: a scene
-    // with behavior components is rejected fail-closed (CC-55-3 — the §3.1
-    // config has no behavior-linking channel; the export path files it when
-    // a delivered game needs behaviors).
+    // M3 game set, plus the project's compiled behaviors.
     for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
     const specs = sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
     const modules: string[] = [];
@@ -482,8 +485,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       modules.push(spec.id);
     }
-    if (scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['behavior'] !== undefined)) {
-      return { ok: false, error: { code: 'host_config_invalid', reason: 'behaviors', message: 'the scene carries behavior components; the 55 composition supports behavior-free games (CC-55-3: the §3.1 config has no behavior-linking channel)' } };
+    for (const spec of config.behaviorModules ?? []) {
+      const r = registerSimulationModule(registry, spec.id, spec);
+      if (r.ok === false) {
+        return { ok: false, error: { code: 'host_module_registration_failed', message: `registering ${spec.id} failed: ${r.error.message}` } };
+      }
+      modules.push(spec.id);
     }
 
     const res = instantiateRuntime({
@@ -651,4 +658,48 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return runtime;
     },
   };
+}
+
+/** One manifest behavior row (runtime-content manifest v2 `behaviors[]`). */
+export interface ManifestBehaviorRow {
+  readonly behaviorId: string;
+  readonly sourceDigest: string;
+  readonly manifestDigest: string;
+  readonly outputDigest: string;
+  readonly declaration: unknown;
+  readonly ownedTransforms?: readonly string[];
+  readonly requiredModules?: readonly string[];
+  readonly path: string;
+}
+
+/**
+ * Link a manifest's compiled behaviors as runtime modules. `load` imports one
+ * behavior module by its manifest path (the caller owns the fetch/import, so
+ * the host stays fetch-free).
+ */
+export async function linkBehaviorModules(
+  rows: readonly ManifestBehaviorRow[],
+  enginePins: readonly { id: string; version: string; apiVersion: number }[],
+  load: (path: string) => Promise<unknown>,
+): Promise<SimulationModuleSpec[]> {
+  const specs: SimulationModuleSpec[] = [];
+  for (const row of rows) {
+    const namespace = await load(row.path);
+    const spec = createBehaviorModuleSpec({
+      declaration: row.declaration as never,
+      artifact: {
+        behaviorId: row.behaviorId,
+        sourceDigest: row.sourceDigest,
+        manifestDigest: row.manifestDigest,
+        outputDigest: row.outputDigest,
+        ownedTransforms: row.ownedTransforms ?? [],
+        requiredModules: row.requiredModules ?? [],
+        enginePins,
+        namespace: namespace as never,
+      },
+    });
+    if (spec.id !== behaviorModuleId(row.behaviorId)) throw new Error(`behavior ${row.behaviorId} produced module ${spec.id}`);
+    specs.push(spec);
+  }
+  return specs;
 }

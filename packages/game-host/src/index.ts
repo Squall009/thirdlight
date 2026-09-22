@@ -45,6 +45,7 @@ export {
   GAME_HOST_MESSAGES,
   createGameHost,
   cueEventsForView,
+  linkBehaviorModules,
   mapSoundStatus,
   type GameControlAction,
   type GameControlResult,
@@ -55,6 +56,7 @@ export {
   type GameHostSound,
   type HostInputOwner,
   type HostRenderAdapter,
+  type ManifestBehaviorRow,
 } from './host';
 export {
   createHud,

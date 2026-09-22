@@ -15,7 +15,7 @@
  * - The artifact set is served by the same manifest-version-agnostic
  *   `PlayContentStore` (the v2 manifest is opaque bytes to the locator).
  * - It FAILS CLOSED on the shared closure's closed error set (`blob_missing`,
- *   `behaviors_unsupported` — CC-55-3, ...) and on a `scene.json` whose bytes
+ *   ...) and on a `scene.json` whose bytes
  *   do not re-hash to `manifest.sceneDigest` (a captured-state integrity check).
  *
  * No authoritative or project write ever happens here; the artifact bytes are
@@ -132,7 +132,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   // verifies the bridge snapshot against). The sceneBytes re-hash above is a
   // captured-state integrity check only.
   // The declared assets (at their manifest-declared digest-addressed path).
-  for (const a of closure.assetArtifacts) {
+  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
   // The M3 play entry: the prebuilt bundle served as game.js (the page

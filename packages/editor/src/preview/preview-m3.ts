@@ -65,6 +65,8 @@ import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort
 import type { RuntimeSnapshot, GameplaySettings } from '@thirdlight/runtime';
 import {
   createGameHost,
+  linkBehaviorModules,
+  type ManifestBehaviorRow,
   createGameAudioOwner,
   browserContextFactory,
   type GameHostConfig,
@@ -379,9 +381,16 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // A holder object: the factory (host-called inside `mount()`) assigns
   // `current`, which the settle gate below reads after the mount.
   const adapterRef: { current: SceneAdapter | null } = { current: null };
+  // The project's compiled behaviors (same-origin modules under the locator).
+  const behaviorModules = await linkBehaviorModules(
+    (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [],
+    (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [],
+    (path) => import(/* @vite-ignore */ `${cfg.contentRoot}${path}`),
+  );
   const config: GameHostConfig = {
     snapshot,
     settings,
+    behaviorModules,
     ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(cfg.canvas, {

@@ -22,9 +22,8 @@
  * and the atomic publication.
  *
  * A failure writes nothing: the temp directory is removed and the previous
- * output tree is byte-untouched. M3 fails closed on source-bearing behaviors
- * (CC-55-3, open at Gate N — the shared composition has no behavior-linking
- * channel; the sample game uses built-in modules only).
+ * output tree is byte-untouched. Source-bearing behaviors ship as separate
+ * `behaviors/<outputDigest>.js` modules the bootstrap imports.
  */
 import { build, version as esbuildVersion } from 'esbuild';
 import {
@@ -240,7 +239,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>(closure.assetArtifacts.map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -262,6 +261,13 @@ export async function exportProjectM3(
     }
     if (digestBytes(asset.bytes) !== asset.digest) {
       return fail('scan_forbidden_content', 'internal', `the emitted asset artifact bytes do not match its digest (${asset.path})`);
+    }
+  }
+  // Behavior modules are shipped as separate files: same forbidden-content rule as the bundle.
+  for (const b of closure.behaviorArtifacts) {
+    const bc = textPatternCounts(new TextDecoder().decode(b.bytes), patterns);
+    if (bc.a + bc.b + bc.c + bc.e + bc.g + bc.i !== 0 || digestBytes(b.bytes) !== b.digest) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in behavior module ${b.path}`);
     }
   }
   const bundleText = new TextDecoder().decode(built.bytes);
@@ -294,12 +300,13 @@ export async function exportProjectM3(
 
   const indexBytes = new TextEncoder().encode(INDEX_HTML);
   const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
+  const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
   const closureEntries = [
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },
     { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
     { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
-    ...closure.assetArtifacts.map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
+    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
   ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const outputDigest = digestEmittedClosure(closureEntries);
 
@@ -329,8 +336,8 @@ export async function exportProjectM3(
       entityCount: sceneEntities.length,
       cameraId: null,
     },
-    behaviors: [],
-    behaviorTrust: { acknowledgedSourceDigests: [] },
+    behaviors: closure.behaviors.map((b) => ({ behaviorId: b.behaviorId, sourceDigest: b.sourceDigest, outputDigest: b.outputDigest })),
+    behaviorTrust: { acknowledgedSourceDigests: closure.behaviors.map((b) => b.sourceDigest).sort() },
     manifest: {
       manifestVersion: parsedManifest.manifestVersion,
       snapshotId: parsedManifest.snapshotId,
@@ -347,8 +354,8 @@ export async function exportProjectM3(
     licenses,
     artifacts: {
       assets: { count: closure.assetArtifacts.length, bytes: assetBytes },
-      behaviors: { count: 0, bytes: 0 },
-      total: { count: closure.assetArtifacts.length, bytes: assetBytes },
+      behaviors: { count: closure.behaviorArtifacts.length, bytes: behaviorBytes },
+      total: { count: closure.assetArtifacts.length + closure.behaviorArtifacts.length, bytes: assetBytes + behaviorBytes },
     },
     outputDigest,
   };
@@ -359,7 +366,7 @@ export async function exportProjectM3(
     { name: BUNDLE_NAME, bytes: built.bytes },
     { name: MANIFEST_NAME, bytes: manifestBytes },
     { name: SCENE_NAME, bytes: closure.sceneBytes },
-    ...closure.assetArtifacts.map((a) => ({ name: a.path, bytes: a.bytes })),
+    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
     { name: META_NAME, bytes: metaBytes },
   ];
 

@@ -7,8 +7,8 @@
  * Node integration test: `buildContentClosureM3` over a synthetic v3 envelope
  * (one model + one audio asset, self-consistent digests) through a FAKE
  * workspace service (the shared `query`/`readBlob` edge). Failure modes:
- * `blob_missing`, `asset_digest_mismatch`, `behaviors_unsupported` (the CC-55-3
- * fail-closed on source-bearing behaviors), and an invalid content block.
+ * `blob_missing`, `asset_digest_mismatch`, a missing behavior source blob,
+ * and an invalid content block.
  */
 import { describe, expect, it } from 'vitest';
 import { buildContentClosureM3 } from '@thirdlight/exporter';
@@ -89,13 +89,13 @@ describe('B19 the M3 closure failure modes', () => {
     expect(res.error.code).toBe('asset_digest_mismatch');
   });
 
-  it('behaviors_unsupported: a source-bearing behavior is refused (CC-55-3 fail-closed)', async () => {
-    // The content is valid (no source behavior in it); the behavior is reached
-    // through the shared `queryBehaviors` edge (the closure's single behavior
-    // read) — that is where the fail-closed rule fires.
+  it('a source-bearing behavior is compiled from its source blob; a missing blob is refused', async () => {
+    // Behaviors are reached through the shared `queryBehaviors` edge and
+    // recompiled from their immutable source blob (the working path is covered
+    // end to end by tests/e2e/behaviors.e2e.ts).
     const { scene, content, blobs } = syntheticV3();
     const res = await buildContentClosureM3({
-      service: fakeService({ blobs, behaviors: [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }] }),
+      service: { ...fakeService({ blobs, behaviors: [{ behaviorId: 'behavior-x', source: { sourceDigest: 'ab'.repeat(32), sourceByteLength: 100 } }] }), readSourceBlob: () => ({ ok: false, error: { code: 'blob_missing', cls: 'not_found', message: 'source blob missing' } }) } as never,
       compiler: {} as never,
       projectId: CTX.projectId,
       revision: CTX.revision,
@@ -105,8 +105,7 @@ describe('B19 the M3 closure failure modes', () => {
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error.code).toBe('export_build_unavailable');
-    expect(res.error.reason).toBe('behaviors_unsupported');
+    expect(res.error.code).toBe('blob_missing');
   });
 
   it('invalid content: a dangling content block is refused (export_scene_invalid)', async () => {

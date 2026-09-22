@@ -317,6 +317,8 @@ const BUNDLE_ENTRY_EDGES = {
     packages: ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
     external: ['three', 'thirdlight:export-artifacts'],
     node: [],
+    // Behavior outputs load from manifest-declared `behaviors/<digest>.js` next to index.html.
+    computedDynamicImport: 'locator',
   },
   // dependencies.md §4.2 play-preview bundle row (packet 35): the entry is
   // `editor/src/preview/**` and its graph may include protocol, runtime,
@@ -349,6 +351,8 @@ const BUNDLE_ENTRY_EDGES = {
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'platformer-game', 'physics-rapier', 'game-host'],
     external: ['three'],
     node: [],
+    // Behavior outputs load from the locator, as in preview-bootstrap.ts.
+    computedDynamicImport: 'locator',
   },
 };
 
