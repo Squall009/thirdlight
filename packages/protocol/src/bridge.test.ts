@@ -24,6 +24,8 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
     expect([...BRIDGE_EDITOR_TO_PREVIEW_TYPES].sort()).toEqual(
       [
         'tl.diagnostics.request',
+        'tl.game.control',
+        'tl.game.observe',
         'tl.handshake',
         'tl.input.request',
         'tl.play.stop',
@@ -39,6 +41,8 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
       [
         'tl.diagnostics.result',
         'tl.error',
+        'tl.game.control.result',
+        'tl.game.observe.result',
         'tl.handshake.ack',
         'tl.input.result',
         'tl.load.progress',

@@ -143,7 +143,8 @@ async function driveTrace(jumpWindows: number[], until: (v: { state: string; goa
   }
   // The render-only entities (model/light) are the three-adapter's job; the
   // physics/logic runtime keeps the rest.
-  const runtimeEntities = captured.scene.entities.filter((e) => !('model' in e.components) && !('light' in e.components));
+  // (the player is a model entity too, but it carries the controller).
+  const runtimeEntities = captured.scene.entities.filter((e) => 'controller' in e.components || (!('model' in e.components) && !('light' in e.components)));
   const snapshot = {
     snapshotId: `beacon-reach@r${captured.scene.revision}`,
     projectId: 'beacon-reach',

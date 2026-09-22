@@ -124,6 +124,8 @@ export interface ClientCallbacks {
   onSceneChanged: () => void;
   onPlayStarted: (r: PlayStartResult & { snapshot: unknown }) => void;
   onPlayStopped: (reason: string) => void;
+  /** A backend relay request for the running play (screenshot, diagnostics, input, game control/observe). */
+  onRelayRequest?: (request: Record<string, unknown>) => void;
 }
 
 /** A session-scoped `sessionId` (`sess-` + 32 hex), client-generated. */
@@ -474,6 +476,15 @@ export class SessionClient {
     });
   }
 
+  /** Answer a relay request over the socket (the preview's exact result). */
+  sendRelayAck(frame: Record<string, unknown>): void {
+    try {
+      this.ws?.send(JSON.stringify(frame));
+    } catch {
+      // the backend times the relay out
+    }
+  }
+
   /** Resolve a paused external edit: load the disk version, or keep the editor's. */
   async resolveExternal(action: 'accept' | 'discard'): Promise<{ ok: true } | { ok: false; error: { code: string; message: string } }> {
     try {
@@ -517,6 +528,13 @@ export class SessionClient {
       case 'workspace.externalChange':
         this.external = externalOf(m.workspace) ?? { valid: null, errorCount: null };
         this.emit();
+        break;
+      case 'screenshot.request':
+      case 'play.diagnostics.request':
+      case 'input.request':
+      case 'game.control.request':
+      case 'game.observe.request':
+        this.cb.onRelayRequest?.(m);
         break;
       case 'problems.added': {
         const p = m.problem as ProblemView | undefined;

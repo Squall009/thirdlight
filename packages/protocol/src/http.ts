@@ -16,6 +16,7 @@ import {
   isSessionId,
   REQUEST_ID_RE,
 } from './ids';
+import { sessionError } from './errors';
 import { V3_MUTATION_OPS, V3_QUERY_OPS } from './m3';
 import {
   checkField,
@@ -148,11 +149,14 @@ export function parseScreenshotRequest(value: unknown):
 export interface AdminCreateProjectRequest {
   projectId: string;
   name: string;
+  /** Optional template/sample id to create the project from. */
+  template?: string;
 }
 
 const ADMIN_CREATE_FIELDS = new Map([
   ['projectId', 'string (project-model §5.1 ID syntax)'],
   ['name', 'string 1–128, no control chars'],
+  ['template', 'string (template id), optional'],
 ]);
 
 export function parseAdminCreateProjectRequest(value: unknown):
@@ -168,7 +172,18 @@ export function parseAdminCreateProjectRequest(value: unknown):
     isStringNoControl(v) ? null : { problem: 'name must be 1–128 chars with no control chars', kind: 'type' },
   );
   if (!name.ok) return { ok: false, error: name.error };
-  return { ok: true, request: { projectId: shape.value.projectId as string, name: shape.value.name as string } };
+  const template = shape.value.template;
+  if (template !== undefined && !isProjectId(template)) {
+    return { ok: false, error: sessionError('invalid_request', 'validation', 'template must be a template id', { path: '/template' }) };
+  }
+  return {
+    ok: true,
+    request: {
+      projectId: shape.value.projectId as string,
+      name: shape.value.name as string,
+      ...(typeof template === 'string' ? { template } : {}),
+    },
+  };
 }
 
 /**

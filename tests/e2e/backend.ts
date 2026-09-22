@@ -43,7 +43,7 @@ function freePort(): Promise<number> {
   });
 }
 
-export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> {
+export async function startBackend(projectId = 'e2e-0001', template?: string): Promise<E2EBackend> {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-'));
   const exportRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-export-'));
   const [authPort, previewPort] = [await freePort(), await freePort()];
@@ -101,7 +101,7 @@ export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> 
   const created = await fetch(`${origin}/api/v1/admin/projects`, {
     method: 'POST',
     headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ projectId, name: 'E2E Project' }),
+    body: JSON.stringify({ projectId, name: 'E2E Project', ...(template !== undefined ? { template } : {}) }),
   });
   if (!created.ok) throw new Error(`project create failed: ${created.status} ${await created.text()}`);
 

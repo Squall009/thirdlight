@@ -217,6 +217,14 @@ export type QueryResult =
 
 // ---- operator operations (workspace.md §11) ------------------------------------
 
+/** A template/sample to create a project from (see `createProjectFrom`). */
+export interface ProjectSource {
+  scene: unknown;
+  content: unknown;
+  /** sha256 hex → bytes for every blob the content references. */
+  blobs: ReadonlyMap<string, Uint8Array>;
+}
+
 /** `createProject(projectId, name)` (§8.1). */
 export type CreateProjectResult =
   | { ok: true; created: true; revision: 0 }
@@ -390,6 +398,8 @@ export interface WorkspaceService {
   dispose(): void;
   /** Graceful shutdown: release every held project, then discard in-memory state. */
   close(): void;
+  /** Create a new project from a template: scene + content + referenced blob bytes. */
+  createProjectFrom(projectId: string, name: string, source: ProjectSource): CreateProjectResult;
   /** Detect an external edit of an open project's envelope now (pauses writes). */
   checkExternal(projectId: string): { ok: true; pending: boolean } | { ok: false };
 

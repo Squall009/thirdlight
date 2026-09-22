@@ -156,6 +156,29 @@ export class Bridge {
     this.postLocal({ v: 2, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth });
   }
 
+  /** Forward a game control command (editor side, §20.1). */
+  requestGameControl(playSessionId: string, relayId: string, command: string): void {
+    if (this.direction !== 'editor') throw new Error('requestGameControl is editor-side only');
+    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command });
+  }
+
+  /** Request a game observation (editor side, §20.1). */
+  requestGameObserve(playSessionId: string, relayId: string): void {
+    if (this.direction !== 'editor') throw new Error('requestGameObserve is editor-side only');
+    this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId });
+  }
+
+  /** Reply to a game control/observe request (preview side). */
+  sendGameResult(
+    kind: 'control' | 'observe',
+    playSessionId: string,
+    relayId: string,
+    body: { ok: true; result: unknown } | { ok: false; error: { code: string; message?: string } },
+  ): void {
+    if (this.direction !== 'preview') throw new Error('sendGameResult is preview-side only');
+    this.postLocal({ v: 2, type: kind === 'control' ? 'tl.game.control.result' : 'tl.game.observe.result', playSessionId, relayId, ...body });
+  }
+
   /** Request diagnostics (editor side). */
   requestDiagnostics(playSessionId: string, relayId: string): void {
     if (this.direction !== 'editor') throw new Error('requestDiagnostics is editor-side only');

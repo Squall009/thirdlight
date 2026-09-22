@@ -154,7 +154,7 @@ function packGlb(jsonText, bin) {
  * [{ name, duration, perPart: { [partName]: { rot, trans } } }] — each clip
  * animates a rotation (and optionally translation) channel per part.
  */
-function buildRigidModel({ generator, sceneName, parts, clips, colors }) {
+function buildRigidModel({ generator, sceneName, parts, clips, colors, rootTranslation }) {
   const bin = new BinWriter();
   const bufferViews = [];
   const accessors = [];
@@ -183,7 +183,7 @@ function buildRigidModel({ generator, sceneName, parts, clips, colors }) {
   });
 
   // A root node holding all parts (rigid hierarchy, unit scale, no physics).
-  nodes.unshift({ name: 'Root', children: parts.map((_, i) => i + 1) });
+  nodes.unshift({ name: 'Root', children: parts.map((_, i) => i + 1), ...(rootTranslation ? { translation: rootTranslation } : {}) });
   // Re-index: parts are now nodes 1..n.
 
   clips.forEach((clip, ci) => {
@@ -194,22 +194,28 @@ function buildRigidModel({ generator, sceneName, parts, clips, colors }) {
       if (partIndex < 0) return;
       const nodeIndex = partIndex + 1; // parts are nodes 1..n
       // A two-frame linear clip (identity -> target) for each present channel.
-      const tAcc = 3 + samplers.length * 2;
-      const times = bin.push(f32([0, clip.duration ?? 1]));
+      // Sampler input/output reference the accessors actually pushed.
+      const duration = clip.duration ?? 1;
+      const times = bin.push(f32([0, duration]));
       bufferViews.push({ buffer: 0, byteOffset: times.offset, byteLength: times.length });
-      accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: 2, type: 'SCALAR' });
+      const timesAccessor = accessors.length;
+      accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: 2, type: 'SCALAR', min: [0], max: [duration] });
       if (spec.rot) {
-        const r = bin.push(f32([0, 0, 0, 1, spec.rot[0], spec.rot[1], spec.rot[2], spec.rot[3]]));
+        const [x, y, z, w] = spec.rot;
+        const n = Math.hypot(x, y, z, w);
+        const r = bin.push(f32([0, 0, 0, 1, x / n, y / n, z / n, w / n]));
         bufferViews.push({ buffer: 0, byteOffset: r.offset, byteLength: r.length });
+        const outAccessor = accessors.length;
         accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: 2, type: 'VEC4' });
-        samplers.push({ input: tAcc, output: tAcc + 1, interpolation: 'LINEAR' });
+        samplers.push({ input: timesAccessor, output: outAccessor, interpolation: 'LINEAR' });
         channels.push({ sampler: samplers.length - 1, target: { node: nodeIndex, path: 'rotation' } });
       }
       if (spec.trans) {
         const tr = bin.push(f32([0, 0, 0, spec.trans[0], spec.trans[1], spec.trans[2]]));
         bufferViews.push({ buffer: 0, byteOffset: tr.offset, byteLength: tr.length });
+        const outAccessor = accessors.length;
         accessors.push({ bufferView: bufferViews.length - 1, componentType: 5126, count: 2, type: 'VEC3' });
-        samplers.push({ input: tAcc, output: tAcc + 1, interpolation: 'LINEAR' });
+        samplers.push({ input: timesAccessor, output: outAccessor, interpolation: 'LINEAR' });
         channels.push({ sampler: samplers.length - 1, target: { node: nodeIndex, path: 'translation' } });
       }
     });
@@ -243,19 +249,25 @@ const CUES = [
   { name: 'goal', freqHz: 990, durationMs: 420 },
 ];
 
-// The courier: a small rigid body (Body) + a swinging Arm, three clips.
+// The courier (the player's model): legs, body, head and a swinging arm,
+// sized to the 1.8 m player capsule. The model origin is the capsule center
+// (the player entity's position), so the root sits 0.9 m lower: feet on the
+// ground. Three clips: Idle, Run, Airborne.
 const COURIER = buildRigidModel({
   generator: 'thirdlight-beacon-reach-generator',
   sceneName: 'Courier',
+  rootTranslation: [0, -0.9, 0],
   parts: [
-    { name: 'Body', half: [0.15, 0.3, 0.15], translation: [0, 0.3, 0] },
-    { name: 'Arm', half: [0.05, 0.2, 0.05], translation: [0.2, 0.35, 0] },
+    { name: 'Legs', half: [0.2, 0.3, 0.16], translation: [0, 0.3, 0] },
+    { name: 'Body', half: [0.28, 0.42, 0.2], translation: [0, 1.02, 0] },
+    { name: 'Head', half: [0.18, 0.18, 0.18], translation: [0, 1.62, 0] },
+    { name: 'Arm', half: [0.08, 0.34, 0.08], translation: [0.36, 1.05, 0] },
   ],
-  colors: [[0.8, 0.45, 0.25, 1], [0.3, 0.55, 0.8, 1]],
+  colors: [[0.25, 0.3, 0.45, 1], [0.85, 0.45, 0.2, 1], [0.95, 0.8, 0.65, 1], [0.3, 0.55, 0.85, 1]],
   clips: [
     { name: 'Idle', duration: 1.0, perPart: { Arm: { rot: [0, 0, 0.1, 0.995] } } },
-    { name: 'Run', duration: 0.4, perPart: { Arm: { rot: [0, 0, -0.4, 0.915], trans: [0.1, 0, 0] } } },
-    { name: 'Airborne', duration: 0.6, perPart: { Arm: { rot: [0.3, 0, 0.2, 0.93], trans: [0.15, 0.1, 0] } } },
+    { name: 'Run', duration: 0.4, perPart: { Arm: { rot: [0.5, 0, 0, 0.866] }, Legs: { rot: [-0.2, 0, 0, 0.98] } } },
+    { name: 'Airborne', duration: 0.6, perPart: { Arm: { rot: [0, 0, 0.7, 0.714] }, Legs: { trans: [0, 0.1, 0] } } },
   ],
 });
 

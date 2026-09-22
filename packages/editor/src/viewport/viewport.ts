@@ -521,6 +521,27 @@ export class Viewport {
     this.cb.onPick(this.pick(e.clientX, e.clientY));
   };
 
+  /** Frame every entity (the whole level) from the current view direction. */
+  frameAll(entities: readonly ProjectedEntity[]): void {
+    const box = new THREE.Box3();
+    for (const e of entities) {
+      if (e.kind !== 'box' && e.kind !== 'model') continue; // lights/cameras are markers, not content
+      const m = this.meshes.get(e.id);
+      if (m) box.expandByPoint(m.getWorldPosition(new THREE.Vector3()));
+      if (m && e.kind === 'box') box.expandByObject(m);
+    }
+    if (box.isEmpty()) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(2, box.getSize(new THREE.Vector3()).length() / 2);
+    const distance = radius / Math.sin((this.camera.fov * Math.PI) / 360);
+    const dir = this.camera.position.clone().sub(this.orbit.target).normalize();
+    this.orbit.target.copy(center);
+    this.camera.position.copy(center).addScaledVector(dir, distance);
+    this.camera.far = Math.max(1000, distance * 10);
+    this.camera.updateProjectionMatrix();
+    this.orbit.update();
+  }
+
   /** Fit the camera to the current content (called on resync). */
   frameScene(): void {
     this.orbit.target.set(0, 0.5, 0);

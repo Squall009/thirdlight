@@ -24,6 +24,8 @@ export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
   'tl.play.stop',
   'tl.screenshot.request',
   'tl.diagnostics.request',
+  'tl.game.control',
+  'tl.game.observe',
   'tl.ping',
 ] as const;
 export type BridgeEditorToPreviewType = (typeof BRIDGE_EDITOR_TO_PREVIEW_TYPES)[number];
@@ -36,6 +38,8 @@ export const BRIDGE_PREVIEW_TO_EDITOR_TYPES = [
   'tl.stopped',
   'tl.screenshot.result',
   'tl.diagnostics.result',
+  'tl.game.control.result',
+  'tl.game.observe.result',
   'tl.error',
   'tl.pong',
 ] as const;
@@ -121,7 +125,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       const s = m['snapshot'];
       if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime.md §2 document', path: '/snapshot' };
       for (const k of Object.keys(s)) {
-        if (!['snapshotId', 'projectId', 'revision', 'scene'].includes(k)) {
+        if (!['snapshotId', 'projectId', 'revision', 'scene', 'game'].includes(k)) {
           return { ok: false, reason: `unknown snapshot field "${k}"`, path: `/snapshot/${k}` };
         }
       }
@@ -129,6 +133,9 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (!str(s['projectId'])) return { ok: false, reason: 'snapshot.projectId must be a string', path: '/snapshot/projectId' };
       if (!int(s['revision'], 0, 2 ** 53 - 1)) return { ok: false, reason: 'snapshot.revision must be an integer ≥ 0', path: '/snapshot/revision' };
       if (!isPlainObject(s['scene'])) return { ok: false, reason: 'snapshot.scene must be a scene document', path: '/snapshot/scene' };
+      if (s['game'] !== undefined && s['game'] !== null && !isPlainObject(s['game'])) {
+        return { ok: false, reason: 'snapshot.game must be the game block or null', path: '/snapshot/game' };
+      }
       return { ok: true };
     }
     case 'tl.playContent.expect': {
@@ -189,6 +196,18 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      return { ok: true };
+    }
+    case 'tl.game.control':
+    case 'tl.game.observe': {
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command'] : ['v', 'type', 'playSessionId', 'relayId'];
+      const bad = rejectUnknown(m, fields);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute'].includes(String(m['command']))) {
+        return { ok: false, reason: 'command must be start, replay, mute or unmute', path: '/command' };
+      }
       return { ok: true };
     }
     case 'tl.ping': {
@@ -306,6 +325,17 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
           return { ok: false, reason: 'diagnostics exceeds the 16 KiB bound', path: '/diagnostics' };
         }
       }
+      return { ok: true };
+    }
+    case 'tl.game.control.result':
+    case 'tl.game.observe.result': {
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'ok', 'result', 'error']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
+      if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
+      if (JSON.stringify(m['result'] ?? null).length > 16_384) return { ok: false, reason: 'result exceeds the 16 KiB bound', path: '/result' };
       return { ok: true };
     }
     case 'tl.error': {

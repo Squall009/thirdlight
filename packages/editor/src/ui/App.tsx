@@ -201,6 +201,31 @@ function EditorApp(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
+  /** Forwards a backend relay request to the running preview (latest play state). */
+  const forwardRelayRef = useRef<(req: Record<string, unknown>) => void>(() => undefined);
+  useEffect(() => {
+    forwardRelayRef.current = (req) => {
+      const b = bridgeRef.current;
+      const client = clientRef.current;
+      if (!client) return;
+      const type = String(req.type);
+      if (b === null || playInfo === null) {
+        const error = { code: 'not_ready', message: 'no play preview is running in the editor' };
+        if (type === 'input.request') client.sendRelayAck({ type: 'input.result', requestId: req.requestId, ok: false, error });
+        else {
+          const ackType = { 'screenshot.request': 'screenshot.ack', 'play.diagnostics.request': 'play.diagnostics.ack', 'game.control.request': 'game.control.ack', 'game.observe.request': 'game.observe.ack' }[type];
+          if (ackType !== undefined) client.sendRelayAck({ type: ackType, relayId: req.relayId, ok: false, error });
+        }
+        return;
+      }
+      const psid = playInfo.playSessionId;
+      if (type === 'screenshot.request') b.requestScreenshot(psid, String(req.relayId), typeof req.maxWidth === 'number' ? req.maxWidth : undefined);
+      else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId));
+      else if (type === 'input.request') b.requestInput(psid, String(req.requestId), req.frames as never);
+      else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command));
+      else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId));
+    };
+  }, [playInfo]);
 
   // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
   const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
@@ -341,6 +366,7 @@ function EditorApp(): JSX.Element {
         setPlayInfo(null);
         bridgeRef.current = null;
       },
+      onRelayRequest: (req) => forwardRelayRef.current(req),
     });
     clientRef.current = client;
 
@@ -524,9 +550,15 @@ function EditorApp(): JSX.Element {
   }, [gameplayTool]);
 
   // Push the projection into the viewport (packet 27: placements must be
-  // visible; the viewport renders the projection, never the reverse).
+  // visible; the viewport renders the projection, never the reverse). The
+  // first non-empty scene is framed so a large level is in view on open.
+  const framedRef = useRef(false);
   useEffect(() => {
     viewportRef.current?.syncEntities(entities);
+    if (!framedRef.current && entities.length > 0) {
+      framedRef.current = true;
+      viewportRef.current?.frameAll(entities);
+    }
   }, [entities]);
 
   // Local snapping is a gesture option: default on, Shift disables it for the
@@ -654,8 +686,33 @@ function EditorApp(): JSX.Element {
       setNotice(`Play failed: ${failure.message}`);
       void clientRef.current?.sendPlayPreviewFailed(playInfo.playSessionId, r?.code ?? 'play_content_not_ready', r?.message);
     });
-    bridge.on('tl.screenshot.result', () => {
-      /* handled by the MCP/backend relay path; the editor only relays */
+    // Relay results: the preview's exact answer goes back to the backend.
+    const ack = (frame: Record<string, unknown>): void => clientRef.current?.sendRelayAck(frame);
+    const outcome = (r: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> => {
+      const out: Record<string, unknown> = { ok: r.ok };
+      if (r.ok === true) for (const k of keys) if (r[k] !== undefined) out[k] = r[k];
+      if (r.ok !== true) out.error = r.error;
+      return out;
+    };
+    bridge.on('tl.screenshot.result', (m) => {
+      const r = m as Record<string, unknown>;
+      ack({ type: 'screenshot.ack', relayId: r.relayId, ...outcome(r, ['dataUrl', 'width', 'height']) });
+    });
+    bridge.on('tl.diagnostics.result', (m) => {
+      const r = m as Record<string, unknown>;
+      ack({ type: 'play.diagnostics.ack', relayId: r.relayId, ...outcome(r, ['diagnostics']) });
+    });
+    bridge.on('tl.input.result', (m) => {
+      const r = m as Record<string, unknown>;
+      ack({ type: 'input.result', requestId: r.requestId, ...outcome(r, ['appliedFromStep', 'appliedToStep']) });
+    });
+    bridge.on('tl.game.control.result', (m) => {
+      const r = m as Record<string, unknown>;
+      ack({ type: 'game.control.ack', relayId: r.relayId, ...outcome(r, ['result']) });
+    });
+    bridge.on('tl.game.observe.result', (m) => {
+      const r = m as Record<string, unknown>;
+      ack({ type: 'game.observe.ack', relayId: r.relayId, ...outcome(r, ['result']) });
     });
 
     const onLoad = (): void => {
@@ -669,7 +726,14 @@ function EditorApp(): JSX.Element {
     };
     iframe.addEventListener('load', onLoad);
     window.addEventListener('message', onMsg);
+    // The preview may finish loading before this listener exists (the load
+    // event is then missed): keep offering the handshake until it is acked.
+    const retry = window.setInterval(() => {
+      if (snapshotSent) window.clearInterval(retry);
+      else onLoad();
+    }, 300);
     return () => {
+      window.clearInterval(retry);
       iframe.removeEventListener('load', onLoad);
       window.removeEventListener('message', onMsg);
       bridgeRef.current = null;

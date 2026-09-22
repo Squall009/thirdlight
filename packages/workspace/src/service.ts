@@ -39,14 +39,17 @@ import type {
   SceneV3,
 } from '@thirdlight/project-model';
 import {
+  normalizeManifest,
   normalizeScene,
   parseDocumentBytes,
   serializeCanonical,
   validateManifest,
+  validateProjectV3,
 } from '@thirdlight/project-model';
 
 import {
   buildEnvelopeBytes,
+  buildEnvelopeBytesV3,
   ID_RE,
   mutationOpsForStorageVersion,
   validateEnvelope,
@@ -100,6 +103,7 @@ import {
   fieldTypeError,
   fieldValueType,
   contentQuotaExceeded,
+  blobMissing,
   invalidRequest,
   projectExistsInvalid,
   projectNotFound,
@@ -156,6 +160,7 @@ import type {
   ScanEntry,
   ScanReport,
   TakeoverResult,
+  ProjectSource,
   WorkspaceService,
   WorkspaceServiceConfig,
 } from './types';
@@ -652,6 +657,87 @@ function buildService(core: Core): WorkspaceService {
     return convergeExisting(projectId);
   }
 
+  /**
+   * Create a NEW project from a template/sample: the source scene and content
+   * (validated as a v3 project, revision reset to 0) plus the bytes of every
+   * blob the content references. Blobs are written first, then the manifest
+   * and the envelope, so a crash leaves at most an incomplete project the
+   * startup scan completes or reports. An existing project id is refused.
+   */
+  function createProjectFrom(projectId: string, name: string, source: ProjectSource): CreateProjectResult {
+    if (typeof projectId !== 'string' || !ID_RE.test(projectId)) {
+      return {
+        ok: false,
+        error: fieldValueType('/projectId', projectId, 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}', 'projectId must use the project-model ID syntax'),
+      };
+    }
+    if (typeof name !== 'string' || !validName(name)) {
+      return { ok: false, error: fieldValueType('/name', name, '1-128 chars, no control characters', 'name must be 1-128 characters without control characters') };
+    }
+    const dir = join(core.projectsRoot, projectId);
+    if (core.ops.dirExists(dir)) {
+      return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
+    }
+    const manifestDoc = {
+      schemaVersion: 1 as const,
+      engineVersion: ENGINE_VERSION,
+      id: projectId,
+      name,
+      createdAt: core.utcNow(),
+      scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
+    };
+    const man = normalizeManifest(manifestDoc);
+    if (!man.ok) return { ok: false, error: invalidRequest('/name', name, 'a valid manifest', 'the project manifest is invalid') };
+    const scene = { ...(source.scene as Record<string, unknown>), sceneId: 'scene-main', revision: 0 };
+    // A new project starts at revision 0: publication revisions reset with it.
+    const sourceContent = JSON.parse(JSON.stringify(source.content ?? null)) as {
+      assets?: { versions?: { publishedRevision?: number }[] }[];
+      behaviors?: { publishedRevision?: number; source?: { publishedRevision?: number } | null }[];
+    } | null;
+    for (const a of sourceContent?.assets ?? []) for (const v of a.versions ?? []) v.publishedRevision = 0;
+    for (const b of sourceContent?.behaviors ?? []) {
+      b.publishedRevision = 0;
+      if (b.source) b.source.publishedRevision = 0;
+    }
+    const project = validateProjectV3(man.normalized, scene, sourceContent);
+    if (!project.ok) {
+      const first = project.errors[0];
+      return { ok: false, error: invalidRequest(first?.path ?? '', undefined, 'a valid v3 scene + content', `the template is not a valid project: ${first?.message ?? 'invalid'}`) };
+    }
+    const content = project.normalized.content as unknown as { assets: { assetId: string; versions: { version: number; sourceDigest: string }[] }[]; behaviors: { source: { sourceDigest: string } | null }[] };
+    const needed = new Set<string>();
+    for (const a of content.assets) for (const v of a.versions) needed.add(v.sourceDigest);
+    for (const b of content.behaviors) if (b.source !== null) needed.add(b.source.sourceDigest);
+    for (const digest of needed) {
+      const bytes = source.blobs.get(digest);
+      if (bytes === undefined || sha256Hex(bytes) !== digest) return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
+    }
+
+    if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
+    const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 3, revision: 0, scene: null, content: null };
+    for (const digest of needed) {
+      const bytes = source.blobs.get(digest)!;
+      const put = publishBlob(core, ctx, { digest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
+      if (!put.ok) return { ok: false, error: put.error };
+    }
+    const manBytes = serializeCanonical(man.normalized);
+    if (!manBytes.ok) return { ok: false, error: writeFailed('previous', undefined) };
+    const mres = writeAtomic({ dir, target: join(dir, 'project.json'), bytes: manBytes.bytes, allowedPreHashes: [], previousHash: null, ops: core.ops });
+    if (mres.failed || mres.external) return { ok: false, error: writeFailed(mres.failed?.onDiskState ?? 'previous', mres.failed?.errno) };
+    const eres = writeAtomic({
+      dir: join(dir, 'scenes'),
+      target: join(dir, SCENE_REL),
+      bytes: buildEnvelopeBytesV3(projectId, project.normalized.scene, project.normalized.content, []),
+      allowedPreHashes: null,
+      previousHash: null,
+      ops: core.ops,
+    });
+    if (eres.failed || eres.external) return { ok: false, error: writeFailed(eres.failed?.onDiskState ?? 'previous', eres.failed?.errno) };
+    const o = ensureSession(core, projectId);
+    if (o.kind !== 'open') return { ok: false, error: projectExistsInvalid([]) };
+    return { ok: true, created: true, revision: 0 };
+  }
+
   /** The existing-directory outcome of createProject (§8.1 idempotency).
    * READ-ONLY (R15, 2026-09-18 review): a strict manifest + envelope load
    * via the same loaders the query path uses — MINUS session creation,
@@ -1026,6 +1112,7 @@ function buildService(core: Core): WorkspaceService {
     dispose,
     close,
     checkExternal,
+    createProjectFrom,
     get lastScan() {
       return lastScanRef[0];
     },

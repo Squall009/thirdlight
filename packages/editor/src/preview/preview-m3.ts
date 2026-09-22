@@ -74,8 +74,9 @@ import {
 import { createSceneAdapter } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { SceneAdapter, SceneAdapterModels } from '@thirdlight/three-adapter';
-import { attachBrowserInput } from '@thirdlight/input';
+import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { Bridge } from './bridge';
+import { RelayActionSource } from './relay-input';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
@@ -128,6 +129,12 @@ export interface M3PreviewConfig {
 
 export interface M3PreviewHandle {
   readonly host: GameHost;
+  /** The exclusive-test input source (bounded input-exercise relays). */
+  readonly relay: RelayActionSource;
+  /** The render adapter (screenshots, diagnostics), when one was created. */
+  readonly adapter: SceneAdapter | null;
+  /** The player entity id (for position observations), when a game is played. */
+  readonly playerId: string | null;
   /** The verified ready identity (D-63-6): the verified snapshotId + snapshot
    * revision, the manifest buildId + contentDigest (64-hex, bound by the
    * buildId check) and the runtime stepIndex after the settle pre-roll. */
@@ -355,7 +362,15 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     physics = init.port;
   }
 
-  const input = attachBrowserInput(cfg.canvas, {});
+  const browserInput = attachBrowserInput(cfg.canvas, {});
+  focusGameSurface(cfg.canvas);
+  const relay = new RelayActionSource(browserInput);
+  const input = {
+    sample: (stepIndex: number) => relay.sample(stepIndex),
+    sampleMenu: () => browserInput.sampleMenu(),
+    markConfirmConsumed: () => browserInput.markConfirmConsumed(),
+    dispose: () => browserInput.dispose(),
+  };
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
   const assetPathsById: Record<string, string> = {};
   for (const asset of manifest.assets) assetPathsById[asset.assetId] = asset.path;
@@ -416,8 +431,12 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     stepIndex: obs.ok ? obs.observation.stepIndex : 0,
   };
 
+  const game = snapshot.game as { playerId?: unknown } | null | undefined;
   return {
     host,
+    relay,
+    adapter: adapterRef.current,
+    playerId: typeof game?.playerId === 'string' ? game.playerId : null,
     identity,
     dispose: () => {
       host.dispose();
@@ -542,6 +561,119 @@ export function bootstrapPreviewM3(): void {
         const err = e instanceof PreviewM3Error ? e : null;
         bridge.sendError(playId, err?.code ?? 'play_content_not_ready', err?.message ?? (e instanceof Error ? e.message : 'the M3 preview failed to start'), err?.phase ?? 'manifest');
       });
+  });
+
+  // ---- relays from the editor (MCP / backend tools) ----------------------------
+  const notReady = { ok: false as const, error: { code: 'not_ready', message: 'the play is not ready' } };
+
+  bridge.on('tl.input.request', (m) => {
+    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; jump: string }> };
+    if (handle === null) {
+      bridge.sendInputResult(playId, body.requestId, notReady);
+      return;
+    }
+    const d = handle.host.runtime.getDiagnostics();
+    const firstStep = (d.ok ? d.diagnostics.stepIndex : 0) + 1;
+    const accepted = handle.relay.beginTest(body.frames, firstStep, (from, to) => {
+      bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
+    });
+    if (!accepted) bridge.sendInputResult(playId, body.requestId, { ok: false, error: { code: 'input_relay_conflict', message: 'a relay is already active' } });
+  });
+
+  bridge.on('tl.screenshot.request', (m) => {
+    const body = m as { relayId: string; maxWidth?: number };
+    const shot = handle?.adapter?.captureScreenshot(body.maxWidth ?? 1024);
+    if (shot === undefined) bridge.sendScreenshotResult(playId, body.relayId, notReady);
+    else if (!shot.ok) bridge.sendScreenshotResult(playId, body.relayId, { ok: false, error: { code: shot.error.code, message: shot.error.message } });
+    else bridge.sendScreenshotResult(playId, body.relayId, { ok: true, dataUrl: shot.result.dataUrl, width: shot.result.width, height: shot.result.height });
+  });
+
+  bridge.on('tl.diagnostics.request', (m) => {
+    const body = m as { relayId: string };
+    if (handle === null) {
+      bridge.sendDiagnosticsResult(playId, body.relayId, notReady);
+      return;
+    }
+    const rd = handle.host.runtime.getDiagnostics();
+    const ad = handle.adapter?.diagnostics();
+    bridge.sendDiagnosticsResult(playId, body.relayId, {
+      ok: true,
+      diagnostics: {
+        runtime: rd.ok ? rd.diagnostics : { error: rd.error.code },
+        renderer: ad === undefined ? null : ad.ok ? ad.diagnostics : { error: ad.error.code },
+        buildId: handle.identity.buildId,
+        frameDrops: bridge.drops,
+      },
+    });
+  });
+
+  /** The §20 wire observation (+ the player position), or null without a game. */
+  const observation = (h: M3PreviewHandle): Record<string, unknown> | null => {
+    const gv = h.host.runtime.getGameView();
+    const obs = h.host.observe();
+    if (!gv.ok || !obs.ok) return null;
+    const v = gv.view;
+    const st = h.host.runtime.getInterpolatedState();
+    const tr = st.ok && h.playerId !== null ? st.state.transforms.find((t) => t.id === h.playerId) : undefined;
+    return {
+      ok: true,
+      playSessionId: playId,
+      snapshotId: v.snapshotId,
+      buildId: h.identity.buildId,
+      runId: v.runId,
+      revision: h.identity.revision,
+      observedAt: new Date().toISOString(),
+      stepIndex: v.stepIndex,
+      simTime: v.simTime,
+      state: v.state,
+      checkpointId: v.checkpointId,
+      checkpointActive: v.checkpointActive,
+      goalReached: v.goalReached,
+      failed: obs.observation.failed,
+      deathCount: v.deathCount,
+      eventCount: v.eventCount,
+      eventDropped: v.eventDropped,
+      inputMode: h.relay.testActive ? 'test' : 'physical',
+      sound: obs.observation.sound,
+      events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
+      ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1] } } : {}),
+    };
+  };
+
+  bridge.on('tl.game.observe', (m) => {
+    const body = m as { relayId: string };
+    const o = handle === null ? null : observation(handle);
+    if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has no game session' } });
+    else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
+  });
+
+  bridge.on('tl.game.control', (m) => {
+    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' };
+    if (handle === null) {
+      bridge.sendGameResult('control', playId, body.relayId, notReady);
+      return;
+    }
+    const r = handle.host.control(body.command);
+    const gv = handle.host.runtime.getGameView();
+    if (!r.ok || !gv.ok) {
+      const error = r.ok ? { code: 'game_unavailable', message: 'this play has no game session' } : { code: r.error.code, message: r.error.message };
+      bridge.sendGameResult('control', playId, body.relayId, { ok: false, error });
+      return;
+    }
+    bridge.sendGameResult('control', playId, body.relayId, {
+      ok: true,
+      result: {
+        ok: true,
+        playSessionId: playId,
+        snapshotId: gv.view.snapshotId,
+        buildId: handle.identity.buildId,
+        runId: gv.view.runId,
+        command: body.command,
+        state: r.state,
+        acceptedAtStep: r.acceptedAtStep,
+        inputMode: handle.relay.testActive ? 'test' : 'physical',
+      },
+    });
   });
 
   bridge.on('tl.play.stop', () => {

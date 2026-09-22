@@ -296,11 +296,24 @@ function main() {
     box: { size: [1, 2, 1], material: { color: '#2f7fd4' } },
     components: { gameZone: { role: 'goal', size: [1, 2] } },
   });
+  // The player: the controller capsule rendered as the animated courier.
   const player = runCommand(author, 'createEntity', {
-    kind: 'group',
+    kind: 'model',
     name: 'Player',
     transform: T(3, 0.91),
-    components: { controller: {} },
+    model: { asset: { assetId: 'br-model-courier' } },
+    components: {
+      controller: {},
+      modelAnimation: {
+        assetId: 'br-model-courier',
+        version: 1,
+        roles: {
+          idle: { clipIndex: 0, clipName: 'Idle' },
+          run: { clipIndex: 1, clipName: 'Run' },
+          airborne: { clipIndex: 2, clipName: 'Airborne' },
+        },
+      },
+    },
   });
   const playerId = player.createdId!;
   const startSpawn = runCommand(author, 'createEntity', {
@@ -314,22 +327,15 @@ function main() {
     kind: 'group',
     name: 'Key light',
     transform: T(24, 10),
-    components: { light: { type: 'directional', color: '#fff4e0', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true } },
+    components: { light: { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true } },
   });
   runCommand(author, 'createEntity', {
     kind: 'group',
     name: 'Ambient fill',
     transform: T(0, 0),
-    components: { light: { type: 'ambient', color: '#404860', intensity: 0.6 } },
+    components: { light: { type: 'ambient', color: '#8a94b0', intensity: 0.9 } },
   });
-  // Imported model content (declared in the closure; the visible player is the
-  // box due to the model-attach rendering gap).
-  runCommand(author, 'createEntity', {
-    kind: 'model',
-    name: 'Courier',
-    transform: T(3.4, 0.91),
-    model: { asset: { assetId: 'br-model-courier' } },
-  });
+  // Decoration: two beacon pillars.
   runCommand(author, 'createEntity', {
     kind: 'model',
     name: 'Beacon pillar A',

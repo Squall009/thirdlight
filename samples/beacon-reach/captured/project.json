@@ -5,7 +5,7 @@
   "scene": {
     "schemaVersion": 3,
     "sceneId": "scene-main",
-    "revision": 26,
+    "revision": 25,
     "entities": [
       {
         "id": "br-cam-main",
@@ -451,7 +451,7 @@
         }
       },
       {
-        "id": "group-0001",
+        "id": "model-0001",
         "name": "Player",
         "components": {
           "transform": {
@@ -472,7 +472,30 @@
               1
             ]
           },
-          "controller": {}
+          "model": {
+            "asset": {
+              "assetId": "br-model-courier"
+            }
+          },
+          "controller": {},
+          "modelAnimation": {
+            "assetId": "br-model-courier",
+            "version": 1,
+            "roles": {
+              "idle": {
+                "clipIndex": 0,
+                "clipName": "Idle"
+              },
+              "run": {
+                "clipIndex": 1,
+                "clipName": "Run"
+              },
+              "airborne": {
+                "clipIndex": 2,
+                "clipName": "Airborne"
+              }
+            }
+          }
         }
       },
       {
@@ -525,11 +548,11 @@
           "light": {
             "type": "directional",
             "color": "#fff4e0",
-            "intensity": 1.2,
+            "intensity": 1.6,
             "direction": [
               0.4,
               -1,
-              -0.3
+              -0.6
             ],
             "castShadow": true
           }
@@ -559,37 +582,8 @@
           },
           "light": {
             "type": "ambient",
-            "color": "#404860",
-            "intensity": 0.6
-          }
-        }
-      },
-      {
-        "id": "model-0001",
-        "name": "Courier",
-        "components": {
-          "transform": {
-            "position": [
-              3.4,
-              0.91,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0,
-              1
-            ],
-            "scale": [
-              1,
-              1,
-              1
-            ]
-          },
-          "model": {
-            "asset": {
-              "assetId": "br-model-courier"
-            }
+            "color": "#8a94b0",
+            "intensity": 0.9
           }
         }
       },
@@ -871,8 +865,8 @@
         "versions": [
           {
             "version": 1,
-            "sourceDigest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be",
-            "sourceByteLength": 3440,
+            "sourceDigest": "519f0575b847c00832cd9a0e494844ff27209fcdc93e55c62a4242133fa1c32c",
+            "sourceByteLength": 5304,
             "importRecipe": {
               "profile": "gltf-glb",
               "recipeVersion": 1,
@@ -882,18 +876,18 @@
               "extensions": []
             },
             "metrics": {
-              "nodes": 3,
-              "meshes": 2,
-              "primitives": 2,
-              "materials": 2,
+              "nodes": 5,
+              "meshes": 4,
+              "primitives": 4,
+              "materials": 4,
               "images": 0,
               "textures": 0,
-              "vertices": 16,
-              "triangles": 24,
+              "vertices": 32,
+              "triangles": 48,
               "animations": 3,
               "animationChannels": 5,
               "clipDurationMs": 0,
-              "decodedGeometryBytes": 504,
+              "decodedGeometryBytes": 864,
               "decodedImageBytes": 0
             },
             "importedAt": "2026-09-21T00:00:00Z",
@@ -920,7 +914,7 @@
       "title": "Beacon Reach",
       "objective": "Reach the beacon",
       "instructions": "A / D or arrow keys to move, Space to jump. Gamepad stick or D-pad to move, primary face button to jump. Avoid the hazards; the checkpoint saves your progress.",
-      "playerId": "group-0001",
+      "playerId": "model-0001",
       "cameraId": "br-cam-main",
       "spawnId": "spawn-0002",
       "level": {
@@ -941,7 +935,7 @@
   },
   "recipe": {
     "generatedBy": "samples/beacon-reach/tools/capture-project.mjs",
-    "commandCount": 26,
+    "commandCount": 25,
     "importedAt": "2026-09-21T00:00:00Z"
   }
 }

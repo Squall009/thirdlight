@@ -477,6 +477,52 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
 
+  // The active checkpoint shows its authored activation look
+  // (`gameZone.activation`: emissive color + intensity); the look reverts
+  // when the checkpoint is no longer active (e.g. a replay).
+  let shownCheckpoint: string | null = null;
+  const activationOf = (id: string): { emissive: string; emissiveIntensity: number } | null => {
+    const e = opts.snapshot.scene.entities.find((x) => x.id === id);
+    const act = (e?.components as { gameZone?: { activation?: { emissive?: unknown; emissiveIntensity?: unknown } } } | undefined)?.gameZone?.activation;
+    if (act === undefined || typeof act.emissive !== 'string') return null;
+    return { emissive: act.emissive, emissiveIntensity: typeof act.emissiveIntensity === 'number' ? act.emissiveIntensity : 1 };
+  };
+  const setActivation = (id: string, look: { emissive: string; emissiveIntensity: number } | null): void => {
+    objects.get(id)?.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as (THREE.Material & { emissive?: THREE.Color; emissiveIntensity?: number }) | undefined;
+      if (mat === undefined || Array.isArray(mat) || mat.emissive === undefined) return;
+      if (mat.userData.baseEmissive === undefined) {
+        mat.userData.baseEmissive = mat.emissive.getHex();
+        mat.userData.baseEmissiveIntensity = mat.emissiveIntensity ?? 1;
+      }
+      if (look === null) {
+        mat.emissive.setHex(mat.userData.baseEmissive as number);
+        mat.emissiveIntensity = mat.userData.baseEmissiveIntensity as number;
+      } else {
+        mat.emissive.set(look.emissive);
+        mat.emissiveIntensity = look.emissiveIntensity;
+      }
+    });
+  };
+  const syncCheckpointLook = (): void => {
+    const getGameView = (opts.runtime as { getGameView?: () => { ok: boolean; view?: { checkpointId?: string | null } } }).getGameView;
+    if (typeof getGameView !== 'function') return;
+    let active: string | null = null;
+    try {
+      const gv = getGameView.call(opts.runtime);
+      active = gv.ok ? (gv.view?.checkpointId ?? null) : null;
+    } catch {
+      return;
+    }
+    if (active === shownCheckpoint) return;
+    if (shownCheckpoint !== null) setActivation(shownCheckpoint, null);
+    if (active !== null) {
+      const look = activationOf(active);
+      if (look !== null) setActivation(active, look);
+    }
+    shownCheckpoint = active;
+  };
+
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
     if (contextLost) {
@@ -504,6 +550,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const obj = objects.get(tr.id);
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
+    syncCheckpointLook();
     // M4 (C64-4, delivery.md (M4) §2.4): one host-driven update per
     // rendered frame, in this order — (1) the transform sync above
     // (unchanged), (2) every live role controller advanced once with the

@@ -86,6 +86,8 @@ export interface RuntimeSnapshotDoc {
     revision: number;
     entities: ReadonlyArray<Record<string, unknown>>;
   };
+  /** v3: the project's game block (null = scene mode). */
+  game?: unknown;
 }
 
 // ---- server → client builders (§7.1) ------------------------------------------

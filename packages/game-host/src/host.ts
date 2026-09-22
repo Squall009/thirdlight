@@ -391,7 +391,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return;
     }
     const view = res.view;
-    if (view.state === 'playing' || view.state === 'respawning') {
+    // `won` too: the goal event commits on the step the run is won (cue ids
+    // are played at most once, so re-submitting a frame is harmless).
+    if (view.state === 'playing' || view.state === 'respawning' || view.state === 'won') {
       const cueEvents = cueEventsForView(view, cues, previousGrounded);
       if (cueEvents.length > 0) config.audio.submit(cueEvents);
     }

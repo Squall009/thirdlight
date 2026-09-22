@@ -22,6 +22,7 @@ import { extname, join, normalize, resolve as pathResolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
+import { listTemplates, loadTemplate } from './templates';
 import {
   classifyLocatorPath,
   isContentId,
@@ -1076,6 +1077,8 @@ export function createBackend(
         sendError(res, builtM3.error, statusFor(builtM3.error.cls));
         return;
       }
+      // The preview verifies the snapshot's game block against the manifest.
+      snapshot.game = (captured.read.content as { game?: unknown }).game ?? null;
       builtCore = {
         buildId: builtM3.built.buildId,
         contentDigest: builtM3.built.contentDigest,
@@ -1698,7 +1701,22 @@ export function createBackend(
       sendError(res, parsedReq.error);
       return;
     }
-    const result = service.createProject(parsedReq.request.projectId, parsedReq.request.name);
+    const { projectId, name, template } = parsedReq.request;
+    let result;
+    if (template !== undefined) {
+      if (config.engineRoot === undefined) {
+        sendError(res, sessionError('invalid_request', 'unavailable', 'templates need the engine root (THIRDLIGHT_ENGINE_ROOT)'), 503);
+        return;
+      }
+      const loaded = loadTemplate(config.engineRoot, template);
+      if (!loaded.ok) {
+        sendError(res, sessionError('invalid_request', 'not_found', loaded.message, { path: '/template' }), 404);
+        return;
+      }
+      result = service.createProjectFrom(projectId, name, loaded.source);
+    } else {
+      result = service.createProject(projectId, name);
+    }
     if (result.ok) {
       sendJson(res, result.created ? 201 : 200, result);
       return;
@@ -1926,7 +1944,8 @@ export function createBackend(
    * artifact responses use the same policy without a nonce.
    */
   const previewCsp = (nonce?: string): string =>
-    "default-src 'none'; script-src 'self'" +
+    // 'wasm-unsafe-eval': the game's physics (Rapier) is WebAssembly.
+    "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'" +
     (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
     "; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none'; " +
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
@@ -2017,6 +2036,19 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+          return;
+        }
+        // GET /api/v1/templates — the project templates/samples on this engine
+        if (parts.length === 3 && parts[2] === 'templates') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          if (tokenScope(bearerToken(req)) === null) {
+            sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
+            return;
+          }
+          sendJson(res, 200, { ok: true, templates: config.engineRoot === undefined ? [] : listTemplates(config.engineRoot) });
           return;
         }
         // GET /api/v1/projects/:projectId/problems — the bounded problems log (newest last)

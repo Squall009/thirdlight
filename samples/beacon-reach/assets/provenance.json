@@ -83,8 +83,8 @@
       "id": "model-courier",
       "kind": "model",
       "path": "model/courier.glb",
-      "sourceDigest": "d62fc659f569b42c0f828ebf08eac661b5afe4312f81266a178ea3d3e25678be",
-      "sourceByteLength": 3440,
+      "sourceDigest": "519f0575b847c00832cd9a0e494844ff27209fcdc93e55c62a4242133fa1c32c",
+      "sourceByteLength": 5304,
       "profile": "glb-gltf2",
       "clips": [
         "Idle",

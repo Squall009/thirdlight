@@ -88,6 +88,18 @@ function neutral(stepIndex: number): ActionFrame {
 }
 
 /**
+ * Make the game surface receive keyboard input: a canvas is not focusable by
+ * default, so keys would never reach the keydown listener. Gives it a tab
+ * stop, focuses it now and whenever it is clicked.
+ */
+export function focusGameSurface(el: HTMLElement): void {
+  if (el.tabIndex < 0) el.tabIndex = 0;
+  el.style.outline = 'none';
+  el.addEventListener('pointerdown', () => el.focus());
+  el.focus();
+}
+
+/**
  * Attach the browser binding to one play host. `target` scopes keyboard
  * `keydown`/`focusin`/`focusout`; window/document events handle release,
  * suspension and gamepad hot-plug (input.md §5.2/§5.3).

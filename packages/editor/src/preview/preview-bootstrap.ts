@@ -44,6 +44,7 @@ import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColli
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import * as THREE from 'three';
 import { Bridge } from './bridge';
+import { RelayActionSource } from './relay-input';
 
 /** The injected preview page config (sessions.md §13.2/§17.6 — config, not secrets). */
 interface PreviewPageConfig {
@@ -112,76 +113,6 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   let out = '';
   for (let i = 0; i < view.length; i += 1) out += (view[i] ?? 0).toString(16).padStart(2, '0');
   return out;
-}
-
-/**
- * The exclusive-test action source (§18.1): while a relay is active the browser
- * binding is not sampled (physical input is suppressed and cleared), the frame
- * sequence is applied at its `stepOffset` positions, and completion reports the
- * applied step range and re-arms the physical source.
- */
-class PreviewActionSource implements ActionSource {
-  private readonly browser: ActionSource & { reset?: (reason?: string) => void };
-  private test: { frames: Map<number, ActionFrame>; base: number; lastOffset: number; first: number; last: number } | null = null;
-  private onComplete: ((from: number, to: number) => void) | null = null;
-
-  constructor(browser: ActionSource & { reset?: (reason?: string) => void }) {
-    this.browser = browser;
-  }
-
-  beginTest(frames: readonly { stepOffset: number; moveX: number; jump: string }[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
-    if (this.test !== null) return false;
-    const map = new Map<number, ActionFrame>();
-    let lastOffset = -1;
-    for (const f of frames) {
-      const jump = f.jump as ActionFrame['jump'];
-      map.set(f.stepOffset, { stepIndex: firstStep + f.stepOffset, moveX: f.moveX, jump });
-      if (f.stepOffset > lastOffset) lastOffset = f.stepOffset;
-    }
-    this.browser.reset?.('exclusive-test');
-    this.test = { frames: map, base: firstStep, lastOffset, first: -1, last: -1 };
-    this.onComplete = onComplete;
-    return true;
-  }
-
-  get testActive(): boolean {
-    return this.test !== null;
-  }
-
-  sample(stepIndex: number): ActionFrame {
-    const test = this.test;
-    if (test === null) return this.browser.sample(stepIndex);
-    const offset = stepIndex - test.base;
-    const frame = test.frames.get(offset);
-    if (frame !== undefined) {
-      if (test.first < 0) test.first = stepIndex;
-      test.last = stepIndex;
-      const done = offset >= test.lastOffset;
-      const out: ActionFrame = { stepIndex, moveX: frame.moveX, jump: frame.jump };
-      if (done) this.finish();
-      return out;
-    }
-    if (offset > test.lastOffset) {
-      const from = test.first < 0 ? test.base : test.first;
-      const to = test.last < 0 ? test.base : test.last;
-      this.finish();
-      this.onComplete?.(from, to);
-      return neutralFrame(stepIndex);
-    }
-    return neutralFrame(stepIndex);
-  }
-
-  private finish(): void {
-    const test = this.test;
-    this.test = null;
-    if (test === null) return;
-    const from = test.first < 0 ? test.base : test.first;
-    const to = test.last < 0 ? test.base : test.last;
-    const cb = this.onComplete;
-    this.onComplete = null;
-    this.browser.reset?.('physical-rearm');
-    cb?.(from, to);
-  }
 }
 
 /** The preview-owned three.js rendering of the snapshot + realized GLB models. */
@@ -371,7 +302,7 @@ export function bootstrapPreview(): void {
   let physics: PhysicsPort | null = null;
   let renderer: PreviewRenderer | null = null;
   let browserInput: (ActionSource & { detach(): void; dispose(): void; unavailable(): unknown }) | null = null;
-  let actionSource: PreviewActionSource | null = null;
+  let actionSource: RelayActionSource | null = null;
   let loading = false;
   let expectedBuildId: string | null = null;
   let manifest: ContentManifest | null = null;
@@ -515,7 +446,7 @@ export function bootstrapPreview(): void {
         // Denied/absent gamepad: keyboard-only degradation (input.md §5).
         bridge.sendError(playId, 'input_unavailable', 'gamepad unavailable; keyboard-only', 'runtime');
       }
-      const action = new PreviewActionSource(input);
+      const action = new RelayActionSource(input);
       actionSource = action;
 
       const modules: string[] = [];

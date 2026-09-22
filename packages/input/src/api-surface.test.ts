@@ -35,6 +35,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'attachBrowserInput',
       'createMenuController',
       'createStepInputSource',
+      'focusGameSurface',
       'mapRawInput',
     ]);
   });

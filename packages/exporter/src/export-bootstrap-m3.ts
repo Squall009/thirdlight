@@ -39,7 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { attachBrowserInput } from '@thirdlight/input';
+import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -245,6 +245,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // (no game block and no controller: scene mode — the scene plays as authored)
 
   const input = attachBrowserInput(canvas, {});
+  focusGameSurface(canvas);
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
   const assetPathsById: Record<string, string> = {};
   for (const asset of manifest.assets ?? []) assetPathsById[asset.assetId] = asset.path;
