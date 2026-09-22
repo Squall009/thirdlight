@@ -13,6 +13,7 @@ import { browserLaunchEnv } from './tests/e2e/browser-env.mjs';
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.e2e.ts',
+  globalSetup: './tests/e2e/global-setup.ts',
   workers: 1,
   timeout: 60_000,
   reporter: [['list']],

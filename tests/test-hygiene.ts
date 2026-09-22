@@ -34,9 +34,18 @@
  * attached to their live worker (ppid != 1) and are never touched.
  *
  * DISPOSABLE_PREFIXES is the COMPLETE set of disposable prefixes the suite
- * creates under ROOT_BASE (each comment names its creation site). Prefixes
- * under /tmp (tl-m3-export-, tl-br-export-, tl-m3-chrome-) are out of
- * scope: /tmp is ephemeral and those files never use ROOT_BASE.
+ * creates under ROOT_BASE (each comment names its creation site).
+ *
+ * Third garbage class: /tmp itself (found 2026-09-22: 9.4 GB). On this host
+ * /tmp is a tmpfs, i.e. RAM, cleared only at reboot — not "ephemeral".
+ * - Vitest 5's forks pool copies every transformed module into
+ *   `<tmpdir>/<21-char nanoid>/ssr/` and never removes that directory, not
+ *   even on a clean exit (one leaked dir per run; 1,826 runs ≈ 7 GB).
+ *   `setup` records this run's directory and `teardown` removes it; killed
+ *   runs' directories are swept once they are older than TMP_MAX_AGE_MS.
+ * - Tests, harnesses and evaluation scripts create `tl-…` / `tl<N>…` dirs
+ *   under /tmp (e2e backends, exports, Chrome profiles); killed runs leave
+ *   them behind. They are swept the same way.
  */
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -94,6 +103,9 @@ const CHILD_SIGNATURES: readonly string[] = [
  * Stale per-pid bundle files from killed runs are reaped here too; the
  * directories themselves stay (the harnesses create them). */
 const BUNDLE_DIRS: readonly string[] = ['.tl25-bundles', '.tl35-bundles', '.tl48-bundles'];
+
+export { sweepStaleTmp } from './tmp-sweep';
+import { sweepStaleTmp } from './tmp-sweep';
 
 /** Remove disposable roots under ROOT_BASE with mtime older than MIN_AGE_MS.
  * Best-effort: a root a live suite is writing to (fresh mtime) or a
@@ -196,8 +208,18 @@ export function reapOrphanedTestChildren(): number {
   return victims.length;
 }
 
+/** This run's Vitest module-copy dir (removed by `teardown`). */
+let vitestTmpDir: string | null = null;
+
 /** vitest globalSetup — runs in the main process before any worker starts. */
-export function setup(): void {
+export function setup(project?: { vitest?: { _tmpDir?: unknown } }): void {
+  // Internal Vitest field (5.x): guarded, and only a `<tmpdir>/<nanoid>` path is accepted.
+  const own = project?.vitest?._tmpDir;
+  if (typeof own === 'string' && dirname(own) === tmpdir() && /^[A-Za-z0-9_-]{21}$/.test(own.slice(tmpdir().length + 1))) {
+    vitestTmpDir = own;
+  }
+  const tmp = sweepStaleTmp();
+  if (tmp > 0) console.log(`[test-hygiene] reaped ${tmp} stale temp dir(s) under ${tmpdir()}`);
   const reaped = sweepStaleRoots();
   const bundles = sweepStaleBundleFiles();
   const killed = reapOrphanedTestChildren();
@@ -212,6 +234,10 @@ export function setup(): void {
  * Same MIN_AGE_MS floor as setup: it reaps residue that went stale during a
  * long run without ever touching fresh roots. */
 export function teardown(): void {
+  if (vitestTmpDir !== null) {
+    rmSync(vitestTmpDir, { recursive: true, force: true });
+    vitestTmpDir = null;
+  }
   const reaped = sweepStaleRoots();
   const bundles = sweepStaleBundleFiles();
   const killed = reapOrphanedTestChildren();
