@@ -1,16 +1,21 @@
 /**
  * Hierarchy panel (React, decision 0001 §10) — the entity list.
- * Shows the projection's entities in a parent/child tree; clicking selects.
- * React renders the list only; the three.js viewport is untouched here.
+ * Shows the projection's entities in a parent/child tree; clicking selects,
+ * double-clicking renames, dragging a row onto another reparents it (onto
+ * the list background: makes it a root). Edits are commands issued by the app.
  */
-import { useState, type JSX } from 'react';
+import { useState, type DragEvent, type JSX } from 'react';
 import type { ProjectedEntity } from '../session/projection';
 
 interface Props {
   entities: ProjectedEntity[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onRename: (id: string, name: string) => void;
+  onReparent: (id: string, parentId: string | null) => void;
 }
+
+const DRAG_TYPE = 'application/x-thirdlight-entity';
 
 interface Row {
   id: string;
@@ -37,8 +42,19 @@ function buildRows(entities: ProjectedEntity[]): Row[] {
   return rows;
 }
 
-export function Hierarchy({ entities, selectedId, onSelect }: Props): JSX.Element {
+export function Hierarchy({ entities, selectedId, onSelect, onRename, onReparent }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const commitRename = (): void => {
+    if (renaming !== null) {
+      const name = renaming.draft.trim();
+      const current = entities.find((e) => e.id === renaming.id);
+      if (name !== '' && current !== undefined && name !== current.name) onRename(renaming.id, name);
+    }
+    setRenaming(null);
+  };
+  const dragged = (e: DragEvent): string | null => e.dataTransfer.getData(DRAG_TYPE) || null;
   const rows = buildRows(entities);
   const shown = filter === '' ? rows : rows.filter((r) => {
     const e = entities.find((x) => x.id === r.id);
@@ -54,7 +70,21 @@ export function Hierarchy({ entities, selectedId, onSelect }: Props): JSX.Elemen
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
-      <ul className="tl-hierarchy__list">
+      <ul
+        className={dropTarget === '' ? 'tl-hierarchy__list is-drop-root' : 'tl-hierarchy__list'}
+        onDragOver={(ev) => {
+          if (ev.dataTransfer.types.includes(DRAG_TYPE)) {
+            ev.preventDefault();
+            setDropTarget('');
+          }
+        }}
+        onDragLeave={() => setDropTarget(null)}
+        onDrop={(ev) => {
+          const id = dragged(ev);
+          setDropTarget(null);
+          if (id !== null && entities.find((x) => x.id === id)?.parentId !== null) onReparent(id, null);
+        }}
+      >
         {shown.map((r) => {
           const e = byId.get(r.id);
           if (!e) return null;
@@ -62,11 +92,45 @@ export function Hierarchy({ entities, selectedId, onSelect }: Props): JSX.Elemen
             <li
               key={r.id}
               style={{ paddingLeft: `${8 + r.depth * 14}px` }}
-              className={r.id === selectedId ? 'tl-row is-selected' : 'tl-row'}
+              className={['tl-row', r.id === selectedId ? 'is-selected' : '', dropTarget === r.id ? 'is-drop' : ''].join(' ').trim()}
               onClick={() => onSelect(r.id === selectedId ? null : r.id)}
+              onDoubleClick={() => setRenaming({ id: r.id, draft: e.name })}
+              draggable={renaming?.id !== r.id}
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData(DRAG_TYPE, r.id);
+                ev.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(ev) => {
+                if (!ev.dataTransfer.types.includes(DRAG_TYPE)) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                setDropTarget(r.id);
+              }}
+              onDrop={(ev) => {
+                ev.stopPropagation();
+                const id = dragged(ev);
+                setDropTarget(null);
+                if (id !== null && id !== r.id && e.parentId !== id) onReparent(id, r.id);
+              }}
             >
               <span className={`tl-row__kind tl-row__kind--${e.kind}`}>{e.kind}</span>
-              <span className="tl-row__name" title={e.id}>{e.name}</span>
+              {renaming?.id === r.id ? (
+                <input
+                  className="tl-row__rename"
+                  aria-label="rename"
+                  autoFocus
+                  value={renaming.draft}
+                  onClick={(ev) => ev.stopPropagation()}
+                  onChange={(ev) => setRenaming({ id: r.id, draft: ev.target.value })}
+                  onBlur={commitRename}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter') commitRename();
+                    if (ev.key === 'Escape') setRenaming(null);
+                  }}
+                />
+              ) : (
+                <span className="tl-row__name" title={e.id}>{e.name}</span>
+              )}
             </li>
           );
         })}

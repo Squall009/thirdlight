@@ -72,11 +72,14 @@ test('create, multi-level undo/redo, and the buttons follow the backend history'
   await expect(rows(page)).toHaveCount(BASE + 1);
 });
 
+const posX = (page: Page) => page.getByLabel('position x');
+
 test('a gizmo drag commits one setTransform that survives a reload', async ({ page }) => {
   await openEditor(page);
   await page.getByText('+ box').click();
   await expect(rows(page)).toHaveCount(BASE + 1);
-  await rows(page).filter({ hasText: 'box' }).click();
+  // A new box spawns at the camera's look-at point and is selected.
+  await expect(rows(page).filter({ hasText: 'box' })).toHaveClass(/is-selected/);
 
   const commands: string[] = [];
   page.on('request', (r) => {
@@ -86,9 +89,9 @@ test('a gizmo drag commits one setTransform that survives a reload', async ({ pa
     }
   });
 
-  // Grab the X arrow of the translate gizmo (the box sits at the origin).
-  const start = await screenPoint(page, [0.35, 0, 0]);
-  const end = await screenPoint(page, [2.35, 0, 0]);
+  // Grab the X arrow of the translate gizmo (the box sits at [0, 0.5, 0]).
+  const start = await screenPoint(page, [0.35, 0.5, 0]);
+  const end = await screenPoint(page, [2.35, 0.5, 0]);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) {
@@ -98,15 +101,56 @@ test('a gizmo drag commits one setTransform that survives a reload', async ({ pa
   await page.mouse.up();
 
   await expect.poll(() => commands).toEqual(['setTransform']);
-  const x = page.locator('.tl-vec').first().locator('.tl-vec__num').first();
-  await expect.poll(async () => Number(await x.textContent())).toBeGreaterThan(1);
-  const committedX = Number(await x.textContent());
+  await expect.poll(async () => Number(await posX(page).inputValue())).toBeGreaterThan(1);
+  const committedX = Number(await posX(page).inputValue());
 
   // Reload: same tab re-attaches (no session conflict) and the edit persisted.
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await rows(page).filter({ hasText: 'box' }).click();
-  await expect.poll(async () => Number(await page.locator('.tl-vec').first().locator('.tl-vec__num').first().textContent())).toBe(committedX);
+  await expect.poll(async () => Number(await posX(page).inputValue())).toBe(committedX);
+});
+
+test('rename by double-click, typed transforms, and drag-to-reparent are undoable commands', async ({ page }) => {
+  await openEditor(page);
+  await page.getByText('+ box').click();
+  await page.getByText('+ box').click();
+  await expect(rows(page)).toHaveCount(BASE + 2);
+  const [first, second] = [rows(page).filter({ hasText: 'box' }).nth(0), rows(page).filter({ hasText: 'box' }).nth(1)];
+
+  await first.dblclick();
+  await page.getByLabel('rename').fill('Crate');
+  await page.getByLabel('rename').press('Enter');
+  await expect(rows(page).filter({ hasText: 'Crate' })).toHaveCount(1);
+
+  await rows(page).filter({ hasText: 'Crate' }).click();
+  await posX(page).fill('3');
+  await posX(page).press('Enter');
+  await expect.poll(async () => Number(await posX(page).inputValue())).toBe(3);
+
+  // Drag the second box onto Crate: it becomes Crate's child (indented).
+  const childName = (await second.locator('.tl-row__name').textContent())!;
+  await second.dragTo(rows(page).filter({ hasText: 'Crate' }));
+  const child = rows(page).filter({ hasText: childName });
+  await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBeGreaterThan(8);
+
+  await page.getByTitle('Undo').click();
+  await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBe(8);
+});
+
+test('keyboard: Delete removes the selection, Ctrl+Z brings it back, W/E/R switch tools', async ({ page }) => {
+  await openEditor(page);
+  await page.getByText('+ box').click();
+  await expect(rows(page)).toHaveCount(BASE + 1);
+  await page.locator('canvas.tl-viewport').hover();
+  await page.keyboard.press('Delete');
+  await expect(rows(page)).toHaveCount(BASE);
+  await page.keyboard.press('Control+z');
+  await expect(rows(page)).toHaveCount(BASE + 1);
+  await page.keyboard.press('e');
+  await expect(page.getByRole('button', { name: 'rotate' })).toHaveClass(/is-active/);
+  await page.keyboard.press('w');
+  await expect(page.getByRole('button', { name: 'translate' })).toHaveClass(/is-active/);
 });
 
 test('a graceful backend restart needs no operator action; the editor reconnects', async ({ page }) => {

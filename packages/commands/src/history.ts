@@ -39,8 +39,10 @@ import {
   componentsRecord,
   deepClone,
   emptyContentCatalog,
+  entityHeader,
   gateResultState,
   subtreeClosure,
+  withEntityHeader,
   type AnyEntity,
 } from './ops';
 import { deepEqual } from './properties';
@@ -61,6 +63,8 @@ import type {
   RestoreSubtreeChange,
   SetGameConfigChange,
   SetTransformChange,
+  EntityHeader,
+  UpdateEntityChange,
 } from './types';
 
 const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
@@ -184,6 +188,34 @@ function requireEntity(scene: SceneDocument, id: string): number {
   return scene.entities.findIndex((e) => e.id === id);
 }
 
+/** Re-apply an entity header (+ order) and describe it as an updateEntity change. */
+function applyHeader(
+  state: CommandState<SceneDocument>,
+  id: string,
+  header: EntityHeader,
+  order: readonly string[] | null,
+  requestId: string,
+): ApplyResult {
+  const scene = state.scene;
+  const current = scene.entities.find((e) => e.id === id);
+  if (current === undefined) return { ok: false, error: historyInvalid(requestId) };
+  const result = withEntityHeader(scene, id, header, order);
+  if (result === null) return { ok: false, error: historyInvalid(requestId) };
+  const previous = entityHeader(current as AnyEntity);
+  const changedFields: ('name' | 'parentId')[] = [];
+  if (header.name !== previous.name) changedFields.push('name');
+  if (header.parentId !== previous.parentId) changedFields.push('parentId');
+  const change: UpdateEntityChange = {
+    type: 'updateEntity',
+    id,
+    previous,
+    next: { ...header },
+    changedFields,
+    order: order === null ? null : { previous: scene.entities.map((e) => e.id), next: [...order] },
+  };
+  return finish(state, result as unknown as SceneDocument, state.content, change, requestId);
+}
+
 /**
  * Apply a history entry's INVERSE (undo, §8.4/§9.1). `state` must be the
  * state AFTER the entry's forward command (the LIFO invariant). Returns the
@@ -194,6 +226,8 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const scene = state.scene;
   const inv = entry.inverse;
   const content = contentOf(state.content);
+
+  if (inv.kind === 'updateEntity') return applyHeader(state, inv.id, inv.restore, inv.order, entry.requestId);
 
   if (inv.kind === 'delete') {
     // Undo of a createEntity/instantiatePrefab: subtree deletion at undo time.
@@ -461,6 +495,8 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const scene = state.scene;
   const content = contentOf(state.content);
   const f = entry.change;
+
+  if (f.type === 'updateEntity') return applyHeader(state, f.id, f.next, f.order?.next ?? null, entry.requestId);
 
   if (f.type === 'createEntity') {
     if (scene.entities.some((e) => e.id === f.id)) {

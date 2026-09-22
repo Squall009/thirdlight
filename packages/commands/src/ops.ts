@@ -43,6 +43,7 @@ import {
   referenceInUse,
   referenceMissing,
   resultSceneError,
+  fieldValue,
   type CommandError,
 } from './errors';
 import type {
@@ -55,6 +56,9 @@ import type {
   DeleteEntityChange,
   SetTransformArgs,
   SetTransformChange,
+  EntityHeader,
+  UpdateEntityArgs,
+  UpdateEntityChange,
   ForwardChange,
   InverseSpec,
   SceneDocument,
@@ -723,6 +727,94 @@ export function applyDeleteEntity(
         entries: entries.map((e) => ({ index: e.index, entity: deepClone(e.entity) })),
         restoredParentId: root.parentId ?? null,
       },
+    },
+  };
+}
+
+// ---- updateEntity (rename / reparent) -------------------------------------------------
+
+/** The entity's name and parent (null = absent / root). */
+export function entityHeader(e: { name?: string; parentId?: string }): EntityHeader {
+  return { name: e.name ?? null, parentId: e.parentId ?? null };
+}
+
+/**
+ * The candidate scene with `id`'s header replaced and, when given, the
+ * entities reordered to `order` (the full id order). Null when `id` or an id
+ * in `order` is unknown. Shared by the forward op, undo and redo.
+ */
+export function withEntityHeader(
+  scene: SceneDocument,
+  id: string,
+  header: EntityHeader,
+  order: readonly string[] | null,
+): Record<string, unknown> | null {
+  const index = scene.entities.findIndex((e) => e.id === id);
+  if (index < 0) return null;
+  const updated = deepClone(scene.entities[index]) as unknown as Record<string, unknown>;
+  if (header.name === null) delete updated['name'];
+  else updated['name'] = header.name;
+  if (header.parentId === null) delete updated['parentId'];
+  else updated['parentId'] = header.parentId;
+  let entities: unknown[] = [...scene.entities];
+  entities[index] = updated;
+  if (order !== null) {
+    if (order.length !== entities.length) return null;
+    const byId = new Map(entities.map((e) => [(e as { id: string }).id, e]));
+    const reordered = order.map((eid) => byId.get(eid));
+    if (reordered.some((e) => e === undefined)) return null;
+    entities = reordered;
+  }
+  return { ...scene, revision: scene.revision + 1, entities };
+}
+
+export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, content?: ContentDocument): OpOutcome {
+  const index = scene.entities.findIndex((e) => e.id === args.entityId);
+  if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
+  const previous = entityHeader(scene.entities[index] as AnyEntity);
+  const next: EntityHeader = {
+    name: args.name ?? previous.name,
+    parentId: args.parentId !== undefined ? args.parentId : previous.parentId,
+  };
+
+  let order: UpdateEntityChange['order'] = null;
+  if (next.parentId !== previous.parentId && next.parentId !== null) {
+    const parentIndex = scene.entities.findIndex((e) => e.id === next.parentId);
+    if (parentIndex < 0) return { ok: false, error: referenceMissing(next.parentId) };
+    const closure = subtreeClosure(scene, args.entityId) ?? [args.entityId];
+    if (closure.includes(next.parentId)) {
+      return {
+        ok: false,
+        error: fieldValue('/args/parentId', next.parentId, 'an entity outside the moved subtree', 'an entity cannot become a child of itself or its descendants'),
+      };
+    }
+    // Parent-before-child order: a subtree that sits before its new parent
+    // moves to just after it (its internal order is kept).
+    if (parentIndex > index) {
+      const ids = scene.entities.map((e) => e.id);
+      const moving = closureInArrayOrder(scene, closure);
+      const movingSet = new Set(moving);
+      const rest = ids.filter((eid) => !movingSet.has(eid));
+      const at = rest.indexOf(next.parentId) + 1;
+      order = { previous: ids, next: [...rest.slice(0, at), ...moving, ...rest.slice(at)] };
+    }
+  }
+
+  const result = withEntityHeader(scene, args.entityId, next, order?.next ?? null);
+  if (result === null) return { ok: false, error: entityNotFound(args.entityId) };
+  const gate = content !== undefined ? gateResultState({ scene, content }, result, content) : gateResultState({ scene }, result);
+  if (!gate.ok) return gate;
+
+  const changedFields: ('name' | 'parentId')[] = [];
+  if (next.name !== previous.name) changedFields.push('name');
+  if (next.parentId !== previous.parentId) changedFields.push('parentId');
+  const change: UpdateEntityChange = { type: 'updateEntity', id: args.entityId, previous, next, changedFields, order };
+  return {
+    ok: true,
+    op: {
+      scene: gate.scene,
+      change,
+      inverse: { kind: 'updateEntity', id: args.entityId, restore: previous, order: order?.previous ?? null },
     },
   };
 }

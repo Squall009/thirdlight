@@ -288,3 +288,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   padding: 8px;
   border: 1px solid var(--tl-border);
 }
+
+/* Hierarchy editing */
+.tl-row.is-drop { outline: 1px dashed var(--accent); outline-offset: -1px; }
+.tl-hierarchy__list.is-drop-root { background: rgba(79,140,255,.06); }
+.tl-row__rename { flex: 1; min-width: 0; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; font: inherit; }
+input.tl-vec__num { width: 100%; min-width: 0; color: var(--text); font: inherit; font-size: 12px; }
+input.tl-inspector__name { width: 100%; background: transparent; color: var(--text); border: 1px solid transparent;
+  border-radius: 4px; padding: 2px 4px; font: inherit; font-weight: 600; }
+input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: var(--border); background: var(--panel-2); }

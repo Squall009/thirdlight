@@ -85,6 +85,7 @@ import type {
   SetGameConfigArgs,
   SetSettingsArgs,
   SetTransformArgs,
+  UpdateEntityArgs,
 } from './types';
 
 const TOP_FIELDS = [
@@ -115,6 +116,7 @@ const OPS: readonly MutationOp[] = [
   // v3 game/presentation ops (packet 45):
   'applySurfacePreset',
   'setGameConfig',
+  'updateEntity',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -136,7 +138,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -817,6 +819,41 @@ function validateDeleteArgs(args: Record<string, unknown>):
   return { ok: true, args: { entityId: args['entityId'] } };
 }
 
+function validateUpdateEntityArgs(args: Record<string, unknown>):
+  | { ok: true; args: UpdateEntityArgs }
+  | { ok: false; error: CommandError } {
+  for (const key of Object.keys(args)) {
+    if (key !== 'entityId' && key !== 'name' && key !== 'parentId') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId, name, parentId') };
+    }
+  }
+  if (args['entityId'] === undefined) return { ok: false, error: fieldMissing('/args/entityId', 'entityId') };
+  if (typeof args['entityId'] !== 'string') {
+    return { ok: false, error: fieldType('/args/entityId', args['entityId'], 'string (entity ID)') };
+  }
+  const out: UpdateEntityArgs = { entityId: args['entityId'] };
+  if (args['name'] !== undefined) {
+    if (typeof args['name'] !== 'string') return { ok: false, error: fieldType('/args/name', args['name'], 'string') };
+    if (!isValidName(args['name'])) {
+      return {
+        ok: false,
+        error: fieldValue('/args/name', args['name'], 'string, 1-128 chars, no control characters', 'name must be 1-128 characters without control characters'),
+      };
+    }
+    out.name = args['name'];
+  }
+  if (args['parentId'] !== undefined) {
+    if (args['parentId'] !== null && typeof args['parentId'] !== 'string') {
+      return { ok: false, error: fieldType('/args/parentId', args['parentId'], 'string (entity ID) or null') };
+    }
+    out.parentId = args['parentId'];
+  }
+  if (out.name === undefined && out.parentId === undefined) {
+    return { ok: false, error: fieldMissing('/args/name', 'name or parentId') };
+  }
+  return { ok: true, args: out };
+}
+
 function validateUndoRedoArgs(op: 'undo' | 'redo', args: Record<string, unknown>):
   | { ok: true; args: EmptyArgs }
   | { ok: false; error: CommandError } {
@@ -876,7 +913,8 @@ export type ValidatedOpArgs =
   | { op: 'createPrefab'; args: CreatePrefabArgs }
   | { op: 'instantiatePrefab'; args: InstantiatePrefabArgs }
   | { op: 'applySurfacePreset'; args: ApplySurfacePresetArgs }
-  | { op: 'setGameConfig'; args: SetGameConfigArgs };
+  | { op: 'setGameConfig'; args: SetGameConfigArgs }
+  | { op: 'updateEntity'; args: UpdateEntityArgs };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -907,6 +945,11 @@ export function validateOpArgs(
       const r = validateDeleteArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'deleteEntity', args: r.args } };
+    }
+    case 'updateEntity': {
+      const r = validateUpdateEntityArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'updateEntity', args: r.args } };
     }
     case 'undo':
     case 'redo': {

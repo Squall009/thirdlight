@@ -472,6 +472,7 @@ function EditorApp(): JSX.Element {
         return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
       },
       onChanged: () => viewport.requestRender(),
+      parentFor: (entityId) => viewport.objectFor(entityId),
     });
     viewport.setModelInstances(models);
     modelInstancesRef.current = models;
@@ -521,6 +522,43 @@ function EditorApp(): JSX.Element {
       if (e.key === 'Escape' && viewportRef.current?.cancelGesture()) {
         gestureRef.current = null;
         return;
+      }
+      // Editor shortcuts — never while typing into a field.
+      const t = e.target as HTMLElement | null;
+      const typing = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (!typing) {
+        const mod = e.ctrlKey || e.metaKey;
+        const key = e.key.toLowerCase();
+        if (mod && key === 'z') {
+          e.preventDefault();
+          void (e.shiftKey ? redo() : undo());
+          return;
+        }
+        if (mod && key === 'y') {
+          e.preventDefault();
+          void redo();
+          return;
+        }
+        if (!mod && !e.altKey) {
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            void del();
+            return;
+          }
+          const mode = key === 'w' ? 'translate' : key === 'e' ? 'rotate' : key === 'r' ? 'scale' : null;
+          if (mode !== null) {
+            setGizmoMode(mode);
+            return;
+          }
+          if (key === 'f' && selectedIdRef.current !== null) {
+            viewportRef.current?.focus(selectedIdRef.current);
+            return;
+          }
+          if (e.key === 'Escape' && gameplayToolRef.current === null && selectedIdRef.current !== null) {
+            setSelectedId(null);
+            return;
+          }
+        }
       }
       // M3 (packet 56): with no gesture in flight, Esc clears the armed zone
       // placement tool (nothing is sent either way).
@@ -627,7 +665,15 @@ function EditorApp(): JSX.Element {
   const newBox = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
-    await c.command('createEntity', { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}` }, c.projection.revision);
+    // Spawn where the camera is looking (on the 0.25 m grid) so new boxes don't stack at the origin.
+    const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
+    const position = focus.map((v) => Math.round(v * 4) / 4);
+    const res = await c.command(
+      'createEntity',
+      { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}`, transform: { position } },
+      c.projection.revision,
+    );
+    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
   }, []);
   const del = useCallback(async () => {
     const c = clientRef.current;
@@ -637,6 +683,29 @@ function EditorApp(): JSX.Element {
       setSelectedId(null);
     }
   }, []);
+  /** Report a failed edit where the user is looking. */
+  const reportFailure = useCallback((what: string, res: Awaited<ReturnType<SessionClient['command']>>) => {
+    if (res.ok) return;
+    const r = res.response as { code?: string; message?: string };
+    setNotice(`${what} failed: ${r.message ?? r.code ?? 'unknown error'}`);
+  }, []);
+  const rename = useCallback(async (entityId: string, name: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Rename', await c.command('updateEntity', { entityId, name }, c.projection.revision));
+  }, [reportFailure]);
+  const reparent = useCallback(async (entityId: string, parentId: string | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Reparent', await c.command('updateEntity', { entityId, parentId }, c.projection.revision));
+  }, [reportFailure]);
+  const editTransform = useCallback(async (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setTransform', { entityId, transform: patch }, c.projection.revision);
+    if (!res.ok) refreshEntities();
+    reportFailure('Transform edit', res);
+  }, [reportFailure, refreshEntities]);
   const undo = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
@@ -1524,7 +1593,13 @@ function EditorApp(): JSX.Element {
             ))}
           </div>
           {leftTab === 'scene' && (
-            <Hierarchy entities={entities} selectedId={selectedId} onSelect={setSelectedId} />
+            <Hierarchy
+          entities={entities}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onRename={(id, name) => void rename(id, name)}
+          onReparent={(id, parentId) => void reparent(id, parentId)}
+        />
           )}
           {leftTab === 'assets' && (
             <AssetBrowser
@@ -1690,6 +1765,8 @@ function EditorApp(): JSX.Element {
           onAddComponent={(entityId, component) => void addComponent(entityId, component)}
           onRemoveComponent={(entityId, component) => void removeComponent(entityId, component)}
           onEditColliderBox={(entityId, hx, hy) => void editColliderBox(entityId, hx, hy)}
+          onRename={(entityId, name) => void rename(entityId, name)}
+          onEditTransform={(entityId, patch) => void editTransform(entityId, patch)}
         />
       </div>
       <StatusBar state={ui} onResync={resync} />

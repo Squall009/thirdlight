@@ -651,7 +651,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity'];
 
 /** The mutation ops an envelope of `storageVersion` can record. */
 export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3): readonly string[] {
@@ -984,6 +984,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'instantiatePrefab',
   'applySurfacePreset',
   'setGameConfig',
+  'updateEntity',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1003,6 +1004,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   instantiatePrefab: ['type', 'prefabId', 'rootId', 'entries', 'mapping'],
   applySurfacePreset: ['type', 'id', 'preset', 'previous', 'next', 'changedFields'],
   setGameConfig: ['type', 'previous', 'next', 'changedFields'],
+  updateEntity: ['type', 'id', 'previous', 'next', 'changedFields', 'order'],
 };
 
 /** Forward-op → change-type correspondence for the M2 ops. */
@@ -1017,6 +1019,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   instantiatePrefab: 'instantiatePrefab',
   applySurfacePreset: 'applySurfacePreset',
   setGameConfig: 'setGameConfig',
+  updateEntity: 'updateEntity',
 };
 
 /**

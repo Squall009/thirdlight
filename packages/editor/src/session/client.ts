@@ -545,7 +545,7 @@ export class SessionClient {
     expectedRevision: number,
     requestId?: string,
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
-  ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
+  ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
     const rid = requestId ?? makeRequestId();
     const env = makeEnvelope(op, this.cfg.projectId, rid, expectedRevision, args, origin);
     this.save = 'pending';
@@ -565,7 +565,7 @@ export class SessionClient {
   private finishCommand(
     outcome: CommandOutcome,
     expectedRevision: number,
-  ): { ok: true; revision: number } | { ok: false; response: MutationResponse } {
+  ): { ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse } {
     if (outcome.status === 'response') {
       const r = outcome.response;
       if (r.ok) {
@@ -575,7 +575,8 @@ export class SessionClient {
         this.error = null;
         this.conflict = null;
         this.emit();
-        return { ok: true, revision: r.revision };
+        const createdId = (r as { createdId?: unknown }).createdId;
+        return { ok: true, revision: r.revision, ...(typeof createdId === 'string' ? { createdId } : {}) };
       }
       if (r.code === 'revision_conflict') {
         const current = r.currentRevision ?? -1;

@@ -47,6 +47,8 @@ export interface ProjectedEntity {
    * independent"; it grants no inheritance, override or revert behavior.
    */
   prefab?: { prefabId: string; localId: string };
+  /** The box primitive's authored size and base color (the runtime draws both). */
+  box?: { size: [number, number, number]; color: string };
   /** M2 (packet 28): the entity's behavior component, when present (§10.5). */
   behaviorId?: string;
   /** M2 (packet 28): the stored declared-property values (declaration order). */
@@ -102,9 +104,14 @@ export interface ConflictInfo {
   message: string;
 }
 
+function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [number, number, number]; color: string } {
+  const s = b.size ?? [1, 1, 1];
+  return { size: [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1], color: b.material?.color ?? '#cccccc' };
+}
+
 function toProjected(e: Entity): ProjectedEntity {
   const c = e.components as {
-    box?: unknown;
+    box?: { size?: number[]; material?: { color?: string } };
     camera?: unknown;
     model?: { asset?: { assetId?: string } };
     behavior?: { behaviorId?: string; values?: Record<string, unknown> };
@@ -127,6 +134,7 @@ function toProjected(e: Entity): ProjectedEntity {
     position: [...e.components.transform.position],
     rotation: [...e.components.transform.rotation],
     scale: [...e.components.transform.scale],
+    ...(c.box ? { box: boxOf(c.box) } : {}),
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
     ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
@@ -239,6 +247,14 @@ export class Projection {
         p.scale = [...change.next.scale];
         return true;
       }
+      case 'updateEntity': {
+        const p = this.entities.get(change.id);
+        if (!p) return false;
+        p.name = change.next.name ?? p.id;
+        p.parentId = change.next.parentId;
+        if (change.order !== null) this.order = [...change.order.next];
+        return true;
+      }
       case 'deleteEntity': {
         const ids = new Set(change.deletedIds);
         for (const id of ids) this.entities.delete(id);
@@ -273,7 +289,9 @@ export class Projection {
       case 'setComponent': {
         const p = this.entities.get(change.id);
         if (!p) return false;
-        if (change.component === 'model') {
+        if (change.component === 'box') {
+          if (change.next !== null) p.box = boxOf(change.next as { size?: number[]; material?: { color?: string } });
+        } else if (change.component === 'model') {
           const next = change.next as { asset?: { assetId?: string } } | null;
           if (next?.asset?.assetId) {
             p.assetId = next.asset.assetId;
@@ -343,8 +361,14 @@ export class Projection {
       // display — advance the revision (no gap) and let the next full state
       // / `queryEntity` carry the value.
       case 'setGameConfig':
-      case 'applySurfacePreset':
         return true;
+      case 'applySurfacePreset': {
+        const p = this.entities.get(change.id);
+        if (!p) return false;
+        if (change.next === null) delete p.surface;
+        else p.surface = { ...(change.next as SurfaceComponent) };
+        return true;
+      }
       default:
         return false;
     }

@@ -57,6 +57,12 @@ const CLICK_SLOP_PX = 4;
 /** Safe numeric component read (transforms are always 3/4-element). */
 const N = (v: number | undefined): number => v ?? 0;
 
+/** The box color the play renderer uses: the surface color, else the box material color. */
+function boxColor(e: ProjectedEntity): number {
+  const hex = e.surface?.color ?? e.box?.color ?? '#cccccc';
+  return parseInt(hex.slice(1), 16);
+}
+
 /**
  * The authoring viewport. Owns a single three.js Scene/Camera/Renderer and a
  * set of entity meshes synced from the projection. Selection + gizmo gestures
@@ -159,9 +165,31 @@ export class Viewport {
     this.models = models;
   }
 
-  /** The Object3D a gizmo/selection targets (a realized model or a primitive). */
+  /** The Object3D a gizmo/selection targets: the entity's node in the scene graph. */
   private targetFor(id: string): THREE.Object3D | null {
-    return this.models?.instanceFor(id) ?? this.meshes.get(id) ?? null;
+    return this.meshes.get(id) ?? null;
+  }
+
+  /** The entity's scene-graph node (model instances attach under it). */
+  objectFor(id: string): THREE.Object3D | null {
+    return this.meshes.get(id) ?? null;
+  }
+
+  /** Where the camera is looking (new entities spawn here). */
+  focusPoint(): [number, number, number] {
+    const t = this.orbit.target;
+    return [t.x, t.y, t.z];
+  }
+
+  /** Orbit around the entity's world position, keeping the view direction. */
+  focus(id: string): void {
+    const obj = this.meshes.get(id);
+    if (!obj) return;
+    const world = obj.getWorldPosition(new THREE.Vector3());
+    const offset = this.camera.position.clone().sub(this.orbit.target);
+    this.orbit.target.copy(world);
+    this.camera.position.copy(world).add(offset);
+    this.orbit.update();
   }
 
   private render(): void {
@@ -239,7 +267,6 @@ export class Viewport {
       // Model entities are realized by the packet-26/27 resource path; the
       // viewport holds a hidden placeholder so picking + the gizmo keep a
       // stable target while the GLB resolves asynchronously.
-      const isModel = e.kind === 'model';
       let m = this.meshes.get(e.id);
       if (!m) {
         m = this.buildMesh(e);
@@ -249,12 +276,19 @@ export class Viewport {
         // A gizmo drag owns its target's transform until release.
         this.updateMesh(m, e);
       }
-      m.visible = !isModel;
+    }
+    // Mirror the runtime scene graph: children hang under their parent node
+    // (transforms are parent-relative, as in the play renderer).
+    for (const e of entities) {
+      const m = this.meshes.get(e.id);
+      if (!m) continue;
+      const parent = (e.parentId !== null ? this.meshes.get(e.parentId) : undefined) ?? this.scene;
+      if (m.parent !== parent) parent.add(m);
     }
     // Remove meshes whose entities are gone.
     for (const [id, m] of this.meshes) {
       if (!seen.has(id)) {
-        this.scene.remove(m);
+        m.parent?.remove(m);
         this.disposeMesh(m);
         this.meshes.delete(id);
         if (this.selectedId === id) this.setSelected(null);
@@ -279,11 +313,12 @@ export class Viewport {
       // M3 (packet 57): an authored `surface` color previews on the box in the
       // editor viewport (the play renderer realizes the full material from the
       // same component; the editor shows the copied color only).
-      const surfaceColor = e.surface !== undefined ? parseInt(e.surface.color.slice(1), 16) : 0x4f8cff;
+      const size = e.box?.size ?? [1, 1, 1];
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial({ color: surfaceColor }),
+        new THREE.BoxGeometry(size[0], size[1], size[2]),
+        new THREE.MeshLambertMaterial({ color: boxColor(e) }),
       );
+      mesh.userData.boxSize = size.join(',');
       mesh.name = e.id;
       (mesh as { entityId?: string }).entityId = e.id;
       group.add(mesh);
@@ -334,23 +369,33 @@ export class Viewport {
     // M3 (packet 57): the box previews its authored surface color (or the
     // default blue when the component is absent) — the highlight emissive is
     // untouched (it is a separate material property).
-    obj.traverse((c) => {
+    for (const c of obj.children) {
       const mesh = c as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
-      if (e.kind === 'box' && mat !== undefined && 'color' in mat && mesh.userData.lightKind === undefined) {
-        mat.color.setHex(e.surface !== undefined ? parseInt(e.surface.color.slice(1), 16) : 0x4f8cff);
+      if (e.kind !== 'box' || !(mesh instanceof THREE.Mesh) || mesh.userData.lightKind !== undefined) continue;
+      (mesh.material as THREE.MeshLambertMaterial).color.setHex(boxColor(e));
+      const size = e.box?.size ?? [1, 1, 1];
+      if (mesh.userData.boxSize !== size.join(',')) {
+        mesh.geometry.dispose();
+        mesh.geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        mesh.userData.boxSize = size.join(',');
       }
-    });
+    }
   }
 
+  /** Dispose the node's own geometry/materials (not other entities or model instances under it). */
   private disposeMesh(obj: THREE.Object3D): void {
-    obj.traverse((c) => {
+    const own = (obj as { entityId?: string }).entityId;
+    const visit = (c: THREE.Object3D): void => {
       const mesh = c as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
       const mat = (mesh as { material?: THREE.Material | THREE.Material[] }).material;
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else if (mat) mat.dispose();
-    });
+      for (const child of c.children) {
+        if ((child as { entityId?: string }).entityId === own) visit(child);
+      }
+    };
+    visit(obj);
   }
 
   /** Set the selected entity (drives the gizmo + the zone overlay handle). */
@@ -495,7 +540,7 @@ export class Viewport {
 
   dispose(): void {
     for (const m of this.meshes.values()) {
-      this.scene.remove(m);
+      m.parent?.remove(m);
       this.disposeMesh(m);
     }
     this.meshes.clear();

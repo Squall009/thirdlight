@@ -136,5 +136,8 @@ export type {
   SetSettingsInverse,
   SetTransformArgs,
   SetTransformChange,
+  UpdateEntityChange,
+  UpdateEntityArgs,
+  EntityHeader,
   SetTransformInverse,
 } from './types';

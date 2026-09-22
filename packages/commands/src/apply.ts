@@ -38,6 +38,7 @@ import {
   applyCreateEntity,
   applyDeleteEntity,
   applySetTransform,
+  applyUpdateEntity,
   type OpSuccess,
 } from './ops';
 import { applyCreatePrefab, applyInstantiatePrefab } from './prefab-ops';
@@ -261,6 +262,19 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(
         state,
         'setTransform',
+        envelope.projectId,
+        envelope.requestId,
+        revision,
+        envelope.origin,
+        r.op,
+      );
+    }
+    case 'updateEntity': {
+      const r = applyUpdateEntity(scene, va.validated.args, state.content);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(
+        state,
+        'updateEntity',
         envelope.projectId,
         envelope.requestId,
         revision,

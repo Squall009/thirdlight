@@ -42,6 +42,12 @@ export interface ModelInstancesOptions {
   descriptorFor: (assetId: string) => VisualDescriptor | null;
   /** Called whenever an instance is attached/detached (the viewport re-renders). */
   onChanged?: () => void;
+  /**
+   * The entity's scene-graph node. When given, the instance attaches under it
+   * with an identity transform (the node carries the entity transform and
+   * hierarchy); otherwise it attaches to the scene with the entity transform.
+   */
+  parentFor?: (entityId: string) => THREE.Object3D | null;
 }
 
 interface LiveInstance {
@@ -122,7 +128,7 @@ export class ModelInstances {
       if (!upToDate && !this.loading.has(e.assetId) && !exhausted) {
         this.loadAsset(e.assetId, descriptor);
       }
-      if (live) this.applyTransform(live.holder, e);
+      if (live && this.options.parentFor === undefined) this.applyTransform(live.holder, e);
     }
     for (const [entityId, live] of [...this.live]) {
       if (wanted.has(entityId)) continue;
@@ -162,10 +168,11 @@ export class ModelInstances {
     const holder = created.instance.root;
     holder.name = entityId;
     (holder as { entityId?: string }).entityId = entityId;
-    this.scene.add(holder);
+    const parent = this.options.parentFor?.(entityId) ?? null;
+    (parent ?? this.scene).add(holder);
     this.live.set(entityId, { instance: created.instance, holder });
     const e = this.entities.find((x) => x.id === entityId);
-    if (e) this.applyTransform(holder, e);
+    if (e && parent === null) this.applyTransform(holder, e);
     this.options.onChanged?.();
   }
 
@@ -173,7 +180,7 @@ export class ModelInstances {
     const live = this.live.get(entityId);
     if (!live) return;
     live.instance.dispose();
-    this.scene.remove(live.holder);
+    live.holder.parent?.remove(live.holder);
     this.live.delete(entityId);
     this.options.onChanged?.();
   }

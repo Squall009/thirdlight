@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -90,11 +90,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_command',
     description:
       'Submit one undoable editing command to the project, with optimistic concurrency ' +
-      '(expectedRevision). M1 ops: createEntity, setTransform, deleteEntity, undo, redo. ' +
-      'M2 content ops: publishAsset, publishBehavior (declaration modes only — source publication is ' +
-      'unavailable until packet 33), setBehaviorProperties, setComponent, setSettings, ' +
-      'acknowledgeBehaviorTrust, createPrefab, instantiatePrefab. M3 v3 game ops: ' +
-      'applySurfacePreset, setGameConfig. Returns the new revision on success, ' +
+      '(expectedRevision). Scene ops: createEntity, setTransform, updateEntity (rename/reparent: ' +
+      '{entityId, name?, parentId?}), deleteEntity, undo, redo. Content ops: publishAsset, publishBehavior, ' +
+      'setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
+      'instantiatePrefab. Game ops: applySurfacePreset, setGameConfig. Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {

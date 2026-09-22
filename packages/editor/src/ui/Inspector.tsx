@@ -13,7 +13,8 @@
  *
  * Browser-only (React).
  */
-import type { JSX } from 'react';
+import { useState, type JSX, type KeyboardEvent } from 'react';
+import * as THREE from 'three';
 import type { ColliderComponent, PropertyDeclaration } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
 import { deriveBehaviorControls, deriveComponentControls } from '../session/property-controls';
@@ -35,24 +36,79 @@ interface Props {
   onAddComponent: (entityId: string, component: 'collider' | 'controller') => void;
   onRemoveComponent: (entityId: string, component: 'collider' | 'controller') => void;
   onEditColliderBox: (entityId: string, hx: string, hy: string) => void;
+  onRename: (entityId: string, name: string) => void;
+  onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => void;
 }
 
-function Vec({ label, values }: { label: string; values: number[] }): JSX.Element {
+const fmt = (v: number): string => String(Number(v.toFixed(4)));
+
+/** A text field that commits on Enter/blur and reverts on Escape. */
+function CommitField(props: { value: string; label: string; className: string; onCommit: (raw: string) => void }): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (): void => {
+    if (draft !== null && draft !== props.value) props.onCommit(draft);
+    setDraft(null);
+  };
+  const onKey = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') e.currentTarget.blur();
+    if (e.key === 'Escape') {
+      setDraft(null);
+      requestAnimationFrame(() => (e.target as HTMLInputElement).blur());
+    }
+  };
+  return (
+    <input
+      className={props.className}
+      aria-label={props.label}
+      title={props.label}
+      value={draft ?? props.value}
+      onFocus={() => setDraft(props.value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={onKey}
+    />
+  );
+}
+
+/** Three editable numbers; commits the whole vector when one changes. */
+function VecField(props: { label: string; values: number[]; onCommit: (next: number[]) => void }): JSX.Element {
   return (
     <div className="tl-vec">
-      <span className="tl-vec__label">{label}</span>
+      <span className="tl-vec__label">{props.label}</span>
       <div className="tl-vec__nums">
-        {values.map((v, i) => (
-          <span key={i} className="tl-vec__num" title={['x', 'y', 'z', 'w'][i] ?? ''}>
-            {Number(v.toFixed(4))}
-          </span>
+        {props.values.map((v, i) => (
+          <CommitField
+            key={i}
+            className="tl-vec__num"
+            label={`${props.label} ${['x', 'y', 'z'][i] ?? ''}`}
+            value={fmt(v)}
+            onCommit={(raw) => {
+              const n = Number(raw);
+              if (!Number.isFinite(n) || raw.trim() === '') return;
+              const next = [...props.values];
+              next[i] = n;
+              props.onCommit(next);
+            }}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox }: Props): JSX.Element {
+const DEG = 180 / Math.PI;
+
+function eulerDegrees(q: number[]): number[] {
+  const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3]), 'XYZ');
+  return [e.x * DEG, e.y * DEG, e.z * DEG];
+}
+
+function quaternionOf(deg: number[]): number[] {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((deg[0] ?? 0) / DEG, (deg[1] ?? 0) / DEG, (deg[2] ?? 0) / DEG, 'XYZ'));
+  return [q.x, q.y, q.z, q.w];
+}
+
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform }: Props): JSX.Element {
   const behavior =
     entity?.behaviorId !== undefined
       ? deriveBehaviorControls(
@@ -85,18 +141,27 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
       </div>
       {entity ? (
         <div className="tl-inspector__body">
-          <div className="tl-inspector__name" title={entity.id}>
-            {entity.name}
-          </div>
+          <CommitField
+            className="tl-inspector__name"
+            label="name"
+            value={entity.name}
+            onCommit={(raw) => {
+              if (raw.trim() !== '') onRename(entity.id, raw.trim());
+            }}
+          />
           <div className="tl-inspector__kind">{entity.kind}</div>
           {entity.prefab && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>
               Copy of {prefabDisplayName(entity.prefab.prefabId)} — copies are independent
             </div>
           )}
-          <Vec label="position" values={entity.position} />
-          <Vec label="rotation (quat)" values={entity.rotation} />
-          <Vec label="scale" values={entity.scale} />
+          <VecField label="position" values={entity.position} onCommit={(v) => onEditTransform(entity.id, { position: v })} />
+          <VecField
+            label="rotation"
+            values={eulerDegrees(entity.rotation)}
+            onCommit={(v) => onEditTransform(entity.id, { rotation: quaternionOf(v) })}
+          />
+          <VecField label="scale" values={entity.scale} onCommit={(v) => onEditTransform(entity.id, { scale: v })} />
 
           {behavior && (
             <div className="tl-inspector__section">
@@ -137,7 +202,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           )}
 
           <p className="tl-inspector__hint">
-            Drag the gizmo in the viewport to edit. One undoable command commits on release.
+            Drag the gizmo or type values (Enter to apply). W/E/R switch tools, F focuses, Del deletes, Ctrl+Z undoes.
           </p>        </div>
       ) : (
         <div className="tl-inspector__empty">Nothing selected.</div>

@@ -81,7 +81,7 @@ export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
  * 45): `applySurfacePreset` copies a preset row; `setGameConfig` is the sole
  * writer of `content.game`.
  */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig';
+export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -417,6 +417,26 @@ export interface SetTransformChange {
   changedFields: readonly ChangedField[];
 }
 
+/** An entity's hierarchy identity: its name and its parent (null = root). */
+export interface EntityHeader {
+  name: string | null;
+  parentId: string | null;
+}
+
+/**
+ * `updateEntity`: rename and/or reparent. When a reparent has to move the
+ * entity's subtree after its new parent (parent-before-child order), `order`
+ * carries the full entity-id order before and after; otherwise it is null.
+ */
+export interface UpdateEntityChange {
+  type: 'updateEntity';
+  id: string;
+  previous: EntityHeader;
+  next: EntityHeader;
+  changedFields: readonly ('name' | 'parentId')[];
+  order: { previous: readonly string[]; next: readonly string[] } | null;
+}
+
 export interface DeleteEntityChange {
   type: 'deleteEntity';
   rootId: string;
@@ -447,7 +467,8 @@ export type ChangeData =
   | RemovePrefabChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
-  | SetGameConfigChange;
+  | SetGameConfigChange
+  | UpdateEntityChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -463,7 +484,8 @@ export type ForwardChange =
   | CreatePrefabChange
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
-  | SetGameConfigChange;
+  | SetGameConfigChange
+  | UpdateEntityChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -549,7 +571,16 @@ export interface RemovePrefabInverse {
 }
 
 /** The inverse of a forward entry (§9.1). */
+/** Undo of an `updateEntity`: restore the header (and the entity order). */
+export interface UpdateEntityInverse {
+  kind: 'updateEntity';
+  id: string;
+  restore: EntityHeader;
+  order: readonly string[] | null;
+}
+
 export type InverseSpec =
+  | UpdateEntityInverse
   | DeleteInverse
   | SetTransformInverse
   | RestoreSubtreeInverse
@@ -722,6 +753,13 @@ export interface DeleteEntityArgs {
   entityId: string;
 }
 
+/** `updateEntity` args: at least one of `name` / `parentId` (null = make root). */
+export interface UpdateEntityArgs {
+  entityId: string;
+  name?: string;
+  parentId?: string | null;
+}
+
 /** undo/redo args: exactly the empty object (strictly enforced at runtime). */
 export interface EmptyArgs {
   // intentionally empty — any field is rejected (field_unexpected)
@@ -863,6 +901,7 @@ export interface InstantiatePrefabArgs {
 }
 
 export type MutationArgs =
+  | UpdateEntityArgs
   | CreateEntityArgs
   | SetTransformArgs
   | DeleteEntityArgs
