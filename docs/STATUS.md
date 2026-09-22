@@ -13,9 +13,9 @@ has looked at it where it is visual/audible.
 |---|---|---|---|
 | 0 | Commit the work, archive the packet process, reset docs | — | done |
 | 1 | The M1 authoring loop works in a real browser | D1, D4–D8, D14, undo UI | done 2026-09-22 — `npm run test:e2e` covers open/create/undo/redo/gizmo/reload/restart/MCP/token; owner look pending |
-| 2 | One current schema; every feature reachable through the product | D2, D3, D9 | not started |
+| 2 | One current schema; every feature reachable through the product | D2, D3, D9, D22–D26 | done 2026-09-22 — new projects are v3 with starter lights; Play/export work for plain scenes (scene mode) and via the backend route; e2e covers Play pixels and export served statically with the backend stopped. Loading Beacon Reach through the backend moved to phase 4; removing v1/v2 code paths is D21 debt |
 | 3 | Charter first-release editor features | D15, D16 | not started |
-| 4 | Beacon Reach is honestly playable in editor and export | D10–D13, D20 | not started |
+| 4 | Beacon Reach is honestly playable in editor and export | D10–D13, D20, D27; sample loadable through the backend | not started |
 | 5 | MCP parity with charter §7 | D18 | not started |
 | 6 | Real M4: templates, independent project, one-command start, backup | D17, D19 | not started |
 | — | Debt, only when touching the files anyway | D21 | ongoing |

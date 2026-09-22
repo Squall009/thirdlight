@@ -62,13 +62,11 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     expect(j.wsToken).toMatch(/^[0-9a-f]{64}$/);
     expect(j.revision).toBe(0);
     const scene = j.scene as Record<string, unknown>;
-    // C35-5 / CC-48-3 (promoted at Gate L): the scene projection reports the
-    // scene document's schemaVersion (1 for the M1 default scene).
-    expect(scene.schemaVersion).toBe(1);
-    // A fresh project is the project-model §15 default scene: one camera entity.
+    // New projects start at the current scene schema.
+    expect(scene.schemaVersion).toBe(3);
+    // A fresh project: the default camera plus the starter lights.
     const ents = scene.entities as Array<Record<string, unknown>>;
-    expect(ents.length).toBe(1);
-    expect(ents[0]?.id).toBe('cam-main');
+    expect(ents.map((e) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);
     expect(scene.revision).toBe(0);
     expect((j.workspace as Record<string, unknown>).writePaused).toBe(false);
     connId1 = j.connId as string;

@@ -58,13 +58,16 @@ describe('createProject (§8)', () => {
     });
     expect(manRaw).toBe(JSON.stringify(man, null, 2) + '\n');
 
-    // The initial envelope: the default scene at revision 0, no records.
+    // The initial envelope: the default scene at revision 0 at the current
+    // storage version (content block present), no records.
     const env = JSON.parse(readFileSync(join(dir, 'scenes', 'main.json'), 'utf8'));
-    expect(env.storageVersion).toBe(1);
+    expect(env.storageVersion).toBe(3);
+    expect(env.scene.schemaVersion).toBe(3);
+    expect(typeof env.content).toBe('object');
     expect(env.type).toBe('authoring-state');
     expect(env.projectId).toBe('proj-new');
     expect(env.scene.revision).toBe(0);
-    expect(env.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main']);
+    expect(env.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);
     expect(env.retry).toEqual({ retention: 128, records: [] });
 
     // The ownership claim (epoch 0, our identity).
@@ -233,7 +236,7 @@ describe('startup scan (§10)', () => {
     // The completed envelope is the default scene at revision 0.
     const env = JSON.parse(readFileSync(join(dir, 'scenes', 'main.json'), 'utf8'));
     expect(env.scene.revision).toBe(0);
-    expect(env.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main']);
+    expect(env.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);
     expect(env.retry).toEqual({ retention: 128, records: [] });
 
     // The project opens and works afterwards.

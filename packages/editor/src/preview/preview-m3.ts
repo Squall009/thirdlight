@@ -61,7 +61,7 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
-import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
+import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import type { RuntimeSnapshot, GameplaySettings } from '@thirdlight/runtime';
 import {
   createGameHost,
@@ -322,15 +322,14 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    manifest.gameDigest (delivery.md §2.8 step 5 — deep-equal against the
   //    manifest's own hash-bound `game` block: the buildId check already binds
   //    `gameDigest`, so a deep-equal snapshot `game` re-hashes to it).
-  const snapshot = cfg.snapshot;
+  // The runtime wants an explicit `game` (null = scene mode).
+  const snapshot: RuntimeSnapshot = { ...cfg.snapshot, game: cfg.snapshot.game ?? null };
   const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(snapshot.scene, null, 2)}\n`));
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
   }
-  if ((manifest.game === null || manifest.game === undefined) && snapshot.game === undefined) {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the v3 snapshot carries no game block');
-  }
-  if (!deepEqual(snapshot.game, manifest.game)) {
+  // No game block = scene mode (the scene plays as authored).
+  if (!deepEqual(snapshot.game ?? null, manifest.game ?? null)) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot game does not re-hash to manifest.gameDigest');
   }
 
@@ -343,11 +342,18 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
   const settings = manifest.settings;
   const models = buildModelsBlock(manifest, snapshot, assetBytes);
+  // Physics runs only for a game (a player controller); a plain scene plays
+  // without it.
   const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
-  if (physicsConfig === null) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the M3 preview requires a player controller entity');
-  const init = await createPhysicsPort(physicsConfig);
-  if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
-  const physics = init.port;
+  if (physicsConfig === null && (snapshot.game ?? null) !== null) {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
+  }
+  let physics: RapierPhysicsPort | undefined;
+  if (physicsConfig !== null) {
+    const init = await createPhysicsPort(physicsConfig);
+    if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
+    physics = init.port;
+  }
 
   const input = attachBrowserInput(cfg.canvas, {});
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
@@ -361,7 +367,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const config: GameHostConfig = {
     snapshot,
     settings,
-    physics,
+    ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(cfg.canvas, {
         runtime,
@@ -392,7 +398,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     const settle = await adapterRef.current.modelsSettled?.();
     if (settle === undefined || settle.ok === false) {
       host.dispose();
-      physics.dispose();
+      physics?.dispose();
       const code = settle?.code ?? 'models_config_invalid';
       throw new PreviewM3Error(code, 'assets', `the model prepare hard-failed (${code}): ${settle?.message ?? 'no settle result'}`);
     }
@@ -415,7 +421,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     identity,
     dispose: () => {
       host.dispose();
-      physics.dispose();
+      physics?.dispose();
     },
   };
 }

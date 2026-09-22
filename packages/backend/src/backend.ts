@@ -1827,6 +1827,7 @@ export function createBackend(
       // Packet 36: the M2 export bundle entry + the SAME injected packet-33
       // compiler instance the play build uses (one compiler, one closure).
       m2BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m2.ts'),
+      m3BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m3.ts'),
       compiler: behaviorCompiler,
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
       typescriptPackageJson: join(engineRoot, 'node_modules/typescript/package.json'),
@@ -2356,6 +2357,7 @@ export async function createTestBackend(
   mkdirSync(previewDir, { recursive: true });
   writeFileSync(join(editorDir, 'index.html'), '<!doctype html><html><body>editor</body></html>\n');
   writeFileSync(join(previewDir, 'preview.js'), '// preview bundle stub (tests)\n');
+  writeFileSync(join(previewDir, 'preview-m3.js'), '// M3 preview bundle stub (tests)\n');
   const merged: Record<string, unknown> = {
     ...config,
     dataRoot,

@@ -231,8 +231,8 @@ describe('play start (§10.1)', () => {
       expect(snap.projectId).toBe('demo-0001');
       expect(snap.revision).toBe(1);
       const scene = snap.scene as Record<string, unknown>;
-      // the demo template ships one camera entity + the box1 we just created
-      expect((scene.entities as unknown[]).length).toBe(2);
+      // the starter camera + two lights, plus the box1 we just created
+      expect((scene.entities as unknown[]).length).toBe(4);
 
       editor.close();
     } finally {

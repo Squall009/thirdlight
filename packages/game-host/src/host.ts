@@ -139,8 +139,8 @@ export interface GameHostConfig {
    * `gameplaySettings` or the model default). */
   readonly settings: GameplaySettings;
   /** The injected physics port (physics-rapier in the preview; a fake in
-   * tests). */
-  readonly physics: PhysicsPort;
+   * tests). Absent for a scene without a game block (scene mode). */
+  readonly physics?: PhysicsPort;
   /** ADDITIVE (CC-55-2): the render-adapter FACTORY — the three-adapter
    * instance requires the runtime it renders, which the host creates inside
    * `mount()`. `null` = no adapter (headless composition). */
@@ -258,7 +258,7 @@ function validateConfig(config: GameHostConfig): string | null {
   if (!isPlainObject(config)) return 'config must be a plain object';
   if (!isPlainObject(config.snapshot)) return 'config.snapshot must be the runtime snapshot document';
   if (typeof config.settings !== 'object' || config.settings === null) return 'config.settings must be the resolved gameplay settings';
-  if (!isPlainObject(config.physics)) return 'config.physics must be the injected physics port';
+  if (config.physics !== undefined && !isPlainObject(config.physics)) return 'config.physics must be the injected physics port';
   if (typeof config.adapter !== 'function') return 'config.adapter must be the render-adapter factory (CC-55-2)';
   if (!isPlainObject(config.input)) return 'config.input must be the injected browser input owner';
   if (typeof config.input.sample !== 'function') return 'config.input.sample must be a function (ActionSource.sample)';
@@ -383,9 +383,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     // (2) The committed view → cues, HUD, adapter. Committed-view-only:
-    // no runtime internals, no scene-graph mutation (C41-1).
+    // no runtime internals, no scene-graph mutation (C41-1). Scene mode has
+    // no game view: it only renders.
     const res = runtime.getGameView();
-    if (res.ok === false) return;
+    if (res.ok === false) {
+      adapter?.renderFrame();
+      return;
+    }
     const view = res.view;
     if (view.state === 'playing' || view.state === 'respawning') {
       const cueEvents = cueEventsForView(view, cues, previousGrounded);
@@ -445,15 +449,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     const snapshot = config.snapshot;
     const scene = snapshot.scene;
-    // Fail-closed host preconditions (the runtime re-validates everything):
-    // the M3 game host composes the M3 module set, which requires a v3
-    // snapshot with a game block and a controller entity.
-    if (scene.schemaVersion !== 3 || snapshot.game === null) {
-      return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot with a game block (the M3 module set rejects a null game as config_invalid/game_config)' } };
+    if (scene.schemaVersion !== 3) {
+      return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
     }
+    // Scene mode: without a game block the host plays the scene as authored
+    // (runtime built-ins only, no game session, no HUD).
+    const sceneMode = snapshot.game === null || snapshot.game === undefined;
     // (the typed `EntityComponents` union is per-schema; the host reads the
     // component presence structurally, as the M2 export-composition does.)
-    if (!scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)) {
+    if (!sceneMode && !scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)) {
       return { ok: false, error: { code: 'host_config_invalid', reason: 'controller', message: 'the scene carries no controller entity (the M3 game requires the player controller)' } };
     }
 
@@ -467,7 +471,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // config has no behavior-linking channel; the export path files it when
     // a delivered game needs behaviors).
     for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
-    const specs = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
+    const specs = sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
     const modules: string[] = [];
     for (const spec of specs) {
       const r = registerSimulationModule(registry, spec.id, spec);
@@ -485,7 +489,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       registry,
       modules,
       actions: config.input,
-      physics: config.physics,
+      ...(config.physics !== undefined ? { physics: config.physics } : {}),
       settings: config.settings,
       onFrame: hostFrame,
     });
@@ -502,6 +506,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
     adapter = config.adapter(res.runtime);
     if (adapter !== null && (typeof adapter.renderFrame !== 'function' || typeof adapter.dispose !== 'function')) {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
+    }
+
+    if (sceneMode) {
+      mounted = true;
+      return { ok: true };
     }
 
     const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };

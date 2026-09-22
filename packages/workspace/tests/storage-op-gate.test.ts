@@ -4,19 +4,52 @@
  * and written, after which the project could no longer be loaded.
  */
 
-import { rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult } from '@thirdlight/workspace';
 
-import { makeRoot } from './helpers';
+import { FIXTURES, makeRoot, seedProject } from './helpers';
+
+/** A storageVersion-1 project at revision 5 (box-0001 present). */
+function seedV1(root: string): void {
+  const dir = seedProject(root, join(FIXTURES, 'scenarios', '01-retry-lost-ack', 'disk-before'), 'demo-0001');
+  mkdirSync(join(dir, 'scenes'), { recursive: true });
+  writeFileSync(join(dir, 'scenes', 'main.json'), readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5.json')));
+}
 
 describe('storage-version op gate', () => {
   it('refuses an M2 op on a v1 project without writing; the project still loads after restart', () => {
     const root = makeRoot('op-gate');
+    seedV1(root);
+    const a = openWorkspaceService({ root });
+
+    const refused = a.runCommand({
+      op: 'setComponent',
+      projectId: 'demo-0001',
+      expectedRevision: 5,
+      requestId: 'req-00000000000000000000000000000abc',
+      origin: { kind: 'browser', clientId: 'test' },
+      args: { entityId: 'box-0001', component: 'box', value: { size: [2, 1, 1] } },
+    }) as MutationResult;
+    expect(refused.ok).toBe(false);
+    if (refused.ok) throw new Error('must fail');
+    expect(refused.error.code).toBe('invalid_request');
+    a.close();
+
+    const b = openWorkspaceService({ root });
+    const q = b.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; revision?: number };
+    expect(q.ok).toBe(true);
+    expect(q.revision).toBe(5);
+    b.dispose();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('new projects accept M2/M3 ops from the first revision', () => {
+    const root = makeRoot('op-gate-v3');
     const a = openWorkspaceService({ root });
     expect(a.createProject('gate-0001', 'Gate').ok).toBe(true);
-
     const created = a.runCommand({
       op: 'createEntity',
       projectId: 'gate-0001',
@@ -26,26 +59,31 @@ describe('storage-version op gate', () => {
       args: { kind: 'box', parentId: null, name: 'b' },
     }) as MutationResult;
     expect(created.ok).toBe(true);
-    if (!created.ok) throw new Error('create failed');
     const boxId = (created as unknown as { createdId: string }).createdId;
-
-    const refused = a.runCommand({
-      op: 'setComponent',
+    const moved = a.runCommand({
+      op: 'setTransform',
       projectId: 'gate-0001',
       expectedRevision: 1,
       requestId: 'req-00000000000000000000000000000002',
       origin: { kind: 'browser', clientId: 'test' },
+      args: { entityId: boxId, transform: { position: [1, 2, 3] } },
+    }) as MutationResult;
+    expect(moved.ok).toBe(true);
+    const resized = a.runCommand({
+      op: 'setComponent',
+      projectId: 'gate-0001',
+      expectedRevision: 2,
+      requestId: 'req-00000000000000000000000000000003',
+      origin: { kind: 'browser', clientId: 'test' },
       args: { entityId: boxId, component: 'box', value: { size: [2, 1, 1] } },
     }) as MutationResult;
-    expect(refused.ok).toBe(false);
-    if (refused.ok) throw new Error('must fail');
-    expect(refused.error.code).toBe('invalid_request');
+    expect(resized.ok).toBe(true);
     a.close();
 
     const b = openWorkspaceService({ root });
     const q = b.query({ op: 'queryProject', projectId: 'gate-0001' }) as { ok: boolean; revision?: number };
     expect(q.ok).toBe(true);
-    expect(q.revision).toBe(1);
+    expect(q.revision).toBe(3);
     b.dispose();
     rmSync(root, { recursive: true, force: true });
   });

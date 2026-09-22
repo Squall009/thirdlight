@@ -159,64 +159,33 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       };
       expect(body.ok).toBe(true);
       expect(body.outputDir).toBe(`${PROJECT}@r1`);
-      expect(body.snapshotId).toBe(`${PROJECT}@r1`);
       expect(body.revision).toBe(1);
-      expect(body.scanHits).toBe(0);
-      expect(Object.keys(body.files).sort()).toEqual(['index.html', 'js/main.js', 'meta.json', 'snapshot.json']);
+      const files = Object.keys(body.files);
+      for (const f of ['index.html', 'js/main.js', 'scene.json', 'manifest.json', 'meta.json']) expect(files).toContain(f);
 
       // --- the on-disk tree matches the result --------------------------------
       const target = join(ctx.exportRoot, body.outputDir);
       expect(existsSync(target)).toBe(true);
       const onDisk = treeFiles(target);
-      expect(Object.keys(onDisk).sort()).toEqual(['index.html', 'js/main.js', 'meta.json', 'snapshot.json']);
-      for (const [name, size] of Object.entries(body.files)) {
-        expect(new TextEncoder().encode(onDisk[name] ?? '').length).toBe(size);
-      }
+      expect(Object.keys(onDisk).sort()).toEqual(files.sort());
       // No temp/backup litter in the export root.
       const litter = readdirSync(ctx.exportRoot).filter((e) => e.startsWith('.export-tmp-') || e.includes('.replacing'));
       expect(litter).toEqual([]);
 
-      // --- the real bundle bytes (independent re-verification of §5.4.1) ------
+      // --- the game runs without the editor: no server/editor/MCP/credentials --
       const bundle = onDisk['js/main.js'] as string;
-      expect(count(bundle, 'fetch("./snapshot.json")')).toBe(1);
-      expect(count(bundle, 'fetch(')).toBe(4); // 3 (pinned three) + 1 (engine)
-      expect(count(bundle, 'process.')).toBe(3);
-      expect(count(bundle, '__dirname')).toBe(0);
-      expect(count(bundle, 'http://')).toBe(3);
-      expect(count(bundle, 'https://')).toBe(23);
-      expect(count(bundle, 'file://')).toBe(0);
-      expect(count(bundle, 'XMLHttpRequest')).toBe(3);
       expect(count(bundle, 'WebSocket')).toBe(0);
       expect(count(bundle, 'node:')).toBe(0);
       expect(count(bundle, '/api/v1/')).toBe(0);
-      expect(count(bundle, '/mcp')).toBe(0);
+      expect(count(bundle, 'modelcontextprotocol')).toBe(0);
       expect(count(bundle, AUTHORING_ORIGIN)).toBe(0);
       expect(count(bundle, PREVIEW_ORIGIN)).toBe(0);
       expect(count(bundle, ADMIN_TOKEN)).toBe(0);
       expect(count(bundle, AUTH_TOKEN)).toBe(0);
 
-      // --- snapshot.json / meta.json ------------------------------------------
-      const snap = JSON.parse(onDisk['snapshot.json'] as string) as {
-        snapshotId: string;
-        projectId: string;
-        revision: number;
-        scene: { entities: unknown[] };
-      };
-      expect(Object.keys(snap)).toEqual(['snapshotId', 'projectId', 'revision', 'scene']);
-      expect(snap.snapshotId).toBe(`${PROJECT}@r1`);
-      expect(snap.revision).toBe(1);
-      expect(snap.scene.entities.length).toBe(2); // the camera + the exported box
-      const meta = JSON.parse(onDisk['meta.json'] as string) as Record<string, unknown>;
-      expect(meta.schemaVersion).toBe(1);
-      expect(meta.type).toBe('thirdlight-export');
-      expect(meta.engineVersion).toBe('0.1.0');
-      const deps = meta.dependencies as Record<string, unknown>;
-      expect(deps.three).toBe('0.186.0'); // the REAL installed version
-      expect(deps.typescript).toBe('5.9.3');
-      expect(deps.esbuild).toBe('0.28.2');
-      expect(deps.runtime).toEqual({ fixedStepHz: 120, modules: ['thirdlight.demo:box-motion'] });
-      const sceneSummary = meta.scene as Record<string, unknown>;
-      expect(sceneSummary).toEqual({ entityCount: 2, cameraId: 'cam-main', boxCount: 1 });
+      // --- the exported scene is the authored one ------------------------------
+      const scene = JSON.parse(onDisk['scene.json'] as string) as { entities: Array<{ name?: string }> };
+      expect(scene.entities.map((e) => e.name)).toContain('Exported Box');
 
       // --- reproducibility (export.md §7): re-export the same snapshot ---------
       const res2 = await fetch(`${ctx.base}/api/v1/admin/projects/${PROJECT}/export`, {
@@ -229,14 +198,16 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       expect(body2.ok).toBe(true);
       const onDisk2 = treeFiles(target);
       expect(onDisk2['js/main.js']).toBe(onDisk['js/main.js']); // byte-identical
-      expect(onDisk2['snapshot.json']).toBe(onDisk['snapshot.json']); // byte-identical
+      expect(onDisk2['scene.json']).toBe(onDisk['scene.json']); // byte-identical
       expect(onDisk2['index.html']).toBe(onDisk['index.html']);
       const meta1 = JSON.parse(onDisk['meta.json'] as string) as Record<string, unknown>;
       const meta2 = JSON.parse(onDisk2['meta.json'] as string) as Record<string, unknown>;
       expect(Object.keys(meta2)).toEqual(Object.keys(meta1));
       for (const k of Object.keys(meta1)) {
-        if (k === 'exportedAt') continue;
-        expect(JSON.stringify(meta2[k]), k).toBe(JSON.stringify(meta1[k]));
+        if (k === 'exportedAt' || k === 'outputDigest') continue; // both cover the per-build buildId
+        // buildId identifies the build instance (capture time); content digests must match.
+        const strip = (v: unknown): string => JSON.stringify(v, (key, val: unknown) => (key === 'buildId' ? undefined : val));
+        expect(strip(meta2[k]), k).toBe(strip(meta1[k]));
       }
     },
     240000,

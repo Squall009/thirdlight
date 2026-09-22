@@ -452,7 +452,7 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
     host.dispose();
   });
 
-  it('a snapshot without a game block is rejected fail-closed (the M3 module set requires it)', () => {
+  it('a snapshot without a game block mounts in scene mode (no game session, no HUD)', () => {
     const { host } = harness();
     host.dispose();
     const noGame = hostSnapshot();
@@ -480,11 +480,10 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
     };
     const h2 = createGameHost(cfg);
     const res = h2.mount();
-    expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error.code).toBe('host_config_invalid');
-      expect(res.error.reason).toBe('game-block');
-    }
+    expect(res.ok).toBe(true);
+    expect((cfg.container as unknown as FakeNode).children.length).toBe(0);
+    expect(h2.observe().ok).toBe(false);
+    h2.dispose();
   });
 
   it('a malformed config is rejected at mount with a structured error', () => {

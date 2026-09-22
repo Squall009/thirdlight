@@ -239,11 +239,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     const init = await createPhysicsPort(physicsConfig);
     if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
     physics = init.port;
-  } else {
-    // A controller-less scene composes headless (the host tolerates a null
-    // physics port for a no-character scene).
-    throw new Error('the M3 export requires a player controller entity');
+  } else if (snapshot.game !== null) {
+    throw new Error('the game requires a player controller entity');
   }
+  // (no game block and no controller: scene mode — the scene plays as authored)
 
   const input = attachBrowserInput(canvas, {});
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
@@ -261,7 +260,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   const config: GameHostConfig = {
     snapshot,
     settings,
-    physics,
+    ...(physics !== undefined ? { physics } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(canvas, {
         runtime,
@@ -317,7 +316,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
 
   const refresh = (): void => {
     const res = host.observe();
-    if (!res.ok) return;
+    if (!res.ok) {
+      hud('', false); // scene mode: no game state to report
+      return;
+    }
     const obs = res.observation;
     hud(`${manifest.snapshotId} \u00b7 build ${manifest.buildId.slice(0, 12)} \u00b7 ${obs.state} \u00b7 deaths=${obs.deathCount} \u00b7 goal=${obs.goalReached}`, false);
   };

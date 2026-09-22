@@ -17,6 +17,12 @@ export interface E2EBackend {
   adminToken: string;
   /** The editor URL for the project (token passed once in the fragment). */
   editorUrl: string;
+  /** Where the admin export route writes standalone builds. */
+  exportRoot: string;
+  /** Stop the backend process but keep its data (e.g. to serve an export). */
+  halt(): Promise<void>;
+  /** POST an admin route; returns status + JSON. */
+  admin(path: string, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }>;
   /** Graceful stop (SIGTERM) then start again on the same ports and data. */
   restart(): Promise<void>;
   stop(): Promise<void>;
@@ -37,6 +43,7 @@ function freePort(): Promise<number> {
 
 export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-'));
+  const exportRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-export-'));
   const [authPort, previewPort] = [await freePort(), await freePort()];
   const origin = `http://127.0.0.1:${authPort}`;
   const previewOrigin = `http://127.0.0.1:${previewPort}`;
@@ -53,7 +60,7 @@ export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> 
     THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
     THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
     THIRDLIGHT_TOKENS: `admin:${adminToken},authoring:${projectId}:${token}`,
-    THIRDLIGHT_EXPORT_ROOT: join(dataRoot, 'exports'),
+    THIRDLIGHT_EXPORT_ROOT: exportRoot,
     THIRDLIGHT_ENGINE_ROOT: REPO,
   };
 
@@ -102,6 +109,16 @@ export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> 
     token,
     adminToken,
     editorUrl: `${origin}/?project=${projectId}#token=${token}`,
+    exportRoot,
+    halt,
+    admin: async (path, body = {}) => {
+      const r = await fetch(`${origin}/api/v1/admin/${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+    },
     restart: async () => {
       await halt();
       await launch();
@@ -109,6 +126,7 @@ export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> 
     stop: async () => {
       await halt();
       rmSync(dataRoot, { recursive: true, force: true });
+      rmSync(exportRoot, { recursive: true, force: true });
     },
     command: async (body) => {
       const r = await fetch(`${origin}/api/v1/projects/${projectId}/commands`, {

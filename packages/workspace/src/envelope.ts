@@ -753,7 +753,7 @@ function validateRecordResult(
   const changeErr =
     storageVersion === 1
       ? validateChangeShape(result['change'], op)
-      : validateChangeShapeV2(result['change'], op);
+      : validateChangeShapeV2(result['change'], op, storageVersion);
   if (changeErr !== null) return changeErr;
   if (op === 'createEntity') {
     if (typeof result['createdId'] !== 'string' || result['createdId'] !== (result['change'] as { id: string })['id']) {
@@ -915,7 +915,7 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
  * v2-only components the M1 validators reject (the live content block is
  * validated separately by `validateContent`).
  */
-function validateChangeShapeV2(change: unknown, op: string): LoadDetail | null {
+function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 3): LoadDetail | null {
   if (!isPlainObject(change)) return rerr('recorded change must be an object', undefined, '/result/change');
   const t = change['type'];
   if (typeof t !== 'string' || !V2_CHANGE_TYPES.includes(t)) {
@@ -949,9 +949,19 @@ function validateChangeShapeV2(change: unknown, op: string): LoadDetail | null {
         return rerr(`recorded ${t} change is missing required field '${k}'`, undefined, `/result/change/${k}`);
       }
     }
+    for (const k of keys) {
+      if (!required.includes(k)) return rerr(`unknown field in recorded ${t} change`, k, `/result/change/${pointerSegment(k)}`);
+    }
   }
-  if (keys.length > 32) {
-    return rerr('recorded change carries an implausible number of fields', keys.length, '/result/change');
+  if (t === 'createEntity') {
+    // R13: the recorded entity must be the COMPLETE entity value.
+    const ent = change['entity'];
+    if (!isPlainObject(ent)) {
+      return rerr('createEntity change entity must be the full entity value', undefined, '/result/change/entity');
+    }
+    const entErr = validateHistoricalEntities([ent], '/result/change/entity', storageVersion);
+    if (entErr !== null) return entErr;
+    if (ent['id'] !== change['id']) return rerr('createEntity change entity id must equal change id', ent['id'], '/result/change/entity/id');
   }
   return null;
 }
@@ -1031,6 +1041,7 @@ const ZERO_TRANSFORM = {
 function validateHistoricalEntities(
   ents: readonly unknown[],
   base: string,
+  storageVersion: 1 | 2 | 3 = 1,
 ): LoadDetail | null {
   // Ids already present in the payload: a parent that is part of the payload
   // is present; every other referenced parent id gets a placeholder.
@@ -1050,8 +1061,9 @@ function validateHistoricalEntities(
   for (const p of placeholders) used.add(String(p['id']));
   let camId = 'histcam';
   while (used.has(camId)) camId = `${camId}x`;
-  const res = validateScene({
-    schemaVersion: 1,
+  const validate = storageVersion === 3 ? validateSceneV3 : storageVersion === 2 ? validateSceneV2 : validateScene;
+  const res = validate({
+    schemaVersion: storageVersion,
     sceneId: 'scene-main',
     revision: 0,
     entities: [

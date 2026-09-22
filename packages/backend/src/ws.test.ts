@@ -295,8 +295,8 @@ describe('commands over HTTP + mutation.applied (§6.1/§6.2/§8.4)', () => {
       token: tb.authToken,
       origin: null,
     });
-    // the §15 default-scene camera + box1 + box2
-    expect((q.json as { total: number }).total).toBe(3);
+    // the starter camera + two lights + box1 + box2
+    expect((q.json as { total: number }).total).toBe(5);
   });
 
   it('a query op passes the pipeline result through unchanged', async () => {

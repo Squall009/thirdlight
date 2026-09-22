@@ -548,7 +548,7 @@ function animationRoleError(
 
 const FIELD_ORDER: readonly ChangedField[] = ['position', 'rotation', 'scale'];
 
-export function applySetTransform(scene: SceneDocument, args: SetTransformArgs): OpOutcome {
+export function applySetTransform(scene: SceneDocument, args: SetTransformArgs, content?: ContentDocument): OpOutcome {
   const byId = entitiesById(scene);
   const index = scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
@@ -582,7 +582,8 @@ export function applySetTransform(scene: SceneDocument, args: SetTransformArgs):
   const nextEntities: unknown[] = [...scene.entities];
   nextEntities[index] = newEntity;
   const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
-  const gate = gateResultState({ scene }, result);
+  // A v3 result is validated together with the (unchanged) content block.
+  const gate = content !== undefined ? gateResultState({ scene, content }, result, content) : gateResultState({ scene }, result);
   if (!gate.ok) return gate;
 
   const canonicalNext = deepClone(

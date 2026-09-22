@@ -574,6 +574,47 @@ function loadSourceV3(core: Core, sourceProjectId: string): SourceLoadV3 {
  * `behaviorTrust.entries[k].acknowledgedRevision`), with `game: null` added.
  * The six-key canonical order is emitted explicitly (`game` last).
  */
+/**
+ * The initial envelope of a NEW project: `scene` (a v1 default scene) carried
+ * to the current storage version with an empty content catalog, so every
+ * editing op is available from the first revision.
+ */
+export function initialEnvelopeBytesV3(projectId: string, scene: Scene): Uint8Array {
+  const v2 = migrateSceneV1ToV2(scene);
+  if (!v2.ok) throw new Error('default scene failed the v1→v2 migration');
+  const v3 = migrateSceneV3(v2.normalized);
+  if (!v3.ok) throw new Error('default scene failed the v2→v3 migration');
+  // Starter lights: the runtime renders lit materials, so a scene without
+  // lights plays black. They are ordinary entities the user can edit.
+  const identity = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const lit = validateSceneV3({
+    ...v3.normalized,
+    entities: [
+      ...v3.normalized.entities,
+      {
+        id: 'light-0001',
+        name: 'Sun',
+        components: {
+          transform: { position: [0, 10, 0], ...identity },
+          light: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true },
+        },
+      },
+      {
+        id: 'light-0002',
+        name: 'Ambient',
+        components: {
+          transform: { position: [0, 0, 0], ...identity },
+          light: { type: 'ambient', color: '#8090a8', intensity: 0.6 },
+        },
+      },
+    ],
+  });
+  if (!lit.ok) throw new Error('default scene lights failed v3 validation');
+  const content = validateContentV3(deriveV3Content(emptyContent()));
+  if (!content.ok) throw new Error('empty content failed v3 validation');
+  return buildEnvelopeBytesV3(projectId, lit.normalized, content.normalized, []);
+}
+
 function deriveV3Content(source: ContentCatalog): ContentCatalogV3 {
   const clone = JSON.parse(JSON.stringify(source)) as ContentCatalog;
   for (const a of clone.assets) for (const v of a.versions) v.publishedRevision = 0;

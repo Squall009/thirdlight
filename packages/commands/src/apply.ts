@@ -256,7 +256,7 @@ export function applyMutation<S extends SceneDocument>(
       );
     }
     case 'setTransform': {
-      const r = applySetTransform(scene, va.validated.args);
+      const r = applySetTransform(scene, va.validated.args, state.content);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(
         state,

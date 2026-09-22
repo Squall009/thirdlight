@@ -86,6 +86,7 @@ import {
   type StageResult,
 } from './content-store';
 import {
+  initialEnvelopeBytesV3,
   migrateProjectCopy,
   migrateProjectCopyV3,
   readMigrationMarker,
@@ -614,11 +615,11 @@ function buildService(core: Core): WorkspaceService {
       if (mres.failed) {
         return { ok: false, error: writeFailed(mres.failed.onDiskState, mres.failed.errno) };
       }
-      // The initial envelope (the §15 default scene at revision 0).
+      // The initial envelope: the default scene at revision 0, current storage version.
       const envRes = writeAtomic({
         dir: join(dir, 'scenes'),
         target: join(dir, SCENE_REL),
-        bytes: buildEnvelopeBytes(projectId, defaultScene(), []),
+        bytes: initialEnvelopeBytesV3(projectId, defaultScene()),
         allowedPreHashes: null, // must not exist
         previousHash: null,
         ops: core.ops,
@@ -1202,7 +1203,7 @@ function completeInterruptedCreation(
 ): boolean {
   const norm = normalizeScene({ ...defaultScene(), sceneId: manifest.scenes[0].id });
   if (!norm.ok) return false;
-  const bytes = buildEnvelopeBytes(projectId, norm.normalized, []);
+  const bytes = initialEnvelopeBytesV3(projectId, norm.normalized);
   const res = writeAtomic({
     dir: join(dir, 'scenes'),
     target: join(dir, SCENE_REL),

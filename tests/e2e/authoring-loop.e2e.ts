@@ -17,6 +17,8 @@ test.afterEach(async () => {
 });
 
 const rows = (page: Page) => page.locator('.tl-hierarchy__list li:not(.tl-row--empty)');
+/** A new project: the camera plus the starter sun and ambient lights. */
+const BASE = 3;
 const status = (page: Page) => page.locator('.tl-statusbar');
 
 async function openEditor(page: Page): Promise<void> {
@@ -41,7 +43,7 @@ test('the viewport gets the space at 1920×1080 and an existing scene shows on o
   expect(box.width).toBeGreaterThan(1000);
   expect(box.height).toBeGreaterThan(700);
   // The default scene's camera is listed without any edit first.
-  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page)).toHaveCount(BASE);
   await expect(rows(page).first()).toContainText('camera');
 });
 
@@ -52,28 +54,28 @@ test('create, multi-level undo/redo, and the buttons follow the backend history'
   await expect(undo).toBeDisabled();
 
   await page.getByText('+ box').click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(BASE + 1);
   await page.getByText('+ box').click();
-  await expect(rows(page)).toHaveCount(3);
+  await expect(rows(page)).toHaveCount(BASE + 2);
   await expect(undo).toBeEnabled();
   await expect(redo).toBeDisabled();
 
   await undo.click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(BASE + 1);
   await expect(undo).toBeEnabled();
   await undo.click();
-  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page)).toHaveCount(BASE);
   await expect(undo).toBeDisabled();
   await expect(redo).toBeEnabled();
 
   await redo.click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(BASE + 1);
 });
 
 test('a gizmo drag commits one setTransform that survives a reload', async ({ page }) => {
   await openEditor(page);
   await page.getByText('+ box').click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(BASE + 1);
   await rows(page).filter({ hasText: 'box' }).click();
 
   const commands: string[] = [];
@@ -110,12 +112,12 @@ test('a gizmo drag commits one setTransform that survives a reload', async ({ pa
 test('a graceful backend restart needs no operator action; the editor reconnects', async ({ page }) => {
   await openEditor(page);
   await page.getByText('+ box').click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(BASE + 1);
 
   await be.restart();
   await expect(status(page)).toContainText('connected', { timeout: 15_000 });
   await page.getByText('+ box').click();
-  await expect(rows(page)).toHaveCount(3);
+  await expect(rows(page)).toHaveCount(BASE + 2);
 });
 
 test('a second tab takes over after the first is closed', async ({ browser }) => {
@@ -128,7 +130,7 @@ test('a second tab takes over after the first is closed', async ({ browser }) =>
   await second.goto(be.editorUrl);
   await expect(status(second)).toContainText('connected');
   await second.getByText('+ box').click();
-  await expect(rows(second)).toHaveCount(2);
+  await expect(rows(second)).toHaveCount(BASE + 1);
   await second.close();
 });
 

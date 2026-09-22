@@ -195,6 +195,8 @@ function EditorApp(): JSX.Element {
   const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0 });
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const [leftTab, setLeftTab] = useState<LeftTab>('scene');
+  /** A dismissible message over the viewport (e.g. why Play failed). */
+  const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
 
@@ -593,7 +595,9 @@ function EditorApp(): JSX.Element {
     // the 15 s present-timeout). The editor also surfaces the code locally.
     bridge.on('tl.error', (m) => {
       const r = m as { code?: string; message?: string; phase?: string };
-      setGameplayError({ code: r?.code ?? 'play_content_not_ready', message: r?.message ?? `preview failed${r?.phase ? ` (${r.phase})` : ''}` });
+      const failure = { code: r?.code ?? 'play_content_not_ready', message: r?.message ?? `preview failed${r?.phase ? ` (${r.phase})` : ''}` };
+      setGameplayError(failure);
+      setNotice(`Play failed: ${failure.message}`);
       void clientRef.current?.sendPlayPreviewFailed(playInfo.playSessionId, r?.code ?? 'play_content_not_ready', r?.message);
     });
     bridge.on('tl.screenshot.result', () => {
@@ -1651,6 +1655,14 @@ function EditorApp(): JSX.Element {
         </div>
         <div className="tl-app__stage">
           <canvas ref={canvasRef} className="tl-viewport" />
+          {notice !== null && (
+            <div className="tl-notice" role="alert">
+              <span>{notice}</span>
+              <button className="tl-btn tl-btn--small" onClick={() => setNotice(null)}>
+                dismiss
+              </button>
+            </div>
+          )}
           {playing && previewSrc && (
             <div className="tl-app__preview">
               <div className="tl-app__preview-label">
