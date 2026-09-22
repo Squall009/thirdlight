@@ -17,7 +17,9 @@ npm run test:e2e            # browser tests (Playwright) against dist/
 
 The backend (`node dist/backend/backend.mjs`) is configured through
 `THIRDLIGHT_*` environment variables; see the header of
-`packages/backend/src/index.ts`. Open
-`http://<authoring-origin>/?project=<projectId>` and enter the project's
-access token once (or append `#token=<token>` to the URL); the browser keeps
-it in localStorage. Tokens are never baked into the served page.
+`packages/backend/src/index.ts`. There is one owner token
+(`THIRDLIGHT_OWNER_TOKEN`) for the browser, the MCP server and the admin
+routes. Open `http://<authoring-origin>/`, enter the token once (or append
+`#token=<token>` to the URL; the browser keeps it in localStorage), then pick
+a project or create one from a template. The token is never baked into the
+served page.

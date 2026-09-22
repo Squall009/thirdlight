@@ -1223,6 +1223,10 @@ function scanEntry(core: Core, name: string): ScanEntry {
   } catch {
     // unreadable manifest
   }
+  if (manifest !== null) {
+    entry.name = manifest.name;
+    entry.createdAt = manifest.createdAt;
+  }
   if (manifest === null) {
     entry.kind = 'project';
     entry.loadable = false;

@@ -293,6 +293,9 @@ export interface ScanEntry {
   leftoverTemps?: number;
   /** Bounded human note (safe for logs). */
   note?: string;
+  /** Projects with a valid manifest: the display name and creation time. */
+  name?: string;
+  createdAt?: string;
 }
 
 export interface ScanReport {

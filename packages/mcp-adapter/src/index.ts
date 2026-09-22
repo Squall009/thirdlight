@@ -11,7 +11,7 @@
  *
  *   THIRDLIGHT_AUTHORING_ORIGIN  e.g. http://127.0.0.1:8501  (required)
  *   THIRDLIGHT_PROJECT_ID        e.g. demo-0001              (required)
- *   THIRDLIGHT_MCP_TOKEN         an authoring:<projectId> or admin bearer token (required)
+ *   THIRDLIGHT_MCP_TOKEN         the backend's owner token (required)
  *   THIRDLIGHT_MCP_CLIENT_ID     recorded as origin.clientId on MCP commands (optional, default "mcp-harness")
  *   THIRDLIGHT_MCP_TIMEOUT_MS    per-backend-request timeout (optional, default 30000)
  *

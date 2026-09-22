@@ -130,13 +130,14 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     expect((r.json as { error: { code: string } }).error.code).toBe('unauthorized');
   });
 
-  it('admin token cannot establish a session', async () => {
+  it('the owner (admin) token can establish a session for any project', async () => {
+    tb.backend._test.service.createProject('owner-est', 'Owner');
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
-      body: { projectId: 'demo-0001', sessionId: mkSessionId() },
+      body: { projectId: 'owner-est', sessionId: mkSessionId() },
       token: tb.adminToken,
       origin: null,
     });
-    expect(r.status).toBe(401);
+    expect(r.status).toBe(200);
   });
 
   it('strict body: unknown field ⇒ 400', async () => {

@@ -49,8 +49,9 @@ export async function startBackend(projectId = 'e2e-0001', template?: string): P
   const [authPort, previewPort] = [await freePort(), await freePort()];
   const origin = `http://127.0.0.1:${authPort}`;
   const previewOrigin = `http://127.0.0.1:${previewPort}`;
-  const token = `e2e${Math.random().toString(16).slice(2)}`;
-  const adminToken = `adm${Math.random().toString(16).slice(2)}`;
+  // One owner token covers the project routes and the admin routes.
+  const token = `e2e-owner-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+  const adminToken = token;
   const env = {
     ...process.env,
     THIRDLIGHT_DATA_ROOT: dataRoot,
@@ -61,7 +62,7 @@ export async function startBackend(projectId = 'e2e-0001', template?: string): P
     THIRDLIGHT_AUTHORING_ORIGINS: origin,
     THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
     THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
-    THIRDLIGHT_TOKENS: `admin:${adminToken},authoring:${projectId}:${token}`,
+    THIRDLIGHT_OWNER_TOKEN: token,
     THIRDLIGHT_EXPORT_ROOT: exportRoot,
     THIRDLIGHT_ENGINE_ROOT: REPO,
   };

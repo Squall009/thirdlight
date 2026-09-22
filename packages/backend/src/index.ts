@@ -14,10 +14,10 @@
  *   THIRDLIGHT_AUTHORING_ORIGINS  comma-separated exact Origin allowlist
  *   THIRDLIGHT_EDITOR_DIR         the editor static bundle dir
  *   THIRDLIGHT_PREVIEW_DIR        the preview static bundle dir
- *   THIRDLIGHT_TOKENS             comma-separated `scope:token` pairs (the
- *                                 split is on the LAST colon — the
- *                                 `authoring:<projectId>` scope contains a
- *                                 colon; tokens must not contain ':')
+ *   THIRDLIGHT_OWNER_TOKEN        the one bearer token (16–256 chars, no
+ *                                 whitespace); it covers every project and
+ *                                 the admin routes — this is a personal,
+ *                                 single-owner deployment
  *   THIRDLIGHT_EXPORT_ROOT        optional; the export root
  *   THIRDLIGHT_ENGINE_ROOT        optional; the engine installation root (required for the export route)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
@@ -38,17 +38,14 @@ function required(name: string): string {
   return v;
 }
 
-const tokens: BackendTokenEntry[] = required('THIRDLIGHT_TOKENS')
-  .split(',')
-  .map((s) => s.trim())
-  .filter((s) => s.length > 0)
-  .map((pair) => {
-    // Split on the LAST colon: the `authoring:<projectId>` scope itself
-    // contains a colon. (Convention: the token itself contains no ':'.)
-    const sep = pair.lastIndexOf(':');
-    if (sep <= 0) fail(`THIRDLIGHT_TOKENS pair "${pair}" must be scope:token`);
-    return { scope: pair.slice(0, sep), token: pair.slice(sep + 1) };
-  });
+const ownerToken = required('THIRDLIGHT_OWNER_TOKEN');
+if (ownerToken.length < 16 || ownerToken.length > 256 || /\s/.test(ownerToken)) {
+  fail('THIRDLIGHT_OWNER_TOKEN must be 16–256 characters with no whitespace');
+}
+if (env.THIRDLIGHT_TOKENS !== undefined) {
+  fail('THIRDLIGHT_TOKENS is no longer read; set the single THIRDLIGHT_OWNER_TOKEN');
+}
+const tokens: BackendTokenEntry[] = [{ token: ownerToken, scope: 'admin' }];
 
 const config = parseBackendConfig({
   dataRoot: required('THIRDLIGHT_DATA_ROOT'),

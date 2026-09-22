@@ -775,8 +775,8 @@ export function createBackend(
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req));
-    if (scope === null || !scope.startsWith('authoring:')) {
-      sendError(res, sessionError('unauthorized', 'validation', 'establishing a session requires an authoring:<projectId> token'));
+    if (scope === null) {
+      sendError(res, sessionError('unauthorized', 'validation', 'establishing a session requires a valid bearer token'));
       return;
     }
     const body = await readBody(req);
@@ -795,7 +795,7 @@ export function createBackend(
       return;
     }
     const { projectId, sessionId, clientInfo } = parsedReq.request;
-    if (scope !== `authoring:${projectId}`) {
+    if (scope !== 'admin' && scope !== `authoring:${projectId}`) {
       sendError(res, sessionError('unauthorized', 'validation', 'the token scope does not cover this project'));
       return;
     }
@@ -844,10 +844,12 @@ export function createBackend(
       sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
       return;
     }
-    const filterProject = query.get('projectId') ?? (scope.startsWith('authoring:') ? scope.slice('authoring:'.length) : undefined);
+    // A project-scoped token sees its project only; the owner (admin) token
+    // sees every project unless it filters.
+    const filterProject = scope.startsWith('authoring:') ? scope.slice('authoring:'.length) : query.get('projectId') ?? undefined;
     const visible = sessions
       .all()
-      .filter((s) => (filterProject === undefined ? s.projectId === scope.slice('authoring:'.length) : s.projectId === filterProject))
+      .filter((s) => filterProject === undefined || s.projectId === filterProject)
       .slice(0, SESSION_LIST_MAX);
     sendJson(res, 200, { ok: true, sessions: visible.map(sessionView) });
   };
@@ -1151,12 +1153,11 @@ export function createBackend(
     }
     const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, builtCore.buildId, now);
     session.playSessionId = playSessionId;
-    // `startedBy` = the origin of the caller that started the play
-    // (interpretation recorded in handoff 09: derived from the token
-    // scope; packet 11's MCP path passes its own origin via the /services
-    // surface).
+    // `startedBy` = who started the play. The one owner token is used by the
+    // browser and by tools alike; a browser request carries an Origin
+    // header, a tool/operator request does not.
     const startedBy: OriginDoc | null =
-      scope === 'admin' ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
+      scope === 'admin' && req.headers.origin === undefined ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
     const payload = makePlayStarted({
       playSessionId,
       startedBy,
@@ -2053,6 +2054,33 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+          return;
+        }
+        // GET /api/v1/projects — every project directory in the data root
+        if (parts.length === 3 && parts[2] === 'projects') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          if (tokenScope(bearerToken(req)) === null) {
+            sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
+            return;
+          }
+          const scan = service.scan();
+          const projects = scan.entries
+            .filter((e) => e.kind === 'project')
+            .map((e) => {
+              const session = sessions.sessionForProject(e.projectId);
+              return {
+                projectId: e.projectId,
+                name: e.name ?? e.projectId,
+                createdAt: e.createdAt ?? null,
+                loadable: e.loadable === true,
+                ...(e.code !== undefined ? { code: e.code } : {}),
+                connected: session !== undefined && session.connected,
+              };
+            });
+          sendJson(res, 200, { ok: true, projects, total: scan.total, truncated: scan.truncated });
           return;
         }
         // GET /api/v1/templates — the project templates/samples on this engine

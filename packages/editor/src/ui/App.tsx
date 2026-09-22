@@ -12,9 +12,10 @@
  *
  * Browser-only.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { createRoot } from 'react-dom/client';
-import { forgetToken, readEditorConfig, rememberToken } from '../config';
+import { forgetToken, readEditorConfig } from '../config';
+import { ProjectsScreen, TokenForm } from './Projects';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
@@ -188,9 +189,9 @@ function EditorApp(): JSX.Element {
   const bridgeRef = useRef<Bridge | null>(null);
   const playIframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const [configError, setConfigError] = useState<string | null>(cfg.current.ok || cfg.current.needsConnect ? null : cfg.current.message);
-  const [connectPrompt, setConnectPrompt] = useState<{ projectId: string; message?: string } | null>(
-    !cfg.current.ok && cfg.current.needsConnect ? { projectId: cfg.current.projectId } : null,
+  /** Which screen stands in front of the editor (token form / picker), and why. */
+  const [gate, setGate] = useState<{ kind: 'token' | 'projects'; message?: string } | null>(
+    cfg.current.ok || cfg.current.needs === 'page' ? null : { kind: cfg.current.needs === 'token' ? 'token' : 'projects' },
   );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1631,28 +1632,33 @@ function EditorApp(): JSX.Element {
     refreshEntities();
   }, [newBehaviorId, newDisplayName, newPropertyDefault, newPropertyKey, refreshEntities]);
 
-  // A rejected token is forgotten; the connect form asks for a new one.
+  // A rejected token is forgotten and asked for again; an unknown project
+  // goes back to the picker.
   useEffect(() => {
     if (ui.connection !== 'disconnected' || !cfg.current.ok) return;
     const projectId = cfg.current.config.projectId;
     if (ui.error?.code === 'unauthorized') {
-      forgetToken(projectId);
-      setConnectPrompt({ projectId, message: 'The backend rejected the access token for this project.' });
+      forgetToken();
+      setGate({ kind: 'token', message: 'The backend rejected the access token.' });
     } else if (ui.error?.code === 'project_not_found') {
-      setConnectPrompt({ projectId, message: `Project "${projectId}" does not exist on this backend.` });
+      setGate({ kind: 'projects', message: `Project "${projectId}" does not exist on this backend.` });
     }
   }, [ui.connection, ui.error]);
 
-  if (connectPrompt) {
-    return <ConnectForm projectId={connectPrompt.projectId} message={connectPrompt.message} />;
+  if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
+    return <TokenForm message={gate.message} />;
+  }
+  if (gate?.kind === 'projects') {
+    const token = cfg.current.ok ? cfg.current.config.authoringToken : cfg.current.needs === 'project' ? cfg.current.token : '';
+    return <ProjectsScreen token={token} message={gate.message} />;
   }
 
-  if (configError) {
+  if (!cfg.current.ok) {
     return (
       <div className="tl-config-error">
         <h1>Thirdlight editor</h1>
         <p>Could not start:</p>
-        <pre>{configError}</pre>
+        <pre>{cfg.current.needs === 'page' ? cfg.current.message : 'no project selected'}</pre>
       </div>
     );
   }
@@ -1667,6 +1673,8 @@ function EditorApp(): JSX.Element {
   return (
     <div className="tl-app">
       <Toolbar
+        projectId={cfg.current.config.projectId}
+        onProjects={() => { window.location.search = ''; }}
         canUndo={ui.undoDepth > 0}
         canRedo={ui.redoDepth > 0}
         selectedId={selectedId}
@@ -1906,36 +1914,6 @@ const LEFT_TABS: ReadonlyArray<{ id: LeftTab; label: string }> = [
   { id: 'media', label: 'Media' },
   { id: 'problems', label: 'Problems' },
 ];
-
-/** Asks for the project and its access token (kept in this browser only). */
-function ConnectForm(props: { projectId: string; message?: string }): JSX.Element {
-  const [projectId, setProjectId] = useState(props.projectId);
-  const [token, setToken] = useState('');
-  const submit = (e: FormEvent): void => {
-    e.preventDefault();
-    const id = projectId.trim();
-    if (id === '' || token.trim() === '') return;
-    rememberToken(id, token.trim());
-    window.location.search = `?project=${encodeURIComponent(id)}`;
-  };
-  return (
-    <form className="tl-connect" onSubmit={submit}>
-      <h1>Thirdlight editor</h1>
-      {props.message ? <p className="tl-connect__message">{props.message}</p> : null}
-      <label>
-        Project
-        <input name="project" value={projectId} onChange={(e) => setProjectId(e.target.value)} autoFocus={props.projectId === ''} />
-      </label>
-      <label>
-        Access token
-        <input name="token" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoFocus={props.projectId !== ''} />
-      </label>
-      <button className="tl-btn" type="submit">
-        Open
-      </button>
-    </form>
-  );
-}
 
 export function mountEditor(): void {
   const el = document.getElementById('tl-root');

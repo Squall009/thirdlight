@@ -6,6 +6,10 @@
 import type { JSX } from 'react';
 
 interface Props {
+  /** The open project (shown next to the brand). */
+  projectId: string;
+  /** Back to the project picker. */
+  onProjects: () => void;
   canUndo: boolean;
   canRedo: boolean;
   selectedId: string | null;
@@ -25,6 +29,9 @@ export function Toolbar(p: Props): JSX.Element {
   return (
     <div className="tl-toolbar">
       <span className="tl-toolbar__brand">Thirdlight</span>
+      <button className="tl-btn tl-toolbar__project" onClick={p.onProjects} title="All projects">
+        ◂ {p.projectId}
+      </button>
       <div className="tl-toolbar__group">
         <button className="tl-btn" onClick={p.onNewBox} title="Create a box (root)">
           + box

@@ -197,7 +197,7 @@ test('an MCP-origin edit appears in the browser without a reload', async ({ page
 test('without a stored token the editor asks for one', async ({ page }) => {
   await page.goto(`${be.origin}/?project=${be.projectId}`);
   await expect(page.getByLabel('Access token')).toBeVisible();
-  await page.getByLabel('Access token').fill('wrong-token');
+  await page.getByLabel('Access token').fill('wrong-token-wrong-token');
   await page.getByRole('button', { name: 'Open' }).click();
   await expect(page.getByText('rejected the access token')).toBeVisible();
 
