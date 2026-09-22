@@ -19,6 +19,8 @@ export interface E2EBackend {
   editorUrl: string;
   /** Where the admin export route writes standalone builds. */
   exportRoot: string;
+  /** The project's directory on disk (for external-edit tests). */
+  projectDir: string;
   /** Stop the backend process but keep its data (e.g. to serve an export). */
   halt(): Promise<void>;
   /** POST an admin route; returns status + JSON. */
@@ -110,6 +112,7 @@ export async function startBackend(projectId = 'e2e-0001'): Promise<E2EBackend> 
     adminToken,
     editorUrl: `${origin}/?project=${projectId}#token=${token}`,
     exportRoot,
+    projectDir: join(dataRoot, 'projects', projectId),
     halt,
     admin: async (path, body = {}) => {
       const r = await fetch(`${origin}/api/v1/admin/${path}`, {

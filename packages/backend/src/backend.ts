@@ -497,6 +497,35 @@ export function createBackend(
    * Deliver `mutation.applied` to the project's registered session (§6.2:
    * every applied mutation, of any origin). No-op when absent/disconnected.
    */
+  // ---------- project problems log (editor Problems tab + MCP) ----------
+  /** One recorded problem: bounded, log-safe (no secrets, no host paths). */
+  interface Problem {
+    seq: number;
+    at: string;
+    source: 'command' | 'play' | 'export' | 'workspace';
+    code: string;
+    message: string;
+  }
+  const PROBLEMS_PER_PROJECT = 200;
+  const problems = new Map<string, Problem[]>();
+  let problemSeq = 0;
+  const recordProblem = (projectId: string, source: Problem['source'], code: string, message: string): void => {
+    problemSeq += 1;
+    const entry: Problem = { seq: problemSeq, at: new Date(nowMs()).toISOString(), source, code, message: message.slice(0, 256) };
+    const list = problems.get(projectId) ?? [];
+    list.push(entry);
+    if (list.length > PROBLEMS_PER_PROJECT) list.splice(0, list.length - PROBLEMS_PER_PROJECT);
+    problems.set(projectId, list);
+    const s = sessions.sessionForProject(projectId);
+    if (s && s.connected && s.socket) {
+      try {
+        s.socket.send(JSON.stringify({ type: 'problems.added', problem: entry }));
+      } catch {
+        // the Problems query returns it anyway
+      }
+    }
+  };
+
   const notifyMutationApplied = (
     projectId: string,
     requestId: string,
@@ -623,6 +652,7 @@ export function createBackend(
           return;
         }
         if (inbound.type === 'play.preview.failed') {
+          recordProblem(session.projectId, 'play', inbound.code, `Play failed: ${inbound.message ?? inbound.code}`);
           plays.previewFailed(rec.playSessionId, inbound.code);
           return;
         }
@@ -887,6 +917,9 @@ export function createBackend(
       // §6.1: the response is exactly the commands.md result — pass the
       // raw commands.md error through (it carries `currentRevision` etc.;
       // a SessionError re-wrap would drop those fields).
+      if (result.error.code !== 'no_change') {
+        recordProblem(projectId, 'command', result.error.code, `${envelope.op}: ${result.error.message ?? result.error.code}`);
+      }
       sendJson(res, statusFor(result.error.cls), { ok: false, error: result.error });
       return;
     }
@@ -1039,6 +1072,7 @@ export function createBackend(
         gameBundle: gameBundleM3,
       });
       if (!builtM3.ok) {
+        recordProblem(projectId, 'play', builtM3.error.code, `Play build failed: ${builtM3.error.message}`);
         sendError(res, builtM3.error, statusFor(builtM3.error.cls));
         return;
       }
@@ -1838,6 +1872,7 @@ export function createBackend(
       return;
     }
     const e = result.error;
+    recordProblem(projectId, 'export', e.code, `Export failed: ${e.message}`);
     const errorBody: Record<string, unknown> = { code: e.code, cls: e.cls, message: e.message };
     if (e.detail !== undefined) {
       for (const [k, v] of Object.entries(e.detail)) errorBody[k] = v;
@@ -1982,6 +2017,31 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+          return;
+        }
+        // GET /api/v1/projects/:projectId/problems — the bounded problems log (newest last)
+        if (parts.length === 5 && parts[2] === 'projects' && parts[4] === 'problems') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          const list = problems.get(projectId) ?? [];
+          sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50) });
+          return;
+        }
+        // POST /api/v1/projects/:projectId/external/(accept|discard)
+        if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'external' && (parts[5] === 'accept' || parts[5] === 'discard')) {
+          if (method === 'POST') {
+            await externalResolveRoute(req, res, parts[3]!, parts[5]);
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
         // POST /api/v1/projects/:projectId/commands
@@ -2240,6 +2300,58 @@ export function createBackend(
     dispatchPreview(req, res);
   });
 
+  // External edits: while an editor is connected, compare its project's
+  // envelope on disk with what this backend wrote. A change pauses writes and
+  // is announced once; the editor resolves it (accept / discard).
+  const externalAnnounced = new Set<string>();
+  const sendToProject = (projectId: string, frame: Record<string, unknown>): void => {
+    const s = sessions.sessionForProject(projectId);
+    if (!s || !s.connected || !s.socket) return;
+    try {
+      s.socket.send(JSON.stringify(frame));
+    } catch {
+      // best effort: the next full state carries the same facts
+    }
+  };
+  const externalTimer = setInterval(() => {
+    for (const s of sessions.all()) {
+      if (!s.connected) continue;
+      const r = service.checkExternal(s.projectId);
+      if (!r.ok || !r.pending) {
+        externalAnnounced.delete(s.projectId);
+        continue;
+      }
+      if (externalAnnounced.has(s.projectId)) continue;
+      externalAnnounced.add(s.projectId);
+      const q = service.query({ op: 'queryProject', projectId: s.projectId }) as { ok: boolean; workspace?: unknown };
+      const valid = (q.workspace as { pendingChange?: { externalValid?: boolean | null } } | undefined)?.pendingChange?.externalValid;
+      recordProblem(
+        s.projectId,
+        'workspace',
+        'external_change',
+        valid === false ? 'The scene file was changed on disk and is invalid; editing is paused.' : 'The scene file was changed on disk; editing is paused.',
+      );
+      sendToProject(s.projectId, { type: 'workspace.externalChange', workspace: q.ok ? q.workspace : null });
+    }
+  }, 1500);
+
+  /** POST /api/v1/projects/:projectId/external/(accept|discard) — resolve an external edit. */
+  const externalResolveRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string, action: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const result = action === 'accept' ? service.acceptExternalState(projectId) : service.discardExternalState(projectId);
+    if (!result.ok) {
+      sendError(res, workspaceError(result.error), statusFor(result.error.cls));
+      return;
+    }
+    externalAnnounced.delete(projectId);
+    sendToProject(projectId, { type: 'workspace.resync' });
+    sendJson(res, 200, result);
+  };
+
   // The §11.5 silent-drop sweeper (60 s ⇒ close 1000 `heartbeat_timeout`).
   const sweepIntervalMs = Math.max(250, (timeouts.silentDropSeconds * 1000) / 4);
   sweepTimer = setInterval(() => {
@@ -2286,6 +2398,7 @@ export function createBackend(
         }
         closed = true;
         if (sweepTimer !== undefined) clearInterval(sweepTimer);
+        clearInterval(externalTimer);
         plays.dispose();
         contentRoutes.dispose();
         playContent.dispose();

@@ -950,6 +950,28 @@ function buildService(core: Core): WorkspaceService {
     return deepFreeze(migrateProjectCopyV3(core, sourceProjectId, newProjectId));
   }
 
+  /**
+   * Compare an open project's envelope on disk with the last bytes this
+   * backend wrote. A difference is an external change: it is snapshotted,
+   * validated and writes pause until it is accepted or discarded — the same
+   * handling the write path applies, but without waiting for a write.
+   */
+  function checkExternal(projectId: string): { ok: true; pending: boolean } | { ok: false } {
+    const s = core.sessions.get(projectId);
+    if (s === undefined || s.mode !== 'open') return { ok: false };
+    if (s.pendingChange !== null) return { ok: true, pending: true };
+    let bytes: Uint8Array;
+    try {
+      bytes = core.ops.readFile(join(s.sceneDir, 'main.json'));
+    } catch {
+      return { ok: true, pending: false }; // unreadable/missing: the next write reports it
+    }
+    const hash = sha256Hex(bytes);
+    if (hash === s.lastWrittenHash) return { ok: true, pending: false };
+    detectExternalChange(core, s, { bytes, hash });
+    return { ok: true, pending: true };
+  }
+
   function scan(): ScanReport {
     const report = runScan(core);
     lastScanRef[0] = report;
@@ -1003,6 +1025,7 @@ function buildService(core: Core): WorkspaceService {
     scan,
     dispose,
     close,
+    checkExternal,
     get lastScan() {
       return lastScanRef[0];
     },

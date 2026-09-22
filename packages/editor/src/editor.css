@@ -298,3 +298,18 @@ input.tl-vec__num { width: 100%; min-width: 0; color: var(--text); font: inherit
 input.tl-inspector__name { width: 100%; background: transparent; color: var(--text); border: 1px solid transparent;
   border-radius: 4px; padding: 2px 4px; font: inherit; font-weight: 600; }
 input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: var(--border); background: var(--panel-2); }
+
+.tl-notice--external { top: 56px; background: rgba(255,209,102,.14); border-color: var(--warn); }
+
+/* Problems */
+.tl-tab__count { margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--err); color: #fff; font-size: 10px; }
+.tl-problems__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.tl-problem { display: flex; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); align-items: baseline; }
+.tl-problem__source { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--panel-2); color: var(--muted); flex: none; }
+.tl-problem__source--play, .tl-problem__source--export { color: var(--err); }
+.tl-problem__source--workspace { color: var(--warn); }
+.tl-problem__message { overflow-wrap: anywhere; }
+
+.tl-assets__preview-canvas { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--border);
+  border-radius: 4px; margin: 6px 0; }
+.tl-row__kind--light { color: #ffe08a; }

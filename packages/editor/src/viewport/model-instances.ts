@@ -60,6 +60,8 @@ const FAILED_LOAD_RETRY_LIMIT = 2;
 
 /** One asset preview session (a temporary instance + its local controller). */
 export interface AssetPreviewSession {
+  /** The previewed instance's root object. */
+  root: THREE.Object3D;
   assetId: string;
   descriptor: VisualDescriptor;
   clips: readonly VisualClipInfo[];
@@ -211,6 +213,8 @@ export class ModelInstances {
    */
   previewAsset(
     descriptor: VisualDescriptor,
+    /** Where the preview instance attaches (the preview stage's scene). */
+    parent: THREE.Object3D = this.scene,
   ): Promise<{ ok: true; session: AssetPreviewSession } | { ok: false; code: string; message: string }> {
     // A superseded preview's late completion must be discarded AND disposed
     // (GG-4): the sequence token below makes the stale branch release anything
@@ -242,8 +246,9 @@ export class ModelInstances {
         return { ok: false as const, code: controller.error.code, message: controller.error.message };
       }
       const holder = created.instance.root;
-      this.scene.add(holder);
+      parent.add(holder);
       const session: AssetPreviewSession = {
+        root: holder,
         assetId: descriptor.assetId,
         descriptor,
         clips: result.resource.clips,
@@ -251,7 +256,7 @@ export class ModelInstances {
         dispose: () => {
           controller.controller.dispose();
           created.instance.dispose();
-          this.scene.remove(holder);
+          holder.parent?.remove(holder);
         },
       };
       this.preview = session;

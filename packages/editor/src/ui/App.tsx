@@ -72,6 +72,7 @@ import type { ZonePose } from '../session/zone-gesture';
 import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
+import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy } from './Hierarchy';
 import { Inspector } from './Inspector';
@@ -82,6 +83,7 @@ import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
+import { ProblemsPanel } from './ProblemsPanel';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
 import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
@@ -192,7 +194,7 @@ function EditorApp(): JSX.Element {
   );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0 });
+  const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0, external: null, problems: [] });
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const [leftTab, setLeftTab] = useState<LeftTab>('scene');
   /** A dismissible message over the viewport (e.g. why Play failed). */
@@ -217,6 +219,18 @@ function EditorApp(): JSX.Element {
   const [snapping, setSnapping] = useState(true);
   const modelInstancesRef = useRef<ModelInstances | null>(null);
   const previewSessionRef = useRef<AssetPreviewSession | null>(null);
+  const previewStageRef = useRef<PreviewStage | null>(null);
+  const previewCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    previewStageRef.current?.dispose();
+    previewStageRef.current = null;
+    if (canvas === null) {
+      modelInstancesRef.current?.clearPreview();
+      previewSessionRef.current = null;
+      setAssetPreview(null);
+      return;
+    }
+    previewStageRef.current = new PreviewStage(canvas);
+  }, []);
   const pendingProposalRef = useRef<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>(null);
   // M3 (packet 57): the media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
@@ -287,7 +301,9 @@ function EditorApp(): JSX.Element {
     const c = clientRef.current;
     if (!c) return;
     setEntities([...c.projection.listEntities()]);
-    setAssets(c.content.listAssets());
+    const assetList = c.content.listAssets();
+    setAssets(assetList);
+    setAssetQuery((q) => ({ ...q, total: Math.max(q.total, assetList.length) }));
     setPrefabSummaries(c.prefabs.listSummaries());
     setDeclarations(c.prefabs.declarationMap());
     setBehaviorViews([...c.prefabs.listDeclarations()]);
@@ -1164,7 +1180,12 @@ function EditorApp(): JSX.Element {
       setImportState(importFailed(importStateRef.current, { code: 'asset_not_found', message: `no immutable version facts for ${assetId}` }));
       return;
     }
-    const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength });
+    const stage = previewStageRef.current;
+    const res = await m.previewAsset(
+      { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength },
+      stage?.scene,
+    );
+    if (res.ok) stage?.frame(res.session.root);
     if (!res.ok) {
       setImportState(importFailed(importStateRef.current, { code: res.code, message: res.message }));
       return;
@@ -1264,7 +1285,13 @@ function EditorApp(): JSX.Element {
     const c = clientRef.current;
     const assetId = selectedAssetIdRef.current;
     if (!c || !assetId) return;
-    const command = planAssetPlacement(assetId);
+    // Named after the asset and placed where the camera is looking.
+    const displayName = c.content.listAssets().find((a) => a.assetId === assetId)?.displayName;
+    const focus = viewportRef.current?.focusPoint() ?? [0, 0, 0];
+    const command = planAssetPlacement(assetId, {
+      ...(displayName !== undefined ? { name: displayName.slice(0, 128) } : {}),
+      transform: { position: focus.map((v) => Math.round(v * 4) / 4) },
+    });
     setPlacementError(null);
     await runTypedCommand('createEntity', command.args, setPlacementError);
   }, [runTypedCommand]);
@@ -1589,9 +1616,11 @@ function EditorApp(): JSX.Element {
             {LEFT_TABS.map((t) => (
               <button key={t.id} role="tab" aria-selected={leftTab === t.id} className={`tl-tab${leftTab === t.id ? ' is-active' : ''}`} onClick={() => setLeftTab(t.id)}>
                 {t.label}
+                {t.id === 'problems' && ui.problems.length > 0 ? <span className="tl-tab__count">{ui.problems.length}</span> : null}
               </button>
             ))}
           </div>
+          {leftTab === 'problems' && <ProblemsPanel problems={ui.problems} />}
           {leftTab === 'scene' && (
             <Hierarchy
           entities={entities}
@@ -1618,6 +1647,7 @@ function EditorApp(): JSX.Element {
               onCancel={() => void cancelImportFlow()}
               onDiscard={() => void discardImportFlow()}
               onPreview={(id) => void loadPreview(id)}
+              previewCanvasRef={previewCanvasRef}
               onPreviewPlay={previewPlay}
               onPreviewPause={previewPause}
               onPreviewScrub={previewScrub}
@@ -1730,6 +1760,27 @@ function EditorApp(): JSX.Element {
         </div>
         <div className="tl-app__stage">
           <canvas ref={canvasRef} className="tl-viewport" />
+          {ui.external !== null && (
+            <div className="tl-notice tl-notice--external" role="alert">
+              <span>
+                The project files changed on disk. Editing is paused.
+                {ui.external.valid === false ? ` The disk version is invalid (${ui.external.errorCount ?? '?'} problems) and cannot be loaded.` : ''}
+              </span>
+              <button
+                className="tl-btn tl-btn--small"
+                disabled={ui.external.valid === false}
+                onClick={() => void clientRef.current?.resolveExternal('accept').then((r) => { if (!r.ok) setNotice(`Load failed: ${r.error.message}`); })}
+              >
+                load disk version
+              </button>
+              <button
+                className="tl-btn tl-btn--small"
+                onClick={() => void clientRef.current?.resolveExternal('discard').then((r) => { if (!r.ok) setNotice(`Discard failed: ${r.error.message}`); })}
+              >
+                keep editor version
+              </button>
+            </div>
+          )}
           {notice !== null && (
             <div className="tl-notice" role="alert">
               <span>{notice}</span>
@@ -1774,7 +1825,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type LeftTab = 'scene' | 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media';
+type LeftTab = 'scene' | 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media' | 'problems';
 
 const LEFT_TABS: ReadonlyArray<{ id: LeftTab; label: string }> = [
   { id: 'scene', label: 'Scene' },
@@ -1783,6 +1834,7 @@ const LEFT_TABS: ReadonlyArray<{ id: LeftTab; label: string }> = [
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },
   { id: 'media', label: 'Media' },
+  { id: 'problems', label: 'Problems' },
 ];
 
 /** Asks for the project and its access token (kept in this browser only). */

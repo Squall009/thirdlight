@@ -29,7 +29,7 @@ export interface ProjectedEntity {
   id: string;
   name: string;
   parentId: string | null;
-  kind: 'box' | 'camera' | 'model' | 'entity';
+  kind: 'box' | 'camera' | 'model' | 'light' | 'entity';
   position: number[];
   rotation: number[];
   scale: number[];
@@ -125,7 +125,7 @@ function toProjected(e: Entity): ProjectedEntity {
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
   };
-  const kind = c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : 'entity';
+  const kind = c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const projected: ProjectedEntity = {
     id: e.id,
     name: e.name ?? e.id,

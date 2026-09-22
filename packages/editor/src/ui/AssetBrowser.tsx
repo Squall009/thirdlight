@@ -39,6 +39,8 @@ interface Props {
   onCancel: () => void;
   onDiscard: () => void;
   onPreview: (assetId: string) => void;
+  /** Mounts/unmounts the isolated preview canvas. */
+  previewCanvasRef: (canvas: HTMLCanvasElement | null) => void;
   onPreviewPlay: () => void;
   onPreviewPause: () => void;
   onPreviewScrub: (seconds: number) => void;
@@ -199,6 +201,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           <div className="tl-assets__preview-head" title={selected.assetId}>
             preview · {selected.displayName}
           </div>
+          <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onPreview(selected.assetId)} title="Realize the current version locally (play/pause/scrub)">
             load preview
           </button>

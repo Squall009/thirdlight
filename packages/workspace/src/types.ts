@@ -390,6 +390,8 @@ export interface WorkspaceService {
   dispose(): void;
   /** Graceful shutdown: release every held project, then discard in-memory state. */
   close(): void;
+  /** Detect an external edit of an open project's envelope now (pauses writes). */
+  checkExternal(projectId: string): { ok: true; pending: boolean } | { ok: false };
 
   /** The most recent scan report (initial or explicit `scan()`). */
   readonly lastScan: ScanReport;

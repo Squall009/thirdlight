@@ -86,6 +86,19 @@ export interface ClientUiState {
   /** The backend's authoring history depths (undo/redo availability). */
   undoDepth: number;
   redoDepth: number;
+  /** The project's files changed on disk; writes are paused until resolved. */
+  external: { valid: boolean | null; errorCount: number | null } | null;
+  /** Recent project problems (failed commands, Play/export failures, external edits), oldest first. */
+  problems: readonly ProblemView[];
+}
+
+/** One entry of the backend's problems log. */
+export interface ProblemView {
+  seq: number;
+  at: string;
+  source: 'command' | 'play' | 'export' | 'workspace';
+  code: string;
+  message: string;
 }
 
 /** A play-start result (sessions.md §10.1 + §17.2). */
@@ -118,6 +131,13 @@ function makeSessionId(rng: () => number = Math.random): string {
   let hex = '';
   for (let i = 0; i < 32; i++) hex += Math.floor(rng() * 16).toString(16);
   return `sess-${hex}`;
+}
+
+/** The paused-external-change facts from a queryProject `workspace` block. */
+function externalOf(workspace: unknown): ClientUiState['external'] {
+  const w = workspace as { writePaused?: boolean; pendingChange?: { externalValid?: boolean | null; externalErrorCount?: number | null } } | null;
+  if (!w || w.writePaused !== true) return null;
+  return { valid: w.pendingChange?.externalValid ?? null, errorCount: w.pendingChange?.externalErrorCount ?? null };
 }
 
 /**
@@ -206,6 +226,8 @@ export class SessionClient {
   private conflict: { currentRevision: number; expectedRevision: number; message: string } | null = null;
   private disposed = false;
   private history = { undoDepth: 0, redoDepth: 0 };
+  private external: ClientUiState['external'] = null;
+  private problems: ProblemView[] = [];
   private historyRefreshQueued = false;
   /** Active play (the retained `play.started` snapshot + preview bridge). */
   private activePlay: (PlayStartResult & { snapshot: unknown }) | null = null;
@@ -256,6 +278,8 @@ export class SessionClient {
       revision: this.projection.revision,
       undoDepth: this.history.undoDepth,
       redoDepth: this.history.redoDepth,
+      external: this.external,
+      problems: this.problems,
     });
   }
 
@@ -379,6 +403,15 @@ export class SessionClient {
       this.projection.hydrate({ revision: q.revision, entities: q.entities as FullState['entities'] });
     }
     await this.refreshHistory();
+    try {
+      const pr = await this.api<{ ok: boolean; problems?: ProblemView[] }>(`/projects/${this.cfg.projectId}/problems`);
+      if (pr.ok && Array.isArray(pr.problems)) {
+        this.problems = pr.problems;
+        this.emit();
+      }
+    } catch {
+      // the log is advisory; live entries still arrive over the socket
+    }
     // M3 (packet 56): the game block re-reads on every full state —
     // reopening the editor retains the authored game configuration
     // (authoring §A8 row 1; `null` for a v2 project or an absent block).
@@ -417,12 +450,13 @@ export class SessionClient {
   /** Re-read the backend's undo/redo depths (the history is shared with MCP). */
   private async refreshHistory(): Promise<void> {
     try {
-      const q = await this.api<{ ok: boolean; history?: { undoDepth: number; redoDepth: number } }>(
+      const q = await this.api<{ ok: boolean; history?: { undoDepth: number; redoDepth: number }; workspace?: unknown }>(
         `/projects/${this.cfg.projectId}/commands`,
         { op: 'queryProject', projectId: this.cfg.projectId, args: {} },
       );
       if (q.ok && q.history) {
         this.history = { undoDepth: q.history.undoDepth, redoDepth: q.history.redoDepth };
+        this.external = externalOf(q.workspace);
         this.emit();
       }
     } catch {
@@ -438,6 +472,20 @@ export class SessionClient {
       this.historyRefreshQueued = false;
       void this.refreshHistory();
     });
+  }
+
+  /** Resolve a paused external edit: load the disk version, or keep the editor's. */
+  async resolveExternal(action: 'accept' | 'discard'): Promise<{ ok: true } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      await this.api(`/projects/${this.cfg.projectId}/external/${action}`, {});
+      this.external = null;
+      await this.fullResync();
+      this.cb.onSceneChanged();
+      this.emit();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
   }
 
   /** Handle one WS message (sessions.md §7). */
@@ -465,6 +513,21 @@ export class SessionClient {
       case 'error':
         this.error = { code: String(m.code ?? 'error'), message: String(m.message ?? '') };
         this.emit();
+        break;
+      case 'workspace.externalChange':
+        this.external = externalOf(m.workspace) ?? { valid: null, errorCount: null };
+        this.emit();
+        break;
+      case 'problems.added': {
+        const p = m.problem as ProblemView | undefined;
+        if (p !== undefined && !this.problems.some((x) => x.seq === p.seq)) {
+          this.problems = [...this.problems, p].slice(-50);
+          this.emit();
+        }
+        break;
+      }
+      case 'workspace.resync':
+        void this.fullResync().then(() => this.cb.onSceneChanged());
         break;
       default:
         break;
