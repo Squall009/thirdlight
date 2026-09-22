@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "node tools/check-deps.mjs && node tools/check-boundaries.mjs && node tools/typecheck.mjs && node tools/build.mjs",
+    "start": "node tools/start.mjs",
     "typecheck": "node tools/typecheck.mjs",
     "test": "vitest run",
     "check-deps": "node tools/check-deps.mjs",
