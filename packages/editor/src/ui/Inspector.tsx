@@ -202,7 +202,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           )}
 
           <p className="tl-inspector__hint">
-            Drag the gizmo or type values (Enter to apply). W/E/R switch tools, F focuses, Del deletes, Ctrl+Z undoes.
+            Drag the gizmo or type values (Enter commits). W/E/R switch tools, F focuses, Del deletes, Ctrl+Z undoes.
           </p>        </div>
       ) : (
         <div className="tl-inspector__empty">Nothing selected.</div>
