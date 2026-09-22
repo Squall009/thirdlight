@@ -80,9 +80,19 @@ void backend.ready
     fail(`listen failed: ${err.message}`);
   });
 
+let stopping = false;
 const shutdown = (): void => {
+  if (stopping) return;
+  stopping = true;
+  // Close the listeners and release the projects, then leave: an operator
+  // process must not linger on a stray handle after it has said "closed".
+  setTimeout(() => {
+    process.stderr.write('thirdlight-backend: close timed out; exiting\n');
+    process.exit(1);
+  }, 10_000);
   void backend.close().then(() => {
     process.stderr.write('thirdlight-backend: closed\n');
+    process.exit(0);
   });
 };
 process.on('SIGINT', shutdown);

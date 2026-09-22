@@ -17,13 +17,15 @@ has looked at it where it is visual/audible.
 | 3 | Charter first-release editor features | D15, D16, D27 | done 2026-09-22 — rename/reparent (`updateEntity`), typed transforms, shortcuts, per-axis gizmo + click-pick, Problems tab (backend problems log), external-edit detection with load/keep banner, isolated asset preview, runtime-faithful viewport (hierarchy, box size/color). Not done: multi-select, duplicate, sibling reorder |
 | 4 | Beacon Reach is honestly playable in editor and export | D10–D13, D20, D28–D30 | done 2026-09-22 — templates via `POST /admin/projects {template}`; visible animated courier; goal cue; checkpoint glow; fixed GLB; Play works for games in the editor; scripts run in the game (Play + export); e2e plays it to the goal through the relays and drives it by keyboard. Owner playthrough by hand still pending |
 | 5 | MCP parity with charter §7 | D18 | done 2026-09-22 — `tl_inspect target=selection` (editor selection reported over WS), `tl_diagnostics` without a play returns the problems log (import/compile failures now recorded), `tl_play_start` accepts an explicit `sessionId`, MCP-started Play presents in the editor and an MCP stop tears it down; `dist/mcp-adapter/mcp.mjs` starts without an env flag. `tests/e2e/mcp.e2e.ts` drives the real stdio server against a live editor |
-| 6 | Real M4: templates, independent project, one-command start, backup | D17, D19 | in progress — done: one owner token (`THIRDLIGHT_OWNER_TOKEN`), project picker + new-project-from-template screen (`tests/e2e/projects.e2e.ts`), D17 (modules derived from the game block, referenced content, behavior requirements and template declarations; unresolved ⇒ `module_unresolved` at creation/Play/export, and the game host refuses a module it cannot provide). Pending: independent game with a pinned engine, one-command start, backup/restore, deployment doc |
+| 6 | Real M4: templates, independent project, one-command start, backup | D17, D19 | done 2026-09-22 — one owner token (`THIRDLIGHT_OWNER_TOKEN`); project picker + new-project-from-template screen; D17 (modules derived from the game block, referenced content, behavior requirements and template declarations; unresolved ⇒ `module_unresolved` at creation/Play/export, the game host refuses a module it cannot provide); `npm start` (`tools/start.mjs`); `tools/backup.mjs` create/verify/restore; `tools/game.mjs` independent game with an engine pin (version + commit + lockfile digest) that `check`/`export` enforce; `docs/deployment.md` matches these. e2e: `projects`, `start`, `backup`, `game`. Owner has not yet run it by hand |
 | — | Debt, only when touching the files anyway | D21 | ongoing |
 
 ## Notes
 
 - Tests: `npm test` (unit/integration), `npm run build && npm run test:e2e`
   (Playwright, real backend + Chromium).
+- Run it: `npm start` (see `docs/deployment.md`). One owner token
+  (`~/thirdlight/owner-token`) for the browser, MCP and admin routes.
 - The editor shows a banner when scene files change on disk (polled every
   1.5 s while an editor is connected); `/projects/:id/external/(accept|discard)`
   resolves it with the project token. `/projects/:id/problems` is the bounded

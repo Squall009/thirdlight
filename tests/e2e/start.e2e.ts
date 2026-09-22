@@ -25,6 +25,14 @@ function freePort(): Promise<number> {
   });
 }
 
+function portFree(port: number): Promise<boolean> {
+  return new Promise((ok) => {
+    const s = createServer();
+    s.once('error', () => ok(false));
+    s.listen(port, '127.0.0.1', () => s.close(() => ok(true)));
+  });
+}
+
 interface Started {
   proc: ChildProcess;
   editorUrl: string;
@@ -79,17 +87,30 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     // The token is usable against the API from the browser's origin.
     const res = await fetch(`http://127.0.0.1:${port}/api/v1/projects`, { headers: { authorization: `Bearer ${token}` } });
     expect(res.status).toBe(200);
+    // Create a project from the template through the picker and open it.
+    await page.getByLabel('Project id').fill('first-game');
+    await page.getByLabel('Template').selectOption('beacon-reach');
+    await page.getByRole('button', { name: 'Create and open' }).click();
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    expect(existsSync(join(dataRoot, 'projects', 'first-game', 'project.json'))).toBe(true);
 
-    // Ctrl+C-style stop is clean.
+    // Ctrl+C-style stop is clean: the start script exits 0 and the backend is
+    // gone with it (its ports are free again; the project is released).
     first.proc.kill('SIGINT');
     expect(await first.exited).toBe(0);
+    await expect.poll(() => portFree(port), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => portFree(previewPort), { timeout: 10_000 }).toBe(true);
+    expect(JSON.parse(readFileSync(join(dataRoot, 'projects', 'first-game', '.thirdlight', 'ownership.json'), 'utf8')).state).toBe('released');
 
     // A second start reuses the token and does not re-create it.
     const second = await start(dataRoot, port, previewPort);
     expect(second.output()).not.toContain('created the owner token');
     expect(second.editorUrl).toBe(first.editorUrl);
+    const list = await fetch(`http://127.0.0.1:${port}/api/v1/projects`, { headers: { authorization: `Bearer ${token}` } });
+    expect(((await list.json()) as { projects: Array<{ projectId: string }> }).projects.map((p) => p.projectId)).toEqual(['first-game']);
     second.proc.kill('SIGTERM');
     expect(await second.exited).toBe(0);
+    await expect.poll(() => portFree(port), { timeout: 10_000 }).toBe(true);
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }

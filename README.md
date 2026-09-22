@@ -13,6 +13,15 @@ npm test                    # unit and integration tests (vitest)
 npm run test:e2e            # browser tests (Playwright) against dist/
 ```
 
+## Run it
+
+```sh
+npm start                   # builds dist/ if needed, starts the backend, prints the editor URL
+```
+
+Full deployment notes (LAN access, the owner token, MCP, backup/restore,
+independent games, upgrades): [docs/deployment.md](docs/deployment.md).
+
 ## Open the editor
 
 The backend (`node dist/backend/backend.mjs`) is configured through

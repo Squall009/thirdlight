@@ -147,6 +147,8 @@ declare const process: {
   cwd(): string;
   readonly env: Record<string, string | undefined>;
   readonly exitCode: number;
+  /** The process entry uses it after a clean close (never inside the library). */
+  exit(code?: number): never;
   readonly stderr: { write(s: string): void };
   /** Seconds this process has been running (workspace liveness, test side). */
   uptime(): number;
