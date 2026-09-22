@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Thirdlight — self-hosted browser game editor. M1 workspace root: npm workspaces, one lockfile, strict TypeScript (decision 0001 §3/§4; dependencies.md §2/§7). Units under packages/<name> are created only when implemented (packets 05–12).",
+  "description": "Thirdlight — self-hosted browser game editor built on three.js. See docs/STATUS.md.",
   "engines": {
     "node": "22"
   },

@@ -11,5 +11,6 @@ export default {
   test: {
     globalSetup: './tests/test-hygiene.ts',
     globalTeardown: './tests/test-hygiene.ts',
+    exclude: ['**/node_modules/**', '**/dist/**', 'archive/**'],
   },
 };

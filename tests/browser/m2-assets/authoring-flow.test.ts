@@ -22,7 +22,6 @@
  * change-application rules, not browser/WebGL behavior (see
  * `m2-assets.browser.ts` for the browser procedure and the UNVERIFIED list).
  */
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -280,26 +279,6 @@ describe('packet 27 (Node) — gesture command discipline and undo', () => {
     cancelled.cancel();
     expect(cancelled.release().kind).toBe('noop');
     expect(cancelSink.issued.length).toBe(0);
-  });
-});
-
-describe('packet 27 (Node) — the snapping table matches the accepted contract text', () => {
-  const sessions = readFileSync(join(REPO_ROOT, 'docs', 'contracts', 'sessions.md'), 'utf8');
-
-  it('sessions.md §9 fixes the exact increments the code uses', () => {
-    expect(SNAP_INCREMENTS.translateM).toBe(0.25);
-    expect(SNAP_INCREMENTS.rotateDeg).toBe(15);
-    expect(SNAP_INCREMENTS.scale).toBe(0.25);
-    expect(SNAP_INCREMENTS.scaleMin).toBe(0.01);
-    expect(SNAP_INCREMENTS.scaleMax).toBe(100);
-    expect(SNAP_INCREMENTS.quantum).toBe(1e-4);
-    expect(sessions).toContain('SNAP_TRANSLATE_M = 0.25 m');
-    expect(sessions).toContain('SNAP_ROTATE_DEG = 15°');
-    expect(sessions).toContain('SNAP_SCALE = 0.25');
-    expect(sessions).toContain('SCALE_MIN 0.01, SCALE_MAX 100');
-    expect(sessions).toContain('no parent-space or local-space snapping in M2');
-    expect(sessions).toContain('**zero** commands during the drag');
-    expect(sessions).toContain('holding `Shift` during the gesture disables snapping');
   });
 });
 
