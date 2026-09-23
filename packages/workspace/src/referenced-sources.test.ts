@@ -304,6 +304,40 @@ describe('assets referenced in place in the game folder', () => {
     }
   });
 
+  it('a converted version (FBX): the original is checked at commit and reported by integrity; the stored GLB stays readable', () => {
+    const f = folderProject('converted');
+    try {
+      const fbx = bytesOf('Kaydara FBX Binary  \u0000 pretend fbx v1');
+      writeFileSync(join(f.game, 'assets', 'props', 'crate.fbx'), fbx);
+      // The converted GLB is a stored blob (as the backend publishes it).
+      expect(f.service.publishBlob('game', { digest: sha(V1), byteLength: V1.length, source: { kind: 'bytes', bytes: V1 } }).ok).toBe(true);
+      const args = (original: Uint8Array): Record<string, unknown> => {
+        const a = publishArgs('create', V1, 'unused');
+        delete a['sourcePath'];
+        a['convertedFrom'] = { format: 'fbx', sourceDigest: sha(original), sourceByteLength: original.length, sourcePath: 'assets/props/crate.fbx', converter: { name: 'blender', version: '5.2.2' } };
+        return a;
+      };
+      // A convertedFrom that does not match the file on disk is refused.
+      const stale = command(f.service, 'game', 'publishAsset', args(bytesOf('Kaydara FBX Binary  other')));
+      expect(!stale.ok && stale.error.code).toBe('asset_source_changed');
+      expect(command(f.service, 'game', 'publishAsset', args(fbx)).ok).toBe(true);
+      const ok = f.service.contentIntegrity('game');
+      expect(ok.ok && ok.entries[0]).toMatchObject({ status: 'ok', convertedFrom: { format: 'fbx', sourcePath: 'assets/props/crate.fbx', status: 'ok' } });
+      // The FBX is rebuilt: reported as changed, the GLB still reads.
+      writeFileSync(join(f.game, 'assets', 'props', 'crate.fbx'), bytesOf('Kaydara FBX Binary  \u0000 pretend fbx v2'));
+      const changed = f.service.contentIntegrity('game');
+      expect(changed.ok && changed.entries[0]).toMatchObject({ status: 'ok', convertedFrom: { status: 'changed' } });
+      expect(f.service.readBlob('game', { assetId: 'crate', version: 1 }).ok).toBe(true);
+      // Both sourcePath and convertedFrom on one version: refused by the command.
+      const both = publishArgs('reimport', V1, 'assets/props/crate.glb');
+      both['convertedFrom'] = args(fbx)['convertedFrom'];
+      const r = command(f.service, 'game', 'publishAsset', both);
+      expect(!r.ok && r.error.code).toBe('field_unexpected');
+    } finally {
+      f.close();
+    }
+  });
+
   it('survives a reopen: the version still resolves through the registry', () => {
     const f = folderProject('reopen');
     const root = join(f.game, '..', 'data');
