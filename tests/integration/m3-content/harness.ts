@@ -71,7 +71,7 @@ export function makeRoot(tag: string): DisposableRoot {
   mkdirSync(previewDir, { recursive: true });
   mkdirSync(join(dataRoot, 'projects'), { recursive: true });
   writeFileSync(join(editorDir, 'index.html'), '<!doctype html><html><body>editor</body></html>\n');
-  writeFileSync(join(previewDir, 'preview.js'), '// preview bundle stub (tests)\n');
+  writeFileSync(join(previewDir, 'preview-m3.js'), '// play bundle stub (tests)\n');
   const v3Dir = join(dataRoot, 'projects', V3_PROJECT);
   const v2Dir = join(dataRoot, 'projects', V2_PROJECT);
   cpSync(V3_FIXTURE, v3Dir, { recursive: true });

@@ -71,15 +71,10 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     res.setHeader('content-security-policy', previewCsp());
   };
 
-  /** The `GET /` M1 compatibility page (no active play). */
-  const previewTemplate = (): string => {
-    const origin = config.authoringOrigin.replace(/"/g, '\\"');
-    return (
-      '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
-      `    <script>window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };</script>\n` +
-      '    <script src="./preview.js"></script>\n  </body>\n</html>\n'
-    );
-  };
+  /** The preview origin's root page: plays load from their own locator, so this only says so. */
+  const previewTemplate = (): string =>
+    '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
+    '    <p>Thirdlight play preview. Start Play in the editor.</p>\n  </body>\n</html>\n';
 
   /**
    * The M2 locator shell (sessions.md §17.2.1): the only dynamic page. It

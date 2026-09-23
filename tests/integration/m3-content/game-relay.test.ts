@@ -5,9 +5,8 @@
  * preview's exact result. The absent-browser/unpresented cases return the
  * contracted structured `session_unavailable` — never a fabricated success.
  *
- * The play record itself is exercised on the committed v2 project so the relay
- * mechanics are independent of the packet-49+ v3 game flow (the relay is
- * version-agnostic; sessions.md §20).
+ * The play record is exercised on the committed v3 fixture project; the relay
+ * only forwards, so no game runs here (sessions.md §20).
  */
 import { rmSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -109,8 +108,8 @@ beforeAll(async () => {
     { token: AUTH_TOKEN, scope: `authoring:${V3_PROJECT}` },
     { token: ADMIN_TOKEN, scope: 'admin' },
   ]);
-  mcp = await createMcp(bp.origin, V2_PROJECT, V2_AUTH_TOKEN, 'packet-48-relay-mcp');
-  session = await establish(bp.origin, V2_PROJECT, V2_AUTH_TOKEN);
+  mcp = await createMcp(bp.origin, V3_PROJECT, AUTH_TOKEN, 'packet-48-relay-mcp');
+  session = await establish(bp.origin, V3_PROJECT, AUTH_TOKEN);
   ws = await openWs(bp.origin, session);
   const started = await mcp.call('tl_play_start', {});
   expect(started.isError, JSON.stringify(started.body)).toBe(false);
@@ -197,7 +196,7 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
 
   it('drops a wrong-session ack and never resolves a relay from it', async () => {
     // A WS attached to a DIFFERENT project's session is not the play owner.
-    const other = await establish(bp.origin, V3_PROJECT, AUTH_TOKEN);
+    const other = await establish(bp.origin, V2_PROJECT, V2_AUTH_TOKEN);
     const otherWs = await openWs(bp.origin, other);
     const call = mcp.call('tl_game_observe', { playSessionId, timeoutMs: 400 });
     const request = await ws.waitFor((e) => e.type === 'game.observe.request');
@@ -210,14 +209,14 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
 
   it('keeps the session log bounded and free of credentials/capabilities/paths', async () => {
     const res = await http(`${bp.origin}/api/v1/sessions/${session.sessionId}/log?limit=128`, {
-      token: V2_AUTH_TOKEN,
+      token: AUTH_TOKEN,
       origin: AUTHORING_ORIGIN,
     });
     expect(res.status).toBe(200);
     const body = res.body as { total: number; entries: Array<{ kind: string; ref?: string }> };
     expect(body.entries.length).toBeLessThanOrEqual(128);
     const text = JSON.stringify(body);
-    expect(text).not.toContain(V2_AUTH_TOKEN);
+    expect(text).not.toContain(AUTH_TOKEN);
     expect(text).not.toContain('/home/');
     expect(text).not.toContain('contentId');
   });

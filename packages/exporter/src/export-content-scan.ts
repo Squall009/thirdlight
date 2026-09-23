@@ -22,7 +22,7 @@
  *
  * Pure byte/string processing: no I/O.
  */
-import { THREE_RECORD, type ScanHit } from './scan';
+import { type ScanHit } from './scan';
 
 export interface ScanPatterns {
   authoringOrigin: string;
@@ -240,132 +240,8 @@ export function textPatternCounts(text: string, p: ScanPatterns): M2ScanCounts {
   };
 }
 
-export interface M2TextScanInput {
-  bundleText: string;
-  patterns: ScanPatterns;
-  /** Binding 3: the reference full-core three bundle text (pinned flags). */
-  referenceText: string;
-  /** The re-measured pinned three identity (version + registry integrity). */
-  threeIdentity: { version: string; integrity: string | null };
-  /** The measured pinned Rapier compat row (compat loader probe, pinned flags). */
-  rapierCounts: { fetch: number; process: number; http: number; https: number; xhr: number; ws: number };
-  /** The declared asset paths (one engine `fetch(` per path is expected). */
-  declaredAssetPaths: readonly string[];
-  /** Declared non-asset reads emitted by the bootstrap (the `./scene.json` read). */
-  declaredExtraFetches: number;
-  /** The exporter's own fixed page text (the §2.3 trust notice). */
-  engineOwnText: string;
-  /** True when the graph contains the `./gltf-loader` subpath (loader row applies). */
-  gltfLoader: boolean;
-}
-
-export interface M2TextScanReport {
-  ok: boolean;
-  scanHits: number;
-  hits: ScanHit[];
-  counts: M2ScanCounts;
-  expected: Record<string, number>;
-  binding: { identityOk: boolean; referenceOk: boolean; reason?: string };
-}
-
 const LOADER_HTTPS_ADDITION = 12;
 const LOADER_IDENTIFIER_MIN = 37;
-
-/**
- * The §5.4/§5.4.1 scan of the emitted M2 bundle text. Expected counts:
- *
- *   a/b/c/e/g/i = 0
- *   d  = three(3) + rapier + 1 (`./manifest.json`) + |declared asset paths|
- *   f  = three(3) + rapier.process
- *   h  = three(26) + loader(+12 when the subpath is in the graph) + rapier
- *   j  = three(3) + rapier
- *
- * Any deviation is a hit (never an exception — export.md §5.4.1).
- */
-export function scanM2TextBundle(input: M2TextScanInput): M2TextScanReport {
-  const identityOk =
-    input.threeIdentity.version === THREE_RECORD.version && input.threeIdentity.integrity === THREE_RECORD.integrity;
-  const refCounts = textPatternCounts(input.referenceText, { authoringOrigin: '', previewOrigin: '', tokenValues: [] });
-  const referenceOk =
-    identityOk &&
-    refCounts.d === THREE_RECORD.fetch &&
-    refCounts.f === THREE_RECORD.processDot &&
-    refCounts.h === THREE_RECORD.http + THREE_RECORD.https + THREE_RECORD.file &&
-    refCounts.j === THREE_RECORD.xhr + THREE_RECORD.ws &&
-    refCounts.a + refCounts.b + refCounts.c + refCounts.e + refCounts.g + refCounts.i === 0;
-  const reason = referenceOk
-    ? undefined
-    : identityOk
-      ? `the reference three bundle scan deviates (d=${refCounts.d} f=${refCounts.f} h=${refCounts.h} j=${refCounts.j})`
-      : 'the installed three identity is not the recorded 0.186.0 pin';
-
-  const counts = textPatternCounts(input.bundleText, input.patterns);
-  const declaredFetches = new Set(input.declaredAssetPaths);
-  // The exporter's own fixed page text (the mandatory §2.3 trust notice) is
-  // engine text: its exact, measured pattern contributions are part of the
-  // expectation (never a blanket allowance).
-  const ownText = textPatternCounts(input.engineOwnText, { authoringOrigin: '', previewOrigin: '', tokenValues: [] });
-  const expected: Record<string, number> = {
-    d: THREE_RECORD.fetch + input.rapierCounts.fetch + 1 + declaredFetches.size + input.declaredExtraFetches + ownText.d,
-    f: THREE_RECORD.processDot + input.rapierCounts.process + ownText.f,
-    h:
-      THREE_RECORD.http +
-      THREE_RECORD.https +
-      THREE_RECORD.file +
-      (input.gltfLoader ? LOADER_HTTPS_ADDITION : 0) +
-      input.rapierCounts.http +
-      input.rapierCounts.https +
-      ownText.h,
-    j: THREE_RECORD.xhr + THREE_RECORD.ws + input.rapierCounts.xhr + input.rapierCounts.ws + ownText.j,
-    a: 0,
-    b: 0,
-    c: 0,
-    e: 0,
-    g: 0,
-    i: 0,
-  };
-
-  const hits: ScanHit[] = [];
-  let total = 0;
-  const needles: Record<string, string> = {
-    a: input.patterns.authoringOrigin,
-    b: input.patterns.previewOrigin,
-    c: '/api/v1/',
-    d: 'fetch(',
-    e: 'node:',
-    f: 'process.',
-    g: '/mcp',
-    h: 'http://',
-    i: [...input.patterns.tokenValues, ...(input.patterns.locatorValues ?? [])].find((v) => v.length > 0) ?? 'token',
-    j: 'XMLHttpRequest',
-    binding: 'fetch(',
-  };
-  const record = (pattern: string, found: number): void => {
-    total += 1;
-    if (hits.length < 4) {
-      const offset = input.bundleText.indexOf(needles[pattern] ?? pattern);
-      const start = Math.max(0, offset - 30);
-      hits.push({
-        pattern,
-        byteOffset: found >= 0 ? found : -1,
-        context: input.bundleText.slice(start, Math.min(input.bundleText.length, offset + 50)).replace(/[^\x20-\x7e]/g, '.').slice(0, 80),
-      });
-    }
-  };
-  if (!identityOk || !referenceOk) {
-    record('binding', -1);
-  } else {
-    for (const [pattern, want] of Object.entries(expected)) {
-      const found = (counts as unknown as Record<string, number>)[pattern] ?? -1;
-      if (found !== want) record(pattern, found > want ? input.bundleText.indexOf(needles[pattern] ?? pattern) : -1);
-    }
-    if (input.gltfLoader && countOccurrences(input.bundleText, 'GLTFLoader') < LOADER_IDENTIFIER_MIN) {
-      record('GLTFLoader', input.bundleText.indexOf('GLTFLoader'));
-    }
-  }
-
-  return { ok: total === 0, scanHits: total, hits, counts, expected, binding: { identityOk, referenceOk, ...(reason !== undefined ? { reason } : {}) } };
-}
 
 /**
  * WAV (RIFF/WAVE) container validation (export.md §6.3, the `audio/wav`

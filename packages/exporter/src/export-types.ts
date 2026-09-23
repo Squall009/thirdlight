@@ -50,8 +50,6 @@ export interface ExportContext {
   previewOrigin: string;
   /** i — the configured admin/authoring token VALUES (scan pattern). */
   tokenValues: readonly string[];
-  /** Absolute path of the export bundle entry (packages/exporter/src/export-bootstrap.ts). */
-  bootstrapEntry: string;
   /** Absolute path of the installed three package.json (the §5.4.1 identity). */
   threePackageJson: string;
   /** Absolute path of the installed typescript package.json (meta.json dependencies). */
@@ -59,25 +57,18 @@ export interface ExportContext {
   /** Absolute path of the workspace lockfile (the recorded registry integrity). */
   lockfile: string;
   /**
-   * Packet 36 — the M2 export bundle entry
-   * (`packages/exporter/src/export-bootstrap-m2.ts`). Required for an M2
-   * export; an M1 (schemaVersion 1 / storageVersion 1) export uses
-   * `bootstrapEntry` unchanged.
-   */
-  m2BootstrapEntry?: string;
-  /**
    * Packet 58 — the M3 export bundle entry
    * (`packages/exporter/src/export-bootstrap-m3.ts`). Required for an M3
    * (schemaVersion 3 / storageVersion 3) export; the M2 bootstrap is
    * byte-stable and untouched.
    */
-  m3BootstrapEntry?: string;
+  m3BootstrapEntry: string;
   /**
    * Packet 36 — the injected packet-33 behavior compiler (the shared
    * `behavior-build` instance the backend also uses for play). Required for an
    * M2 export (the M2 bundle statically links the compiled outputs).
    */
-  compiler?: ContentClosureCompilerPort;
+  compiler: ContentClosureCompilerPort;
   /**
    * Packet 36 — the injectable wall clock (milliseconds since the epoch) used
    * for the M2 manifest `capturedAt` and `meta.json.exportedAt`. Defaults to

@@ -1817,11 +1817,11 @@ function EditorApp(): JSX.Element {
           .filter(([, present]) => present)
           .map(([k]) => k),
   );
-  const previewSrc = playInfo?.playBase
-    ? playInfo.contentId !== null && playInfo.contentPath !== null
+  // The play loads from its own content locator on the preview origin.
+  const previewSrc =
+    playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
       ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}`
-      : `${playInfo.playBase.replace(/\/$/, '')}/?play=${playInfo.playSessionId}`
-    : null;
+      : null;
 
   const hasCamera = entities.some((e) => e.kind === 'camera');
   // The scene allows one directional and one ambient light.

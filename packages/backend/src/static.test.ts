@@ -37,18 +37,14 @@ describe('preview origin (sessions.md §2/§13.2)', () => {
     await tb.teardown();
   });
 
-  it('the template at / injects exactly the v2 config (null locator) + the static script; no credentials', async () => {
+  it('the preview root is a static note: no script, no credentials', async () => {
     const res = await fetch(`${tb.prevUrl}/`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain(
-      `window.__thirdlightPreview = { v: 2, authoringOrigin: "${AUTHORING_ORIGIN}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };`,
-    );
-    expect(html).toContain('<script src="./preview.js"></script>');
-    // no tokens, no API URLs (the preview never talks to the backend)
+    expect(html).toContain('Start Play in the editor');
+    expect(html).not.toContain('<script');
     expect(html).not.toContain('token');
     expect(html).not.toContain('/api/');
-    expect(html).not.toContain('Bearer');
   });
 
   it('serves the static preview bundle', async () => {
@@ -218,8 +214,5 @@ describe('the /services surface (dependencies.md §3)', () => {
     expect(typeof services.PlayManager).toBe('function');
     expect(services.STARTUP_LOG_RING).toBe(256);
     expect(services.SESSION_LIST_MAX).toBe(20);
-    // the template helper matches the served template shape
-    const tpl = services.previewTemplateFor(AUTHORING_ORIGIN);
-    expect(tpl).toContain(`authoringOrigin: "${AUTHORING_ORIGIN}"`);
   });
 });

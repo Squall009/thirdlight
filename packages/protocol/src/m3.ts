@@ -778,32 +778,6 @@ export function isGameRelayId(v: unknown): v is string {
 
 // ---- the v2→v3 operator copy route body (workspace.md §16.5/§16.8) -------------
 
-/**
- * `POST /api/v1/admin/projects/:projectId/migrate-copy-v3` body:
- * `{ newProjectId }` — the destination identity of the explicit operator copy.
- * Admin-scoped (sessions.md §6.3); never a browser command and never an MCP tool.
- */
-export interface AdminMigrateCopyV3Request {
-  newProjectId: string;
-}
-
-export function parseAdminMigrateCopyV3Request(
-  value: unknown,
-): { ok: true; request: AdminMigrateCopyV3Request } | { ok: false; error: SessionError } {
-  const shape = checkShape(
-    value ?? {},
-    '',
-    new Map([['newProjectId', 'string (project-model ID syntax)']]),
-    ['newProjectId'],
-  );
-  if (!shape.ok) return { ok: false, error: shape.error };
-  const pid = checkField(shape.value, 'newProjectId', '', 'project ID', (v) =>
-    isProjectId(v) ? null : { problem: 'newProjectId must match the project-model ID syntax', kind: 'value' },
-  );
-  if (!pid.ok) return { ok: false, error: pid.error };
-  return { ok: true, request: { newProjectId: pid.value as string } };
-}
-
 /** The safe, bounded error a relay surfaces when nothing can cross. */
 export function gameRelayError(code: (typeof GAME_RELAY_ERROR_CODES)[number], message: string, extra?: Record<string, unknown>): SessionError {
   const cls =

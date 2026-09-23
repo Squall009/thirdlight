@@ -335,12 +335,7 @@ const BUNDLE_ENTRY_EDGES = {
   // permitted engine fetch), so its `import()` specifier is built from the
   // artifact root and cannot be a string literal. The target is always a
   // manifest-declared relative artifact path — never a package/remote specifier.
-  'packages/editor/src/preview/preview-bootstrap.ts': {
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier'],
-    external: ['three'],
-    node: [],
-    computedDynamicImport: 'locator',
-  },
+
   // Packet 59 (delivery.md §3.2/§4.3): the M3 preview wrapper composes the
   // SINGLE shared production host (`createGameHost`) — the only editor file
   // allowed to import `game-host` (the preview wrapper, not the editor UI).

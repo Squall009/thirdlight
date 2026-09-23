@@ -1014,12 +1014,6 @@ export function createBackend(
             await adminProjectOp(req, res, op, parts[4]!);
             return;
           }
-          // Packet 48: the explicit v2→v3 operator copy (workspace.md §16.5/§16.8).
-          // Admin-scoped, never a browser command and never an MCP tool.
-          if (op === 'migrate-copy-v3') {
-            await adminMigrateCopyV3Route(req, res, parts[4]!);
-            return;
-          }
           if (op === 'export') {
             await adminExportRoute(req, res, parts[4]!);
             return;
@@ -1110,7 +1104,7 @@ export function createBackend(
 
   const { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem });
 
-  const { adminCreateProject, adminProjectOp, adminMigrateCopyV3Route, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
+  const { adminCreateProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml } = makeStaticRoutes({ config, sendJson });
 
@@ -1203,12 +1197,3 @@ function bindPort(bind: string): number {
   return idx === -1 ? 0 : Number(bind.slice(idx + 1));
 }
 
-/** Build the preview template (exposed for packet 10 tests). */
-export function previewTemplateFor(authoringOrigin: string): string {
-  const origin = authoringOrigin.replace(/"/g, '\\"');
-  return (
-    '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <title>Thirdlight Play Preview</title>\n  </head>\n  <body>\n' +
-    `    <script>window.__thirdlightPreview = { v: 2, authoringOrigin: "${origin}", playSessionId: null, contentId: null, manifestPath: "./manifest.json" };</script>\n` +
-    '    <script src="./preview.js"></script>\n  </body>\n</html>\n'
-  );
-}

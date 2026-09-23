@@ -9,7 +9,6 @@
  */
 export {
   createBackend,
-  previewTemplateFor,
   MAX_DIAGNOSTICS,
   MAX_HTTP_BODY,
   MAX_SCREENSHOT,

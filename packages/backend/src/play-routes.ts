@@ -5,7 +5,7 @@ import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, makeScr
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
-import { PlayContentStore, buildPlayContent, type PlayArtifact } from './play-content';
+import { PlayContentStore, type PlayArtifact } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
@@ -43,7 +43,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem } = ctx;
 
   /** The prebuilt play bundle bytes served as `game.js` (bounded read). */
-  const readGameBundle = (file = 'preview.js'): Uint8Array | null => {
+  const readGameBundle = (file = 'preview-m3.js'): Uint8Array | null => {
     const path = join(config.previewStaticDir, file);
     try {
       if (!existsSync(path) || !statSync(path).isFile()) return null;
@@ -139,11 +139,19 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     // BEFORE the play record exists (a failed build writes nothing and leaves
     // the previous artifact/locator untouched — delivery §2.2). Each branch
     // reads its own prebuilt play bundle (M2 `preview.js` / M3 `preview-m3.js`).
-    // Packet 59: v3 play builds the SHARED M3 closure from the captured v3
-    // content (the single acknowledged envelope read — readCapturedV3); v1/v2
-    // play is the unchanged M2 path.
+    // Play builds the SHARED M3 closure from the captured v3 content (the
+    // single acknowledged envelope read — readCapturedV3).
+    // Only current (v3) projects play; older schema versions are no longer supported.
+    if (sceneSchemaVersion !== 3) {
+      sendError(
+        res,
+        sessionError('play_build_unavailable', 'validation', `this project uses scene schema v${sceneSchemaVersion}; only v3 projects can play`, { reason: 'version_unsupported' }),
+        409,
+      );
+      return;
+    }
     let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
-    if (sceneSchemaVersion === 3) {
+    {
       const captured = service.readCapturedV3(projectId);
       if (!captured.ok) {
         sendError(res, workspaceError(captured.error), statusFor(captured.error.cls));
@@ -197,44 +205,6 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         contentDigest: builtM3.built.contentDigest,
         manifestBytes: builtM3.built.manifestBytes,
         artifacts: builtM3.built.artifacts,
-      };
-    } else {
-      // The M2 play bundle (the M2 preview wrapper entry), served as game.js.
-      const gameBundle = readGameBundle();
-      if (gameBundle === null) {
-        sendError(
-          res,
-          sessionError('play_build_unavailable', 'unavailable', 'the prebuilt play bundle is missing (run the workspace build)', {
-            reason: 'game_bundle_missing',
-          }),
-          503,
-        );
-        return;
-      }
-      const built = await buildPlayContent({
-        service,
-        compiler: behaviorCompiler,
-        projectId,
-        revision: state.revision,
-        capturedAt: utcSecond(now),
-        demo: parsedReq.request.demo,
-        scene: {
-          schemaVersion: sceneSchemaVersion,
-          sceneId: state.scene.sceneId as string,
-          revision: state.revision,
-          entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
-        },
-        gameBundle,
-      });
-      if (!built.ok) {
-        sendError(res, built.error, statusFor(built.error.cls));
-        return;
-      }
-      builtCore = {
-        buildId: built.built.buildId,
-        contentDigest: built.built.contentDigest,
-        manifestBytes: built.built.manifestBytes,
-        artifacts: built.built.artifacts,
       };
     }
     const published = playContent.publish({

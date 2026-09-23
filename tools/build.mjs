@@ -73,11 +73,6 @@ const BUNDLES = [
     entry: 'packages/editor/src/index.tsx',
     out: 'dist/editor/main.js',
   },
-  {
-    name: 'preview',
-    entry: 'packages/editor/src/preview/preview-bootstrap.ts',
-    out: 'dist/preview/preview.js',
-  },
   // Packet 59 (delivery.md §3.2): the M3 preview wrapper entry — the v3 play
   // bundle (served as `game.js` at the v3 locator). The M2 `preview.js`
   // entry above stays byte-stable (binding M2 §5.4.1 bundle-scan evidence).

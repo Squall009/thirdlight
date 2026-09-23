@@ -22,26 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import {
-  captureManifest,
-  captureContentViewV3,
-  captureManifestV2,
-  capturedViewDigest,
-  M3_ENGINE_PINS,
-  requiredModuleIds,
-  resolveMediaIdentityV3,
-  sha256Hex,
-  type CaptureManifestResult,
-  type GameConfig,
-  type GameplaySettings,
-  type ManifestAssetInput,
-  type ManifestAssetInputV2,
-  type ManifestBehaviorInput,
-  type MediaBlock,
-  type RuntimeContentManifest,
-  type RuntimeContentManifestV2,
-  resolveRequiredModules,
-} from '@thirdlight/project-model';
+import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -83,47 +64,6 @@ export interface ClosureBehavior {
   outputBytes: Uint8Array;
 }
 
-export interface ContentClosureInput {
-  /** The injected workspace service (types-only edge). */
-  service: WorkspaceService;
-  /** The injected behavior compiler (packet 33). */
-  compiler: ContentClosureCompilerPort;
-  projectId: string;
-  revision: number;
-  /** UTC second at capture (project-model §7.2). */
-  capturedAt: string;
-  /** The captured scene block (`{schemaVersion, sceneId, revision, entities}`). */
-  scene: { schemaVersion: number; sceneId: string; revision: number; entities: ReadonlyArray<Record<string, unknown>> };
-  demo: boolean;
-  /**
-   * The ALREADY-captured content view (the injected captured snapshot): when
-   * supplied, the closure uses it instead of reading the view again, so one
-   * captured revision can never mix with a later read (sessions.md §17.1.3).
-   */
-  capturedView?: {
-    assets: readonly { assetId: string; version: number; sourceDigest: string; sourceByteLength: number; importRecipe: unknown }[];
-    contentDigest: string;
-  };
-}
-
-export interface ContentClosure {
-  manifest: RuntimeContentManifest;
-  manifestBytes: Uint8Array;
-  buildId: string;
-  contentDigest: string;
-  snapshotId: string;
-  sceneDigest: string;
-  moduleIds: readonly string[];
-  /** The reachable asset artifacts (`content/sha256/<digest>`), sorted by path. */
-  assetArtifacts: readonly ClosureArtifact[];
-  /** The reachable behavior artifacts (`behaviors/<outputDigest>.js`), sorted. */
-  behaviorArtifacts: readonly ClosureArtifact[];
-  /** The reachable behaviors in manifest order (ascending `behaviorId`). */
-  behaviors: readonly ClosureBehavior[];
-  /** Every manifest-declared artifact path, sorted and deduplicated. */
-  declaredPaths: readonly string[];
-}
-
 export interface ContentClosureError {
   code: string;
   cls: 'validation' | 'conflict' | 'internal' | 'unavailable';
@@ -133,8 +73,6 @@ export interface ContentClosureError {
   found?: string;
   expected?: string;
 }
-
-export type ContentClosureResult = { ok: true; closure: ContentClosure } | { ok: false; error: ContentClosureError };
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -156,154 +94,9 @@ function fromCommandError(e: {
   };
 }
 
-/**
- * Build the declared artifact closure for one captured revision. Pure
- * derivation + verified injected reads; no authoritative write, no project
- * source evaluation, no clock read (the caller supplies `capturedAt`).
- */
-export async function buildContentClosure(input: ContentClosureInput): Promise<ContentClosureResult> {
-  const { service, compiler, projectId } = input;
-
-  // 1. The captured content view (project-model §19) — the reachable asset
-  //    versions at this revision. A `storageVersion` 1 project has no v2
-  //    content block (the caller decides the M1 path before reaching here).
-  let capturedAssets: ReadonlyArray<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number; importRecipe: unknown }>;
-  let contentDigest: string;
-  if (input.capturedView !== undefined) {
-    capturedAssets = input.capturedView.assets;
-    contentDigest = input.capturedView.contentDigest;
-  } else {
-    const viewRes = service.captureContentView(projectId);
-    if (!viewRes.ok) {
-      if (viewRes.error.reason === 'version_combination_unsupported') {
-        // A `storageVersion` 1 project has no v2 content block: the captured
-        // view is the empty view (the M1-style snapshot — no assets, no
-        // behaviors). Packet-35 compatibility, unchanged.
-        capturedAssets = [];
-        contentDigest = capturedViewDigest({ projectId, revision: input.revision, assets: [] });
-      } else {
-        return { ok: false, error: fromCommandError(viewRes.error) };
-      }
-    } else {
-      capturedAssets = viewRes.view.assets.map((a) => ({
-        assetId: a.assetId,
-        version: a.version,
-        sourceDigest: a.sourceDigest,
-        sourceByteLength: a.sourceByteLength,
-        importRecipe: a.importRecipe,
-      }));
-      contentDigest = viewRes.view.contentDigest;
-    }
-  }
-
-  // 2. The declared asset bytes (verified digest-addressed reads; the bytes
-  //    are copied verbatim, never re-encoded).
-  const assetArtifacts: ClosureArtifact[] = [];
-  const assets: ManifestAssetInput[] = [];
-  for (const a of capturedAssets) {
-    const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
-    if (!read.ok) return { ok: false, error: fromCommandError(read.error) };
-    if (read.digest !== a.sourceDigest || read.byteLength !== a.sourceByteLength) {
-      return {
-        ok: false,
-        error: {
-          code: 'asset_digest_mismatch',
-          cls: 'unavailable',
-          reason: 'asset_digest_mismatch',
-          message: `asset ${a.assetId}@${a.version} no longer matches the captured view`,
-          found: read.digest,
-          expected: a.sourceDigest,
-        },
-      };
-    }
-    if (!DIGEST_RE.test(read.digest)) {
-      return { ok: false, error: { code: 'asset_digest_mismatch', cls: 'unavailable', message: 'a blob read returned a malformed digest' } };
-    }
-    assetArtifacts.push({
-      path: `content/sha256/${read.digest}`,
-      bytes: read.bytes,
-      digest: read.digest,
-      contentType: 'model/gltf-binary',
-    });
-    assets.push({
-      assetId: a.assetId,
-      version: a.version,
-      sourceDigest: a.sourceDigest,
-      sourceByteLength: a.sourceByteLength,
-      importRecipe: a.importRecipe,
-    });
-  }
-
-  // 3. The reachable source-bearing behaviors, recompiled deterministically
-  //    from the immutable container blob through the injected compiler; the
-  //    recorded outputDigest is an assertion, never a substitute.
-  const compiledBehaviors = await compileReachableBehaviors(service, compiler, projectId);
-  if (!compiledBehaviors.ok) return compiledBehaviors;
-  const { behaviorArtifacts, behaviorInputs, behaviors } = compiledBehaviors;
-
-  // 4. The required engine modules for this snapshot's module set.
-  const moduleIds = requiredModuleIds(input.scene, input.demo, behaviors.length > 0);
-
-  // 5. The manifest (pure derivation) + `buildId`.
-  const captured: CaptureManifestResult = captureManifest({
-    projectId,
-    revision: input.revision,
-    capturedAt: input.capturedAt,
-    scene: input.scene,
-    assets,
-    behaviors: behaviorInputs,
-    moduleIds,
-  });
-  if (!captured.ok) {
-    return { ok: false, error: { code: 'export_manifest_invalid', cls: 'validation', message: captured.error.message } };
-  }
-  const manifest = captured.manifest;
-  // The manifest's contentDigest is derived here from the captured view's own
-  // facts (canonical JSON + SHA-256) and must equal the workspace's
-  // independently computed view digest — a real cross-check of the two
-  // canonical/digest implementations (no silent divergence).
-  if (manifest['contentDigest'] !== contentDigest) {
-    return {
-      ok: false,
-      error: {
-        code: 'export_manifest_invalid',
-        cls: 'internal',
-        message: 'the derived contentDigest does not match the captured content view digest',
-        found: String(manifest['contentDigest']),
-        expected: contentDigest,
-      },
-    };
-  }
-  if (manifest['sceneDigest'] !== undefined && typeof manifest['sceneDigest'] !== 'string') {
-    return { ok: false, error: { code: 'export_manifest_invalid', cls: 'internal', message: 'the derived sceneDigest is not a digest string' } };
-  }
-  assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path)])].sort();
-  return {
-    ok: true,
-    closure: {
-      manifest,
-      manifestBytes: captured.bytes,
-      buildId: captured.buildId,
-      contentDigest,
-      snapshotId: `${projectId}@r${input.revision}`,
-      sceneDigest: String(manifest['sceneDigest']),
-      moduleIds,
-      assetArtifacts,
-      behaviorArtifacts,
-      behaviors,
-      declaredPaths,
-    },
-  };
-}
-
 // ---------------------------------------------------------------------------
 // M3 shared closure builder (packet 58; delivery.md §2/§3, export.md §3)
 // ---------------------------------------------------------------------------
-
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
 const ASSET_CONTENT_TYPE: Record<'model' | 'audio', string> = {

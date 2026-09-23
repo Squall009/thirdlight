@@ -237,8 +237,6 @@ export {
   CONTENT_PROJECTION_KEYS,
   ANIMATION_ROLE_KEYS,
   parseStageInspectRequest,
-  parseAdminMigrateCopyV3Request,
-  type AdminMigrateCopyV3Request,
   type AnimationRoleBindingValue,
   type AnimationRolesValue,
   type StageInspectRequest,

@@ -5,8 +5,8 @@
  * leak counters. Fast and deterministic (an injected clock).
  */
 import { describe, expect, it } from 'vitest';
-import { classifyLocatorPath, manifestBuildIdInput } from '@thirdlight/protocol';
-import { BUILD_OPTIONS_DIGEST, PlayContentStore, captureRuntimeContentManifest, sha256HexBytes } from './play-content';
+import { classifyLocatorPath } from '@thirdlight/protocol';
+import { PlayContentStore } from './play-content';
 
 const ASSET = {
   assetId: 'asset-0001',
@@ -28,51 +28,6 @@ const BEHAVIOR = {
   ownedTransforms: ['model-0001'],
   requiredModules: ['@thirdlight/runtime'],
 };
-
-describe('captureRuntimeContentManifest (sessions.md §17.1.1)', () => {
-  const input = {
-    projectId: 'demo-0002',
-    revision: 7,
-    capturedAt: '2026-09-19T10:00:00Z',
-    sceneDigest: '1'.repeat(64),
-    contentDigest: '2'.repeat(64),
-    assets: [ASSET],
-    behaviors: [BEHAVIOR],
-    moduleIds: ['thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller'],
-  };
-
-  it('is self-identifying: buildId = SHA-256 of the canonical document without buildId', () => {
-    const captured = captureRuntimeContentManifest(input);
-    expect(captured.ok).toBe(true);
-    if (!captured.ok) return;
-    const preimage = manifestBuildIdInput(captured.manifest as unknown as Record<string, unknown>);
-    expect(preimage).not.toBeNull();
-    expect(captured.buildId).toBe(sha256HexBytes(preimage as Uint8Array));
-    expect(captured.manifest.buildId).toBe(captured.buildId);
-    // The manifest document is canonical (2-space indent, LF, trailing newline).
-    const text = new TextDecoder().decode(captured.bytes);
-    expect(text.endsWith('\n')).toBe(true);
-    expect(JSON.parse(text)).toEqual(captured.manifest);
-  });
-
-  it('orders assets by assetId/version, behaviors by behaviorId and names the required modules', () => {
-    const captured = captureRuntimeContentManifest({
-      ...input,
-      assets: [ASSET, { ...ASSET, assetId: 'asset-0000', version: 2 }, { ...ASSET, assetId: 'asset-0000', version: 1 }],
-    });
-    expect(captured.ok).toBe(true);
-    if (!captured.ok) return;
-    expect(captured.manifest.assets.map((a) => `${a['assetId']}@${a['version']}`)).toEqual(['asset-0000@1', 'asset-0000@2', 'asset-0001@1']);
-    expect(captured.manifest.behaviors[0]!['path']).toBe(`behaviors/${BEHAVIOR.outputDigest}.js`);
-    expect(captured.manifest.modules.map((m) => m['id'])).toEqual(['thirdlight.physics-rapier:2d', 'thirdlight.platformer:controller']);
-    expect(captured.manifest.buildOptionsDigest).toBe(BUILD_OPTIONS_DIGEST);
-  });
-
-  it('rejects a malformed digest', () => {
-    const captured = captureRuntimeContentManifest({ ...input, sceneDigest: 'nope' });
-    expect(captured.ok).toBe(false);
-  });
-});
 
 describe('locator path classification (sessions.md §17.2.1)', () => {
   const id = 'A'.repeat(43);

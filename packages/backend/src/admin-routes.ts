@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { join } from 'node:path';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules } from './templates';
-import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, parseAdminMigrateCopyV3Request, type SessionError } from '@thirdlight/protocol';
+import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
@@ -123,42 +123,6 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     sendError(res, workspaceError(result.error), statusFor(result.error.cls));
   };
 
-  /**
-   * `POST /api/v1/admin/projects/:projectId/migrate-copy-v3` (workspace.md
-   * §16.5/§16.8, packet 48): the explicit, admin-scoped v2→v3 operator copy.
-   * It delegates to the workspace service method (the sole authority), returns
-   * the §16.5.2 reported object verbatim, and surfaces the §16.8 codes. Every
-   * refusal writes nothing (the workspace guarantees it; no transport-side
-   * write exists here). Never a browser command, never an MCP tool.
-   */
-  const adminMigrateCopyV3Route = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
-    const authError = requireAuth(req, projectId, true);
-    if (authError !== null) {
-      sendError(res, authError);
-      return;
-    }
-    const body = await readBody(req);
-    if (!body.ok) {
-      sendError(res, body.error);
-      return;
-    }
-    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
-    if (!strict.ok) {
-      sendError(res, strict.error);
-      return;
-    }
-    const parsedReq = parseAdminMigrateCopyV3Request(strict.value);
-    if (!parsedReq.ok) {
-      sendError(res, parsedReq.error, statusFor(parsedReq.error.cls));
-      return;
-    }
-    const result = service.migrateProjectCopyV3(projectId, parsedReq.request.newProjectId);
-    if (result.ok) {
-      sendJson(res, 200, result);
-      return;
-    }
-    sendError(res, workspaceError(result.error), statusFor(result.error.cls));
-  };
 
   // ---------- export (sessions.md §6.3; export.md §2/§4) ----------
 
@@ -227,10 +191,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       authoringOrigin: config.authoringOrigin,
       previewOrigin: config.previewOrigin,
       tokenValues: config.tokens.map((t) => t.token),
-      bootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap.ts'),
-      // Packet 36: the M2 export bundle entry + the SAME injected packet-33
-      // compiler instance the play build uses (one compiler, one closure).
-      m2BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m2.ts'),
+      // The export bundle entry + the SAME behavior compiler instance the play build uses.
       m3BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m3.ts'),
       compiler: behaviorCompiler,
       threePackageJson: join(engineRoot, 'node_modules/three/package.json'),
@@ -253,5 +214,5 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
   // ---------- static ----------
 
 
-  return { adminCreateProject, adminProjectOp, adminMigrateCopyV3Route, adminExportRoute };
+  return { adminCreateProject, adminProjectOp, adminExportRoute };
 }

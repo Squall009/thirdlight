@@ -17,75 +17,29 @@
  * with `write: false` so the built bytes stay in memory.
  */
 
-export { exportProject, exportProjectM1, type ExportContext, type ExportFs } from './export';
-export { exportProjectM2 } from './export-m2';
+export { exportProject, type ExportContext, type ExportFs } from './export';
 export { exportProjectM3 } from './export-m3';
 // Packet 36 — the shared M2 closure builder + the export/play runtime
 // composition (dependencies.md §3 `exporter` row: "the shared
 // manifest/closure builder + the packet-19 meta.json fields").
 export {
-  buildContentClosure,
   buildContentClosureM3,
   type ClosureArtifact,
   type ClosureBehavior,
-  type ContentClosure,
   type ContentClosureCompilerPort,
   type ContentClosureError,
-  type ContentClosureInput,
   type ContentClosureM3,
   type ContentClosureM3Input,
-  type ContentClosureResult,
 } from './content-closure';
-export {
-  composeExportRuntime,
-  exportModuleIds,
-  verifyManifestIdentity,
-  EXPORT_MANIFEST_KEYS,
-  type ComposeExportRuntimeInput,
-  type ComposeExportRuntimeResult,
-  type CompositionManifest,
-  type ExportBehaviorLink,
-} from './export-composition';
-export { checkBundleGraphM2, checkBundleGraphM3 } from './graph';
-// The shared manifest/digest helpers (project-model values re-exported so
-// value-only consumers such as `backend` keep their types-only
-// `backend → project-model` edge, dependencies.md §4.1).
-export {
-  BUILD_OPTIONS_RECORD,
-  MANIFEST_KEYS,
-  M2_ENGINE_PINS,
-  M2_KNOWN_MODULE_IDS,
-  M2_MODULE_PACKAGES,
-  RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
-  RUNTIME_CONTENT_MANIFEST_VERSION,
-  RUNTIME_CONTENT_TYPE,
-  buildOptionsRecordBytes,
-  captureManifest,
-  capturedViewDigest,
-  digestBytes,
-  digestEmittedClosure,
-  manifestBuildIdInput,
-  recipeDigestOf,
-  requiredModuleIds,
-  versionFactsDigest,
-  type CaptureManifestInput,
-  type CaptureManifestResult,
-  type EmittedArtifactDigest,
-  type ManifestAssetInput,
-  type ManifestBehaviorInput,
-  type ManifestError,
-  type RuntimeContentManifest,
-} from '@thirdlight/project-model';
+export { checkBundleGraphM3 } from './graph';
 export {
   assertRelativeClosure,
   scanGlbContainer,
-  scanM2TextBundle,
   scanWavContainer,
   scanWasmContainer,
   textPatternCounts,
   type ContainerResult,
   type M2ScanCounts,
-  type M2TextScanReport,
 } from './export-content-scan';
 export {
   ERROR_CODES,
