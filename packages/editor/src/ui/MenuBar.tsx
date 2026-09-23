@@ -5,6 +5,8 @@
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
 
+import { Logo } from './Logo';
+
 export interface MenuItem {
   label: string;
   /** Shown right-aligned (informational; the app binds the keys). */
@@ -94,7 +96,7 @@ export function MenuBar(p: { menus: Menu[] }): JSX.Element {
 
   return (
     <div className="tl-menubar" role="menubar" ref={root}>
-      <span className="tl-menubar__brand">Thirdlight</span>
+      <span className="tl-menubar__brand"><Logo size={20} /></span>
       {p.menus.map((m, i) => (
         <div key={m.label} className={`tl-menubar__menu${open === i ? ' is-open' : ''}`}>
           <button

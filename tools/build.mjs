@@ -18,7 +18,7 @@
  */
 
 import esbuild from 'esbuild';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 
@@ -33,6 +33,7 @@ function emitEditorPage() {
     '    <meta charset="utf-8" />\n' +
     '    <meta name="viewport" content="width=device-width, initial-scale=1" />\n' +
     '    <title>Thirdlight Editor</title>\n' +
+    '    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />\n' +
     '    <style>\n' + css + '\n    </style>\n' +
     '  </head>\n  <body>\n' +
     '    <div id="tl-root"></div>\n' +
@@ -41,6 +42,11 @@ function emitEditorPage() {
   const out = join(root, 'dist/editor/index.html');
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, html);
+  // Static files next to the page (favicon, manifest): copied as-is.
+  const pub = join(root, 'packages/editor/public');
+  if (existsSync(pub)) {
+    for (const name of readdirSync(pub)) writeFileSync(join(dirname(out), name), readFileSync(join(pub, name)));
+  }
   console.log(`build: editor page: -> ${join('dist/editor/index.html')}`);
 }
 

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
 
 import { forgetToken, rememberToken } from '../config';
+import { Logo } from './Logo';
 
 export interface ProjectRow {
   projectId: string;
@@ -45,7 +46,7 @@ export function TokenForm(props: { message?: string }): JSX.Element {
   };
   return (
     <form className="tl-connect" onSubmit={submit}>
-      <h1>Thirdlight editor</h1>
+      <h1><Logo size={26} /></h1>
       {props.message ? <p className="tl-connect__message">{props.message}</p> : null}
       <label>
         Access token
@@ -130,7 +131,7 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
 
   return (
     <div className="tl-projects">
-      <h1>Thirdlight</h1>
+      <h1><Logo size={28} /></h1>
       {props.message ? <p className="tl-connect__message">{props.message}</p> : null}
       <section className="tl-projects__list">
         <h2>Projects</h2>
