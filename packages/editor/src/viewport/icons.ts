@@ -46,15 +46,85 @@ function svgFor(kind: IconKind, selected: boolean): string {
 
 const cache = new Map<string, THREE.Texture>();
 
+/** The icon artwork files (served next to the editor page); the SVG glyph is the fallback. */
+export const ICON_FILES: Record<IconKind, string> = {
+  camera: './icons/camera.png',
+  sun: './icons/sun.png',
+  ambient: './icons/ambient.png',
+  spawn: './icons/spawn.png',
+  empty: './icons/empty.png',
+};
+
+/** Draw the disc, the artwork and (when selected) the ring onto a canvas. */
+function compose(size: number, art: HTMLImageElement | null, kind: IconKind, selected: boolean): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const g = c.getContext('2d')!;
+  const u = size / 64;
+  g.fillStyle = 'rgba(20,23,28,.82)';
+  g.beginPath();
+  g.arc(32 * u, 32 * u, 26 * u, 0, Math.PI * 2);
+  g.fill();
+  if (art !== null) {
+    const inset = 14 * u;
+    g.drawImage(art, inset, inset, size - 2 * inset, size - 2 * inset);
+  } else {
+    // Fallback glyph (the SVG string) — drawn through an image element by the caller.
+    void kind;
+  }
+  if (selected) {
+    g.strokeStyle = '#4c8dff';
+    g.lineWidth = 4 * u;
+    g.beginPath();
+    g.arc(32 * u, 32 * u, 29 * u, 0, Math.PI * 2);
+    g.stroke();
+  }
+  return c;
+}
+
+const artwork = new Map<IconKind, Promise<HTMLImageElement | null>>();
+function loadArt(kind: IconKind): Promise<HTMLImageElement | null> {
+  const hit = artwork.get(kind);
+  if (hit) return hit;
+  const p = new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = ICON_FILES[kind];
+  });
+  artwork.set(kind, p);
+  return p;
+}
+
 /** The texture for one icon (loaded once; `onLoad` fires when it is drawable). */
 export function iconTexture(kind: IconKind, selected: boolean, onLoad?: () => void): THREE.Texture {
   const key = `${kind}:${selected ? 1 : 0}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, selected))}`;
-  const tex = new THREE.TextureLoader().load(url, () => onLoad?.());
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   cache.set(key, tex);
+  void loadArt(kind).then((art) => {
+    if (art !== null) {
+      const composed = compose(128, art, kind, selected);
+      canvas.getContext('2d')!.drawImage(composed, 0, 0);
+      tex.needsUpdate = true;
+      onLoad?.();
+      return;
+    }
+    // No artwork file: draw the inline SVG glyph instead.
+    const img = new Image();
+    img.onload = () => {
+      canvas.getContext('2d')!.drawImage(img, 0, 0, 128, 128);
+      tex.needsUpdate = true;
+      onLoad?.();
+    };
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, selected))}`;
+  });
   return tex;
 }
 

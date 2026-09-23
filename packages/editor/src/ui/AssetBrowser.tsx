@@ -88,7 +88,7 @@ export function AssetBrowser(p: Props): JSX.Element {
             onClick={() => p.onSelect(a.assetId)}
             title={a.assetId}
           >
-            <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">{a.kind === 'audio' ? '♪' : '⬡'}</span>
+            <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true"><img className="tl-tile__img" src={`./icons/${a.kind === 'audio' ? 'audio' : 'model'}.png`} alt="" /></span>
             <span className="tl-tile__name">{a.displayName}</span>
             <span className="tl-tile__meta" title={`${a.versionCount} version(s)`}>
               {a.kind} · v{a.currentVersion}

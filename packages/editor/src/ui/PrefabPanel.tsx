@@ -89,7 +89,7 @@ export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
             onClick={() => p.onSelect(d.prefabId)}
             title={d.prefabId}
           >
-            <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true">⬢</span>
+            <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true"><img className="tl-tile__img" src="./icons/prefab.png" alt="" /></span>
             <span className="tl-tile__name">{d.displayName}</span>
             <span className="tl-tile__meta">
               {d.entityCount} ent · depth {d.depth}

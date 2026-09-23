@@ -18,7 +18,7 @@
  */
 
 import esbuild from 'esbuild';
-import { readdirSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 
@@ -44,9 +44,15 @@ function emitEditorPage() {
   writeFileSync(out, html);
   // Static files next to the page (favicon, manifest): copied as-is.
   const pub = join(root, 'packages/editor/public');
-  if (existsSync(pub)) {
-    for (const name of readdirSync(pub)) writeFileSync(join(dirname(out), name), readFileSync(join(pub, name)));
-  }
+  const copyTree = (from, to) => {
+    mkdirSync(to, { recursive: true });
+    for (const name of readdirSync(from)) {
+      const src = join(from, name);
+      if (statSync(src).isDirectory()) copyTree(src, join(to, name));
+      else writeFileSync(join(to, name), readFileSync(src));
+    }
+  };
+  if (existsSync(pub)) copyTree(pub, dirname(out));
   console.log(`build: editor page: -> ${join('dist/editor/index.html')}`);
 }
 

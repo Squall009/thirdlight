@@ -44,6 +44,10 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(17);
   await page.getByRole('tab', { name: 'Assets' }).click();
   await expect(page.locator('.tl-dock--bottom .tl-assets__list')).toBeVisible();
+  // Tile and hierarchy icons are real image files that load.
+  await expect.poll(() => page.locator('.tl-tile__img').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => page.locator('.tl-row__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => page.locator('.tl-btn__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('tab', { name: /Problems/ }).click();
   await expect(page.locator('.tl-dock--bottom .tl-problems, .tl-dock--bottom .tl-panel').first()).toBeVisible();
   await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(17);

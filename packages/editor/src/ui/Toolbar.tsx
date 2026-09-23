@@ -19,10 +19,10 @@ interface Props {
   onStop: () => void;
 }
 
-const TOOLS: ReadonlyArray<{ mode: GizmoMode; label: string; title: string }> = [
-  { mode: 'translate', label: '✥', title: 'Move tool (W)' },
-  { mode: 'rotate', label: '↻', title: 'Rotate tool (E)' },
-  { mode: 'scale', label: '⤢', title: 'Scale tool (R)' },
+const TOOLS: ReadonlyArray<{ mode: GizmoMode; icon: string; title: string }> = [
+  { mode: 'translate', icon: './icons/move.png', title: 'Move tool (W)' },
+  { mode: 'rotate', icon: './icons/rotate.png', title: 'Rotate tool (E)' },
+  { mode: 'scale', icon: './icons/scale.png', title: 'Scale tool (R)' },
 ];
 
 export function Toolbar(p: Props): JSX.Element {
@@ -34,7 +34,7 @@ export function Toolbar(p: Props): JSX.Element {
       <div className="tl-toolbar__group" role="radiogroup" aria-label="Transform tool">
         {TOOLS.map((t) => (
           <button key={t.mode} role="radio" aria-checked={p.gizmoMode === t.mode} className={`tl-btn tl-btn--tool${p.gizmoMode === t.mode ? ' is-active' : ''}`} onClick={() => p.onGizmoMode(t.mode)} title={t.title}>
-            {t.label}
+            <img className="tl-btn__icon" src={t.icon} alt="" aria-hidden="true" />
           </button>
         ))}
       </div>

@@ -113,6 +113,7 @@ export function Hierarchy({ entities, selectedId, onSelect, onRename, onReparent
                 if (id !== null && id !== r.id && e.parentId !== id) onReparent(id, r.id);
               }}
             >
+              <img className="tl-row__icon" src={`./icons/${ROW_ICON[e.kind]}.png`} alt="" aria-hidden="true" />
               <span className={`tl-row__kind tl-row__kind--${e.kind}`}>{e.kind}</span>
               {renaming?.id === r.id ? (
                 <input
@@ -139,3 +140,6 @@ export function Hierarchy({ entities, selectedId, onSelect, onRename, onReparent
     </div>
   );
 }
+
+/** The icon file per entity kind (see packages/editor/public/icons). */
+const ROW_ICON: Record<string, string> = { box: 'box', camera: 'camera', light: 'sun', model: 'model', entity: 'empty' };
