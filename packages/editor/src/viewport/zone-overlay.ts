@@ -319,14 +319,7 @@ export class ZoneOverlay {
       };
       group.add(border, mesh);
     }
-    if (e.playerSpawn === true) {
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.25, 0.6, 4),
-        new THREE.MeshBasicMaterial({ color: SPAWN_COLOR }),
-      );
-      cone.position.set(N(e.position[0]), N(e.position[1]), 0.01);
-      group.add(cone);
-    }
+    // (A player spawn is drawn by the viewport as an icon billboard.)
     if (e.cameraFollow !== undefined) {
       const b = e.cameraFollow.bounds;
       const pts = [
@@ -360,9 +353,6 @@ export class ZoneOverlay {
       const mat = m.material as THREE.MeshBasicMaterial;
       mat.color.setHex(ZONE_COLORS[e.gameZone.role]);
       (border.material as THREE.MeshBasicMaterial).color.setHex(ZONE_COLORS[e.gameZone.role]);
-    } else if (e.playerSpawn === true) {
-      const m = g.children[0] as THREE.Mesh;
-      m.position.set(N(e.position[0]), N(e.position[1]), 0.01);
     }
     this.updateResizeHandle();
   }

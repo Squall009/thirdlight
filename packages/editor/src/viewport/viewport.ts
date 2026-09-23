@@ -17,6 +17,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { ProjectedEntity } from '../session/projection';
 import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
+import { fitSprite, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import type { ModelInstances } from './model-instances';
 
 export interface ViewportCallbacks {
@@ -323,8 +324,7 @@ export class Viewport {
       (mesh as { entityId?: string }).entityId = e.id;
       group.add(mesh);
     } else if (e.light !== undefined) {
-      // M3 (packet 57): a light entity previews as a directional arrow (a line
-      // along `direction`) or a small sphere (ambient).
+      // A light is an icon billboard; a directional light also shows its direction.
       if (e.light.type === 'directional' && e.light.direction !== undefined) {
         const d = e.light.direction;
         const len = 2;
@@ -332,34 +332,44 @@ export class Viewport {
           new THREE.Vector3(0, 0, 0),
           new THREE.Vector3(d[0] * len, d[1] * len, d[2] * len),
         ]);
-        const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffe08a }));
+        const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffe27a }));
         line.name = e.id;
         (line as { entityId?: string }).entityId = e.id;
         (line as { userData?: unknown }).userData = { lightKind: 'directional' };
         group.add(line);
-      } else {
-        const sphere = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 12, 8),
-          new THREE.MeshBasicMaterial({ color: 0xffe08a }),
-        );
-        sphere.name = e.id;
-        (sphere as { entityId?: string }).entityId = e.id;
-        (sphere as { userData?: unknown }).userData = { lightKind: 'ambient' };
-        group.add(sphere);
       }
+      this.addIcon(group, e.id, e.light.type === 'directional' ? 'sun' : 'ambient');
+    } else if (e.kind === 'camera') {
+      // A camera is an icon billboard plus a small wire frustum showing where it looks (-Z).
+      const w = 0.42;
+      const h = 0.28;
+      const z = -0.9;
+      const o = new THREE.Vector3(0, 0, 0);
+      const c = [new THREE.Vector3(-w, -h, z), new THREE.Vector3(w, -h, z), new THREE.Vector3(w, h, z), new THREE.Vector3(-w, h, z)];
+      const pts = [o, c[0]!, o, c[1]!, o, c[2]!, o, c[3]!, c[0]!, c[1]!, c[1]!, c[2]!, c[2]!, c[3]!, c[3]!, c[0]!];
+      const frustum = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf2b544 }));
+      frustum.name = e.id;
+      (frustum as { entityId?: string }).entityId = e.id;
+      group.add(frustum);
+      this.addIcon(group, e.id, 'camera');
     } else {
-      // Cameras render as a small frustum marker (non-pickable body + label cone).
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(0.3, 0.7, 12),
-        new THREE.MeshBasicMaterial({ color: 0xffc857 }),
-      );
-      cone.rotation.x = Math.PI / 2;
-      cone.name = e.id;
-      (cone as { entityId?: string }).entityId = e.id;
-      group.add(cone);
+      // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
+      this.addIcon(group, e.id, e.playerSpawn === true ? 'spawn' : 'empty');
     }
     this.updateMesh(group, e);
     return group;
+  }
+
+  /** The icon billboards (kept square on screen across resizes). */
+  private readonly sprites = new Set<THREE.Sprite>();
+
+  private addIcon(group: THREE.Group, entityId: string, kind: IconKind): void {
+    const sprite = makeIconSprite(kind, () => this.requestRender());
+    sprite.name = entityId;
+    (sprite as { entityId?: string }).entityId = entityId;
+    fitSprite(sprite, this.camera.aspect);
+    this.sprites.add(sprite);
+    group.add(sprite);
   }
 
   private updateMesh(obj: THREE.Object3D, e: ProjectedEntity): void {
@@ -386,6 +396,11 @@ export class Viewport {
   private disposeMesh(obj: THREE.Object3D): void {
     const own = (obj as { entityId?: string }).entityId;
     const visit = (c: THREE.Object3D): void => {
+      if (c instanceof THREE.Sprite) {
+        this.sprites.delete(c);
+        (c.material as THREE.Material).dispose(); // the icon textures are shared and kept
+        return;
+      }
       const mesh = c as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
       const mat = (mesh as { material?: THREE.Material | THREE.Material[] }).material;
@@ -426,6 +441,10 @@ export class Viewport {
 
   private setMeshHighlight(obj: THREE.Object3D, on: boolean): void {
     obj.traverse((c) => {
+      if (c instanceof THREE.Sprite) {
+        setSpriteSelected(c, on, () => this.requestRender());
+        return;
+      }
       const mesh = c as THREE.Mesh;
       const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
       if (mat && 'emissive' in mat) {
@@ -554,6 +573,7 @@ export class Viewport {
     const h = Math.max(1, this.root.clientHeight || this.root.height);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    for (const sp of this.sprites) fitSprite(sp, this.camera.aspect);
     this.renderer.setSize(w, h, false);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.requestRender();
