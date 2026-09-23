@@ -194,8 +194,8 @@ describe('fixture index', () => {
     expect(proposalSourceBytes()).toBe(33_554_432);
   });
 
-  it('the effective extension allowlist is empty and frozen (§18.8.1)', () => {
-    expect([...M2_GLTF_EXTENSION_ALLOWLIST]).toEqual([]);
+  it('the effective extension allowlist is the pinned no-decoder set and frozen (§18.8.1)', () => {
+    expect([...M2_GLTF_EXTENSION_ALLOWLIST]).toEqual(['EXT_texture_webp',  'KHR_materials_clearcoat',  'KHR_materials_emissive_strength',  'KHR_materials_ior',  'KHR_materials_sheen',  'KHR_materials_specular',  'KHR_materials_transmission',  'KHR_materials_unlit',  'KHR_materials_volume',  'KHR_mesh_quantization',  'KHR_texture_transform']);
     expect(Object.isFrozen(M2_GLTF_EXTENSION_ALLOWLIST)).toBe(true);
     // Every committed fixture declares no used extension, so every recipe's
     // extension list is empty.

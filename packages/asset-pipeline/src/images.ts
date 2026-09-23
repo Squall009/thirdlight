@@ -11,7 +11,7 @@
  * payload is small; this is deliberately *not* a full image validation.
  */
 
-export type ImportImageMime = 'image/png' | 'image/jpeg';
+export type ImportImageMime = 'image/png' | 'image/jpeg' | 'image/webp';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
 
@@ -25,10 +25,20 @@ function hasJpegSignature(bytes: Uint8Array): boolean {
   return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
 }
 
-/** Detect the container by its actual magic bytes (`null` = neither). */
+/** `RIFF <size> WEBP` (EXT_texture_webp sources). */
+function hasWebpSignature(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  );
+}
+
+/** Detect the container by its actual magic bytes (`null` = none of them). */
 export function detectImageMime(bytes: Uint8Array): ImportImageMime | null {
   if (hasPngSignature(bytes)) return 'image/png';
   if (hasJpegSignature(bytes)) return 'image/jpeg';
+  if (hasWebpSignature(bytes)) return 'image/webp';
   return null;
 }
 
@@ -106,9 +116,48 @@ export function jpegDimensions(bytes: Uint8Array): ImageDimensions | null {
   return null;
 }
 
-/** Declared dimensions for either accepted container; `null` when unreadable. */
+function u24le(bytes: Uint8Array, off: number): number {
+  return (bytes[off] as number) | ((bytes[off + 1] as number) << 8) | ((bytes[off + 2] as number) << 16);
+}
+
+/**
+ * WebP canvas dims from the first chunk: `VP8 ` (lossy key frame: 14-bit
+ * width/height after the 0x9d012a start code), `VP8L` (lossless: 0x2f then
+ * 14-bit width-1/height-1) or `VP8X` (extended: 24-bit canvas width-1 and
+ * height-1). `null` when the header is absent or malformed.
+ */
+export function webpDimensions(bytes: Uint8Array): ImageDimensions | null {
+  if (!hasWebpSignature(bytes) || bytes.length < 30) return null;
+  const fourcc = String.fromCharCode(bytes[12] as number, bytes[13] as number, bytes[14] as number, bytes[15] as number);
+  let width = 0;
+  let height = 0;
+  if (fourcc === 'VP8 ') {
+    if (bytes[23] !== 0x9d || bytes[24] !== 0x01 || bytes[25] !== 0x2a) return null;
+    width = ((bytes[26] as number) | ((bytes[27] as number) << 8)) & 0x3fff;
+    height = ((bytes[28] as number) | ((bytes[29] as number) << 8)) & 0x3fff;
+  } else if (fourcc === 'VP8L') {
+    if (bytes[20] !== 0x2f) return null;
+    const b0 = bytes[21] as number;
+    const b1 = bytes[22] as number;
+    const b2 = bytes[23] as number;
+    const b3 = bytes[24] as number;
+    width = 1 + (((b1 & 0x3f) << 8) | b0);
+    height = 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+  } else if (fourcc === 'VP8X') {
+    width = 1 + u24le(bytes, 24);
+    height = 1 + u24le(bytes, 27);
+  } else {
+    return null;
+  }
+  if (width === 0 || height === 0) return null;
+  return { width, height };
+}
+
+/** Declared dimensions for an accepted container; `null` when unreadable. */
 export function imageDimensions(bytes: Uint8Array, mime: ImportImageMime): ImageDimensions | null {
-  return mime === 'image/png' ? pngDimensions(bytes) : jpegDimensions(bytes);
+  if (mime === 'image/png') return pngDimensions(bytes);
+  if (mime === 'image/jpeg') return jpegDimensions(bytes);
+  return webpDimensions(bytes);
 }
 
 /**

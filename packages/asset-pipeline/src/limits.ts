@@ -89,19 +89,26 @@ export const AUDIO_PCM_WAV_LIMITS: Readonly<Record<string, number>> = Object.fre
 });
 
 /**
- * §18.8.1 extension allowlist.
- *
- * The accepted contract fixes the effective allowlist as **empty** until
- * packet 24 records a passing test against the pinned `three@0.186.0`
- * GLTFLoader. The pinned loader cannot be executed in this environment (no
- * browser/DOM; the loader is a browser module and this package may not import
- * `three` at all — dependencies.md §4.1/§4.3), so no extension has a recorded
- * passing loader test and the allowlist stays empty: any `extensionsUsed`
- * entry is rejected with `asset_extension_unsupported`. A static read of the
- * pinned loader only proves it *mentions* `KHR_materials_unlit`; that is not
- * the recorded test the contract requires.
+ * §18.8.1 extension allowlist: the glTF extensions the pinned
+ * `three@0.186.0` GLTFLoader honors without an extra decoder, each covered by
+ * a committed fixture that imports here and renders in Play and export
+ * (fixtures/import-ext). The same list is restated in project-model (recipe
+ * validation) and three-adapter (the loader guard); a cross-package test keeps
+ * the three equal. Everything else is `asset_extension_unsupported`.
  */
-export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([]);
+export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
+  'EXT_texture_webp',
+  'KHR_materials_clearcoat',
+  'KHR_materials_emissive_strength',
+  'KHR_materials_ior',
+  'KHR_materials_sheen',
+  'KHR_materials_specular',
+  'KHR_materials_transmission',
+  'KHR_materials_unlit',
+  'KHR_materials_volume',
+  'KHR_mesh_quantization',
+  'KHR_texture_transform',
+]);
 
 /** §18.6 decoded-resource caps keyed by the §18.9.3 `limits_exceeded` limit name. */
 export const M2_GLTF_PROFILE_LIMITS: Readonly<Record<string, number>> = Object.freeze({

@@ -235,9 +235,18 @@ copied. Projects in the data root keep copying uploads as before.
 - **Backups** of a folder project hold the whole game folder, so the
   referenced files are in them (see "Backups find folder projects" below).
 
-The import profile is unchanged: the glTF extension allowlist is empty, so a
-GLB using an extension such as `EXT_texture_webp` or `KHR_materials_specular`
-is refused at import, whether it comes from the folder or is uploaded.
+### Supported glTF extensions
+
+GLB is the only model format the game loads. Besides core glTF 2.0 the
+importer accepts these extensions (each has a fixture in `fixtures/import-ext`
+that imports, and renders in the editor, Play and the export):
+`EXT_texture_webp` (what the Blender pipeline writes), `KHR_texture_transform`,
+`KHR_mesh_quantization`, `KHR_materials_unlit` and the material extensions
+`clearcoat`, `emissive_strength`, `ior`, `sheen`, `specular`, `transmission`
+and `volume`. Any other extension is refused at import with
+`asset_extension_unsupported`, naming it; an allowlisted extension in a place
+where it would mean nothing, or not declared in `extensionsUsed`, is refused
+too.
 
 Backups find folder projects through the registry and copy the **whole game
 folder**: the marker, `thirdlight/`, the assets, art sources and `.git` —

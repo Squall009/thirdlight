@@ -308,6 +308,8 @@ export class Viewport {
     if (e.kind === 'model') {
       // A whole-GLB placement is realized by the packet-26 resource path; the
       // placeholder only anchors picking/selection until the bytes resolve.
+      // It carries the entity transform (the realized model hangs under it).
+      this.updateMesh(group, e);
       return group;
     }
     if (e.kind === 'box') {

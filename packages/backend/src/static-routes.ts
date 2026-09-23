@@ -59,9 +59,11 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
    */
   const previewCsp = (nonce?: string): string =>
     // 'wasm-unsafe-eval': the game's physics (Rapier) is WebAssembly.
+    // blob: (connect/img): GLTFLoader hands a GLB's embedded textures to the
+    // image decoder as blob: URLs of bytes already in the page.
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'" +
     (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
-    "; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'none'; worker-src 'none'; " +
+    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src 'none'; " +
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
     `frame-ancestors ${config.authoringOrigin}`;
 

@@ -17,7 +17,7 @@
               "three": "0.186.0"
             },
             "extensions": [
-              "KHR_materials_unlit"
+              "KHR_materials_variants"
             ]
           },
           "metrics": {

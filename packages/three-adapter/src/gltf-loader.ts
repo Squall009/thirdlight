@@ -44,15 +44,27 @@ import {
   type LoadedGlb,
 } from './visual';
 
-/** The extension allowlist this realization path can honor (M2 effective allowlist: empty). */
-export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = [];
+/** The extensions this realization path honors (the import allowlist, restated: no import edge exists). */
+export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = Object.freeze([
+  'EXT_texture_webp',
+  'KHR_materials_clearcoat',
+  'KHR_materials_emissive_strength',
+  'KHR_materials_ior',
+  'KHR_materials_sheen',
+  'KHR_materials_specular',
+  'KHR_materials_transmission',
+  'KHR_materials_unlit',
+  'KHR_materials_volume',
+  'KHR_mesh_quantization',
+  'KHR_texture_transform',
+]);
 
 /** Defensive copies of the profile bounds (asset-pipeline owns the originals; no import edge exists). */
 const GLB_JSON_CHUNK_BYTES_MAX = 8_388_608;
 const GLB_IMAGE_ENTRY_LIMIT = 4_096;
 
 export interface GltfLoaderPortOptions {
-  /** Extensions this path may honor; default: none (project-model §18.8.1). */
+  /** Extensions this path may honor; default: GLTF_LOADER_ALLOWED_EXTENSIONS. */
   readonly allowedExtensions?: readonly string[];
 }
 

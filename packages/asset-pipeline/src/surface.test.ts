@@ -87,7 +87,8 @@ describe('public surface (dependencies.md §3)', () => {
     expect(typeof prepareImport).toBe('function');
     expect(typeof inspectAudio).toBe('function');
     expect(Object.isFrozen(M2_GLTF_PROFILE_LIMITS)).toBe(true);
-    expect(M2_GLTF_EXTENSION_ALLOWLIST.length).toBe(0);
+    expect(Object.isFrozen(M2_GLTF_EXTENSION_ALLOWLIST)).toBe(true);
+    expect(M2_GLTF_EXTENSION_ALLOWLIST).toContain('EXT_texture_webp');
   });
 
   it('has no plugin registry, loader or URL input on the surface', () => {

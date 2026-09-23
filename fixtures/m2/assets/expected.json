@@ -247,9 +247,9 @@
     },
     {
       "file": "required-extension.glb",
-      "sha256": "c88102035dc771487cc0167dc79d7dc0acbb2cb8b2deef7f0c1ef7977aea2bbe",
-      "byteLength": 1636,
-      "purpose": "unsupported required extension outside the empty allowlist",
+      "sha256": "b85e969a534ae31f5bc68953f097eb6532e75b82a263de5a9f98e3fe5719fb08",
+      "byteLength": 1644,
+      "purpose": "unsupported required extension outside the allowlist (KHR_materials_variants)",
       "status": "rejected",
       "codes": [
         "asset_extension_unsupported",
@@ -264,7 +264,7 @@
         "/extensionsRequired"
       ],
       "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
-      "metadataDigest": "47c92738222469b414c700c2b18e6bde15b254775c8a880e0ec47632d04548f9"
+      "metadataDigest": "72af8507472406ea63fbbefdcac4ab9d406bf3e05e7cb7116870a59fde3e77bc"
     },
     {
       "file": "tiny-v1.glb",

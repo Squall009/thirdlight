@@ -48,6 +48,8 @@ export interface ModelInstancesOptions {
    * hierarchy); otherwise it attaches to the scene with the entity transform.
    */
   parentFor?: (entityId: string) => THREE.Object3D | null;
+  /** Called when the set of realization failures changes (the editor shows them in Problems). */
+  onFailuresChanged?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
 }
 
 interface LiveInstance {
@@ -147,12 +149,13 @@ export class ModelInstances {
       if (this.disposed) return;
       if (!result.ok) {
         this.failures.set(assetId, { code: result.error.code, message: result.error.message });
+        this.options.onFailuresChanged?.(this.failures);
         const prior = this.failed.get(assetId);
         const attempts = prior !== undefined && prior.version === descriptor.version ? prior.attempts + 1 : 1;
         this.failed.set(assetId, { version: descriptor.version, attempts });
         return;
       }
-      this.failures.delete(assetId);
+      if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
       this.failed.delete(assetId);
       for (const e of this.entities) {
         if (e.assetId !== assetId) continue;
@@ -164,6 +167,7 @@ export class ModelInstances {
   private attach(entityId: string, created: CreateInstanceResult): void {
     if (!created.ok) {
       this.failures.set(entityId, { code: created.error.code, message: created.error.message });
+      this.options.onFailuresChanged?.(this.failures);
       return;
     }
     this.detach(entityId);

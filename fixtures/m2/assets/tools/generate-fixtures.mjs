@@ -327,10 +327,11 @@ fixtures['external-uri-image.glb'] = basedOnTinyV1((json) => {
   json.images = [{ uri: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }];
 });
 
-// 10 — unsupported required extension.
+// 10 — unsupported required extension (a real extension the loader does not
+// honor; KHR_materials_unlit, used here before 2026-09-23, is now allowlisted).
 fixtures['required-extension.glb'] = basedOnTinyV1((json) => {
-  json.extensionsUsed = ['KHR_materials_unlit'];
-  json.extensionsRequired = ['KHR_materials_unlit'];
+  json.extensionsUsed = ['KHR_materials_variants'];
+  json.extensionsRequired = ['KHR_materials_variants'];
 });
 
 // 11 — compression extension.

@@ -111,18 +111,19 @@ describe('packet 26 — pinned GLTFLoader port (three@0.186.0, real bytes, Node)
   });
 
   it('rejects unsupported/required extensions structurally (fail closed)', async () => {
-    const draco = buildGlb({
-      extensionsUsed: ['KHR_draco_mesh_compression'],
-      extensionsRequired: ['KHR_draco_mesh_compression'],
+    const variants = buildGlb({
+      extensionsUsed: ['KHR_materials_variants'],
+      extensionsRequired: ['KHR_materials_variants'],
     });
-    const result = await loadReal(draco);
+    const result = await loadReal(variants);
     expect(codeOf(result)).toBe('asset_extension_unsupported');
     if (!result.ok) expect(result.error.message.length).toBeLessThanOrEqual(256);
 
-    // An allowlisted extension passes the guard (the allowlist is injectable).
+    // An allowlisted extension passes the guard (the allowlist is injectable;
+    // the default is the import allowlist).
     const unlit = buildGlb({ extensionsUsed: ['KHR_materials_unlit'] });
-    expect(GLTF_LOADER_ALLOWED_EXTENSIONS).toEqual([]);
-    const allowed = await loadReal(unlit, ['KHR_materials_unlit']);
+    expect(GLTF_LOADER_ALLOWED_EXTENSIONS).toContain('KHR_materials_unlit');
+    const allowed = await loadReal(unlit);
     expect(allowed.ok).toBe(true);
     if (allowed.ok) allowed.resource.dispose();
   });

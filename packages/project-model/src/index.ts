@@ -112,6 +112,7 @@ export {
 export {
   M2_SETTINGS_KEYS,
   MAX_SOURCE_PATH_LENGTH,
+  M2_GLTF_EXTENSION_ALLOWLIST,
   isValidSourcePath,
   normalizeContent,
   normalizeContentV3,

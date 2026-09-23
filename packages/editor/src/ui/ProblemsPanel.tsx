@@ -10,6 +10,8 @@ import type { SourceIssue } from '../session/asset-sources';
 
 interface Props {
   problems: readonly ProblemView[];
+  /** Models the scene view could not load (by asset or entity). */
+  viewFailures: readonly { id: string; name: string; code: string; message: string }[];
   /** null for a project in the data root (no game folder to check). */
   sourceIssues: readonly SourceIssue[] | null;
   checking: boolean;
@@ -17,7 +19,7 @@ interface Props {
   onReimport: (issue: SourceIssue) => void;
 }
 
-export function ProblemsPanel({ problems, sourceIssues, checking, onCheckFiles, onReimport }: Props): JSX.Element {
+export function ProblemsPanel({ problems, viewFailures, sourceIssues, checking, onCheckFiles, onReimport }: Props): JSX.Element {
   const newest = [...problems].reverse();
   const issues = sourceIssues ?? [];
   return (
@@ -47,7 +49,19 @@ export function ProblemsPanel({ problems, sourceIssues, checking, onCheckFiles, 
           ))}
         </ul>
       )}
-      {newest.length === 0 && issues.length === 0 ? (
+      {viewFailures.length > 0 && (
+        <ul className="tl-problems__list" aria-label="Scene view">
+          {viewFailures.map((f) => (
+            <li key={f.id} className="tl-problem">
+              <span className="tl-problem__source tl-problem__source--play">view</span>
+              <span className="tl-problem__message" title={f.code}>
+                {f.name} cannot be shown in the scene view: {f.message}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {newest.length === 0 && issues.length === 0 && viewFailures.length === 0 ? (
         <div className="tl-inspector__empty">No problems reported.</div>
       ) : (
         <ul className="tl-problems__list">

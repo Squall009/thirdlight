@@ -534,6 +534,8 @@ function EditorApp(): JSX.Element {
       },
       onChanged: () => viewport.requestRender(),
       parentFor: (entityId) => viewport.objectFor(entityId),
+      onFailuresChanged: (failures) =>
+        setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
     viewport.setModelInstances(models);
     modelInstancesRef.current = models;
@@ -1266,6 +1268,8 @@ function EditorApp(): JSX.Element {
   const [sourceIssues, setSourceIssues] = useState<SourceIssue[] | null>(null);
   const [checkingFiles, setCheckingFiles] = useState(false);
   const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
+  /** Models the scene view could not show (never silent). */
+  const [viewFailures, setViewFailures] = useState<{ id: string; name: string; code: string; message: string }[]>([]);
   const loadProjectFiles = useCallback(
     (dir: string) =>
       clientRef.current !== null
@@ -2114,13 +2118,14 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0)}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length}</span> : null}
                 </button>
               ))}
             </div>
           {bottomTab === 'problems' && (
             <ProblemsPanel
               problems={ui.problems}
+              viewFailures={viewFailures}
               sourceIssues={folderProject ? sourceIssues : null}
               checking={checkingFiles}
               onCheckFiles={() => void checkFiles()}

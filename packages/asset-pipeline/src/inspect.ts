@@ -151,6 +151,44 @@ const CORE_PBR_FIELDS = new Set([
 ]);
 
 const SAMPLER_FILTERS = new Set([9728, 9729, 9984, 9985, 9986, 9987]);
+
+/** The glTF object kinds an `extensions` member can sit on. */
+type ExtensionPlace =
+  | 'root'
+  | 'buffer'
+  | 'bufferView'
+  | 'accessor'
+  | 'mesh'
+  | 'primitive'
+  | 'material'
+  | 'textureInfo'
+  | 'texture'
+  | 'animation'
+  | 'node'
+  | 'scene';
+
+/**
+ * Where each allowlisted extension may carry an object. An allowlisted
+ * extension in any other place is refused: it would be ignored there, and
+ * ignoring an extension changes what the file means (§18.8.1).
+ * `KHR_mesh_quantization` is a declaration only (it widens attribute types).
+ */
+const EXTENSION_PLACES: Readonly<Record<string, readonly ExtensionPlace[]>> = {
+  EXT_texture_webp: ['texture'],
+  KHR_materials_clearcoat: ['material'],
+  KHR_materials_emissive_strength: ['material'],
+  KHR_materials_ior: ['material'],
+  KHR_materials_sheen: ['material'],
+  KHR_materials_specular: ['material'],
+  KHR_materials_transmission: ['material'],
+  KHR_materials_unlit: ['material'],
+  KHR_materials_volume: ['material'],
+  KHR_mesh_quantization: [],
+  KHR_texture_transform: ['textureInfo'],
+};
+
+/** The image containers a texture may use, by where it references the image. */
+const CORE_TEXTURE_MIMES = new Set(['image/png', 'image/jpeg']);
 const SAMPLER_WRAPS = new Set([33071, 33648, 10497]);
 
 // --- diagnostics -------------------------------------------------------------
@@ -408,6 +446,10 @@ class Inspector {
   private accessors: AccessorInfo[] = [];
   private primitives: PrimitiveRef[] = [];
   private imageDecodedBytes = 0;
+  /** The detected container of each image (`null` = invalid), by index. */
+  private imageMimes: (string | null)[] = [];
+  /** `extensionsUsed` as declared (every extension object must be declared). */
+  private declaredExtensions = new Set<string>();
   private clipDurationMs = 0;
   private startedAt = 0;
 
@@ -928,7 +970,8 @@ class Inspector {
         );
       }
     }
-    this.checkExtensionObject(this.json, '', out);
+    this.declaredExtensions = new Set(usedList);
+    this.checkExtensionObject(this.json, '', out, 'root');
     return out.length > 0 ? out : null;
   }
 
@@ -941,6 +984,7 @@ class Inspector {
     owner: Record<string, unknown>,
     path: string,
     out: ImportDiagnostic[],
+    place: ExtensionPlace,
   ): void {
     const ext = owner['extensions'];
     if (ext === undefined) return;
@@ -954,14 +998,42 @@ class Inspector {
       return;
     }
     for (const name of Object.keys(ext)) {
+      const epath = `${path}/extensions/${escapePointer(name)}`;
       if (!M2_GLTF_EXTENSION_ALLOWLIST.includes(name)) {
         out.push(
           diag(
             'asset_extension_unsupported',
-            `${path}/extensions/${escapePointer(name)}`,
+            epath,
             `extension "${name}" is outside the effective allowlist`,
             { found: name, expected: `one of [${M2_GLTF_EXTENSION_ALLOWLIST.join(', ')}]` },
           ),
+        );
+        continue;
+      }
+      if (!(EXTENSION_PLACES[name] ?? []).includes(place)) {
+        out.push(
+          diag('asset_extension_unsupported', epath, `extension "${name}" is not supported on a ${place}`, {
+            found: name,
+            expected: `on ${(EXTENSION_PLACES[name] ?? []).join(' | ') || 'no object (a declaration only)'}`,
+          }),
+        );
+        continue;
+      }
+      if (!this.declaredExtensions.has(name)) {
+        out.push(
+          diag('asset_extension_unsupported', epath, `extension "${name}" is used but not declared in extensionsUsed`, {
+            found: name,
+            expected: 'every used extension listed in extensionsUsed',
+          }),
+        );
+        continue;
+      }
+      if (!isPlainObject(ext[name])) {
+        out.push(
+          diag('asset_extension_unsupported', epath, `extension "${name}" must be an object`, {
+            found: typeof ext[name],
+            expected: 'an object',
+          }),
         );
       }
     }
@@ -1050,7 +1122,7 @@ class Inspector {
         out.push(diag('asset_buffer_invalid', path, 'bufferView must be an object', { found: typeof bv, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(bv, path, out);
+      this.checkExtensionObject(bv, path, out, 'bufferView');
       const bufferIndex = bv['buffer'] ?? 0;
       if (bufferIndex !== 0) {
         out.push(
@@ -1145,7 +1217,7 @@ class Inspector {
         );
         continue;
       }
-      this.checkExtensionObject(a, path, out);
+      this.checkExtensionObject(a, path, out, 'accessor');
       const componentType = a['componentType'];
       const componentSize =
         typeof componentType === 'number' ? COMPONENT_SIZES[componentType] : undefined;
@@ -1248,7 +1320,7 @@ class Inspector {
         out.push(diag('asset_mesh_invalid', path, 'mesh must be an object', { found: typeof mesh, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(mesh, path, out);
+      this.checkExtensionObject(mesh, path, out, 'mesh');
       const primitives = mesh['primitives'];
       if (!Array.isArray(primitives)) {
         out.push(
@@ -1418,6 +1490,20 @@ class Inspector {
           }),
         );
       }
+      this.checkExtensionObject(ref, `${path}/${key}`, out, 'textureInfo');
+      const transform = isPlainObject(ref['extensions']) ? ref['extensions']['KHR_texture_transform'] : undefined;
+      if (isPlainObject(transform)) {
+        const tpath = `${path}/${key}/extensions/KHR_texture_transform`;
+        for (const [field, size] of [['offset', 2], ['scale', 2]] as const) {
+          const v = transform[field];
+          if (v !== undefined && (!Array.isArray(v) || v.length !== size || !v.every(isFiniteNumber))) {
+            out.push(diag('asset_material_invalid', `${tpath}/${field}`, `${field} must be ${size} finite numbers`, { found: v, expected: `[number, number]` }));
+          }
+        }
+        if (transform['rotation'] !== undefined && !isFiniteNumber(transform['rotation'])) {
+          out.push(diag('asset_material_invalid', `${tpath}/rotation`, 'rotation must be a finite number', { found: transform['rotation'], expected: 'a finite number' }));
+        }
+      }
     };
     for (let i = 0; i < materials.length; i++) {
       const material = materials[i];
@@ -1426,7 +1512,18 @@ class Inspector {
         out.push(diag('asset_material_invalid', path, 'material must be an object', { found: typeof material, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(material, path, out);
+      this.checkExtensionObject(material, path, out, 'material');
+      // Textures referenced from material extensions (specular, clearcoat,
+      // sheen, transmission, volume …) resolve like core texture references.
+      const mext = material['extensions'];
+      if (isPlainObject(mext)) {
+        for (const [name, body] of Object.entries(mext)) {
+          if (!isPlainObject(body)) continue;
+          for (const key of Object.keys(body)) {
+            if (key.endsWith('Texture')) textureRef(body, `${path}/extensions/${escapePointer(name)}`, key);
+          }
+        }
+      }
       for (const key of Object.keys(material)) {
         if (!CORE_MATERIAL_FIELDS.has(key)) {
           out.push(
@@ -1551,11 +1648,11 @@ class Inspector {
         continue;
       }
       const mime = image['mimeType'];
-      if (mime !== 'image/png' && mime !== 'image/jpeg') {
+      if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
         out.push(
-          diag('asset_image_invalid', `${path}/mimeType`, 'image mimeType must be image/png or image/jpeg', {
+          diag('asset_image_invalid', `${path}/mimeType`, 'image mimeType must be image/png, image/jpeg or image/webp', {
             found: mime,
-            expected: 'image/png | image/jpeg',
+            expected: 'image/png | image/jpeg | image/webp',
           }),
         );
         continue;
@@ -1574,9 +1671,9 @@ class Inspector {
       const actualMime = detectImageMime(data);
       if (actualMime === null) {
         out.push(
-          diag('asset_image_invalid', path, 'image bytes are neither PNG nor JPEG', {
+          diag('asset_image_invalid', path, 'image bytes are not PNG, JPEG or WebP', {
             found: [...data.subarray(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join(' '),
-            expected: 'a PNG or JPEG signature',
+            expected: 'a PNG, JPEG or WebP signature',
           }),
         );
         continue;
@@ -1595,11 +1692,12 @@ class Inspector {
         out.push(
           diag('asset_image_invalid', path, 'the image header is unreadable, so decoded bytes cannot be bounded', {
             found: 'unreadable header',
-            expected: 'a readable PNG IHDR or JPEG frame header',
+            expected: 'a readable PNG IHDR, JPEG frame header or WebP VP8/VP8L/VP8X header',
           }),
         );
         continue;
       }
+      this.imageMimes[i] = actualMime;
       decoded += decodedImageBytes(dims);
     }
     if (out.length > 0) return out;
@@ -1670,15 +1768,43 @@ class Inspector {
         out.push(diag('asset_texture_invalid', path, 'texture must be an object', { found: typeof texture, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(texture, path, out);
-      const source = asIndex(texture['source']);
-      if (source === null || source >= imageCount) {
+      this.checkExtensionObject(texture, path, out, 'texture');
+      // A texture's image comes from `source` (PNG/JPEG) and/or from an
+      // extension naming a source in its own container (EXT_texture_webp).
+      const ext = isPlainObject(texture['extensions']) ? texture['extensions'] : {};
+      const sources: { key: string; value: unknown; mimes: ReadonlySet<string> }[] = [];
+      if (texture['source'] !== undefined) sources.push({ key: 'source', value: texture['source'], mimes: CORE_TEXTURE_MIMES });
+      if (isPlainObject(ext['EXT_texture_webp'])) {
+        sources.push({ key: 'extensions/EXT_texture_webp/source', value: ext['EXT_texture_webp']['source'], mimes: new Set(['image/webp']) });
+      }
+      if (sources.length === 0) {
         out.push(
           diag('asset_texture_invalid', `${path}/source`, 'texture source must resolve to an existing image', {
             found: texture['source'],
             expected: `0 .. ${imageCount - 1}`,
           }),
         );
+      }
+      for (const src of sources) {
+        const source = asIndex(src.value);
+        if (source === null || source >= imageCount) {
+          out.push(
+            diag('asset_texture_invalid', `${path}/${src.key}`, 'texture source must resolve to an existing image', {
+              found: src.value,
+              expected: `0 .. ${imageCount - 1}`,
+            }),
+          );
+          continue;
+        }
+        const mime = this.imageMimes[source];
+        if (mime !== undefined && mime !== null && !src.mimes.has(mime)) {
+          out.push(
+            diag('asset_texture_invalid', `${path}/${src.key}`, `a ${mime} image cannot be used from texture ${src.key}`, {
+              found: mime,
+              expected: [...src.mimes].join(' | '),
+            }),
+          );
+        }
       }
       if (texture['sampler'] !== undefined) {
         const sampler = asIndex(texture['sampler']);
@@ -1718,7 +1844,7 @@ class Inspector {
         );
         continue;
       }
-      this.checkExtensionObject(animation, path, out);
+      this.checkExtensionObject(animation, path, out, 'animation');
       const samplersRaw = animation['samplers'];
       const channelsRaw = animation['channels'];
       if (!Array.isArray(samplersRaw) || !Array.isArray(channelsRaw)) {
@@ -2216,7 +2342,7 @@ class Inspector {
         out.push(diag('asset_node_invalid', path, 'node must be an object', { found: typeof node, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(node, path, out);
+      this.checkExtensionObject(node, path, out, 'node');
       const hasMatrix = node['matrix'] !== undefined;
       const hasTrs =
         node['translation'] !== undefined || node['rotation'] !== undefined || node['scale'] !== undefined;
@@ -2364,7 +2490,7 @@ class Inspector {
         out.push(diag('asset_scene_invalid', path, 'scene must be an object', { found: typeof scene, expected: 'an object' }));
         continue;
       }
-      this.checkExtensionObject(scene, path, out);
+      this.checkExtensionObject(scene, path, out, 'scene');
       const nodesList = scene['nodes'];
       if (nodesList !== undefined) {
         if (!Array.isArray(nodesList)) {

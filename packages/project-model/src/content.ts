@@ -163,8 +163,20 @@ const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
-/** §18.8.1: the effective extension allowlist is empty until packet 24 pins one. */
-export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = [];
+/** §18.8.1: the effective extension allowlist (asset-pipeline owns the list; restated here, kept equal by a cross-package test). */
+export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
+  'EXT_texture_webp',
+  'KHR_materials_clearcoat',
+  'KHR_materials_emissive_strength',
+  'KHR_materials_ior',
+  'KHR_materials_sheen',
+  'KHR_materials_specular',
+  'KHR_materials_transmission',
+  'KHR_materials_unlit',
+  'KHR_materials_volume',
+  'KHR_mesh_quantization',
+  'KHR_texture_transform',
+]);
 
 const KNOWN_CONTENT_FIELDS = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust']);
 /** §23.4: a v3 content block carries the five accepted keys plus `game`. */
