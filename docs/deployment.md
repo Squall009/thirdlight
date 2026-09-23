@@ -162,6 +162,42 @@ recovery, staging, derived caches); it is not part of a backup.
 The game resolves folders and flags once, when a scene loads. Folders and
 inactive entities are removed, and each entity gets its effective `static`.
 
+## Tags
+
+- **The registry** (bottom dock → Tags, or File → Project tags) holds up to
+  32 named tags. Each tag has a fixed bit (0–31):
+  - Renaming keeps the bit, so every object keeps the tag.
+  - A new tag takes the lowest free bit.
+  - A tag can be removed, which frees its bit, only when no object carries it.
+  - Names are a letter followed by letters, digits, `_` or `-`, 32 characters
+    at most, and unique ignoring case.
+  - The registry is stored in the scene envelope's content block as
+    `content.tags`, and only when it is not empty. Every edit is one `setTags`
+    command, so it is one undo step.
+- **On objects.** Each object stores its own tags as a 32-bit mask (`tags`,
+  stored only when non-zero). The inspector's Tags section toggles them.
+  `updateEntity {tags: [names]}` replaces an object's tags; names ignore
+  case. A folder's tags reach everything inside it, and the inspector marks
+  those as "inherited from a folder". An object's effective mask is its own
+  mask OR every folder above it.
+- **In the game.** The effective masks are computed once when the scene
+  loads. Inactive objects are left out. Scripts get `ctx.tags`, in
+  `instantiate` (as `inst.tags`) and in every `step`:
+  - `mask(...names)` returns the bits of the named tags; an unknown name
+    throws.
+  - `of(entityId)` returns an object's effective mask.
+  - `has(entityId, mask, 'any' | 'all')` tests an object.
+  - `query(mask, 'any' | 'all')` returns object ids in scene order. It is
+    computed once per mask.
+  The registry travels in the Play/export manifest (`tags`), so an exported
+  game needs nothing else.
+- **MCP.**
+  - `tl_command setTags {tags: [{bit?, name}]}` replaces the registry: an
+    entry with `bit` keeps it, an entry without one gets the lowest free bit.
+  - `updateEntity {tags}` sets an object's tags.
+  - `tl_inspect target="project"` lists the registry.
+  - `tl_inspect target="entity"` shows `tagNames: {own, effective}`.
+
 ## MCP (coding harness)
 
 The MCP server is `dist/mcp-adapter/mcp.mjs` over stdio. Register it once,

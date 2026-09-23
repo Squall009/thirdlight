@@ -19,6 +19,7 @@
 /** Exact limit names carried by a `limits_exceeded` error (§12.6). */
 export type LimitName =
   | 'entities'
+  | 'tags'
   | 'depth'
   | 'assets'
   | 'asset_versions'

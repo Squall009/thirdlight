@@ -22,6 +22,7 @@ export function effectiveFlagsOf(entities: readonly ProjectedEntity[]): Map<stri
       ...(e.active ? {} : { active: false as const }),
       ...(e.locked ? { locked: true as const } : {}),
       ...(e.static ? { static: true as const } : {}),
+      ...(e.tags !== 0 ? { tags: e.tags } : {}),
       components: e.kind === 'folder' ? { folder: {} } : {},
     })) as Parameters<typeof effectiveEntityFlags>[0],
   );

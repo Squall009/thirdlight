@@ -30,6 +30,7 @@ import {
   type SceneV2,
   type SceneV3,
   type TransformComponent,
+  type TagDefinition,
 } from '@thirdlight/project-model';
 
 import {
@@ -775,32 +776,41 @@ export function applyDeleteEntity(
 // ---- updateEntity (rename / reparent / flags) --------------------------------------
 
 /** The entity's name, parent (null = absent / root) and own flags. */
-export function entityHeader(e: { name?: string; parentId?: string; active?: boolean; locked?: boolean; static?: boolean }): EntityHeader {
+export function entityHeader(e: { name?: string; parentId?: string; active?: boolean; locked?: boolean; static?: boolean; tags?: number }): EntityHeader {
   return {
     name: e.name ?? null,
     parentId: e.parentId ?? null,
     active: e.active !== false,
     locked: e.locked === true,
     static: e.static === true,
+    tags: typeof e.tags === 'number' ? e.tags >>> 0 : 0,
   };
 }
 
 /** The header fields that differ between two headers, in field order. */
 export function headerChangedFields(previous: EntityHeader, next: EntityHeader): EntityHeaderField[] {
-  return (['name', 'parentId', 'active', 'locked', 'static'] as const).filter((f) => previous[f] !== next[f]);
+  return (['name', 'parentId', 'active', 'locked', 'static', 'tags'] as const).filter((f) => previous[f] !== next[f]);
 }
 
 /**
- * Older records carry a two-field header (name, parentId); the flags default.
+ * Older records carry a two-field header (name, parentId); the flags and the
+ * tag mask default.
  */
-function fullHeader(h: EntityHeader): EntityHeader {
-  return { name: h.name, parentId: h.parentId, active: h.active !== false, locked: h.locked === true, static: h.static === true };
+export function fullHeader(h: EntityHeader): EntityHeader {
+  return {
+    name: h.name,
+    parentId: h.parentId,
+    active: h.active !== false,
+    locked: h.locked === true,
+    static: h.static === true,
+    tags: typeof h.tags === 'number' ? h.tags >>> 0 : 0,
+  };
 }
 
 /** Write `header` onto an entity record (only non-default flags are stored). */
 function writeHeader(entity: Record<string, unknown>, header: EntityHeader): Record<string, unknown> {
   const h = fullHeader(header);
-  const { id, name: _n, parentId: _p, active: _a, locked: _l, static: _s, components, ...rest } = entity;
+  const { id, name: _n, parentId: _p, active: _a, locked: _l, static: _s, tags: _t, components, ...rest } = entity;
   return {
     id,
     ...(h.name !== null ? { name: h.name } : {}),
@@ -808,6 +818,7 @@ function writeHeader(entity: Record<string, unknown>, header: EntityHeader): Rec
     ...(h.active ? {} : { active: false }),
     ...(h.locked ? { locked: true } : {}),
     ...(h.static ? { static: true } : {}),
+    ...(h.tags !== 0 ? { tags: h.tags } : {}),
     ...rest,
     components,
   };
@@ -859,6 +870,26 @@ function folderParentError(path: string, parentId: string): CommandError {
   return fieldValue(path, parentId, 'null (root) or the id of a folder', 'a folder sits at the root or inside another folder, never under an object');
 }
 
+/** The mask for tag names (matched ignoring case) against the registry. */
+export function tagMaskOf(
+  names: readonly string[],
+  registry: readonly TagDefinition[],
+): { ok: true; mask: number } | { ok: false; error: CommandError } {
+  let mask = 0;
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i] as string;
+    const tag = registry.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (tag === undefined) {
+      return {
+        ok: false,
+        error: fieldValue(`/args/tags/${i}`, name, `one of the project's tags: ${registry.map((t) => t.name).join(', ') || '(none defined)'}`, 'unknown tag name (define it in the project tags first)'),
+      };
+    }
+    mask = (mask | (1 << tag.bit)) >>> 0;
+  }
+  return { ok: true, mask };
+}
+
 export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, content?: ContentDocument): OpOutcome {
   const index = scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
@@ -870,7 +901,14 @@ export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, 
     active: args.active ?? previous.active,
     locked: args.locked ?? previous.locked,
     static: args.static ?? previous.static,
+    tags: previous.tags,
   };
+  if (args.tags !== undefined) {
+    // Phase 12 (b): tags are named in the request and stored as the mask.
+    const mask = tagMaskOf(args.tags, content?.tags ?? []);
+    if (!mask.ok) return { ok: false, error: mask.error };
+    next.tags = mask.mask;
+  }
 
   let order: UpdateEntityChange['order'] = null;
   let transform: UpdateEntityChange['transform'];

@@ -372,6 +372,8 @@ export function queryGameConfig(
     projectId,
     revision: state.scene.revision,
     game: (content.game ?? null) as GameConfig | null,
+    // Phase 12 (b): the project tag registry travels with the game block.
+    tags: (content.tags ?? []).map((t) => ({ bit: t.bit, name: t.name })),
   };
 }
 

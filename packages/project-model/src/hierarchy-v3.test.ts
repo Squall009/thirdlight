@@ -125,3 +125,43 @@ describe('effective flags and resolve', () => {
     expect(resolveSceneHierarchy(r)).toEqual(r);
   });
 });
+
+describe('tags (phase 12 b)', () => {
+  it('validates the entity mask, and folders OR their mask into the whole subtree', () => {
+    expect(errorsOf([{ id: 'box-0001', tags: -1, components: { transform: T } }])[0]?.code).toBe('field_value');
+    expect(errorsOf([{ id: 'box-0001', tags: 2 ** 32, components: { transform: T } }])[0]?.code).toBe('field_value');
+    const s = valid([
+      { id: 'folder-0001', tags: 0b001, components: { folder: {} } },
+      { id: 'group-0001', parentId: 'folder-0001', tags: 0b100, components: { transform: T } },
+      { id: 'box-0001', parentId: 'group-0001', tags: 0, components: { transform: T, box: { size: [1, 1, 1], material: { color: '#ffffff' } } } },
+      { id: 'box-0002', tags: 0b010, components: { transform: T, box: { size: [1, 1, 1], material: { color: '#ffffff' } } } },
+    ]);
+    // A zero mask is not stored.
+    expect('tags' in s.entities[3]!).toBe(false);
+    const f = effectiveEntityFlags(s.entities);
+    expect(f.get('group-0001')).toMatchObject({ tags: 0b101, inheritedTags: 0b001 });
+    // An object's own tags stay on it; the folder's reach through it.
+    expect(f.get('box-0001')).toMatchObject({ tags: 0b001, inheritedTags: 0b001 });
+    expect(f.get('box-0002')).toMatchObject({ tags: 0b010, inheritedTags: 0 });
+    const r = resolveSceneHierarchy(s);
+    expect(r.entities.find((e) => e.id === 'group-0001')?.tags).toBe(0b101);
+    expect(r.entities.find((e) => e.id === 'box-0001')?.tags).toBe(0b001);
+  });
+
+  it('the registry: bits 0-31 once, names unique ignoring case; entity bits must be defined', async () => {
+    const { validateContentV3 } = await import('./content');
+    const { validateProjectV3 } = await import('./project-v3');
+    const base = { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null };
+    expect(validateContentV3({ ...base, tags: [{ bit: 1, name: 'b' }, { bit: 0, name: 'a' }] })).toMatchObject({ ok: true, normalized: { tags: [{ bit: 0, name: 'a' }, { bit: 1, name: 'b' }] } });
+    expect('tags' in (validateContentV3({ ...base, tags: [] }) as { normalized: object }).normalized).toBe(false);
+    expect(validateContentV3({ ...base, tags: [{ bit: 0, name: 'a' }, { bit: 0, name: 'b' }] }).ok).toBe(false);
+    expect(validateContentV3({ ...base, tags: [{ bit: 0, name: 'Enemy' }, { bit: 1, name: 'enemy' }] }).ok).toBe(false);
+    expect(validateContentV3({ ...base, tags: [{ bit: 32, name: 'a' }] }).ok).toBe(false);
+    const manifest = { schemaVersion: 1, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z', scenes: [{ id: 'scene-main', path: 'scenes/main.json' }] };
+    const doc = scene([{ id: 'box-0001', tags: 0b10, components: { transform: T } }]);
+    const refused = validateProjectV3(manifest, doc, { ...base, tags: [{ bit: 0, name: 'a' }] });
+    expect(refused.ok).toBe(false);
+    expect(JSON.stringify(refused)).toContain('"reason":"tag"');
+    expect(validateProjectV3(manifest, doc, { ...base, tags: [{ bit: 1, name: 'b' }] }).ok).toBe(true);
+  });
+});

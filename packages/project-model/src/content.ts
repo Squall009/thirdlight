@@ -60,7 +60,7 @@ import type {
   PcmWavMetrics,
   PcmWavRecipe,
 } from './types-v3';
-import { AUDIO_PCM_WAV_PROFILE } from './types-v3';
+import { AUDIO_PCM_WAV_PROFILE, MAX_TAGS } from './types-v3';
 
 // ---- limits (§18.4–§18.6, §20.3, §20.7, §22) ----------------------------------
 
@@ -1797,7 +1797,9 @@ function validateContentV3Value(doc: Record<string, unknown>): { errors: ModelEr
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!KNOWN_CONTENT_FIELDS_V3.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...KNOWN_CONTENT_FIELDS_V3].join(', ')));
+    if (!KNOWN_CONTENT_FIELDS_V3.has(k) && k !== 'tags') {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...KNOWN_CONTENT_FIELDS_V3, 'tags (optional)'].join(', ')));
+    }
   }
 
   const assets = doc['assets'];
@@ -1876,6 +1878,8 @@ function validateContentV3Value(doc: Record<string, unknown>): { errors: ModelEr
   const game = doc['game'];
   if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
 
+  if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
+
   if (errors.length > 0) return { errors };
   const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
   if (canonical.game !== null && canonicalDocBytes(canonical.game) > MAX_GAME_BYTES) {
@@ -1885,6 +1889,48 @@ function validateContentV3Value(doc: Record<string, unknown>): { errors: ModelEr
     return { errors: [limitsError('/content', 'content_bytes', canonicalDocBytes(canonical), MAX_CONTENT_BYTES, 'canonical content block exceeds the byte cap')] };
   }
   return { errors, doc: canonical };
+}
+
+/** Phase 12 (b): a tag name — a letter, then letters, digits, `_` or `-`; 1–32 characters. */
+export const TAG_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+
+/**
+ * Phase 12 (b): the tag registry — at most 32 `{ bit, name }` entries, each
+ * bit 0–31 used once, names unique ignoring case.
+ */
+export function validateTagRegistry(tags: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(tags)) {
+    errors.push(fieldType(path, tags, 'array of { bit, name }'));
+    return;
+  }
+  if (tags.length > MAX_TAGS) {
+    errors.push(limitsError(path, 'tags', tags.length, MAX_TAGS, `a project may define at most ${MAX_TAGS} tags`));
+  }
+  const bits = new Set<number>();
+  const names = new Set<string>();
+  tags.forEach((t, i) => {
+    const p = `${path}/${i}`;
+    if (!isPlainObject(t)) {
+      errors.push(fieldType(p, t, 'object { bit, name }'));
+      return;
+    }
+    for (const k of Object.keys(t)) if (k !== 'bit' && k !== 'name') errors.push(unexpectedField(`${p}/${pointerSegment(k)}`, k, 'bit, name'));
+    const bit = t['bit'];
+    if (bit === undefined) errors.push(fieldMissing(`${p}/bit`, 'bit'));
+    else if (typeof bit !== 'number' || !Number.isInteger(bit) || bit < 0 || bit > 31) {
+      errors.push(fieldValue(`${p}/bit`, bit, 'integer 0-31', 'a tag bit is an integer from 0 to 31'));
+    } else if (bits.has(bit)) {
+      errors.push(withFound({ code: 'id_duplicate', path: `${p}/bit`, message: 'another tag already uses this bit', expected: 'a unique bit' }, bit));
+    } else bits.add(bit);
+    const name = t['name'];
+    if (name === undefined) errors.push(fieldMissing(`${p}/name`, 'name'));
+    else if (typeof name !== 'string') errors.push(fieldType(`${p}/name`, name, 'string'));
+    else if (!TAG_NAME_RE.test(name)) {
+      errors.push(fieldValue(`${p}/name`, name, 'a letter, then letters, digits, _ or -; 1-32 characters', 'tag names are short identifiers'));
+    } else if (names.has(name.toLowerCase())) {
+      errors.push(withFound({ code: 'id_duplicate', path: `${p}/name`, message: 'another tag already has this name (names ignore case)', expected: 'a unique name' }, name));
+    } else names.add(name.toLowerCase());
+  });
 }
 
 function canonicalGame(g: GameConfig): GameConfig {
@@ -1926,6 +1972,10 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
     game: c.game === null ? null : canonicalGame(c.game),
+    // Phase 12 (b): present only when the project defines tags.
+    ...(c.tags !== undefined && c.tags.length > 0
+      ? { tags: [...c.tags].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })) }
+      : {}),
   };
 }
 

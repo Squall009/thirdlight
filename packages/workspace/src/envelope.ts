@@ -449,7 +449,8 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
     }
   }
   for (const k of Object.keys(contentRaw)) {
-    if (!(WANT_CONTENT as readonly string[]).includes(k)) {
+    // Phase 12 (b): `tags` (the tag registry) is the one optional content key.
+    if (!(WANT_CONTENT as readonly string[]).includes(k) && k !== 'tags') {
       return fail('envelope_invalid', [
         {
           code: 'field_unexpected',
@@ -651,7 +652,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'];
 
 /** The mutation ops an envelope of `storageVersion` can record. */
 export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3): readonly string[] {
@@ -987,6 +988,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setGameConfig',
   'updateEntity',
   'moveEntities',
+  'setTags',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1008,6 +1010,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setGameConfig: ['type', 'previous', 'next', 'changedFields'],
   updateEntity: ['type', 'id', 'previous', 'next', 'changedFields', 'order'],
   moveEntities: ['type', 'parentId', 'beforeId', 'entities', 'order'],
+  setTags: ['type', 'previous', 'next'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
@@ -1029,6 +1032,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setGameConfig: 'setGameConfig',
   updateEntity: 'updateEntity',
   moveEntities: 'moveEntities',
+  setTags: 'setTags',
 };
 
 /**

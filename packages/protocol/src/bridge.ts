@@ -125,7 +125,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       const s = m['snapshot'];
       if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime.md §2 document', path: '/snapshot' };
       for (const k of Object.keys(s)) {
-        if (!['snapshotId', 'projectId', 'revision', 'scene', 'game'].includes(k)) {
+        if (!['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags'].includes(k)) {
           return { ok: false, reason: `unknown snapshot field "${k}"`, path: `/snapshot/${k}` };
         }
       }

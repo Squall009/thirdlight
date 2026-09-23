@@ -23,6 +23,7 @@ import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } 
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf } from '../session/hierarchy';
+import { TagsPanel } from './TagsPanel';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -251,6 +252,9 @@ function EditorApp(): JSX.Element {
   const [gameConfig, setGameConfig] = useState<GameConfigLike | null>(null);
   const [gameConfigLoaded, setGameConfigLoaded] = useState(false);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
+  /** Phase 12 (b): the project tag registry and the last setTags error. */
+  const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
+  const [tagsError, setTagsError] = useState<string | null>(null);
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
   // ---- packet 27: content browser + local snapping -------------------------
@@ -356,6 +360,7 @@ function EditorApp(): JSX.Element {
     setGameConfig(c.getGameConfig());
     setGameConfigLoaded(c.getGameConfigLoaded());
     setSettings(c.getSettings());
+    setTags(c.getTags());
     setUi((s) => ({ ...s, revision: c.projection.revision }));
   }, []);
 
@@ -959,6 +964,20 @@ function EditorApp(): JSX.Element {
     // Dropping something where it already is changes nothing; not an error.
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);
+  }, [reportFailure]);
+  /** Phase 12 (b): replace the tag registry (one setTags command). */
+  const saveTags = useCallback(async (next: { bit?: number; name: string }[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const res = await c.command('setTags', { tags: next }, c.projection.revision);
+    if (res.ok) setTagsError(null);
+    else setTagsError((res.response as { message?: string }).message ?? 'the tags could not be saved');
+  }, []);
+  /** Phase 12 (b): set an entity's own tags, by name. */
+  const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Set tags', await c.command('updateEntity', { entityId, tags: names }, c.projection.revision));
   }, [reportFailure]);
   /** Phase 12: set one hierarchy flag (active / locked / static) on an entity. */
   const setFlag = useCallback(async (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => {
@@ -1955,6 +1974,10 @@ function EditorApp(): JSX.Element {
 
   const selected = entities.find((e) => e.id === selectedId) ?? null;
   const hierarchyFlags = effectiveFlagsOf(entities);
+  const tagUsage = new Map<number, number>();
+  for (const e of entities) {
+    for (let bit = 0; bit < 32; bit++) if ((e.tags & (1 << bit)) !== 0) tagUsage.set(bit, (tagUsage.get(bit) ?? 0) + 1);
+  }
   /** The optional components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(
     selected === null
@@ -1999,6 +2022,7 @@ function EditorApp(): JSX.Element {
         { label: 'Export game…', onSelect: () => { setExportState({ busy: false, result: null, error: null }); setDialog('export'); } },
         'separator',
         { label: 'Project settings', onSelect: () => setBottomTab('gameplay') },
+        { label: 'Project tags', onSelect: () => setBottomTab('tags') },
         { label: 'Reload from disk', onSelect: () => resync() },
       ],
     },
@@ -2289,6 +2313,14 @@ function EditorApp(): JSX.Element {
               backendError={gameplayError}
             />
           )}
+          {bottomTab === 'tags' && (
+            <TagsPanel
+              tags={tags}
+              usage={tagUsage}
+              error={tagsError}
+              onSetTags={(next) => void saveTags(next)}
+            />
+          )}
           {bottomTab === 'media' && (
             <MediaPanel
               entities={entities}
@@ -2342,6 +2374,8 @@ function EditorApp(): JSX.Element {
           entityName={(id) => entities.find((e) => e.id === id)?.name ?? id}
           selectionCount={selection.ids.length}
           onSetFlag={(entityId, flag, value) => void setFlag(entityId, flag, value)}
+          tags={tags}
+          onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
         />
         </div>
       </div>
@@ -2414,13 +2448,14 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media' | 'problems';
+type BottomTab = 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },
+  { id: 'tags', label: 'Tags' },
   { id: 'media', label: 'Media' },
   { id: 'problems', label: 'Problems' },
 ];

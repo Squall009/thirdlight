@@ -58,13 +58,17 @@ describe('phase 12 — hierarchy edits on disk', () => {
     // restoreSubtree record holding a folder and a filed object).
     rev = run(svc, rev, 'deleteEntity', { entityId: folderId }).revision;
     rev = run(svc, rev, 'undo', {}).revision;
+    // Phase 12 (b): the tag registry in content, the mask on the entity.
+    rev = run(svc, rev, 'setTags', { tags: [{ name: 'prop' }, { name: 'loot' }] }).revision;
+    rev = run(svc, rev, 'updateEntity', { entityId: folderId, tags: ['loot'] }).revision;
 
     const projectDir = join(root, 'projects', PROJECT_ID);
     const env = JSON.parse(readFileSync(join(projectDir, 'scenes', 'main.json'), 'utf8')) as {
       scene: { entities: { id: string; parentId?: string; locked?: boolean; static?: boolean; components: Record<string, unknown> }[] };
     };
     const f = env.scene.entities.find((e) => e.id === folderId)!;
-    expect(f).toEqual({ id: folderId, name: 'Props', locked: true, static: true, components: { folder: {} } });
+    expect(f).toEqual({ id: folderId, name: 'Props', locked: true, static: true, tags: 2, components: { folder: {} } });
+    expect((env as unknown as { content: { tags: unknown } }).content.tags).toEqual([{ bit: 0, name: 'prop' }, { bit: 1, name: 'loot' }]);
     const b = env.scene.entities.find((e) => e.id === boxId)!;
     expect(b.parentId).toBe(folderId);
     expect((b.components['transform'] as { position: number[] }).position).toEqual([4, 1, 0]);
@@ -81,6 +85,9 @@ describe('phase 12 — hierarchy edits on disk', () => {
     expect(q.ok, JSON.stringify(q)).toBe(true);
     expect(q.revision).toBe(rev);
     expect(q.parentChain).toEqual([folderId]);
+    // The box inherits the folder's tag; the query names it.
+    expect((q as unknown as { tagNames: unknown }).tagNames).toEqual({ own: [], effective: ['loot'] });
+    expect((svc2.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { tags: unknown }).tags).toEqual([{ bit: 0, name: 'prop' }, { bit: 1, name: 'loot' }]);
     // Editing continues after the reload.
     run(svc2, rev, 'moveEntities', { entityIds: [boxId], parentId: null });
     svc2.dispose();

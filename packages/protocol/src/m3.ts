@@ -30,7 +30,7 @@ import type {
 /** The v3 mutation ops (commands.md §2; packet 45) — the `commands` package
  *  exports the ops in its type module but not from its public entry, so the
  *  wire layer restates exactly the two accepted names. */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities';
+export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities' | 'setTags';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
@@ -75,7 +75,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -96,6 +96,7 @@ export const CHANGE_TYPES = [
   'setGameConfig',
   'updateEntity',
   'moveEntities',
+  'setTags',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------
@@ -214,8 +215,13 @@ export function validateV3ContentBlock(value: unknown, path = '/content'): Field
   if (!isPlainObject(value)) {
     return fieldError('field_type', path, 'the v3 content block must be a JSON object', { expected: 'object' });
   }
-  const keys = exactKeys(value, V3_CONTENT_KEYS, path);
+  // Phase 12 (b): `tags` (the tag registry) is optional.
+  const { tags, ...required } = value;
+  const keys = exactKeys(required, V3_CONTENT_KEYS, path);
   if (!keys.ok) return keys;
+  if (tags !== undefined && !Array.isArray(tags)) {
+    return fieldError('field_type', `${path}/tags`, 'tags must be an array of { bit, name }');
+  }
   if (!Array.isArray(value.assets)) {
     return fieldError('field_type', `${path}/assets`, 'assets must be an array');
   }

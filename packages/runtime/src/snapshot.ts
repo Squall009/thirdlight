@@ -8,7 +8,7 @@
  * `validateScene` re-check (project-model §12.1) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { resolveSceneHierarchy, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, validateTagRegistry, type TagDefinition, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -17,7 +17,7 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags']);
 
 /**
  * Recursively freeze (idempotent). runtime.md §2: on successful
@@ -56,6 +56,7 @@ export function validateRuntimeSnapshot(
       projectId: string;
       revision: number;
       game: GameConfig | null;
+      tags: readonly TagDefinition[];
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -257,7 +258,20 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame };
+  // Phase 12 (b): the optional v3 tag registry.
+  let tags: readonly TagDefinition[] = [];
+  if (snap.tags !== undefined) {
+    if (sceneVersion !== 3) {
+      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/tags', message: 'snapshot field "tags" is v3-only' } };
+    }
+    const tagErrors: ModelErrorV2[] = [];
+    validateTagRegistry(snap.tags, '/tags', tagErrors);
+    if (tagErrors.length > 0) {
+      return { error: { code: 'snapshot_invalid', reason: 'scene_validation', message: clipSceneMessage(tagErrors), errors: tagErrors.slice(0, 10), errorTotal: tagErrors.length } };
+    }
+    tags = snap.tags as TagDefinition[];
+  }
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags };
 }
 
 function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErrorV3)[]): string {

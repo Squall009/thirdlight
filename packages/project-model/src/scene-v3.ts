@@ -105,7 +105,7 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'components']);
+const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
 const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
@@ -828,11 +828,12 @@ function canonicalModelAnimation(c: unknown): ModelAnimationComponent {
   };
 }
 
-function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'locked' | 'static'> {
+function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'locked' | 'static' | 'tags'> {
   return {
     ...(e['active'] === false ? { active: false as const } : {}),
     ...(e['locked'] === true ? { locked: true as const } : {}),
     ...(e['static'] === true ? { static: true as const } : {}),
+    ...(typeof e['tags'] === 'number' && e['tags'] !== 0 ? { tags: e['tags'] } : {}),
   };
 }
 
@@ -972,6 +973,10 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
         const v = e[flag];
         if (v !== undefined && typeof v !== 'boolean') errors.push(fieldType(`${base}/${flag}`, v, 'boolean'));
       }
+      const tags = e['tags'];
+      if (tags !== undefined && (typeof tags !== 'number' || !Number.isInteger(tags) || tags < 0 || tags > 0xffffffff)) {
+        errors.push(fieldValue(`${base}/tags`, tags, 'integer 0 to 4294967295 (a 32-bit tag mask)', 'tags is the unsigned 32-bit mask of the tag bits'));
+      }
       const comps = e['components'];
       if (comps === undefined) {
         errors.push(fieldMissing(`${base}/components`, 'components'));
@@ -990,7 +995,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
         if (c.checkpointZoneIds.length > 0) counts.checkpointZoneIds.push(entityId);
       }
       for (const k of Object.keys(e)) {
-        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, active, locked, static, components'));
+        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, active, locked, static, tags, components'));
       }
     }
 

@@ -49,6 +49,7 @@ import {
   type IntentSet,
 } from './intents';
 import type {
+  BehaviorTagQuery,
   ModuleConfig,
   RuntimeSnapshot,
   SimulationModuleSpec,
@@ -362,6 +363,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
     id: behaviorModuleId(behaviorId),
     phases: ownedTransforms.length > 0 ? ['intent', 'transform'] : ['intent'],
     create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule {
+      // Phase 12 (b): the tag query, built once from the loaded scene.
+      const tags = createTagQuery(snapshot);
       // §14.6: an owner must exist, carry THIS behavior's component, and be
       // neither the camera nor a physics-bearing entity.
       const entityIds = new Set<string>();
@@ -419,7 +422,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         const properties = Object.freeze({ ...materialized.values });
         let state: unknown;
         try {
-          state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId, properties }));
+          state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId, properties, tags }));
         } catch (e) {
           disposeInstances();
           throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
@@ -502,6 +505,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           intents: ctx.intents,
           settings: ctx.settings,
           physics: ctx.physics,
+          tags,
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });
@@ -572,6 +576,58 @@ export class BehaviorHostIntentLimit extends Error {
 }
 
 /** The evaluated `default` export of a compiled artifact namespace. */
+/**
+ * Phase 12 (b): `ctx.tags` over the loaded (resolved) scene. The entities
+ * already carry their effective masks; the registry maps names to bits.
+ */
+export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery {
+  const bitByName = new Map<string, number>();
+  for (const t of snapshot.tags ?? []) bitByName.set(t.name.toLowerCase(), t.bit);
+  const masks = new Map<string, number>();
+  const order: string[] = [];
+  for (const e of snapshot.scene.entities) {
+    masks.set(e.id, ((e as { tags?: number }).tags ?? 0) >>> 0);
+    order.push(e.id);
+  }
+  const cache = new Map<string, readonly string[]>();
+  const matches = (m: number, mask: number, match: 'any' | 'all'): boolean =>
+    match === 'all' ? ((m & mask) >>> 0) === mask >>> 0 : (m & mask) !== 0;
+  const checkMatch = (match: unknown): 'any' | 'all' => {
+    if (match === undefined || match === 'any') return 'any';
+    if (match === 'all') return 'all';
+    throw new BehaviorHostError('module_error', 'behavior_tag_query_invalid', 'ctx.tags match must be "any" or "all"');
+  };
+  return Object.freeze({
+    mask(...names: string[]): number {
+      let m = 0;
+      for (const name of names) {
+        const bit = typeof name === 'string' ? bitByName.get(name.toLowerCase()) : undefined;
+        if (bit === undefined) {
+          throw new BehaviorHostError('module_error', 'behavior_tag_unknown', `ctx.tags.mask: unknown tag "${String(name)}" (known: ${[...bitByName.keys()].join(', ') || 'none'})`);
+        }
+        m = (m | (1 << bit)) >>> 0;
+      }
+      return m;
+    },
+    of(entityId: string): number {
+      return masks.get(entityId) ?? 0;
+    },
+    has(entityId: string, mask: number, match?: 'any' | 'all'): boolean {
+      return matches(masks.get(entityId) ?? 0, mask >>> 0, checkMatch(match));
+    },
+    query(mask: number, match?: 'any' | 'all'): readonly string[] {
+      const mode = checkMatch(match);
+      const key = `${mode}:${mask >>> 0}`;
+      let hit = cache.get(key);
+      if (hit === undefined) {
+        hit = Object.freeze(order.filter((id) => matches(masks.get(id) ?? 0, mask >>> 0, mode)));
+        cache.set(key, hit);
+      }
+      return hit;
+    },
+  });
+}
+
 function behaviorSpecOf(namespace: unknown): BehaviorSpec {
   const ns = namespace as { default?: unknown } | null;
   const candidate = isPlainObject(ns) && 'default' in ns ? ns.default : ns;

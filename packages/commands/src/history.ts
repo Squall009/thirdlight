@@ -41,6 +41,7 @@ import {
   emptyContentCatalog,
   entityHeader,
   headerChangedFields,
+  fullHeader,
   withMovedEntities,
   gateResultState,
   subtreeClosure,
@@ -205,7 +206,7 @@ function applyHeader(
   const current = scene.entities.find((e) => e.id === id);
   if (current === undefined) return { ok: false, error: historyInvalid(requestId) };
   // Records written before phase 12 carry a two-field header; the flags default.
-  const next: EntityHeader = { name: header.name, parentId: header.parentId, active: header.active !== false, locked: header.locked === true, static: header.static === true };
+  const next: EntityHeader = fullHeader(header);
   const result = withEntityHeader(scene, id, next, order, transform);
   if (result === null) return { ok: false, error: historyInvalid(requestId) };
   const previous = entityHeader(current as AnyEntity);
@@ -475,6 +476,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     };
     const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
+  }
+
+  if (inv.kind === 'setTags') {
+    const before = deepClone(content.tags ?? []);
+    const after = deepClone(inv.restore);
+    const change: ChangeData = { type: 'setTags', previous: before, next: after };
+    return finish(state, bumped(scene), { ...content, tags: after }, change, entry.requestId);
   }
 
   if (inv.kind === 'setSettings') {
@@ -787,6 +795,13 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     };
     const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
+  }
+
+  if (f.type === 'setTags') {
+    const before = deepClone(content.tags ?? []);
+    const after = deepClone(f.next);
+    const change: ChangeData = { type: 'setTags', previous: before, next: after };
+    return finish(state, bumped(scene), { ...content, tags: after }, change, entry.requestId);
   }
 
   if (f.type === 'setSettings') {

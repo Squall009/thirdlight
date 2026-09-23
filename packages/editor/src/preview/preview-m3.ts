@@ -96,6 +96,7 @@ export interface PreviewManifestV2 {
   mediaDigest: string;
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
+  tags?: { bit: number; name: string }[];
   assets: Array<{ assetId: string; version: number; path: string; kind: string; sourceDigest: string; sourceByteLength: number }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -313,7 +314,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -336,6 +337,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // No game block = scene mode (the scene plays as authored).
   if (!deepEqual(authored.game ?? null, manifest.game ?? null)) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot game does not re-hash to manifest.gameDigest');
+  }
+  // Phase 12 (b): the tag registry is the manifest's (bound by the buildId).
+  if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot tags do not match the manifest tags');
   }
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.

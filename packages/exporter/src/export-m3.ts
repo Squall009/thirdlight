@@ -406,7 +406,7 @@ function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<stri
   const without: Record<string, unknown> = {};
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];

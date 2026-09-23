@@ -122,6 +122,8 @@ export {
   validateContent,
   validateContentV3,
   validateGameConfig,
+  validateTagRegistry,
+  TAG_NAME_RE,
   type SettingsKeySpec,
 } from './content';
 
@@ -148,6 +150,8 @@ export {
   SURFACE_PRESETS,
   V3_REGISTRY,
   isFolderEntity,
+  MAX_TAGS,
+  type TagDefinition,
   type EntityFlagsV3,
   type FolderComponent,
   type FolderEntityV3,

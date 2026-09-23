@@ -48,6 +48,7 @@ function entity(id: string, assetId: string): ProjectedEntity {
     active: true,
     locked: false,
     static: false,
+    tags: 0,
     kind: 'model',
     position: [0, 0, 0],
     rotation: [0, 0, 0, 1],

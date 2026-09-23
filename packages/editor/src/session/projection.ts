@@ -34,6 +34,8 @@ export interface ProjectedEntity {
   active: boolean;
   locked: boolean;
   static: boolean;
+  /** Phase 12 (b): the entity's own tag mask (0 = none). */
+  tags: number;
   /** Local transform; a folder has none and shows the identity. */
   position: number[];
   rotation: number[];
@@ -117,7 +119,7 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
 const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 
 function toProjected(e: Entity): ProjectedEntity {
-  const flags = e as { active?: boolean; locked?: boolean; static?: boolean };
+  const flags = e as { active?: boolean; locked?: boolean; static?: boolean; tags?: number };
   const c = e.components as {
     folder?: unknown;
     box?: { size?: number[]; material?: { color?: string } };
@@ -144,6 +146,7 @@ function toProjected(e: Entity): ProjectedEntity {
     active: flags.active !== false,
     locked: flags.locked === true,
     static: flags.static === true,
+    tags: typeof flags.tags === 'number' ? flags.tags >>> 0 : 0,
     position: [...t.position],
     rotation: [...t.rotation],
     scale: [...t.scale],
@@ -268,6 +271,7 @@ export class Projection {
         p.active = change.next.active !== false;
         p.locked = change.next.locked === true;
         p.static = change.next.static === true;
+        p.tags = typeof change.next.tags === 'number' ? change.next.tags >>> 0 : 0;
         if (change.transform !== undefined) {
           p.position = [...change.transform.next.position];
           p.rotation = [...change.transform.next.rotation];
@@ -396,6 +400,7 @@ export class Projection {
       // display — advance the revision (no gap) and let the next full state
       // / `queryEntity` carry the value.
       case 'setGameConfig':
+      case 'setTags':
         return true;
       case 'applySurfacePreset': {
         const p = this.entities.get(change.id);

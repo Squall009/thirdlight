@@ -282,6 +282,8 @@ export class SessionClient {
    * only the touched keys (partial semantics preserve the rest).
    */
   private settings: Record<string, unknown> | null = null;
+  /** Phase 12 (b): the project tag registry (from `queryGameConfig`, then `setTags` changes). */
+  private tags: { bit: number; name: string }[] = [];
 
   constructor(cfg: ClientConfig, cb: ClientCallbacks, sessionId?: string) {
     this.cfg = cfg;
@@ -445,6 +447,8 @@ export class SessionClient {
       if (g.ok) {
         this.gameConfig = g.game === null ? null : { ...g.game, level: { ...g.game.level }, cues: { ...g.game.cues } };
         this.gameConfigLoaded = true;
+        const tags = (g as { tags?: { bit: number; name: string }[] }).tags;
+        this.tags = Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -617,6 +621,8 @@ export class SessionClient {
         this.gameConfigLoaded = true;
       } else if (change.type === 'setSettings') {
         this.settings = { ...(change.next as Record<string, unknown>) };
+      } else if (change.type === 'setTags') {
+        this.tags = change.next.map((t) => ({ bit: t.bit, name: t.name }));
       }
       this.save = 'saved';
       this.cb.onSceneChanged();
@@ -860,6 +866,11 @@ export class SessionClient {
    * returns settings values, so a fresh session seeds the panel from the
    * registry defaults). See the `settings` field note above.
    */
+  /** Phase 12 (b): the project tag registry, ascending bit. */
+  getTags(): { bit: number; name: string }[] {
+    return this.tags.map((t) => ({ ...t }));
+  }
+
   getSettings(): Record<string, unknown> | null {
     return this.settings === null ? null : { ...this.settings };
   }

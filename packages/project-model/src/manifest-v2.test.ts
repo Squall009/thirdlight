@@ -126,8 +126,15 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
-    expect(keys).toEqual([...MANIFEST_KEYS_V2]);
+    // `tags` (phase 12 b) is present only when the project defines tags.
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags'));
     expect(keys[keys.length - 1]).toBe('buildId');
+    const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'enemy' }] } as never);
+    expect(tagged.ok).toBe(true);
+    if (tagged.ok) {
+      expect(Object.keys(tagged.manifest)).toEqual([...MANIFEST_KEYS_V2]);
+      expect(validateManifestV2(tagged.manifest).ok).toBe(true);
+    }
     expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_2);
     expect(res.manifest.snapshotId).toBe('demo-0001@r12');
   });
@@ -303,7 +310,7 @@ describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(22);
+    expect(MANIFEST_KEYS_V2).toHaveLength(23); // incl. the optional phase-12 `tags`
     expect(MANIFEST_KEYS_V2).toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');

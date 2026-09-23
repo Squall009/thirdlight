@@ -46,6 +46,47 @@ interface Props {
   /** How many entities are selected in the hierarchy. */
   selectionCount: number;
   onSetFlag: (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => void;
+  /** Phase 12 (b): the project tag registry. */
+  tags: readonly { bit: number; name: string }[];
+  onSetTags: (entityId: string, names: string[]) => void;
+}
+
+/**
+ * Phase 12 (b): the entity's tags. A checkbox is the entity's own tag; a tag
+ * a folder above passes down is marked as inherited (it counts either way).
+ */
+function TagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFlags | null; tags: Props['tags']; onSetTags: Props['onSetTags'] }): JSX.Element {
+  const { entity, flags, tags } = props;
+  const own = entity.tags;
+  const inherited = flags?.inheritedTags ?? 0;
+  return (
+    <div className="tl-inspector__section tl-inspector__tags" aria-label="tags">
+      <div className="tl-panel__title">Tags</div>
+      {tags.length === 0 ? (
+        <p className="tl-inspector__hint">No project tags yet (bottom dock → Tags).</p>
+      ) : (
+        tags.map((t) => {
+          const bit = 1 << t.bit;
+          const mine = (own & bit) !== 0;
+          return (
+            <label key={t.bit} className="tl-flag" data-tag={t.name}>
+              <input
+                type="checkbox"
+                aria-label={`tag ${t.name}`}
+                checked={mine}
+                onChange={(e) => {
+                  const names = tags.filter((x) => (x.bit === t.bit ? e.target.checked : (own & (1 << x.bit)) !== 0)).map((x) => x.name);
+                  props.onSetTags(entity.id, names);
+                }}
+              />
+              <span>{t.name}</span>
+              {(inherited & bit) !== 0 && <span className="tl-flag__inherited" data-inherited-tag={t.name}>inherited from a folder</span>}
+            </label>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
 const FLAG_ROWS = [
@@ -151,7 +192,7 @@ function quaternionOf(deg: number[]): number[] {
   return [q.x, q.y, q.z, q.w];
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -195,6 +236,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           />
           <div className="tl-inspector__kind">{entity.kind}{selectionCount > 1 ? ` · ${selectionCount} selected` : ''}</div>
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
+          <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
           {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}
           {entity.prefab && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>

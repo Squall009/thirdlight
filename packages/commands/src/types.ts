@@ -32,6 +32,7 @@ import type {
   Entity,
   EntityV2,
   GameConfig,
+  TagDefinition,
   ImportRecipe,
   ImportRecipeV3,
   LimitName,
@@ -82,7 +83,7 @@ export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
  * 45): `applySurfacePreset` copies a preset row; `setGameConfig` is the sole
  * writer of `content.game`.
  */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities';
+export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities' | 'setTags';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -273,6 +274,15 @@ export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
  */
 export interface ContentDocument extends ContentCatalog {
   game?: GameConfig | null;
+  /** Phase 12 (b): the project tag registry (ascending bit; absent = none). */
+  tags?: TagDefinition[];
+}
+
+/** `setTags` change data: the whole registry before and after. */
+export interface SetTagsChange {
+  type: 'setTags';
+  previous: TagDefinition[];
+  next: TagDefinition[];
 }
 
 /** `publishAsset` change data (commands.md §5.3/§8.5). */
@@ -429,10 +439,12 @@ export interface EntityHeader {
   active: boolean;
   locked: boolean;
   static: boolean;
+  /** Phase 12 (b): the entity's own tag mask (0 = none; absent in older records). */
+  tags: number;
 }
 
 /** The `updateEntity` fields a change can name. */
-export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'locked' | 'static';
+export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'locked' | 'static' | 'tags';
 
 /**
  * `updateEntity`: rename, reparent and/or set the hierarchy flags. When a
@@ -504,7 +516,8 @@ export type ChangeData =
   | ApplySurfacePresetChange
   | SetGameConfigChange
   | UpdateEntityChange
-  | MoveEntitiesChange;
+  | MoveEntitiesChange
+  | SetTagsChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -522,7 +535,8 @@ export type ForwardChange =
   | ApplySurfacePresetChange
   | SetGameConfigChange
   | UpdateEntityChange
-  | MoveEntitiesChange;
+  | MoveEntitiesChange
+  | SetTagsChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -625,7 +639,14 @@ export interface MoveEntitiesInverse {
   restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
+/** Undo of a `setTags`: restore the whole previous registry. */
+export interface SetTagsInverse {
+  kind: 'setTags';
+  restore: TagDefinition[];
+}
+
 export type InverseSpec =
+  | SetTagsInverse
   | UpdateEntityInverse
   | MoveEntitiesInverse
   | DeleteInverse
@@ -809,6 +830,17 @@ export interface UpdateEntityArgs {
   active?: boolean;
   locked?: boolean;
   static?: boolean;
+  /** Phase 12 (b): the entity's own tags, by name (replaces the whole set; [] clears). */
+  tags?: string[];
+}
+
+/**
+ * `setTags` (phase 12 b): the whole tag registry. An entry with `bit` keeps
+ * that bit (a rename keeps the bit); an entry without one gets the lowest
+ * free bit. A tag an entity still carries cannot be left out.
+ */
+export interface SetTagsArgs {
+  tags: { bit?: number; name: string }[];
 }
 
 /**
@@ -967,6 +999,7 @@ export interface InstantiatePrefabArgs {
 }
 
 export type MutationArgs =
+  | SetTagsArgs
   | UpdateEntityArgs
   | MoveEntitiesArgs
   | CreateEntityArgs
@@ -1125,7 +1158,7 @@ export interface ContentCounts {
 
 /** `queryGameConfig` result (commands.md §3.1.11/§A6): the block or `null`. */
 export type GameConfigQueryResult =
-  | { ok: true; projectId: string; revision: number; game: GameConfig | null }
+  | { ok: true; projectId: string; revision: number; game: GameConfig | null; tags: TagDefinition[] }
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 
 /** One `queryEntities` page (commands.md §4/§5.6): filtered, document order. */

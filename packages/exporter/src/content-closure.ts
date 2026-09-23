@@ -376,6 +376,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     behaviors: behaviorInputs,
     settings: view.settings,
     game: view.game,
+    // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
+    tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
     media,
     moduleIds,
     enginePins: M3_ENGINE_PINS,

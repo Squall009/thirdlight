@@ -25,6 +25,7 @@ import type {
   SceneV3,
 } from '@thirdlight/project-model';
 import {
+  effectiveEntityFlags,
   normalizeScene,
   parseDocumentBytes,
   validateManifest,
@@ -2278,6 +2279,8 @@ export function serveQuery(
       },
       history: depths(s.history),
       workspace: workspaceBlock(s),
+      // Phase 12 (b): the project tag registry (ascending bit; v3 projects).
+      ...(scene.schemaVersion === 3 ? { tags: tagRegistryOf(s.content) } : {}),
     };
   }
   if (op === 'queryEntity') {
@@ -2294,6 +2297,11 @@ export function serveQuery(
       cur = byId.get(cur)!.parentId;
     }
     const childIds = scene.entities.filter((e) => e.parentId === entityId).map((e) => e.id);
+    // Phase 12 (b): the entity's tags by name — its own, and effective
+    // (own + every folder above), so a reader never decodes masks.
+    const registry = tagRegistryOf(s.content);
+    const effective = scene.schemaVersion === 3 ? (effectiveEntityFlags(scene.entities as SceneV3['entities']).get(entityId)?.tags ?? 0) : 0;
+    const namesOf = (mask: number): string[] => registry.filter((t) => (mask & (1 << t.bit)) !== 0).map((t) => t.name);
     const out: {
       ok: true;
       projectId: string;
@@ -2301,6 +2309,7 @@ export function serveQuery(
       entity: SceneEntity;
       parentChain: readonly string[];
       childIds: readonly string[];
+      tagNames: { own: string[]; effective: string[] };
       subtree?: { count: number; entities: readonly SceneEntity[] };
     } = {
       ok: true,
@@ -2309,6 +2318,7 @@ export function serveQuery(
       entity,
       parentChain,
       childIds,
+      tagNames: { own: namesOf(((entity as { tags?: number }).tags ?? 0) >>> 0), effective: namesOf(effective) },
     };
     if (ov.includeSubtree === true) {
       const descendants = new Set<string>([entityId]);
@@ -2343,6 +2353,12 @@ export function serveQuery(
   const limit = ov.limit ?? 100;
   const entities = offset >= total ? [] : filtered.entities.slice(offset, offset + limit);
   return { ok: true, projectId, revision: s.revision, total, offset, limit, entities } as unknown as QueryResult;
+}
+
+/** The tag registry of a content block (empty when none). */
+function tagRegistryOf(content: unknown): { bit: number; name: string }[] {
+  const tags = (content as { tags?: { bit: number; name: string }[] } | null)?.tags;
+  return Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
 }
 
 /** Any scene entity a query returns (objects of every version, v3 folders). */

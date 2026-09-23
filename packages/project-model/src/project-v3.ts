@@ -82,6 +82,28 @@ export function composeV3(
     return i === undefined ? undefined : scene.entities[i];
   };
 
+  // Phase 12 (b): every tag bit an entity carries is defined in content.tags.
+  let definedBits = 0;
+  for (const t of content.tags ?? []) definedBits = (definedBits | (1 << t.bit)) >>> 0;
+  scene.entities.forEach((e, i) => {
+    const unknown = ((e.tags ?? 0) & ~definedBits) >>> 0;
+    if (unknown !== 0) {
+      errors.push(
+        withFound(
+          {
+            code: 'reference_missing',
+            path: `/entities/${i}/tags`,
+            document: 'scene',
+            reason: 'tag',
+            message: 'the entity carries a tag bit that content.tags does not define',
+            expected: 'only bits of tags defined in content.tags',
+          },
+          unknown,
+        ),
+      );
+    }
+  });
+
   if (game !== null) {
     // Rule 1: exactly one controller, named by game.playerId.
     const controllers = scene.entities.filter((e) => e.components.controller !== undefined).length;
@@ -428,7 +450,8 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
     }
   }
   for (const k of Object.keys(contentRaw)) {
-    if (!(CONTENT_V3_FIELDS as readonly string[]).includes(k)) {
+    // Phase 12 (b): `tags` is the one optional content key.
+    if (!(CONTENT_V3_FIELDS as readonly string[]).includes(k) && k !== 'tags') {
       return envelopeFail([
         envelopeError('envelope_invalid', `/content/${pointerSegment(k)}`, 'unknown v3 content key is not permitted (the six-key set is exact)', CONTENT_V3_FIELDS.join(', '), 'field_unexpected', k),
       ]);

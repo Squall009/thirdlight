@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -87,6 +87,7 @@ import type {
   SetTransformArgs,
   UpdateEntityArgs,
   MoveEntitiesArgs,
+  SetTagsArgs,
 } from './types';
 
 const TOP_FIELDS = [
@@ -118,8 +119,9 @@ const OPS: readonly MutationOp[] = [
   'applySurfacePreset',
   'setGameConfig',
   'updateEntity',
-  // phase 12 hierarchy:
+  // phase 12 hierarchy + tags:
   'moveEntities',
+  'setTags',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -144,7 +146,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -836,7 +838,7 @@ function validateDeleteArgs(args: Record<string, unknown>):
 function validateUpdateEntityArgs(args: Record<string, unknown>):
   | { ok: true; args: UpdateEntityArgs }
   | { ok: false; error: CommandError } {
-  const KNOWN_UPDATE = ['entityId', 'name', 'parentId', 'active', 'locked', 'static'];
+  const KNOWN_UPDATE = ['entityId', 'name', 'parentId', 'active', 'locked', 'static', 'tags'];
   for (const key of Object.keys(args)) {
     if (!KNOWN_UPDATE.includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN_UPDATE.join(', ')) };
@@ -869,10 +871,50 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
     if (typeof v !== 'boolean') return { ok: false, error: fieldType(`/args/${flag}`, v, 'boolean') };
     out[flag] = v;
   }
-  if (out.name === undefined && out.parentId === undefined && out.active === undefined && out.locked === undefined && out.static === undefined) {
-    return { ok: false, error: fieldMissing('/args/name', 'name, parentId, active, locked or static') };
+  const tags = args['tags'];
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || tags.length > 32) return { ok: false, error: fieldType('/args/tags', tags, 'array of up to 32 tag names') };
+    for (let i = 0; i < tags.length; i++) {
+      if (typeof tags[i] !== 'string') return { ok: false, error: fieldType(`/args/tags/${i}`, tags[i], 'string (tag name)') };
+    }
+    out.tags = tags as string[];
+  }
+  if (out.name === undefined && out.parentId === undefined && out.active === undefined && out.locked === undefined && out.static === undefined && out.tags === undefined) {
+    return { ok: false, error: fieldMissing('/args/name', 'name, parentId, active, locked, static or tags') };
   }
   return { ok: true, args: out };
+}
+
+function validateSetTagsArgs(args: Record<string, unknown>):
+  | { ok: true; args: SetTagsArgs }
+  | { ok: false; error: CommandError } {
+  for (const key of Object.keys(args)) {
+    if (key !== 'tags') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'tags') };
+  }
+  const tags = args['tags'];
+  if (tags === undefined) return { ok: false, error: fieldMissing('/args/tags', 'tags') };
+  if (!Array.isArray(tags)) return { ok: false, error: fieldType('/args/tags', tags, 'array of { bit?, name }') };
+  if (tags.length > 32) return { ok: false, error: fieldValue('/args/tags', tags.length, 'at most 32 tags', 'a project has at most 32 tags') };
+  const out: SetTagsArgs['tags'] = [];
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    const p = `/args/tags/${i}`;
+    if (!isPlainObject(t)) return { ok: false, error: fieldType(p, t, 'object { bit?, name }') };
+    for (const key of Object.keys(t)) {
+      if (key !== 'bit' && key !== 'name') return { ok: false, error: fieldUnexpected(`${p}/${pointerSegment(key)}`, key, 'bit (optional), name') };
+    }
+    const name = t['name'];
+    if (typeof name !== 'string') return { ok: false, error: fieldType(`${p}/name`, name, 'string') };
+    if (!TAG_NAME_RE.test(name)) {
+      return { ok: false, error: fieldValue(`${p}/name`, name, 'a letter, then letters, digits, _ or -; 1-32 characters', 'tag names are short identifiers') };
+    }
+    const bit = t['bit'];
+    if (bit !== undefined && (typeof bit !== 'number' || !Number.isInteger(bit) || bit < 0 || bit > 31)) {
+      return { ok: false, error: fieldValue(`${p}/bit`, bit, 'integer 0-31', 'a tag bit is an integer from 0 to 31') };
+    }
+    out.push(bit === undefined ? { name } : { bit: bit as number, name });
+  }
+  return { ok: true, args: { tags: out } };
 }
 
 function validateMoveEntitiesArgs(args: Record<string, unknown>):
@@ -972,7 +1014,8 @@ export type ValidatedOpArgs =
   | { op: 'applySurfacePreset'; args: ApplySurfacePresetArgs }
   | { op: 'setGameConfig'; args: SetGameConfigArgs }
   | { op: 'updateEntity'; args: UpdateEntityArgs }
-  | { op: 'moveEntities'; args: MoveEntitiesArgs };
+  | { op: 'moveEntities'; args: MoveEntitiesArgs }
+  | { op: 'setTags'; args: SetTagsArgs };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1008,6 +1051,11 @@ export function validateOpArgs(
       const r = validateUpdateEntityArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'updateEntity', args: r.args } };
+    }
+    case 'setTags': {
+      const r = validateSetTagsArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setTags', args: r.args } };
     }
     case 'moveEntities': {
       const r = validateMoveEntitiesArgs(args);

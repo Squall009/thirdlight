@@ -69,6 +69,7 @@ export {
   type GameEvent,
   type GameEventKind,
   type GameSessionPort,
+  type BehaviorTagQuery,
   type GameView,
   type GameZoneRole,
   type GameplaySettings,
@@ -157,3 +158,4 @@ export {
 // load; the editor uses the same rules for its viewport and inspector).
 export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags } from '@thirdlight/project-model';
+export { createTagQuery } from './behavior';

@@ -11,7 +11,7 @@
  *
  * `resolveSceneHierarchy` is what the game loads: folders and inactive
  * entities removed, children re-hung under their nearest non-folder ancestor
- * and each entity carrying its effective `static`. It runs once when a scene
+ * and each entity carrying its effective `static` and tag mask. It runs once when a scene
  * is loaded, never per frame. Pure: no I/O, no three.js.
  */
 
@@ -28,11 +28,15 @@ export interface EffectiveEntityFlags {
   active: boolean;
   locked: boolean;
   static: boolean;
+  /** Phase 12 (b): the effective tag mask — own mask OR every folder above's mask. */
+  tags: number;
+  /** The tag bits that come from folders above (not set on the entity itself). */
+  inheritedTags: number;
   /** The id of the nearest ancestor that switched the flag on/off for this entity (absent: its own value). */
   inheritedFrom: { active?: string; locked?: string; static?: string };
 }
 
-type FlagEntity = Pick<SceneEntityV3, 'id' | 'parentId' | 'active' | 'locked' | 'static' | 'components'>;
+type FlagEntity = Pick<SceneEntityV3, 'id' | 'parentId' | 'active' | 'locked' | 'static' | 'tags' | 'components'>;
 
 /**
  * Effective flags for every entity, keyed by id. Entities must be in
@@ -44,10 +48,19 @@ export function effectiveEntityFlags(entities: readonly FlagEntity[]): Map<strin
   // What each entity hands to its children: inactive (any entity), and the
   // locked/static a folder set somewhere above (or on itself), with the id of
   // the entity that set it.
-  const down = new Map<string, { inactive?: string; locked?: string; static?: string }>();
+  const down = new Map<string, { inactive?: string; locked?: string; static?: string; tags?: number }>();
   for (const e of entities) {
     const inherited = (e.parentId !== undefined ? down.get(e.parentId) : undefined) ?? {};
-    const flags: EffectiveEntityFlags = { active: e.active !== false, locked: e.locked === true, static: e.static === true, inheritedFrom: {} };
+    const own = (e.tags ?? 0) >>> 0;
+    const fromFolders = (inherited.tags ?? 0) >>> 0;
+    const flags: EffectiveEntityFlags = {
+      active: e.active !== false,
+      locked: e.locked === true,
+      static: e.static === true,
+      tags: (own | fromFolders) >>> 0,
+      inheritedTags: (fromFolders & ~own) >>> 0,
+      inheritedFrom: {},
+    };
     if (inherited.inactive !== undefined) {
       flags.active = false;
       flags.inheritedFrom.active = inherited.inactive;
@@ -65,6 +78,8 @@ export function effectiveEntityFlags(entities: readonly FlagEntity[]): Map<strin
       ...(flags.active ? {} : { inactive: inherited.inactive ?? e.id }),
       ...(inherited.locked !== undefined ? { locked: inherited.locked } : folder && e.locked === true ? { locked: e.id } : {}),
       ...(inherited.static !== undefined ? { static: inherited.static } : folder && e.static === true ? { static: e.id } : {}),
+      // Tags: every folder's own mask reaches its whole subtree.
+      tags: (fromFolders | (folder ? own : 0)) >>> 0,
     });
     out.set(e.id, flags);
   }
@@ -118,6 +133,7 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3): Resolve
       ...(e.name !== undefined ? { name: e.name } : {}),
       ...(parentId !== null ? { parentId } : {}),
       ...(f.static ? { static: true as const } : {}),
+      ...(f.tags !== 0 ? { tags: f.tags } : {}),
       components: e.components,
     });
   }

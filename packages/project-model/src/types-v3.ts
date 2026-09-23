@@ -150,7 +150,22 @@ export interface EntityFlagsV3 {
   active?: false;
   locked?: true;
   static?: true;
+  /**
+   * Phase 12 (b): the entity's own tag bits (unsigned 32-bit mask; bit i =
+   * the tag with `bit: i` in `content.tags`). Stored only when non-zero. The
+   * effective mask is this OR the masks of every folder above it.
+   */
+  tags?: number;
 }
+
+/** Phase 12 (b): one named tag; `bit` (0–31) is fixed for the tag's life. */
+export interface TagDefinition {
+  bit: number;
+  name: string;
+}
+
+/** At most this many tags per project (one per mask bit). */
+export const MAX_TAGS = 32;
 
 export interface EntityV3 extends EntityFlagsV3 {
   id: string;
@@ -310,6 +325,8 @@ export interface ContentCatalogV3 {
   settings: SettingsMap;
   behaviorTrust: BehaviorTrust;
   game: GameConfig | null;
+  /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
+  tags?: TagDefinition[];
 }
 
 /**

@@ -20,6 +20,7 @@ import type {
   Scene,
   SceneV2,
   ResolvedSceneV3,
+  TagDefinition,
   Vec3,
 } from '@thirdlight/project-model';
 
@@ -64,6 +65,11 @@ export interface RuntimeSnapshot {
   scene: RuntimeScene;
   /** v3 only: the frozen `content.game` block, or `null`. */
   game?: GameConfig | null;
+  /**
+   * Phase 12 (b), v3 only, optional: the project tag registry (`content.tags`).
+   * The entities carry their effective masks once the scene is resolved.
+   */
+  tags?: readonly TagDefinition[];
 }
 
 /** The resolved gameplay settings (runtime.md §12.2; project-model §14). */
@@ -428,6 +434,23 @@ export interface StepContext {
    * or `camera`). Absent for M1/M2 sets.
    */
   readonly gameplay?: GameSessionPort;
+}
+
+/**
+ * Phase 12 (b): what a behavior script can ask about tags (`ctx.tags`, in
+ * `instantiate` and every `step`). Built once when the scene loads from the
+ * effective masks (own mask OR every folder above's); calls never allocate
+ * per frame beyond the first query of a given mask.
+ */
+export interface BehaviorTagQuery {
+  /** The mask of the named tags (names ignore case). Throws on an unknown name. */
+  mask(...names: string[]): number;
+  /** The entity's effective tag mask (0 for an unknown entity). */
+  of(entityId: string): number;
+  /** Whether the entity carries any (default) or all of the mask's bits. */
+  has(entityId: string, mask: number, match?: 'any' | 'all'): boolean;
+  /** The entities carrying any (default) or all of the mask's bits, in scene order. */
+  query(mask: number, match?: 'any' | 'all'): readonly string[];
 }
 
 export interface SimulationModuleSpec {

@@ -72,6 +72,7 @@ interface ExportManifestV2 {
   mediaDigest: string;
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
+  tags?: { bit: number; name: string }[];
   assets: ReadonlyArray<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number; kind: string; path: string }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -103,7 +104,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -198,6 +199,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     revision: manifest.revision,
     scene,
     game: manifest.game ?? null,
+    ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when

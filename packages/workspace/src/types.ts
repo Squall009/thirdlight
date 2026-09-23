@@ -166,6 +166,8 @@ export interface QueryProjectResult {
   scene: { sceneId: string; schemaVersion: number; entityCount: number; cameraId: string };
   history: HistoryDepths;
   workspace: WorkspaceQueryInfo;
+  /** Phase 12 (b): the project tag registry (ascending bit; empty when none). */
+  tags?: { bit: number; name: string }[];
 }
 
 export interface QueryEntityResult {
@@ -178,6 +180,8 @@ export interface QueryEntityResult {
   parentChain: readonly string[];
   /** Direct children in document order. */
   childIds: readonly string[];
+  /** Phase 12 (b): the entity's tags by name, own and effective (own + folders above). */
+  tagNames: { own: string[]; effective: string[] };
   /** Present only when `includeSubtree` is true. */
   subtree?: { count: number; entities: readonly Entity[] };
 }

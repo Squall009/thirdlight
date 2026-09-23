@@ -36,6 +36,7 @@ function entity(id: string, extra: Partial<ProjectedEntity> = {}): ProjectedEnti
     active: true,
     locked: false,
     static: false,
+    tags: 0,
     position: [0, 0, 0],
     rotation: [0, 0, 0, 1],
     scale: [1, 1, 1],

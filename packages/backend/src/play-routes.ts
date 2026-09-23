@@ -200,6 +200,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       }
       // The preview verifies the snapshot's game block against the manifest.
       snapshot.game = (captured.read.content as { game?: unknown }).game ?? null;
+      // Phase 12 (b): the tag registry, when the project defines tags (the
+      // preview checks it against the manifest).
+      const tags = (captured.read.content as { tags?: unknown[] }).tags;
+      if (Array.isArray(tags) && tags.length > 0) (snapshot as { tags?: unknown }).tags = tags;
       builtCore = {
         buildId: builtM3.built.buildId,
         contentDigest: builtM3.built.contentDigest,

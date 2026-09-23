@@ -32,7 +32,7 @@
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateSceneV3 } from './scene-v3';
-import { validateContentV3, resolveGameplaySettings } from './content';
+import { validateContentV3, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
@@ -41,6 +41,7 @@ import type {
   ContentCatalogV3,
   GameConfig,
   SceneV3,
+  TagDefinition,
 } from './types-v3';
 import type { GameplaySettings } from './types-v2';
 import {
@@ -73,6 +74,7 @@ export const MANIFEST_KEYS_V2 = [
   'mediaDigest',
   'settings',
   'game',
+  'tags',
   'assets',
   'media',
   'behaviors',
@@ -201,6 +203,8 @@ export interface RuntimeContentManifestV2 {
   mediaDigest: string;
   settings: GameplaySettings;
   game: GameConfig | null;
+  /** Phase 12 (b): the tag registry, present only when non-empty. */
+  tags?: TagDefinition[];
   assets: ReadonlyArray<Record<string, unknown>>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
@@ -455,6 +459,8 @@ export interface CaptureManifestV2Input {
   settings: GameplaySettings;
   /** The frozen `content.game` value (canonical `GameConfig` order) or `null`. */
   game: GameConfig | null;
+  /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
+  tags?: readonly TagDefinition[];
   /** The resolved media identity (from `resolveMediaIdentityV3`). */
   media: MediaBlock;
   /** The required engine module IDs (the M3 shared-composition set). */
@@ -551,6 +557,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     mediaDigest,
     settings: input.settings,
     game: input.game,
+    ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
     assets,
     media: input.media,
     behaviors,
@@ -586,6 +593,7 @@ export function manifestBuildIdInputV2(manifest: Record<string, unknown>): Uint8
   const without: Record<string, unknown> = {};
   for (const key of MANIFEST_KEYS_V2) {
     if (key === 'buildId') continue;
+    if (key === 'tags' && !(key in manifest)) continue; // phase 12 (b): optional
     if (!(key in manifest)) return null;
     without[key] = manifest[key];
   }
@@ -639,7 +647,13 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     }
   }
   for (const key of MANIFEST_KEYS_V2) {
+    if (key === 'tags') continue; // phase 12 (b): optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
+  }
+  if (d['tags'] !== undefined) {
+    const tagErrors: ModelErrorV2[] = [];
+    validateTagRegistry(d['tags'], '/tags', tagErrors);
+    if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
 
   if (d['type'] !== RUNTIME_CONTENT_TYPE) {

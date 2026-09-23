@@ -144,5 +144,8 @@ export type {
   MoveEntitiesChange,
   MoveEntitiesInverse,
   MovedEntity,
+  SetTagsArgs,
+  SetTagsChange,
+  SetTagsInverse,
   SetTransformInverse,
 } from './types';
