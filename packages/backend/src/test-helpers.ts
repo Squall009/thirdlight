@@ -5,7 +5,8 @@
  */
 import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
-import { createTestBackend, type Backend } from './backend';
+import type { Backend } from './backend';
+import { createTestBackend } from './testing';
 
 export function hex(n: number): string {
   let out = '';

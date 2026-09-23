@@ -22,7 +22,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createTestBackend, type Backend } from '@thirdlight/backend/services';
+import type { Backend } from '@thirdlight/backend/services';
+import { createTestBackend } from '@thirdlight/backend/testing';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { BackendClient } from './backend-client';

@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestBackend, type Backend } from './backend';
+import type { Backend } from './backend';
+import { createTestBackend } from './testing';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN } from './test-helpers';
 
 const REPO_ROOT = new URL('.', import.meta.url).pathname.slice(0, new URL('.', import.meta.url).pathname.lastIndexOf('/packages/'));

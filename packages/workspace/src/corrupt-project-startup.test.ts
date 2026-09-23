@@ -50,7 +50,7 @@ import { openWorkspaceService } from '@thirdlight/workspace';
 // Self-contained (the src test plane is typechecked against the package's
 // ambient node declarations — packages/workspace/tests/ is excluded from
 // the tsc program, so the shared tests/helpers.ts cannot be imported from
-// here; the same convention the other repair-2026-09-18-*.test.ts files
+// here; the same convention the other workspace regression test files
 // follow).
 const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
 const FIXTURES = join(REPO_ROOT, 'fixtures', 'commands');

@@ -789,7 +789,8 @@ export function checkWorkspace(root) {
             continue;
           }
           const sub = fileAllowed.subpaths?.[unit];
-          if (sub && !sub.includes(subpath)) {
+          // Test files may also use the backend's test-only `testing` subpath.
+          if (sub && !sub.includes(subpath) && !(isTestFile && unit === 'backend' && subpath === 'testing')) {
             addV(
               rel,
               line,

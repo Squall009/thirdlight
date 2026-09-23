@@ -64,7 +64,7 @@ export const ROOT_BASE: string = tmpdir() === '/tmp' ? '/home/dadmin' : tmpdir()
 /** Disposable prefixes (keep in sync with the makeRoot/mkdtemp sites). */
 export const DISPOSABLE_PREFIXES: readonly string[] = [
   // packages/workspace/tests/helpers.ts, tests/integration/m2-builds/helpers.ts,
-  // packages/workspace/src/repair-2026-09-18-a1.test.ts / -a2.test.ts
+  // packages/workspace/src/state-isolation.test.ts / request-json-validation.test.ts
   '.tl07-tmp-',
   // tests/crash-recovery.test.ts (roots + `.tl07-crash-bundle-` scratch)
   '.tl07-crash-',
@@ -72,7 +72,7 @@ export const DISPOSABLE_PREFIXES: readonly string[] = [
   '.tl23-crash-',
   // tests/crash/m3-storage-crash.test.ts (roots + `.tl46-crash-bundle-` scratch)
   '.tl46-crash-',
-  // tests/ownership-claim-2026-09-18.test.ts (roots + `.tl07e1-bundle-` scratch)
+  // tests/ownership-claim-processes.test.ts (roots + `.tl07e1-bundle-` scratch)
   '.tl07e1-crash-',
   '.tl07e1-bundle-',
   // tests/integration/m2-content/harness.ts
@@ -93,7 +93,7 @@ const CHILD_SIGNATURES: readonly string[] = [
   '.tl07-crash-bundle-', // tests/crash-recovery.test.ts (claim holder)
   '.tl23-crash-bundle-', // tests/m2-crash.test.ts
   '.tl46-crash-bundle-', // tests/crash/m3-storage-crash.test.ts
-  '.tl07e1-bundle-', // tests/ownership-claim-2026-09-18.test.ts (contend-* waiters)
+  '.tl07e1-bundle-', // tests/ownership-claim-processes.test.ts (contend-* waiters)
   '.tl25-bundles/', // tests/integration/m2-content/harness.ts (backend + MCP children)
   '.tl35-bundles/', // tests/integration/m2-play/harness.ts
   '.tl48-bundles/', // tests/integration/m3-content/harness.ts

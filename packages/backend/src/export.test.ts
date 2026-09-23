@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestBackend } from './backend';
+import { createTestBackend } from './testing';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN } from './test-helpers';
 
 const PROJECT = 'demo-0001';

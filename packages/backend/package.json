@@ -6,7 +6,8 @@
   "description": "Thirdlight M1 backend (docs/contracts/sessions.md, packet 09): the authoring HTTP API + WS transport (sessions.md \u00a74\u2013\u00a78), play session state machine + screenshot/diagnostics relay (\u00a710\u2013\u00a712), bounded session logs and errors (\u00a711), the separate-origin static preview listener with the checked message bridge config (\u00a713), and the admin operations (\u00a76.3; export route lands with the exporter in packet 12). All persistent changes delegate to the workspace service (the sole command executor \u2014 dependencies.md \u00a74.3); the transport never mutates files independently. Edges (dependencies.md \u00a74.1): protocol, workspace, project-model (types only), ws, node:http/fs/path/crypto.",
   "exports": {
     ".": "./src/index.ts",
-    "./services": "./src/services/index.ts"
+    "./services": "./src/services/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "dependencies": {
     "@thirdlight/asset-pipeline": "0.1.0",
