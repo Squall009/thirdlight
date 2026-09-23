@@ -44,6 +44,7 @@ export const V3_REGISTRY = [
   'light',
   'surface',
   'modelAnimation',
+  'folder',
 ] as const;
 export type ComponentV3 = (typeof V3_REGISTRY)[number];
 
@@ -137,14 +138,66 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   modelAnimation?: ModelAnimationComponent;
 }
 
-export interface EntityV3 {
+/**
+ * Hierarchy flags every entity may carry (phase 12). Only non-default values
+ * are stored: `active: false` (the entity and its subtree are left out of the
+ * game and hidden in the editor), `locked: true` (editor only: not pickable
+ * or movable in the viewport), `static: true` (the object does not move).
+ * A folder passes all three down to its whole subtree; any inactive ancestor
+ * makes its subtree inactive.
+ */
+export interface EntityFlagsV3 {
+  active?: false;
+  locked?: true;
+  static?: true;
+}
+
+export interface EntityV3 extends EntityFlagsV3 {
   id: string;
   name?: string;
   parentId?: string;
   components: EntityComponentsV3;
 }
 
+/**
+ * Phase 12 folder marker: organisation only. A folder carries no transform
+ * and no other component, and sits at the root or inside another folder, so
+ * it never moves what is filed in it.
+ */
+export type FolderComponent = Record<string, never>;
+
+/** A folder's components: the marker and nothing else. */
+export type FolderComponentsV3 = { folder: FolderComponent } & {
+  [K in keyof EntityComponentsV3]?: undefined;
+};
+
+export interface FolderEntityV3 extends EntityFlagsV3 {
+  id: string;
+  name?: string;
+  parentId?: string;
+  components: FolderComponentsV3;
+}
+
+/** An authored scene entity: an object (with a transform) or a folder. */
+export type SceneEntityV3 = EntityV3 | FolderEntityV3;
+
+export function isFolderEntity(e: { components: object }): e is FolderEntityV3 {
+  return (e.components as { folder?: unknown }).folder !== undefined;
+}
+
+/** The authored scene: objects and folders. */
 export interface SceneV3 {
+  schemaVersion: 3;
+  sceneId: string;
+  revision: number;
+  entities: SceneEntityV3[];
+}
+
+/**
+ * A scene as the game loads it (`resolveSceneHierarchy`): no folders, no
+ * inactive entities; every entity carries its effective flags.
+ */
+export interface ResolvedSceneV3 {
   schemaVersion: 3;
   sceneId: string;
   revision: number;

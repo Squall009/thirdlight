@@ -145,10 +145,12 @@ test('rename by double-click, typed transforms, and drag-to-reparent are undoabl
   const childName = (await second.locator('.tl-row__name').textContent())!;
   await second.dragTo(rows(page).filter({ hasText: 'Crate' }));
   const child = rows(page).filter({ hasText: childName });
-  await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBeGreaterThan(8);
+  const indent = async (row: typeof child) => parseInt(await row.evaluate((el) => (el as HTMLElement).style.paddingLeft));
+  const rootIndent = await indent(rows(page).filter({ hasText: 'Crate' }));
+  await expect.poll(async () => indent(child)).toBeGreaterThan(rootIndent);
 
   await menu(page, 'Edit', 'Undo');
-  await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBe(8);
+  await expect.poll(async () => indent(child)).toBe(rootIndent);
 });
 
 test('keyboard: Delete removes the selection, Ctrl+Z brings it back, W/E/R switch tools', async ({ page }) => {

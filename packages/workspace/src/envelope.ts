@@ -651,7 +651,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities'];
 
 /** The mutation ops an envelope of `storageVersion` can record. */
 export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3): readonly string[] {
@@ -949,8 +949,9 @@ function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 
         return rerr(`recorded ${t} change is missing required field '${k}'`, undefined, `/result/change/${k}`);
       }
     }
+    const optional = V2_CHANGE_OPTIONAL_KEYS[t] ?? [];
     for (const k of keys) {
-      if (!required.includes(k)) return rerr(`unknown field in recorded ${t} change`, k, `/result/change/${pointerSegment(k)}`);
+      if (!required.includes(k) && !optional.includes(k)) return rerr(`unknown field in recorded ${t} change`, k, `/result/change/${pointerSegment(k)}`);
     }
   }
   if (t === 'createEntity') {
@@ -985,6 +986,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'applySurfacePreset',
   'setGameConfig',
   'updateEntity',
+  'moveEntities',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1005,6 +1007,12 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   applySurfacePreset: ['type', 'id', 'preset', 'previous', 'next', 'changedFields'],
   setGameConfig: ['type', 'previous', 'next', 'changedFields'],
   updateEntity: ['type', 'id', 'previous', 'next', 'changedFields', 'order'],
+  moveEntities: ['type', 'parentId', 'beforeId', 'entities', 'order'],
+};
+
+/** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
+const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
+  updateEntity: ['transform'],
 };
 
 /** Forward-op → change-type correspondence for the M2 ops. */
@@ -1020,6 +1028,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   applySurfacePreset: 'applySurfacePreset',
   setGameConfig: 'setGameConfig',
   updateEntity: 'updateEntity',
+  moveEntities: 'moveEntities',
 };
 
 /**
@@ -1057,7 +1066,9 @@ function validateHistoricalEntities(
     if (!isPlainObject(e)) continue; // the model check below reports the shape.
     const pid = e['parentId'];
     if (typeof pid === 'string' && !present.has(pid) && !placeholders.some((p) => p['id'] === pid)) {
-      placeholders.push({ id: pid, components: { transform: ZERO_TRANSFORM } });
+      // A v3 placeholder is a folder: it can hold folders and objects alike,
+      // and filing into a folder keeps the zone/spawn/physics root rules.
+      placeholders.push(storageVersion === 3 ? { id: pid, components: { folder: {} } } : { id: pid, components: { transform: ZERO_TRANSFORM } });
     }
   }
   const used = new Set(present);

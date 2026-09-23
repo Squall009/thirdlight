@@ -23,6 +23,7 @@ import {
   type ContentCatalog,
   type Entity,
   type EntityV2,
+  type FolderEntityV3,
   type Manifest,
   type ModelErrorV3,
   type Scene,
@@ -57,8 +58,14 @@ import type {
   SetTransformArgs,
   SetTransformChange,
   EntityHeader,
+  EntityHeaderField,
+  MoveEntitiesArgs,
+  MoveEntitiesChange,
+  MoveEntitiesInverse,
+  MovedEntity,
   UpdateEntityArgs,
   UpdateEntityChange,
+  UpdateEntityInverse,
   ForwardChange,
   InverseSpec,
   SceneDocument,
@@ -74,9 +81,10 @@ import {
   validateV3ComponentValue,
   animationVersionOf,
 } from './v3';
+import { worldKeepingLocal, type HierarchyNode } from './world-transform';
 
 /** Either scene shape (M1 interchange or embedded v2). */
-export type AnyEntity = Entity | EntityV2;
+export type AnyEntity = Entity | EntityV2 | FolderEntityV3;
 
 /**
  * The entity's component bag as a plain record. The M1 (schemaVersion 1) and
@@ -196,7 +204,7 @@ export function isNoChange(current: SceneDocument, result: SceneDocument): boole
  * exhaustion (⇒ `id_exhaustion`). The v3 derived prefixes (`zone`, `spawn`,
  * `light`) use the same rule (authoring §A4.1).
  */
-export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light';
+export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder';
 
 export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix): string | undefined {
   const existing = new Set(scene.entities.map((e) => e.id));
@@ -464,6 +472,32 @@ export function applyCreateEntity(
     return { ok: false, error: limitsExceeded('depth', newDepth, MAX_DEPTH) };
   }
 
+  if (args.kind === 'folder') {
+    // Phase 12: a folder is organisation only; it sits at the root or in a folder.
+    if (parentId !== null && !isFolder(byId.get(parentId))) return { ok: false, error: folderParentError('/args/parentId', parentId) };
+    const id = nextEntityId(scene, 'folder');
+    if (id === undefined) return { ok: false, error: idExhaustion('folder') };
+    const folder = {
+      id,
+      ...(args.name !== undefined ? { name: args.name } : {}),
+      ...(parentId !== null ? { parentId } : {}),
+      components: { folder: {} },
+    };
+    const folderResult = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, folder] };
+    const folderGate = gateResultState({ scene, content }, folderResult, content);
+    if (!folderGate.ok) return folderGate;
+    const created = folderGate.scene.entities.find((e) => e.id === id) as unknown as Entity;
+    return {
+      ok: true,
+      op: {
+        scene: folderGate.scene,
+        change: { type: 'createEntity', id, entity: deepClone(created) },
+        inverse: { kind: 'delete', rootId: id },
+        createdId: id,
+      },
+    };
+  }
+
   // §8.3: defaults per field; a provided field replaces that field only.
   // The candidate entity is a plain object: vector values are checked by
   // the result-scene validation below (the model is the value authority).
@@ -562,7 +596,14 @@ export function applySetTransform(scene: SceneDocument, args: SetTransformArgs, 
   // merge); absent fields are unchanged. `previous` is the entity's
   // canonical transform; `next` is the candidate (values checked by the
   // result-scene validation below).
-  const previous = deepClone(current.components.transform);
+  const currentTransform = current.components.transform;
+  if (currentTransform === undefined) {
+    return {
+      ok: false,
+      error: fieldValue('/args/entityId', args.entityId, 'an entity with a transform', 'a folder has no transform; move the objects filed in it instead'),
+    };
+  }
+  const previous = deepClone(currentTransform);
   const next = {
     position: [...previous.position],
     rotation: [...previous.rotation],
@@ -591,7 +632,7 @@ export function applySetTransform(scene: SceneDocument, args: SetTransformArgs, 
   if (!gate.ok) return gate;
 
   const canonicalNext = deepClone(
-    (gate.scene.entities[index] as AnyEntity).components.transform,
+    (gate.scene.entities[index] as AnyEntity).components.transform as TransformComponent,
   );
   const change: SetTransformChange = {
     type: 'setTransform',
@@ -731,90 +772,290 @@ export function applyDeleteEntity(
   };
 }
 
-// ---- updateEntity (rename / reparent) -------------------------------------------------
+// ---- updateEntity (rename / reparent / flags) --------------------------------------
 
-/** The entity's name and parent (null = absent / root). */
-export function entityHeader(e: { name?: string; parentId?: string }): EntityHeader {
-  return { name: e.name ?? null, parentId: e.parentId ?? null };
+/** The entity's name, parent (null = absent / root) and own flags. */
+export function entityHeader(e: { name?: string; parentId?: string; active?: boolean; locked?: boolean; static?: boolean }): EntityHeader {
+  return {
+    name: e.name ?? null,
+    parentId: e.parentId ?? null,
+    active: e.active !== false,
+    locked: e.locked === true,
+    static: e.static === true,
+  };
+}
+
+/** The header fields that differ between two headers, in field order. */
+export function headerChangedFields(previous: EntityHeader, next: EntityHeader): EntityHeaderField[] {
+  return (['name', 'parentId', 'active', 'locked', 'static'] as const).filter((f) => previous[f] !== next[f]);
 }
 
 /**
- * The candidate scene with `id`'s header replaced and, when given, the
- * entities reordered to `order` (the full id order). Null when `id` or an id
- * in `order` is unknown. Shared by the forward op, undo and redo.
+ * Older records carry a two-field header (name, parentId); the flags default.
+ */
+function fullHeader(h: EntityHeader): EntityHeader {
+  return { name: h.name, parentId: h.parentId, active: h.active !== false, locked: h.locked === true, static: h.static === true };
+}
+
+/** Write `header` onto an entity record (only non-default flags are stored). */
+function writeHeader(entity: Record<string, unknown>, header: EntityHeader): Record<string, unknown> {
+  const h = fullHeader(header);
+  const { id, name: _n, parentId: _p, active: _a, locked: _l, static: _s, components, ...rest } = entity;
+  return {
+    id,
+    ...(h.name !== null ? { name: h.name } : {}),
+    ...(h.parentId !== null ? { parentId: h.parentId } : {}),
+    ...(h.active ? {} : { active: false }),
+    ...(h.locked ? { locked: true } : {}),
+    ...(h.static ? { static: true } : {}),
+    ...rest,
+    components,
+  };
+}
+
+/**
+ * The candidate scene with `id`'s header replaced, its local transform
+ * replaced when `transform` is given and, when given, the entities reordered
+ * to `order` (the full id order). Null when `id` or an id in `order` is
+ * unknown. Shared by the forward op, undo and redo.
  */
 export function withEntityHeader(
   scene: SceneDocument,
   id: string,
   header: EntityHeader,
   order: readonly string[] | null,
+  transform?: TransformComponent,
 ): Record<string, unknown> | null {
   const index = scene.entities.findIndex((e) => e.id === id);
   if (index < 0) return null;
-  const updated = deepClone(scene.entities[index]) as unknown as Record<string, unknown>;
-  if (header.name === null) delete updated['name'];
-  else updated['name'] = header.name;
-  if (header.parentId === null) delete updated['parentId'];
-  else updated['parentId'] = header.parentId;
+  let updated = writeHeader(deepClone(scene.entities[index]) as unknown as Record<string, unknown>, header);
+  if (transform !== undefined) {
+    updated = { ...updated, components: { ...(updated['components'] as Record<string, unknown>), transform: deepClone(transform) } };
+  }
   let entities: unknown[] = [...scene.entities];
   entities[index] = updated;
   if (order !== null) {
-    if (order.length !== entities.length) return null;
-    const byId = new Map(entities.map((e) => [(e as { id: string }).id, e]));
-    const reordered = order.map((eid) => byId.get(eid));
-    if (reordered.some((e) => e === undefined)) return null;
+    const reordered = reorder(entities, order);
+    if (reordered === null) return null;
     entities = reordered;
   }
   return { ...scene, revision: scene.revision + 1, entities };
 }
 
+function reorder(entities: readonly unknown[], order: readonly string[]): unknown[] | null {
+  if (order.length !== entities.length) return null;
+  const byId = new Map(entities.map((e) => [(e as { id: string }).id, e]));
+  const reordered = order.map((eid) => byId.get(eid));
+  if (reordered.some((e) => e === undefined)) return null;
+  return reordered;
+}
+
+function isFolder(e: AnyEntity | undefined): boolean {
+  return e !== undefined && (e.components as { folder?: unknown }).folder !== undefined;
+}
+
+/** A folder may only be filed at the root or in another folder. */
+function folderParentError(path: string, parentId: string): CommandError {
+  return fieldValue(path, parentId, 'null (root) or the id of a folder', 'a folder sits at the root or inside another folder, never under an object');
+}
+
 export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, content?: ContentDocument): OpOutcome {
   const index = scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
-  const previous = entityHeader(scene.entities[index] as AnyEntity);
+  const entity = scene.entities[index] as AnyEntity;
+  const previous = entityHeader(entity);
   const next: EntityHeader = {
     name: args.name ?? previous.name,
     parentId: args.parentId !== undefined ? args.parentId : previous.parentId,
+    active: args.active ?? previous.active,
+    locked: args.locked ?? previous.locked,
+    static: args.static ?? previous.static,
   };
 
   let order: UpdateEntityChange['order'] = null;
-  if (next.parentId !== previous.parentId && next.parentId !== null) {
-    const parentIndex = scene.entities.findIndex((e) => e.id === next.parentId);
-    if (parentIndex < 0) return { ok: false, error: referenceMissing(next.parentId) };
-    const closure = subtreeClosure(scene, args.entityId) ?? [args.entityId];
-    if (closure.includes(next.parentId)) {
-      return {
-        ok: false,
-        error: fieldValue('/args/parentId', next.parentId, 'an entity outside the moved subtree', 'an entity cannot become a child of itself or its descendants'),
-      };
+  let transform: UpdateEntityChange['transform'];
+  if (next.parentId !== previous.parentId) {
+    const byId = entitiesById(scene);
+    if (next.parentId !== null) {
+      const parentIndex = scene.entities.findIndex((e) => e.id === next.parentId);
+      if (parentIndex < 0) return { ok: false, error: referenceMissing(next.parentId) };
+      const closure = subtreeClosure(scene, args.entityId) ?? [args.entityId];
+      if (closure.includes(next.parentId)) {
+        return {
+          ok: false,
+          error: fieldValue('/args/parentId', next.parentId, 'an entity outside the moved subtree', 'an entity cannot become a child of itself or its descendants'),
+        };
+      }
+      if (isFolder(entity) && !isFolder(byId.get(next.parentId))) return { ok: false, error: folderParentError('/args/parentId', next.parentId) };
+      // Parent-before-child order: a subtree that sits before its new parent
+      // moves to just after it (its internal order is kept).
+      if (parentIndex > index) {
+        const ids = scene.entities.map((e) => e.id);
+        const moving = closureInArrayOrder(scene, closure);
+        const movingSet = new Set(moving);
+        const rest = ids.filter((eid) => !movingSet.has(eid));
+        const at = rest.indexOf(next.parentId) + 1;
+        order = { previous: ids, next: [...rest.slice(0, at), ...moving, ...rest.slice(at)] };
+      }
     }
-    // Parent-before-child order: a subtree that sits before its new parent
-    // moves to just after it (its internal order is kept).
-    if (parentIndex > index) {
-      const ids = scene.entities.map((e) => e.id);
-      const moving = closureInArrayOrder(scene, closure);
-      const movingSet = new Set(moving);
-      const rest = ids.filter((eid) => !movingSet.has(eid));
-      const at = rest.indexOf(next.parentId) + 1;
-      order = { previous: ids, next: [...rest.slice(0, at), ...moving, ...rest.slice(at)] };
-    }
+    // Phase 12: a reparent keeps the entity where it is in the world.
+    const local = entity.components.transform;
+    const kept = worldKeepingLocal(byId as ReadonlyMap<string, HierarchyNode>, args.entityId, next.parentId);
+    if (local !== undefined && kept !== null && kept !== local) transform = { previous: deepClone(local), next: kept };
   }
 
-  const result = withEntityHeader(scene, args.entityId, next, order?.next ?? null);
+  const result = withEntityHeader(scene, args.entityId, next, order?.next ?? null, transform?.next);
   if (result === null) return { ok: false, error: entityNotFound(args.entityId) };
   const gate = content !== undefined ? gateResultState({ scene, content }, result, content) : gateResultState({ scene }, result);
   if (!gate.ok) return gate;
 
-  const changedFields: ('name' | 'parentId')[] = [];
-  if (next.name !== previous.name) changedFields.push('name');
-  if (next.parentId !== previous.parentId) changedFields.push('parentId');
-  const change: UpdateEntityChange = { type: 'updateEntity', id: args.entityId, previous, next, changedFields, order };
-  return {
-    ok: true,
-    op: {
-      scene: gate.scene,
-      change,
-      inverse: { kind: 'updateEntity', id: args.entityId, restore: previous, order: order?.previous ?? null },
-    },
+  const change: UpdateEntityChange = {
+    type: 'updateEntity',
+    id: args.entityId,
+    previous,
+    next,
+    changedFields: headerChangedFields(previous, next),
+    order,
   };
+  const inverse: UpdateEntityInverse = { kind: 'updateEntity', id: args.entityId, restore: previous, order: order?.previous ?? null };
+  if (transform !== undefined) {
+    const canonical = (gate.scene.entities[gate.scene.entities.findIndex((e) => e.id === args.entityId)] as AnyEntity).components.transform;
+    change.transform = { previous: transform.previous, next: deepClone(canonical ?? transform.next) };
+    inverse.transform = deepClone(transform.previous);
+  }
+  return { ok: true, op: { scene: gate.scene, change, inverse } };
+}
+
+// ---- moveEntities (phase 12) --------------------------------------------------------
+
+/**
+ * The candidate scene for a move: `order` applied, then each entry's parent
+ * and (when not null) local transform written. Shared by the forward op,
+ * undo and redo. Null when an id is unknown.
+ */
+export function withMovedEntities(
+  scene: SceneDocument,
+  order: readonly string[],
+  moves: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[],
+): Record<string, unknown> | null {
+  let entities: unknown[] = [...scene.entities];
+  for (const m of moves) {
+    const index = entities.findIndex((e) => (e as { id: string }).id === m.id);
+    if (index < 0) return null;
+    const current = entities[index] as Record<string, unknown>;
+    let updated = writeHeader(deepClone(current), { ...entityHeader(current as { name?: string }), parentId: m.parentId });
+    if (m.transform !== null) {
+      updated = { ...updated, components: { ...(updated['components'] as Record<string, unknown>), transform: deepClone(m.transform) } };
+    }
+    entities[index] = updated;
+  }
+  const reordered = reorder(entities, order);
+  if (reordered === null) return null;
+  entities = reordered;
+  return { ...scene, revision: scene.revision + 1, entities };
+}
+
+export function applyMoveEntities(scene: SceneDocument, args: MoveEntitiesArgs, content?: ContentDocument): OpOutcome {
+  const byId = entitiesById(scene);
+  for (let i = 0; i < args.entityIds.length; i++) {
+    const id = args.entityIds[i] as string;
+    if (!byId.has(id)) return { ok: false, error: entityNotFound(id) };
+  }
+  const parentId = args.parentId;
+  const beforeId = args.beforeId ?? null;
+  if (parentId !== null && !byId.has(parentId)) return { ok: false, error: referenceMissing(parentId) };
+  if (beforeId !== null) {
+    const before = byId.get(beforeId);
+    if (before === undefined) return { ok: false, error: referenceMissing(beforeId) };
+    if ((before.parentId ?? null) !== parentId) {
+      return { ok: false, error: fieldValue('/args/beforeId', beforeId, 'a child of parentId', 'beforeId must be a sibling under the target parent') };
+    }
+  }
+
+  // An entity whose ancestor is also named moves with that ancestor.
+  const named = new Set(args.entityIds);
+  const hasNamedAncestor = (id: string): boolean => {
+    const seen = new Set<string>();
+    let cur = byId.get(id)?.parentId;
+    while (cur !== undefined && !seen.has(cur)) {
+      if (named.has(cur)) return true;
+      seen.add(cur);
+      cur = byId.get(cur)?.parentId;
+    }
+    return false;
+  };
+  const ids = scene.entities.map((e) => e.id);
+  const roots = ids.filter((id) => named.has(id) && !hasNamedAncestor(id));
+  const moving: string[] = [];
+  for (const root of roots) {
+    const closure = subtreeClosure(scene, root) ?? [root];
+    if (parentId !== null && closure.includes(parentId)) {
+      return {
+        ok: false,
+        error: fieldValue('/args/parentId', parentId, 'an entity outside the moved subtrees', 'an entity cannot become a child of itself or its descendants'),
+      };
+    }
+    if (beforeId !== null && closure.includes(beforeId)) {
+      return { ok: false, error: fieldValue('/args/beforeId', beforeId, 'an entity that is not moved', 'beforeId cannot be one of the moved entities') };
+    }
+    if (isFolder(byId.get(root)) && parentId !== null && !isFolder(byId.get(parentId))) {
+      return { ok: false, error: folderParentError('/args/parentId', parentId) };
+    }
+    moving.push(...closureInArrayOrder(scene, closure));
+  }
+
+  // The new order: the moved subtrees (in document order) go just before
+  // `beforeId`, or after the target parent's last descendant (or at the end
+  // for the root). Parents stay before their children.
+  const movingSet = new Set(moving);
+  const rest = ids.filter((id) => !movingSet.has(id));
+  let at: number;
+  if (beforeId !== null) at = rest.indexOf(beforeId);
+  else if (parentId === null) at = rest.length;
+  else {
+    const parentClosure = new Set(subtreeClosure(scene, parentId) ?? [parentId]);
+    at = rest.indexOf(parentId) + 1;
+    while (at < rest.length && parentClosure.has(rest[at] as string)) at++;
+  }
+  const nextOrder = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+
+  const nodes = byId as ReadonlyMap<string, HierarchyNode>;
+  const entries: MovedEntity[] = roots.map((id) => {
+    const e = byId.get(id) as AnyEntity;
+    const local = e.components.transform ?? null;
+    const kept = local === null ? null : worldKeepingLocal(nodes, id, parentId) ?? local;
+    return {
+      id,
+      previous: { parentId: e.parentId ?? null, transform: local === null ? null : deepClone(local) },
+      next: { parentId, transform: kept === null ? null : deepClone(kept) },
+    };
+  });
+  const result = withMovedEntities(
+    scene,
+    nextOrder,
+    entries.map((m) => ({ id: m.id, parentId: m.next.parentId, transform: m.next.transform })),
+  );
+  if (result === null) return { ok: false, error: entityNotFound(roots[0] ?? '') };
+  const gate = content !== undefined ? gateResultState({ scene, content }, result, content) : gateResultState({ scene }, result);
+  if (!gate.ok) return gate;
+
+  // Record the canonical transforms the gate produced.
+  const after = new Map(gate.scene.entities.map((e) => [e.id, e as AnyEntity]));
+  for (const m of entries) {
+    const t = after.get(m.id)?.components.transform;
+    if (m.next.transform !== null && t !== undefined) m.next.transform = deepClone(t);
+  }
+  const change: MoveEntitiesChange = {
+    type: 'moveEntities',
+    parentId,
+    beforeId,
+    entities: entries,
+    order: { previous: ids, next: nextOrder },
+  };
+  const inverse: MoveEntitiesInverse = {
+    kind: 'moveEntities',
+    order: ids,
+    restore: entries.map((m) => ({ id: m.id, parentId: m.previous.parentId, transform: m.previous.transform })),
+  };
+  return { ok: true, op: { scene: gate.scene, change, inverse } };
 }

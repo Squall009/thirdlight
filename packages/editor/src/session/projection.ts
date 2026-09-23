@@ -29,7 +29,12 @@ export interface ProjectedEntity {
   id: string;
   name: string;
   parentId: string | null;
-  kind: 'box' | 'camera' | 'model' | 'light' | 'entity';
+  kind: 'box' | 'camera' | 'model' | 'light' | 'entity' | 'folder';
+  /** Own hierarchy flags (phase 12); folders pass them down (see session/hierarchy.ts). */
+  active: boolean;
+  locked: boolean;
+  static: boolean;
+  /** Local transform; a folder has none and shows the identity. */
   position: number[];
   rotation: number[];
   scale: number[];
@@ -109,8 +114,12 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
   return { size: [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1], color: b.material?.color ?? '#cccccc' };
 }
 
+const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+
 function toProjected(e: Entity): ProjectedEntity {
+  const flags = e as { active?: boolean; locked?: boolean; static?: boolean };
   const c = e.components as {
+    folder?: unknown;
     box?: { size?: number[]; material?: { color?: string } };
     camera?: unknown;
     model?: { asset?: { assetId?: string } };
@@ -125,15 +134,19 @@ function toProjected(e: Entity): ProjectedEntity {
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
   };
-  const kind = c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
+  const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
+  const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
   const projected: ProjectedEntity = {
     id: e.id,
     name: e.name ?? e.id,
     parentId: e.parentId ?? null,
     kind,
-    position: [...e.components.transform.position],
-    rotation: [...e.components.transform.rotation],
-    scale: [...e.components.transform.scale],
+    active: flags.active !== false,
+    locked: flags.locked === true,
+    static: flags.static === true,
+    position: [...t.position],
+    rotation: [...t.rotation],
+    scale: [...t.scale],
     ...(c.box ? { box: boxOf(c.box) } : {}),
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
@@ -252,7 +265,29 @@ export class Projection {
         if (!p) return false;
         p.name = change.next.name ?? p.id;
         p.parentId = change.next.parentId;
+        p.active = change.next.active !== false;
+        p.locked = change.next.locked === true;
+        p.static = change.next.static === true;
+        if (change.transform !== undefined) {
+          p.position = [...change.transform.next.position];
+          p.rotation = [...change.transform.next.rotation];
+          p.scale = [...change.transform.next.scale];
+        }
         if (change.order !== null) this.order = [...change.order.next];
+        return true;
+      }
+      case 'moveEntities': {
+        for (const m of change.entities) {
+          const p = this.entities.get(m.id);
+          if (!p) return false;
+          p.parentId = m.next.parentId;
+          if (m.next.transform !== null) {
+            p.position = [...m.next.transform.position];
+            p.rotation = [...m.next.transform.rotation];
+            p.scale = [...m.next.transform.scale];
+          }
+        }
+        this.order = [...change.order.next];
         return true;
       }
       case 'deleteEntity': {

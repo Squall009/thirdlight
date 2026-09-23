@@ -40,6 +40,8 @@ import {
   deepClone,
   emptyContentCatalog,
   entityHeader,
+  headerChangedFields,
+  withMovedEntities,
   gateResultState,
   subtreeClosure,
   withEntityHeader,
@@ -65,6 +67,8 @@ import type {
   SetTransformChange,
   EntityHeader,
   UpdateEntityChange,
+  MoveEntitiesChange,
+  MovedEntity,
 } from './types';
 
 const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
@@ -167,7 +171,7 @@ type ApplyResult =
 /** Re-gate the mutated state (steps 5–6) and wrap the result. */
 function finish(
   state: CommandState<SceneDocument>,
-  scene: SceneDocument,
+  scene: unknown,
   content: ContentDocument | undefined,
   change: ChangeData,
   requestId: string,
@@ -195,25 +199,61 @@ function applyHeader(
   header: EntityHeader,
   order: readonly string[] | null,
   requestId: string,
+  transform?: TransformComponent,
 ): ApplyResult {
   const scene = state.scene;
   const current = scene.entities.find((e) => e.id === id);
   if (current === undefined) return { ok: false, error: historyInvalid(requestId) };
-  const result = withEntityHeader(scene, id, header, order);
+  // Records written before phase 12 carry a two-field header; the flags default.
+  const next: EntityHeader = { name: header.name, parentId: header.parentId, active: header.active !== false, locked: header.locked === true, static: header.static === true };
+  const result = withEntityHeader(scene, id, next, order, transform);
   if (result === null) return { ok: false, error: historyInvalid(requestId) };
   const previous = entityHeader(current as AnyEntity);
-  const changedFields: ('name' | 'parentId')[] = [];
-  if (header.name !== previous.name) changedFields.push('name');
-  if (header.parentId !== previous.parentId) changedFields.push('parentId');
   const change: UpdateEntityChange = {
     type: 'updateEntity',
     id,
     previous,
-    next: { ...header },
-    changedFields,
+    next,
+    changedFields: headerChangedFields(previous, next),
     order: order === null ? null : { previous: scene.entities.map((e) => e.id), next: [...order] },
   };
-  return finish(state, result as unknown as SceneDocument, state.content, change, requestId);
+  const before = (current as AnyEntity).components.transform;
+  if (transform !== undefined && before !== undefined) change.transform = { previous: deepClone(before), next: deepClone(transform) };
+  return finish(state, result, state.content, change, requestId);
+}
+
+/** Apply a move (forward or its inverse) and describe it as a `moveEntities` change. */
+function applyMove(
+  state: CommandState<SceneDocument>,
+  order: readonly string[],
+  moves: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[],
+  parentId: string | null,
+  beforeId: string | null,
+  requestId: string,
+): ApplyResult {
+  const scene = state.scene;
+  const byId = new Map(scene.entities.map((e) => [e.id, e as AnyEntity]));
+  const entities: MovedEntity[] = [];
+  for (const m of moves) {
+    const e = byId.get(m.id);
+    if (e === undefined) return { ok: false, error: historyInvalid(requestId) };
+    const t = e.components.transform;
+    entities.push({
+      id: m.id,
+      previous: { parentId: e.parentId ?? null, transform: t === undefined ? null : deepClone(t) },
+      next: { parentId: m.parentId, transform: m.transform === null ? null : deepClone(m.transform) },
+    });
+  }
+  const result = withMovedEntities(scene, order, moves);
+  if (result === null) return { ok: false, error: historyInvalid(requestId) };
+  const change: MoveEntitiesChange = {
+    type: 'moveEntities',
+    parentId,
+    beforeId,
+    entities,
+    order: { previous: scene.entities.map((e) => e.id), next: [...order] },
+  };
+  return finish(state, result, state.content, change, requestId);
 }
 
 /**
@@ -227,7 +267,11 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const inv = entry.inverse;
   const content = contentOf(state.content);
 
-  if (inv.kind === 'updateEntity') return applyHeader(state, inv.id, inv.restore, inv.order, entry.requestId);
+  if (inv.kind === 'updateEntity') return applyHeader(state, inv.id, inv.restore, inv.order, entry.requestId, inv.transform);
+  if (inv.kind === 'moveEntities') {
+    const f = entry.change as MoveEntitiesChange;
+    return applyMove(state, inv.order, inv.restore, f.entities[0]?.previous.parentId ?? null, null, entry.requestId);
+  }
 
   if (inv.kind === 'delete') {
     // Undo of a createEntity/instantiatePrefab: subtree deletion at undo time.
@@ -258,7 +302,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const change: SetTransformChange = {
       type: 'setTransform',
       id: inv.id,
-      previous: deepClone(current.components.transform),
+      previous: deepClone(current.components.transform as TransformComponent),
       next: deepClone(restore),
       changedFields: ['position', 'rotation', 'scale'],
     };
@@ -323,7 +367,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       components['modelAnimation'] = deepClone(anim.previous);
       const nextEntities = [...scene.entities];
       nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV2;
-      nextScene = { ...nextScene, entities: nextEntities };
+      nextScene = { ...nextScene, entities: nextEntities } as SceneDocument;
     }
     const change: ChangeData = {
       type: 'publishAsset',
@@ -496,7 +540,17 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const content = contentOf(state.content);
   const f = entry.change;
 
-  if (f.type === 'updateEntity') return applyHeader(state, f.id, f.next, f.order?.next ?? null, entry.requestId);
+  if (f.type === 'updateEntity') return applyHeader(state, f.id, f.next, f.order?.next ?? null, entry.requestId, f.transform?.next);
+  if (f.type === 'moveEntities') {
+    return applyMove(
+      state,
+      f.order.next,
+      f.entities.map((m) => ({ id: m.id, parentId: m.next.parentId, transform: m.next.transform })),
+      f.parentId,
+      f.beforeId,
+      entry.requestId,
+    );
+  }
 
   if (f.type === 'createEntity') {
     if (scene.entities.some((e) => e.id === f.id)) {
@@ -524,7 +578,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const change: SetTransformChange = {
       type: 'setTransform',
       id: f.id,
-      previous: deepClone(current.components.transform),
+      previous: deepClone(current.components.transform as TransformComponent),
       next: deepClone(next),
       changedFields: [...f.changedFields],
     };
@@ -614,7 +668,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       components['modelAnimation'] = deepClone(f.animation.next);
       const nextEntities = [...scene.entities];
       nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV2;
-      nextScene = { ...nextScene, entities: nextEntities };
+      nextScene = { ...nextScene, entities: nextEntities } as SceneDocument;
     }
     const change: ChangeData = {
       type: 'publishAsset',

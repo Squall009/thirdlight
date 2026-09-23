@@ -128,6 +128,40 @@ sources; a folder project's assets can instead stay in the game folder, see
 "Assets referenced in place"). `.thirdlight/` is process state (ownership,
 recovery, staging, derived caches); it is not part of a backup.
 
+## Hierarchy: folders and flags
+
+- **Folders** (GameObject → Folder, or `createEntity {kind: "folder"}`)
+  only organise. A folder has no transform and sits at the root or inside
+  another folder, never under an object. Filing something into a folder keeps
+  it where it is in the world. Zones, spawns and physics bodies may sit in
+  folders (they still may not sit under a transformed object).
+- **The tree.** The arrow collapses a row. Which rows are collapsed is
+  remembered in this browser, per project; it is not written to the project.
+  Click selects, Ctrl/Cmd+click toggles, Shift+click selects a range. Drag a
+  row, or a selection, onto the top or bottom edge of a row to place it
+  before or after that row, or onto its middle to file it inside. Drop on the
+  empty list area to move it to the end of the root. Every drop is one
+  `moveEntities` command, so it is one undo step. Moves keep world
+  positions; moving out of a rotated or scaled parent re-expresses the local
+  transform. Delete removes every selected subtree, one undo step each.
+- **Flags** (inspector: Active, Locked, Static; `updateEntity {active,
+  locked, static}`) are stored on the entity in the scene, only when they
+  differ from the default.
+  - A folder passes all three down to everything inside it.
+  - An inactive object also deactivates its own children.
+  - The inspector shows the entity's own value, and next to it any value it
+    inherits and from where.
+  - Inactive: hidden in the Scene view and left out of Play and the export.
+    The scene camera and an active checkpoint's safe spawn must stay active.
+  - Locked: editor only. The object cannot be picked or moved in the Scene
+    view, but can still be selected in the hierarchy.
+  - Static: stored and inherited; nothing uses it yet.
+- `updateEntity` with `parentId` keeps the world position too (it used to
+  keep the local values).
+
+The game resolves folders and flags once, when a scene loads. Folders and
+inactive entities are removed, and each entity gets its effective `static`.
+
 ## MCP (coding harness)
 
 The MCP server is `dist/mcp-adapter/mcp.mjs` over stdio. Register it once,

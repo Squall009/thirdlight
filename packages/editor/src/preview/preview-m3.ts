@@ -62,7 +62,7 @@
  */
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import type { RuntimeSnapshot, GameplaySettings } from '@thirdlight/runtime';
+import { resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   createGameHost,
@@ -328,15 +328,18 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    manifest's own hash-bound `game` block: the buildId check already binds
   //    `gameDigest`, so a deep-equal snapshot `game` re-hashes to it).
   // The runtime wants an explicit `game` (null = scene mode).
-  const snapshot: RuntimeSnapshot = { ...cfg.snapshot, game: cfg.snapshot.game ?? null };
-  const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(snapshot.scene, null, 2)}\n`));
+  const authored: RuntimeSnapshot = { ...cfg.snapshot, game: cfg.snapshot.game ?? null };
+  const sceneDigest = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(authored.scene, null, 2)}\n`));
   if (sceneDigest !== manifest.sceneDigest) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot scene digest does not match manifest.sceneDigest');
   }
   // No game block = scene mode (the scene plays as authored).
-  if (!deepEqual(snapshot.game ?? null, manifest.game ?? null)) {
+  if (!deepEqual(authored.game ?? null, manifest.game ?? null)) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot game does not re-hash to manifest.gameDigest');
   }
+  // Phase 12: the scene as the game loads it (folders and inactive entities
+  // resolved away) — physics, the renderer and the runtime all use this one.
+  const snapshot = resolveSnapshotHierarchy(authored);
 
   // 3. The wrapper's read phase (L2): every declared asset read ONCE and
   //    re-hashed to its manifest sourceDigest (the adapter never receives

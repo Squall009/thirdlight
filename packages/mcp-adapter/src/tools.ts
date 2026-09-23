@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -91,8 +91,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_command',
     description:
       'Submit one undoable editing command to the project, with optimistic concurrency ' +
-      '(expectedRevision). Scene ops: createEntity, setTransform, updateEntity (rename/reparent: ' +
-      '{entityId, name?, parentId?}), deleteEntity, undo, redo. Content ops: publishAsset, publishBehavior, ' +
+      '(expectedRevision). Scene ops: createEntity (kind group|box|model|folder), setTransform, ' +
+      'updateEntity (rename/reparent/flags: {entityId, name?, parentId?, active?, locked?, static?}; a reparent keeps ' +
+      'the world position), moveEntities (file entities with their subtrees, keeping world positions: ' +
+      '{entityIds, parentId|null, beforeId?}), deleteEntity, undo, redo. A folder has no transform and sits at the ' +
+      'root or in another folder; folders pass active/locked/static down to their subtree. Content ops: publishAsset, publishBehavior, ' +
       'setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
       'instantiatePrefab. Game ops: applySurfacePreset, setGameConfig. Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +

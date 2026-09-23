@@ -55,7 +55,7 @@ import {
 import { createSceneAdapter } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { SceneAdapter, SceneAdapterModels } from '@thirdlight/three-adapter';
-import type { GameplaySettings, RuntimeSnapshot } from '@thirdlight/runtime';
+import { resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 interface ExportManifestV2 {
@@ -190,13 +190,15 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   }
 
   const settings = manifest.settings;
-  const snapshot = {
+  // Phase 12: the scene as the game loads it (folders and inactive entities
+  // resolved away) — physics, the renderer and the runtime all use this one.
+  const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
     projectId: manifest.projectId,
     revision: manifest.revision,
     scene,
     game: manifest.game ?? null,
-  } as unknown as RuntimeSnapshot;
+  } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
   // the scene references no model asset): `assets` = the manifest's

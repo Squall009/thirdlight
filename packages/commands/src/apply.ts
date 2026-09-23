@@ -37,6 +37,7 @@ import { createHistory, executeRedo, executeUndo, recordForwardEdit } from './hi
 import {
   applyCreateEntity,
   applyDeleteEntity,
+  applyMoveEntities,
   applySetTransform,
   applyUpdateEntity,
   type OpSuccess,
@@ -282,6 +283,19 @@ export function applyMutation<S extends SceneDocument>(
         r.op,
       );
     }
+    case 'moveEntities': {
+      const r = applyMoveEntities(scene, va.validated.args, state.content);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(
+        state,
+        'moveEntities',
+        envelope.projectId,
+        envelope.requestId,
+        revision,
+        envelope.origin,
+        r.op,
+      );
+    }
     case 'deleteEntity': {
       const r = applyDeleteEntity(scene, va.validated.args, state.content);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -415,7 +429,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities',
         }),
       };
     }

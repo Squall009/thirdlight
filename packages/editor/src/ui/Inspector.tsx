@@ -17,6 +17,7 @@ import { useState, type JSX, type KeyboardEvent } from 'react';
 import * as THREE from 'three';
 import type { ColliderComponent, PropertyDeclaration } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
+import type { EffectiveEntityFlags } from '../session/hierarchy';
 import { deriveBehaviorControls, deriveComponentControls } from '../session/property-controls';
 import type { GizmoMode } from '../viewport/viewport';
 import { ComponentControlList, PropertyControlList, type ControlErrorView } from './PropertyControls';
@@ -38,6 +39,48 @@ interface Props {
   onEditColliderBox: (entityId: string, hx: string, hy: string) => void;
   onRename: (entityId: string, name: string) => void;
   onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => void;
+  /** Phase 12: the entity's effective (inherited) flags. */
+  flags: EffectiveEntityFlags | null;
+  /** Display name of an entity id (for "inherited from …"). */
+  entityName: (id: string) => string;
+  /** How many entities are selected in the hierarchy. */
+  selectionCount: number;
+  onSetFlag: (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => void;
+}
+
+const FLAG_ROWS = [
+  { flag: 'active', label: 'Active', hint: 'Off: left out of the game and hidden in the editor, with everything under it.' },
+  { flag: 'locked', label: 'Locked', hint: 'Editor only: cannot be picked or moved in the Scene view.' },
+  { flag: 'static', label: 'Static', hint: 'Marks the object as not moving.' },
+] as const;
+
+/**
+ * Phase 12: the hierarchy flags. Each checkbox is the entity's own value; an
+ * inherited value (from a folder above, or an inactive parent) is shown next
+ * to it and wins.
+ */
+function FlagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFlags | null; entityName: (id: string) => string; onSetFlag: Props['onSetFlag'] }): JSX.Element {
+  const { entity, flags } = props;
+  return (
+    <div className="tl-inspector__section tl-inspector__flags" aria-label="hierarchy flags">
+      {FLAG_ROWS.map(({ flag, label, hint }) => {
+        const own = entity[flag];
+        const from = flags?.inheritedFrom[flag];
+        const effective = flags?.[flag] ?? own;
+        return (
+          <label key={flag} className="tl-flag" title={hint}>
+            <input type="checkbox" aria-label={label} checked={own} onChange={(e) => props.onSetFlag(entity.id, flag, e.target.checked)} />
+            <span>{label}</span>
+            {from !== undefined && (
+              <span className="tl-flag__inherited" data-flag={flag}>
+                {flag === 'active' ? (effective ? 'active' : 'inactive') : effective ? flag : `not ${flag}`} — inherited from {props.entityName(from)}
+              </span>
+            )}
+          </label>
+        );
+      })}
+    </div>
+  );
 }
 
 const fmt = (v: number): string => String(Number(v.toFixed(4)));
@@ -108,7 +151,8 @@ function quaternionOf(deg: number[]): number[] {
   return [q.x, q.y, q.z, q.w];
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag }: Props): JSX.Element {
+  const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
       ? deriveBehaviorControls(
@@ -122,8 +166,8 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
         )
       : null;
   const components = deriveComponentControls(
-    entity ? { collider: entity.collider as ColliderComponent | undefined, controller: entity.controller } : null,
-    { includeAbsent: entity !== null },
+    entity && !isFolder ? { collider: entity.collider as ColliderComponent | undefined, controller: entity.controller } : null,
+    { includeAbsent: entity !== null && !isFolder },
   );
   return (
     <div className="tl-panel tl-inspector">
@@ -149,19 +193,25 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
               if (raw.trim() !== '') onRename(entity.id, raw.trim());
             }}
           />
-          <div className="tl-inspector__kind">{entity.kind}</div>
+          <div className="tl-inspector__kind">{entity.kind}{selectionCount > 1 ? ` · ${selectionCount} selected` : ''}</div>
+          <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
+          {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}
           {entity.prefab && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>
               Copy of {prefabDisplayName(entity.prefab.prefabId)} — copies are independent
             </div>
           )}
-          <VecField label="position" values={entity.position} onCommit={(v) => onEditTransform(entity.id, { position: v })} />
-          <VecField
-            label="rotation"
-            values={eulerDegrees(entity.rotation)}
-            onCommit={(v) => onEditTransform(entity.id, { rotation: quaternionOf(v) })}
-          />
-          <VecField label="scale" values={entity.scale} onCommit={(v) => onEditTransform(entity.id, { scale: v })} />
+          {!isFolder && (
+            <>
+              <VecField label="position" values={entity.position} onCommit={(v) => onEditTransform(entity.id, { position: v })} />
+              <VecField
+                label="rotation"
+                values={eulerDegrees(entity.rotation)}
+                onCommit={(v) => onEditTransform(entity.id, { rotation: quaternionOf(v) })}
+              />
+              <VecField label="scale" values={entity.scale} onCommit={(v) => onEditTransform(entity.id, { scale: v })} />
+            </>
+          )}
 
           {behavior && (
             <div className="tl-inspector__section">

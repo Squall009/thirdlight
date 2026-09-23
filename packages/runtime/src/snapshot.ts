@@ -8,7 +8,7 @@
  * `validateScene` re-check (project-model §12.1) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { validateScene, validateSceneV2, validateSceneV3, validateGameConfig, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -186,7 +186,9 @@ export function validateRuntimeSnapshot(
         },
       };
     }
-    scene = sceneResult.normalized;
+    // Phase 12: the game never sees folders or inactive entities (resolved
+    // once here, at scene load).
+    scene = resolveSceneHierarchy(sceneResult.normalized);
     // The §23.4 game-block rules (project-model; references inside the block
     // are resolved by the cross-block check, never here). `null` is legal —
     // an M3-enabled module set rejects it at instantiate (`game_config`).
@@ -263,4 +265,16 @@ function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErr
   const firstPart = first ? `; first: ${first.code} at ${first.path}` : '';
   const msg = `scene validation failed: ${errors.length} error(s)${firstPart}`;
   return msg.length > 256 ? `${msg.slice(0, 255)}…` : msg;
+}
+/**
+ * Phase 12: the snapshot as the game loads it — for a v3 scene, folders and
+ * inactive entities removed and effective flags applied
+ * (`resolveSceneHierarchy`). Hosts call this once, right after the snapshot
+ * arrives, so the renderer, physics and runtime all see the same entities.
+ * Other scene versions are returned unchanged. Idempotent.
+ */
+export function resolveSnapshotHierarchy<T extends { scene: unknown }>(snapshot: T): T {
+  const scene = snapshot.scene as { schemaVersion?: unknown; entities?: unknown };
+  if (scene === null || typeof scene !== 'object' || scene.schemaVersion !== 3 || !Array.isArray(scene.entities)) return snapshot;
+  return { ...snapshot, scene: resolveSceneHierarchy(scene as unknown as SceneV3) };
 }

@@ -561,7 +561,10 @@ export function instantiateRuntime(
 
   // Deep-freeze the snapshot (normative, runtime.md §2) — the input is
   // never written to; all mutable data lives in the simulation state.
-  const frozenSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
+  // Phase 12: for a v3 scene, modules see the scene with folders and
+  // inactive entities resolved away (the input stays frozen as well).
+  const inputSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
+  const frozenSnapshot = sceneVersion === 3 ? deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot) : inputSnapshot;
 
   // Resolve + deep-freeze the gameplay settings (runtime.md §3.1/§12.2).
   const settingsResult = resolveSettings(settings);

@@ -147,6 +147,12 @@ export {
   GAME_ZONE_ROLES,
   SURFACE_PRESETS,
   V3_REGISTRY,
+  isFolderEntity,
+  type EntityFlagsV3,
+  type FolderComponent,
+  type FolderEntityV3,
+  type ResolvedSceneV3,
+  type SceneEntityV3,
   type AnimationRoleBinding,
   type AssetKind,
   type AssetMetricsV3,
@@ -173,6 +179,12 @@ export {
   type SceneV3,
   type SurfaceComponent,
 } from './types-v3';
+export {
+  effectiveEntityFlags,
+  nearestObjectAncestor,
+  resolveSceneHierarchy,
+  type EffectiveEntityFlags,
+} from './hierarchy-v3';
 export {
   migrateSceneV3,
   normalizeEnvelopeV3,

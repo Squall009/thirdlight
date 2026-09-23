@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ProjectedEntity } from '../session/projection';
+import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
 import { fitSprite, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
@@ -78,6 +79,9 @@ export class Viewport {
   private readonly meshes = new Map<string, THREE.Object3D>();
   private readonly cb: ViewportCallbacks;
   private selectedId: string | null = null;
+  /** Phase 12: effective flags from the last sync (inactive = hidden, locked = not pickable/movable). */
+  private hierarchyFlags: ReadonlyMap<string, EffectiveEntityFlags> = new Map();
+  private folderIds = new Set<string>();
   private gizmoMode: GizmoMode = 'translate';
   /** The packet-27 model realization path (shared with the asset browser). */
   private models: ModelInstances | null = null;
@@ -262,6 +266,8 @@ export class Viewport {
 
   /** Sync the entity set from the projection (add/remove/update meshes). */
   syncEntities(entities: ProjectedEntity[]): void {
+    this.hierarchyFlags = effectiveFlagsOf(entities);
+    this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
     const seen = new Set<string>();
     for (const e of entities) {
       seen.add(e.id);
@@ -296,8 +302,11 @@ export class Viewport {
       }
     }
     this.models?.sync(entities);
-    // M3 (packet 56): the zone overlay syncs from the SAME projection pass.
-    this.zones.sync(entities);
+    // M3 (packet 56): the zone overlay syncs from the SAME projection pass
+    // (phase 12: an inactive zone is hidden like any inactive object).
+    this.zones.sync(entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false));
+    // A selection that became locked or a folder loses its gizmo.
+    if (this.selectedId !== null && !this.draggingGizmo) this.setSelected(this.selectedId);
     this.render();
   }
 
@@ -305,6 +314,12 @@ export class Viewport {
     const group = new THREE.Group();
     group.name = e.id;
     (group as { entityId?: string }).entityId = e.id;
+    if (e.kind === 'folder') {
+      // Phase 12: a folder is organisation only — an empty node at the origin
+      // its children hang under (it has no transform of its own).
+      this.updateMesh(group, e);
+      return group;
+    }
     if (e.kind === 'model') {
       // A whole-GLB placement is realized by the packet-26 resource path; the
       // placeholder only anchors picking/selection until the bytes resolve.
@@ -375,6 +390,8 @@ export class Viewport {
   }
 
   private updateMesh(obj: THREE.Object3D, e: ProjectedEntity): void {
+    // Phase 12: an inactive entity is hidden, and with it its subtree.
+    obj.visible = e.active;
     obj.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
     obj.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
     obj.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
@@ -422,7 +439,9 @@ export class Viewport {
     for (const [eid, m] of this.meshes) {
       this.setMeshHighlight(m, eid === id);
     }
-    const target = id ? this.targetFor(id) : null;
+    // Phase 12: no gizmo on a folder (no transform) or a locked entity.
+    const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true;
+    const target = id && movable ? this.targetFor(id) : null;
     if (id && target) {
       if (this.gizmo.object !== target) this.gizmo.attach(target);
       this.gizmo.setMode(mode);
@@ -476,7 +495,12 @@ export class Viewport {
       let o: THREE.Object3D | null = h.object;
       while (o) {
         const id = (o as { entityId?: string }).entityId;
-        if (id && this.meshes.has(id)) return id;
+        if (id && this.meshes.has(id)) {
+          // Phase 12: hidden or locked entities are not pickable (try the next hit).
+          const f = this.hierarchyFlags.get(id);
+          if (f === undefined || (f.active && !f.locked)) return id;
+          break;
+        }
         o = o.parent;
       }
     }

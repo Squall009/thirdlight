@@ -82,7 +82,7 @@ export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
  * 45): `applySurfacePreset` copies a preset row; `setGameConfig` is the sole
  * writer of `content.game`.
  */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity';
+export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -418,24 +418,58 @@ export interface SetTransformChange {
   changedFields: readonly ChangedField[];
 }
 
-/** An entity's hierarchy identity: its name and its parent (null = root). */
+/**
+ * An entity's hierarchy identity: its name, its parent (null = root) and its
+ * own hierarchy flags (phase 12; the stored defaults are active, unlocked,
+ * not static).
+ */
 export interface EntityHeader {
   name: string | null;
   parentId: string | null;
+  active: boolean;
+  locked: boolean;
+  static: boolean;
 }
 
+/** The `updateEntity` fields a change can name. */
+export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'locked' | 'static';
+
 /**
- * `updateEntity`: rename and/or reparent. When a reparent has to move the
- * entity's subtree after its new parent (parent-before-child order), `order`
- * carries the full entity-id order before and after; otherwise it is null.
+ * `updateEntity`: rename, reparent and/or set the hierarchy flags. When a
+ * reparent has to move the entity's subtree after its new parent
+ * (parent-before-child order), `order` carries the full entity-id order
+ * before and after; otherwise it is null. A reparent keeps the entity's
+ * world transform: when that changes its local transform, `transform`
+ * carries both (absent otherwise, and in records written before phase 12).
  */
 export interface UpdateEntityChange {
   type: 'updateEntity';
   id: string;
   previous: EntityHeader;
   next: EntityHeader;
-  changedFields: readonly ('name' | 'parentId')[];
+  changedFields: readonly EntityHeaderField[];
   order: { previous: readonly string[]; next: readonly string[] } | null;
+  transform?: { previous: TransformComponent; next: TransformComponent };
+}
+
+/** One entity `moveEntities` moved: its parent and local transform before and after (null transform: a folder). */
+export interface MovedEntity {
+  id: string;
+  previous: { parentId: string | null; transform: TransformComponent | null };
+  next: { parentId: string | null; transform: TransformComponent | null };
+}
+
+/**
+ * `moveEntities` (phase 12): file one or more entities (with their subtrees)
+ * under a parent, before a sibling or at the end, keeping world transforms.
+ * `order` is the full entity-id order before and after.
+ */
+export interface MoveEntitiesChange {
+  type: 'moveEntities';
+  parentId: string | null;
+  beforeId: string | null;
+  entities: readonly MovedEntity[];
+  order: { previous: readonly string[]; next: readonly string[] };
 }
 
 export interface DeleteEntityChange {
@@ -469,7 +503,8 @@ export type ChangeData =
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
   | SetGameConfigChange
-  | UpdateEntityChange;
+  | UpdateEntityChange
+  | MoveEntitiesChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -486,7 +521,8 @@ export type ForwardChange =
   | InstantiatePrefabChange
   | ApplySurfacePresetChange
   | SetGameConfigChange
-  | UpdateEntityChange;
+  | UpdateEntityChange
+  | MoveEntitiesChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -578,10 +614,20 @@ export interface UpdateEntityInverse {
   id: string;
   restore: EntityHeader;
   order: readonly string[] | null;
+  /** The local transform before a world-keeping reparent (absent: unchanged). */
+  transform?: TransformComponent;
+}
+
+/** Undo of a `moveEntities`: restore the order, parents and local transforms. */
+export interface MoveEntitiesInverse {
+  kind: 'moveEntities';
+  order: readonly string[];
+  restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
 export type InverseSpec =
   | UpdateEntityInverse
+  | MoveEntitiesInverse
   | DeleteInverse
   | SetTransformInverse
   | RestoreSubtreeInverse
@@ -727,7 +773,8 @@ export interface ModelArgs {
 }
 
 export interface CreateEntityArgs {
-  kind: 'group' | 'box' | 'model';
+  /** `folder` (phase 12): organisation only — no transform, box, model or components. */
+  kind: 'group' | 'box' | 'model' | 'folder';
   parentId?: string | null;
   name?: string;
   transform?: PartialTransformArgs;
@@ -759,6 +806,20 @@ export interface UpdateEntityArgs {
   entityId: string;
   name?: string;
   parentId?: string | null;
+  active?: boolean;
+  locked?: boolean;
+  static?: boolean;
+}
+
+/**
+ * `moveEntities` (phase 12): up to 64 entities, moved with their subtrees
+ * under `parentId` (null = root), just before the sibling `beforeId` or
+ * (absent/null) after the parent's last child. World transforms are kept.
+ */
+export interface MoveEntitiesArgs {
+  entityIds: string[];
+  parentId: string | null;
+  beforeId?: string | null;
 }
 
 /** undo/redo args: exactly the empty object (strictly enforced at runtime). */
@@ -907,6 +968,7 @@ export interface InstantiatePrefabArgs {
 
 export type MutationArgs =
   | UpdateEntityArgs
+  | MoveEntitiesArgs
   | CreateEntityArgs
   | SetTransformArgs
   | DeleteEntityArgs

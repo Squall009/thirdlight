@@ -2287,7 +2287,7 @@ export function serveQuery(
     const entity = scene.entities[idx]!;
     const parentChain: string[] = [];
     let cur = entity.parentId;
-    const byId = new Map<string, Entity>();
+    const byId = new Map<string, SceneEntity>();
     for (const e of scene.entities) byId.set(e.id, e);
     while (cur !== undefined && byId.has(cur)) {
       parentChain.unshift(cur);
@@ -2298,10 +2298,10 @@ export function serveQuery(
       ok: true;
       projectId: string;
       revision: number;
-      entity: Entity;
+      entity: SceneEntity;
       parentChain: readonly string[];
       childIds: readonly string[];
-      subtree?: { count: number; entities: readonly Entity[] };
+      subtree?: { count: number; entities: readonly SceneEntity[] };
     } = {
       ok: true,
       projectId,
@@ -2325,18 +2325,18 @@ export function serveQuery(
       const entities = scene.entities.filter((e) => descendants.has(e.id));
       out.subtree = { count: entities.length, entities };
     }
-    return out;
+    return out as unknown as QueryResult;
   }
   // queryEntities — paged in document order; offset > total ⇒ empty page.
   // packet 45/48: the optional `component` filter is applied first and `total`
   // counts the filtered set (commands.md §4).
-  const filtered: { ok: true; entities: readonly Entity[] } | { ok: false; error: CommandError } =
+  const filtered: { ok: true; entities: readonly SceneEntity[] } | { ok: false; error: CommandError } =
     ov.component === undefined
       ? { ok: true, entities: scene.entities }
       : (filterEntitiesByComponent(
           scene.entities as unknown as readonly { components: Record<string, unknown> }[],
           ov.component,
-        ) as { ok: true; entities: readonly Entity[] } | { ok: false; error: CommandError });
+        ) as { ok: true; entities: readonly SceneEntity[] } | { ok: false; error: CommandError });
   if (!filtered.ok) return queryFailure(op, projectId, filtered.error);
   const total = filtered.entities.length;
   const offset = ov.offset ?? 0;
@@ -2344,6 +2344,9 @@ export function serveQuery(
   const entities = offset >= total ? [] : filtered.entities.slice(offset, offset + limit);
   return { ok: true, projectId, revision: s.revision, total, offset, limit, entities } as unknown as QueryResult;
 }
+
+/** Any scene entity a query returns (objects of every version, v3 folders). */
+type SceneEntity = (Scene | SceneV2 | SceneV3)['entities'][number];
 
 function cameraIdOf(scene: Scene | SceneV2 | SceneV3): string {
   for (const e of scene.entities) {

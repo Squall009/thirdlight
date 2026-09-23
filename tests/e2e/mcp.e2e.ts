@@ -83,3 +83,42 @@ test('play tools say clearly when no browser is connected', async () => {
   expect(started.isError).toBe(true);
   expect(JSON.stringify(started.body)).toContain('session_unavailable');
 });
+
+test('an MCP agent files entities into folders and sets folder flags; the editor shows it and reports a multi-selection', async ({ page }) => {
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const rev = async (): Promise<number> => (await call('tl_inspect', { target: 'project' })).body.revision as number;
+
+  const made = await call('tl_command', { op: 'createEntity', expectedRevision: await rev(), args: { kind: 'folder', name: 'Characters' } });
+  expect(made.isError, JSON.stringify(made.body)).toBe(false);
+  const folderId = String(made.body.createdId);
+  const list = (await call('tl_inspect', { target: 'entities', limit: 200 })).body.entities as Array<{ id: string; name?: string; components: Record<string, unknown> }>;
+  const player = list.find((e) => e.components['controller'] !== undefined)!;
+  const before = (player.components['transform'] as { position: number[] }).position;
+
+  const moved = await call('tl_command', { op: 'moveEntities', expectedRevision: await rev(), args: { entityIds: [player.id], parentId: folderId } });
+  expect(moved.isError, JSON.stringify(moved.body)).toBe(false);
+  const flagged = await call('tl_command', { op: 'updateEntity', expectedRevision: await rev(), args: { entityId: folderId, static: true } });
+  expect(flagged.isError, JSON.stringify(flagged.body)).toBe(false);
+
+  const inspected = (await call('tl_inspect', { target: 'entity', entityId: player.id })).body as { parentChain: string[]; entity: { components: Record<string, unknown> } };
+  expect(inspected.parentChain).toEqual([folderId]);
+  expect((inspected.entity.components['transform'] as { position: number[] }).position).toEqual(before);
+
+  // The browser shows the player under the folder, with the folder's static flag passed down.
+  const playerRow = page.locator(`.tl-hierarchy__list li[data-entity-id="${player.id}"]`);
+  const folderRow = page.locator(`.tl-hierarchy__list li[data-entity-id="${folderId}"]`);
+  await expect(playerRow.locator('.tl-row__flag--static')).toHaveCount(1);
+  // A multi-selection in the browser is what tl_inspect reports.
+  await folderRow.click();
+  await playerRow.click({ modifiers: ['Control'] });
+  await expect
+    .poll(async () => ((await call('tl_inspect', { target: 'selection' })).body.entities as Array<{ id: string }> | undefined)?.map((e) => e.id).sort())
+    .toEqual([folderId, player.id].sort());
+
+  // Undo through MCP puts the flag back, then the move.
+  await call('tl_command', { op: 'undo', expectedRevision: await rev(), args: {} });
+  await expect(playerRow.locator('.tl-row__flag--static')).toHaveCount(0);
+  await call('tl_command', { op: 'undo', expectedRevision: await rev(), args: {} });
+  await expect.poll(async () => ((await call('tl_inspect', { target: 'entity', entityId: player.id })).body as { parentChain: string[] }).parentChain).toEqual([]);
+});

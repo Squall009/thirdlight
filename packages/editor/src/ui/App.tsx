@@ -22,6 +22,7 @@ import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
+import { draggedRoots, effectiveFlagsOf } from '../session/hierarchy';
 import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
@@ -199,7 +200,10 @@ function EditorApp(): JSX.Element {
     cfg.current.ok || cfg.current.needs === 'page' ? null : { kind: cfg.current.needs === 'token' ? 'token' : 'projects' },
   );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Phase 12: the hierarchy selection (several ids) and its primary entity (inspector, gizmo). */
+  const [selection, setSelection] = useState<{ ids: string[]; primary: string | null }>({ ids: [], primary: null });
+  const selectedId = selection.primary;
+  const setSelectedId = useCallback((id: string | null) => setSelection({ ids: id === null ? [] : [id], primary: id }), []);
   const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0, external: null, problems: [] });
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   /** The bottom dock's active panel. */
@@ -560,6 +564,10 @@ function EditorApp(): JSX.Element {
 
   // A ref mirror of selectedId for the viewport callbacks (stable closure).
   const selectedIdRef = useRef<string | null>(null);
+  const selectionRef = useRef<string[]>([]);
+  useEffect(() => {
+    selectionRef.current = selection.ids;
+  }, [selection]);
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
@@ -657,8 +665,15 @@ function EditorApp(): JSX.Element {
     viewportRef.current?.setSelected(selectedId, gizmoMode);
   }, [selectedId, gizmoMode]);
   useEffect(() => {
-    clientRef.current?.setSelection(selectedId === null ? [] : [selectedId]);
-  }, [selectedId]);
+    clientRef.current?.setSelection(selection.ids);
+  }, [selection]);
+  // Drop selected ids whose entity is gone (deleted, undone).
+  useEffect(() => {
+    const present = new Set(entities.map((e) => e.id));
+    if (selection.ids.every((id) => present.has(id))) return;
+    const ids = selection.ids.filter((id) => present.has(id));
+    setSelection({ ids, primary: selection.primary !== null && present.has(selection.primary) ? selection.primary : (ids.at(-1) ?? null) });
+  }, [entities, selection]);
 
   // Shift+F11 toggles full screen (plain F11 belongs to the browser).
   useEffect(() => {
@@ -803,11 +818,15 @@ function EditorApp(): JSX.Element {
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
-    const res = await c.command('deleteEntity', { entityId: selectedIdRef.current }, c.projection.revision);
-    if (res.ok) {
-      setSelectedId(null);
+    // Phase 12: every selected subtree (one deleteEntity each; a child of a
+    // selected entity goes with it).
+    const ids = draggedRoots(c.projection.listEntities(), selectionRef.current.length > 0 ? selectionRef.current : [selectedIdRef.current]);
+    for (const entityId of ids) {
+      const res = await c.command('deleteEntity', { entityId }, c.projection.revision);
+      if (!res.ok) break;
     }
-  }, []);
+    setSelectedId(null);
+  }, [setSelectedId]);
   /** Report a failed edit where the user is looking. */
   const reportFailure = useCallback((what: string, res: Awaited<ReturnType<SessionClient['command']>>) => {
     if (res.ok) return;
@@ -862,6 +881,17 @@ function EditorApp(): JSX.Element {
       return;
     }
     const comps = (q.entity['components'] ?? {}) as Record<string, unknown>;
+    if (comps['folder'] !== undefined) {
+      // Phase 12: a folder duplicates as an empty folder next to it.
+      const res = await c.command(
+        'createEntity',
+        { kind: 'folder', name: `${String(q.entity['name'] ?? id)} copy`, parentId: q.parentChain.length > 0 ? q.parentChain[q.parentChain.length - 1] : null },
+        c.projection.revision,
+      );
+      if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+      else reportFailure('Duplicate', res);
+      return;
+    }
     const transform = (comps['transform'] ?? {}) as { position?: number[]; rotation?: number[]; scale?: number[] };
     const position = [...(transform.position ?? [0, 0, 0])];
     position[0] = (position[0] ?? 0) + 0.5;
@@ -921,11 +951,31 @@ function EditorApp(): JSX.Element {
       setExportState((st) => ({ ...st, error: e instanceof Error ? e.message : String(e) }));
     }
   }, []);
-  const reparent = useCallback(async (entityId: string, parentId: string | null) => {
+  /** Phase 12: file entities (with their subtrees) under a parent, before a sibling or at the end. */
+  const move = useCallback(async (entityIds: string[], parentId: string | null, beforeId: string | null) => {
+    const c = clientRef.current;
+    if (!c || entityIds.length === 0) return;
+    const res = await c.command('moveEntities', { entityIds, parentId, ...(beforeId !== null ? { beforeId } : {}) }, c.projection.revision);
+    // Dropping something where it already is changes nothing; not an error.
+    if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
+    reportFailure('Move', res);
+  }, [reportFailure]);
+  /** Phase 12: set one hierarchy flag (active / locked / static) on an entity. */
+  const setFlag = useCallback(async (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => {
     const c = clientRef.current;
     if (!c) return;
-    reportFailure('Reparent', await c.command('updateEntity', { entityId, parentId }, c.projection.revision));
+    reportFailure(`Set ${flag}`, await c.command('updateEntity', { entityId, [flag]: value }, c.projection.revision));
   }, [reportFailure]);
+  /** GameObject → Folder: inside the selected folder, else at the root. */
+  const createFolder = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const sel = selectedIdRef.current !== null ? c.projection.getEntity(selectedIdRef.current) : undefined;
+    const parentId = sel?.kind === 'folder' ? sel.id : null;
+    const res = await c.command('createEntity', { kind: 'folder', name: 'Folder', parentId }, c.projection.revision);
+    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    else reportFailure('Create folder', res);
+  }, [reportFailure, setSelectedId]);
   const editTransform = useCallback(async (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1904,6 +1954,7 @@ function EditorApp(): JSX.Element {
   }
 
   const selected = entities.find((e) => e.id === selectedId) ?? null;
+  const hierarchyFlags = effectiveFlagsOf(entities);
   /** The optional components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(
     selected === null
@@ -1935,6 +1986,9 @@ function EditorApp(): JSX.Element {
   const selComponents = selectedComponents;
   const noSelection = selectedId === null;
   const need = 'select an entity in the hierarchy first';
+  // Phase 12: a folder carries no components.
+  const noComponentTarget = noSelection || selected?.kind === 'folder';
+  const needObject = noSelection ? need : 'a folder has no components';
   const menus: Menu[] = [
     {
       label: 'File',
@@ -1963,6 +2017,7 @@ function EditorApp(): JSX.Element {
     {
       label: 'GameObject',
       items: [
+        { label: 'Folder', onSelect: () => void createFolder() },
         { label: 'Create empty', onSelect: () => void createEmpty() },
         { label: 'Box', onSelect: () => void newBox() },
         { label: 'Camera', disabled: hasCamera, reason: 'the scene already has its camera (one per scene)', onSelect: () => void createCamera() },
@@ -1985,15 +2040,15 @@ function EditorApp(): JSX.Element {
     {
       label: 'Component',
       items: [
-        { label: 'Collider (box)', disabled: noSelection || selComponents.has('collider'), reason: noSelection ? need : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'collider') },
-        { label: 'Player controller', disabled: noSelection || selComponents.has('controller'), reason: noSelection ? need : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'controller') },
-        { label: 'Player spawn', disabled: noSelection || selComponents.has('playerSpawn'), reason: noSelection ? need : 'already present', onSelect: () => void setComponentOnSelection('playerSpawn', {}) },
-        { label: 'Camera follow', disabled: noSelection || selComponents.has('cameraFollow'), reason: noSelection ? need : 'already present', onSelect: () => void setComponentOnSelection('cameraFollow', { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } }) },
-        { label: 'Light', disabled: noSelection || selComponents.has('light'), reason: noSelection ? need : 'already present', items: [
+        { label: 'Collider (box)', disabled: noComponentTarget || selComponents.has('collider'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'collider') },
+        { label: 'Player controller', disabled: noComponentTarget || selComponents.has('controller'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'controller') },
+        { label: 'Player spawn', disabled: noComponentTarget || selComponents.has('playerSpawn'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => void setComponentOnSelection('playerSpawn', {}) },
+        { label: 'Camera follow', disabled: noComponentTarget || selComponents.has('cameraFollow'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => void setComponentOnSelection('cameraFollow', { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } }) },
+        { label: 'Light', disabled: noComponentTarget || selComponents.has('light'), reason: noComponentTarget ? needObject : 'already present', items: [
           { label: 'Directional', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void setComponentOnSelection('light', { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true }) },
           { label: 'Ambient', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void setComponentOnSelection('light', { type: 'ambient', color: '#8a94b0', intensity: 0.9 }) },
         ] },
-        { label: 'Game zone', disabled: noSelection || selComponents.has('gameZone'), reason: noSelection ? need : 'already present', items: [
+        { label: 'Game zone', disabled: noComponentTarget || selComponents.has('gameZone'), reason: noComponentTarget ? needObject : 'already present', items: [
           { label: 'Hazard', onSelect: () => void setComponentOnSelection('gameZone', { role: 'hazard', size: [1, 1] }) },
           { label: 'Checkpoint', onSelect: () => void setComponentOnSelection('gameZone', { role: 'checkpoint', size: [1, 1] }) },
           { label: 'Goal', onSelect: () => void setComponentOnSelection('gameZone', { role: 'goal', size: [1, 1] }) },
@@ -2043,10 +2098,13 @@ function EditorApp(): JSX.Element {
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
             <Hierarchy
           entities={entities}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
+          flags={hierarchyFlags}
+          projectId={cfg.current.config.projectId}
+          selectedIds={selection.ids}
+          primaryId={selection.primary}
+          onSelect={(ids, primary) => setSelection({ ids, primary })}
           onRename={(id, name) => void rename(id, name)}
-          onReparent={(id, parentId) => void reparent(id, parentId)}
+          onMove={(ids, parentId, beforeId) => void move(ids, parentId, beforeId)}
         />
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
@@ -2280,6 +2338,10 @@ function EditorApp(): JSX.Element {
           onEditColliderBox={(entityId, hx, hy) => void editColliderBox(entityId, hx, hy)}
           onRename={(entityId, name) => void rename(entityId, name)}
           onEditTransform={(entityId, patch) => void editTransform(entityId, patch)}
+          flags={selected !== null ? (hierarchyFlags.get(selected.id) ?? null) : null}
+          entityName={(id) => entities.find((e) => e.id === id)?.name ?? id}
+          selectionCount={selection.ids.length}
+          onSetFlag={(entityId, flag, value) => void setFlag(entityId, flag, value)}
         />
         </div>
       </div>

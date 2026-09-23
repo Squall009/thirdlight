@@ -86,6 +86,7 @@ import type {
   SetSettingsArgs,
   SetTransformArgs,
   UpdateEntityArgs,
+  MoveEntitiesArgs,
 } from './types';
 
 const TOP_FIELDS = [
@@ -117,9 +118,14 @@ const OPS: readonly MutationOp[] = [
   'applySurfacePreset',
   'setGameConfig',
   'updateEntity',
+  // phase 12 hierarchy:
+  'moveEntities',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
+
+/** The most entities one `moveEntities` may name (phase 12). */
+export const MOVE_ENTITIES_MAX = 64;
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 type TransformField = (typeof TRANSFORM_FIELDS)[number];
@@ -138,7 +144,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -561,19 +567,27 @@ function validateCreateArgs(args: Record<string, unknown>):
   if (typeof args['kind'] !== 'string') {
     return {
       ok: false,
-      error: fieldType('/args/kind', args['kind'], '"group", "box" or "model"'),
+      error: fieldType('/args/kind', args['kind'], '"group", "box", "model" or "folder"'),
     };
   }
-  if (args['kind'] !== 'group' && args['kind'] !== 'box' && args['kind'] !== 'model') {
+  if (args['kind'] !== 'group' && args['kind'] !== 'box' && args['kind'] !== 'model' && args['kind'] !== 'folder') {
     return {
       ok: false,
       error: fieldValue(
         '/args/kind',
         args['kind'],
-        '"group", "box" or "model"',
-        'kind must be "group", "box" or "model" (camera creation is not a command)',
+        '"group", "box", "model" or "folder"',
+        'kind must be "group", "box", "model" or "folder" (camera creation is not a command)',
       ),
     };
+  }
+  if (args['kind'] === 'folder') {
+    // Phase 12: a folder is organisation only.
+    for (const key of ['transform', 'components', 'surfacePreset'] as const) {
+      if (args[key] !== undefined) {
+        return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'kind, parentId, name', 'a folder has no transform and no components') };
+      }
+    }
   }
   const out: CreateEntityArgs = { kind: args['kind'] };
   if (args['parentId'] !== undefined) {
@@ -822,9 +836,10 @@ function validateDeleteArgs(args: Record<string, unknown>):
 function validateUpdateEntityArgs(args: Record<string, unknown>):
   | { ok: true; args: UpdateEntityArgs }
   | { ok: false; error: CommandError } {
+  const KNOWN_UPDATE = ['entityId', 'name', 'parentId', 'active', 'locked', 'static'];
   for (const key of Object.keys(args)) {
-    if (key !== 'entityId' && key !== 'name' && key !== 'parentId') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId, name, parentId') };
+    if (!KNOWN_UPDATE.includes(key)) {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN_UPDATE.join(', ')) };
     }
   }
   if (args['entityId'] === undefined) return { ok: false, error: fieldMissing('/args/entityId', 'entityId') };
@@ -848,8 +863,50 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
     }
     out.parentId = args['parentId'];
   }
-  if (out.name === undefined && out.parentId === undefined) {
-    return { ok: false, error: fieldMissing('/args/name', 'name or parentId') };
+  for (const flag of ['active', 'locked', 'static'] as const) {
+    const v = args[flag];
+    if (v === undefined) continue;
+    if (typeof v !== 'boolean') return { ok: false, error: fieldType(`/args/${flag}`, v, 'boolean') };
+    out[flag] = v;
+  }
+  if (out.name === undefined && out.parentId === undefined && out.active === undefined && out.locked === undefined && out.static === undefined) {
+    return { ok: false, error: fieldMissing('/args/name', 'name, parentId, active, locked or static') };
+  }
+  return { ok: true, args: out };
+}
+
+function validateMoveEntitiesArgs(args: Record<string, unknown>):
+  | { ok: true; args: MoveEntitiesArgs }
+  | { ok: false; error: CommandError } {
+  for (const key of Object.keys(args)) {
+    if (key !== 'entityIds' && key !== 'parentId' && key !== 'beforeId') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityIds, parentId, beforeId (optional)') };
+    }
+  }
+  const ids = args['entityIds'];
+  if (ids === undefined) return { ok: false, error: fieldMissing('/args/entityIds', 'entityIds') };
+  if (!Array.isArray(ids)) return { ok: false, error: fieldType('/args/entityIds', ids, `array of 1-${MOVE_ENTITIES_MAX} entity IDs`) };
+  if (ids.length < 1 || ids.length > MOVE_ENTITIES_MAX) {
+    return { ok: false, error: fieldValue('/args/entityIds', ids.length, `1-${MOVE_ENTITIES_MAX} entity IDs`, `moveEntities moves 1 to ${MOVE_ENTITIES_MAX} entities`) };
+  }
+  for (let i = 0; i < ids.length; i++) {
+    if (typeof ids[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, ids[i], 'string (entity ID)') };
+  }
+  if (new Set(ids).size !== ids.length) {
+    return { ok: false, error: fieldValue('/args/entityIds', ids, 'distinct entity IDs', 'an entity is named twice') };
+  }
+  if (!('parentId' in args)) return { ok: false, error: fieldMissing('/args/parentId', 'parentId') };
+  const parentId = args['parentId'];
+  if (parentId !== null && typeof parentId !== 'string') {
+    return { ok: false, error: fieldType('/args/parentId', parentId, 'string (entity ID) or null') };
+  }
+  const out: MoveEntitiesArgs = { entityIds: ids as string[], parentId };
+  const beforeId = args['beforeId'];
+  if (beforeId !== undefined) {
+    if (beforeId !== null && typeof beforeId !== 'string') {
+      return { ok: false, error: fieldType('/args/beforeId', beforeId, 'string (entity ID) or null') };
+    }
+    out.beforeId = beforeId;
   }
   return { ok: true, args: out };
 }
@@ -914,7 +971,8 @@ export type ValidatedOpArgs =
   | { op: 'instantiatePrefab'; args: InstantiatePrefabArgs }
   | { op: 'applySurfacePreset'; args: ApplySurfacePresetArgs }
   | { op: 'setGameConfig'; args: SetGameConfigArgs }
-  | { op: 'updateEntity'; args: UpdateEntityArgs };
+  | { op: 'updateEntity'; args: UpdateEntityArgs }
+  | { op: 'moveEntities'; args: MoveEntitiesArgs };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -950,6 +1008,11 @@ export function validateOpArgs(
       const r = validateUpdateEntityArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'updateEntity', args: r.args } };
+    }
+    case 'moveEntities': {
+      const r = validateMoveEntitiesArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'moveEntities', args: r.args } };
     }
     case 'undo':
     case 'redo': {

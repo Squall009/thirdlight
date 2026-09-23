@@ -39,6 +39,7 @@
   --kind-light: #ffe27a;
   --kind-model: #c39bff;
   --kind-entity: #9aa3b2;
+  --kind-folder: #d9b36c;
   --kind-audio: #6fe0b2;
   --kind-prefab: #c39bff;
   --kind-script: #7fe0a6;
@@ -142,6 +143,27 @@ button, input, select, textarea { font-family: inherit; }
 .tl-row__kind--model { color: var(--kind-model); }
 .tl-row__kind--entity { color: var(--kind-entity); }
 .tl-row__name { overflow: hidden; text-overflow: ellipsis; }
+/* Phase 12: the tree — twisty, folder icon, flags, drop positions, inactive rows. */
+.tl-row { position: relative; gap: 4px; }
+.tl-row.is-primary { border-left-color: var(--accent); }
+.tl-row__twisty { width: 14px; flex: none; padding: 0; border: 0; background: none; color: var(--text-dim);
+  font-size: 11px; line-height: 14px; cursor: pointer; text-align: center; }
+.tl-row__twisty:hover { color: var(--text); }
+.tl-row__twisty--leaf { cursor: inherit; }
+.tl-row__folder { width: 14px; height: 11px; flex: none; position: relative; border-radius: 1px 2px 2px 2px;
+  background: var(--kind-folder); }
+.tl-row__folder::before { content: ''; position: absolute; left: 0; top: -3px; width: 6px; height: 4px;
+  border-radius: 2px 2px 0 0; background: var(--kind-folder); }
+.tl-row__kind--folder { color: var(--kind-folder); }
+.tl-row__flag { display: inline-flex; flex: none; color: var(--text-dim); font-size: 10px; margin-left: auto; }
+.tl-row__flag + .tl-row__flag { margin-left: 2px; }
+.tl-row__flag--static { padding: 0 3px; border: 1px solid var(--line); border-radius: 3px; }
+.tl-row.is-inactive .tl-row__name, .tl-row.is-inactive .tl-row__icon, .tl-row.is-inactive .tl-row__folder { opacity: .45; }
+.tl-row.is-inactive .tl-row__name { font-style: italic; }
+.tl-row.is-drop-before::before, .tl-row.is-drop-after::after { content: ''; position: absolute; left: 4px; right: 4px;
+  height: 2px; background: var(--accent); pointer-events: none; }
+.tl-row.is-drop-before::before { top: -1px; }
+.tl-row.is-drop-after::after { bottom: -1px; }
 
 .tl-inspector { flex: 1; }
 .tl-inspector__modes { display: flex; gap: 6px; padding: 10px; }
@@ -505,3 +527,8 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-files__entry:hover { background: var(--hover, rgba(255, 255, 255, 0.06)); }
 .tl-files__entry--dir { font-weight: 600; }
 .tl-files__size { color: var(--muted); font-size: 11px; }
+
+/* Phase 12: hierarchy flags in the inspector. */
+.tl-inspector__flags { display: flex; flex-direction: column; gap: 4px; }
+.tl-flag { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+.tl-flag__inherited { margin-left: auto; font-size: 11px; color: var(--accent); }

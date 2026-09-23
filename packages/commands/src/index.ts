@@ -139,5 +139,10 @@ export type {
   UpdateEntityChange,
   UpdateEntityArgs,
   EntityHeader,
+  EntityHeaderField,
+  MoveEntitiesArgs,
+  MoveEntitiesChange,
+  MoveEntitiesInverse,
+  MovedEntity,
   SetTransformInverse,
 } from './types';

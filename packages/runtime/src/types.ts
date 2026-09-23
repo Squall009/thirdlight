@@ -19,7 +19,7 @@ import type {
   Quat,
   Scene,
   SceneV2,
-  SceneV3,
+  ResolvedSceneV3,
   Vec3,
 } from '@thirdlight/project-model';
 
@@ -34,7 +34,7 @@ import type { PhysicsPort, PhysicsStepClient, Vec2 } from './ports';
 export type RuntimeSnapshotEntity =
   | Scene['entities'][number]
   | SceneV2['entities'][number]
-  | SceneV3['entities'][number];
+  | ResolvedSceneV3['entities'][number];
 
 /**
  * A complete normalized scene document of any supported version

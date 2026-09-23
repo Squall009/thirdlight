@@ -84,7 +84,10 @@ import {
   type ModelAnimationComponent,
   type SceneV3,
   type SurfaceComponent,
+  type SceneEntityV3,
+  isFolderEntity,
 } from './types-v3';
+import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 
 export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/; // §23.3.1a/§23.3.4/§23.3.5
 export const MAX_ABS_V3 = 1e6; // §23.10 numbers bound
@@ -102,7 +105,8 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'components']);
+const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'components']);
+const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
@@ -574,6 +578,30 @@ function validateEntityComponentsV3(
       errors.push(v3ComponentUnknown(`${path}/${pointerSegment(k)}`, k));
     }
   }
+  if (comps['folder'] !== undefined) {
+    // Phase 12: a folder is organisation only — no transform, nothing else.
+    const folder = comps['folder'];
+    if (!isPlainObject(folder)) errors.push(fieldType(`${path}/folder`, folder, 'object'));
+    else {
+      for (const k of Object.keys(folder)) errors.push(unexpectedField(`${path}/folder/${pointerSegment(k)}`, k, '{} (no fields)'));
+    }
+    for (const k of Object.keys(comps)) {
+      if (k === 'folder' || !(V3_REGISTRY as readonly string[]).includes(k)) continue;
+      errors.push(
+        withFound(
+          {
+            code: 'component_conflict',
+            path: `${path}/${pointerSegment(k)}`,
+            message: 'a folder is organisation only: it carries no transform and no other component',
+            reason: 'folder',
+            expected: 'components exactly { "folder": {} }',
+          },
+          k,
+        ),
+      );
+    }
+    return { ...EMPTY_COUNTS, checkpointZoneIds: [] };
+  }
   if (comps['transform'] === undefined) {
     errors.push({
       code: 'component_missing',
@@ -800,8 +828,27 @@ function canonicalModelAnimation(c: unknown): ModelAnimationComponent {
   };
 }
 
-function canonicalEntityV3(e: Record<string, unknown>): EntityV3 {
+function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'locked' | 'static'> {
+  return {
+    ...(e['active'] === false ? { active: false as const } : {}),
+    ...(e['locked'] === true ? { locked: true as const } : {}),
+    ...(e['static'] === true ? { static: true as const } : {}),
+  };
+}
+
+function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   const comps = e['components'] as Record<string, unknown>;
+  if (comps['folder'] !== undefined) {
+    const name = e['name'];
+    const pid = e['parentId'];
+    return {
+      id: e['id'] as string,
+      ...(typeof name === 'string' ? { name } : {}),
+      ...(typeof pid === 'string' ? { parentId: pid } : {}),
+      ...canonicalFlags(e),
+      components: { folder: {} },
+    };
+  }
   const components: EntityComponentsV3 = {
     transform: canonicalTransform(comps['transform']),
   };
@@ -827,6 +874,7 @@ function canonicalEntityV3(e: Record<string, unknown>): EntityV3 {
     id: e['id'] as string,
     ...(typeof name === 'string' ? { name } : {}),
     ...(typeof pid === 'string' ? { parentId: pid } : {}),
+    ...canonicalFlags(e),
     components,
   };
 }
@@ -871,6 +919,17 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
   if (entities !== null) {
     const idFirstIndex = new Map<string, number>();
     const counts: EntityV3Counts = { ...EMPTY_COUNTS, checkpointZoneIds: [] };
+    // Phase 12: folders have no transform, so the "must be a root" rules
+    // (zones, spawns, physics) look at the nearest non-folder ancestor.
+    const rawParent = new Map<string, string>();
+    const rawFolders = new Set<string>();
+    for (const e of entities) {
+      if (!isPlainObject(e) || typeof e['id'] !== 'string') continue;
+      if (typeof e['parentId'] === 'string' && !rawParent.has(e['id'])) rawParent.set(e['id'], e['parentId']);
+      if (isPlainObject(e['components']) && e['components']['folder'] !== undefined) rawFolders.add(e['id']);
+    }
+    const objectParent = (pid: unknown): string | null =>
+      typeof pid === 'string' ? nearestObjectAncestor(pid, (id) => rawParent.get(id), (id) => rawFolders.has(id)) : null;
     for (let idx = 0; idx < entities.length; idx++) {
       const e = entities[idx];
       const base = `/entities/${idx}`;
@@ -909,13 +968,17 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
       if (pid !== undefined && pid !== null && typeof pid !== 'string') {
         errors.push(fieldType(`${base}/parentId`, pid, 'string or null'));
       }
+      for (const flag of ENTITY_FLAGS) {
+        const v = e[flag];
+        if (v !== undefined && typeof v !== 'boolean') errors.push(fieldType(`${base}/${flag}`, v, 'boolean'));
+      }
       const comps = e['components'];
       if (comps === undefined) {
         errors.push(fieldMissing(`${base}/components`, 'components'));
       } else if (!isPlainObject(comps)) {
         errors.push(fieldType(`${base}/components`, comps, 'object'));
       } else {
-        const c = validateEntityComponentsV3(comps, pid, base, errors);
+        const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors);
         counts.zones += c.zones;
         counts.spawns += c.spawns;
         counts.directional += c.directional;
@@ -927,7 +990,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
         if (c.checkpointZoneIds.length > 0) counts.checkpointZoneIds.push(entityId);
       }
       for (const k of Object.keys(e)) {
-        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, components'));
+        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, active, locked, static, components'));
       }
     }
 
@@ -1054,7 +1117,64 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
     if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, sceneId, revision, entities'));
   }
   if (errors.length > 0) return { errors };
-  return { errors, doc: canonicalSceneV3(doc, entities as unknown[]) };
+  const canonical = canonicalSceneV3(doc, entities as unknown[]);
+  checkFolderHierarchy(canonical, errors);
+  if (errors.length > 0) return { errors };
+  return { errors, doc: canonical };
+}
+
+/**
+ * Phase 12 rules over a structurally valid scene: a folder sits at the root
+ * or in another folder; the camera and every checkpoint's safe spawn are
+ * active (an inactive entity is not in the game).
+ */
+function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
+  const byId = new Map(scene.entities.map((e) => [e.id, e]));
+  scene.entities.forEach((e, idx) => {
+    if (!isFolderEntity(e) || e.parentId === undefined) return;
+    const parent = byId.get(e.parentId);
+    if (parent !== undefined && !isFolderEntity(parent)) {
+      errors.push(
+        withFound(
+          {
+            code: 'field_value',
+            path: `/entities/${idx}/parentId`,
+            message: 'a folder sits at the root or inside another folder, never under an object',
+            reason: 'folder_parent',
+            expected: 'absent/null, or the id of a folder',
+          },
+          e.parentId,
+        ),
+      );
+    }
+  });
+  const flags = effectiveEntityFlags(scene.entities);
+  scene.entities.forEach((e, idx) => {
+    if (isFolderEntity(e)) return;
+    if (e.components.camera !== undefined && flags.get(e.id)?.active === false) {
+      errors.push(
+        withFound(
+          { code: 'camera_count_invalid', path: `/entities/${idx}`, message: 'the scene camera must be active', reason: 'inactive', expected: 'exactly 1 active camera' },
+          e.id,
+        ),
+      );
+    }
+    const zone = e.components.gameZone;
+    if (zone?.safeSpawnId !== undefined && flags.get(e.id)?.active !== false && flags.get(zone.safeSpawnId)?.active === false) {
+      errors.push(
+        withFound(
+          {
+            code: 'game_reference_missing',
+            path: `/entities/${idx}/components/gameZone/safeSpawnId`,
+            message: "an active checkpoint's safe spawn must be active",
+            reason: 'safe_spawn',
+            expected: 'an active playerSpawn entity id',
+          },
+          zone.safeSpawnId,
+        ),
+      );
+    }
+  });
 }
 
 function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[]): SceneV3 {
