@@ -5,14 +5,20 @@
  * owner token on first run, starts the backend and prints the editor URL.
  *
  *   node tools/start.mjs [--data-root DIR] [--host HOST] [--port N]
- *                        [--preview-port N] [--build]
+ *                        [--preview-port N] [--origin URL] [--preview-origin URL]
+ *                        [--build]
  *
  * Defaults: data root `~/thirdlight` (projects under `projects/`, exports
  * under `exports/`, the token in `owner-token`), host 127.0.0.1, ports
  * 8501/8502. Open the editor at the printed URL: the browser must use
  * exactly that origin (the backend allows only exact origins, and the play
  * preview embeds it). To reach it from another machine on the LAN, pass
- * `--host <this machine's name or IP>`.
+ * `--host <this machine's name or IP>`. Behind a reverse proxy, pass the two
+ * public origins the browser uses (`--origin https://editor.example`,
+ * `--preview-origin https://play.example`): the proxy forwards the first to
+ * the editor port (with WebSocket upgrades) and the second to the preview
+ * port. They must be two different origins — the play preview is isolated
+ * from the editor by origin.
  *
  * Plain Node, no dependencies. Ctrl+C (SIGINT) or SIGTERM stops the backend
  * gracefully (projects are released for the next start).
@@ -28,12 +34,12 @@ export const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..'
 
 function usage(message) {
   if (message) process.stderr.write(`start: ${message}\n`);
-  process.stderr.write('usage: node tools/start.mjs [--data-root DIR] [--host HOST] [--port N] [--preview-port N] [--build]\n');
+  process.stderr.write('usage: node tools/start.mjs [--data-root DIR] [--host HOST] [--port N] [--preview-port N] [--origin URL] [--preview-origin URL] [--build]\n');
   process.exit(2);
 }
 
 export function parseArgs(argv) {
-  const opts = { dataRoot: join(homedir(), 'thirdlight'), host: '127.0.0.1', port: 8501, previewPort: 8502, build: false };
+  const opts = { dataRoot: join(homedir(), 'thirdlight'), host: '127.0.0.1', port: 8501, previewPort: 8502, origin: null, previewOrigin: null, build: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const next = () => {
@@ -46,6 +52,8 @@ export function parseArgs(argv) {
     else if (a === '--host') opts.host = next();
     else if (a === '--port') opts.port = Number(next());
     else if (a === '--preview-port') opts.previewPort = Number(next());
+    else if (a === '--origin') opts.origin = next().replace(/\/$/, '');
+    else if (a === '--preview-origin') opts.previewOrigin = next().replace(/\/$/, '');
     else if (a === '--build') opts.build = true;
     else if (a === '--help' || a === '-h') usage();
     else usage(`unknown argument ${a}`);
@@ -55,6 +63,12 @@ export function parseArgs(argv) {
   }
   if (opts.port === opts.previewPort) usage('--port and --preview-port must differ');
   if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(opts.host)) usage('--host must be a host name or IP address');
+  const ORIGIN = /^https?:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d+)?$/i;
+  for (const [k, v] of [['--origin', opts.origin], ['--preview-origin', opts.previewOrigin]]) {
+    if (v !== null && !ORIGIN.test(v)) usage(`${k} must be an origin like https://editor.example or http://host:port (no path)`);
+  }
+  if ((opts.origin === null) !== (opts.previewOrigin === null)) usage('--origin and --preview-origin go together (the preview must be reachable on its own origin)');
+  if (opts.origin !== null && opts.origin.toLowerCase() === opts.previewOrigin.toLowerCase()) usage('--origin and --preview-origin must differ: the play preview is isolated from the editor by origin');
   return opts;
 }
 
@@ -94,9 +108,10 @@ function main() {
 
   const loopback = opts.host === '127.0.0.1' || opts.host === 'localhost';
   const bindHost = loopback ? '127.0.0.1' : '0.0.0.0';
-  const authoringOrigin = `http://${opts.host}:${opts.port}`;
-  const previewOrigin = `http://${opts.host}:${opts.previewPort}`;
-  const origins = new Set([authoringOrigin, `http://127.0.0.1:${opts.port}`, `http://localhost:${opts.port}`]);
+  // The origins the BROWSER uses: the public ones behind a reverse proxy, else host:port.
+  const authoringOrigin = opts.origin ?? `http://${opts.host}:${opts.port}`;
+  const previewOrigin = opts.previewOrigin ?? `http://${opts.host}:${opts.previewPort}`;
+  const origins = new Set([authoringOrigin, `http://${opts.host}:${opts.port}`, `http://127.0.0.1:${opts.port}`, `http://localhost:${opts.port}`]);
   const env = {
     ...process.env,
     THIRDLIGHT_DATA_ROOT: opts.dataRoot,

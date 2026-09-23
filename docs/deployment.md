@@ -73,6 +73,22 @@ is then at `http://10.0.10.223:8501/` (token from
 `~/thirdlight/owner-token`). Note the start script prints the token to the
 journal, which other local users in `adm`/`systemd-journal` can read.
 
+## Behind a reverse proxy
+
+The backend accepts only the exact origins it was started with, and the
+play preview is isolated from the editor by origin, so a proxy needs **two
+hostnames**: one forwarded to the editor port (8501, WebSocket upgrades
+included) and one to the preview port (8502). Tell the start script the
+public origins the browser will use:
+
+```sh
+node tools/start.mjs --origin https://editor.example --preview-origin https://play.example
+```
+
+A single proxied hostname cannot work: the editor's requests arrive with
+the proxy's origin and are refused with `bad_origin`, and the preview
+iframe must load from a different origin than the editor.
+
 ## The owner token
 
 There is exactly one token. It is the `Authorization: Bearer` credential

@@ -40,8 +40,8 @@ interface Started {
   exited: Promise<number | null>;
 }
 
-async function start(dataRoot: string, port: number, previewPort: number): Promise<Started> {
-  const proc = spawn(process.execPath, [join(REPO, 'tools', 'start.mjs'), '--data-root', dataRoot, '--port', String(port), '--preview-port', String(previewPort)], {
+async function start(dataRoot: string, port: number, previewPort: number, extra: string[] = []): Promise<Started> {
+  const proc = spawn(process.execPath, [join(REPO, 'tools', 'start.mjs'), '--data-root', dataRoot, '--port', String(port), '--preview-port', String(previewPort), ...extra], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env },
   });
@@ -111,6 +111,36 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     second.proc.kill('SIGTERM');
     expect(await second.exited).toBe(0);
     await expect.poll(() => portFree(port), { timeout: 10_000 }).toBe(true);
+  } finally {
+    rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test('behind a reverse proxy: --origin/--preview-origin are the origins the browser uses', async ({ page }) => {
+  const dataRoot = mkdtempSync(join(tmpdir(), 'tl-start-proxy-'));
+  const [port, previewPort] = [await freePort(), await freePort()];
+  // "localhost" stands in for the proxy hostname: a different origin string
+  // from the 127.0.0.1 bind, exactly like a proxied name would be.
+  const origin = `http://localhost:${port}`;
+  const preview = `http://localhost:${previewPort}`;
+  try {
+    const started = await start(dataRoot, port, previewPort, ['--origin', origin, '--preview-origin', preview]);
+    const token = readFileSync(join(dataRoot, 'owner-token'), 'utf8').trim();
+    expect(started.editorUrl).toBe(`${origin}/#token=${token}`);
+    await page.goto(started.editorUrl);
+    await page.getByLabel('Project id').fill('proxied');
+    await page.getByLabel('Template').selectOption('beacon-reach');
+    await page.getByRole('button', { name: 'Create and open' }).click();
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    await expect(page.locator('.tl-statusbar')).not.toContainText('bad_origin');
+    expect(await page.evaluate(() => window.__thirdlightEditor?.previewOrigin)).toBe(preview);
+    // Play presents the preview on the public preview origin.
+    await page.getByTitle('Start an isolated play preview').click();
+    const frame = page.locator('iframe.tl-app__preview-frame');
+    await expect(frame).toBeVisible();
+    expect(await frame.getAttribute('src')).toMatch(new RegExp(`^${preview.replace(/[.]/g, '\\.')}/`));
+    started.proc.kill('SIGTERM');
+    expect(await started.exited).toBe(0);
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }
