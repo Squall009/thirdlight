@@ -57,7 +57,8 @@ export function createGameSessionModule(
       const decision = stepZones({
         run: { checkpointId: run.checkpointId },
         zones: content.zones,
-        killY: content.game.killY,
+        // v4 has no kill height (falls are hazard zones or script rules).
+        killY: content.game.killY ?? Number.NEGATIVE_INFINITY,
         from: segment.from,
         to: segment.to,
       });

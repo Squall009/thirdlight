@@ -60,7 +60,7 @@ import type {
   PcmWavMetrics,
   PcmWavRecipe,
 } from './types-v3';
-import { AUDIO_PCM_WAV_PROFILE, MAX_TAGS } from './types-v3';
+import { AUDIO_PCM_WAV_PROFILE, MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 
 // ---- limits (§18.4–§18.6, §20.3, §20.7, §22) ----------------------------------
 
@@ -187,6 +187,11 @@ const KNOWN_CONTENT_FIELDS = new Set(['assets', 'prefabs', 'behaviors', 'setting
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
 const GAME_FIELDS = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'level', 'killY', 'cues'] as const;
 const KNOWN_GAME_FIELDS = new Set<string>(GAME_FIELDS);
+/** Phase 12 (c): the v4 game block — no level bounds, no kill height (game rules live in scripts). */
+const GAME_FIELDS_V2 = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'cues'] as const;
+const KNOWN_GAME_FIELDS_V2 = new Set<string>(GAME_FIELDS_V2);
+/** Phase 12 (c): at most this many scenes per project. */
+export const MAX_SCENES = 64;
 const KNOWN_LEVEL_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
 const CUE_KEYS = ['start', 'jump', 'checkpoint', 'death', 'goal'] as const;
 const KNOWN_CUE_FIELDS = new Set<string>(CUE_KEYS);
@@ -1648,25 +1653,27 @@ function gameError(
  * References inside the block are resolved by the cross-block check, never
  * here. `path` is relative to the content block (`/game`, `/game/cues/goal`, …).
  */
-export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[], version: 1 | 2 = 1): void {
   if (!isPlainObject(g)) {
     errors.push(gameError(path, 'field_type', 'content.game must be null or a game-configuration object', 'null or object', g));
     return;
   }
-  for (const k of GAME_FIELDS) {
+  const fields: readonly string[] = version === 2 ? GAME_FIELDS_V2 : GAME_FIELDS;
+  const known = version === 2 ? KNOWN_GAME_FIELDS_V2 : KNOWN_GAME_FIELDS;
+  for (const k of fields) {
     if (!Object.prototype.hasOwnProperty.call(g, k)) {
       errors.push(gameError(`${path}/${k}`, 'field_missing', `required game field '${k}' is missing`, 'present'));
       return;
     }
   }
   for (const k of Object.keys(g)) {
-    if (!KNOWN_GAME_FIELDS.has(k)) {
-      errors.push(gameError(`${path}/${pointerSegment(k)}`, 'field_unexpected', 'unknown game field is not permitted (the block has exactly its bounded keys)', `known fields: ${GAME_FIELDS.join(', ')}`, k));
+    if (!known.has(k)) {
+      errors.push(gameError(`${path}/${pointerSegment(k)}`, 'field_unexpected', 'unknown game field is not permitted (the block has exactly its bounded keys)', `known fields: ${fields.join(', ')}`, k));
       return;
     }
   }
-  if (g['configVersion'] !== 1) {
-    errors.push(gameError(`${path}/configVersion`, 'field_value', 'configVersion must be exactly 1 (a shape change is a version change)', '1', g['configVersion']));
+  if (g['configVersion'] !== version) {
+    errors.push(gameError(`${path}/configVersion`, 'field_value', `configVersion must be exactly ${version} (a shape change is a version change)`, String(version), g['configVersion']));
     return;
   }
   for (const k of ['title', 'objective', 'instructions'] as const) {
@@ -1694,6 +1701,7 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
       return;
     }
   }
+  if (version === 1) {
   const level = g['level'];
   if (!isPlainObject(level)) {
     errors.push(gameError(`${path}/level`, 'field_type', 'level must be an object with minX, maxX, minY, maxY', 'object', level));
@@ -1755,6 +1763,7 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
     errors.push(gameError(`${path}/killY`, 'field_value', 'killY must be strictly below level.maxY', `killY < ${maxY}`, killY));
     return;
   }
+  }
   const cues = g['cues'];
   if (!isPlainObject(cues)) {
     errors.push(gameError(`${path}/cues`, 'field_type', 'cues must be an object with exactly the five cue keys', 'object', cues));
@@ -1791,14 +1800,28 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
  * v2 inner validators (prefabs/behaviors/settings/trust), the v3 asset-kind
  * discriminator and the bounded `game` block.
  */
-function validateContentV3Value(doc: Record<string, unknown>): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 } {
+function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 } {
   const errors: ModelErrorV2[] = [];
-  for (const key of KNOWN_CONTENT_FIELDS_V3) {
+  const required = version === 4 ? [...KNOWN_CONTENT_FIELDS_V3, 'startScenes'] : [...KNOWN_CONTENT_FIELDS_V3];
+  for (const key of required) {
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!KNOWN_CONTENT_FIELDS_V3.has(k) && k !== 'tags') {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...KNOWN_CONTENT_FIELDS_V3, 'tags (optional)'].join(', ')));
+    if (!required.includes(k) && k !== 'tags') {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)'].join(', ')));
+    }
+  }
+  if (version === 4 && doc['startScenes'] !== undefined) {
+    // Phase 12 (c): the scenes loaded when the game starts.
+    const start = doc['startScenes'];
+    if (!Array.isArray(start)) errors.push(fieldType('/startScenes', start, 'array of scene ids'));
+    else {
+      if (start.length < 1 || start.length > MAX_SCENES) errors.push(fieldValue('/startScenes', start.length, `1-${MAX_SCENES} scene ids`, 'the game starts with at least one scene'));
+      start.forEach((id, i) => {
+        if (typeof id !== 'string') errors.push(fieldType(`/startScenes/${i}`, id, 'string (scene id)'));
+        else if (!ID_RE_V2.test(id)) errors.push(fieldValue(`/startScenes/${i}`, id, '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'a scene id uses the id syntax'));
+      });
+      if (new Set(start).size !== start.length) errors.push(fieldValue('/startScenes', start, 'distinct scene ids', 'a start scene is listed twice'));
     }
   }
 
@@ -1876,12 +1899,13 @@ function validateContentV3Value(doc: Record<string, unknown>): { errors: ModelEr
   validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
 
   const game = doc['game'];
-  if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
+  if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors, version === 4 ? 2 : 1);
 
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
   if (errors.length > 0) return { errors };
   const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
+  if (version === 4) (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
   if (canonical.game !== null && canonicalDocBytes(canonical.game) > MAX_GAME_BYTES) {
     return { errors: [limitsError('/game', 'game_bytes', canonicalDocBytes(canonical.game), MAX_GAME_BYTES, 'canonical content.game exceeds the byte cap')] };
   }
@@ -1933,22 +1957,27 @@ export function validateTagRegistry(tags: unknown, path: string, errors: ModelEr
   });
 }
 
-function canonicalGame(g: GameConfig): GameConfig {
+export function canonicalGame(g: GameConfig): GameConfig {
   return {
-    configVersion: 1,
+    configVersion: g.configVersion === 2 ? 2 : 1,
     title: g.title,
     objective: g.objective,
     instructions: g.instructions,
     playerId: g.playerId,
     cameraId: g.cameraId,
     spawnId: g.spawnId,
-    level: {
-      minX: canonNumV3(g.level.minX),
-      maxX: canonNumV3(g.level.maxX),
-      minY: canonNumV3(g.level.minY),
-      maxY: canonNumV3(g.level.maxY),
-    },
-    killY: canonNumV3(g.killY),
+    // v3 only (configVersion 1): v4 has no level bounds or kill height.
+    ...(g.level !== undefined
+      ? {
+          level: {
+            minX: canonNumV3(g.level.minX),
+            maxX: canonNumV3(g.level.maxX),
+            minY: canonNumV3(g.level.minY),
+            maxY: canonNumV3(g.level.maxY),
+          },
+        }
+      : {}),
+    ...(g.killY !== undefined ? { killY: canonNumV3(g.killY) } : {}),
     cues: {
       start: g.cues.start,
       jump: g.cues.jump,
@@ -1972,6 +2001,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
     game: c.game === null ? null : canonicalGame(c.game),
+    // Phase 12 (c): v4 only — the start set.
+    ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
     // Phase 12 (b): present only when the project defines tags.
     ...(c.tags !== undefined && c.tags.length > 0
       ? { tags: [...c.tags].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })) }
@@ -1985,6 +2016,17 @@ export function validateContentV3(doc: unknown): ModelResultV3<ContentCatalogV3>
   const { errors, doc: canonical } = validateContentV3Value(doc);
   if (errors.length > 0) return fail(errors);
   return { ok: true, normalized: canonical as ContentCatalogV3 };
+}
+
+/**
+ * Phase 12 (c): the v4 project content block (`content.json`): v3's keys plus
+ * the required `startScenes`, with the v4 game block (configVersion 2).
+ */
+export function validateContentV4(doc: unknown): ModelResultV3<ContentCatalogV4> {
+  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
+  const { errors, doc: canonical } = validateContentV3Value(doc, 4);
+  if (errors.length > 0) return fail(errors);
+  return { ok: true, normalized: canonical as ContentCatalogV4 };
 }
 
 /** §12.1: validate, then return the new canonical v3 content block (§23.7). */

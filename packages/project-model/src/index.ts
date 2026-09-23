@@ -284,3 +284,25 @@ export {
   type ResolveModulesResult,
   type UnresolvedModule,
 } from './modules';
+
+// Phase 12 (c): v4 projects — several scenes, one file each.
+export {
+  composeV4,
+  migrateProjectV3ToV4,
+  validateManifestV2Project,
+  validateProjectV4,
+  MIGRATED_SCENE_NAME,
+  type MigrationV4Result,
+  type ProjectManifestV2,
+  type ProjectV4,
+} from './project-v4';
+export { validateSceneV4, validateInstancesComponent, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
+export { validateContentV4, canonicalGame, MAX_SCENES } from './content';
+export {
+  GAME_ZONE_ROLES_V4,
+  INSTANCE_FLOATS,
+  MAX_INSTANCES,
+  type ContentCatalogV4,
+  type InstancesComponent,
+  type SceneV4,
+} from './types-v3';

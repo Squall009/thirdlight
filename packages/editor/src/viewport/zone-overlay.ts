@@ -43,6 +43,7 @@ const ZONE_COLORS: Record<ZoneRole, number> = {
   hazard: 0xd42a1e,
   checkpoint: 0x2fd47f,
   goal: 0x2f7fd4,
+  exit: 0xc86bff,
 };
 const SPAWN_COLOR = 0xffc857;
 const CAMERA_FOLLOW_COLOR = 0x9aa7ff;
@@ -320,7 +321,7 @@ export class ZoneOverlay {
       group.add(border, mesh);
     }
     // (A player spawn is drawn by the viewport as an icon billboard.)
-    if (e.cameraFollow !== undefined) {
+    if (e.cameraFollow?.bounds !== undefined) {
       const b = e.cameraFollow.bounds;
       const pts = [
         new THREE.Vector3(b.minX, b.minY, 0.01),

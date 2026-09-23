@@ -581,10 +581,10 @@ function CameraTab({
       deadZoneX: cf ? String(cf.deadZone.x) : '0.3',
       deadZoneY: cf ? String(cf.deadZone.y) : '0.3',
       smoothing: cf ? String(cf.smoothing) : '0.5',
-      minX: cf ? String(cf.bounds.minX) : '-10',
-      maxX: cf ? String(cf.bounds.maxX) : '10',
-      minY: cf ? String(cf.bounds.minY) : '-4',
-      maxY: cf ? String(cf.bounds.maxY) : '8',
+      minX: cf?.bounds ? String(cf.bounds.minX) : '-10',
+      maxX: cf?.bounds ? String(cf.bounds.maxX) : '10',
+      minY: cf?.bounds ? String(cf.bounds.minY) : '-4',
+      maxY: cf?.bounds ? String(cf.bounds.maxY) : '8',
     });
   }, [cameraId, cf]);
 

@@ -729,7 +729,7 @@ export function instantiateRuntime(
     const v3 = components as {
       gameZone?: { role: GameZoneRole; size: [number, number]; safeSpawnId?: string; activation?: CheckpointActivationAppearance };
       playerSpawn?: unknown;
-      cameraFollow?: { deadZone: { x: number; y: number }; smoothing: number; bounds: GameCameraBounds };
+      cameraFollow?: { deadZone: { x: number; y: number }; smoothing: number; bounds?: GameCameraBounds };
     };
     if (v3.gameZone !== undefined) {
       const z = v3.gameZone;
@@ -750,7 +750,10 @@ export function instantiateRuntime(
       cameraFollowData = {
         deadZone: { x: f.deadZone.x, y: f.deadZone.y },
         smoothing: f.smoothing,
-        bounds: { minX: f.bounds.minX, maxX: f.bounds.maxX, minY: f.bounds.minY, maxY: f.bounds.maxY },
+        // v4: bounds are optional (unbounded when absent).
+        bounds: f.bounds !== undefined
+          ? { minX: f.bounds.minX, maxX: f.bounds.maxX, minY: f.bounds.minY, maxY: f.bounds.maxY }
+          : { minX: Number.NEGATIVE_INFINITY, maxX: Number.POSITIVE_INFINITY, minY: Number.NEGATIVE_INFINITY, maxY: Number.POSITIVE_INFINITY },
       };
     }
     entities.set(e.id, data);
@@ -1749,10 +1752,14 @@ class RuntimeInstance implements Runtime {
 
     // R2: verify the destination (pure reads, no mutation).
     if (this.checkResetFault('R2', ordinal)) return false;
+    // v3 snapshots carry level bounds and a kill height; v4 has neither (a
+    // game's own rules live in scripts), so only the checks below apply.
     const level = content.game.level;
+    const killY = content.game.killY;
     const insideLevel =
-      target.x >= level.minX && target.x <= level.maxX && target.y >= level.minY && target.y <= level.maxY;
-    if (!insideLevel || target.y < content.game.killY) {
+      level === undefined ||
+      (target.x >= level.minX && target.x <= level.maxX && target.y >= level.minY && target.y <= level.maxY);
+    if (!insideLevel || (killY !== undefined && target.y < killY)) {
       this.failReset('game_spawn_invalid', 'outside_level', ordinal, 'R2');
       return false;
     }

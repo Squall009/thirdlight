@@ -85,7 +85,10 @@ import {
   type SceneV3,
   type SurfaceComponent,
   type SceneEntityV3,
+  type SceneV4,
   isFolderEntity,
+  GAME_ZONE_ROLES_V4,
+  MAX_INSTANCES,
 } from './types-v3';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 
@@ -105,9 +108,17 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
+const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'name', 'revision', 'entities']);
+/** Phase 12 (c): the v4 per-scene entity cap (instance sets hold dense detail). */
+export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
 const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
+const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId']);
+/** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
+export const MAX_EXIT_SCENES = 16;
+/** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
@@ -205,18 +216,19 @@ export function validateActivationAppearance(a: unknown, path: string, errors: M
   }
 }
 
-export function validateGameZoneComponent(c: unknown, path: string, errors: ModelErrorV3[]): GameZoneRole | null {
+export function validateGameZoneComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): GameZoneRole | null {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return null;
   }
   let role: GameZoneRole | null = null;
+  const roles: readonly string[] = version === 4 ? GAME_ZONE_ROLES_V4 : GAME_ZONE_ROLES;
   const rawRole = c['role'];
   if (rawRole === undefined) errors.push(fieldMissing(`${path}/role`, 'role'));
   else if (typeof rawRole !== 'string') errors.push(fieldType(`${path}/role`, rawRole, 'string'));
-  else if (!(GAME_ZONE_ROLES as readonly string[]).includes(rawRole)) {
+  else if (!roles.includes(rawRole)) {
     errors.push(
-      fieldValue(`${path}/role`, rawRole, '"hazard" | "checkpoint" | "goal"', 'gameZone role must be one of hazard, checkpoint, goal'),
+      fieldValue(`${path}/role`, rawRole, roles.map((r) => `"${r}"`).join(' | '), `gameZone role must be one of ${roles.join(', ')}`),
     );
   } else {
     role = rawRole as GameZoneRole;
@@ -246,12 +258,78 @@ export function validateGameZoneComponent(c: unknown, path: string, errors: Mode
       errors.push(unexpectedField(`${path}/activation`, 'activation', 'nothing (only a checkpoint carries activation)'));
     }
   }
+  if (role === 'exit') {
+    // Phase 12 (c): the scenes to load / unload (ids resolve at project level).
+    let listed = 0;
+    for (const key of ['load', 'unload'] as const) {
+      const list = c[key];
+      if (list === undefined) continue;
+      if (!Array.isArray(list)) {
+        errors.push(fieldType(`${path}/${key}`, list, 'array of scene ids'));
+        continue;
+      }
+      if (list.length > MAX_EXIT_SCENES) errors.push(fieldValue(`${path}/${key}`, list.length, `at most ${MAX_EXIT_SCENES} scene ids`, 'too many scenes in one exit'));
+      list.forEach((id, i) => {
+        if (typeof id !== 'string') errors.push(fieldType(`${path}/${key}/${i}`, id, 'string (scene id)'));
+        else if (!ID_RE_V2.test(id)) errors.push(idInvalid(`${path}/${key}/${i}`, id));
+      });
+      if (new Set(list).size !== list.length) errors.push(fieldValue(`${path}/${key}`, list, 'distinct scene ids', 'a scene is listed twice'));
+      listed += list.length;
+    }
+    if (listed === 0) {
+      errors.push(fieldMissing(`${path}/load`, 'load or unload (an exit loads or unloads at least one scene)'));
+    }
+    const spawn = c['spawnId'];
+    if (spawn !== undefined) {
+      if (typeof spawn !== 'string') errors.push(fieldType(`${path}/spawnId`, spawn, 'string'));
+      else if (!ID_RE_V2.test(spawn)) errors.push(idInvalid(`${path}/spawnId`, spawn));
+    }
+  } else {
+    for (const key of ['load', 'unload', 'spawnId'] as const) {
+      if (c[key] !== undefined) errors.push(unexpectedField(`${path}/${key}`, key, 'nothing (only an exit zone carries load, unload, spawnId)'));
+    }
+  }
+  const known = version === 4 ? KNOWN_GAMEZONE_FIELDS_V4 : KNOWN_GAMEZONE_FIELDS;
   for (const k of Object.keys(c)) {
-    if (!KNOWN_GAMEZONE_FIELDS.has(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'role, size, safeSpawnId, activation'));
+    if (!known.has(k)) {
+      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...known].join(', ')));
     }
   }
   return role;
+}
+
+/**
+ * Phase 12 (c): an instance set — one model, `count` placements in a binary
+ * buffer stored by SHA-256 (asset and buffer existence are checked against
+ * the content block and the blob store elsewhere).
+ */
+export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
+  if (!isPlainObject(c)) {
+    errors.push(fieldType(path, c, 'object'));
+    return;
+  }
+  const asset = c['asset'];
+  if (asset === undefined) errors.push(fieldMissing(`${path}/asset`, 'asset'));
+  else if (!isPlainObject(asset)) errors.push(fieldType(`${path}/asset`, asset, 'object { assetId }'));
+  else {
+    const id = asset['assetId'];
+    if (typeof id !== 'string') errors.push(fieldType(`${path}/asset/assetId`, id, 'string'));
+    else if (!ID_RE_V2.test(id)) errors.push(idInvalid(`${path}/asset/assetId`, id));
+    for (const k of Object.keys(asset)) if (k !== 'assetId') errors.push(unexpectedField(`${path}/asset/${pointerSegment(k)}`, k, 'assetId'));
+  }
+  const buffer = c['buffer'];
+  if (buffer === undefined) errors.push(fieldMissing(`${path}/buffer`, 'buffer'));
+  else if (typeof buffer !== 'string' || !/^[0-9a-f]{64}$/.test(buffer)) {
+    errors.push(fieldValue(`${path}/buffer`, buffer, 'SHA-256 of the buffer (64 lowercase hex)', 'buffer is the digest of the instance transforms'));
+  }
+  const count = c['count'];
+  if (count === undefined) errors.push(fieldMissing(`${path}/count`, 'count'));
+  else if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > MAX_INSTANCES) {
+    errors.push(fieldValue(`${path}/count`, count, `integer 1-${MAX_INSTANCES}`, 'an instance set holds 1 to 65536 copies'));
+  }
+  for (const k of Object.keys(c)) {
+    if (k !== 'asset' && k !== 'buffer' && k !== 'count') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count'));
+  }
 }
 
 export function validatePlayerSpawnComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
@@ -264,7 +342,7 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
   }
 }
 
-export function validateCameraFollowComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
+export function validateCameraFollowComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
@@ -284,7 +362,10 @@ export function validateCameraFollowComponent(c: unknown, path: string, errors: 
   if (c['smoothing'] === undefined) errors.push(fieldMissing(`${path}/smoothing`, 'smoothing'));
   else checkFiniteNumber(c['smoothing'], `${path}/smoothing`, { absMax: 1 }, '0 <= v <= 1', errors);
   const bounds = c['bounds'];
-  if (bounds === undefined) errors.push(fieldMissing(`${path}/bounds`, 'bounds'));
+  // v4: bounds are optional (without them the camera follows anywhere).
+  if (bounds === undefined) {
+    if (version === 3) errors.push(fieldMissing(`${path}/bounds`, 'bounds'));
+  }
   else if (!isPlainObject(bounds)) errors.push(fieldType(`${path}/bounds`, bounds, 'object'));
   else {
     for (const k of ['minX', 'maxX', 'minY', 'maxY'] as const) {
@@ -571,10 +652,12 @@ function validateEntityComponentsV3(
   parentId: unknown,
   ePath: string,
   errors: ModelErrorV3[],
+  version: 3 | 4 = 3,
 ): EntityV3Counts {
   const path = `${ePath}/components`;
+  const registry: readonly string[] = version === 4 ? V4_REGISTRY : V3_REGISTRY;
   for (const k of Object.keys(comps)) {
-    if (!(V3_REGISTRY as readonly string[]).includes(k)) {
+    if (!registry.includes(k)) {
       errors.push(v3ComponentUnknown(`${path}/${pointerSegment(k)}`, k));
     }
   }
@@ -586,7 +669,7 @@ function validateEntityComponentsV3(
       for (const k of Object.keys(folder)) errors.push(unexpectedField(`${path}/folder/${pointerSegment(k)}`, k, '{} (no fields)'));
     }
     for (const k of Object.keys(comps)) {
-      if (k === 'folder' || !(V3_REGISTRY as readonly string[]).includes(k)) continue;
+      if (k === 'folder' || !registry.includes(k)) continue;
       errors.push(
         withFound(
           {
@@ -641,9 +724,17 @@ function validateEntityComponentsV3(
 
   // v3 components (field values, §23.3.1–§23.3.6)
   let zoneRole: GameZoneRole | null = null;
-  if (comps['gameZone'] !== undefined) zoneRole = validateGameZoneComponent(comps['gameZone'], `${path}/gameZone`, errors);
+  if (comps['gameZone'] !== undefined) zoneRole = validateGameZoneComponent(comps['gameZone'], `${path}/gameZone`, errors, version);
   if (comps['playerSpawn'] !== undefined) validatePlayerSpawnComponent(comps['playerSpawn'], `${path}/playerSpawn`, errors);
-  if (comps['cameraFollow'] !== undefined) validateCameraFollowComponent(comps['cameraFollow'], `${path}/cameraFollow`, errors);
+  if (comps['cameraFollow'] !== undefined) validateCameraFollowComponent(comps['cameraFollow'], `${path}/cameraFollow`, errors, version);
+  if (comps['instances'] !== undefined) {
+    validateInstancesComponent(comps['instances'], `${path}/instances`, errors);
+    // An instance set is a model placed many times: it carries no box, camera,
+    // model, collider or controller of its own.
+    for (const other of ['box', 'camera', 'model', 'collider', 'controller', 'modelAnimation', 'gameZone', 'playerSpawn', 'light'] as const) {
+      if (comps[other] !== undefined) errors.push(collisionConflict(path, `instances and ${other} are mutually exclusive on one entity`, ['instances', other]));
+    }
+  }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors);
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
@@ -768,22 +859,30 @@ function canonicalGameZone(c: unknown): GameZoneComponent {
   };
   if (o['safeSpawnId'] !== undefined) out.safeSpawnId = o['safeSpawnId'] as string;
   if (o['activation'] !== undefined) out.activation = canonicalActivation(o['activation']);
+  if (o['load'] !== undefined) out.load = [...(o['load'] as string[])];
+  if (o['unload'] !== undefined) out.unload = [...(o['unload'] as string[])];
+  if (o['spawnId'] !== undefined) out.spawnId = o['spawnId'] as string;
   return out;
 }
 
 function canonicalCameraFollow(c: unknown): CameraFollowComponent {
   const o = c as Record<string, unknown>;
   const dz = o['deadZone'] as Record<string, unknown>;
-  const b = o['bounds'] as Record<string, unknown>;
+  const b = o['bounds'] as Record<string, unknown> | undefined;
   return {
     deadZone: { x: canonNum(dz['x']), y: canonNum(dz['y']) },
     smoothing: canonNum(o['smoothing']),
-    bounds: {
-      minX: canonNum(b['minX']),
-      maxX: canonNum(b['maxX']),
-      minY: canonNum(b['minY']),
-      maxY: canonNum(b['maxY']),
-    },
+    // v4: optional.
+    ...(b !== undefined
+      ? {
+          bounds: {
+            minX: canonNum(b['minX']),
+            maxX: canonNum(b['maxX']),
+            minY: canonNum(b['minY']),
+            maxY: canonNum(b['maxY']),
+          },
+        }
+      : {}),
   };
 }
 
@@ -869,6 +968,10 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
+  if (comps['instances'] !== undefined) {
+    const i = comps['instances'] as { asset: { assetId: string }; buffer: string; count: number };
+    components.instances = { asset: { assetId: i.asset.assetId }, buffer: i.buffer, count: i.count };
+  }
   const name = e['name'];
   const pid = e['parentId'];
   return {
@@ -887,8 +990,16 @@ interface SceneV3ValueResult {
   doc?: SceneV3;
 }
 
-export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3ValueResult {
+export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): SceneV3ValueResult {
   const errors: ModelErrorV3[] = [];
+  if (version === 4) {
+    // Phase 12 (c): a v4 scene has a display name.
+    const name = doc['name'];
+    if (name === undefined) errors.push(fieldMissing('/name', 'name'));
+    else if (typeof name !== 'string') errors.push(fieldType('/name', name, 'string'));
+    else if (!isValidName(name)) errors.push(fieldValue('/name', name, `string, ${NAME_MIN}-${NAME_MAX} chars, no control characters`, 'scene name must be 1-128 characters without control characters'));
+  }
+  const maxEntities = version === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
   const sceneId = doc['sceneId'];
   if (sceneId === undefined) errors.push(fieldMissing('/sceneId', 'sceneId'));
   else if (typeof sceneId !== 'string') errors.push(fieldType('/sceneId', sceneId, 'string'));
@@ -912,8 +1023,8 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
   else if (!Array.isArray(ents)) errors.push(fieldType('/entities', ents, 'array'));
   else {
     entities = ents;
-    if (ents.length > MAX_ENTITIES_V2) {
-      errors.push(limitsError('/entities', 'entities', ents.length, MAX_ENTITIES_V2, `scene exceeds the entity limit of ${MAX_ENTITIES_V2}`));
+    if (ents.length > maxEntities) {
+      errors.push(limitsError('/entities', 'entities', ents.length, maxEntities, `scene exceeds the entity limit of ${maxEntities}`));
     }
   }
 
@@ -983,7 +1094,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
       } else if (!isPlainObject(comps)) {
         errors.push(fieldType(`${base}/components`, comps, 'object'));
       } else {
-        const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors);
+        const c = validateEntityComponentsV3(comps, objectParent(pid) ?? undefined, base, errors, version);
         counts.zones += c.zones;
         counts.spawns += c.spawns;
         counts.directional += c.directional;
@@ -1031,10 +1142,14 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
       }
     }
 
-    if (counts.cameras !== 1) {
+    // v3: exactly one camera per scene. v4: at most one (the start scenes
+    // together hold exactly one — a project-level rule).
+    if (version === 3 ? counts.cameras !== 1 : counts.cameras > 1) {
       errors.push(
         withFound(
-          { code: 'camera_count_invalid', path: '', message: 'the scene must contain exactly one entity carrying the camera component', expected: 'exactly 1 camera' },
+          version === 3
+            ? { code: 'camera_count_invalid', path: '', message: 'the scene must contain exactly one entity carrying the camera component', expected: 'exactly 1 camera' }
+            : { code: 'camera_count_invalid', path: '', message: 'a scene may contain at most one entity carrying the camera component', expected: 'at most 1 camera' },
           counts.cameras,
         ),
       );
@@ -1118,11 +1233,12 @@ export function validateSceneV3Value(doc: Record<string, unknown>): SceneV3Value
     checkDepthLimit(entities, idFirstIndex, errors);
   }
 
+  const knownScene = version === 4 ? KNOWN_SCENE_FIELDS_V4 : KNOWN_SCENE_FIELDS;
   for (const k of Object.keys(doc)) {
-    if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, sceneId, revision, entities'));
+    if (!knownScene.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...knownScene].join(', ')));
   }
   if (errors.length > 0) return { errors };
-  const canonical = canonicalSceneV3(doc, entities as unknown[]);
+  const canonical = canonicalSceneV3(doc, entities as unknown[], version);
   checkFolderHierarchy(canonical, errors);
   if (errors.length > 0) return { errors };
   return { errors, doc: canonical };
@@ -1182,7 +1298,16 @@ function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
   });
 }
 
-function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[]): SceneV3 {
+function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version: 3 | 4 = 3): SceneV3 {
+  if (version === 4) {
+    return {
+      schemaVersion: 4,
+      sceneId: doc['sceneId'] as string,
+      name: doc['name'] as string,
+      revision: canonNum(doc['revision']),
+      entities: (ents as Record<string, unknown>[]).map(canonicalEntityV3),
+    } as unknown as SceneV3;
+  }
   return {
     schemaVersion: 3,
     sceneId: doc['sceneId'] as string,
@@ -1212,4 +1337,20 @@ export function validateSceneV3(doc: unknown): ModelResultV3<SceneV3> {
 /** §12.1: validate, then return the new canonical v3 document (§12.2/§23.7). */
 export function normalizeSceneV3(doc: unknown): ModelResultV3<SceneV3> {
   return validateSceneV3(doc);
+}
+
+/**
+ * Phase 12 (c): the `schemaVersion` 4 scene validator — the v3 rules plus a
+ * scene name, instance sets, exit zones, optional camera-follow bounds and at
+ * most (not exactly) one camera. Rules that span scenes (unique ids across the
+ * project, the start set, exit targets) are `validateProjectV4`'s.
+ */
+export function validateSceneV4(doc: unknown): ModelResultV3<SceneV4> {
+  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
+  if (doc['schemaVersion'] !== 4) {
+    return fail([fieldValue('/schemaVersion', doc['schemaVersion'], '4', 'validateSceneV4 accepts a schemaVersion 4 scene')]);
+  }
+  const { errors, doc: canonical } = validateSceneV3Value(doc, 4);
+  if (errors.length > 0) return fail(errors);
+  return { ok: true, normalized: canonical as unknown as SceneV4 };
 }

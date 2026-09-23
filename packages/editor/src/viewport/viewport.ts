@@ -240,7 +240,7 @@ export class Viewport {
   }
 
   /** M3 (packet 56): render/clear the zone gesture preview at a pose. */
-  previewZonePose(pose: { position: [number, number, number]; size: [number, number] } | null, isSpawn = false, role?: 'hazard' | 'checkpoint' | 'goal'): void {
+  previewZonePose(pose: { position: [number, number, number]; size: [number, number] } | null, isSpawn = false, role?: 'hazard' | 'checkpoint' | 'goal' | 'exit'): void {
     this.zones.setPreviewPose(pose, isSpawn, role);
     this.render();
   }

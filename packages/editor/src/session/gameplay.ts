@@ -332,7 +332,7 @@ export interface GameConfigLike {
 // Zones + spawns (authoring.md §A3.1/§A3.2 rows 6–10; project-model §23.3.1)
 // ---------------------------------------------------------------------------
 
-export const ZONE_ROLES = ['hazard', 'checkpoint', 'goal'] as const;
+export const ZONE_ROLES = ['hazard', 'checkpoint', 'goal', 'exit'] as const;
 export type ZoneRole = (typeof ZONE_ROLES)[number];
 
 /** UI placement defaults (not contract values; the sizes are within §23.3.1). */
@@ -340,6 +340,7 @@ export const DEFAULT_ZONE_SIZE: Record<ZoneRole, [number, number]> = {
   hazard: [1.5, 0.5],
   checkpoint: [1.5, 1.5],
   goal: [2, 2],
+  exit: [1.5, 2.5],
 };
 /** The §23.3.1 span bound (0 < v <= 1e6); the UI keeps a 0.1 m drag floor. */
 export const MAX_ZONE_SPAN = 1e6;
@@ -362,6 +363,10 @@ export interface GameZoneView {
   size: [number, number];
   safeSpawnId?: string;
   activation?: { emissive: string; emissiveIntensity: number; cueAssetId: string | null };
+  /** Phase 12 (c) exit zones: scenes loaded / unloaded, and the spawn to move to. */
+  load?: string[];
+  unload?: string[];
+  spawnId?: string;
 }
 
 export interface ZonePlanError {
@@ -602,7 +607,7 @@ export function planSetCameraFollow(
   if (current.smoothing !== draft.smoothing) value['smoothing'] = draft.smoothing;
   const b = current.bounds;
   const d = draft.bounds;
-  if (b.minX !== d.minX || b.maxX !== d.maxX || b.minY !== d.minY || b.maxY !== d.maxY) value['bounds'] = { ...draft.bounds };
+  if (d !== undefined && (b === undefined || b.minX !== d.minX || b.maxX !== d.maxX || b.minY !== d.minY || b.maxY !== d.maxY)) value['bounds'] = { ...d };
   if (Object.keys(value).length === 0) return { kind: 'noop' };
   return { kind: 'commit', args: { entityId, component: 'cameraFollow', value } };
 }

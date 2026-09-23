@@ -50,7 +50,9 @@ export type ComponentV3 = (typeof V3_REGISTRY)[number];
 
 /** §23.3.1 game-zone roles (the closed set). */
 export const GAME_ZONE_ROLES = ['hazard', 'checkpoint', 'goal'] as const;
-export type GameZoneRole = (typeof GAME_ZONE_ROLES)[number];
+/** Phase 12 (c), scene schemaVersion 4: the roles a v4 zone may have (adds `exit`). */
+export const GAME_ZONE_ROLES_V4 = ['hazard', 'checkpoint', 'goal', 'exit'] as const;
+export type GameZoneRole = (typeof GAME_ZONE_ROLES_V4)[number];
 
 /** §23.3.1a checkpoint activation appearance (all three fields explicit). */
 export interface CheckpointActivationAppearance {
@@ -71,7 +73,33 @@ export interface GameZoneComponent {
   safeSpawnId?: string;
   /** Required iff `role === 'checkpoint'`. */
   activation?: CheckpointActivationAppearance;
+  /**
+   * Phase 12 (c), `exit` only: the scenes loaded and unloaded when the player
+   * enters (at least one of the two non-empty), and the spawn the player is
+   * moved to once the scene holding it is loaded.
+   */
+  load?: string[];
+  unload?: string[];
+  spawnId?: string;
 }
+
+/**
+ * Phase 12 (c): an instance set — one entity, many copies of one model placed
+ * by a binary buffer of `count` transforms (10 little-endian float32 each:
+ * position xyz, rotation quaternion xyzw, scale xyz), stored by SHA-256 like
+ * an asset source. Rendered as instanced meshes; the copies have no ids.
+ */
+export interface InstancesComponent {
+  asset: { assetId: string };
+  /** SHA-256 (64 lowercase hex) of the buffer bytes; byte length = count × 40. */
+  buffer: string;
+  count: number;
+}
+
+/** Floats per instance in an instance buffer. */
+export const INSTANCE_FLOATS = 10;
+/** Most copies in one instance set. */
+export const MAX_INSTANCES = 65_536;
 
 /** §23.3.2 field-less spawn marker. */
 export type PlayerSpawnComponent = Record<string, never>;
@@ -82,7 +110,8 @@ export interface CameraFollowComponent {
   deadZone: { x: number; y: number };
   /** [0, 1]; `0` = hard snap. */
   smoothing: number;
-  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  /** Required in v3; optional in v4 (absent: the camera follows anywhere). */
+  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
 }
 
 /** §23.3.4 one directional key light or one ambient fill. */
@@ -136,6 +165,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   light?: LightComponent;
   surface?: SurfaceComponent;
   modelAnimation?: ModelAnimationComponent;
+  /** Phase 12 (c), scene schemaVersion 4 only: an instance set. */
+  instances?: InstancesComponent;
 }
 
 /**
@@ -204,6 +235,19 @@ export function isFolderEntity(e: { components: object }): e is FolderEntityV3 {
 export interface SceneV3 {
   schemaVersion: 3;
   sceneId: string;
+  revision: number;
+  entities: SceneEntityV3[];
+}
+
+/**
+ * Phase 12 (c): a scene document of schemaVersion 4 — one file per scene in a
+ * project (`scenes/<sceneId>.json`). Same entities as v3 (plus instance sets
+ * and exit zones), a display name, and at most one camera.
+ */
+export interface SceneV4 {
+  schemaVersion: 4;
+  sceneId: string;
+  name: string;
   revision: number;
   entities: SceneEntityV3[];
 }
@@ -299,15 +343,18 @@ export type CueRef = string | null;
 
 /** §23.4 the bounded game-configuration block. */
 export interface GameConfig {
-  configVersion: 1;
+  /** 1: scene schemaVersion 3 (with `level`/`killY`); 2: schemaVersion 4 (without). */
+  configVersion: 1 | 2;
   title: string;
   objective: string;
   instructions: string;
   playerId: string;
   cameraId: string;
   spawnId: string;
-  level: { minX: number; maxX: number; minY: number; maxY: number };
-  killY: number;
+  /** v3 only (configVersion 1). v4 has no level bounds: game rules like these belong in scripts. */
+  level?: { minX: number; maxX: number; minY: number; maxY: number };
+  /** v3 only (configVersion 1). v4 has no kill height: falls are hazard zones or script logic. */
+  killY?: number;
   cues: {
     start: CueRef;
     jump: CueRef;
@@ -327,6 +374,14 @@ export interface ContentCatalogV3 {
   game: GameConfig | null;
   /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
   tags?: TagDefinition[];
+}
+
+/**
+ * Phase 12 (c): the v4 project content block (`content.json`) — v3's plus the
+ * scenes the game starts with; `game` is configVersion 2 (no level, no killY).
+ */
+export interface ContentCatalogV4 extends ContentCatalogV3 {
+  startScenes: string[];
 }
 
 /**

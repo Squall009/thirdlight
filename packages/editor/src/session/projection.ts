@@ -159,7 +159,7 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(c.controller !== undefined ? { controller: true } : {}),
     ...(c.gameZone !== undefined ? { gameZone: { ...c.gameZone, size: [...c.gameZone.size] as [number, number] } } : {}),
     ...(c.playerSpawn !== undefined ? { playerSpawn: true } : {}),
-    ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, bounds: { ...c.cameraFollow.bounds } } } : {}),
+    ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, ...(c.cameraFollow.bounds !== undefined ? { bounds: { ...c.cameraFollow.bounds } } : {}) } } : {}),
     ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
     ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
     ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
@@ -358,7 +358,7 @@ export class Projection {
           if (change.next === null) delete p.cameraFollow;
           else {
             const f = change.next as CameraFollowComponent;
-            p.cameraFollow = { deadZone: { ...f.deadZone }, smoothing: f.smoothing, bounds: { ...f.bounds } };
+            p.cameraFollow = { deadZone: { ...f.deadZone }, smoothing: f.smoothing, ...(f.bounds !== undefined ? { bounds: { ...f.bounds } } : {}) };
           }
         } else if (change.component === 'light') {
           // M3 (packet 57): the light component converges add/edit/remove the

@@ -166,7 +166,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The §41.1.3 input bounds; required on every runtime-validated v3
    *  snapshot (`game.level`). The null fallback below is defensive only. */
   const level: ShadowLevel | null =
-    isV3 && gameBlock !== null && gameBlock !== undefined ? gameBlock.level : null;
+    isV3 && gameBlock !== null && gameBlock !== undefined ? (gameBlock.level ?? null) : null;
   const authoredLights: AuthoredLight[] = [];
   if (isV3) {
     for (const e of sceneDoc.entities) {

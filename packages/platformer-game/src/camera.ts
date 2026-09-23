@@ -214,8 +214,13 @@ export function createGameCameraModule(
   }
   const cameraId = cfg.game.cameraId;
   const playerId = cfg.game.playerId;
-  const level: CameraBounds2 = { ...cfg.game.level };
-  requireBounds('content.game.level', level);
+  // v3 carries level bounds; v4 has none, so the camera is limited only by
+  // its own cameraFollow bounds (when authored).
+  const level: CameraBounds2 =
+    cfg.game.level !== undefined
+      ? { ...cfg.game.level }
+      : { minX: Number.NEGATIVE_INFINITY, maxX: Number.POSITIVE_INFINITY, minY: Number.NEGATIVE_INFINITY, maxY: Number.POSITIVE_INFINITY };
+  if (cfg.game.level !== undefined) requireBounds('content.game.level', level);
 
   const camEntity = snapshot.scene.entities.find((e) => e.id === cameraId);
   if (camEntity === undefined) {
@@ -237,10 +242,11 @@ export function createGameCameraModule(
   requireFinite('cameraFollow.deadZone.x', follow.deadZone?.x);
   requireFinite('cameraFollow.deadZone.y', follow.deadZone?.y);
   requireFinite('cameraFollow.smoothing', follow.smoothing);
-  requireBounds('cameraFollow.bounds', follow.bounds);
+  // v4: cameraFollow.bounds are optional (without them the camera follows anywhere).
+  if (follow.bounds !== undefined) requireBounds('cameraFollow.bounds', follow.bounds);
   const deadZone = { x: follow.deadZone.x, y: follow.deadZone.y };
   const smoothing = follow.smoothing;
-  const bounds: CameraBounds2 = { ...follow.bounds };
+  const bounds: CameraBounds2 = follow.bounds !== undefined ? { ...follow.bounds } : { minX: Number.NEGATIVE_INFINITY, maxX: Number.POSITIVE_INFINITY, minY: Number.NEGATIVE_INFINITY, maxY: Number.POSITIVE_INFINITY };
 
   /** The bounded diagnostics sink (runtime.md §14.8.1); presentation-only. */
   const diagnostics: ((level: BehaviorLogLevel, message: string) => void) | undefined = cfg.behaviorLog;

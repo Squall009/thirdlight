@@ -220,6 +220,8 @@ export type ModelErrorV3 = ModelErrorV2 & {
   references?: string[];
   /** `zone_checkpoint_count_invalid` only (§23.9): the offending zone ids. */
   zoneIds?: string[];
+  /** Phase 12 (c): the scene a v4 project error belongs to. */
+  sceneId?: string;
 };
 
 /**
