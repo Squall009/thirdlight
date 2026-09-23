@@ -80,19 +80,18 @@ export function AssetBrowser(p: Props): JSX.Element {
 
       <div className="tl-assets__body">
       <div className="tl-assets__main">
-      <ul className="tl-assets__list">
+      <ul className="tl-assets__list tl-tiles">
         {p.assets.map((a) => (
           <li
             key={a.assetId}
-            className={a.assetId === p.selectedAssetId ? 'tl-row is-selected' : 'tl-row'}
+            className={a.assetId === p.selectedAssetId ? 'tl-tile is-selected' : 'tl-tile'}
             onClick={() => p.onSelect(a.assetId)}
+            title={a.assetId}
           >
-            <span className="tl-row__kind">{a.kind}</span>
-            <span className="tl-row__name" title={a.assetId}>
-              {a.displayName}
-            </span>
-            <span className="tl-assets__version" title={`${a.versionCount} version(s)`}>
-              v{a.currentVersion}
+            <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">{a.kind === 'audio' ? '♪' : '⬡'}</span>
+            <span className="tl-tile__name">{a.displayName}</span>
+            <span className="tl-tile__meta" title={`${a.versionCount} version(s)`}>
+              {a.kind} · v{a.currentVersion}
             </span>
           </li>
         ))}

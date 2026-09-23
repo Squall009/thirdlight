@@ -81,3 +81,12 @@ export function useDockSizes(): { sizes: DockSizes; splitter: (which: keyof Dock
   );
   return { sizes, splitter };
 }
+
+/** Forget the remembered sizes (the next load uses the defaults). */
+export function resetLayout(): void {
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch {
+    // nothing stored
+  }
+}

@@ -860,6 +860,39 @@ export class SessionClient {
     }
   }
 
+  /** One entity with its full components (read-only). */
+  async queryEntity(entityId: string): Promise<{ ok: true; entity: Record<string, unknown>; parentChain: string[] } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.api<{ ok: true; entity: Record<string, unknown>; parentChain: string[] }>(
+        `/projects/${this.cfg.projectId}/commands`,
+        { op: 'queryEntity', projectId: this.cfg.projectId, args: { entityId } },
+      );
+      return { ok: true, entity: r.entity, parentChain: r.parentChain };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** Export the current revision as a standalone web game (the admin export route). */
+  async exportProject(): Promise<{ ok: true; outputDir: string; revision: number; files: number } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.api<{ ok: true; outputDir: string; revision: number; files: Record<string, number> | unknown[] }>(`/admin/projects/${this.cfg.projectId}/export`, {});
+      const files = Array.isArray(r.files) ? r.files.length : typeof r.files === 'object' && r.files !== null ? Object.keys(r.files).length : 0;
+      return { ok: true, outputDir: r.outputDir, revision: r.revision, files };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** The URL + headers to fetch one export as a zip (the caller turns it into a download). */
+  async fetchExportZip(dir: string): Promise<Blob> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/exports/${encodeURIComponent(dir)}/zip`, {
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}` },
+    });
+    if (!res.ok) throw new Error(`download failed (${res.status})`);
+    return res.blob();
+  }
+
   /**
    * A bounded `queryEntities` page with the `component` filter (commands.md
    * §4, packet 45/48): the page contains only entities carrying `component`,

@@ -364,3 +364,52 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
   border-radius: 4px; padding: 6px 8px; font: inherit; }
 .tl-btn--link { background: none; border: none; color: var(--muted); text-decoration: underline; padding: 0; cursor: pointer; }
 .tl-toolbar__project { margin-right: 8px; }
+
+/* Menu bar (File / Edit / GameObject / Component / Window / Help). */
+.tl-menubar { display: flex; align-items: center; gap: 2px; padding: 0 8px; background: var(--panel);
+  border-bottom: 1px solid var(--border); font-size: 13px; user-select: none; }
+.tl-menubar__brand { font-weight: 700; letter-spacing: .03em; margin-right: 10px; }
+.tl-menubar__menu { position: relative; }
+.tl-menubar__title { background: none; border: 0; color: var(--text); padding: 6px 10px; cursor: pointer; font: inherit; border-radius: 4px; }
+.tl-menubar__title:hover, .tl-menubar__menu.is-open .tl-menubar__title { background: var(--panel-2); }
+.tl-menu { position: absolute; top: 100%; left: 0; min-width: 220px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.5); z-index: 20; display: flex; flex-direction: column; }
+.tl-menu__item { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; text-align: left;
+  background: none; border: 0; color: var(--text); padding: 6px 10px; cursor: pointer; font: inherit; border-radius: 4px; position: relative; }
+.tl-menu__item:hover:not(:disabled), .tl-menu__item--sub:hover { background: rgba(79,140,255,.18); }
+.tl-menu__item:disabled { color: var(--muted); cursor: default; }
+.tl-menu__item--sub > .tl-menu { top: -5px; left: 100%; }
+.tl-menu__arrow, .tl-menu__shortcut { color: var(--muted); font-size: 11px; }
+.tl-menu__sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.tl-btn--tool { min-width: 32px; font-size: 14px; padding: 3px 8px; }
+
+/* Modal dialogs. */
+.tl-dialog__backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 30; }
+.tl-dialog { width: min(560px, 92vw); background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6); display: flex; flex-direction: column; }
+.tl-dialog__head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
+  border-bottom: 1px solid var(--border); font-weight: 600; }
+.tl-dialog__body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.tl-dialog__body p { margin: 0; }
+.tl-dialog__result { display: flex; flex-direction: column; gap: 10px; }
+.tl-shortcuts { border-collapse: collapse; width: 100%; }
+.tl-shortcuts td { padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.tl-shortcuts kbd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-family: inherit; }
+
+/* Tiles: assets, prefabs, behaviors are shown as a grid of tiles, like a project window. */
+.tl-tiles { list-style: none; margin: 0; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px; overflow-y: auto; flex: 1; min-height: 60px; align-content: start; }
+.tl-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px; border: 1px solid transparent;
+  border-radius: 6px; cursor: pointer; text-align: center; min-width: 0; }
+.tl-tile:hover { background: var(--panel-2); }
+.tl-tile.is-selected { background: rgba(79,140,255,.16); border-color: var(--accent); }
+.tl-tile__icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 8px;
+  background: var(--panel-2); color: #9ec5ff; font-size: 22px; }
+.tl-tile__icon--audio { color: #ffe08a; }
+.tl-tile__icon--model { color: #9ec5ff; }
+.tl-tile__icon--prefab { color: #b48cff; }
+.tl-tile__icon--script { color: #7fe0a6; }
+.tl-tile__name { font-size: 12px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-tile__meta { font-size: 10px; color: var(--muted); }
+.tl-tile .tl-btn--small { margin-top: 2px; }
+.tl-tiles .tl-row--empty { grid-column: 1 / -1; }

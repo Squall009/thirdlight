@@ -1,52 +1,42 @@
 /**
- * Toolbar (React, decision 0001 §10) — create/delete box, undo/redo,
- * play/stop. Every action is an editing command delegated to the backend
- * (the browser never mutates files) or a play-lifecycle call.
+ * The tool row under the menu bar: transform tools, snapping, and play/stop.
+ * Creation, editing and history live in the menu bar.
  */
 import type { JSX } from 'react';
 
+import type { GizmoMode } from '../viewport/viewport';
+
 interface Props {
-  /** The open project (shown next to the brand). */
   projectId: string;
-  /** Back to the project picker. */
   onProjects: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  selectedId: string | null;
+  gizmoMode: GizmoMode;
+  onGizmoMode: (mode: GizmoMode) => void;
   playing: boolean;
   /** The local snapping gesture option (never persisted — sessions.md §9). */
   snapping: boolean;
   onToggleSnapping: () => void;
-  onNewBox: () => void;
-  onDelete: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
   onPlay: () => void;
   onStop: () => void;
 }
 
+const TOOLS: ReadonlyArray<{ mode: GizmoMode; label: string; title: string }> = [
+  { mode: 'translate', label: '✥', title: 'Move tool (W)' },
+  { mode: 'rotate', label: '↻', title: 'Rotate tool (E)' },
+  { mode: 'scale', label: '⤢', title: 'Scale tool (R)' },
+];
+
 export function Toolbar(p: Props): JSX.Element {
   return (
     <div className="tl-toolbar">
-      <span className="tl-toolbar__brand">Thirdlight</span>
       <button className="tl-btn tl-toolbar__project" onClick={p.onProjects} title="All projects">
         ◂ {p.projectId}
       </button>
-      <div className="tl-toolbar__group">
-        <button className="tl-btn" onClick={p.onNewBox} title="Create a box (root)">
-          + box
-        </button>
-        <button className="tl-btn" onClick={p.onDelete} disabled={!p.selectedId} title="Delete the selected entity">
-          delete
-        </button>
-      </div>
-      <div className="tl-toolbar__group">
-        <button className="tl-btn" onClick={p.onUndo} disabled={!p.canUndo} title="Undo">
-          undo
-        </button>
-        <button className="tl-btn" onClick={p.onRedo} disabled={!p.canRedo} title="Redo">
-          redo
-        </button>
+      <div className="tl-toolbar__group" role="radiogroup" aria-label="Transform tool">
+        {TOOLS.map((t) => (
+          <button key={t.mode} role="radio" aria-checked={p.gizmoMode === t.mode} className={`tl-btn tl-btn--tool${p.gizmoMode === t.mode ? ' is-active' : ''}`} onClick={() => p.onGizmoMode(t.mode)} title={t.title}>
+            {t.label}
+          </button>
+        ))}
       </div>
       <div className="tl-toolbar__group">
         <button
@@ -69,6 +59,7 @@ export function Toolbar(p: Props): JSX.Element {
           </button>
         )}
       </div>
+      <div className="tl-toolbar__spacer" />
     </div>
   );
 }

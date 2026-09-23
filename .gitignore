@@ -16,3 +16,4 @@ dist/
 # Playwright output
 test-results/
 playwright-report/
+.shots/

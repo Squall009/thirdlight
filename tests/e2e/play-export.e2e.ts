@@ -8,6 +8,8 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { menu } from './ui';
+
 import { colorCount, decodePng } from './png';
 
 let be: E2EBackend;
@@ -49,7 +51,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 async function createBox(page: Page): Promise<void> {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByText('+ box').click();
+  await menu(page, 'GameObject', 'Box');
   await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: 'box' })).toHaveCount(1);
 }
 

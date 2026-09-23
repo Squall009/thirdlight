@@ -81,17 +81,17 @@ export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
         )}
       </div>
 
-      <ul className="tl-prefabs__list">
+      <ul className="tl-prefabs__list tl-tiles">
         {p.definitions.map((d) => (
           <li
             key={d.prefabId}
-            className={d.prefabId === p.selectedPrefabId ? 'tl-row is-selected' : 'tl-row'}
+            className={d.prefabId === p.selectedPrefabId ? 'tl-tile is-selected' : 'tl-tile'}
             onClick={() => p.onSelect(d.prefabId)}
+            title={d.prefabId}
           >
-            <span className="tl-row__name" title={d.prefabId}>
-              {d.displayName}
-            </span>
-            <span className="tl-prefabs__meta">
+            <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true">⬢</span>
+            <span className="tl-tile__name">{d.displayName}</span>
+            <span className="tl-tile__meta">
               {d.entityCount} ent · depth {d.depth}
             </span>
             <button

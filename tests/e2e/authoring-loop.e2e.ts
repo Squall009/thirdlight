@@ -6,6 +6,8 @@ import { expect, test, type Page } from '@playwright/test';
 import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
+import { createBox, menu, menuItem, closeMenu } from './ui';
+
 
 let be: E2EBackend;
 
@@ -49,26 +51,37 @@ test('the viewport gets the space at 1920×1080 and an existing scene shows on o
 
 test('create, multi-level undo/redo, and the buttons follow the backend history', async ({ page }) => {
   await openEditor(page);
-  const undo = page.getByTitle('Undo');
-  const redo = page.getByTitle('Redo');
-  await expect(undo).toBeDisabled();
+  // The Edit menu's Undo/Redo follow the backend history depth.
+  const undoState = async (): Promise<boolean> => {
+    const it = await menuItem(page, 'Edit', 'Undo');
+    const enabled = await it.isEnabled();
+    await closeMenu(page);
+    return enabled;
+  };
+  const redoState = async (): Promise<boolean> => {
+    const it = await menuItem(page, 'Edit', 'Redo');
+    const enabled = await it.isEnabled();
+    await closeMenu(page);
+    return enabled;
+  };
+  expect(await undoState()).toBe(false);
 
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 1);
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 2);
-  await expect(undo).toBeEnabled();
-  await expect(redo).toBeDisabled();
+  expect(await undoState()).toBe(true);
+  expect(await redoState()).toBe(false);
 
-  await undo.click();
+  await menu(page, 'Edit', 'Undo');
   await expect(rows(page)).toHaveCount(BASE + 1);
-  await expect(undo).toBeEnabled();
-  await undo.click();
+  expect(await undoState()).toBe(true);
+  await menu(page, 'Edit', 'Undo');
   await expect(rows(page)).toHaveCount(BASE);
-  await expect(undo).toBeDisabled();
-  await expect(redo).toBeEnabled();
+  expect(await undoState()).toBe(false);
+  expect(await redoState()).toBe(true);
 
-  await redo.click();
+  await menu(page, 'Edit', 'Redo');
   await expect(rows(page)).toHaveCount(BASE + 1);
 });
 
@@ -76,7 +89,7 @@ const posX = (page: Page) => page.getByLabel('position x');
 
 test('a gizmo drag commits one setTransform that survives a reload', async ({ page }) => {
   await openEditor(page);
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 1);
   // A new box spawns at the camera's look-at point and is selected.
   await expect(rows(page).filter({ hasText: 'box' })).toHaveClass(/is-selected/);
@@ -113,8 +126,8 @@ test('a gizmo drag commits one setTransform that survives a reload', async ({ pa
 
 test('rename by double-click, typed transforms, and drag-to-reparent are undoable commands', async ({ page }) => {
   await openEditor(page);
-  await page.getByText('+ box').click();
-  await page.getByText('+ box').click();
+  await createBox(page);
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 2);
   const [first, second] = [rows(page).filter({ hasText: 'box' }).nth(0), rows(page).filter({ hasText: 'box' }).nth(1)];
 
@@ -134,13 +147,13 @@ test('rename by double-click, typed transforms, and drag-to-reparent are undoabl
   const child = rows(page).filter({ hasText: childName });
   await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBeGreaterThan(8);
 
-  await page.getByTitle('Undo').click();
+  await menu(page, 'Edit', 'Undo');
   await expect.poll(async () => parseInt(await child.evaluate((el) => (el as HTMLElement).style.paddingLeft))).toBe(8);
 });
 
 test('keyboard: Delete removes the selection, Ctrl+Z brings it back, W/E/R switch tools', async ({ page }) => {
   await openEditor(page);
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 1);
   await page.locator('canvas.tl-viewport').hover();
   await page.keyboard.press('Delete');
@@ -155,12 +168,12 @@ test('keyboard: Delete removes the selection, Ctrl+Z brings it back, W/E/R switc
 
 test('a graceful backend restart needs no operator action; the editor reconnects', async ({ page }) => {
   await openEditor(page);
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 1);
 
   await be.restart();
   await expect(status(page)).toContainText('connected', { timeout: 15_000 });
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(rows(page)).toHaveCount(BASE + 2);
 });
 
@@ -173,7 +186,7 @@ test('a second tab takes over after the first is closed', async ({ browser }) =>
   const second = await browser.newPage();
   await second.goto(be.editorUrl);
   await expect(status(second)).toContainText('connected');
-  await second.getByText('+ box').click();
+  await createBox(second);
   await expect(rows(second)).toHaveCount(BASE + 1);
   await second.close();
 });
@@ -191,7 +204,8 @@ test('an MCP-origin edit appears in the browser without a reload', async ({ page
   });
   expect(res.ok).toBe(true);
   await expect(rows(page).filter({ hasText: 'from-mcp' })).toHaveCount(1);
-  await expect(page.getByTitle('Undo')).toBeEnabled();
+  await expect(await menuItem(page, 'Edit', 'Undo')).toBeEnabled();
+  await closeMenu(page);
 });
 
 test('without a stored token the editor asks for one', async ({ page }) => {

@@ -16,7 +16,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 import { createRoot } from 'react-dom/client';
 import { forgetToken, readEditorConfig } from '../config';
 import { ProjectsScreen, TokenForm } from './Projects';
-import { useDockSizes } from './layout';
+import { resetLayout, useDockSizes } from './layout';
+import { MenuBar, type Menu, type MenuEntry } from './MenuBar';
+import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
@@ -206,6 +208,9 @@ function EditorApp(): JSX.Element {
   const stageRef = useRef<HTMLDivElement | null>(null);
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
+  /** The open modal (File → Export…, Help → Shortcuts / About). */
+  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | null>(null);
+  const [exportState, setExportState] = useState<{ busy: boolean; result: { outputDir: string; revision: number; files: number } | null; error: string | null }>({ busy: false, result: null, error: null });
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
   /** Forwards a backend relay request to the running preview (latest play state). */
@@ -798,6 +803,108 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure('Rename', await c.command('updateEntity', { entityId, name }, c.projection.revision));
   }, [reportFailure]);
+
+  // ---- GameObject menu: create at the point the camera looks at -----------
+  const createEntityAt = useCallback(
+    async (what: string, args: Record<string, unknown>, position?: number[]) => {
+      const c = clientRef.current;
+      if (!c) return;
+      const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
+      const at = position ?? focus.map((v) => Math.round(v * 4) / 4);
+      const res = await c.command('createEntity', { parentId: null, transform: { position: at }, ...args }, c.projection.revision);
+      if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+      else reportFailure(what, res);
+    },
+    [reportFailure],
+  );
+  const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
+  const createCamera = useCallback(
+    () => createEntityAt('Create camera', { kind: 'group', name: 'Camera', components: { camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }, [0, 4, 12]),
+    [createEntityAt],
+  );
+  const createLight = useCallback(
+    (type: 'directional' | 'ambient') =>
+      createEntityAt(
+        `Create ${type} light`,
+        type === 'directional'
+          ? { kind: 'group', name: 'Directional light', components: { light: { type, color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true } } }
+          : { kind: 'group', name: 'Ambient light', components: { light: { type, color: '#8a94b0', intensity: 0.9 } } },
+        type === 'directional' ? [0, 10, 0] : [0, 0, 0],
+      ),
+    [createEntityAt],
+  );
+  const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
+
+  /** Duplicate the selection: a new entity with the same kind, components and a 0.5 m offset (children are not copied). */
+  const duplicate = useCallback(async () => {
+    const c = clientRef.current;
+    const id = selectedIdRef.current;
+    if (!c || !id) return;
+    const q = await c.queryEntity(id);
+    if (!q.ok) {
+      setNotice(`Duplicate failed: ${q.error.message}`);
+      return;
+    }
+    const comps = (q.entity['components'] ?? {}) as Record<string, unknown>;
+    const transform = (comps['transform'] ?? {}) as { position?: number[]; rotation?: number[]; scale?: number[] };
+    const position = [...(transform.position ?? [0, 0, 0])];
+    position[0] = (position[0] ?? 0) + 0.5;
+    const rest: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(comps)) if (!['transform', 'box', 'model', 'prefab'].includes(k)) rest[k] = v;
+    const kind = comps['box'] !== undefined ? 'box' : comps['model'] !== undefined ? 'model' : 'group';
+    const args: Record<string, unknown> = {
+      kind,
+      name: `${String(q.entity['name'] ?? id)} copy`,
+      parentId: q.parentChain.length > 0 ? q.parentChain[q.parentChain.length - 1] : null,
+      transform: { position, rotation: transform.rotation ?? [0, 0, 0, 1], scale: transform.scale ?? [1, 1, 1] },
+      ...(kind === 'box' ? { box: comps['box'] } : {}),
+      ...(kind === 'model' ? { model: comps['model'] } : {}),
+      ...(Object.keys(rest).length > 0 ? { components: rest } : {}),
+    };
+    const res = await c.command('createEntity', args, c.projection.revision);
+    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    else reportFailure('Duplicate', res);
+  }, [reportFailure]);
+
+  /** Component menu: set (or remove with null) one component on the selection. */
+  const setComponentOnSelection = useCallback(
+    async (component: string, value: unknown) => {
+      const c = clientRef.current;
+      const id = selectedIdRef.current;
+      if (!c || !id) return;
+      const res = await c.setComponent(id, component, value, c.projection.revision);
+      if (!res.ok) reportFailure(value === null ? `Remove ${component}` : `Add ${component}`, res);
+      else refreshEntities();
+    },
+    [reportFailure, refreshEntities],
+  );
+
+  /** File → Export game…: the admin export route, then a zip download. */
+  const exportGame = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    setExportState({ busy: true, result: null, error: null });
+    const r = await c.exportProject();
+    if (r.ok) setExportState({ busy: false, result: { outputDir: r.outputDir, revision: r.revision, files: r.files }, error: null });
+    else setExportState({ busy: false, result: null, error: r.error.message });
+  }, []);
+  const downloadExport = useCallback(async (dir: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    try {
+      const blob = await c.fetchExportZip(dir);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dir.replace('@', '-')}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      setExportState((st) => ({ ...st, error: e instanceof Error ? e.message : String(e) }));
+    }
+  }, []);
   const reparent = useCallback(async (entityId: string, parentId: string | null) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1681,27 +1788,135 @@ function EditorApp(): JSX.Element {
   }
 
   const selected = entities.find((e) => e.id === selectedId) ?? null;
+  /** The optional components the selection carries (the Component menu's add/remove state). */
+  const selectedComponents = new Set<string>(
+    selected === null
+      ? []
+      : ([
+          ['collider', selected.collider !== undefined],
+          ['controller', selected.controller === true],
+          ['gameZone', selected.gameZone !== undefined],
+          ['playerSpawn', selected.playerSpawn === true],
+          ['cameraFollow', selected.cameraFollow !== undefined],
+          ['light', selected.light !== undefined],
+          ['surface', selected.surface !== undefined],
+          ['modelAnimation', selected.modelAnimation !== undefined],
+        ] as Array<[string, boolean]>)
+          .filter(([, present]) => present)
+          .map(([k]) => k),
+  );
   const previewSrc = playInfo?.playBase
     ? playInfo.contentId !== null && playInfo.contentPath !== null
       ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}`
       : `${playInfo.playBase.replace(/\/$/, '')}/?play=${playInfo.playSessionId}`
     : null;
 
+  const hasCamera = entities.some((e) => e.kind === 'camera');
+  // The scene allows one directional and one ambient light.
+  const hasDirectional = entities.some((e) => e.light?.type === 'directional');
+  const hasAmbient = entities.some((e) => e.light?.type === 'ambient');
+  const lightReason = (type: string) => `the scene already has its ${type} light (one per scene)`;
+  const selComponents = selectedComponents;
+  const noSelection = selectedId === null;
+  const need = 'select an entity in the hierarchy first';
+  const menus: Menu[] = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New project…', onSelect: () => { window.location.search = ''; } },
+        { label: 'Open project…', onSelect: () => { window.location.search = ''; } },
+        'separator',
+        { label: 'Export game…', onSelect: () => { setExportState({ busy: false, result: null, error: null }); setDialog('export'); } },
+        'separator',
+        { label: 'Project settings', onSelect: () => setBottomTab('gameplay') },
+        { label: 'Reload from disk', onSelect: () => resync() },
+      ],
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: 'Undo', shortcut: 'Ctrl+Z', disabled: ui.undoDepth === 0, reason: 'nothing to undo', onSelect: () => void undo() },
+        { label: 'Redo', shortcut: 'Ctrl+Y', disabled: ui.redoDepth === 0, reason: 'nothing to redo', onSelect: () => void redo() },
+        'separator',
+        { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: noSelection, reason: need, onSelect: () => void duplicate() },
+        { label: 'Delete', shortcut: 'Del', disabled: noSelection, reason: need, onSelect: () => void del() },
+        'separator',
+        { label: `Snapping: ${snapping ? 'on' : 'off'}`, onSelect: () => setSnapping((v) => !v) },
+      ],
+    },
+    {
+      label: 'GameObject',
+      items: [
+        { label: 'Create empty', onSelect: () => void createEmpty() },
+        { label: 'Box', onSelect: () => void newBox() },
+        { label: 'Camera', disabled: hasCamera, reason: 'the scene already has its camera (one per scene)', onSelect: () => void createCamera() },
+        { label: 'Light', items: [
+          { label: 'Directional light', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void createLight('directional') },
+          { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },
+        ] },
+        'separator',
+        { label: 'Player spawn', onSelect: () => void createSpawn() },
+        { label: 'Zone', items: [
+          { label: 'Hazard zone', onSelect: () => void addZone('hazard', null) },
+          { label: 'Checkpoint zone', onSelect: () => void addZone('checkpoint', null) },
+          { label: 'Goal zone', onSelect: () => void addZone('goal', null) },
+        ] },
+        'separator',
+        { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
+        { label: 'Prefab copy…', onSelect: () => setBottomTab('prefabs') },
+      ],
+    },
+    {
+      label: 'Component',
+      items: [
+        { label: 'Collider (box)', disabled: noSelection || selComponents.has('collider'), reason: noSelection ? need : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'collider') },
+        { label: 'Player controller', disabled: noSelection || selComponents.has('controller'), reason: noSelection ? need : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'controller') },
+        { label: 'Player spawn', disabled: noSelection || selComponents.has('playerSpawn'), reason: noSelection ? need : 'already present', onSelect: () => void setComponentOnSelection('playerSpawn', {}) },
+        { label: 'Camera follow', disabled: noSelection || selComponents.has('cameraFollow'), reason: noSelection ? need : 'already present', onSelect: () => void setComponentOnSelection('cameraFollow', { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } }) },
+        { label: 'Light', disabled: noSelection || selComponents.has('light'), reason: noSelection ? need : 'already present', items: [
+          { label: 'Directional', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void setComponentOnSelection('light', { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true }) },
+          { label: 'Ambient', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void setComponentOnSelection('light', { type: 'ambient', color: '#8a94b0', intensity: 0.9 }) },
+        ] },
+        { label: 'Game zone', disabled: noSelection || selComponents.has('gameZone'), reason: noSelection ? need : 'already present', items: [
+          { label: 'Hazard', onSelect: () => void setComponentOnSelection('gameZone', { role: 'hazard', size: [1, 1] }) },
+          { label: 'Checkpoint', onSelect: () => void setComponentOnSelection('gameZone', { role: 'checkpoint', size: [1, 1] }) },
+          { label: 'Goal', onSelect: () => void setComponentOnSelection('gameZone', { role: 'goal', size: [1, 1] }) },
+        ] },
+        'separator',
+        { label: 'Remove', disabled: noSelection || selComponents.size === 0, reason: noSelection ? need : 'no removable components', items: [...selComponents].map((k) => ({ label: k, onSelect: () => void setComponentOnSelection(k, null) })) },
+      ],
+    },
+    {
+      label: 'Window',
+      items: [
+        { label: 'Scene', onSelect: () => setCenterTab('scene') },
+        { label: 'Game', onSelect: () => setCenterTab('game') },
+        'separator',
+        ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => setBottomTab(t.id) })),
+        'separator',
+        { label: 'Reset layout', onSelect: () => { resetLayout(); window.location.reload(); } },
+      ],
+    },
+    {
+      label: 'Help',
+      items: [
+        { label: 'Keyboard shortcuts', onSelect: () => setDialog('shortcuts') },
+        { label: 'About Thirdlight', onSelect: () => setDialog('about') },
+      ],
+    },
+  ];
+
   return (
     <div className="tl-app">
+      <MenuBar menus={menus} />
       <Toolbar
         projectId={cfg.current.config.projectId}
         onProjects={() => { window.location.search = ''; }}
-        canUndo={ui.undoDepth > 0}
-        canRedo={ui.redoDepth > 0}
-        selectedId={selectedId}
+        gizmoMode={gizmoMode}
+        onGizmoMode={setGizmoMode}
         playing={playing}
         snapping={snapping}
         onToggleSnapping={() => setSnapping((v) => !v)}
-        onNewBox={() => void newBox()}
-        onDelete={() => void del()}
-        onUndo={() => void undo()}
-        onRedo={() => void redo()}
         onPlay={() => void play()}
         onStop={() => void stop()}
       />
@@ -1940,6 +2155,56 @@ function EditorApp(): JSX.Element {
         </div>
       </div>
       <StatusBar state={ui} onResync={resync} />
+      {dialog === 'export' && (
+        <Dialog title="Export game" onClose={() => setDialog(null)}>
+          <p>Builds the current revision into a standalone web game: a folder of static files that runs from any web server without Thirdlight.</p>
+          {exportState.result === null ? (
+            <button className="tl-btn" disabled={exportState.busy} onClick={() => void exportGame()}>
+              {exportState.busy ? 'Exporting…' : 'Export now'}
+            </button>
+          ) : (
+            <div className="tl-dialog__result">
+              <p>
+                Exported revision {exportState.result.revision}: {exportState.result.files} files in <code>{exportState.result.outputDir}</code> under the server's export root.
+              </p>
+              <button className="tl-btn" onClick={() => void downloadExport(exportState.result!.outputDir)}>
+                Download zip
+              </button>
+            </div>
+          )}
+          {exportState.error ? <p className="tl-connect__message">{exportState.error}</p> : null}
+        </Dialog>
+      )}
+      {dialog === 'shortcuts' && (
+        <Dialog title="Keyboard shortcuts" onClose={() => setDialog(null)}>
+          <table className="tl-shortcuts">
+            <tbody>
+              {[
+                ['W / E / R', 'Move / rotate / scale tool'],
+                ['F', 'Frame the selection'],
+                ['Delete, Backspace', 'Delete the selection'],
+                ['Ctrl+Z / Ctrl+Y', 'Undo / redo'],
+                ['Shift (held)', 'Disable snapping for one gesture'],
+                ['Escape', 'Cancel a gesture / clear the selection / close a menu'],
+                ['Double-click a name', 'Rename in the hierarchy'],
+                ['Drag a row onto another', 'Reparent'],
+              ].map(([k, v]) => (
+                <tr key={k}>
+                  <td><kbd>{k}</kbd></td>
+                  <td>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Dialog>
+      )}
+      {dialog === 'about' && (
+        <Dialog title="About Thirdlight" onClose={() => setDialog(null)}>
+          <p>Thirdlight engine 0.1.0 — a self-hosted browser game editor on three.js.</p>
+          <p>Project: <code>{cfg.current.ok ? cfg.current.config.projectId : ''}</code> · revision {ui.revision}</p>
+          <p>Backend: <code>{window.location.origin}</code></p>
+        </Dialog>
+      )}
     </div>
   );
 }

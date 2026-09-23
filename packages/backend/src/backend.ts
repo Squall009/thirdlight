@@ -23,6 +23,7 @@ import { randomBytes } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import { listTemplates, loadTemplate, resolveTemplateModules } from './templates';
+import { isExportDirOf, listExports, zipDirectory } from './exports';
 import {
   classifyLocatorPath,
   isContentId,
@@ -2101,6 +2102,52 @@ export function createBackend(
             return;
           }
           sendJson(res, 200, { ok: true, templates: config.engineRoot === undefined ? [] : listTemplates(config.engineRoot) });
+          return;
+        }
+        // GET /api/v1/projects/:projectId/exports — this project's export directories
+        // GET /api/v1/projects/:projectId/exports/:dir/zip — one export as a stored zip
+        if ((parts.length === 5 || parts.length === 7) && parts[2] === 'projects' && parts[4] === 'exports') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          if (config.exportRoot === undefined) {
+            sendError(res, sessionError('invalid_request', 'unavailable', 'export is not configured on this backend (missing exportRoot)'), 503);
+            return;
+          }
+          if (parts.length === 5) {
+            sendJson(res, 200, { ok: true, projectId, exports: listExports(config.exportRoot, projectId) });
+            return;
+          }
+          let dir = parts[5]!;
+          try {
+            dir = decodeURIComponent(dir);
+          } catch {
+            // keep the raw segment; the format check below refuses it
+          }
+          if (parts[6] !== 'zip' || !isExportDirOf(projectId, dir)) {
+            sendError(res, sessionError('invalid_request', 'not_found', 'unknown route'));
+            return;
+          }
+          let zip: Uint8Array;
+          try {
+            zip = zipDirectory(join(config.exportRoot, dir));
+          } catch {
+            sendError(res, sessionError('invalid_request', 'not_found', 'no such export'), 404);
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader('content-type', 'application/zip');
+          res.setHeader('content-disposition', `attachment; filename="${dir.replace('@', '-')}.zip"`);
+          res.setHeader('content-length', String(zip.length));
+          res.setHeader('cache-control', 'no-store');
+          res.end(zip);
           return;
         }
         // GET /api/v1/projects/:projectId/problems — the bounded problems log (newest last)

@@ -74,17 +74,17 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
         ))}
       </div>
 
-      <ul className="tl-behaviors__list">
+      <ul className="tl-behaviors__list tl-tiles">
         {p.behaviors.map((b) => (
           <li
             key={b.behaviorId}
-            className={b.behaviorId === p.selectedBehaviorId ? 'tl-row is-selected' : 'tl-row'}
+            className={b.behaviorId === p.selectedBehaviorId ? 'tl-tile is-selected' : 'tl-tile'}
             onClick={() => p.onSelect(b.behaviorId)}
+            title={b.behaviorId}
           >
-            <span className="tl-row__name" title={b.behaviorId}>
-              {b.displayName}
-            </span>
-            <span className="tl-behaviors__meta">
+            <span className="tl-tile__icon tl-tile__icon--script" aria-hidden="true">{'{}'}</span>
+            <span className="tl-tile__name">{b.displayName}</span>
+            <span className="tl-tile__meta">
               {b.declaration.properties.length} prop · r{b.publishedRevision}
               {b.source !== null ? ' · source' : ' · declaration'}
             </span>

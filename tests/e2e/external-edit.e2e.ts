@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { createBox } from './ui';
+
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -51,7 +53,7 @@ test('a corrupt edit cannot be loaded; keeping the editor version resumes editin
   await banner.getByRole('button', { name: 'keep editor version' }).click();
   await expect(banner).toHaveCount(0);
   const before = await page.locator('.tl-hierarchy__list li').count();
-  await page.getByText('+ box').click();
+  await createBox(page);
   await expect(page.locator('.tl-hierarchy__list li')).toHaveCount(before + 1);
 });
 
