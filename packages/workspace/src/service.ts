@@ -17,8 +17,23 @@
  * command's record.
  */
 
-import { mkdirSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  DEFAULT_PROJECT_SUBDIR,
+  MARKER_FILE,
+  PROJECT_GITIGNORE,
+  findMarkerFolder,
+  isWithin,
+  loadRegistry,
+  markerBytes,
+  readMarker,
+  resolveEntry,
+  saveRegistry,
+  writeSmallFileAtomic,
+  type EnginePin,
+  type ProjectMarker,
+} from './registry';
+import { mkdirSync, chmodSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 
 import { applyMutation } from '@thirdlight/commands';
 import type {
@@ -143,6 +158,9 @@ import {
   pendingInfo,
   releaseProject,
   releaseOnShutdown,
+  loadManifest,
+  projectBaseDir,
+  refreshRegistration,
   resolveContained,
   serveQuery,
   setPendingUnreadable,
@@ -242,6 +260,7 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
   const core: Core = {
     root,
     projectsRoot: join(root, 'projects'),
+    registry: loadRegistry(root),
     self: newSelfIdentity(config.pid ?? process.pid, config.backendId),
     processMarker: config.processMarker ?? DEFAULT_PROCESS_MARKER,
     procRoot: config.procRoot ?? DEFAULT_PROC_ROOT,
@@ -568,7 +587,7 @@ function buildService(core: Core): WorkspaceService {
         error: fieldValueType('/name', typeof name === 'string' ? name : name, '1-128 chars, no control characters', 'name must be 1-128 characters without control characters'),
       };
     }
-    const dir = join(core.projectsRoot, projectId);
+    const dir = projectBaseDir(core, projectId);
     if (core.ops.dirExists(dir)) {
       // R7 (2026-09-18 review): the containment gate BEFORE any read or
       // converge (a symlinked or unresolvable directory is not a project
@@ -674,7 +693,7 @@ function buildService(core: Core): WorkspaceService {
     if (typeof name !== 'string' || !validName(name)) {
       return { ok: false, error: fieldValueType('/name', name, '1-128 chars, no control characters', 'name must be 1-128 characters without control characters') };
     }
-    const dir = join(core.projectsRoot, projectId);
+    const dir = projectBaseDir(core, projectId);
     if (core.ops.dirExists(dir)) {
       return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
     }
@@ -747,7 +766,7 @@ function buildService(core: Core): WorkspaceService {
    * created or rewritten, envelope bytes are untouched — §8.1: "nothing
    * written"). */
   function convergeExisting(projectId: string): CreateProjectResult {
-    const dir = join(core.projectsRoot, projectId);
+    const dir = projectBaseDir(core, projectId);
 
     // Manifest loadability — report the actual manifest load details (a
     // garbage manifest is still an existing-invalid directory, workspace.md
@@ -1084,6 +1103,180 @@ function buildService(core: Core): WorkspaceService {
     core.sessions.clear();
   }
 
+  // ---- projects stored in other folders (the registry) --------------------
+
+  const realOrNull = (p: string): string | null => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return null;
+    }
+  };
+
+  /** A folder the registry may use: absolute, not overlapping the data root or another registered project. */
+  function checkFolder(folder: unknown, mustExist: boolean, exceptId?: string): { ok: true; folder: string; real: string } | { ok: false; error: CommandError } {
+    const bad = (message: string): { ok: false; error: CommandError } => ({ ok: false, error: invalidRequest('/folder', folder, 'an absolute folder path on the server', message) });
+    if (typeof folder !== 'string' || folder.length === 0 || folder.length > 1024) return bad('folder must be an absolute path on the server');
+    if (!isAbsolute(folder)) return bad('folder must be an absolute path on the server (it is resolved by the backend, not the browser)');
+    const norm = normalize(folder).replace(/[/\\]+$/, '') || '/';
+    if (norm.split(sep).includes('..')) return bad('folder must not contain ".."');
+    let real: string | null = realOrNull(norm);
+    if (real === null) {
+      if (mustExist) return bad(`the folder ${norm} does not exist on the server`);
+      const parent = realOrNull(dirname(norm));
+      if (parent === null) return bad(`the parent folder ${dirname(norm)} does not exist on the server`);
+      real = join(parent, basename(norm));
+    } else {
+      try {
+        if (!statSync(real).isDirectory()) return bad(`${norm} is not a folder`);
+      } catch {
+        return bad(`${norm} is not readable`);
+      }
+    }
+    const dataReal = realOrNull(core.root) ?? core.root;
+    if (isWithin(dataReal, real) || isWithin(real, dataReal)) return bad('the folder overlaps the Thirdlight data root; projects there are managed as in-tree projects');
+    for (const [id, reg] of core.registry) {
+      if (id === exceptId) continue;
+      const other = realOrNull(reg.folder) ?? reg.folder;
+      if (isWithin(other, real) || isWithin(real, other)) return bad(`the folder overlaps the folder of project "${id}" (${reg.folder})`);
+    }
+    return { ok: true, folder: norm, real };
+  }
+
+  function idTaken(projectId: string): boolean {
+    return core.registry.has(projectId) || core.ops.dirExists(join(core.projectsRoot, projectId));
+  }
+
+  /** Register an existing project folder (one holding `thirdlight.json`). Idempotent for the same folder. */
+  function registerProject(folder: unknown): { ok: true; projectId: string; name: string; created: boolean } | { ok: false; error: CommandError } {
+    const f = checkFolder(folder, true);
+    if (!f.ok) {
+      // Re-registering the same folder is a no-op even though it "overlaps" itself.
+      if (typeof folder === 'string') {
+        const real = realOrNull(normalize(folder));
+        for (const [id, reg] of core.registry) {
+          if (real !== null && realOrNull(reg.folder) === real) return { ok: true, projectId: id, name: id, created: false };
+        }
+      }
+      return f;
+    }
+    const mk = readMarker(f.folder);
+    if (!mk.ok) return { ok: false, error: invalidRequest('/folder', f.folder, `a folder holding ${MARKER_FILE}`, mk.message) };
+    const id = mk.marker.projectId;
+    if (idTaken(id)) return { ok: false, error: invalidRequest('/folder', id, 'an unused project id', `a project with id "${id}" already exists on this backend`) };
+    const entry = resolveEntry(f.folder, id);
+    if (entry.unavailable !== undefined) return { ok: false, error: invalidRequest('/folder', f.folder, 'a readable project folder', entry.unavailable) };
+    const man = loadManifest(core, entry.projectDir);
+    if (!man.ok) return { ok: false, error: invalidRequest('/folder', f.folder, 'a loadable project.json', `${join(entry.projectDir, 'project.json')} is missing or invalid`) };
+    if (man.manifest.id !== id) return { ok: false, error: invalidRequest('/folder', man.manifest.id, id, `project.json names project "${man.manifest.id}" but ${MARKER_FILE} names "${id}"`) };
+    core.registry.set(id, entry);
+    try {
+      saveRegistry(core.root, core.registry);
+    } catch {
+      core.registry.delete(id);
+      return { ok: false, error: writeFailed('previous', undefined) };
+    }
+    return { ok: true, projectId: id, name: mk.marker.name, created: true };
+  }
+
+  /**
+   * Create a new project in a folder: `<folder>/thirdlight.json` (the marker)
+   * and `<folder>/thirdlight/` (the project files + a .gitignore for
+   * `.thirdlight/`), then register it. Empty, or from a template source.
+   */
+  function createProjectInFolder(
+    folder: unknown,
+    projectId: string,
+    name: string,
+    opts: { engine?: EnginePin; source?: ProjectSource } = {},
+  ): CreateProjectResult {
+    if (typeof projectId !== 'string' || !ID_RE.test(projectId)) {
+      return { ok: false, error: fieldValueType('/projectId', projectId, 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}', 'projectId must use the project-model ID syntax') };
+    }
+    if (idTaken(projectId)) return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
+    const f = checkFolder(folder, false);
+    if (!f.ok) return f;
+    if (core.ops.fileExists(join(f.folder, MARKER_FILE))) {
+      return { ok: false, error: invalidRequest('/folder', f.folder, `a folder without ${MARKER_FILE}`, `${f.folder} already holds a Thirdlight project; open it instead`) };
+    }
+    const projectDir = join(f.folder, DEFAULT_PROJECT_SUBDIR);
+    if (core.ops.dirExists(projectDir)) {
+      return { ok: false, error: invalidRequest('/folder', projectDir, 'no existing thirdlight/ subfolder', `${projectDir} already exists`) };
+    }
+    try {
+      mkdirSync(f.folder, { recursive: true, mode: 0o755 });
+    } catch {
+      return { ok: false, error: writeFailed('previous', undefined) };
+    }
+    const realFolder = realOrNull(f.folder) ?? f.real;
+    core.registry.set(projectId, { folder: f.folder, projectDir, realDir: join(realFolder, DEFAULT_PROJECT_SUBDIR) });
+    const created = opts.source !== undefined ? createProjectFrom(projectId, name, opts.source) : createProjectImpl(projectId, name);
+    if (!created.ok) {
+      core.registry.delete(projectId);
+      return created;
+    }
+    try {
+      writeSmallFileAtomic(join(projectDir, '.gitignore'), new TextEncoder().encode(PROJECT_GITIGNORE));
+      const marker: ProjectMarker = { thirdlightProject: 1, projectId, name, projectDir: DEFAULT_PROJECT_SUBDIR, ...(opts.engine !== undefined ? { engine: opts.engine } : {}) };
+      writeSmallFileAtomic(join(f.folder, MARKER_FILE), markerBytes(marker));
+      saveRegistry(core.root, core.registry);
+    } catch {
+      core.registry.delete(projectId);
+      return { ok: false, error: writeFailed('previous', undefined) };
+    }
+    return deepFreeze(created);
+  }
+
+  /** Forget a registered project (its files are never touched). */
+  function unregisterProject(projectId: string): { ok: true; folder: string } | { ok: false; error: CommandError } {
+    const reg = core.registry.get(projectId);
+    if (reg === undefined) {
+      return { ok: false, error: invalidRequest('/projectId', projectId, 'a registered (out-of-tree) project', `project "${projectId}" is not a registered folder project`) };
+    }
+    const s = core.sessions.get(projectId);
+    if (s !== undefined) {
+      try {
+        releaseOnShutdown(core, s);
+      } catch {
+        // best effort: the ownership record is released by the next claim anyway
+      }
+      core.sessions.delete(projectId);
+    }
+    core.registry.delete(projectId);
+    try {
+      saveRegistry(core.root, core.registry);
+    } catch {
+      core.registry.set(projectId, reg);
+      return { ok: false, error: writeFailed('previous', undefined) };
+    }
+    return { ok: true, folder: reg.folder };
+  }
+
+  /** Which registered project a folder (or anything inside it) belongs to. */
+  function resolveFolder(path: unknown):
+    | { ok: true; projectId: string; folder: string }
+    | { ok: false; reason: 'invalid' | 'no_marker' | 'not_registered'; message: string; markerProjectId?: string; folder?: string } {
+    if (typeof path !== 'string' || !isAbsolute(path)) return { ok: false, reason: 'invalid', message: 'path must be an absolute path on the server' };
+    const folder = findMarkerFolder(path);
+    if (folder === null) return { ok: false, reason: 'no_marker', message: `no ${MARKER_FILE} in ${path} or any parent folder` };
+    const real = realOrNull(folder);
+    for (const [id, reg] of core.registry) {
+      if (real !== null && realOrNull(reg.folder) === real) return { ok: true, projectId: id, folder: reg.folder };
+    }
+    const mk = readMarker(folder);
+    return {
+      ok: false,
+      reason: 'not_registered',
+      folder,
+      ...(mk.ok ? { markerProjectId: mk.marker.projectId } : {}),
+      message: `${join(folder, MARKER_FILE)} is not registered with this backend`,
+    };
+  }
+
+  function registeredProjects(): Array<{ projectId: string; folder: string; projectDir: string; unavailable?: string }> {
+    return [...core.registry].map(([projectId, r]) => ({ projectId, folder: r.folder, projectDir: r.projectDir, ...(r.unavailable !== undefined ? { unavailable: r.unavailable } : {}) }));
+  }
+
   const prepareBehaviorSourceOp = (projectId: string, request: PrepareBehaviorSourceRequest) =>
     prepareBehaviorSource(core, projectId, request);
 
@@ -1113,6 +1306,11 @@ function buildService(core: Core): WorkspaceService {
     close,
     checkExternal,
     createProjectFrom,
+    registerProject,
+    createProjectInFolder,
+    unregisterProject,
+    resolveFolder,
+    registeredProjects,
     get lastScan() {
       return lastScanRef[0];
     },
@@ -1129,12 +1327,16 @@ function runScan(core: Core): ScanReport {
   // `truncated` now means "more than 100 entries visited".
   const entries: ScanEntry[] = [];
   let total = 0;
+  const names = new Set<string>();
   if (core.ops.dirExists(core.projectsRoot)) {
-    for (const name of core.ops.listDir(core.projectsRoot).sort()) {
-      total += 1;
-      const entry = scanEntry(core, name);
-      if (entries.length < 100) entries.push(entry);
-    }
+    for (const name of core.ops.listDir(core.projectsRoot)) names.add(name);
+  }
+  // Registered projects (folders outside the data root) are scanned too.
+  for (const id of core.registry.keys()) names.add(id);
+  for (const name of [...names].sort()) {
+    total += 1;
+    const entry = scanEntry(core, name);
+    if (entries.length < 100) entries.push(entry);
   }
   // R10: the report is also published through the `lastScan` getter and
   // `scan()` — freeze it at construction (single site for both).
@@ -1147,7 +1349,18 @@ function runScan(core: Core): ScanReport {
  */
 function scanEntry(core: Core, name: string): ScanEntry {
   const entry: ScanEntry = { projectId: name, kind: 'orphan' };
-  const dir = join(core.projectsRoot, name);
+  const reg = refreshRegistration(core, name);
+  if (reg !== undefined) {
+    entry.folder = reg.folder;
+    if (reg.unavailable !== undefined) {
+      entry.kind = 'project';
+      entry.loadable = false;
+      entry.code = 'folder_unavailable';
+      entry.note = reg.unavailable.slice(0, 256);
+      return entry;
+    }
+  }
+  const dir = projectBaseDir(core, name);
   if (!core.ops.dirExists(dir)) {
     entry.note = 'directory absent (vanished during the scan)';
     return entry;

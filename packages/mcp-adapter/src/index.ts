@@ -10,7 +10,9 @@
  * docs/handoffs/11.md; no credentials are baked in):
  *
  *   THIRDLIGHT_AUTHORING_ORIGIN  e.g. http://127.0.0.1:8501  (required)
- *   THIRDLIGHT_PROJECT_ID        e.g. demo-0001              (required)
+ *   THIRDLIGHT_PROJECT_ID        e.g. demo-0001  (optional: without it the project is the
+ *                                folder project the harness runs in — the backend finds
+ *                                the nearest thirdlight.json above the working folder)
  *   THIRDLIGHT_MCP_TOKEN         the backend's owner token (required)
  *   THIRDLIGHT_MCP_CLIENT_ID     recorded as origin.clientId on MCP commands (optional, default "mcp-harness")
  *   THIRDLIGHT_MCP_TIMEOUT_MS    per-backend-request timeout (optional, default 30000)
@@ -41,7 +43,10 @@ function required(name: string): string {
 
 export interface McpEntryOptions {
   readonly authoringOrigin: string;
-  readonly projectId: string;
+  /** Absent ⇒ resolved from `cwd` on the first tool call. */
+  readonly projectId?: string;
+  /** The folder the harness runs in (default: the process's working folder). */
+  readonly cwd?: string;
   readonly token: string;
   readonly clientId?: string;
   readonly timeoutMs?: number;
@@ -54,15 +59,36 @@ export async function startStdioMcpServer(opts: McpEntryOptions): Promise<() => 
     token: opts.token,
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   });
-  const ctx: McpContext = {
-    client,
-    projectId: opts.projectId,
-    clientId: opts.clientId ?? 'mcp-harness',
+  const clientId = opts.clientId ?? 'mcp-harness';
+  const cwd = opts.cwd ?? process.cwd();
+  let resolved: McpContext | null = opts.projectId !== undefined ? { client, projectId: opts.projectId, clientId } : null;
+  const provider = async (): Promise<{ ok: true; ctx: McpContext } | { ok: false; message: string }> => {
+    if (resolved !== null) return { ok: true, ctx: resolved };
+    let res;
+    try {
+      res = await client.resolveFolder(cwd);
+    } catch (e) {
+      return { ok: false, message: `the Thirdlight backend at ${opts.authoringOrigin} is not reachable (${e instanceof Error ? e.message : String(e)})` };
+    }
+    const body = res.body as { ok?: boolean; projectId?: string; error?: { message?: string; reason?: string; folder?: string; markerProjectId?: string } } | null;
+    if (body?.ok === true && typeof body.projectId === 'string') {
+      resolved = { client, projectId: body.projectId, clientId };
+      log(`project ${body.projectId} (from ${cwd})`);
+      return { ok: true, ctx: resolved };
+    }
+    const e = body?.error;
+    if (e?.reason === 'not_registered') {
+      return { ok: false, message: `${e.folder ?? cwd}/thirdlight.json (project "${e.markerProjectId ?? '?'}") is not registered with the backend. Open it in the editor's project picker ("Open project folder…"), or run: node tools/project.mjs register ${e.folder ?? cwd}` };
+    }
+    if (e?.reason === 'no_marker') {
+      return { ok: false, message: `no thirdlight.json in ${cwd} or any parent folder. Run the harness inside a Thirdlight project folder, or set THIRDLIGHT_PROJECT_ID.` };
+    }
+    return { ok: false, message: e?.message ?? `could not resolve the project for ${cwd} (status ${res.status})` };
   };
-  const server = createMcpServer(ctx);
+  const server = createMcpServer(provider);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log(`ready (project ${opts.projectId}, origin ${opts.authoringOrigin}); MCP over stdio`);
+  log(`ready (${opts.projectId !== undefined ? `project ${opts.projectId}` : `project from ${cwd}`}, origin ${opts.authoringOrigin}); MCP over stdio`);
   return async () => {
     await server.close();
   };
@@ -76,7 +102,7 @@ export async function main(): Promise<void> {
     const timeoutNum = Number(timeoutRaw ?? '');
     const opts: McpEntryOptions = {
       authoringOrigin: required('THIRDLIGHT_AUTHORING_ORIGIN'),
-      projectId: required('THIRDLIGHT_PROJECT_ID'),
+      ...(process.env.THIRDLIGHT_PROJECT_ID ? { projectId: process.env.THIRDLIGHT_PROJECT_ID } : {}),
       token: required('THIRDLIGHT_MCP_TOKEN'),
       ...(typeof clientId === 'string' && clientId.length > 0 ? { clientId } : {}),
       ...(Number.isInteger(timeoutNum) && timeoutNum > 0 ? { timeoutMs: timeoutNum } : {}),

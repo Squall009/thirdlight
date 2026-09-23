@@ -275,7 +275,9 @@ export interface ScanEntry {
   /** Projects only: whether the §4.3 load pipeline succeeded. */
   loadable?: boolean;
   /** The load-failure code (§4.3 / workspace §11 codes) when not loadable. */
-  code?: UnavailableReason | 'manifest_invalid' | 'migration_resume_required';
+  code?: UnavailableReason | 'manifest_invalid' | 'migration_resume_required' | 'folder_unavailable';
+  /** Registered projects: the folder holding the `thirdlight.json` marker. */
+  folder?: string;
   /**
    * Interrupted creation (valid manifest, no envelope): `completed` = the
    * deterministic §8.3 completion wrote the initial envelope; `kept` = the
@@ -403,6 +405,23 @@ export interface WorkspaceService {
   close(): void;
   /** Create a new project from a template: scene + content + referenced blob bytes. */
   createProjectFrom(projectId: string, name: string, source: ProjectSource): CreateProjectResult;
+  /** Register an existing project folder (holding `thirdlight.json`); idempotent for the same folder. */
+  registerProject(folder: unknown): { ok: true; projectId: string; name: string; created: boolean } | { ok: false; error: CommandError };
+  /** Create a project in a folder (marker + `thirdlight/` subfolder) and register it. */
+  createProjectInFolder(
+    folder: unknown,
+    projectId: string,
+    name: string,
+    opts?: { engine?: import('./registry').EnginePin; source?: ProjectSource },
+  ): CreateProjectResult;
+  /** Forget a registered project; never deletes files. */
+  unregisterProject(projectId: string): { ok: true; folder: string } | { ok: false; error: CommandError };
+  /** The registered project a server path belongs to (walks up to `thirdlight.json`). */
+  resolveFolder(path: unknown):
+    | { ok: true; projectId: string; folder: string }
+    | { ok: false; reason: 'invalid' | 'no_marker' | 'not_registered'; message: string; markerProjectId?: string; folder?: string };
+  /** The registered (out-of-tree) projects. */
+  registeredProjects(): Array<{ projectId: string; folder: string; projectDir: string; unavailable?: string }>;
   /** Detect an external edit of an open project's envelope now (pauses writes). */
   checkExternal(projectId: string): { ok: true; pending: boolean } | { ok: false };
 

@@ -32,7 +32,10 @@ export interface McpServerInfo {
  * server auto-handles `initialize` (the SDK `Server` base registers the
  * `InitializeRequestSchema` handler); we register `tools/list` + `tools/call`.
  */
-export function createMcpServer(ctx: McpContext, info?: McpServerInfo): Server {
+/** Resolves the project context lazily (the project is worked out from the harness's folder). */
+export type McpContextProvider = () => Promise<{ ok: true; ctx: McpContext } | { ok: false; message: string }>;
+
+export function createMcpServer(ctx: McpContext | McpContextProvider, info?: McpServerInfo): Server {
   const serverInfo = info ?? { name: 'thirdlight-mcp', version: '0.1.0' };
   const server = new Server(serverInfo, {
     capabilities: { tools: { listChanged: false } },
@@ -42,10 +45,15 @@ export function createMcpServer(ctx: McpContext, info?: McpServerInfo): Server {
     tools: TOOL_DEFINITIONS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const name = req.params?.name;
     const args = req.params?.arguments;
-    return handleToolCall(ctx, name, args);
+    if (typeof ctx !== 'function') return handleToolCall(ctx, name, args);
+    const resolved = await ctx();
+    if (!resolved.ok) {
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify({ ok: false, error: { code: 'project_not_resolved', message: resolved.message } }) }] };
+    }
+    return handleToolCall(resolved.ctx, name, args);
   });
 
   return server;

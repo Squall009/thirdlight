@@ -9,6 +9,7 @@
  * the pending external change (when writes are paused).
  */
 
+import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
@@ -193,6 +194,8 @@ export interface ProjectSession {
 export interface Core {
   root: string;
   projectsRoot: string;
+  /** Projects stored outside the data root (id → folder), from `<root>/registry.json`. */
+  registry: Map<string, RegisteredProject>;
   self: SelfIdentity;
   processMarker: string;
   procRoot: string;
@@ -269,8 +272,17 @@ export function resolveContained(
   ...segs: string[]
 ): { ok: true; dir: string } | { ok: false } {
   if (segs.length === 0) return { ok: false };
-  let p = core.projectsRoot;
-  for (const seg of segs) {
+  // A registered project resolves to its own folder, and its children must
+  // stay inside that folder; an in-tree project must stay inside the data root.
+  let reg = core.registry.get(segs[0]!);
+  // A folder that was missing may be back (re-read only then; an available entry keeps its realDir).
+  if (reg !== undefined && reg.unavailable !== undefined) reg = refreshRegistration(core, segs[0]!);
+  if (reg !== undefined && reg.unavailable !== undefined) return { ok: false };
+  const base = reg !== undefined ? reg.projectDir : core.projectsRoot;
+  const rest = reg !== undefined ? segs.slice(1) : segs;
+  let p = base;
+  if (!core.ops.dirExists(p)) return { ok: false };
+  for (const seg of rest) {
     p = join(p, seg);
     if (!core.ops.dirExists(p)) return { ok: false };
   }
@@ -278,14 +290,39 @@ export function resolveContained(
   let realRoot: string;
   let realFull: string;
   try {
-    realRoot = realpathSync(core.projectsRoot);
+    realRoot = realpathSync(base);
     realFull = realpathSync(dir);
   } catch {
     return { ok: false };
   }
+  // A registered folder later replaced by a symlink elsewhere is not the registered project.
+  if (reg !== undefined && realRoot !== reg.realDir) return { ok: false };
   const inside =
     realFull === realRoot || realFull.startsWith(realRoot.endsWith(sep) ? realRoot : realRoot + sep);
   return inside ? { ok: true, dir } : { ok: false };
+}
+
+/**
+ * Re-read a registered folder's marker: a folder can go missing or come back
+ * while the backend runs. A folder that now resolves somewhere else (a
+ * symlink swap) keeps the recorded entry, reported unavailable, so it is
+ * not opened; unregister and open it again to accept the new place.
+ */
+export function refreshRegistration(core: Core, projectId: string): RegisteredProject | undefined {
+  const reg = core.registry.get(projectId);
+  if (reg === undefined) return undefined;
+  const fresh = resolveEntry(reg.folder, projectId);
+  if (reg.unavailable === undefined && fresh.unavailable === undefined && fresh.realDir !== reg.realDir) {
+    return { ...reg, unavailable: `the project folder now resolves to ${fresh.realDir}, not ${reg.realDir}; remove it and open the folder again` };
+  }
+  core.registry.set(projectId, fresh);
+  return fresh;
+}
+
+/** The directory a project id lives in (registered folder or `<root>/projects/<id>`). */
+export function projectBaseDir(core: Core, projectId: string): string {
+  const reg = core.registry.get(projectId);
+  return reg !== undefined ? reg.projectDir : join(core.projectsRoot, projectId);
 }
 
 /**
@@ -304,8 +341,8 @@ export function verifyChildDir(
   core: Core,
   ...segs: string[]
 ): { kind: 'ok'; dir: string } | { kind: 'absent' } | { kind: 'escape' } {
-  let p = core.projectsRoot;
-  for (const seg of segs) p = join(p, seg);
+  let p = projectBaseDir(core, segs[0]!);
+  for (const seg of segs.slice(1)) p = join(p, seg);
   if (!core.ops.dirExists(p)) return { kind: 'absent' };
   const res = resolveContained(core, ...segs);
   return res.ok ? { kind: 'ok', dir: res.dir } : { kind: 'escape' };

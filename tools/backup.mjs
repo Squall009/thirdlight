@@ -22,6 +22,12 @@
  * envelope's retry records — request dedupe state of the original — are
  * dropped).
  *
+ * Folder projects (registered in <data root>/registry.json) are found through
+ * the registry; their `thirdlight.json` marker is kept in the backup manifest.
+ * `restore --folder <dir>` restores into a game folder (marker + subfolder);
+ * register it afterwards (picker "Open project folder…" or
+ * `node tools/project.mjs register <dir>`).
+ *
  * Defaults: data root `~/thirdlight`, backups under `<data root>/backups`.
  */
 import { createHash } from 'node:crypto';
@@ -101,10 +107,28 @@ function readEnvelopeRevision(projectDir) {
   }
 }
 
+/**
+ * Where a project's files live: a folder project (registered in
+ * <dataRoot>/registry.json) or <dataRoot>/projects/<id>.
+ */
+export function locateProject(dataRoot, projectId) {
+  try {
+    const reg = JSON.parse(readFileSync(join(dataRoot, 'registry.json'), 'utf8'));
+    const folder = reg?.projects?.[projectId]?.folder;
+    if (typeof folder === 'string') {
+      const marker = JSON.parse(readFileSync(join(folder, 'thirdlight.json'), 'utf8'));
+      return { projectDir: join(folder, marker.projectDir ?? 'thirdlight'), folder, marker };
+    }
+  } catch {
+    // no registry, or an unreadable folder: fall through to the data root
+  }
+  return { projectDir: join(dataRoot, 'projects', projectId), folder: null, marker: null };
+}
+
 /** Create a backup of `<dataRoot>/projects/<projectId>` under `outRoot`. Returns the backup directory. */
 export function createBackup({ dataRoot, projectId, outRoot, now = new Date(), procRoot = '/proc' }) {
   if (!PROJECT_ID_RE.test(projectId)) throw new BackupError('invalid_project_id', `"${projectId}" is not a project id`);
-  const projectDir = join(dataRoot, 'projects', projectId);
+  const { projectDir, folder, marker } = locateProject(dataRoot, projectId);
   if (!existsSync(join(projectDir, 'project.json'))) throw new BackupError('project_not_found', `no project "${projectId}" under ${join(dataRoot, 'projects')}`);
   const own = ownershipState(projectDir, procRoot);
   if (own.live) throw new BackupError('backup_live_project', `project "${projectId}" is in use: ${own.reason}. Release it (POST /api/v1/admin/projects/${projectId}/release) or stop the backend first`);
@@ -128,6 +152,8 @@ export function createBackup({ dataRoot, projectId, outRoot, now = new Date(), p
     projectId,
     createdAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     revision: readEnvelopeRevision(projectDir),
+    // A folder project keeps its marker (thirdlight.json) so it can be restored into a folder.
+    ...(marker !== null ? { folder, marker } : {}),
     files: inventory,
     inventoryDigest: sha256(JSON.stringify(inventory)),
   };
@@ -180,14 +206,28 @@ export function verifyBackup(backupDir) {
 }
 
 /** Restore a verified backup into `<dataRoot>/projects/<projectId or --as>`. */
-export function restoreBackup({ backupDir, dataRoot, as }) {
+export function restoreBackup({ backupDir, dataRoot, as, folder }) {
   const v = verifyBackup(backupDir);
   if (!v.ok) throw new BackupError('backup_invalid', `refusing to restore ${backupDir}:\n  ${v.problems.join('\n  ')}`);
   const projectId = as ?? v.manifest.projectId;
   if (!PROJECT_ID_RE.test(projectId)) throw new BackupError('invalid_project_id', `"${projectId}" is not a project id`);
-  const dest = join(dataRoot, 'projects', projectId);
-  if (existsSync(dest)) throw new BackupError('restore_destination_exists', `${dest} already exists; restore never overwrites (use --as <newProjectId> or move it away)`);
-  const tmp = join(dataRoot, 'projects', `.restore-${projectId}-${process.pid}`);
+  let dest;
+  let tmp;
+  let markerOut = null;
+  if (folder !== undefined && folder !== null) {
+    // Into a game folder: <folder>/thirdlight.json + <folder>/<projectDir>/.
+    const sub = v.manifest.marker?.projectDir ?? 'thirdlight';
+    if (existsSync(join(folder, 'thirdlight.json'))) throw new BackupError('restore_destination_exists', `${folder} already holds a thirdlight.json; restore never overwrites`);
+    dest = join(folder, sub);
+    if (existsSync(dest)) throw new BackupError('restore_destination_exists', `${dest} already exists; restore never overwrites`);
+    mkdirSync(folder, { recursive: true });
+    tmp = join(folder, `.restore-${projectId}-${process.pid}`);
+    markerOut = { thirdlightProject: 1, name: v.manifest.marker?.name ?? projectId, ...(v.manifest.marker ?? {}), projectId, projectDir: sub };
+  } else {
+    dest = join(dataRoot, 'projects', projectId);
+    if (existsSync(dest)) throw new BackupError('restore_destination_exists', `${dest} already exists; restore never overwrites (use --as <newProjectId> or move it away)`);
+    tmp = join(dataRoot, 'projects', `.restore-${projectId}-${process.pid}`);
+  }
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   for (const f of v.manifest.files) {
@@ -209,7 +249,8 @@ export function restoreBackup({ backupDir, dataRoot, as }) {
     writeFileSync(target, bytes);
   }
   renameSync(tmp, dest);
-  return { dir: dest, projectId, revision: v.manifest.revision };
+  if (markerOut !== null) writeFileSync(join(folder, 'thirdlight.json'), `${JSON.stringify(markerOut, null, 2)}\n`);
+  return { dir: dest, projectId, revision: v.manifest.revision, ...(markerOut !== null ? { folder } : {}) };
 }
 
 export function listBackups(outRoot) {
@@ -234,7 +275,7 @@ export function listBackups(outRoot) {
 }
 
 function parse(argv) {
-  const opts = { dataRoot: join(homedir(), 'thirdlight'), out: null, as: null, positional: [] };
+  const opts = { dataRoot: join(homedir(), 'thirdlight'), out: null, as: null, folder: null, positional: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const next = () => {
@@ -245,6 +286,7 @@ function parse(argv) {
     if (a === '--data-root') opts.dataRoot = resolve(next());
     else if (a === '--out') opts.out = resolve(next());
     else if (a === '--as') opts.as = next();
+    else if (a === '--folder') opts.folder = resolve(next());
     else if (a.startsWith('--')) throw new BackupError('usage', `unknown option ${a}`);
     else opts.positional.push(a);
   }
@@ -274,8 +316,9 @@ function main() {
     } else if (cmd === 'restore') {
       const [dir] = opts.positional;
       if (!dir) throw new BackupError('usage', 'restore needs a backup directory');
-      const r = restoreBackup({ backupDir: resolve(dir), dataRoot: opts.dataRoot, as: opts.as });
+      const r = restoreBackup({ backupDir: resolve(dir), dataRoot: opts.dataRoot, as: opts.as ?? undefined, folder: opts.folder });
       process.stdout.write(`restore: ${r.dir} (project ${r.projectId}, revision ${r.revision ?? 'unknown'})\n`);
+      if (r.folder) process.stdout.write(`register it: node tools/project.mjs register ${r.folder}   (or the editor's "Open project folder…")\n`);
     } else if (cmd === 'list') {
       for (const b of listBackups(opts.out)) {
         process.stdout.write(b.complete ? `${basename(b.dir)}  ${b.projectId}  revision ${b.revision ?? '?'}  ${b.files} files  ${b.createdAt}\n` : `${basename(b.dir)}  INCOMPLETE (no manifest)\n`);
@@ -286,7 +329,7 @@ function main() {
   } catch (e) {
     if (e instanceof BackupError) {
       process.stderr.write(`backup: ${e.message}\n`);
-      if (e.code === 'usage') process.stderr.write('usage: node tools/backup.mjs create <projectId> | verify <dir> | restore <dir> [--as <id>] | list  [--data-root DIR] [--out DIR]\n');
+      if (e.code === 'usage') process.stderr.write('usage: node tools/backup.mjs create <projectId> | verify <dir> | restore <dir> [--as <id>] [--folder <dir>] | list  [--data-root DIR] [--out DIR]\n');
       process.exit(e.code === 'usage' ? 2 : 1);
     }
     throw e;

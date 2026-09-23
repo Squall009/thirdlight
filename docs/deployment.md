@@ -99,7 +99,8 @@ one; the picker has "Forget the access token in this browser").
 ## Projects
 
 Open `http://127.0.0.1:8501/` for the picker: it lists every project under
-`~/thirdlight/projects/` and creates new ones, empty or from a template.
+`~/thirdlight/projects/` and every registered folder project (see "Projects
+in a game's own folder"), and creates new ones, empty or from a template.
 Templates are directories under the engine's `templates/` or `samples/`
 holding `captured/project.json` (+ `assets/`, optional `template.json` with
 `name`, `description`, `requiredModules`). `samples/beacon-reach` is the
@@ -112,19 +113,24 @@ derived caches); it is not part of a backup.
 
 ## MCP (coding harness)
 
-The MCP server is `dist/mcp-adapter/mcp.mjs` over stdio, one process per
-project:
+The MCP server is `dist/mcp-adapter/mcp.mjs` over stdio. Register it once,
+for every project, in Claude Code's user scope:
 
 ```sh
-THIRDLIGHT_AUTHORING_ORIGIN=http://127.0.0.1:8501 \
-THIRDLIGHT_PROJECT_ID=my-game \
-THIRDLIGHT_MCP_TOKEN=$(cat ~/thirdlight/owner-token) \
-node dist/mcp-adapter/mcp.mjs
+claude mcp add --scope user thirdlight -- sh -c 'THIRDLIGHT_MCP_TOKEN=$(cat ~/thirdlight/owner-token) THIRDLIGHT_AUTHORING_ORIGIN=http://127.0.0.1:8501 exec node /home/dadmin/projects/thirdlight/dist/mcp-adapter/mcp.mjs'
 ```
 
+Without `THIRDLIGHT_PROJECT_ID` the server works on the folder project the
+harness runs in: on the first tool call it asks the backend which registered
+project holds the nearest `thirdlight.json` at or above its working folder
+(so a session in `~/projects/my-game/src` works on `my-game`). This needs the
+harness and the backend on the same filesystem. Outside any project folder,
+or in a folder the backend does not know, the tools return an error saying
+what to do. Setting `THIRDLIGHT_PROJECT_ID=<id>` pins the server to one
+project instead (needed for projects in the data root).
+
 Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
-`THIRDLIGHT_MCP_TIMEOUT_MS`. Configure your harness's MCP client with that
-command and environment; the tools are listed by the server
+`THIRDLIGHT_MCP_TIMEOUT_MS`. The tools are listed by the server
 (`tl_inspect`, `tl_command`, `tl_diagnostics`, `tl_sessions`,
 `tl_play_start`/`tl_play_stop`, `tl_input_exercise`, `tl_game_control`,
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
@@ -150,24 +156,49 @@ A backup is a directory: the project's files plus `backup-manifest.json`
 it if you want one file. Nothing is pruned automatically. `--data-root` and
 `--out` override the locations.
 
-## Independent game projects
+## Projects in a game's own folder
 
-A game can live outside the engine's data root, in its own directory and
-git repository, pinned to the engine it was built with:
+A project can live in the game's own folder (its git repository) instead of
+the data root. One backend serves all projects; `~/thirdlight/registry.json`
+maps each such project id to its folder. The folder holds:
+
+- `thirdlight.json` — the marker: project id, name, the subfolder name and
+  the engine pin (version, git commit, lockfile digest);
+- `thirdlight/` — the project files (the same layout as above) and a
+  `.gitignore` keeping `.thirdlight/` process state out of git. Commit the
+  marker and `thirdlight/`.
+
+In the picker, "Folder on the server" under New project creates one (the
+folder may not exist yet; it may not overlap the data root or another
+project); "Open project folder" registers an existing folder holding a
+`thirdlight.json`; "remove" on a folder project forgets it and never touches
+its files. A registered folder that goes missing is listed as "folder
+unavailable" until it is back. From the shell, with the backend running:
 
 ```sh
-node tools/game.mjs create ~/games/reach --id reach --name "Reach" --template beacon-reach
-node tools/game.mjs start  ~/games/reach          # the editor on that game (same options as start.mjs)
-node tools/game.mjs check  ~/games/reach          # this engine vs the pin
-node tools/game.mjs export ~/games/reach --out ~/games/reach/build
+node tools/project.mjs create ~/projects/my-game --id my-game --name "My game" [--template beacon-reach]
+node tools/project.mjs register ~/projects/my-game       # an existing folder
+node tools/project.mjs unregister my-game                 # files are kept
+node tools/project.mjs list
+node tools/project.mjs check ~/projects/my-game [--repin] # this engine vs the pin (offline)
+node tools/project.mjs export ~/projects/my-game --out ~/projects/my-game/build
 ```
 
-`game.json` records the engine version, git commit and lockfile digest.
-`check` and `export` refuse a mismatch; after upgrading the engine on
-purpose, `check --repin` records the new engine. The export is a static
-directory that needs nothing else (serve it with any web server). The game
-directory's `.gitignore` keeps process state, exports, backups and the
-token out of git; `projects/` (sources included) is what you commit.
+`--origin` and `--token-file` override `http://127.0.0.1:8501` and
+`~/thirdlight/owner-token`. The engine pin is advisory in the editor: a
+different version or lockfile is shown in the picker and in Problems, a
+different commit alone is normal after an upgrade; the project still opens.
+`project.mjs export` refuses a version or lockfile mismatch unless
+`--force`; `check --repin` records this engine once you have checked the
+game. The export is a static directory that needs nothing else.
+
+Backups find folder projects through the registry and keep the marker.
+Restore one into a folder, then register it:
+
+```sh
+node tools/backup.mjs restore ~/thirdlight/backups/my-game-20260922T120000Z --folder ~/projects/my-game-restored [--as my-game-2]
+node tools/project.mjs register ~/projects/my-game-restored
+```
 
 ## Upgrade
 
@@ -176,7 +207,7 @@ node tools/backup.mjs create <each project>       # with the backend stopped
 git pull
 NODE_ENV=development npm ci --include=dev
 npm start -- --build
-node tools/game.mjs check ~/games/<game>          # per independent game; --repin once verified
+node tools/project.mjs check ~/projects/<game>    # per folder project; --repin once verified
 ```
 
 ## Verification

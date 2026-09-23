@@ -66,3 +66,5 @@ export type { ImportProposal, AudioImportProposal, ImportJobPort } from '@thirdl
 // Packet 33: the injected behavior-source compiler is `behavior-build`'s
 // (dependencies.md §3/§4.1 — the workspace's edge is types-only).
 export type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behavior-build';
+
+export { MARKER_FILE, DEFAULT_PROJECT_SUBDIR, REGISTRY_FILE, readMarker, type EnginePin, type ProjectMarker } from './registry';

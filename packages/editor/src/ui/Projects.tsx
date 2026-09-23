@@ -16,6 +16,12 @@ export interface ProjectRow {
   loadable: boolean;
   code?: string;
   connected: boolean;
+  /** Folder projects: the server folder holding thirdlight.json. */
+  folder?: string;
+  /** Why an unloadable project cannot be opened. */
+  note?: string;
+  /** Set when the project's pinned engine differs from this one. */
+  enginePin?: { matches: boolean; differences: string[] };
 }
 
 interface TemplateRow {
@@ -73,6 +79,9 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
   const [newName, setNewName] = useState('');
   const [template, setTemplate] = useState('');
   const [creating, setCreating] = useState(false);
+  const [newFolder, setNewFolder] = useState('');
+  const [openFolder, setOpenFolder] = useState('');
+  const [openError, setOpenError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -110,7 +119,7 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
     try {
       const res = await api<{ ok: boolean; created?: boolean; error?: { code: string; message?: string } }>('/admin/projects', props.token, {
         method: 'POST',
-        body: { projectId, name, ...(template !== '' ? { template } : {}) },
+        body: { projectId, name, ...(template !== '' ? { template } : {}), ...(newFolder.trim() !== '' ? { folder: newFolder.trim() } : {}) },
       });
       if (!res.body.ok) {
         setError(res.body.error?.message ?? `creating the project failed (${res.status})`);
@@ -125,6 +134,31 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
     } finally {
       setCreating(false);
     }
+  };
+
+  /** Open project folder…: register an existing folder holding thirdlight.json. */
+  const register = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    const folder = openFolder.trim();
+    if (!folder.startsWith('/')) {
+      setOpenError('type the absolute path of the folder on the server, e.g. /home/you/projects/my-game');
+      return;
+    }
+    setOpenError(null);
+    const res = await api<{ ok: boolean; projectId?: string; error?: { message?: string } }>('/admin/projects/register', props.token, { method: 'POST', body: { folder } });
+    if (!res.body.ok || res.body.projectId === undefined) {
+      setOpenError(res.body.error?.message ?? `opening the folder failed (${res.status})`);
+      return;
+    }
+    openProject(res.body.projectId);
+  };
+
+  /** Forget a folder project (its files stay where they are). */
+  const unregister = async (p: ProjectRow): Promise<void> => {
+    if (!window.confirm(`Remove "${p.name}" from this list? Its files in ${p.folder ?? 'its folder'} are not touched.`)) return;
+    const res = await api<{ ok: boolean; error?: { message?: string } }>(`/admin/projects/${encodeURIComponent(p.projectId)}/unregister`, props.token, { method: 'POST', body: {} });
+    if (!res.body.ok) setError(res.body.error?.message ?? `removing the project failed (${res.status})`);
+    await load();
   };
 
   if (rejected) return <TokenForm message="The backend rejected the access token." />;
@@ -147,9 +181,25 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
                   <span className="tl-projects__name">{p.name}</span>
                   <span className="tl-projects__id">{p.projectId}</span>
                 </button>
-                <span className="tl-projects__meta">
-                  {!p.loadable ? `not loadable (${p.code ?? 'unknown'})` : p.connected ? 'open in a browser' : p.createdAt ? `created ${p.createdAt.slice(0, 10)}` : ''}
+                <span className="tl-projects__meta" title={p.note ?? p.enginePin?.differences.join('; ') ?? p.folder}>
+                  {!p.loadable
+                    ? p.code === 'folder_unavailable'
+                      ? 'folder unavailable'
+                      : `not loadable (${p.code ?? 'unknown'})`
+                    : p.enginePin !== undefined
+                      ? 'pinned to another engine'
+                      : p.connected
+                        ? 'open in a browser'
+                        : p.createdAt
+                          ? `created ${p.createdAt.slice(0, 10)}`
+                          : ''}
+                  {p.folder !== undefined ? <span className="tl-projects__folder">{p.folder}</span> : null}
                 </span>
+                {p.folder !== undefined ? (
+                  <button className="tl-btn tl-btn--small" type="button" onClick={() => void unregister(p)} title="Remove from this list (files are kept)">
+                    remove
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -166,6 +216,10 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
           <input name="name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="My game" />
         </label>
         <label>
+          Folder on the server (optional)
+          <input name="folder" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} placeholder="/home/you/projects/my-game — empty keeps it in the Thirdlight data folder" />
+        </label>
+        <label>
           Template
           <select name="template" value={template} onChange={(e) => setTemplate(e.target.value)}>
             <option value="">Empty scene (camera, lights, ground)</option>
@@ -180,6 +234,17 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
         {error ? <p className="tl-connect__message">{error}</p> : null}
         <button className="tl-btn" type="submit" disabled={creating}>
           {creating ? 'Creating…' : 'Create and open'}
+        </button>
+      </form>
+      <form className="tl-projects__new" onSubmit={(e) => void register(e)}>
+        <h2>Open project folder</h2>
+        <label>
+          Folder on the server
+          <input name="openFolder" value={openFolder} onChange={(e) => setOpenFolder(e.target.value)} placeholder="/home/you/projects/my-game (the folder holding thirdlight.json)" />
+        </label>
+        {openError ? <p className="tl-connect__message">{openError}</p> : null}
+        <button className="tl-btn" type="submit">
+          Open folder
         </button>
       </form>
       <p className="tl-projects__muted">

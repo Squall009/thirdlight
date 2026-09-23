@@ -158,12 +158,15 @@ export interface AdminCreateProjectRequest {
   name: string;
   /** Optional template/sample id to create the project from. */
   template?: string;
+  /** Optional absolute server folder: the project lives there (marker + thirdlight/) instead of the data root. */
+  folder?: string;
 }
 
 const ADMIN_CREATE_FIELDS = new Map([
   ['projectId', 'string (project-model §5.1 ID syntax)'],
   ['name', 'string 1–128, no control chars'],
   ['template', 'string (template id), optional'],
+  ['folder', 'absolute server folder path, optional'],
 ]);
 
 export function parseAdminCreateProjectRequest(value: unknown):
@@ -183,12 +186,17 @@ export function parseAdminCreateProjectRequest(value: unknown):
   if (template !== undefined && !isProjectId(template)) {
     return { ok: false, error: sessionError('invalid_request', 'validation', 'template must be a template id', { path: '/template' }) };
   }
+  const folder = shape.value.folder;
+  if (folder !== undefined && (typeof folder !== 'string' || folder.length === 0 || folder.length > 1024 || !folder.startsWith('/'))) {
+    return { ok: false, error: sessionError('invalid_request', 'validation', 'folder must be an absolute path on the server', { path: '/folder' }) };
+  }
   return {
     ok: true,
     request: {
       projectId: shape.value.projectId as string,
       name: shape.value.name as string,
       ...(typeof template === 'string' ? { template } : {}),
+      ...(typeof folder === 'string' ? { folder } : {}),
     },
   };
 }

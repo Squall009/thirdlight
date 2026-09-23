@@ -490,3 +490,6 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
   width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .tl-menubar__icon:hover { color: var(--text); background: var(--surface-2); }
 .tl-menubar__icon[aria-pressed="true"] { color: var(--brand); }
+
+.tl-projects__folder { display: block; font-size: 10.5px; color: var(--text-faint); font-family: var(--tl-font-mono);
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }

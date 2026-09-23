@@ -23,7 +23,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
 import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, type SessionError } from '@thirdlight/protocol';
-import { openWorkspaceService, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
+import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { publishBehaviorSource } from './behavior';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
@@ -35,6 +35,7 @@ import { makePreviewRoutes } from './preview-routes';
 import { makeStaticRoutes } from './static-routes';
 import { makeAdminRoutes } from './admin-routes';
 import { makePlayRoutes } from './play-routes';
+import { comparePin, engineIdentity } from './engine';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING };
@@ -844,20 +845,71 @@ export function createBackend(
             return;
           }
           const scan = service.scan();
+          const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
           const projects = scan.entries
             .filter((e) => e.kind === 'project')
             .map((e) => {
               const session = sessions.sessionForProject(e.projectId);
+              // Folder projects carry an engine pin in thirdlight.json; say when it differs.
+              let pin: { matches: boolean; differences: string[] } | undefined;
+              if (e.folder !== undefined && e.loadable === true) {
+                const mk = readMarker(e.folder);
+                if (mk.ok) {
+                  pin = comparePin(mk.marker.engine, engine);
+                  if (!pin.matches && !pinWarned.has(e.projectId)) {
+                    pinWarned.add(e.projectId);
+                    recordProblem(e.projectId, 'workspace', 'engine_pin_mismatch', `This project was pinned to a different engine: ${pin.differences.join('; ')}. Re-pin it once you have checked it (tools/project.mjs check --repin).`);
+                  }
+                }
+              }
               return {
                 projectId: e.projectId,
                 name: e.name ?? e.projectId,
                 createdAt: e.createdAt ?? null,
                 loadable: e.loadable === true,
                 ...(e.code !== undefined ? { code: e.code } : {}),
+                ...(e.folder !== undefined ? { folder: e.folder } : {}),
+                ...(e.loadable !== true && e.note !== undefined ? { note: e.note } : {}),
+                ...(pin !== undefined && !pin.matches ? { enginePin: pin } : {}),
                 connected: session !== undefined && session.connected,
               };
             });
           sendJson(res, 200, { ok: true, projects, total: scan.total, truncated: scan.truncated });
+          return;
+        }
+        // GET /api/v1/projects/resolve?path=<absolute server path> — which folder project a path belongs to
+        if (parts.length === 4 && parts[2] === 'projects' && parts[3] === 'resolve') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          if (tokenScope(bearerToken(req)) === null) {
+            sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
+            return;
+          }
+          const r = service.resolveFolder(query.get('path'));
+          if (r.ok) {
+            sendJson(res, 200, { ok: true, projectId: r.projectId, folder: r.folder });
+            return;
+          }
+          sendJson(res, 404, {
+            ok: false,
+            error: {
+              ...sessionError('project_not_found', 'not_found', r.message.slice(0, 256)),
+              reason: r.reason,
+              ...(r.folder !== undefined ? { folder: r.folder } : {}),
+              ...(r.markerProjectId !== undefined ? { markerProjectId: r.markerProjectId } : {}),
+            },
+          });
+          return;
+        }
+        // POST /api/v1/admin/projects/register { folder }
+        if (parts.length === 5 && parts[2] === 'admin' && parts[3] === 'projects' && parts[4] === 'register') {
+          if (method === 'POST') {
+            await adminRegisterProject(req, res);
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
         // GET /api/v1/templates — the project templates/samples on this engine
@@ -1011,6 +1063,10 @@ export function createBackend(
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
             return;
           }
+          if (op === 'unregister') {
+            await adminUnregisterProject(req, res, parts[4]!);
+            return;
+          }
           if (op === 'release' || op === 'takeover' || op === 'accept-external' || op === 'discard-external') {
             await adminProjectOp(req, res, op, parts[4]!);
             return;
@@ -1105,7 +1161,8 @@ export function createBackend(
 
   const { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem });
 
-  const { adminCreateProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
+  const pinWarned = new Set<string>();
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml } = makeStaticRoutes({ config, sendJson });
 

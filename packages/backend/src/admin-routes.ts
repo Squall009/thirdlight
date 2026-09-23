@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { join } from 'node:path';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules } from './templates';
+import { engineIdentity } from './engine';
 import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
@@ -46,8 +47,9 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       sendError(res, parsedReq.error);
       return;
     }
-    const { projectId, name, template } = parsedReq.request;
+    const { projectId, name, template, folder } = parsedReq.request;
     let result;
+    let source: Parameters<typeof service.createProjectFrom>[2] | undefined;
     if (template !== undefined) {
       if (config.engineRoot === undefined) {
         sendError(res, sessionError('invalid_request', 'unavailable', 'templates need the engine root (THIRDLIGHT_ENGINE_ROOT)'), 503);
@@ -64,7 +66,14 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
         sendError(res, sessionError('module_unresolved', 'validation', modules.message, { path: '/template' }), 400);
         return;
       }
-      result = service.createProjectFrom(projectId, name, loaded.source);
+      source = loaded.source;
+    }
+    if (folder !== undefined) {
+      // In the game's own folder: marker + thirdlight/ subfolder, registered, pinned to this engine.
+      const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
+      result = service.createProjectInFolder(folder, projectId, name, { ...(engine !== null ? { engine } : {}), ...(source !== undefined ? { source } : {}) });
+    } else if (source !== undefined) {
+      result = service.createProjectFrom(projectId, name, source);
     } else {
       result = service.createProject(projectId, name);
     }
@@ -73,6 +82,52 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       return;
     }
     sendError(res, workspaceError(result.error), statusFor(result.error.cls));
+  };
+
+  /** POST /api/v1/admin/projects/register { folder } — open an existing project folder. */
+  const adminRegisterProject = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const authError = requireAuth(req, '', true);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const body = await readBody(req);
+    if (!body.ok) {
+      sendError(res, body.error);
+      return;
+    }
+    const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+    if (!strict.ok) {
+      sendError(res, strict.error);
+      return;
+    }
+    const folder = (strict.value as { folder?: unknown } | null)?.folder;
+    const extra = Object.keys((strict.value ?? {}) as object).filter((k) => k !== 'folder');
+    if (typeof folder !== 'string' || extra.length > 0) {
+      sendError(res, sessionError('invalid_request', 'validation', 'body must be exactly { folder: "<absolute server path>" }', { path: extra.length > 0 ? `/${extra[0]}` : '/folder' }));
+      return;
+    }
+    const result = service.registerProject(folder);
+    if (!result.ok) {
+      sendError(res, workspaceError(result.error), statusFor(result.error.cls));
+      return;
+    }
+    sendJson(res, result.created ? 201 : 200, result);
+  };
+
+  /** POST /api/v1/admin/projects/:projectId/unregister — forget a folder project (files untouched). */
+  const adminUnregisterProject = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    const authError = requireAuth(req, projectId, true);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const result = service.unregisterProject(projectId);
+    if (!result.ok) {
+      sendError(res, workspaceError(result.error), statusFor(result.error.cls));
+      return;
+    }
+    sendJson(res, 200, { ok: true, projectId, folder: result.folder });
   };
 
   const adminProjectOp = async (
@@ -214,5 +269,5 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
   // ---------- static ----------
 
 
-  return { adminCreateProject, adminProjectOp, adminExportRoute };
+  return { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute };
 }
