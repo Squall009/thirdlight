@@ -237,6 +237,8 @@ export class PlayContentStore {
         return set.artifacts.get(`content/sha256/${locator.digest}`);
       case 'behavior':
         return set.artifacts.get(`behaviors/${locator.outputDigest}.js`);
+      case 'scene':
+        return set.artifacts.get(`scenes/${locator.sceneId}.json`);
       default:
         return undefined;
     }

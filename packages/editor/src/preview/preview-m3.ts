@@ -65,9 +65,13 @@ import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort
 import { resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { sha256HexAsync } from '@thirdlight/project-model';
 import {
+  bufferResolver,
   createGameHost,
   linkBehaviorModules,
+  prepareSceneCatalog,
   type ManifestBehaviorRow,
+  type ManifestBufferRow,
+  type ManifestSceneRow,
   createGameAudioOwner,
   browserContextFactory,
   type GameHostConfig,
@@ -97,6 +101,9 @@ export interface PreviewManifestV2 {
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
   tags?: { bit: number; name: string }[];
+  /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
+  scenes?: ManifestSceneRow[];
+  buffers?: ManifestBufferRow[];
   assets: Array<{ assetId: string; version: number; path: string; kind: string; sourceDigest: string; sourceByteLength: number }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -224,8 +231,12 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
  * identity, hash-bound through `mediaDigest`); `resolveBytes` = the
  * wrapper-verified byte map (the adapter never re-hashes).
  */
-function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, bytes: Map<string, ArrayBuffer>): SceneAdapterModels | null {
-  const referenced = referencedModelAssetIds(snapshot);
+function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, bytes: Map<string, ArrayBuffer>, contentRoot: string): SceneAdapterModels | null {
+  // Phase 12 (c): scenes loaded later may use any model of the build (the
+  // manifest's asset list is the closure over every scene).
+  const referenced = manifest.scenes !== undefined
+    ? new Set(manifest.assets.filter((a) => a.kind === 'model').map((a) => a.assetId))
+    : referencedModelAssetIds(snapshot);
   if (referenced.size === 0) return null;
   const modelRows = manifest.assets.filter((a) => a.kind === 'model' && referenced.has(a.assetId));
   // The scene references a model asset the manifest does not declare: a
@@ -247,6 +258,9 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
       if (buf === undefined) return Promise.reject(new PreviewM3Error('models_asset_unresolved', 'assets', `no wrapper-verified bytes for ${assetId} v${version}`));
       return Promise.resolve(buf);
     },
+    ...(manifest.buffers !== undefined
+      ? { resolveBuffer: bufferResolver(manifest.buffers, { read: (path) => readPreviewArtifact(contentRoot, path), sha256Hex }) }
+      : {}),
   };
 }
 
@@ -342,9 +356,14 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot tags do not match the manifest tags');
   }
+  // Phase 12 (c): the scene catalog (start scenes read once for their
+  // members; the others load on demand through the host).
+  const catalog = manifest.scenes !== undefined
+    ? await prepareSceneCatalog(manifest.scenes, { read: (path) => readPreviewArtifact(cfg.contentRoot, path), sha256Hex })
+    : null;
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
-  const snapshot = resolveSnapshotHierarchy(authored);
+  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...authored, scenes: catalog.rows } : authored);
 
   // 3. The wrapper's read phase (L2): every declared asset read ONCE and
   //    re-hashed to its manifest sourceDigest (the adapter never receives
@@ -354,7 +373,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // 4. The single shared production composition (delivery.md §3.2) with the
   //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
   const settings = manifest.settings;
-  const models = buildModelsBlock(manifest, snapshot, assetBytes);
+  const models = buildModelsBlock(manifest, snapshot, assetBytes, cfg.contentRoot);
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
   const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
@@ -411,6 +430,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     input,
     audio,
     readArtifact: (path) => readPreviewArtifact(cfg.contentRoot, path),
+    ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
     container: cfg.container as unknown as HostDomNode,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
@@ -654,6 +674,8 @@ export function bootstrapPreviewM3(): void {
       sound: obs.observation.sound,
       events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
       ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1] } } : {}),
+      // Phase 12 (c): the loaded scenes and the ones on their way.
+      ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
     };
   };
 
@@ -665,12 +687,20 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.game.control', (m) => {
-    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' };
+    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene'; sceneId?: string };
     if (handle === null) {
       bridge.sendGameResult('control', playId, body.relayId, notReady);
       return;
     }
-    const r = handle.host.control(body.command);
+    // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
+    let r: ReturnType<GameHost['control']>;
+    if (body.command === 'loadScene' || body.command === 'unloadScene') {
+      const s = handle.host.scene(body.command === 'loadScene' ? 'load' : 'unload', String(body.sceneId ?? ''));
+      const view = handle.host.runtime.getGameView();
+      r = s.ok ? { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 } : s;
+    } else {
+      r = handle.host.control(body.command);
+    }
     const gv = handle.host.runtime.getGameView();
     if (!r.ok || !gv.ok) {
       const error = r.ok ? { code: 'game_unavailable', message: 'this play has no game session' } : { code: r.error.code, message: r.error.message };

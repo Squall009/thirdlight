@@ -33,7 +33,7 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // Put a spawn and an empty at known spots (the menu creates at the focus point; move them by the inspector).
   await menu(page, 'GameObject', 'Player spawn');
-  const rows = page.locator('.tl-hierarchy__list li');
+  const rows = page.locator('.tl-hierarchy__list li.tl-row');
   await expect(rows.filter({ hasText: 'Player spawn' })).toHaveCount(1);
   await page.getByLabel('position x').fill('2');
   await page.getByLabel('position x').press('Enter');
@@ -42,7 +42,7 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
   await page.getByLabel('position z').fill('0');
   await page.getByLabel('position z').press('Enter');
   await page.keyboard.press('Escape'); // clear the selection
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(0);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toHaveCount(0);
 
   // The icon is drawn there: the pixels around the point are not the background.
   const at = await screenPoint(page, [2, 0.5, 0]);
@@ -52,7 +52,7 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
 
   // Clicking the icon selects the spawn.
   await page.mouse.click(at.x, at.y);
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toContainText('Player spawn');
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText('Player spawn');
 
   // Lights are icons too: the ambient light of the starter scene is pickable at its position.
   const q = await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 64, offset: 0 } });
@@ -61,5 +61,5 @@ test('lights, spawns and empties show as icons that can be clicked to select', a
   const pos = ambient!.components.transform.position as [number, number, number];
   const lp = await screenPoint(page, pos);
   await page.mouse.click(lp.x, lp.y);
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toContainText(ambient!.name);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText(ambient!.name);
 });

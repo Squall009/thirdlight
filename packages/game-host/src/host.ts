@@ -54,6 +54,7 @@ import {
   type RunState,
   type Runtime,
   type RuntimeSnapshot,
+  type LoadedSceneBatch,
 } from '@thirdlight/runtime';
 import { platformerSpec } from '@thirdlight/platformer';
 import {
@@ -123,6 +124,8 @@ export interface GameHostObservation {
   readonly failed: boolean;
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
+  /** Phase 12 (c), additive: the loaded scenes and the ones being loaded (v4 games). */
+  readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -176,6 +179,13 @@ export interface GameHostConfig {
   /** The DOM document for HUD element creation (default: the environment's
    * `document`; Node tests inject a fake). */
   readonly document?: HostDom;
+  /**
+   * Phase 12 (c), additive: fetch one scene the game asked for and return
+   * its resolved entities (the wrapper reads and verifies the manifest's
+   * `scenes/<sceneId>.json`; see `sceneEntitiesFromDocument`). Absent: loads
+   * fail with a diagnostic and the game keeps its start scenes.
+   */
+  readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -192,6 +202,8 @@ export interface GameHost {
   /** ADDITIVE (CC-55-1b): the host's runtime seam (read-only; the manual
    * driver / Node compositions advance frames through it). */
   readonly runtime: Runtime;
+  /** Phase 12 (c), additive: request a scene load/unload (the same rules as a script's `ctx.scenes`). */
+  scene(op: 'load' | 'unload', sceneId: string): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -301,6 +313,14 @@ function validateConfig(config: GameHostConfig): string | null {
   return null;
 }
 
+/** Phase 12 (c): the `scenes` observation block (absent without a scene catalog). */
+function scenesObservation(rt: Runtime): { scenes?: { loaded: readonly string[]; loading: readonly string[] } } {
+  const set = rt.sceneSet?.();
+  if (set === undefined || Object.keys(set.status).length === 0) return {};
+  const loading = Object.entries(set.status).filter(([, st]) => st === 'loading').map(([id]) => id);
+  return { scenes: { loaded: set.batches.map((b) => b.sceneId), loading } };
+}
+
 function toControlError(error: RuntimeError): GameControlError {
   const out: GameControlError = { code: error.code, message: error.message };
   if (error.reason !== undefined) out.reason = error.reason;
@@ -401,8 +421,28 @@ export function createGameHost(config: GameHostConfig): GameHost {
     sound: mapSoundStatus(config.audio).status,
   });
 
+  /** Phase 12 (c): hand the game's scene requests to the wrapper's loader. */
+  const serviceSceneRequests = (rt: Runtime): void => {
+    const requests = rt.takeSceneRequests?.() ?? [];
+    for (const req of requests) {
+      if (config.loadScene === undefined) {
+        rt.provideScene?.(req.sceneId, { ok: false, message: 'this game page cannot load scenes' });
+        continue;
+      }
+      void config.loadScene(req.sceneId).then(
+        (entities) => {
+          if (!disposed && runtime === rt) rt.provideScene?.(req.sceneId, { ok: true, entities });
+        },
+        (error: unknown) => {
+          if (!disposed && runtime === rt) rt.provideScene?.(req.sceneId, { ok: false, message: error instanceof Error ? error.message : String(error) });
+        },
+      );
+    }
+  };
+
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
+    serviceSceneRequests(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
     // apply at the next step boundary; at awaitingStart/won that boundary
@@ -651,8 +691,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
         failed: v.failed,
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
+        ...scenesObservation(runtime),
       },
     };
+  };
+
+  const scene = (op: 'load' | 'unload', sceneId: string): { ok: true } | { ok: false; error: GameControlError } => {
+    if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
+    if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
+    if (typeof runtime.requestScene !== 'function') return { ok: false, error: { code: 'scene_invalid', message: 'this runtime has no scene set' } };
+    const res = runtime.requestScene(op, sceneId);
+    if (res.ok === false) return { ok: false, error: toControlError(res.error) };
+    return { ok: true };
   };
 
   const setViewport = (width: number, height: number): { ok: true } | { ok: false; error: GameControlError } => {
@@ -704,6 +754,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     observe,
     setViewport,
     dispose,
+    scene,
     get runtime(): Runtime {
       if (runtime === null) {
         throw new Error('the host has no runtime (mount first; after dispose the seam is gone)');

@@ -334,6 +334,9 @@ export function createBackend(
     };
   };
 
+  /** Phase 12 (c): the editor session's entity bound (all scenes) and page size. */
+  const SESSION_ENTITY_BOUND = 65_536;
+  const SESSION_PAGE = 16_384;
   const fullState = (projectId: string):
     | {
         ok: true;
@@ -354,27 +357,42 @@ export function createBackend(
       // guard so the code below narrows to `QueryProjectResult`.
       return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
     }
-    const e = service.query({ op: 'queryEntities', projectId, args: { limit: 1024, offset: 0 } });
-    if (!e.ok) {
-      return { ok: false, error: workspaceError(e.error), status: statusFor(e.error.cls) };
-    }
-    if (!('entities' in e)) {
-      return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
-    }
-    if (e.total > 1024) {
-      return {
-        ok: false,
-        status: 503,
-        error: sessionError('project_unavailable', 'unavailable', 'scene exceeds the 1024-entity session bound (M1)'),
-      };
+    // Phase 12 (c): paged (16384 per page) up to the session bound; a v4
+    // project also names each entity's scene and lists its scenes.
+    const v4 = (q as { scenes?: unknown }).scenes !== undefined;
+    const page = v4 ? SESSION_PAGE : 1024; // a legacy (v1–v3) session reads one 1024 page
+    const entities: unknown[] = [];
+    const entitySceneIds: string[] = [];
+    let total = 0;
+    for (let offset = 0; ; offset += page) {
+      const e = service.query({ op: 'queryEntities', projectId, args: { limit: page, offset } });
+      if (!e.ok) {
+        return { ok: false, error: workspaceError(e.error), status: statusFor(e.error.cls) };
+      }
+      if (!('entities' in e)) {
+        return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
+      }
+      total = e.total;
+      if (total > (v4 ? SESSION_ENTITY_BOUND : 1024)) {
+        return {
+          ok: false,
+          status: 503,
+          error: sessionError('project_unavailable', 'unavailable', `the project holds ${total} entities; an editor session loads at most ${SESSION_ENTITY_BOUND} (use instance sets for repeated detail)`),
+        };
+      }
+      entities.push(...e.entities);
+      const ids = (e as { entitySceneIds?: string[] }).entitySceneIds;
+      if (ids !== undefined) entitySceneIds.push(...ids);
+      if (entities.length >= total || e.entities.length === 0) break;
     }
     const scene: Record<string, unknown> = {
       // C35-5 / sessions.md §19.x: the SCENE document's `schemaVersion`
-      // (1/2/3) — never the manifest's (always 1).
+      // (1/2/3/4) — never the manifest's.
       schemaVersion: q.scene.schemaVersion,
       sceneId: q.scene.sceneId,
       revision: q.revision,
-      entities: [...e.entities],
+      entities,
+      ...(v4 ? { entitySceneIds, scenes: (q as { scenes?: unknown }).scenes, startScenes: (q as { startScenes?: unknown }).startScenes } : {}),
     };
     const content = contentProjection(projectId);
     return {
@@ -462,11 +480,13 @@ export function createBackend(
     revision: number,
     origin: OriginDoc | null,
     change: unknown,
+    sceneId?: string,
   ): void => {
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     // §11.6/§17.6: a full-state/change frame never carries GLB or source bytes.
-    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change }, WS_OUT_FRAME_MAX);
+    // Phase 12 (c): `sceneId` names the scene a v4 edit touched.
+    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change, ...(sceneId !== undefined ? { sceneId } : {}) }, WS_OUT_FRAME_MAX);
     if (payload === null) {
       logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; dropped (internal)');
       return;

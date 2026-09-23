@@ -22,7 +22,7 @@ test.afterEach(async () => {
 });
 
 const status = (page: Page) => page.locator('.tl-statusbar');
-const row = (page: Page, name: string): Locator => page.locator('.tl-hierarchy__list li').filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
+const row = (page: Page, name: string): Locator => page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
 
 async function openEditor(page: Page): Promise<void> {
   await page.goto(be.editorUrl);
@@ -137,7 +137,7 @@ test('folders: drag to file and reorder keeps world positions, a selection moves
   // Multi-select beta + gamma (Ctrl+click) and drag the selection into the folder.
   await row(page, 'beta').click();
   await row(page, 'gamma').click({ modifiers: ['Control'] });
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(2);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toHaveCount(2);
   await drag(page, row(page, 'gamma'), row(page, 'Folder'), 'into');
   await expect.poll(async () => (await entity(gamma)).parentChain).toEqual([folderId]);
   expect((await entity(beta)).parentChain).toEqual([folderId]);
@@ -151,7 +151,7 @@ test('folders: drag to file and reorder keeps world positions, a selection moves
   // Shift+click selects the visible range.
   await row(page, 'Folder').click();
   await row(page, 'gamma').click({ modifiers: ['Shift'] });
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(3); // Folder, alpha, gamma (beta is above)
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toHaveCount(3); // Folder, alpha, gamma (beta is above)
 
   // Collapse the folder: alpha hides; the state survives a reload but is not project data.
   const revBefore = (await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision;
@@ -218,7 +218,7 @@ test('folder flags pass down: inherited values in the inspector, locked is not p
   const at = await screenPoint(page, [0, 0.5, 0]);
   await page.mouse.click(at.x, at.y);
   await page.waitForTimeout(300);
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(0);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toHaveCount(0);
   await row(page, 'red').click();
   await expect(page.locator('.tl-flag__inherited[data-flag="locked"]')).toHaveText('locked — inherited from Hazards');
 

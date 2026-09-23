@@ -13,6 +13,7 @@
 import type {
   CameraFollowComponent,
   CheckpointActivationAppearance,
+  EntityV3,
   GameConfig,
   GameplaySettings as ModelGameplaySettings,
   GameZoneRole,
@@ -70,6 +71,71 @@ export interface RuntimeSnapshot {
    * The entities carry their effective masks once the scene is resolved.
    */
   tags?: readonly TagDefinition[];
+  /**
+   * Phase 12 (c), v4 only, optional: every scene of the project. `start`
+   * scenes are merged into `scene` (their members listed in `entityIds`); the
+   * others load on demand (`ctx.scenes.load`, an exit zone). Absent: the
+   * whole snapshot scene is one fixed scene and the scene API is unavailable.
+   */
+  scenes?: readonly RuntimeSceneRow[];
+}
+
+/** Phase 12 (c): one scene of the project as the runtime knows it. */
+export interface RuntimeSceneRow {
+  sceneId: string;
+  start: boolean;
+  /** Start scenes: the ids of their (resolved) entities in the snapshot scene. */
+  entityIds?: readonly string[];
+}
+
+/** Phase 12 (c): where a scene is in its load cycle. */
+export type SceneStatus = 'unloaded' | 'loading' | 'loaded';
+
+/**
+ * Phase 12 (c): options of one scene load. `at` offsets the scene's root
+ * entities (world units). Loads are keyed by scene id today; the batch shape
+ * leaves room for keyed, repeated (instanced) loads of one scene later.
+ */
+export interface SceneLoadOptions {
+  at?: readonly [number, number, number];
+}
+
+/** Phase 12 (c): the scene API a behavior script reaches as `ctx.scenes`. */
+export interface BehaviorSceneControl {
+  /** Request a load; it completes at a later step boundary. Loading or loaded ⇒ no-op. */
+  load(sceneId: string, options?: SceneLoadOptions): void;
+  /** Request an unload at the next step boundary. Unloaded ⇒ no-op. */
+  unload(sceneId: string): void;
+  status(sceneId: string): SceneStatus;
+  /** The loaded scene ids, in load order. */
+  loaded(): readonly string[];
+}
+
+/** Phase 12 (c): a read-only view of entity transforms (`ctx.world`). */
+export interface BehaviorWorldView {
+  /** The entity's current transform (this step so far), or `undefined` when it is not loaded. */
+  transform(entityId: string): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
+}
+
+/** Phase 12 (c): one loaded scene as the runtime holds it (renderer/host view). */
+export interface LoadedSceneBatch {
+  readonly sceneId: string;
+  readonly start: boolean;
+  /** The scene's resolved entities (offset already applied), frozen. */
+  readonly entities: readonly EntityV3[];
+}
+
+/** Phase 12 (c): the scene set the renderer syncs to (`revision` bumps on every change). */
+export interface SceneSetView {
+  readonly revision: number;
+  readonly batches: readonly LoadedSceneBatch[];
+  readonly status: Readonly<Record<string, SceneStatus>>;
+}
+
+/** Phase 12 (c): a load the host must fetch (`takeSceneRequests`). */
+export interface SceneLoadRequest {
+  readonly sceneId: string;
+  readonly at?: readonly [number, number, number];
 }
 
 /** The resolved gameplay settings (runtime.md §12.2; project-model §14). */
@@ -157,6 +223,8 @@ export interface ModuleConfig {
    * the 32-entry ring, the module owns its per-instance ring and counters.
    */
   behaviorLog?: (level: BehaviorLogLevel, message: string) => void;
+  /** Phase 12 (c): the runtime's live tag index (follows scene loads/unloads). */
+  tags?: BehaviorTagQuery;
 }
 
 /**
@@ -232,6 +300,10 @@ export interface GameZoneSpec {
   readonly safeSpawnId?: string;
   /** Checkpoint zones only. */
   readonly activation?: Readonly<CheckpointActivationAppearance>;
+  /** Phase 12 (c), exit zones only: the scenes loaded/unloaded on entry and the spawn to move to. */
+  readonly load?: readonly string[];
+  readonly unload?: readonly string[];
+  readonly spawnId?: string;
 }
 
 /** The authored camera-follow bounds (project-model §23.3.3). */
@@ -289,7 +361,8 @@ export interface GameSessionPort {
  * `state.curr` is writable only for the module's declared owners.
  */
 export interface ModuleResetContext {
-  readonly reason: 'start' | 'spawn' | 'replay';
+  /** `transfer` (phase 12 c): an exit zone moved the player to its spawn. */
+  readonly reason: 'start' | 'spawn' | 'replay' | 'transfer';
   /** The upcoming step index. */
   readonly stepIndex: number;
   /** The reset character centre. */
@@ -397,6 +470,14 @@ export interface SimulationPhaseModule {
   step(phase: SimulationPhase, ctx: StepContext): void;
   /** M3 only: the runtime-called reset-barrier hook (`gameplay.md` §5.1 R6). */
   reset?(ctx: ModuleResetContext): void;
+  /**
+   * Phase 12 (c): a scene was loaded at a step boundary — `entities` are its
+   * resolved entities. A module that keeps per-entity state (the behavior
+   * host) attaches to them; it may throw to refuse (the load fails the run).
+   */
+  sceneLoaded?(entities: readonly EntityV3[]): void;
+  /** Phase 12 (c): these entities were unloaded; release what belongs to them. */
+  sceneUnloaded?(entityIds: ReadonlySet<string>): void;
   dispose?(): void;
 }
 
@@ -434,6 +515,8 @@ export interface StepContext {
    * or `camera`). Absent for M1/M2 sets.
    */
   readonly gameplay?: GameSessionPort;
+  /** Phase 12 (c): the scene API (v4 snapshots with a scene catalog). */
+  readonly scenes?: BehaviorSceneControl;
 }
 
 /**
@@ -525,6 +608,19 @@ export interface Runtime {
    * `camera_viewport_invalid`; the previous record is retained.
    */
   setViewport(width: number, height: number): { ok: true } | { ok: false; error: RuntimeError };
+
+  // ---- Phase 12 (c) scene set (v4 snapshots with a scene catalog) ---------
+  /** The loaded scenes and every scene's status. */
+  sceneSet?(): SceneSetView;
+  /** The loads requested since the last call; the host fetches each and answers with `provideScene`. */
+  takeSceneRequests?(): SceneLoadRequest[];
+  /**
+   * Answer a load request: the scene's resolved entities (applied at the next
+   * step boundary) or a failure (the scene returns to `unloaded`, logged).
+   */
+  provideScene?(sceneId: string, result: { ok: true; entities: readonly EntityV3[] } | { ok: false; message: string }): { ok: true } | { ok: false; error: RuntimeError };
+  /** Request a load/unload from outside a step (host, MCP); same rules as `ctx.scenes`. */
+  requestScene?(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError };
 }
 
 /** One interpolated transform (runtime.md §6). */

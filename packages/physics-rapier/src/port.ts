@@ -16,7 +16,7 @@
  * correction/support result.
  */
 import * as RAPIER from '@dimforge/rapier2d-compat';
-import type { CharacterClearanceResult, CharacterMoveResult, Vec2 } from '@thirdlight/runtime';
+import type { CharacterClearanceResult, CharacterMoveResult, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 import {
   AUTOSTEP_DISABLED,
@@ -206,11 +206,32 @@ function failedResult(
   return { ok: false, error: { code: 'physics_init_failed', reason, message } };
 }
 
+/** One fixed body + collider for a static collider spec (the body is what removal frees). */
+function addStaticBody(
+  world: RAPIER.World,
+  spec: RapierStaticColliderSpec,
+): { ok: true; body: RAPIER.RigidBody } | { ok: false; detail: string } {
+  const shape = validateColliderShape(spec.shape);
+  if (!shape.ok) return { ok: false, detail: shape.detail };
+  let desc: RAPIER.ColliderDesc | null;
+  if (shape.shape.type === 'box') {
+    desc = RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy);
+  } else {
+    const buffer = polygonVertexBuffer(shape.shape);
+    desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
+    if (!desc) return { ok: false, detail: 'polygon vertices do not form a convex hull' };
+  }
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(spec.position.x, spec.position.y));
+  world.createCollider(desc.setRotation(spec.rotationZ), body);
+  return { ok: true, body };
+}
+
 function createAdapter(
   world: RAPIER.World,
   characterCollider: RAPIER.Collider,
   controller: RAPIER.KinematicCharacterController,
   config: RapierPhysicsInitConfig,
+  staticBodies: Map<string, RAPIER.RigidBody>,
 ): RapierPhysicsPort {
   const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
   const snapDistance = config.controller.groundSnap;
@@ -549,6 +570,30 @@ function createAdapter(
       return released ?? counters();
     },
 
+    addStaticColliders(specs: readonly StaticColliderSpec[]): void {
+      assertLive('addStaticColliders');
+      // Validate every spec first: a refused batch adds nothing.
+      for (const spec of specs) {
+        if (staticBodies.has(spec.entityId)) throw new Error(`static collider "${spec.entityId}" already exists`);
+        const shape = validateColliderShape(spec.shape);
+        if (!shape.ok) throw new Error(`statics(${spec.entityId}): ${shape.detail}`);
+      }
+      for (const spec of specs) {
+        const added = addStaticBody(world, spec as RapierStaticColliderSpec);
+        if (!added.ok) throw new Error(`statics(${spec.entityId}): ${added.detail}`);
+        staticBodies.set(spec.entityId, added.body);
+      }
+    },
+    removeStaticColliders(entityIds: readonly string[]): void {
+      assertLive('removeStaticColliders');
+      for (const id of entityIds) {
+        const body = staticBodies.get(id);
+        if (body === undefined) continue;
+        // Removing the body frees its collider too.
+        world.removeRigidBody(body);
+        staticBodies.delete(id);
+      }
+    },
     dispose(): void {
       if (disposed) return;
       // Capture the live counts, then release everything: `World.free()` frees
@@ -591,34 +636,16 @@ export async function createPhysicsPort(
   try {
     world = new RAPIER.World({ x: 0, y: config.solver.gravityY });
     world.timestep = 1 / config.solver.hz;
+    const staticBodies = new Map<string, RAPIER.RigidBody>();
     for (const spec of config.statics) {
-      const shape = validateColliderShape(spec.shape);
-      if (!shape.ok) {
-        // Unreachable after validateConfig; kept so a future caller cannot
-        // reach the library with an unvalidated shape.
+      const added = addStaticBody(world, spec);
+      if (!added.ok) {
+        // A shape error is unreachable after validateConfig; kept so a future
+        // caller cannot reach the library with an unvalidated shape.
         world.free();
-        return failedResult('invalid_shape', `statics(${spec.entityId}): ${shape.detail}`);
+        return failedResult('invalid_shape', `statics(${spec.entityId}): ${added.detail}`);
       }
-      const body = world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(spec.position.x, spec.position.y),
-      );
-      if (shape.shape.type === 'box') {
-        world.createCollider(
-          RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy).setRotation(spec.rotationZ),
-          body,
-        );
-      } else {
-        const buffer = polygonVertexBuffer(shape.shape);
-        const desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
-        if (!desc) {
-          world.free();
-          return failedResult(
-            'invalid_shape',
-            `statics(${spec.entityId}): polygon vertices do not form a convex hull`,
-          );
-        }
-        world.createCollider(desc.setRotation(spec.rotationZ), body);
-      }
+      staticBodies.set(spec.entityId, added.body);
     }
     if (signal?.aborted) {
       world.free();
@@ -638,7 +665,7 @@ export async function createPhysicsPort(
     controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);
     controller.enableSnapToGround(GROUND_SNAP_DISTANCE);
     // Autostep stays disabled (contract constant): never enabled.
-    return { ok: true, port: createAdapter(world, characterCollider, controller, config) };
+    return { ok: true, port: createAdapter(world, characterCollider, controller, config, staticBodies) };
   } catch (error) {
     world?.free();
     return failedResult(

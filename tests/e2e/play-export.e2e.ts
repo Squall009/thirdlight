@@ -52,7 +52,7 @@ async function createBox(page: Page): Promise<void> {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await menu(page, 'GameObject', 'Box');
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: 'box' })).toHaveCount(1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'box' })).toHaveCount(1);
 }
 
 test('Play renders a fresh project scene in the isolated preview', async ({ page }) => {

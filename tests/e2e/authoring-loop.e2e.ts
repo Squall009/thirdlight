@@ -18,7 +18,7 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-const rows = (page: Page) => page.locator('.tl-hierarchy__list li:not(.tl-row--empty)');
+const rows = (page: Page) => page.locator('.tl-hierarchy__list li.tl-row:not(.tl-row--empty)');
 /** A new project: the camera plus the starter sun and ambient lights. */
 const BASE = 3;
 const status = (page: Page) => page.locator('.tl-statusbar');

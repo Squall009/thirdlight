@@ -35,7 +35,7 @@ test.afterEach(async () => {
 });
 
 const status = (page: Page) => page.locator('.tl-statusbar');
-const rows = (page: Page) => page.locator('.tl-hierarchy__list li');
+const rows = (page: Page) => page.locator('.tl-hierarchy__list li.tl-row');
 const pickerRow = (page: Page, id: string) =>
   page.locator('.tl-projects__row').filter({ has: page.locator('.tl-projects__id', { hasText: new RegExp(`^${id}$`) }) });
 const dataRoot = () => resolve(be.projectDir, '..', '..');

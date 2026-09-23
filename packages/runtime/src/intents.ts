@@ -17,8 +17,11 @@ import { JUMP_PHASES, type JumpPhase } from './actions';
 import { clipMessage } from './errors';
 import type { SimulationPhase } from './types';
 
-/** The three intent kinds (runtime.md §14.4). */
-export type IntentKind = 'control_move' | 'control_jump' | 'transform';
+/**
+ * The intent kinds (runtime.md §14.4). Phase 12 (c) adds `respawn`: the
+ * player dies and respawns (a game's own fall/kill rules live in scripts).
+ */
+export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'respawn';
 
 /** `−1 ≤ value ≤ 1`, quantized at commit (§14.4). */
 export interface ControlMoveIntent {
@@ -39,7 +42,12 @@ export interface TransformIntent {
   position: { x?: number; y?: number; z?: number };
 }
 
-export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent;
+/** Phase 12 (c): kill the player (intent phase; ignored unless the run is playing). */
+export interface RespawnIntent {
+  kind: 'respawn';
+}
+
+export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | RespawnIntent;
 
 /** One committed transform write in commit order (§14.5). */
 export interface IntentTransformWrite {
@@ -112,6 +120,7 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   control_move: ['kind', 'value'],
   control_jump: ['kind', 'value'],
   transform: ['kind', 'entityId', 'position'],
+  respawn: ['kind'],
 };
 
 const POSITION_KEYS = new Set(['x', 'y', 'z']);
@@ -139,7 +148,7 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', 'an intent must be an object') };
   }
   const kind = value['kind'];
-  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform') {
+  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'respawn') {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
   const keys = Object.keys(value);
@@ -154,6 +163,7 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   if (keys.length !== allowed.length || keys.some((k, i) => k !== allowed[i])) {
     return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${allowed.join(', ')})`) };
   }
+  if (kind === 'respawn') return { ok: true, kind, intent: { kind } };
   if (kind === 'control_move') {
     if (typeof value['value'] !== 'number') {
       return { ok: false, error: invalid('shape', 'control_move.value must be a number') };
@@ -214,7 +224,7 @@ export function validateIntentPhase(intent: BehaviorIntent, phase: SimulationPha
     return null;
   }
   if (phase !== 'intent') {
-    return invalid('phase', 'a control intent is valid only in the intent phase');
+    return invalid('phase', `a ${intent.kind === 'respawn' ? 'respawn' : 'control'} intent is valid only in the intent phase`);
   }
   return null;
 }
@@ -233,6 +243,7 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     }
     return null;
   }
+  if (intent.kind === 'respawn') return null;
   const position = intent.position;
   const axes = Object.keys(position);
   if (axes.length === 0) return invalid('value', 'transform.position needs at least one axis');

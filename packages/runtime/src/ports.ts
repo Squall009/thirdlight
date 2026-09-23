@@ -52,6 +52,13 @@ export interface PhysicsPort {
   step(): CharacterMoveResult;
   reset?(character: Vec2): void;
   diagnostics?(): PhysicsDiagnostics;
+  /**
+   * Phase 12 (c): add the static colliders of a loaded scene / remove those
+   * of an unloaded one. Called by the runtime at a step boundary only. A port
+   * without them cannot run a game whose loaded scenes carry colliders.
+   */
+  addStaticColliders?(specs: readonly StaticColliderSpec[]): void;
+  removeStaticColliders?(entityIds: readonly string[]): void;
   dispose(): void;
 }
 

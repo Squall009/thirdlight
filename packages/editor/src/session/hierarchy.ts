@@ -146,6 +146,8 @@ export function dropTarget(
   if (targetId === null) return { parentId: null, beforeId: null, zone: 'after' };
   const target = byId.get(targetId);
   if (target === undefined) return null;
+  // Phase 12 (c): one command edits one scene — no drops across scenes.
+  if (!sameScene(byId, dragged, target.sceneId)) return null;
   // Not onto a dragged entity or anything inside one.
   const draggedSet = new Set(dragged);
   for (let cur: ProjectedEntity | undefined = target; cur !== undefined; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined) {
@@ -164,6 +166,19 @@ export function dropTarget(
   const at = siblings.findIndex((s) => s.id === target.id);
   const next = siblings.slice(at + 1).find((s) => !draggedSet.has(s.id));
   return { parentId, beforeId: next?.id ?? null, zone: 'after' };
+}
+
+/** Phase 12 (c): whether every dragged entity lives in `sceneId` (always true without scenes). */
+function sameScene(byId: ReadonlyMap<string, ProjectedEntity>, dragged: readonly string[], sceneId: string | undefined): boolean {
+  return dragged.every((id) => byId.get(id)?.sceneId === sceneId);
+}
+
+/**
+ * Phase 12 (c): whether dropping `dragged` on a scene header (the scene's
+ * root, at the end) is allowed — only within the scene they already live in.
+ */
+export function sceneDropAllowed(entities: readonly ProjectedEntity[], dragged: readonly string[], sceneId: string): boolean {
+  return sameScene(new Map(entities.map((e) => [e.id, e])), dragged, sceneId);
 }
 
 /** The dragged roots: selected ids without those whose ancestor is also selected, in document order. */

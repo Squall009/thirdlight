@@ -52,7 +52,7 @@ test('a backup of a live project is refused; after a stop it restores as a new p
   const copy = await page.context().newPage();
   await copy.goto(`${be.origin}/?project=reach-copy#token=${be.token}`);
   await expect(copy.locator('.tl-statusbar')).toContainText('connected');
-  await expect(copy.locator('.tl-hierarchy__list li').filter({ hasText: 'Player' })).toHaveCount(1);
+  await expect(copy.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Player' })).toHaveCount(1);
   // Play: the backend builds the copy's play content and the game reaches its start menu.
   const started = copy.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await copy.getByTitle('Start an isolated play preview').click();

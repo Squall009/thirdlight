@@ -25,7 +25,7 @@ import {
   type MutationResponse,
   type Origin,
 } from './envelope';
-import { Projection, type FullState } from './projection';
+import { Projection, type FullState, type ProjectedEntity } from './projection';
 import { ContentProjection, type AssetView } from './content-projection';
 import { PrefabProjection } from './prefab-projection';
 import type { GameConfigLike } from './gameplay';
@@ -284,6 +284,13 @@ export class SessionClient {
   private settings: Record<string, unknown> | null = null;
   /** Phase 12 (b): the project tag registry (from `queryGameConfig`, then `setTags` changes). */
   private tags: { bit: number; name: string }[] = [];
+  /**
+   * Phase 12 (c): the scenes open in this browser (the hierarchy and the
+   * viewport show them) and the active one (new root entities go there).
+   * Remembered per project in localStorage; never part of the project.
+   */
+  private openSceneIds: string[] = [];
+  private activeScene: string | null = null;
 
   constructor(cfg: ClientConfig, cb: ClientCallbacks, sessionId?: string) {
     this.cfg = cfg;
@@ -422,12 +429,40 @@ export class SessionClient {
 
   /** A full-state resync (queryEntities is the authoritative scene source). */
   async fullResync(): Promise<void> {
-    const q = await this.api<{ ok: true; revision: number; entities: unknown[]; total: number }>(
+    // Phase 12 (c): a v4 project lists its scenes; its entities are read in
+    // pages (each names its scene).
+    const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string }[]; startScenes?: string[] }>(
       `/projects/${this.cfg.projectId}/commands`,
-      { op: 'queryEntities', projectId: this.cfg.projectId, args: { limit: 1024, offset: 0 } },
+      { op: 'queryProject', projectId: this.cfg.projectId },
     );
-    if (q.ok) {
-      this.projection.hydrate({ revision: q.revision, entities: q.entities as FullState['entities'] });
+    const v4 = proj.ok && Array.isArray(proj.scenes);
+    const page = v4 ? 16_384 : 1024;
+    const entities: unknown[] = [];
+    const entitySceneIds: string[] = [];
+    let revision: number | null = null;
+    for (let offset = 0; ; offset += page) {
+      const q = await this.api<{ ok: boolean; revision: number; entities: unknown[]; total: number; entitySceneIds?: string[] }>(
+        `/projects/${this.cfg.projectId}/commands`,
+        { op: 'queryEntities', projectId: this.cfg.projectId, args: { limit: page, offset } },
+      );
+      if (!q.ok) break;
+      // A page read at another revision: start over at the next full state.
+      if (revision !== null && q.revision !== revision) {
+        revision = null;
+        break;
+      }
+      revision = q.revision;
+      entities.push(...q.entities);
+      if (q.entitySceneIds !== undefined) entitySceneIds.push(...q.entitySceneIds);
+      if (entities.length >= q.total || q.entities.length === 0 || !v4) break;
+    }
+    if (revision !== null) {
+      this.projection.hydrate({
+        revision,
+        entities: entities as FullState['entities'],
+        ...(v4 ? { entitySceneIds, scenes: proj.scenes!, startScenes: proj.startScenes ?? [] } : {}),
+      });
+      this.reconcileScenes();
     }
     await this.refreshHistory();
     try {
@@ -445,7 +480,7 @@ export class SessionClient {
     try {
       const g = await this.queryGameConfig();
       if (g.ok) {
-        this.gameConfig = g.game === null ? null : { ...g.game, level: { ...g.game.level }, cues: { ...g.game.cues } };
+        this.gameConfig = g.game === null ? null : { ...g.game, ...(g.game.level !== undefined ? { level: { ...g.game.level } } : {}), cues: { ...g.game.cues } };
         this.gameConfigLoaded = true;
         const tags = (g as { tags?: { bit: number; name: string }[] }).tags;
         this.tags = Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
@@ -591,12 +626,14 @@ export class SessionClient {
     }
   }
 
-  private applyMutationApplied(ev: { requestId: string; revision: number; change: unknown }): void {
+  private applyMutationApplied(ev: { requestId: string; revision: number; change: unknown; sceneId?: string }): void {
     const res = this.projection.applyMutationApplied({
       requestId: ev.requestId,
       revision: ev.revision,
       change: ev.change as ChangeData,
+      ...(typeof ev.sceneId === 'string' ? { sceneId: ev.sceneId } : {}),
     });
+    if (res.applied && (ev.change as ChangeData).type === 'setSceneIndex') this.reconcileScenes();
     if (res.gap) {
       // The gap rule: we missed events — resync from the backend (authoritative).
       void this.fullResync().then(() => this.cb.onSceneChanged());
@@ -617,7 +654,7 @@ export class SessionClient {
       // reload.
       const change = ev.change as ChangeData;
       if (change.type === 'setGameConfig') {
-        this.gameConfig = change.next === null ? null : ({ ...change.next, level: { ...change.next.level }, cues: { ...change.next.cues } } as GameConfigLike);
+        this.gameConfig = change.next === null ? null : ({ ...change.next, ...(change.next.level !== undefined ? { level: { ...change.next.level } } : {}), cues: { ...change.next.cues } } as GameConfigLike);
         this.gameConfigLoaded = true;
       } else if (change.type === 'setSettings') {
         this.settings = { ...(change.next as Record<string, unknown>) };
@@ -669,6 +706,12 @@ export class SessionClient {
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
   ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
     const rid = requestId ?? makeRequestId();
+    // Phase 12 (c): a new root entity goes into the active scene (with a
+    // parent, the parent's scene decides).
+    if ((op === 'createEntity' || op === 'instantiatePrefab') && this.activeScene !== null && typeof args === 'object' && args !== null) {
+      const a = args as Record<string, unknown>;
+      if ((a['parentId'] === undefined || a['parentId'] === null) && a['sceneId'] === undefined) args = { ...a, sceneId: this.activeScene };
+    }
     const env = makeEnvelope(op, this.cfg.projectId, rid, expectedRevision, args, origin);
     this.save = 'pending';
     this.emit();
@@ -852,7 +895,7 @@ export class SessionClient {
    * `setGameConfig` change records only.
    */
   getGameConfig(): GameConfigLike | null {
-    return this.gameConfig === null ? null : { ...this.gameConfig, level: { ...this.gameConfig.level }, cues: { ...this.gameConfig.cues } };
+    return this.gameConfig === null ? null : { ...this.gameConfig, ...(this.gameConfig.level !== undefined ? { level: { ...this.gameConfig.level } } : {}), cues: { ...this.gameConfig.cues } };
   }
 
   /** Whether the game block has been read from the backend (vs unknown). */
@@ -867,6 +910,70 @@ export class SessionClient {
    * registry defaults). See the `settings` field note above.
    */
   /** Phase 12 (b): the project tag registry, ascending bit. */
+  /** Phase 12 (c): the entities of the open scenes (all of them for a single-scene project). */
+  visibleEntities(): ProjectedEntity[] {
+    const all = this.projection.listEntities();
+    if (this.projection.scenes.length === 0) return all;
+    const open = new Set(this.openSceneIds);
+    return all.filter((e) => e.sceneId === undefined || open.has(e.sceneId));
+  }
+
+  /** Phase 12 (c): the open scenes (in index order) and the active one; empty for a single-scene project. */
+  getSceneView(): { open: readonly string[]; active: string | null } {
+    return { open: this.openSceneIds, active: this.activeScene };
+  }
+
+  /** Phase 12 (c): open or close a scene in this browser (the last open scene stays open). */
+  setSceneOpen(sceneId: string, open: boolean): void {
+    const known = this.projection.scenes.some((r) => r.sceneId === sceneId);
+    if (!known) return;
+    if (open && !this.openSceneIds.includes(sceneId)) this.openSceneIds = [...this.openSceneIds, sceneId];
+    if (!open && this.openSceneIds.length > 1) this.openSceneIds = this.openSceneIds.filter((id) => id !== sceneId);
+    this.reconcileScenes();
+    this.cb.onSceneChanged();
+  }
+
+  /** Phase 12 (c): make a scene the active one (it is opened if needed). */
+  setActiveScene(sceneId: string): void {
+    if (!this.projection.scenes.some((r) => r.sceneId === sceneId)) return;
+    if (!this.openSceneIds.includes(sceneId)) this.openSceneIds = [...this.openSceneIds, sceneId];
+    this.activeScene = sceneId;
+    this.reconcileScenes();
+    this.cb.onSceneChanged();
+  }
+
+  /** Keep the open/active scenes valid for the current index and remember them. */
+  private reconcileScenes(): void {
+    const scenes = this.projection.scenes;
+    if (scenes.length === 0) {
+      this.openSceneIds = [];
+      this.activeScene = null;
+      return;
+    }
+    const key = `thirdlight.scenes.${this.cfg.projectId}`;
+    if (this.openSceneIds.length === 0 && this.activeScene === null) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as { open?: unknown; active?: unknown } | null;
+        if (saved !== null && Array.isArray(saved.open)) this.openSceneIds = saved.open.filter((x): x is string => typeof x === 'string');
+        if (saved !== null && typeof saved.active === 'string') this.activeScene = saved.active;
+      } catch {
+        // storage blocked or corrupt: start from the start scenes
+      }
+    }
+    const known = new Set(scenes.map((r) => r.sceneId));
+    let open = this.openSceneIds.filter((id) => known.has(id));
+    if (open.length === 0) open = this.projection.startScenes.filter((id) => known.has(id));
+    if (open.length === 0) open = [scenes[0]!.sceneId];
+    // Index order keeps the hierarchy stable.
+    this.openSceneIds = scenes.map((r) => r.sceneId).filter((id) => open.includes(id));
+    if (this.activeScene === null || !this.openSceneIds.includes(this.activeScene)) this.activeScene = this.openSceneIds[0]!;
+    try {
+      localStorage.setItem(key, JSON.stringify({ open: this.openSceneIds, active: this.activeScene }));
+    } catch {
+      // the choice still holds for this page
+    }
+  }
+
   getTags(): { bit: number; name: string }[] {
     return this.tags.map((t) => ({ ...t }));
   }

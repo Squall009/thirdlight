@@ -292,6 +292,11 @@ export class GameSession {
     this.emit('checkpointActivated', stepIndex, false, { zoneId });
   }
 
+  /** Phase 12 (c): the checkpoint's scene was unloaded — respawns go to the start spawn again. */
+  clearCheckpoint(): void {
+    this.checkpointId = null;
+  }
+
   /** T4: the goal wins once and freezes all evaluation. */
   reachGoal(stepIndex: number, zoneId: string): void {
     this.goalReached = true;

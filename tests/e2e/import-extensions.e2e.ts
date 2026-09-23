@@ -129,7 +129,7 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   await place('unlit-quantized', 1.5);
   await page.reload();
   await expect(status(page)).toContainText('connected');
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: /webp-cube|materials-all|unlit-quantized/ })).toHaveCount(3);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: /webp-cube|materials-all|unlit-quantized/ })).toHaveCount(3);
   await page.waitForTimeout(1500);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '1-editor.png') });
 
@@ -196,7 +196,7 @@ test('Draco (Blender), meshopt (animated) and KTX2/Basis GLBs render in the edit
   }
   await page.goto(`${be.origin}/?project=game#token=${be.token}`);
   await expect(status(page)).toContainText('connected');
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: /-cube/ })).toHaveCount(3);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: /-cube/ })).toHaveCount(3);
   await page.waitForTimeout(2000);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '4-compressed-editor.png') });
   await page.getByRole('tab', { name: /Problems/ }).click();

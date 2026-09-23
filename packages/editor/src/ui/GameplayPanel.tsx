@@ -70,6 +70,11 @@ interface Props {
   onSaveCameraFollow: (entityId: string, value: Record<string, unknown> | null) => void;
   onSaveSettings: (settings: Record<string, number>) => void;
   backendError: GameplayBackendError | null;
+  /**
+   * Phase 12 (c): a v4 project — the game block has no level bounds or kill
+   * height (falls and deaths are script rules) and camera bounds are optional.
+   */
+  v4?: boolean;
 }
 
 function ErrorList({ title, errors, onDismiss }: { title?: string; errors: string[]; onDismiss: () => void }): JSX.Element | null {
@@ -155,11 +160,11 @@ function formFromConfig(g: GameConfigLike): GameConfigForm {
     playerId: g.playerId,
     cameraId: g.cameraId,
     spawnId: g.spawnId,
-    minX: String(g.level.minX),
-    maxX: String(g.level.maxX),
-    minY: String(g.level.minY),
-    maxY: String(g.level.maxY),
-    killY: String(g.killY),
+    minX: String(g.level?.minX ?? -10),
+    maxX: String(g.level?.maxX ?? 10),
+    minY: String(g.level?.minY ?? -4),
+    maxY: String(g.level?.maxY ?? 8),
+    killY: String(g.killY ?? -6),
   };
 }
 
@@ -169,13 +174,17 @@ function GameTab({
   gameConfigLoaded,
   backendError,
   onSaveGameConfig,
+  v4,
 }: {
   entities: readonly ProjectedEntity[];
   gameConfig: GameConfigLike | null;
   gameConfigLoaded: boolean;
   backendError: GameplayBackendError | null;
   onSaveGameConfig: (game: Record<string, unknown> | null) => void;
+  v4: boolean;
 }): JSX.Element {
+  // v3 games carry level bounds + killY; v4 games have neither.
+  const hasLevel = gameConfig !== null ? gameConfig.configVersion === 1 : !v4;
   const playerCandidates = entities.filter((e) => e.controller === true);
   const cameraCandidates = entities.filter((e) => e.kind === 'camera');
   const spawnCandidates = entities.filter((e) => e.playerSpawn === true);
@@ -196,7 +205,7 @@ function GameTab({
   };
 
   const save = (): void => {
-    const parsed = parseGameConfigForm(form);
+    const parsed = parseGameConfigForm(form, { level: hasLevel });
     if (!parsed.ok) {
       setErrors(parsed.errors.map((e) => `${e.field}: ${e.message}`));
       return;
@@ -277,13 +286,17 @@ function GameTab({
           ))}
         </select>
       </label>
-      <div className="tl-gameplay__grid">
-        <NumField label="Level minX" value={form.minX} onChange={(v) => set('minX', v)} />
-        <NumField label="Level maxX" value={form.maxX} onChange={(v) => set('maxX', v)} />
-        <NumField label="Level minY" value={form.minY} onChange={(v) => set('minY', v)} />
-        <NumField label="Level maxY" value={form.maxY} onChange={(v) => set('maxY', v)} />
-        <NumField label="killY (below maxY)" value={form.killY} onChange={(v) => set('killY', v)} />
-      </div>
+      {hasLevel ? (
+        <div className="tl-gameplay__grid">
+          <NumField label="Level minX" value={form.minX} onChange={(v) => set('minX', v)} />
+          <NumField label="Level maxX" value={form.maxX} onChange={(v) => set('maxX', v)} />
+          <NumField label="Level minY" value={form.minY} onChange={(v) => set('minY', v)} />
+          <NumField label="Level maxY" value={form.maxY} onChange={(v) => set('maxY', v)} />
+          <NumField label="killY (below maxY)" value={form.killY} onChange={(v) => set('killY', v)} />
+        </div>
+      ) : (
+        <p className="tl-note">No level bounds or kill height: a fall is a hazard zone or a script rule (a script can read positions with ctx.world and emit a respawn intent).</p>
+      )}
       <div className="tl-gameplay__actions">
         <button className="tl-btn" onClick={save}>
           Save game config
@@ -561,10 +574,12 @@ function CameraTab({
   entities,
   backendError,
   onSaveCameraFollow,
+  v4,
 }: {
   entities: readonly ProjectedEntity[];
   backendError: GameplayBackendError | null;
   onSaveCameraFollow: (entityId: string, value: Record<string, unknown> | null) => void;
+  v4: boolean;
 }): JSX.Element {
   const cameras = entities.filter((e) => e.kind === 'camera');
   const [cameraId, setCameraId] = useState<string>(cameras[0]?.id ?? '');
@@ -572,6 +587,11 @@ function CameraTab({
   const [form, setForm] = useState({ deadZoneX: '0.3', deadZoneY: '0.3', smoothing: '0.5', minX: '-10', maxX: '10', minY: '-4', maxY: '8' });
   const camera = cameras.find((c) => c.id === cameraId) ?? cameras[0] ?? null;
   const cf = camera?.cameraFollow ?? null;
+  // Phase 12 (c): v4 bounds are optional (unbounded: the camera follows anywhere).
+  const [bounded, setBounded] = useState<boolean>(cf !== null ? cf.bounds !== undefined : !v4);
+  useEffect(() => {
+    setBounded(cf !== null ? cf.bounds !== undefined : !v4);
+  }, [cameraId, cf, v4]);
   useEffect(() => {
     if (cameras.length > 0 && !cameras.some((c) => c.id === cameraId)) setCameraId(cameras[0]!.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -590,7 +610,7 @@ function CameraTab({
 
   const save = (): void => {
     if (!camera) return;
-    const parsed = parseCameraFollowForm(form);
+    const parsed = parseCameraFollowForm(form, { bounded: bounded || !v4 });
     if (!parsed.ok) {
       setErrors(parsed.errors.map((e) => `${e.field}: ${e.message}`));
       return;
@@ -640,11 +660,21 @@ function CameraTab({
         <NumField label="Dead zone x" value={form.deadZoneX} onChange={(v) => setForm((f) => ({ ...f, deadZoneX: v }))} />
         <NumField label="Dead zone y" value={form.deadZoneY} onChange={(v) => setForm((f) => ({ ...f, deadZoneY: v }))} />
         <NumField label="Smoothing (0–1)" value={form.smoothing} step={0.05} onChange={(v) => setForm((f) => ({ ...f, smoothing: v }))} />
-        <NumField label="Bounds minX" value={form.minX} onChange={(v) => setForm((f) => ({ ...f, minX: v }))} />
-        <NumField label="Bounds maxX" value={form.maxX} onChange={(v) => setForm((f) => ({ ...f, maxX: v }))} />
-        <NumField label="Bounds minY" value={form.minY} onChange={(v) => setForm((f) => ({ ...f, minY: v }))} />
-        <NumField label="Bounds maxY" value={form.maxY} onChange={(v) => setForm((f) => ({ ...f, maxY: v }))} />
       </div>
+      {v4 && (
+        <label className="tl-field tl-field--inline">
+          <input type="checkbox" checked={bounded} onChange={(e) => setBounded(e.target.checked)} />
+          <span className="tl-field__label">Keep the camera inside bounds</span>
+        </label>
+      )}
+      {(bounded || !v4) && (
+        <div className="tl-gameplay__grid">
+          <NumField label="Bounds minX" value={form.minX} onChange={(v) => setForm((f) => ({ ...f, minX: v }))} />
+          <NumField label="Bounds maxX" value={form.maxX} onChange={(v) => setForm((f) => ({ ...f, maxX: v }))} />
+          <NumField label="Bounds minY" value={form.minY} onChange={(v) => setForm((f) => ({ ...f, minY: v }))} />
+          <NumField label="Bounds maxY" value={form.maxY} onChange={(v) => setForm((f) => ({ ...f, maxY: v }))} />
+        </div>
+      )}
       <div className="tl-gameplay__actions">
         <button className="tl-btn" onClick={save}>
           Save cameraFollow
@@ -771,6 +801,7 @@ export function GameplayPanel(props: Props): JSX.Element {
           gameConfigLoaded={props.gameConfigLoaded}
           backendError={props.backendError}
           onSaveGameConfig={props.onSaveGameConfig}
+          v4={props.v4 === true}
         />
       )}
       {tab === 'zones' && (
@@ -786,7 +817,7 @@ export function GameplayPanel(props: Props): JSX.Element {
           onDeleteSpawn={props.onDeleteSpawn}
         />
       )}
-      {tab === 'camera' && <CameraTab entities={props.entities} backendError={props.backendError} onSaveCameraFollow={props.onSaveCameraFollow} />}
+      {tab === 'camera' && <CameraTab entities={props.entities} backendError={props.backendError} onSaveCameraFollow={props.onSaveCameraFollow} v4={props.v4 === true} />}
       {tab === 'settings' && <SettingsTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} />}
     </div>
   );

@@ -55,7 +55,7 @@ const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute'] as const;
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -72,8 +72,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Bounded, read-only inspection of the project. target="project" returns counts and IDs only; ' +
       'target="entity" returns one entity (plus subtree only if includeSubtree=true); ' +
-      'target="entities" returns a paged list (limit ≤ 1024, default 100); ' +
-      'target="selection" returns the entities selected in the connected editor. Never mutates.',
+      'target="entities" returns a paged list (limit ≤ 1024, default 100; sceneId limits it to one scene, and ' +
+      'each page names every entity\'s scene in entitySceneIds); ' +
+      'target="selection" returns the entities selected in the connected editor. A project has one or more scenes ' +
+      '(one file each; target="project" lists scenes and startScenes, target="entity" names its sceneId). Never mutates.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -82,6 +84,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         includeSubtree: { type: 'boolean' },
         limit: { type: 'integer', minimum: 1, maximum: 1024 },
         offset: { type: 'integer', minimum: 0 },
+        sceneId: { type: 'string', description: 'target="entities": only this scene' },
       },
       required: ['target'],
       additionalProperties: false,
@@ -100,7 +103,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'name gets the lowest free bit, a tag still carried by an entity cannot be removed); the registry is in ' +
       'tl_inspect target="project" (tags) and each entity shows its own and effective tag names. Content ops: publishAsset, publishBehavior, ' +
       'setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
-      'instantiatePrefab. Game ops: applySurfacePreset, setGameConfig. Returns the new revision on success, ' +
+      'instantiatePrefab. Game ops: applySurfacePreset, setGameConfig. Scenes: createScene {name, sceneId?}, ' +
+      'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
+      'scenes the game starts with; the camera, player, lights and start spawn live only in start scenes). ' +
+      'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
+      'one command edits one scene and entity ids are unique across scenes. An instance set is ' +
+      'setComponent "instances" {asset:{assetId}, buffer:<sha256 of a staged buffer>, count}. Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {
@@ -226,7 +234,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_control',
     description:
-      'Submit one bounded §20 game-control command (start, replay, mute, unmute) to an explicitly presented play ' +
+      'Submit one bounded §20 game-control command (start, replay, mute, unmute, or loadScene / unloadScene with ' +
+      'sceneId - the same request a script makes with ctx.scenes) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
       'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +
@@ -237,6 +246,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         playSessionId: { type: 'string' },
         command: { type: 'string', enum: [...GAME_CONTROL_COMMANDS] },
         expectedRunId: { type: 'string' },
+        sceneId: { type: 'string', description: 'loadScene / unloadScene: the scene' },
       },
       required: ['playSessionId', 'command'],
       additionalProperties: false,
@@ -414,6 +424,10 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
     if (a.offset !== undefined) {
       if (!isInt(a.offset) || a.offset < 0) return toolError('offset must be an integer ≥ 0');
       argsOut.offset = a.offset;
+    }
+    if (a.sceneId !== undefined) {
+      if (typeof a.sceneId !== 'string' || a.sceneId.length === 0) return toolError('sceneId must be a scene id');
+      argsOut.sceneId = a.sceneId;
     }
   }
   const res = await ctx.client.command(ctx.projectId, { op, args: argsOut });
@@ -721,6 +735,12 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
       return toolError('expectedRunId must be a bounded non-empty string');
     }
     body.expectedRunId = a.expectedRunId;
+  }
+  if (a.command === 'loadScene' || a.command === 'unloadScene') {
+    if (typeof a.sceneId !== 'string' || a.sceneId.length === 0) return toolError('sceneId is required for loadScene / unloadScene');
+    body.sceneId = a.sceneId;
+  } else if (a.sceneId !== undefined) {
+    return toolError('sceneId goes with loadScene / unloadScene only');
   }
   const res = await ctx.client.gameControl(ctx.projectId, a.playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);

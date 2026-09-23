@@ -676,6 +676,10 @@ function buildService(core: Core): WorkspaceService {
     }
     publishV4(s, nextState);
     s.history = outcome.state.history;
+    // Phase 12 (c): name the edited scene (the editor files new entities under it).
+    if (outcome.result.ok && outcome.result.change.type !== 'setSceneIndex') {
+      return { ...outcome.result, sceneId: carrierId };
+    }
     return outcome.result;
   }
 

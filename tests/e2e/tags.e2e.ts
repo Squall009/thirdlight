@@ -17,7 +17,7 @@ test.afterEach(async () => {
 });
 
 const status = (page: Page) => page.locator('.tl-statusbar');
-const row = (page: Page, name: string) => page.locator('.tl-hierarchy__list li').filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
+const row = (page: Page, name: string) => page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

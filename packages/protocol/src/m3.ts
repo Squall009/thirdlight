@@ -339,7 +339,7 @@ export const CONTENT_PROJECTION_KEYS = ['assets', 'prefabs', 'behaviors', 'behav
 
 /**
  * Validate a `mutation.applied` projection frame (sessions.md §6.2/§7.1):
- * `{ requestId, revision, origin, change }`, binary-free, with a known change
+ * `{ requestId, revision, origin, change, sceneId? }`, binary-free, with a known change
  * type. The change payload itself is the command layer's (`commands.md` §5.3).
  */
 export function validateChangeFrame(value: unknown, path = ''): FieldErrorResult {
@@ -355,6 +355,8 @@ export function validateChangeFrame(value: unknown, path = ''): FieldErrorResult
       ['revision', 'integer ≥ 0'],
       ['origin', 'the command origin or null'],
       ['change', 'commands.md §5.3 change data'],
+      // Phase 12 (c): the scene a v4 edit touched.
+      ['sceneId', 'the edited scene (v4)'],
     ]),
     ['type', 'requestId', 'revision', 'change'],
   );
@@ -414,8 +416,11 @@ export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelop
 
 // ---- §20 game control and observation relay -----------------------------------
 
-/** The §20.1 control commands (closed set). */
-export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute'] as const;
+/**
+ * The §20.1 control commands (closed set). Phase 12 (c) adds `loadScene` /
+ * `unloadScene` (with `sceneId`), the same request a script's `ctx.scenes` makes.
+ */
+export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'] as const;
 export type GameControlCommand = (typeof GAME_CONTROL_COMMANDS)[number];
 
 /** §20.1 bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */
@@ -475,12 +480,16 @@ export function isRunId(v: unknown): v is string {
 export interface GameControlRequest {
   command: GameControlCommand;
   expectedRunId?: string;
+  /** Phase 12 (c): loadScene / unloadScene only. */
+  sceneId?: string;
 }
 
 const GAME_CONTROL_REQUEST_FIELDS = new Map([
   ['command', `one of: ${GAME_CONTROL_COMMANDS.join(', ')}`],
   ['expectedRunId', '<snapshotId>#<replayEpoch> (optional optimistic guard)'],
+  ['sceneId', 'the scene (loadScene / unloadScene)'],
 ]);
+const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
  * Parse the §20 control request body `{ command, expectedRunId? }` strictly
@@ -489,12 +498,21 @@ const GAME_CONTROL_REQUEST_FIELDS = new Map([
 export function parseGameControlRequest(value: unknown): { ok: true; request: GameControlRequest } | { ok: false; error: SessionError } {
   const shape = checkShape(value ?? {}, '', GAME_CONTROL_REQUEST_FIELDS, ['command']);
   if (!shape.ok) return { ok: false, error: shape.error };
-  const cmd = checkField(shape.value, 'command', '', 'one of start|replay|mute|unmute', (v) =>
+  const cmd = checkField(shape.value, 'command', '', `one of ${GAME_CONTROL_COMMANDS.join('|')}`, (v) =>
     typeof v === 'string' && (GAME_CONTROL_COMMANDS as readonly string[]).includes(v)
       ? null
-      : { problem: 'command must be one of start, replay, mute, unmute', kind: 'value' },
+      : { problem: `command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`, kind: 'value' },
   );
   if (!cmd.ok) return { ok: false, error: cmd.error };
+  const sceneCommand = cmd.value === 'loadScene' || cmd.value === 'unloadScene';
+  let sceneId: string | undefined;
+  if (sceneCommand || shape.value.sceneId !== undefined) {
+    const sid = checkField(shape.value, 'sceneId', '', 'a scene id (loadScene / unloadScene only)', (v) =>
+      !sceneCommand ? { problem: 'sceneId goes with loadScene / unloadScene only', kind: 'value' } : typeof v === 'string' && SCENE_ID_RE.test(v) ? null : { problem: 'sceneId must be a scene id', kind: 'value' },
+    );
+    if (!sid.ok) return { ok: false, error: sid.error };
+    sceneId = sid.value as string;
+  }
   let expectedRunId: string | undefined;
   if (shape.value.expectedRunId !== undefined) {
     const rid = checkField(shape.value, 'expectedRunId', '', '<snapshotId>#<replayEpoch>', (v) =>
@@ -505,7 +523,11 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
   }
   return {
     ok: true,
-    request: expectedRunId === undefined ? { command: cmd.value as GameControlCommand } : { command: cmd.value as GameControlCommand, expectedRunId },
+    request: {
+      command: cmd.value as GameControlCommand,
+      ...(expectedRunId !== undefined ? { expectedRunId } : {}),
+      ...(sceneId !== undefined ? { sceneId } : {}),
+    },
   };
 }
 
@@ -565,7 +587,7 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
     return fieldError('field_value', '/runId', 'runId must be <snapshotId>#<replayEpoch>');
   }
   if (typeof value.command !== 'string' || !(GAME_CONTROL_COMMANDS as readonly string[]).includes(value.command)) {
-    return fieldError('field_value', '/command', 'command must be one of start, replay, mute, unmute');
+    return fieldError('field_value', '/command', `command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`);
   }
   if (typeof value.state !== 'string' || !(GAME_RUN_STATES as readonly string[]).includes(value.state)) {
     return fieldError('field_value', '/state', 'state must be an accepted run state');

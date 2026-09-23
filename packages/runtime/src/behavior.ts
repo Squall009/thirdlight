@@ -36,6 +36,7 @@ import type {
   SceneV2,
 } from '@thirdlight/project-model';
 import { clipMessage } from './errors';
+import { LiveTagIndex } from './scene-set';
 import {
   BEHAVIOR_LOG_CODE,
   BEHAVIOR_LOG_LEVELS,
@@ -50,6 +51,7 @@ import {
 } from './intents';
 import type {
   BehaviorTagQuery,
+  BehaviorWorldView,
   ModuleConfig,
   RuntimeSnapshot,
   SimulationModuleSpec,
@@ -363,8 +365,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
     id: behaviorModuleId(behaviorId),
     phases: ownedTransforms.length > 0 ? ['intent', 'transform'] : ['intent'],
     create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule {
-      // Phase 12 (b): the tag query, built once from the loaded scene.
-      const tags = createTagQuery(snapshot);
+      // Phase 12 (b/c): the tag query — the runtime's live index (it follows
+      // scene loads), else one built from the snapshot.
+      const tags = cfg.tags ?? createTagQuery(snapshot);
+      // Phase 12 (c): with a scene catalog an owner may live in a scene that
+      // is not loaded yet; it is checked when its scene loads.
+      const deferOwners = snapshot.scenes !== undefined;
       // §14.6: an owner must exist, carry THIS behavior's component, and be
       // neither the camera nor a physics-bearing entity.
       const entityIds = new Set<string>();
@@ -380,7 +386,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           components.set(e.id, { behaviorId, values: c.behavior.values ?? {} });
         }
       }
-      for (const owner of ownedTransforms) {
+      const checkOwner = (owner: string): void => {
         if (cameraIds.has(owner)) {
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims the camera entity "${owner}"`, 'camera');
         }
@@ -390,6 +396,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (!entityIds.has(owner)) {
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims entity "${owner}" which does not carry this behavior`, 'not_behavior_entity');
         }
+      };
+      const presentIds = new Set(snapshot.scene.entities.map((e) => e.id));
+      for (const owner of ownedTransforms) {
+        if (deferOwners && !presentIds.has(owner)) continue;
+        checkOwner(owner);
       }
 
       // prepare: once per runtime instance, before any instance.
@@ -412,22 +423,25 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           }
         }
       };
-      for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
-        const stored = components.get(entityId)?.values ?? {};
+      const instantiateFor = (entityId: string, stored: Record<string, unknown>): BehaviorInstance => {
         const materialized = materializeBehaviorValues(declaration, stored);
-        if (!materialized.ok) {
-          disposeInstances();
-          throw materialized.error;
-        }
+        if (!materialized.ok) throw materialized.error;
         const properties = Object.freeze({ ...materialized.values });
         let state: unknown;
         try {
           state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId, properties, tags }));
         } catch (e) {
-          disposeInstances();
           throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
         }
-        instances.push({ entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Set() });
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Set() };
+      };
+      for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
+        try {
+          instances.push(instantiateFor(entityId, components.get(entityId)?.values ?? {}));
+        } catch (e) {
+          disposeInstances();
+          throw e;
+        }
       }
 
       let disposed = false;
@@ -493,7 +507,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         cfg.behaviorLog?.(level, clipped);
       };
 
-      const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
+      const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext, world: BehaviorWorldView): void => {
         beginInstanceStep(instance, ctx.stepIndex);
         const behaviorCtx = Object.freeze({
           behaviorId,
@@ -506,6 +520,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           settings: ctx.settings,
           physics: ctx.physics,
           tags,
+          world,
+          ...(ctx.scenes !== undefined ? { scenes: ctx.scenes } : {}),
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });
@@ -537,7 +553,46 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
-          for (const instance of instances) stepBehavior(instance, phase, ctx);
+          if (instances.length === 0) return;
+          const world = worldView(ctx);
+          for (const instance of instances) stepBehavior(instance, phase, ctx, world);
+        },
+        sceneLoaded(entities): void {
+          // Phase 12 (c): new carriers get their instance (document order of
+          // the loaded scene); owners that just appeared are checked.
+          const added = new Set<string>();
+          for (const e of entities) {
+            const c = e.components as { camera?: unknown; collider?: unknown; controller?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
+            if (c.camera !== undefined) cameraIds.add(e.id);
+            if (c.collider !== undefined || c.controller !== undefined) physicsIds.add(e.id);
+            if (c.behavior?.behaviorId === behaviorId) {
+              entityIds.add(e.id);
+              added.add(e.id);
+            }
+          }
+          for (const e of entities) if (ownedTransforms.includes(e.id)) checkOwner(e.id);
+          for (const e of entities) {
+            if (!added.has(e.id)) continue;
+            const values = (e.components as { behavior?: { values?: Record<string, unknown> } }).behavior?.values ?? {};
+            instances.push(instantiateFor(e.id, values));
+          }
+        },
+        sceneUnloaded(ids): void {
+          for (let i = instances.length - 1; i >= 0; i -= 1) {
+            const instance = instances[i]!;
+            if (!ids.has(instance.entityId)) continue;
+            try {
+              spec.dispose?.(readonlyResult, instance.state);
+            } catch (e) {
+              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`);
+            }
+            instances.splice(i, 1);
+          }
+          for (const id of ids) {
+            entityIds.delete(id);
+            cameraIds.delete(id);
+            physicsIds.delete(id);
+          }
         },
         dispose(): void {
           if (disposed) return;
@@ -575,57 +630,36 @@ export class BehaviorHostIntentLimit extends Error {
   }
 }
 
+/**
+ * Phase 12 (c): `ctx.world` — read-only transforms of loaded entities, as
+ * they stand at this point of the step.
+ */
+function worldView(ctx: StepContext): BehaviorWorldView {
+  const curr = ctx.state.curr;
+  return Object.freeze({
+    transform(entityId: string) {
+      const t = curr.get(entityId);
+      if (t === undefined) return undefined;
+      return Object.freeze({
+        position: Object.freeze([t.position[0], t.position[1], t.position[2]] as const),
+        rotation: Object.freeze([t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]] as const),
+        scale: Object.freeze([t.scale[0], t.scale[1], t.scale[2]] as const),
+      });
+    },
+  });
+}
+
 /** The evaluated `default` export of a compiled artifact namespace. */
 /**
  * Phase 12 (b): `ctx.tags` over the loaded (resolved) scene. The entities
  * already carry their effective masks; the registry maps names to bits.
  */
-export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery {
-  const bitByName = new Map<string, number>();
-  for (const t of snapshot.tags ?? []) bitByName.set(t.name.toLowerCase(), t.bit);
-  const masks = new Map<string, number>();
-  const order: string[] = [];
-  for (const e of snapshot.scene.entities) {
-    masks.set(e.id, ((e as { tags?: number }).tags ?? 0) >>> 0);
-    order.push(e.id);
-  }
-  const cache = new Map<string, readonly string[]>();
-  const matches = (m: number, mask: number, match: 'any' | 'all'): boolean =>
-    match === 'all' ? ((m & mask) >>> 0) === mask >>> 0 : (m & mask) !== 0;
-  const checkMatch = (match: unknown): 'any' | 'all' => {
-    if (match === undefined || match === 'any') return 'any';
-    if (match === 'all') return 'all';
-    throw new BehaviorHostError('module_error', 'behavior_tag_query_invalid', 'ctx.tags match must be "any" or "all"');
-  };
-  return Object.freeze({
-    mask(...names: string[]): number {
-      let m = 0;
-      for (const name of names) {
-        const bit = typeof name === 'string' ? bitByName.get(name.toLowerCase()) : undefined;
-        if (bit === undefined) {
-          throw new BehaviorHostError('module_error', 'behavior_tag_unknown', `ctx.tags.mask: unknown tag "${String(name)}" (known: ${[...bitByName.keys()].join(', ') || 'none'})`);
-        }
-        m = (m | (1 << bit)) >>> 0;
-      }
-      return m;
-    },
-    of(entityId: string): number {
-      return masks.get(entityId) ?? 0;
-    },
-    has(entityId: string, mask: number, match?: 'any' | 'all'): boolean {
-      return matches(masks.get(entityId) ?? 0, mask >>> 0, checkMatch(match));
-    },
-    query(mask: number, match?: 'any' | 'all'): readonly string[] {
-      const mode = checkMatch(match);
-      const key = `${mode}:${mask >>> 0}`;
-      let hit = cache.get(key);
-      if (hit === undefined) {
-        hit = Object.freeze(order.filter((id) => matches(masks.get(id) ?? 0, mask >>> 0, mode)));
-        cache.set(key, hit);
-      }
-      return hit;
-    },
-  });
+export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery & LiveTagIndex {
+  return new LiveTagIndex(
+    snapshot.tags ?? [],
+    snapshot.scene.entities as readonly { id: string; tags?: number }[],
+    (reason, message) => new BehaviorHostError('module_error', reason, message),
+  );
 }
 
 function behaviorSpecOf(namespace: unknown): BehaviorSpec {

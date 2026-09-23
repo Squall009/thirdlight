@@ -76,7 +76,12 @@ export async function buildM3Bundle(input: {
   bootstrapEntry: string;
   closure: ContentClosureM3;
 }): Promise<M2BundleResult | M2BundleFailure> {
-  const assetPaths = input.closure.assetArtifacts.map((a) => a.path);
+  // Phase 12 (c): the scene files and instance buffers are read the same way.
+  const assetPaths = [
+    ...input.closure.assetArtifacts.map((a) => a.path),
+    ...input.closure.sceneArtifacts.map((a) => a.path),
+    ...input.closure.bufferArtifacts.map((a) => a.path),
+  ];
   const plugin = {
     name: 'thirdlight-export-closure-m3',
     setup(b: {

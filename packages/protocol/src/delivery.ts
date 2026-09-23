@@ -130,6 +130,8 @@ export type LocatorPath =
   | { kind: 'asset'; contentId: string; assetId: string; version: number }
   | { kind: 'asset-digest'; contentId: string; digest: string }
   | { kind: 'behavior'; contentId: string; outputDigest: string }
+  /** Phase 12 (c): one scene of a v4 build (`scenes/<sceneId>.json`). */
+  | { kind: 'scene'; contentId: string; sceneId: string }
   | { kind: 'invalid' };
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
@@ -163,6 +165,13 @@ export function classifyLocatorPath(pathname: string): LocatorPath {
   }
   if (parts.length === 4 && parts[2] === 'content' && parts[3] === 'sha256') {
     return { kind: 'invalid' };
+  }
+  if (parts.length === 4 && parts[2] === 'scenes') {
+    const file = parts[3] as string;
+    if (!file.endsWith('.json')) return { kind: 'invalid' };
+    const sceneId = file.slice(0, -5);
+    if (!ASSET_ID_RE.test(sceneId)) return { kind: 'invalid' };
+    return { kind: 'scene', contentId, sceneId };
   }
   if (parts.length === 4 && parts[2] === 'behaviors') {
     const outputDigest = parts[3] as string;

@@ -64,7 +64,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 }
 
 const status = (page: Page) => page.locator('.tl-statusbar');
-const rows = (page: Page) => page.locator('.tl-hierarchy__list li');
+const rows = (page: Page) => page.locator('.tl-hierarchy__list li.tl-row');
 
 /** Start Play, check the asset bytes with this digest were delivered, and that something renders. */
 async function playShows(page: Page, digest: string, shot: string): Promise<void> {

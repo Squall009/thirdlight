@@ -622,7 +622,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     const relayId = `relay-${hex(16)}`;
-    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId);
+    const payload = makeGameControlRequest(relayId, parsedReq.request.command, parsedReq.request.expectedRunId, parsedReq.request.sceneId);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'control', relayId, payload, relayTimeoutMs());
     if (outcome.ok) {
       sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_control');

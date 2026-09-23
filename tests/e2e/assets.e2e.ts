@@ -22,7 +22,7 @@ test.afterEach(async () => {
 test('import → publish → isolated preview → place', async ({ page }) => {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const entitiesBefore = await page.locator('.tl-hierarchy__list li').count();
+  const entitiesBefore = await page.locator('.tl-hierarchy__list li.tl-row').count();
 
   await page.getByRole('tab', { name: 'Assets' }).click();
   await page.locator('.tl-assets__file').first().setInputFiles(join(GLB));
@@ -44,6 +44,6 @@ test('import → publish → isolated preview → place', async ({ page }) => {
 
   await page.getByRole('button', { name: 'place' }).click();
   await page.getByRole('tab', { name: 'Scene' }).click();
-  await expect(page.locator('.tl-hierarchy__list li')).toHaveCount(entitiesBefore + 1);
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: 'tiny-v1' })).toHaveCount(1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row')).toHaveCount(entitiesBefore + 1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'tiny-v1' })).toHaveCount(1);
 });

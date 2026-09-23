@@ -10,14 +10,16 @@
  */
 import { resolveSceneHierarchy, validateMergedSceneV4, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, validateTagRegistry, type TagDefinition, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
-import type { RuntimeScene, RuntimeSnapshot } from './types';
+import type { RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
 /** project-model §5.1 ID syntax (all IDs). */
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes']);
+const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
+const MAX_SNAPSHOT_SCENES = 64;
 
 /**
  * Recursively freeze (idempotent). runtime.md §2: on successful
@@ -57,6 +59,7 @@ export function validateRuntimeSnapshot(
       revision: number;
       game: GameConfig | null;
       tags: readonly TagDefinition[];
+      scenes: readonly RuntimeSceneRow[] | null;
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -272,7 +275,40 @@ export function validateRuntimeSnapshot(
     }
     tags = snap.tags as TagDefinition[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags };
+  // Phase 12 (c): the optional v4 scene catalog.
+  let scenes: readonly RuntimeSceneRow[] | null = null;
+  if (snap.scenes !== undefined) {
+    const bad = (message: string, path = '/scenes'): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path, message } });
+    if (sceneVersion !== 4) return bad('snapshot field "scenes" is v4-only');
+    if (!Array.isArray(snap.scenes) || snap.scenes.length < 1 || snap.scenes.length > MAX_SNAPSHOT_SCENES) {
+      return bad(`snapshot field "scenes" must be an array of 1..${MAX_SNAPSHOT_SCENES} scene rows`);
+    }
+    const seen = new Set<string>();
+    const members = new Set<string>();
+    let starts = 0;
+    for (let i = 0; i < snap.scenes.length; i += 1) {
+      const row = snap.scenes[i] as Record<string, unknown>;
+      const path = `/scenes/${i}`;
+      if (typeof row !== 'object' || row === null || Array.isArray(row)) return bad('a scene row must be an object', path);
+      for (const k of Object.keys(row)) if (k !== 'sceneId' && k !== 'start' && k !== 'entityIds') return bad(`unknown scene row field "${k}"`, path);
+      if (typeof row['sceneId'] !== 'string' || !SCENE_ID_RE.test(row['sceneId'])) return bad('sceneId must be a scene id', `${path}/sceneId`);
+      if (seen.has(row['sceneId'])) return bad(`duplicate scene "${row['sceneId']}"`, `${path}/sceneId`);
+      seen.add(row['sceneId']);
+      if (typeof row['start'] !== 'boolean') return bad('start must be a boolean', `${path}/start`);
+      if (row['start']) starts += 1;
+      if (row['entityIds'] !== undefined) {
+        if (!row['start']) return bad('only a start scene lists entityIds', `${path}/entityIds`);
+        if (!Array.isArray(row['entityIds']) || !row['entityIds'].every((x) => typeof x === 'string')) return bad('entityIds must be an array of entity ids', `${path}/entityIds`);
+        for (const id of row['entityIds'] as string[]) {
+          if (members.has(id)) return bad(`entity "${id}" is listed in two scenes`, `${path}/entityIds`);
+          members.add(id);
+        }
+      }
+    }
+    if (starts === 0) return bad('at least one scene must be a start scene');
+    scenes = snap.scenes as RuntimeSceneRow[];
+  }
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes };
 }
 
 function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErrorV3)[]): string {

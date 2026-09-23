@@ -1096,6 +1096,8 @@ export interface MutationSuccess {
   duplicated: false;
   /** createEntity only. */
   createdId?: string;
+  /** Phase 12 (c), v4 projects: the scene the command edited (absent for scene-index changes). */
+  sceneId?: string;
   change: ChangeData;
   /** undo/redo only: the requestId of the original forward command. */
   appliedOf?: string;

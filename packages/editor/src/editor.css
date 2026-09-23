@@ -164,6 +164,26 @@ button, input, select, textarea { font-family: inherit; }
   height: 2px; background: var(--accent); pointer-events: none; }
 .tl-row.is-drop-before::before { top: -1px; }
 .tl-row.is-drop-after::after { bottom: -1px; }
+/* Phase 12 (c): scene headers (one per open scene), the scene tools, the drag hint. */
+.tl-hierarchy__scenes { display: flex; gap: 6px; align-items: center; padding: 0 10px 6px; }
+.tl-hierarchy__scenes select { flex: 1; min-width: 0; background: var(--surface-0); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 3px 4px; }
+.tl-hierarchy__hint { margin: 0 10px 6px; padding: 4px 6px; font-size: 11px; color: var(--warn);
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-0); }
+.tl-scene-header { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; white-space: nowrap;
+  background: var(--surface-0); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent; font-weight: 600; color: var(--text-dim); position: relative; }
+.tl-scene-header.is-active { color: var(--text); border-left-color: var(--accent); }
+.tl-scene-header.is-drop { background: var(--select-bg); }
+.tl-scene-header__name { overflow: hidden; text-overflow: ellipsis; }
+.tl-scene-header__badge { font-size: 9.5px; font-weight: 500; padding: 0 5px; border-radius: 3px;
+  border: 1px solid var(--line); color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.tl-scene-header__badge--active { border-color: var(--accent); color: var(--accent); }
+.tl-scene-header__tools { margin-left: auto; display: inline-flex; gap: 2px; }
+.tl-scene-header__tools button { border: 0; background: none; color: var(--text-dim); cursor: pointer;
+  padding: 0 4px; font-size: 12px; line-height: 16px; border-radius: 3px; }
+.tl-scene-header__tools button:hover { background: var(--surface-2); color: var(--text); }
+.tl-scene-header__tools button[aria-pressed='true'] { color: var(--accent); }
 
 .tl-inspector { flex: 1; }
 .tl-inspector__modes { display: flex; gap: 6px; padding: 10px; }
@@ -545,3 +565,4 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-tags__add { display: flex; align-items: center; gap: 8px; margin: 8px 10px; }
 .tl-tags__add input { background: var(--surface-0); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; }
 .tl-inspector__tags { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.tl-field--inline { flex-direction: row; align-items: center; gap: 6px; }

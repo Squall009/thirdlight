@@ -89,4 +89,10 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
       return null; // construction refused (e.g. no device) → owner: unsupported/blocked
     }
   };
-}
+}export {
+  bufferResolver,
+  prepareSceneCatalog,
+  type ManifestBufferRow,
+  type ManifestSceneRow,
+  type SceneCatalogIo,
+} from './scene-catalog';

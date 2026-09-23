@@ -41,7 +41,7 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 test('an MCP agent inspects the selection, plays, observes, moves and captures the game', async ({ page }) => {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.locator('.tl-hierarchy__list li').filter({ hasText: 'Player' }).click();
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Player' }).click();
 
   // What is selected in the browser?
   await expect.poll(async () => ((await call('tl_inspect', { target: 'selection' })).body.entities as Array<{ name?: string }> | undefined)?.map((e) => e.name)).toEqual(['Player']);

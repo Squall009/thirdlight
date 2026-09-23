@@ -45,12 +45,16 @@ import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
+  bufferResolver,
   createGameAudioOwner,
   createGameHost,
   linkBehaviorModules,
+  prepareSceneCatalog,
   type GameHostConfig,
   type HostDomNode,
   type ManifestBehaviorRow,
+  type ManifestBufferRow,
+  type ManifestSceneRow,
 } from '@thirdlight/game-host';
 import { createSceneAdapter } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -73,6 +77,9 @@ interface ExportManifestV2 {
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
   tags?: { bit: number; name: string }[];
+  /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
+  scenes?: ManifestSceneRow[];
+  buffers?: ManifestBufferRow[];
   assets: ReadonlyArray<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number; kind: string; path: string }>;
   /** The resolved media identity (delivery.md §2.3): cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
@@ -191,6 +198,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   }
 
   const settings = manifest.settings;
+  // Phase 12 (c): the scene catalog (start scenes read once for their
+  // members; the others load on demand through the host).
+  const io = { read: readArtifactBytes, sha256Hex };
+  const catalog = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const snapshot = resolveSnapshotHierarchy({
@@ -200,6 +211,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     scene,
     game: manifest.game ?? null,
     ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
+    ...(catalog !== null ? { scenes: catalog.rows } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -207,6 +219,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // model-kind rows for the REFERENCED assetIds only; `animation` from
   // `manifest.media.animation`; `resolveBytes` = the wrapper-verified map.
   const referenced = new Set<string>();
+  // Phase 12 (c): scenes loaded later may use any model of the build.
+  if (manifest.scenes !== undefined) for (const a of manifest.assets ?? []) if (a.kind === 'model') referenced.add(a.assetId);
   for (const entity of (scene as { entities?: ReadonlyArray<{ components?: Record<string, unknown> }> }).entities ?? []) {
     // The v3 `model` component shape (project-model §18.1):
     // `components.model.asset.assetId`.
@@ -228,6 +242,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         if (buf === undefined) return Promise.reject(new Error(`no wrapper-verified bytes for ${assetId} v${version}`));
         return Promise.resolve(buf);
       },
+      ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, io) } : {}),
     };
   }
 
@@ -284,6 +299,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     input,
     audio,
     readArtifact: readArtifactBytes,
+    ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
     container,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,

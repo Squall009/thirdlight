@@ -29,6 +29,10 @@ export const ERROR_CODES = [
   'game_spawn_blocked',
   'camera_viewport_invalid',
   'game_session_unavailable',
+  // Phase 12 (c) scene set: a bad load/unload request, and a scene that could
+  // not be loaded (a diagnostic entry; the run continues without it).
+  'scene_invalid',
+  'scene_load_failed',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

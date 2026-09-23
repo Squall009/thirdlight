@@ -64,8 +64,8 @@ function fullConfig(patch: Partial<GameConfigLike> = {}): GameConfigLike {
     playerId: DRAFT.playerId,
     cameraId: DRAFT.cameraId,
     spawnId: DRAFT.spawnId,
-    level: { ...DRAFT.level },
-    killY: DRAFT.killY,
+    level: { ...DRAFT.level! },
+    killY: DRAFT.killY!,
     cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
     ...patch,
   };

@@ -33,7 +33,7 @@ test('a valid edit on disk is announced and can be loaded', async ({ page }) => 
   await expect(banner).toBeVisible({ timeout: 10_000 });
   await banner.getByRole('button', { name: 'load disk version' }).click();
   await expect(banner).toHaveCount(0);
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: 'Edited on disk' })).toHaveCount(1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Edited on disk' })).toHaveCount(1);
 });
 
 test('a corrupt edit cannot be loaded; keeping the editor version resumes editing', async ({ page }) => {
@@ -52,9 +52,9 @@ test('a corrupt edit cannot be loaded; keeping the editor version resumes editin
 
   await banner.getByRole('button', { name: 'keep editor version' }).click();
   await expect(banner).toHaveCount(0);
-  const before = await page.locator('.tl-hierarchy__list li').count();
+  const before = await page.locator('.tl-hierarchy__list li.tl-row').count();
   await createBox(page);
-  await expect(page.locator('.tl-hierarchy__list li')).toHaveCount(before + 1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row')).toHaveCount(before + 1);
 });
 
 test('a failed command from any client shows up in Problems live', async ({ page }) => {

@@ -7,10 +7,19 @@
  * - Dragging a row (or the selection it belongs to) drops it before a row
  *   (top edge), after it (bottom edge) or into it (middle): into a folder
  *   files it, into an object makes it a child. The empty list area files it
- *   at the root, at the end. World positions are kept by the command.
+ *   at the root (of its own scene), at the end. World positions are kept by
+ *   the command.
  * - Double-click renames.
  *
- * Every edit is a command issued by the app (`moveEntities`, `updateEntity`).
+ * - Phase 12 (c), several scenes: each open scene is a header with its own
+ *   tree. Clicking a header makes it the active scene (new objects go
+ *   there); the header renames (double-click), toggles "start scene",
+ *   deletes an empty scene and closes it. "New scene" and "open scene…"
+ *   sit above the list. Dragging between scenes is refused (one command
+ *   edits one scene).
+ *
+ * Every edit is a command issued by the app (`moveEntities`, `updateEntity`,
+ * the scene-index ops).
  */
 import { useEffect, useMemo, useRef, useState, type DragEvent, type JSX } from 'react';
 
@@ -19,8 +28,10 @@ import {
   dropTarget,
   dropZoneAt,
   nextSelection,
+  sceneDropAllowed,
   visibleRows,
   type DropTarget,
+  type TreeRow,
   type EffectiveEntityFlags,
 } from '../session/hierarchy';
 import type { ProjectedEntity } from '../session/projection';
@@ -36,7 +47,31 @@ interface Props {
   onSelect: (ids: string[], primary: string | null) => void;
   onRename: (id: string, name: string) => void;
   onMove: (ids: string[], parentId: string | null, beforeId: string | null) => void;
+  /** Phase 12 (c): the open scenes (absent: a single-scene project, one plain tree). */
+  scenes?: readonly SceneHeaderView[];
+  /** Phase 12 (c): the scenes that are not open in this browser. */
+  closedScenes?: readonly { sceneId: string; name: string }[];
+  onSceneAction?: (action: SceneAction) => void;
 }
+
+/** Phase 12 (c): one open scene's header. */
+export interface SceneHeaderView {
+  sceneId: string;
+  name: string;
+  start: boolean;
+  active: boolean;
+  entityCount: number;
+}
+
+/** Phase 12 (c): what the scene controls ask the app to do. */
+export type SceneAction =
+  | { kind: 'activate'; sceneId: string }
+  | { kind: 'open'; sceneId: string }
+  | { kind: 'close'; sceneId: string }
+  | { kind: 'create' }
+  | { kind: 'rename'; sceneId: string; name: string }
+  | { kind: 'delete'; sceneId: string }
+  | { kind: 'toggleStart'; sceneId: string };
 
 const DRAG_TYPE = 'application/x-thirdlight-entity';
 
@@ -54,9 +89,11 @@ function loadCollapsed(projectId: string): Set<string> {
   }
 }
 
-export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove }: Props): JSX.Element {
+export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  const [renamingScene, setRenamingScene] = useState<{ sceneId: string; draft: string } | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(projectId));
   const [drop, setDrop] = useState<{ targetId: string | null; target: DropTarget } | null>(null);
   const dragging = useRef<string[] | null>(null);
@@ -77,7 +114,21 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
     });
   };
 
-  const rows = useMemo(() => visibleRows(entities, collapsed, filter), [entities, collapsed, filter]);
+  // Phase 12 (c): one tree per open scene (a collapsed scene hides its tree).
+  const sceneTrees = useMemo(
+    () =>
+      scenes === undefined
+        ? null
+        : scenes.map((sc) => ({
+            scene: sc,
+            rows: collapsed.has(`scene:${sc.sceneId}`) ? [] : visibleRows(entities.filter((e) => e.sceneId === sc.sceneId), collapsed, filter),
+          })),
+    [scenes, entities, collapsed, filter],
+  );
+  const rows: TreeRow[] = useMemo(
+    () => (sceneTrees !== null ? sceneTrees.flatMap((t) => t.rows) : visibleRows(entities, collapsed, filter)),
+    [sceneTrees, entities, collapsed, filter],
+  );
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);
   const selected = new Set(selectedIds);
 
@@ -93,6 +144,22 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
   const endDrag = (): void => {
     dragging.current = null;
     setDrop(null);
+    setHint(null);
+  };
+  /** Phase 12 (c): a drop on a scene header files the dragged objects at that scene's root. */
+  const overScene = (ev: DragEvent<HTMLLIElement>, sceneId: string): void => {
+    if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
+    ev.stopPropagation();
+    if (!sceneDropAllowed(entities, dragging.current, sceneId)) {
+      ev.dataTransfer.dropEffect = 'none';
+      setDrop(null);
+      setHint('Objects stay in their scene: moving between scenes is not supported yet.');
+      return;
+    }
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    setHint(null);
+    setDrop({ targetId: `scene:${sceneId}`, target: { parentId: null, beforeId: null, zone: 'after' } });
   };
   const overRow = (ev: DragEvent<HTMLLIElement>, id: string): void => {
     if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
@@ -102,8 +169,11 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
     if (target === null) {
       ev.dataTransfer.dropEffect = 'none';
       setDrop(null);
+      const dragged = dragging.current;
+      if (scenes !== undefined && dragged.some((d) => byId.get(d)?.sceneId !== byId.get(id)?.sceneId)) setHint('Objects stay in their scene: moving between scenes is not supported yet.');
       return;
     }
+    setHint(null);
     ev.preventDefault();
     ev.dataTransfer.dropEffect = 'move';
     setDrop({ targetId: id, target });
@@ -122,29 +192,7 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
     return drop.target.zone === 'into' ? 'is-drop' : drop.target.zone === 'before' ? 'is-drop-before' : 'is-drop-after';
   };
 
-  return (
-    <div className="tl-panel tl-hierarchy">
-      <div className="tl-panel__title">Hierarchy</div>
-      <input
-        className="tl-hierarchy__filter"
-        placeholder="filter…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
-      <ul
-        className={drop !== null && drop.targetId === null ? 'tl-hierarchy__list is-drop-root' : 'tl-hierarchy__list'}
-        aria-label="Hierarchy"
-        onDragOver={(ev) => {
-          if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
-          ev.preventDefault();
-          setDrop({ targetId: null, target: { parentId: null, beforeId: null, zone: 'after' } });
-        }}
-        onDragLeave={(ev) => {
-          if (ev.currentTarget === ev.target) setDrop(null);
-        }}
-        onDrop={dropOn}
-      >
-        {rows.map((r) => {
+  const renderRow = (r: TreeRow): JSX.Element | null => {
           const e = byId.get(r.id);
           if (!e) return null;
           const f = flags.get(r.id);
@@ -236,7 +284,159 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
               {f?.static === true && <span className="tl-row__flag tl-row__flag--static" title="static">S</span>}
             </li>
           );
-        })}
+        };
+
+  return (
+    <div className="tl-panel tl-hierarchy">
+      <div className="tl-panel__title">Hierarchy</div>
+      <input
+        className="tl-hierarchy__filter"
+        placeholder="filter…"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      {scenes !== undefined && (
+        <div className="tl-hierarchy__scenes">
+          <button className="tl-btn" onClick={() => onSceneAction?.({ kind: 'create' })}>
+            + Scene
+          </button>
+          {closedScenes !== undefined && closedScenes.length > 0 && (
+            <select
+              aria-label="open scene"
+              value=""
+              onChange={(ev) => {
+                if (ev.target.value !== '') onSceneAction?.({ kind: 'open', sceneId: ev.target.value });
+              }}
+            >
+              <option value="">open scene…</option>
+              {closedScenes.map((c) => (
+                <option key={c.sceneId} value={c.sceneId}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+      {hint !== null && <div className="tl-hierarchy__hint" role="status">{hint}</div>}
+      <ul
+        className={drop !== null && drop.targetId === null ? 'tl-hierarchy__list is-drop-root' : 'tl-hierarchy__list'}
+        aria-label="Hierarchy"
+        onDragOver={(ev) => {
+          if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
+          // With several scenes the empty area files at the root of the scene
+          // the dragged objects live in (they must share one).
+          if (scenes !== undefined) {
+            const first = byId.get(dragging.current[0] ?? '')?.sceneId;
+            if (first === undefined || !sceneDropAllowed(entities, dragging.current, first)) return;
+          }
+          ev.preventDefault();
+          setDrop({ targetId: null, target: { parentId: null, beforeId: null, zone: 'after' } });
+        }}
+        onDragLeave={(ev) => {
+          if (ev.currentTarget === ev.target) setDrop(null);
+        }}
+        onDrop={dropOn}
+      >
+        {sceneTrees === null
+          ? rows.map(renderRow)
+          : sceneTrees.map(({ scene: sc, rows: sceneRows }) => {
+              const sceneCollapsed = collapsed.has(`scene:${sc.sceneId}`);
+              return [
+                <li
+                  key={`scene:${sc.sceneId}`}
+                  data-scene-id={sc.sceneId}
+                  aria-label={`scene ${sc.name}`}
+                  aria-current={sc.active ? 'true' : undefined}
+                  className={['tl-scene-header', sc.active ? 'is-active' : '', dropClass(`scene:${sc.sceneId}`)].join(' ').trim()}
+                  onClick={() => onSceneAction?.({ kind: 'activate', sceneId: sc.sceneId })}
+                  onDragOver={(ev) => overScene(ev, sc.sceneId)}
+                  onDrop={dropOn}
+                >
+                  <button
+                    className="tl-row__twisty"
+                    aria-label={sceneCollapsed ? `expand scene ${sc.name}` : `collapse scene ${sc.name}`}
+                    aria-expanded={!sceneCollapsed}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      toggleCollapsed(`scene:${sc.sceneId}`);
+                    }}
+                  >
+                    {sceneCollapsed ? '▸' : '▾'}
+                  </button>
+                  {renamingScene?.sceneId === sc.sceneId ? (
+                    <input
+                      className="tl-row__rename"
+                      aria-label="rename scene"
+                      autoFocus
+                      value={renamingScene.draft}
+                      onClick={(ev) => ev.stopPropagation()}
+                      onChange={(ev) => setRenamingScene({ sceneId: sc.sceneId, draft: ev.target.value })}
+                      onBlur={() => {
+                        const name = renamingScene.draft.trim();
+                        if (name !== '' && name !== sc.name) onSceneAction?.({ kind: 'rename', sceneId: sc.sceneId, name });
+                        setRenamingScene(null);
+                      }}
+                      onKeyDown={(ev) => {
+                        if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur();
+                        if (ev.key === 'Escape') setRenamingScene(null);
+                      }}
+                    />
+                  ) : (
+                    <span
+                      className="tl-scene-header__name"
+                      title={sc.sceneId}
+                      onDoubleClick={(ev) => {
+                        ev.stopPropagation();
+                        setRenamingScene({ sceneId: sc.sceneId, draft: sc.name });
+                      }}
+                    >
+                      {sc.name}
+                    </span>
+                  )}
+                  {sc.active && <span className="tl-scene-header__badge tl-scene-header__badge--active">active</span>}
+                  {sc.start && <span className="tl-scene-header__badge">start</span>}
+                  <span className="tl-scene-header__tools">
+                    <button
+                      aria-label={`start scene ${sc.name}`}
+                      aria-pressed={sc.start}
+                      title={sc.start ? 'The game starts with this scene (click to remove it from the start set)' : 'Add to the scenes the game starts with'}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onSceneAction?.({ kind: 'toggleStart', sceneId: sc.sceneId });
+                      }}
+                    >
+                      ★
+                    </button>
+                    {sc.entityCount === 0 && (
+                      <button
+                        aria-label={`delete scene ${sc.name}`}
+                        title="Delete this empty scene"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          onSceneAction?.({ kind: 'delete', sceneId: sc.sceneId });
+                        }}
+                      >
+                        🗑
+                      </button>
+                    )}
+                    {scenes !== undefined && scenes.length > 1 && (
+                      <button
+                        aria-label={`close scene ${sc.name}`}
+                        title="Close (hide) this scene in this browser"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          onSceneAction?.({ kind: 'close', sceneId: sc.sceneId });
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                </li>,
+                ...sceneRows.map(renderRow),
+              ];
+            })}
         {rows.length === 0 && <li className="tl-row tl-row--empty">no entities</li>}
       </ul>
     </div>

@@ -70,6 +70,14 @@ export {
   type GameEventKind,
   type GameSessionPort,
   type BehaviorTagQuery,
+  type BehaviorSceneControl,
+  type BehaviorWorldView,
+  type LoadedSceneBatch,
+  type RuntimeSceneRow,
+  type SceneLoadOptions,
+  type SceneLoadRequest,
+  type SceneSetView,
+  type SceneStatus,
   type GameView,
   type GameZoneRole,
   type GameplaySettings,
@@ -159,3 +167,4 @@ export {
 export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
+export { sceneEntitiesFromDocument } from './scene-set';

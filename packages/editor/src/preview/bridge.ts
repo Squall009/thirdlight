@@ -157,9 +157,9 @@ export class Bridge {
   }
 
   /** Forward a game control command (editor side, §20.1). */
-  requestGameControl(playSessionId: string, relayId: string, command: string): void {
+  requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string): void {
     if (this.direction !== 'editor') throw new Error('requestGameControl is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command });
+    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}) });
   }
 
   /** Request a game observation (editor side, §20.1). */

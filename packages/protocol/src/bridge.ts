@@ -200,13 +200,18 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
     }
     case 'tl.game.control':
     case 'tl.game.observe': {
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command'] : ['v', 'type', 'playSessionId', 'relayId'];
+      // Phase 12 (c): loadScene / unloadScene carry the scene id.
+      const sceneCommand = m['command'] === 'loadScene' || m['command'] === 'unloadScene';
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : [])] : ['v', 'type', 'playSessionId', 'relayId'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
-      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute'].includes(String(m['command']))) {
-        return { ok: false, reason: 'command must be start, replay, mute or unmute', path: '/command' };
+      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'].includes(String(m['command']))) {
+        return { ok: false, reason: 'command must be start, replay, mute, unmute, loadScene or unloadScene', path: '/command' };
+      }
+      if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
+        return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
       }
       return { ok: true };
     }

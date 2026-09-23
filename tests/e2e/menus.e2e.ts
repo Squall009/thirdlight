@@ -16,7 +16,7 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-const rows = (page: Page) => page.locator('.tl-hierarchy__list li:not(.tl-row--empty)');
+const rows = (page: Page) => page.locator('.tl-hierarchy__list li.tl-row:not(.tl-row--empty)');
 async function open(page: Page): Promise<number> {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

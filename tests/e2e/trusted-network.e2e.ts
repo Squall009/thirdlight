@@ -25,9 +25,9 @@ test('a browser on a trusted network is never asked for the token', async ({ pag
   await expect(page.getByLabel('Access token')).toHaveCount(0);
   await page.goto(`${be.origin}/?project=home-0001`);
   await expect(status(page)).toContainText('connected');
-  const before = await page.locator('.tl-hierarchy__list li').count();
+  const before = await page.locator('.tl-hierarchy__list li.tl-row').count();
   await createBox(page);
-  await expect(page.locator('.tl-hierarchy__list li')).toHaveCount(before + 1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row')).toHaveCount(before + 1);
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(page.getByLabel('Access token')).toHaveCount(0);

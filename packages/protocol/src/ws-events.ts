@@ -185,9 +185,10 @@ export function makeInputRelayRequest(
  * §20.1 control request forwarded to the owner editor (packet-42 §7.1 row;
  * this catalog's M1 set predates §20). Never carries bytes or a capability.
  */
-export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string): string {
+export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string): string {
   const obj: Record<string, unknown> = { type: 'game.control.request', relayId, command };
   if (expectedRunId !== undefined) obj.expectedRunId = expectedRunId;
+  if (sceneId !== undefined) obj.sceneId = sceneId;
   return emit(obj);
 }
 

@@ -14,7 +14,7 @@
  * refuse an unsupported transform instead of silently flattening it
  * (physics.md §4).
  */
-import type { CharacterClearanceResult, CharacterMoveResult, PhysicsResetPort, Vec2 } from '@thirdlight/runtime';
+import type { CharacterClearanceResult, CharacterMoveResult, PhysicsResetPort, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 /** Validated collider shape vocabulary (project-model §10.7/§21.3). */
 export interface ColliderShapeBox {
@@ -105,6 +105,9 @@ export interface RapierPhysicsPort extends PhysicsResetPort {
   placeCharacter(center: Vec2): CharacterClearanceResult;
   /** M3 (gameplay.md §5.2): query-only clearance of the capsule if placed at `center`. */
   characterClearance(center: Vec2): CharacterClearanceResult;
+  /** Phase 12 (c): the static colliders of a loaded / unloaded scene. */
+  addStaticColliders(specs: readonly StaticColliderSpec[]): void;
+  removeStaticColliders(entityIds: readonly string[]): void;
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }

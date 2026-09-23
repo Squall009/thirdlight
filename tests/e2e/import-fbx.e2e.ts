@@ -107,7 +107,7 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   expect(readFileSync(join(game, 'thirdlight', 'sources', 'sha256', blobs[0]!)).subarray(0, 4).toString()).toBe('glTF');
   await page.getByRole('button', { name: 'place' }).click();
   await page.getByRole('tab', { name: 'Scene' }).click();
-  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: 'crate' })).toHaveCount(1);
+  await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'crate' })).toHaveCount(1);
   await page.waitForTimeout(1000);
   await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '1-editor.png') });
 

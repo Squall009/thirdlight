@@ -16,7 +16,7 @@ test.afterEach(async () => {
 });
 
 const status = (page: import('@playwright/test').Page) => page.locator('.tl-statusbar');
-const rows = (page: import('@playwright/test').Page) => page.locator('.tl-hierarchy__list li');
+const rows = (page: import('@playwright/test').Page) => page.locator('.tl-hierarchy__list li.tl-row');
 
 test('token once, then pick a project or create one from a template', async ({ page }) => {
   // No token yet: the token form, not the picker.

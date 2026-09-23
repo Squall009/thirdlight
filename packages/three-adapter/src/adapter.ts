@@ -32,6 +32,7 @@ import { adapterError, type AdapterError } from './errors';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
 import {
   createModelsRealization,
+  type InstanceSetRef,
   type ModelsRealization,
   type ModelsSettledResult,
   type SceneAdapterModelAsset,
@@ -150,6 +151,36 @@ interface OwnedResources {
   renderer: THREE.WebGLRenderer | null;
 }
 
+/** Phase 12 (c): the half extent (m) of the camera-following shadow square of a v4 game. */
+const SHADOW_FOLLOW_HALF = 24;
+
+/** The model, animation and instance-set references of some entities (structural reads). */
+function modelRefsOf(entities: readonly { id: string; components: unknown }[]): {
+  models: Map<string, string>;
+  animations: Map<string, { readonly assetId: string; readonly version: number }>;
+  instances: Map<string, InstanceSetRef>;
+} {
+  const models = new Map<string, string>();
+  const animations = new Map<string, { readonly assetId: string; readonly version: number }>();
+  const instances = new Map<string, InstanceSetRef>();
+  for (const e of entities) {
+    const comps = e.components as {
+      model?: { asset?: { assetId?: unknown } };
+      modelAnimation?: { assetId?: unknown; version?: unknown };
+      instances?: { asset?: { assetId?: unknown }; buffer?: unknown; count?: unknown };
+    };
+    if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') models.set(e.id, comps.model.asset.assetId);
+    if (comps.modelAnimation !== undefined && typeof comps.modelAnimation.assetId === 'string' && Number.isInteger(comps.modelAnimation.version)) {
+      animations.set(e.id, { assetId: comps.modelAnimation.assetId, version: comps.modelAnimation.version as number });
+    }
+    const inst = comps.instances;
+    if (inst !== undefined && typeof inst.asset?.assetId === 'string' && typeof inst.buffer === 'string' && Number.isInteger(inst.count)) {
+      instances.set(e.id, { assetId: inst.asset.assetId, buffer: inst.buffer, count: inst.count as number });
+    }
+  }
+  return { models, animations, instances };
+}
+
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
   const objects = new Map<string, THREE.Object3D>();
@@ -165,8 +196,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const gameBlock = opts.snapshot.game;
   /** The §41.1.3 input bounds; required on every runtime-validated v3
    *  snapshot (`game.level`). The null fallback below is defensive only. */
-  const level: ShadowLevel | null =
+  const authoredLevel: ShadowLevel | null =
     isV3 && gameBlock !== null && gameBlock !== undefined ? (gameBlock.level ?? null) : null;
+  // Phase 12 (c): a v4 game has no level bounds; the shadow region is a
+  // fixed square that follows the camera (planned here around its start).
+  const followShadow = isV3 && authoredLevel === null;
+  const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
+  const level: ShadowLevel | null = followShadow
+    ? { minX: startCamera[0] - SHADOW_FOLLOW_HALF, maxX: startCamera[0] + SHADOW_FOLLOW_HALF, minY: startCamera[1] - SHADOW_FOLLOW_HALF, maxY: startCamera[1] + SHADOW_FOLLOW_HALF }
+    : authoredLevel;
   const authoredLights: AuthoredLight[] = [];
   if (isV3) {
     for (const e of sceneDoc.entities) {
@@ -202,9 +240,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
 
   // --- scene graph construction (fixed M1 table; read-only over the
   // --- (deep-frozen, normalized) snapshot) ---------------------------------
-  for (const e of opts.snapshot.scene.entities) {
+  /** Phase 12 (c): each entity's own GPU resources (released when its scene unloads). */
+  const entityResources = new Map<string, { geometries: THREE.BufferGeometry[]; materials: THREE.Material[] }>();
+  /** Phase 12 (c): the documents of every realized entity (the loaded scenes). */
+  const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
+  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
     const t = e.components.transform;
     let obj: THREE.Object3D;
+    const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[] } = { geometries: [], materials: [] };
     const box = e.components.box;
     const cam = e.components.camera;
     if (box) {
@@ -227,8 +270,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             emissiveIntensity: surface.emissiveIntensity,
           })
         : new THREE.MeshLambertMaterial({ color: new THREE.Color(box.material.color) });
-      owned.geometries.push(geometry);
-      owned.materials.push(material);
+      own.geometries.push(geometry);
+      own.materials.push(material);
       obj = new THREE.Mesh(geometry, material);
     } else if (cam) {
       // The single M1 camera (project-model §10.3). Aspect is a
@@ -239,10 +282,25 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj = new THREE.Group();
     }
     objects.set(e.id, obj);
+    entityDocs.set(e.id, e);
+    if (own.geometries.length > 0) entityResources.set(e.id, own);
     const parent = e.parentId ? objects.get(e.parentId) : undefined;
     (parent ?? scene).add(obj);
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
-  }
+  };
+  const releaseEntity = (id: string): void => {
+    const obj = objects.get(id);
+    obj?.removeFromParent();
+    objects.delete(id);
+    entityDocs.delete(id);
+    const own = entityResources.get(id);
+    if (own !== undefined) {
+      for (const g of own.geometries) g.dispose();
+      for (const m of own.materials) m.dispose();
+      entityResources.delete(id);
+    }
+  };
+  for (const e of opts.snapshot.scene.entities) realizeEntity(e);
   if (!camera) {
     // Unreachable for a runtime-validated snapshot (validateScene
     // guarantees exactly one camera) — fail closed anyway.
@@ -308,18 +366,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (opts.models !== undefined) {
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
     // the adapter never re-validates (the runtime already did).
-    const modelEntities = new Map<string, string>();
-    const modelAnimationEntities = new Map<string, { readonly assetId: string; readonly version: number }>();
-    for (const e of opts.snapshot.scene.entities) {
-      const comps = e.components as { model?: { asset?: { assetId?: unknown } }; modelAnimation?: { assetId?: unknown; version?: unknown } };
-      if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
-        modelEntities.set(e.id, comps.model.asset.assetId);
-      }
-      if (comps.modelAnimation !== undefined && typeof comps.modelAnimation.assetId === 'string') {
-        const version = comps.modelAnimation.version;
-        if (Number.isInteger(version)) modelAnimationEntities.set(e.id, { assetId: comps.modelAnimation.assetId, version: version as number });
-      }
-    }
+    const { models: modelEntities, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
     const playerId = isV3 && opts.snapshot.game !== null && opts.snapshot.game !== undefined
       ? (opts.snapshot.game as { playerId?: unknown }).playerId
       : undefined;
@@ -361,6 +408,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       loader: opts.modelsLoader,
       modelEntities,
       modelAnimationEntities,
+      instanceEntities,
+      ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,
     });
@@ -482,7 +531,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // when the checkpoint is no longer active (e.g. a replay).
   let shownCheckpoint: string | null = null;
   const activationOf = (id: string): { emissive: string; emissiveIntensity: number } | null => {
-    const e = opts.snapshot.scene.entities.find((x) => x.id === id);
+    const e = entityDocs.get(id);
     const act = (e?.components as { gameZone?: { activation?: { emissive?: unknown; emissiveIntensity?: unknown } } } | undefined)?.gameZone?.activation;
     if (act === undefined || typeof act.emissive !== 'string') return null;
     return { emissive: act.emissive, emissiveIntensity: typeof act.emissiveIntensity === 'number' ? act.emissiveIntensity : 1 };
@@ -523,6 +572,54 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     shownCheckpoint = active;
   };
 
+  // --- Phase 12 (c): follow the runtime's scene set ------------------------
+  /** Scenes realized so far (the start scenes came with the snapshot). */
+  const realizedScenes = new Map<string, ReadonlySet<string>>();
+  let realizedRevision = -1;
+  {
+    const set = opts.runtime.sceneSet?.();
+    if (set !== undefined) {
+      for (const b of set.batches) realizedScenes.set(b.sceneId, new Set(b.entities.map((e) => e.id)));
+      realizedRevision = set.revision;
+    }
+  }
+  function syncSceneSet(): void {
+    const set = opts.runtime.sceneSet?.();
+    if (set === undefined || set.revision === realizedRevision) return;
+    realizedRevision = set.revision;
+    const live = new Set(set.batches.map((b) => b.sceneId));
+    for (const [sceneId, ids] of [...realizedScenes]) {
+      if (live.has(sceneId)) continue;
+      realization?.removeEntities(ids);
+      if (shownCheckpoint !== null && ids.has(shownCheckpoint)) shownCheckpoint = null;
+      // Children before parents (reverse document order).
+      for (const id of [...ids].reverse()) releaseEntity(id);
+      realizedScenes.delete(sceneId);
+    }
+    for (const b of set.batches) {
+      if (realizedScenes.has(b.sceneId)) continue;
+      const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
+      for (const e of entities) realizeEntity(e);
+      realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
+      realization?.addEntities(modelRefsOf(entities));
+    }
+  }
+
+  /** v4: the shadow square follows the camera, snapped to whole shadow texels (no shimmer). */
+  function followCameraShadow(): void {
+    if (camera === null || keyLights.length === 0) return;
+    const texel = (2 * keyPlan.halfExtent) / SHADOW_PROFILE.mapSize;
+    const cx = Math.round(camera.position.x / texel) * texel;
+    const cy = Math.round(camera.position.y / texel) * texel;
+    const dir = keyLight?.direction ?? [0, -1, 0];
+    const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    for (const light of keyLights) {
+      light.target.position.set(cx, cy, 0);
+      light.position.set(cx - (dir[0] / n) * SHADOW_PROFILE.distance, cy - (dir[1] / n) * SHADOW_PROFILE.distance, -(dir[2] / n) * SHADOW_PROFILE.distance);
+      light.target.updateMatrixWorld();
+    }
+  }
+
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
     if (contextLost) {
@@ -544,6 +641,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         error: adapterError('render_failed', `runtime state unavailable: ${st.error.message}`),
       };
     }
+    syncSceneSet();
     // Transform synchronization: copy the interpolated values into the
     // Object3Ds (no other transform math — §6).
     for (const tr of st.state.transforms) {
@@ -610,6 +708,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
       }
     }
+    if (followShadow) followCameraShadow();
     const [w, h] = canvasSize();
     renderer.setSize(w, h, false);
     camera!.aspect = w / h;
@@ -724,6 +823,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     contextListenerReleases.length = 0;
     contextLost = false;
+    for (const own of entityResources.values()) {
+      for (const g of own.geometries) {
+        try { g.dispose(); } catch { /* best effort */ }
+      }
+      for (const m of own.materials) {
+        try { m.dispose(); } catch { /* best effort */ }
+      }
+    }
+    entityResources.clear();
+    entityDocs.clear();
     for (const g of owned.geometries) {
       try { g.dispose(); } catch { /* best effort */ }
     }

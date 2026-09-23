@@ -22,7 +22,7 @@ export interface SessionRoutesContext {
   readonly workspaceError: (e: CommandError) => SessionError;
   readonly sessionView: (s: SessionRecord) => SessionView;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
-  readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown) => void;
+  readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
@@ -173,7 +173,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       const result = service.runCommand(env);
       if (result.ok) {
         if (result.duplicated === false) {
-          notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change);
+          notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
           if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         }
         sendJson(res, 200, result);

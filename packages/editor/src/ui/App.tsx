@@ -80,7 +80,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
-import { Hierarchy } from './Hierarchy';
+import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -104,6 +104,20 @@ interface UiError {
 }
 
 /** The bounded backend error for a failed command (the panels explain it, never lose it). */
+
+/** Poll `get` each animation frame (up to ~2 s) until it yields a value (phase 12 c: a change arriving over the socket). */
+function waitFor<T>(get: () => T | null): Promise<T | null> {
+  return new Promise((resolve) => {
+    const started = performance.now();
+    const tick = (): void => {
+      const v = get();
+      if (v !== null || performance.now() - started > 2000) resolve(v);
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
 function commandError(res: { response: MutationResponse }): GameplayBackendError {
   const r = res.response;
   if (r.ok) return { code: 'unexpected_response', message: 'unexpected response shape' };
@@ -241,7 +255,7 @@ function EditorApp(): JSX.Element {
       if (type === 'screenshot.request') b.requestScreenshot(psid, String(req.relayId), typeof req.maxWidth === 'number' ? req.maxWidth : undefined);
       else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId));
       else if (type === 'input.request') b.requestInput(psid, String(req.requestId), req.frames as never);
-      else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command));
+      else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command), typeof req.sceneId === 'string' ? req.sceneId : undefined);
       else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId));
     };
   }, [playInfo]);
@@ -254,6 +268,9 @@ function EditorApp(): JSX.Element {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   /** Phase 12 (b): the project tag registry and the last setTags error. */
   const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
+  /** Phase 12 (c): the open scenes' headers and the closed scenes (a v4 project with scenes). */
+  const [sceneHeaders, setSceneHeaders] = useState<SceneHeaderView[] | null>(null);
+  const [closedScenes, setClosedScenes] = useState<{ sceneId: string; name: string }[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
   const zoneGestureRef = useRef<{ gesture: ZoneGesture; anchor: { x: number; y: number }; tool: ZoneTool | null } | null>(null);
 
@@ -347,7 +364,20 @@ function EditorApp(): JSX.Element {
   const refreshEntities = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
-    setEntities([...c.projection.listEntities()]);
+    setEntities(c.visibleEntities());
+    // Phase 12 (c): the scene headers (open scenes) and the closed scenes.
+    const scenes = c.projection.scenes;
+    if (scenes.length === 0) {
+      setSceneHeaders(null);
+      setClosedScenes([]);
+    } else {
+      const view = c.getSceneView();
+      const counts = new Map<string, number>();
+      for (const e of c.projection.listEntities()) if (e.sceneId !== undefined) counts.set(e.sceneId, (counts.get(e.sceneId) ?? 0) + 1);
+      const start = new Set(c.projection.startScenes);
+      setSceneHeaders(scenes.filter((r) => view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name, start: start.has(r.sceneId), active: r.sceneId === view.active, entityCount: counts.get(r.sceneId) ?? 0 })));
+      setClosedScenes(scenes.filter((r) => !view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name })));
+    }
     const assetList = c.content.listAssets();
     setAssets(assetList);
     setAssetQuery((q) => ({ ...q, total: Math.max(q.total, assetList.length) }));
@@ -420,7 +450,7 @@ function EditorApp(): JSX.Element {
         // (an accepted commit arrives as mutation.applied and refreshes it).
         const restore = (): void => {
           refreshEntities();
-          viewport.syncEntities([...client.projection.listEntities()]);
+          viewport.syncEntities(client.visibleEntities());
         };
         if (!g) return restore();
         g.setLocal(transform);
@@ -964,6 +994,52 @@ function EditorApp(): JSX.Element {
     // Dropping something where it already is changes nothing; not an error.
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);
+  }, [reportFailure]);
+  /** Phase 12 (c): the scene controls (headers, new/open) — index ops are commands, open/active are local. */
+  const sceneAction = useCallback(async (action: SceneAction) => {
+    const c = clientRef.current;
+    if (!c) return;
+    switch (action.kind) {
+      case 'activate':
+        c.setActiveScene(action.sceneId);
+        return;
+      case 'open':
+        c.setSceneOpen(action.sceneId, true);
+        return;
+      case 'close':
+        c.setSceneOpen(action.sceneId, false);
+        return;
+      case 'create': {
+        const taken = new Set(c.projection.scenes.map((r) => r.name));
+        let n = c.projection.scenes.length + 1;
+        while (taken.has(`Scene ${n}`)) n += 1;
+        const before = new Set(c.projection.scenes.map((r) => r.sceneId));
+        const res = await c.command('createScene', { name: `Scene ${n}` }, c.projection.revision);
+        reportFailure('New scene', res);
+        if (res.ok) {
+          // The index arrives with mutation.applied; activate the new scene once it is there.
+          const created = await waitFor(() => c.projection.scenes.find((r) => !before.has(r.sceneId))?.sceneId ?? null);
+          if (created !== null) c.setActiveScene(created);
+        }
+        return;
+      }
+      case 'rename':
+        reportFailure('Rename scene', await c.command('renameScene', { sceneId: action.sceneId, name: action.name }, c.projection.revision));
+        return;
+      case 'delete':
+        reportFailure('Delete scene', await c.command('deleteScene', { sceneId: action.sceneId }, c.projection.revision));
+        return;
+      case 'toggleStart': {
+        const start = c.projection.startScenes;
+        const next = start.includes(action.sceneId) ? start.filter((id) => id !== action.sceneId) : [...start, action.sceneId];
+        if (next.length === 0) {
+          setNotice('The game needs at least one start scene.');
+          return;
+        }
+        reportFailure('Start scenes', await c.command('setStartScenes', { sceneIds: next }, c.projection.revision));
+        return;
+      }
+    }
   }, [reportFailure]);
   /** Phase 12 (b): replace the tag registry (one setTags command). */
   const saveTags = useCallback(async (next: { bit?: number; name: string }[]) => {
@@ -2129,6 +2205,7 @@ function EditorApp(): JSX.Element {
           onSelect={(ids, primary) => setSelection({ ids, primary })}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId) => void move(ids, parentId, beforeId)}
+          {...(sceneHeaders !== null ? { scenes: sceneHeaders, closedScenes, onSceneAction: (a: SceneAction) => void sceneAction(a) } : {})}
         />
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
@@ -2296,6 +2373,7 @@ function EditorApp(): JSX.Element {
           )}
           {bottomTab === 'gameplay' && (
             <GameplayPanel
+              v4={sceneHeaders !== null}
               entities={entities}
               gameConfig={gameConfig}
               gameConfigLoaded={gameConfigLoaded}

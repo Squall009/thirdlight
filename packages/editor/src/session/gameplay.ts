@@ -143,8 +143,9 @@ export interface GameConfigDraft {
   playerId: string;
   cameraId: string;
   spawnId: string;
-  level: { minX: number; maxX: number; minY: number; maxY: number };
-  killY: number;
+  /** v3 only (phase 12 c: a v4 game has no level bounds or kill height — falls are script rules). */
+  level?: { minX: number; maxX: number; minY: number; maxY: number };
+  killY?: number;
 }
 
 /** The form's raw string fields (the panel's controlled inputs). */
@@ -179,6 +180,7 @@ function hasControlChars(s: string): boolean {
  */
 export function parseGameConfigForm(
   form: GameConfigForm,
+  opts: { level: boolean } = { level: true },
 ): { ok: true; draft: GameConfigDraft } | { ok: false; errors: GameConfigFieldError[] } {
   const errors: GameConfigFieldError[] = [];
   for (const field of ['title', 'objective', 'instructions'] as const) {
@@ -194,7 +196,7 @@ export function parseGameConfigForm(
     }
   }
   const nums: Record<'minX' | 'maxX' | 'minY' | 'maxY' | 'killY', number | null> = { minX: null, maxX: null, minY: null, maxY: null, killY: null };
-  for (const field of ['minX', 'maxX', 'minY', 'maxY', 'killY'] as const) {
+  for (const field of opts.level ? (['minX', 'maxX', 'minY', 'maxY', 'killY'] as const) : []) {
     const raw = form[field];
     const n = Number(raw);
     if (raw.trim() === '' || !Number.isFinite(n)) {
@@ -225,8 +227,7 @@ export function parseGameConfigForm(
       playerId: form.playerId,
       cameraId: form.cameraId,
       spawnId: form.spawnId,
-      level: { minX: minX!, maxX: maxX!, minY: minY!, maxY: maxY! },
-      killY: killY!,
+      ...(opts.level ? { level: { minX: minX!, maxX: maxX!, minY: minY!, maxY: maxY! }, killY: killY! } : {}),
     },
   };
 }
@@ -279,15 +280,15 @@ export function planSetGameConfig(
       kind: 'commit',
       args: {
         game: {
-          configVersion: 1,
+          // v3 carries level + killY (configVersion 1); v4 has neither (configVersion 2).
+          configVersion: draft.level !== undefined ? 1 : 2,
           title: draft.title,
           objective: draft.objective,
           instructions: draft.instructions,
           playerId: draft.playerId,
           cameraId: draft.cameraId,
           spawnId: draft.spawnId,
-          level: { ...draft.level },
-          killY: draft.killY,
+          ...(draft.level !== undefined ? { level: { ...draft.level }, killY: draft.killY } : {}),
           cues: { start: null, jump: null, checkpoint: null, death: null, goal: null },
         },
       },
@@ -301,10 +302,11 @@ export function planSetGameConfig(
   if (current.cameraId !== draft.cameraId) game['cameraId'] = draft.cameraId;
   if (current.spawnId !== draft.spawnId) game['spawnId'] = draft.spawnId;
   const l = current.level;
-  if (l.minX !== draft.level.minX || l.maxX !== draft.level.maxX || l.minY !== draft.level.minY || l.maxY !== draft.level.maxY) {
-    game['level'] = { ...draft.level };
+  const d = draft.level;
+  if (d !== undefined && (l === undefined || l.minX !== d.minX || l.maxX !== d.maxX || l.minY !== d.minY || l.maxY !== d.maxY)) {
+    game['level'] = { ...d };
   }
-  if (current.killY !== draft.killY) game['killY'] = draft.killY;
+  if (draft.killY !== undefined && current.killY !== draft.killY) game['killY'] = draft.killY;
   if (Object.keys(game).length === 0) return { kind: 'noop' };
   return { kind: 'commit', args: { game } };
 }
@@ -316,15 +318,16 @@ export function planSetGameConfig(
  * block arrives over the wire (the client never trusts its own types).
  */
 export interface GameConfigLike {
-  configVersion: 1;
+  /** 1: v3 (level + killY); 2: v4 (neither). */
+  configVersion: 1 | 2;
   title: string;
   objective: string;
   instructions: string;
   playerId: string;
   cameraId: string;
   spawnId: string;
-  level: { minX: number; maxX: number; minY: number; maxY: number };
-  killY: number;
+  level?: { minX: number; maxX: number; minY: number; maxY: number };
+  killY?: number;
   cues: { start: string | null; jump: string | null; checkpoint: string | null; death: string | null; goal: string | null };
 }
 
@@ -515,7 +518,8 @@ export const CAMERA_FOLLOW_BOUNDS = { absMax: 1e6, minSpan: 1e-6 } as const;
 export interface CameraFollowDraft {
   deadZone: { x: number; y: number };
   smoothing: number;
-  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  /** Absent: the camera follows anywhere (v4). */
+  bounds?: { minX: number; maxX: number; minY: number; maxY: number };
 }
 
 export interface CameraFollowForm {
@@ -536,6 +540,7 @@ export interface CameraFollowFieldError {
 /** Parse + preflight the camera-follow form (the §23.3.3 bounds). */
 export function parseCameraFollowForm(
   form: CameraFollowForm,
+  opts: { bounded: boolean } = { bounded: true },
 ): { ok: true; draft: CameraFollowDraft } | { ok: false; errors: CameraFollowFieldError[] } {
   const errors: CameraFollowFieldError[] = [];
   const num = (field: string, raw: string, check: (n: number) => boolean, what: string): number | null => {
@@ -551,10 +556,11 @@ export function parseCameraFollowForm(
   const dx = num('deadZoneX', form.deadZoneX, (n) => n >= 0 && n <= abs, `0 <= v <= ${abs}`);
   const dy = num('deadZoneY', form.deadZoneY, (n) => n >= 0 && n <= abs, `0 <= v <= ${abs}`);
   const sm = num('smoothing', form.smoothing, (n) => n >= 0 && n <= 1, '0 <= v <= 1');
-  const minX = num('minX', form.minX, (n) => Math.abs(n) <= abs, `|v| <= ${abs}`);
-  const maxX = num('maxX', form.maxX, (n) => Math.abs(n) <= abs, `|v| <= ${abs}`);
-  const minY = num('minY', form.minY, (n) => Math.abs(n) <= abs, `|v| <= ${abs}`);
-  const maxY = num('maxY', form.maxY, (n) => Math.abs(n) <= abs, `|v| <= ${abs}`);
+  const bnum = (field: string, raw: string): number | null => (opts.bounded ? num(field, raw, (n) => Math.abs(n) <= abs, `|v| <= ${abs}`) : null);
+  const minX = bnum('minX', form.minX);
+  const maxX = bnum('maxX', form.maxX);
+  const minY = bnum('minY', form.minY);
+  const maxY = bnum('maxY', form.maxY);
   if (minX !== null && maxX !== null && (!(minX < maxX) || maxX - minX < span)) {
     errors.push({ field: 'bounds', message: `bounds must satisfy minX < maxX and maxX - minX >= ${span}` });
   }
@@ -567,7 +573,7 @@ export function parseCameraFollowForm(
     draft: {
       deadZone: { x: dx!, y: dy! },
       smoothing: sm!,
-      bounds: { minX: minX!, maxX: maxX!, minY: minY!, maxY: maxY! },
+      ...(opts.bounded ? { bounds: { minX: minX!, maxX: maxX!, minY: minY!, maxY: maxY! } } : {}),
     },
   };
 }
@@ -595,7 +601,7 @@ export function planSetCameraFollow(
         value: {
           deadZone: { ...draft.deadZone },
           smoothing: draft.smoothing,
-          bounds: { ...draft.bounds },
+          ...(draft.bounds !== undefined ? { bounds: { ...draft.bounds } } : {}),
         },
       },
     };
@@ -608,6 +614,8 @@ export function planSetCameraFollow(
   const b = current.bounds;
   const d = draft.bounds;
   if (d !== undefined && (b === undefined || b.minX !== d.minX || b.maxX !== d.maxX || b.minY !== d.minY || b.maxY !== d.maxY)) value['bounds'] = { ...d };
+  // Phase 12 (c): `null` removes the bounds (the camera then follows anywhere).
+  if (d === undefined && b !== undefined) value['bounds'] = null;
   if (Object.keys(value).length === 0) return { kind: 'noop' };
   return { kind: 'commit', args: { entityId, component: 'cameraFollow', value } };
 }

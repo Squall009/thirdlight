@@ -106,6 +106,11 @@ export interface SceneAdapterModels {
    *  Synchronous in effect after the wrapper's read phase (no second
    *  fetch); the Promise shape matches AssetByteSource. */
   readonly resolveBytes: (assetId: string, version: number) => Promise<ArrayBuffer>;
+  /**
+   * Phase 12 (c): resolves an instance-set buffer (SHA-256 digest) to the
+   * wrapper-verified bytes (`count × 40`). Absent: instance sets stay empty.
+   */
+  readonly resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
 }
 
 /** The bounded `models` diagnostics block (delivery.md (M4) §2.5 —
@@ -179,6 +184,10 @@ export interface ModelsRealizationContext {
   /** The snapshot's `modelAnimation` entities: `entityId` →
    * `{ assetId, version }` (`components.modelAnimation`). */
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
+  /** Phase 12 (c): the snapshot's instance-set entities (`components.instances`). */
+  readonly instanceEntities?: ReadonlyMap<string, InstanceSetRef>;
+  /** Phase 12 (c): more entities may arrive later (a scene catalog). */
+  readonly allowAbsent?: boolean;
   /** The entity holders (the adapter's `objects` map entries); `null` when
    * the entity has no holder (defensive: the entity is skipped). */
   readonly holderFor: (entityId: string) => THREE.Object3D | null;
@@ -200,11 +209,36 @@ export interface ModelsRealization {
   /** Resolves when every prepare has settled (all ready, or the first hard
    *  failure, or the adapter disposed). Never rejects. */
   settled(): Promise<ModelsSettledResult>;
+  /**
+   * Phase 12 (c): realize the model / instance-set entities of a loaded
+   * scene (their holders exist). Assets load on first use.
+   */
+  addEntities(entities: {
+    readonly models: ReadonlyMap<string, string>;
+    readonly animations: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
+    readonly instances: ReadonlyMap<string, InstanceSetRef>;
+  }): void;
+  /**
+   * Phase 12 (c): release the models of unloaded entities; an asset no
+   * entity uses any more is disposed (its GPU data freed).
+   */
+  removeEntities(entityIds: ReadonlySet<string>): void;
   /** Dispose: cancel in-flight prepares, dispose the attached instances
    * (cloned materials + controllers + instances) and the store.
    *  Idempotent. */
   dispose(): void;
 }
+
+/** Phase 12 (c): one instance-set entity (`components.instances`). */
+export interface InstanceSetRef {
+  readonly assetId: string;
+  /** SHA-256 of the transform buffer. */
+  readonly buffer: string;
+  readonly count: number;
+}
+
+/** 10 float32 per instance: position xyz, rotation quaternion xyzw, scale xyz. */
+const INSTANCE_FLOATS = 10;
 
 // ---- block validation (fail-fast; delivery.md (M4) §2.2) ------------------
 
@@ -215,6 +249,8 @@ export function validateModelsBlock(ctx: {
   readonly hasLoader: boolean;
   readonly modelEntities: ReadonlyMap<string, string>;
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
+  /** Phase 12 (c): entries may name entities of scenes that are not loaded yet (checked when they load). */
+  readonly allowAbsent?: boolean;
 }): AdapterError | null {
   if (ctx.schemaVersion !== 3 && ctx.schemaVersion !== 4) {
     return adapterError(
@@ -280,6 +316,7 @@ export function validateModelsBlock(ctx: {
       return adapterError('models_config_invalid', 'a models animation entry carries no entityId');
     }
     const entity = ctx.modelAnimationEntities.get(entry.entityId);
+    if (entity === undefined && ctx.allowAbsent === true) continue;
     if (entity === undefined) {
       return adapterError(
         'models_config_invalid',
@@ -349,25 +386,37 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     hasLoader: ctx.loader !== undefined,
     modelEntities: ctx.modelEntities,
     modelAnimationEntities: ctx.modelAnimationEntities,
+    ...(ctx.allowAbsent === true ? { allowAbsent: true } : {}),
   });
   if (configError !== null) return { ok: false, error: configError };
   const loader = ctx.loader as GlbLoaderPort;
 
   const store: VisualResourceStore = createVisualResourceStore();
+  // Phase 12 (c): the entity maps grow and shrink with scene loads.
+  const modelEntities = new Map(ctx.modelEntities);
+  const modelAnimationEntities = new Map(ctx.modelAnimationEntities);
+  const instanceEntities = new Map(ctx.instanceEntities ?? []);
   const attached = new Map<string, AttachedModel>(); // entityId → attached model
+  const attachedSets = new Map<string, AttachedInstanceSet>(); // entityId → instanced meshes
   const liveControllers = new Set<AnimationRoleController>();
   const pendingHandles = new Map<string, VisualResourceHandle>(); // assetId → handle (the dispose cancel path)
-  // The settle gate: an explicit pending count, decremented INSIDE each
-  // handle's completion callback BEFORE `settleIfComplete` — never the
-  // handle's `state()`: between a promise's resolution and this module's
-  // `.then` callback (a microtask gap) the state is already non-pending
-  // but the attach (instances + controllers) has not run yet, so a
-  // state-based gate would settle early (before all attaches). The count
-  // reaches zero only when every completion callback has attached.
-  // (Assigned once `rows` is known, below.)
+  /** Prepared resources by assetId (kept while an entity uses the asset). */
+  const resources = new Map<string, PreparedVisualResource>();
+  /** Assets being prepared (bytes resolving or the store load running). */
+  const loading = new Set<string>();
+  /** Instance-set buffers by digest (decoded once, dropped when unused). */
+  const buffers = new Map<string, Float32Array>();
+  const bufferLoads = new Set<string>();
+  // The settle gate: the prepares started at creation (the start scenes).
+  // An explicit pending count, decremented INSIDE each completion callback
+  // BEFORE `settleIfComplete` — never the handle's `state()`: between a
+  // promise's resolution and the `.then` callback (a microtask gap) the
+  // state is already non-pending but the attach has not run yet. Later
+  // loads (a scene loaded during play) do not gate the settle.
   let pendingCount = 0;
+  let initial = true;
+  const initialAssets = new Set<string>();
   const failedCodes = new Map<string, string>(); // assetId → first hard code
-  let unresolvedCount = 0;
   let disposed = false;
 
   // --- settle promise -------------------------------------------------------
@@ -380,6 +429,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     if (settled) return;
     settled = true;
     if (settleResolve !== null) settleResolve(result);
+  }
+  function unresolvedCount(): number {
+    let n = 0;
+    for (const assetId of modelEntities.values()) if (!rowsByAsset.has(assetId)) n += 1;
+    return n;
   }
   function settleIfComplete(): void {
     if (settled || disposed) return;
@@ -397,10 +451,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     }
     settle({
       ok: true,
-      assets: ctx.models.assets.length,
+      assets: resources.size,
       instances: liveInstanceCount(),
       animations: liveControllers.size,
-      unresolved: unresolvedCount,
+      unresolved: unresolvedCount(),
     });
   }
   function liveInstanceCount(): number {
@@ -409,22 +463,37 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     return n;
   }
 
-  // --- per-asset prepare (§2.2/§2.6) ----------------------------------------
   // One row per assetId (validated above): one load per (assetId, version)
-  // through the shared store (assetId-keyed supersession — a same-pair
-  // retry marks the older load stale; §2.6 third bullet). The descriptor's
-  // `sourceByteLength` is the wrapper-verified bytes' real length
-  // (resolveBytes is synchronous in effect after the wrapper's read phase;
-  // the bytes are already re-hashed against `sourceDigest` by the wrapper —
-  // delivery.md (M4) §2.1: the adapter never re-validates).
+  // through the shared store. The bytes are already re-hashed against
+  // `sourceDigest` by the wrapper (delivery.md (M4) §2.1).
   const rowsByAsset = new Map<string, SceneAdapterModelAsset>();
   for (const row of ctx.models.assets) rowsByAsset.set(row.assetId, row);
+
+  /** Whether any live entity still uses the asset. */
+  function assetInUse(assetId: string): boolean {
+    for (const a of modelEntities.values()) if (a === assetId) return true;
+    for (const r of instanceEntities.values()) if (r.assetId === assetId) return true;
+    return false;
+  }
+
+  /** Retire an asset no entity uses: its shared GPU data is freed with the last instance. */
+  function releaseAssetIfUnused(assetId: string): void {
+    if (assetInUse(assetId)) return;
+    const resource = resources.get(assetId);
+    if (resource === undefined) return;
+    resources.delete(assetId);
+    try {
+      resource.dispose();
+    } catch {
+      /* best effort */
+    }
+  }
 
   function attachForAsset(assetId: string, resource: PreparedVisualResource): void {
     if (disposed) return;
     const row = rowsByAsset.get(assetId);
     if (row === undefined) return;
-    for (const [entityId, entityAssetId] of ctx.modelEntities) {
+    for (const [entityId, entityAssetId] of modelEntities) {
       if (entityAssetId !== assetId || attached.has(entityId)) continue;
       const holder = ctx.holderFor(entityId);
       if (holder === null) continue; // defensive: no holder — skip (bounded)
@@ -452,15 +521,12 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       // a mismatching mapping is the hard `animation_role_unresolved` —
       // the model renders statically at its committed transform, one
       // bounded diagnostic, the run proceeds.
-      const anim = ctx.modelAnimationEntities.get(entityId);
+      const anim = modelAnimationEntities.get(entityId);
       if (anim !== undefined && anim.assetId === assetId) {
         const entry = ctx.models.animation.find((a) => a.entityId === entityId);
-        if (entry !== undefined) {
-          // The committed view accessor (the player vs non-player rule is
-          // implemented by the adapter's `viewFor`). Pre-commit (no
-          // committed view yet): the constant neutral motion — the
-          // accepted pure selector then yields `idle` (no blending, no
-          // run/airborne; delivery.md (M4) §2.4).
+        if (entry !== undefined && entry.version === anim.version) {
+          // Pre-commit (no committed view yet): the constant neutral motion —
+          // the accepted pure selector then yields `idle` (delivery.md (M4) §2.4).
           const controllerRes = createAnimationRoleController(instance, () =>
             ctx.viewFor(entityId) ?? { stepIndex: 0, playerMotion: { speed: 0, grounded: true } },
           );
@@ -471,8 +537,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
               liveControllers.add(controllerRes.controller);
             } else {
               // L6: the model stays attached, static; the (action-less)
-              // controller is released — the selector for this model does
-              // not run.
+              // controller is released.
               rec.roleUnresolved = true;
               rec.diagnosticCode = setRes.error.code;
               try {
@@ -488,6 +553,95 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         }
       }
     }
+    for (const [entityId, ref] of instanceEntities) {
+      if (ref.assetId === assetId) attachInstanceSet(entityId, ref);
+    }
+  }
+
+  /**
+   * Phase 12 (c): one instance set = one instanced mesh per mesh of the
+   * model (sharing its geometry and materials), placed by the buffer's
+   * transforms times the mesh's own offset inside the model.
+   */
+  function attachInstanceSet(entityId: string, ref: InstanceSetRef): void {
+    if (disposed || attachedSets.has(entityId)) return;
+    const resource = resources.get(ref.assetId);
+    const floats = buffers.get(ref.buffer);
+    const holder = ctx.holderFor(entityId);
+    if (resource === undefined || floats === undefined || holder === null) return;
+    const created = resource.createInstance();
+    if (created.ok === false) return;
+    const template = created.instance;
+    template.glbRoot.updateMatrixWorld(true);
+    const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
+    const group = new THREE.Group();
+    group.name = `instances:${entityId}`;
+    const meshes: THREE.InstancedMesh[] = [];
+    const count = Math.min(ref.count, Math.floor(floats.length / INSTANCE_FLOATS));
+    const place = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const rot = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    template.glbRoot.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (mesh.isMesh !== true) return;
+      // The mesh's transform relative to the model root.
+      const local = new THREE.Matrix4().multiplyMatrices(rootInverse, mesh.matrixWorld);
+      const inst = new THREE.InstancedMesh(mesh.geometry, mesh.material, count);
+      inst.castShadow = true;
+      inst.receiveShadow = true;
+      for (let i = 0; i < count; i += 1) {
+        const o = i * INSTANCE_FLOATS;
+        pos.set(floats[o]!, floats[o + 1]!, floats[o + 2]!);
+        rot.set(floats[o + 3]!, floats[o + 4]!, floats[o + 5]!, floats[o + 6]!).normalize();
+        scl.set(floats[o + 7]!, floats[o + 8]!, floats[o + 9]!);
+        place.compose(pos, rot, scl).multiply(local);
+        inst.setMatrixAt(i, place);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      inst.computeBoundingSphere();
+      meshes.push(inst);
+    });
+    for (const m of meshes) group.add(m);
+    holder.add(group);
+    attachedSets.set(entityId, { entityId, template, group, meshes });
+  }
+
+  function disposeInstanceSet(set: AttachedInstanceSet): void {
+    for (const m of set.meshes) {
+      try {
+        m.dispose(); // the instance attribute buffers (geometry/materials belong to the resource)
+      } catch {
+        /* best effort */
+      }
+    }
+    set.group.removeFromParent();
+    try {
+      set.template.dispose();
+    } catch {
+      /* best effort */
+    }
+    attachedSets.delete(set.entityId);
+  }
+
+  function ensureBuffer(digest: string): void {
+    if (buffers.has(digest) || bufferLoads.has(digest)) return;
+    const resolve = ctx.models.resolveBuffer;
+    if (resolve === undefined) return;
+    bufferLoads.add(digest);
+    void resolve(digest).then(
+      (bytes) => {
+        bufferLoads.delete(digest);
+        if (disposed) return;
+        const inUse = [...instanceEntities.values()].some((r) => r.buffer === digest);
+        if (!inUse) return;
+        buffers.set(digest, new Float32Array(bytes.slice(0)));
+        for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest) attachInstanceSet(entityId, ref);
+      },
+      () => {
+        bufferLoads.delete(digest);
+      },
+    );
   }
 
   function disposeAttached(rec: AttachedModel): void {
@@ -510,10 +664,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       }
     }
     rec.clonedMaterials.length = 0;
-    // The instance disposal releases the tracked role controllers too
-    // (idempotent — already disposed above) and returns the instance
-    // reference to the resource (the refcount rule: the LAST instance
-    // releases the shared LoadedGlb exactly once).
+    // The instance disposal releases the tracked role controllers too and
+    // returns the instance reference to the resource (the refcount rule:
+    // the LAST instance of a retired resource releases the LoadedGlb once).
     try {
       rec.instance.dispose();
     } catch {
@@ -527,19 +680,32 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     attached.delete(rec.entityId);
   }
 
-  const rows = [...rowsByAsset.values()];
-  pendingCount = rows.length;
-  for (const row of rows) {
-    // Two-phase prepare: the wrapper-verified bytes first (synchronous in
-    // effect — no second fetch, §2.2), then the cancellable store load. A
-    // dispose between the two discards the late bytes (nothing prepared).
+  /** Prepare an asset (once) and attach every entity waiting for it. */
+  function ensureAsset(assetId: string): void {
+    const ready = resources.get(assetId);
+    if (ready !== undefined) {
+      attachForAsset(assetId, ready);
+      return;
+    }
+    const row = rowsByAsset.get(assetId);
+    if (row === undefined || loading.has(assetId)) return;
+    loading.add(assetId);
+    const gates = initial;
+    if (gates) {
+      pendingCount += 1;
+      initialAssets.add(assetId);
+    }
+    const done = (): void => {
+      loading.delete(assetId);
+      if (gates) pendingCount -= 1;
+    };
+    // Two-phase prepare: the wrapper-verified bytes first (no second fetch,
+    // §2.2), then the cancellable store load. A dispose between the two
+    // discards the late bytes (nothing prepared).
     void ctx.models.resolveBytes(row.assetId, row.version).then(
       (bytes) => {
         if (disposed || bytes.byteLength === 0) {
-          // Discarded (no leak: local buffer). The count still reaches zero
-          // so the settle resolves (a 0-byte verified stream is not a GLB;
-          // the wrapper's digest pin makes this unreachable in effect).
-          if (pendingHandles.delete(row.assetId)) pendingCount -= 1;
+          done();
           if (!disposed) settleIfComplete();
           return;
         }
@@ -549,47 +715,37 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
           sourceDigest: row.sourceDigest,
           sourceByteLength: bytes.byteLength,
         };
-        const handle = store.load(
-          {
-            kind: 'bytes',
-            descriptor,
-            bytes: new Uint8Array(bytes),
-          },
-          { loader },
-        );
+        const handle = store.load({ kind: 'bytes', descriptor, bytes: new Uint8Array(bytes) }, { loader });
         pendingHandles.set(row.assetId, handle);
         void handle.result.then((res) => {
           pendingHandles.delete(row.assetId);
-          // The attach (below) completes before settleIfComplete sees zero:
-          // the decrement is first, the settle check last.
-          pendingCount -= 1;
+          done();
           if (disposed) {
-            // Late completion after disposal: discarded and released (the
-            // store/substrate already released a failed/superseded load's
-            // resources; a success is retired here — never applied).
+            // Late completion after disposal: discarded and released.
             if (res.ok === true) res.resource.dispose();
             return;
           }
           if (res.ok === false) {
             const code = res.error.code;
-            // Cancellation/stale are not errors (§2.7 L9) — terminal,
-            // counted, but they do not fail the settle when no other
-            // prepare hard-failed. A same-pair retry is a NEW load (a new
-            // handle); the store's supersession already marked this one.
+            // Cancellation/stale are not errors (§2.7 L9).
             if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale') {
               if (!failedCodes.has(row.assetId)) failedCodes.set(row.assetId, code);
             }
+          } else if (!assetInUse(row.assetId)) {
+            // Every entity that wanted it was unloaded meanwhile.
+            res.resource.dispose();
           } else {
+            resources.set(row.assetId, res.resource);
             attachForAsset(row.assetId, res.resource);
           }
           settleIfComplete();
         });
       },
       (e: unknown) => {
+        done();
         if (disposed) return;
         // The wrapper's resolver rejected for a manifest-declared row:
-        // a hard assets-phase failure (L2 class) — the bytes never reach
-        // the loader.
+        // a hard assets-phase failure (L2 class).
         const message = e instanceof Error ? e.message : String(e);
         failedCodes.set(row.assetId, 'asset_missing');
         pendingHandles.delete(row.assetId);
@@ -602,11 +758,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     );
   }
 
-  // --- the `model` entities that resolve to no assets row (§2.3 residual) ---
-  for (const [entityId, assetId] of ctx.modelEntities) {
-    if (rowsByAsset.has(assetId)) continue;
-    unresolvedCount += 1; // one bounded `models_asset_unresolved` diagnostic each
-  }
+  // The start scenes' assets (these gate the settle).
+  for (const assetId of new Set([...modelEntities.values(), ...[...instanceEntities.values()].map((r) => r.assetId)])) ensureAsset(assetId);
+  for (const ref of instanceEntities.values()) ensureBuffer(ref.buffer);
+  initial = false;
 
   const realization: ModelsRealization = {
     update(deltaSeconds: number): boolean {
@@ -614,9 +769,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       for (const controller of [...liveControllers]) {
         const r = controller.update(deltaSeconds);
         if (r.ok === false) {
-          // Defensive: a live controller with a valid delta does not fail;
-          // if it does, detach it (it will be released by its instance's
-          // disposal path too — idempotent).
+          // Defensive: detach a failing controller (its instance's disposal
+          // path releases it too — idempotent).
           liveControllers.delete(controller);
           const rec = [...attached.values()].find((a) => a.controller === controller);
           if (rec !== undefined) rec.controller = null;
@@ -631,7 +785,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (handle.state() === 'pending') pending += 1;
       }
       return {
-        assets: rows.length,
+        assets: resources.size + loading.size,
         instances: liveInstanceCount(),
         pending,
         animations: liveControllers.size,
@@ -641,6 +795,36 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
 
     settled(): Promise<ModelsSettledResult> {
       return settledPromise;
+    },
+
+    addEntities(entities): void {
+      if (disposed) return;
+      for (const [id, assetId] of entities.models) modelEntities.set(id, assetId);
+      for (const [id, anim] of entities.animations) modelAnimationEntities.set(id, anim);
+      for (const [id, ref] of entities.instances) instanceEntities.set(id, ref);
+      const assets = new Set([...entities.models.values(), ...[...entities.instances.values()].map((r) => r.assetId)]);
+      for (const assetId of assets) ensureAsset(assetId);
+      for (const ref of entities.instances.values()) ensureBuffer(ref.buffer);
+    },
+
+    removeEntities(entityIds): void {
+      if (disposed) return;
+      const touched = new Set<string>();
+      for (const id of entityIds) {
+        const rec = attached.get(id);
+        if (rec !== undefined) disposeAttached(rec);
+        const set = attachedSets.get(id);
+        if (set !== undefined) disposeInstanceSet(set);
+        const assetId = modelEntities.get(id) ?? instanceEntities.get(id)?.assetId;
+        if (assetId !== undefined) touched.add(assetId);
+        modelEntities.delete(id);
+        modelAnimationEntities.delete(id);
+        instanceEntities.delete(id);
+      }
+      for (const assetId of touched) releaseAssetIfUnused(assetId);
+      for (const digest of [...buffers.keys()]) {
+        if (![...instanceEntities.values()].some((r) => r.buffer === digest)) buffers.delete(digest);
+      }
     },
 
     dispose(): void {
@@ -653,7 +837,17 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       } catch {
         /* best effort */
       }
+      for (const set of [...attachedSets.values()]) disposeInstanceSet(set);
       for (const rec of [...attached.values()]) disposeAttached(rec);
+      for (const resource of resources.values()) {
+        try {
+          resource.dispose();
+        } catch {
+          /* best effort */
+        }
+      }
+      resources.clear();
+      buffers.clear();
       liveControllers.clear();
       if (!settled) {
         settle({
@@ -665,9 +859,17 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     },
   };
 
-  // A settle is possible with zero rows (an empty assets list): settle now
-  // (all zero prepares are trivially complete).
-  if (rows.length === 0) settleIfComplete();
+  // Nothing to prepare at creation: settle now.
+  if (initialAssets.size === 0) settleIfComplete();
 
   return { ok: true, realization };
+}
+
+/** Phase 12 (c): one realized instance set. */
+interface AttachedInstanceSet {
+  readonly entityId: string;
+  /** The model instance the meshes' geometry/materials come from (holds the resource reference). */
+  readonly template: ModelInstance;
+  readonly group: THREE.Group;
+  readonly meshes: THREE.InstancedMesh[];
 }

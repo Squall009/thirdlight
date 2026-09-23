@@ -22,6 +22,7 @@
 import {
   resolveGameplaySettings,
   type CheckpointActivationAppearance,
+  type EntityV3,
   type GameConfig,
   type GameZoneRole,
 } from '@thirdlight/project-model';
@@ -35,7 +36,8 @@ import {
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery } from './behavior';
+import { byEntityId, capsuleInZone, offsetEntities, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -72,9 +74,16 @@ import {
 import {
   SIM_REGISTRY_BRAND,
   SIMULATION_PHASE_ORDER,
+  type BehaviorSceneControl,
   type CameraInfo,
   type DiagnosticErrorEntry,
   type GameContent,
+  type GameZoneSpec,
+  type RuntimeSceneRow,
+  type SceneLoadOptions,
+  type SceneLoadRequest,
+  type SceneSetView,
+  type SceneStatus,
   type GameCameraBounds,
   type GameSessionPort,
   type GameView,
@@ -495,6 +504,8 @@ export function instantiateRuntime(
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
   const { scene, sceneVersion, snapshotId, revision, game } = snap;
+  // Phase 12 (c): the scene catalog (v4 only; null: one fixed scene).
+  const sceneRows = snap.scenes;
 
   // Resolve the selection (runtime.md §3.1 / §8): unknown or duplicate
   // module ID ⇒ config_invalid; stepping order is the REGISTRATION order.
@@ -807,6 +818,8 @@ export function instantiateRuntime(
   // is bound to the RuntimeInstance once it exists (no log can be emitted
   // before the first step).
   const logSink: BehaviorLogSink = { handler: null };
+  // Phase 12 (c): with a scene catalog the tag index follows loads/unloads.
+  const liveTags = sceneRows !== null ? createTagQuery(frozenSnapshot) : null;
   const configFor = (specId: string): ModuleConfig => ({
     fixedStepHz: hz,
     settings: resolvedSettings,
@@ -814,6 +827,7 @@ export function instantiateRuntime(
     // M3 (runtime.md §12.1/§15): the frozen `content.game` block, v3 only.
     ...(sceneVersion >= 3 ? { game } : {}),
     behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
+    ...(liveTags !== null ? { tags: liveTags } : {}),
   });
   const entries: ModuleEntry[] = [];
   const disposeCreated = (): void => {
@@ -897,7 +911,8 @@ export function instantiateRuntime(
           : [];
       entry.owners = owners;
       for (const entityId of owners) {
-        if (!entities.has(entityId)) {
+        // Phase 12 (c): an owner in a scene that is not loaded is checked when it loads.
+        if (!entities.has(entityId) && sceneRows === null) {
           disposeCreated();
           return {
             ok: false,
@@ -968,6 +983,20 @@ export function instantiateRuntime(
     }
   }
 
+  // Phase 12 (c): the start scenes as batches (members listed by the host;
+  // unlisted entities belong to the first start scene).
+  const startBatches: { sceneId: string; entities: EntityV3[] }[] = [];
+  if (sceneRows !== null) {
+    const starts = sceneRows.filter((r) => r.start);
+    const sceneOfEntity = new Map<string, string>();
+    for (const row of starts) for (const id of row.entityIds ?? []) sceneOfEntity.set(id, row.sceneId);
+    const bySceneId = new Map<string, EntityV3[]>(starts.map((r) => [r.sceneId, []]));
+    for (const e of scene.entities) {
+      bySceneId.get(sceneOfEntity.get(e.id) ?? starts[0]!.sceneId)!.push(e as unknown as EntityV3);
+    }
+    for (const row of starts) startBatches.push({ sceneId: row.sceneId, entities: bySceneId.get(row.sceneId)! });
+  }
+
   const rt = new RuntimeInstance({
     snapshotId,
     revision,
@@ -991,6 +1020,9 @@ export function instantiateRuntime(
     prev,
     curr,
     logSink,
+    sceneRows,
+    startBatches,
+    liveTags,
   });
   return { ok: true, runtime: rt };
 }
@@ -1036,7 +1068,22 @@ interface RuntimeArgs {
   prev: Map<string, TransformState>;
   curr: Map<string, TransformState>;
   logSink: BehaviorLogSink;
+  sceneRows: readonly RuntimeSceneRow[] | null;
+  startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
+  liveTags: LiveTagIndex | null;
 }
+
+/** Phase 12 (c): one loaded scene inside the runtime. */
+interface SceneBatchState {
+  sceneId: string;
+  start: boolean;
+  entities: readonly EntityV3[];
+  ids: ReadonlySet<string>;
+  contribution: SceneContribution;
+}
+
+/** Phase 12 (c): one requested scene operation, committed with its step. */
+type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number] } | { op: 'unload'; sceneId: string };
 
 class RuntimeInstance implements Runtime {
   private stateName: RuntimeStateName;
@@ -1053,7 +1100,8 @@ class RuntimeInstance implements Runtime {
   private readonly isM2: boolean;
   // ---- M3 game-session state (gameplay.md §2/§6; M3-enabled sets only) ----
   private readonly isM3: boolean;
-  private readonly gameContent: GameContent | null;
+  /** Replaced (never mutated) when a scene load/unload changes the zones or spawns. */
+  private gameContent: GameContent | null;
   /** The runtime-owned run state machine (absent for M1/M2 sets). */
   private session: GameSession | null;
   /** The frozen `StepContext.gameplay` port (built once at instantiate). */
@@ -1089,7 +1137,7 @@ class RuntimeInstance implements Runtime {
   private order: readonly string[];
   private entities: Map<string, SimEntityData>;
   private readonly cameraInfo: CameraInfo;
-  private readonly entityCount: number;
+  private entityCount: number;
   private prev: Map<string, TransformState>;
   private curr: Map<string, TransformState>;
   /** The last fully committed step's transforms (fail-stop rendering). */
@@ -1126,6 +1174,34 @@ class RuntimeInstance implements Runtime {
   private readonly logSink: BehaviorLogSink;
   /** Last observed behavior log totals (retained after disposal). */
   private behaviorLogTotals = { logCount: 0, logDropped: 0 };
+  // ---- Phase 12 (c) scene set ---------------------------------------------
+  /** Every scene of the project (null: one fixed scene, no scene API). */
+  private readonly sceneRows: readonly RuntimeSceneRow[] | null;
+  private readonly startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
+  /** Loaded scenes, in load order. */
+  private batches = new Map<string, SceneBatchState>();
+  private sceneStatus = new Map<string, SceneStatus>();
+  /** Loads requested and not yet handed to the host. */
+  private requestedLoads = new Map<string, { at?: readonly [number, number, number] }>();
+  /** Loads the host is fetching. */
+  private fetchingLoads = new Map<string, { at?: readonly [number, number, number] }>();
+  /** Fetched scenes waiting for the next step boundary. */
+  private readyLoads = new Map<string, readonly EntityV3[]>();
+  private pendingUnloads = new Set<string>();
+  /** Scene ops issued during the running step (committed with it). */
+  private stepSceneOps: SceneOp[] = [];
+  private sceneRevision = 0;
+  private sceneSetCache: SceneSetView | null = null;
+  private readonly liveTags: LiveTagIndex | null;
+  /** Exit zones the player is inside (entry is edge-triggered). */
+  private exitsInside = new Set<string>();
+  /** An exit's spawn: the player moves there once `waitFor` are loaded. */
+  private pendingTransfer: { spawnId: string; waitFor: readonly string[] } | null = null;
+  /** A `respawn` intent committed in this step. */
+  private respawnRequested = false;
+  /** Entities that are never unloaded with their scene (camera, player, start spawn, lights). */
+  private readonly pinnedIds: ReadonlySet<string>;
+  private readonly sceneControl: BehaviorSceneControl;
 
   constructor(args: RuntimeArgs) {
     this.stateName = 'instantiated';
@@ -1180,6 +1256,27 @@ class RuntimeInstance implements Runtime {
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string): void =>
       this.recordBehaviorLog(moduleId, level, message);
+    this.sceneRows = args.sceneRows;
+    this.liveTags = args.liveTags;
+    this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
+    const pinned = new Set<string>([args.cameraInfo.id]);
+    if (args.controllerEntityId !== undefined) pinned.add(args.controllerEntityId);
+    if (args.gameContent !== null) pinned.add(args.gameContent.game.spawnId);
+    for (const e of args.entities.values()) if (e.camera !== undefined) pinned.add(e.id);
+    for (const b of args.startBatches) {
+      for (const e of b.entities) if ((e.components as { light?: unknown }).light !== undefined) pinned.add(e.id);
+    }
+    this.pinnedIds = pinned;
+    if (args.sceneRows !== null) {
+      for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
+      for (const b of args.startBatches) {
+        this.batches.set(b.sceneId, { sceneId: b.sceneId, start: true, entities: Object.freeze(b.entities), ids: new Set(b.entities.map((e) => e.id)), contribution: sceneContribution(b.entities) });
+        this.sceneStatus.set(b.sceneId, 'loaded');
+      }
+      // The projection from the batches (it carries the exit-zone fields).
+      this.rebuildGameContent();
+    }
+    this.sceneControl = this.buildSceneControl();
   }
 
   start(): { ok: true } | { ok: false; error: RuntimeError } {
@@ -1393,6 +1490,54 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
+  // ---- Phase 12 (c) scene set ---------------------------------------------
+
+  sceneSet(): SceneSetView {
+    if (this.sceneSetCache === null) {
+      this.sceneSetCache = Object.freeze({
+        revision: this.sceneRevision,
+        batches: Object.freeze([...this.batches.values()].map((b) => Object.freeze({ sceneId: b.sceneId, start: b.start, entities: b.entities }))),
+        status: Object.freeze(Object.fromEntries(this.sceneStatus)),
+      });
+    }
+    return this.sceneSetCache;
+  }
+
+  takeSceneRequests(): SceneLoadRequest[] {
+    const out: SceneLoadRequest[] = [];
+    for (const [sceneId, req] of this.requestedLoads) {
+      this.fetchingLoads.set(sceneId, req);
+      out.push(Object.freeze({ sceneId, ...(req.at !== undefined ? { at: req.at } : {}) }));
+    }
+    this.requestedLoads.clear();
+    return out;
+  }
+
+  provideScene(
+    sceneId: string,
+    result: { ok: true; entities: readonly EntityV3[] } | { ok: false; message: string },
+  ): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    // A load cancelled while it was fetched (an unload, a replay) is dropped.
+    if (!this.fetchingLoads.has(sceneId)) return { ok: true };
+    if (!result.ok) {
+      this.fetchingLoads.delete(sceneId);
+      this.setSceneStatus(sceneId, 'unloaded');
+      this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.stepIndex, reason: 'fetch' });
+      return { ok: true };
+    }
+    this.readyLoads.set(sceneId, result.entities);
+    return { ok: true };
+  }
+
+  requestScene(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    const problem = this.sceneOpProblem(op, sceneId, options);
+    if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
+    this.enqueueSceneOp(op === 'load' ? { op, sceneId, ...(options?.at !== undefined ? { at: options.at } : {}) } : { op, sceneId });
+    return { ok: true };
+  }
+
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') {
       return { ok: true, alreadyDisposed: true };
@@ -1517,6 +1662,8 @@ class RuntimeInstance implements Runtime {
 
   /** One fixed M1 step (§5.3 + §5.1 module isolation). */
   private stepOnce(): void {
+    // Phase 12 (c): scene loads/unloads requested by the host apply here too.
+    if (!this.applySceneOps()) return;
     // §5.1: copy curr before the step; restore it if any module throws
     // (no partial module application).
     const backup = cloneCurr(this.curr);
@@ -1577,9 +1724,15 @@ class RuntimeInstance implements Runtime {
     // M3 boundary (gameplay.md §3.2 item 0): before the action sample. No
     // boundary during the accepted 12-step settle pre-roll (the fixtures pin
     // the first boundary at the step after the settle steps).
+    // Phase 12 (c): scene unloads/loads take effect at the boundary, before
+    // the run bookkeeping (a respawn may land in a scene that just loaded).
+    if (!this.applySceneOps()) return false;
     if (this.isM3 && this.executedSteps >= SETTLE_PREROLL_STEPS) {
       if (!this.runResetBarrier(ordinal)) return false;
+      if (!this.runTransfer(ordinal)) return false;
     }
+    this.stepSceneOps = [];
+    this.respawnRequested = false;
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
@@ -1614,6 +1767,10 @@ class RuntimeInstance implements Runtime {
         // decisions through `ctx.gameplay`) and the camera phase, in the
         // accepted phase order (SIMULATION_PHASE_ORDER).
         this.runPhase('gameplay', action);
+        // Phase 12 (c): a script's `respawn` intent, unless the zones already decided.
+        if (this.respawnRequested && this.session !== null && this.session.runState === 'playing') {
+          this.session.beginRespawn(ordinal, 'fall');
+        }
         this.runPhase('camera', action);
       }
     } catch (e) {
@@ -1636,6 +1793,13 @@ class RuntimeInstance implements Runtime {
       this.recordMotionSegments(backup);
       this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
     }
+    // Phase 12 (c): the step's scene requests commit with it; exit zones are
+    // checked on the committed motion.
+    if (this.stepSceneOps.length > 0) {
+      for (const op of this.stepSceneOps) this.enqueueSceneOp(op);
+      this.stepSceneOps = [];
+    }
+    this.checkExitZones();
     this.executedSteps += 1;
     return true;
   }
@@ -1679,6 +1843,8 @@ class RuntimeInstance implements Runtime {
     const session = this.session;
     if (session === null) return true;
     const outcome = session.boundary(ordinal);
+    // Phase 12 (c): a replay starts from the start scenes again.
+    if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
       // The due reset: the R1–R7 transaction. A reset-phase failure fail-stops
       // (no rollback, gameplay.md §5.4) and publishes the retained view via
@@ -1720,7 +1886,7 @@ class RuntimeInstance implements Runtime {
    * rollback, §5.4); a failure is never a death. `ordinal` is the 1-based
    * upcoming-step index (the failure's `stepIndex`).
    */
-  private runResetTransaction(reset: 'spawn' | 'replay' | 'start', ordinal: number): boolean {
+  private runResetTransaction(reset: 'spawn' | 'replay' | 'start' | 'transfer', ordinal: number, transferSpawnId?: string): boolean {
     const session = this.session!;
     const content = this.gameContent!;
     const player = this.playerEntityId;
@@ -1728,7 +1894,9 @@ class RuntimeInstance implements Runtime {
     // R1: resolve the destination (pure read).
     if (this.checkResetFault('R1', ordinal)) return false;
     let spawnEntityId: string;
-    if (reset === 'spawn') {
+    if (reset === 'transfer') {
+      spawnEntityId = transferSpawnId as string;
+    } else if (reset === 'spawn') {
       const cpId = session.checkpointTotal;
       if (cpId !== null) {
         const cpZone = content.zones.find((z) => z.entityId === cpId);
@@ -1905,7 +2073,7 @@ class RuntimeInstance implements Runtime {
 
   /** Build one R6 `ModuleResetContext` (gameplay.md §5.1 / §3.3). */
   private buildResetContext(
-    reset: 'spawn' | 'replay' | 'start',
+    reset: 'spawn' | 'replay' | 'start' | 'transfer',
     ordinal: number,
     target: Vec2,
     writableOwners: ReadonlySet<string>,
@@ -2028,15 +2196,314 @@ class RuntimeInstance implements Runtime {
    * every phase; the three commit calls are callable in the `gameplay` phase
    * only and enforce the run-state rules (a violation is `gameplay_invalid`).
    */
+  // ---- Phase 12 (c) scene set internals ------------------------------------
+
+  private setSceneStatus(sceneId: string, status: SceneStatus): void {
+    this.sceneStatus.set(sceneId, status);
+    this.sceneSetCache = null;
+  }
+
+  /** Why a scene op cannot be requested (null: it can). */
+  private sceneOpProblem(op: 'load' | 'unload', sceneId: unknown, options?: SceneLoadOptions): string | null {
+    if (this.sceneRows === null) return 'this game has no scene catalog (a v4 project runs with one)';
+    if (typeof sceneId !== 'string' || !this.sceneStatus.has(sceneId)) return `unknown scene ${JSON.stringify(String(sceneId))}`;
+    if (op === 'load' && options !== undefined) {
+      if (typeof options !== 'object' || options === null) return 'load options must be an object';
+      const at = (options as { at?: unknown }).at;
+      if (at !== undefined && !(Array.isArray(at) && at.length === 3 && at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6))) {
+        return 'load option "at" must be [x, y, z] (finite, |v| <= 1e6)';
+      }
+    }
+    if (op === 'unload') {
+      const batch = this.batches.get(sceneId);
+      if (batch !== undefined) {
+        for (const id of batch.ids) {
+          if (this.pinnedIds.has(id)) return `scene "${sceneId}" holds "${id}" (the camera, player, start spawn and lights stay loaded)`;
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Queue a validated op: loads go to the host, unloads wait for the next boundary. */
+  private enqueueSceneOp(op: SceneOp): void {
+    const status = this.sceneStatus.get(op.sceneId);
+    if (op.op === 'load') {
+      if (status === 'loaded') {
+        this.pendingUnloads.delete(op.sceneId); // load after unload in one step: stays loaded
+        return;
+      }
+      if (status === 'loading') return;
+      this.requestedLoads.set(op.sceneId, op.at !== undefined ? { at: op.at } : {});
+      this.setSceneStatus(op.sceneId, 'loading');
+      return;
+    }
+    if (status === 'loaded') {
+      this.pendingUnloads.add(op.sceneId);
+      return;
+    }
+    if (status === 'loading') {
+      this.requestedLoads.delete(op.sceneId);
+      this.fetchingLoads.delete(op.sceneId);
+      this.readyLoads.delete(op.sceneId);
+      this.setSceneStatus(op.sceneId, 'unloaded');
+    }
+  }
+
+  /** `ctx.scenes`: requests are collected with the step and committed with it. */
+  private buildSceneControl(): BehaviorSceneControl {
+    const rt = this;
+    const refuse = (message: string): never => {
+      throw new BehaviorHostError('module_error', 'behavior_scene_invalid', message);
+    };
+    return Object.freeze({
+      load(sceneId: string, options?: SceneLoadOptions): void {
+        const problem = rt.sceneOpProblem('load', sceneId, options);
+        if (problem !== null) refuse(`ctx.scenes.load: ${problem}`);
+        const at = options?.at;
+        rt.stepSceneOps.push({ op: 'load', sceneId, ...(at !== undefined ? { at: Object.freeze([at[0], at[1], at[2]] as const) } : {}) });
+      },
+      unload(sceneId: string): void {
+        const problem = rt.sceneOpProblem('unload', sceneId);
+        if (problem !== null) refuse(`ctx.scenes.unload: ${problem}`);
+        rt.stepSceneOps.push({ op: 'unload', sceneId });
+      },
+      status(sceneId: string): SceneStatus {
+        const st = rt.sceneStatus.get(sceneId);
+        if (st === undefined) refuse(`ctx.scenes.status: unknown scene ${JSON.stringify(String(sceneId))}`);
+        return st as SceneStatus;
+      },
+      loaded(): readonly string[] {
+        return Object.freeze([...rt.batches.keys()]);
+      },
+    });
+  }
+
+  /**
+   * The step boundary for scenes: pending unloads, then fetched loads.
+   * Returns `false` after a fail-stop (a module refused a loaded scene).
+   */
+  private applySceneOps(): boolean {
+    if (this.sceneRows === null) return true;
+    if (this.pendingUnloads.size > 0) {
+      for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
+      this.pendingUnloads.clear();
+    }
+    for (const [sceneId, entities] of [...this.readyLoads]) {
+      this.readyLoads.delete(sceneId);
+      const at = this.fetchingLoads.get(sceneId)?.at;
+      this.fetchingLoads.delete(sceneId);
+      if (!this.addBatch(sceneId, offsetEntities(entities, at), false)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Add one scene. A scene that does not fit (duplicate ids, a start-only
+   * entity, colliders without a capable port) is refused: logged, left
+   * unloaded, the run continues. Returns `false` only after a fail-stop.
+   */
+  private addBatch(sceneId: string, entities: readonly EntityV3[], start: boolean): boolean {
+    const refuse = (why: string): boolean => {
+      this.setSceneStatus(sceneId, 'unloaded');
+      this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.stepIndex, reason: 'refused' });
+      return true;
+    };
+    for (const e of entities) {
+      if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
+      const c = e.components as unknown as Record<string, unknown>;
+      if (!start && (c['camera'] !== undefined || c['controller'] !== undefined || c['light'] !== undefined)) {
+        return refuse(`entity "${e.id}" belongs in a start scene (camera, player, lights)`);
+      }
+    }
+    const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
+    const contribution = sceneContribution(frozen);
+    if (contribution.colliders.length > 0 && this.physics !== undefined) {
+      if (typeof this.physics.addStaticColliders !== 'function') return refuse('the physics port cannot add colliders');
+      try {
+        this.physics.addStaticColliders(contribution.colliders);
+      } catch (e) {
+        this.failStop('physics_port_error', 'scene_colliders', `adding the colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
+        return false;
+      }
+    }
+    const ids = new Set<string>();
+    for (const e of frozen) {
+      const t = e.components.transform;
+      const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
+      if (e.name !== undefined) data.name = e.name;
+      const box = e.components.box;
+      if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
+      if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
+      this.entities.set(e.id, data);
+      this.prev.set(e.id, cloneTransform(t));
+      this.curr.set(e.id, cloneTransform(t));
+      this.committed?.set(e.id, cloneTransform(t));
+      ids.add(e.id);
+    }
+    this.order = [...this.order, ...frozen.map((e) => e.id)];
+    this.entityCount = this.order.length;
+    this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
+    this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
+    this.setSceneStatus(sceneId, 'loaded');
+    this.sceneRevision += 1;
+    this.rebuildGameContent();
+    for (const entry of this.entries) {
+      const instance = entry.instance as SimulationPhaseModule;
+      if (!entry.phased || typeof instance.sceneLoaded !== 'function') continue;
+      this.currentModuleId = entry.id;
+      this.currentPhase = undefined;
+      try {
+        instance.sceneLoaded(frozen);
+      } catch (e) {
+        this.failStopFromError(e, this.stepIndex);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Remove one scene and release what belongs to it. */
+  private removeBatch(sceneId: string): void {
+    const batch = this.batches.get(sceneId);
+    if (batch === undefined) return;
+    const ids = batch.ids;
+    for (const entry of this.entries) {
+      const instance = entry.instance as SimulationPhaseModule;
+      if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
+      try {
+        instance.sceneUnloaded(ids);
+      } catch (e) {
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release scene "${sceneId}": ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
+      }
+    }
+    if (batch.contribution.colliders.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
+      try {
+        this.physics.removeStaticColliders(batch.contribution.colliders.map((c) => c.entityId));
+      } catch (e) {
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of scene "${sceneId}" failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+      }
+    }
+    for (const id of ids) {
+      this.entities.delete(id);
+      this.prev.delete(id);
+      this.curr.delete(id);
+      this.committed?.delete(id);
+      this.lastSegments.delete(id);
+      this.exitsInside.delete(id);
+    }
+    this.order = this.order.filter((id) => !ids.has(id));
+    this.entityCount = this.order.length;
+    this.liveTags?.remove(ids);
+    // A checkpoint in the unloaded scene no longer counts (death respawns at
+    // the start spawn); a pending exit transfer into it is dropped.
+    if (this.session !== null && this.session.checkpointTotal !== null && ids.has(this.session.checkpointTotal)) {
+      this.session.clearCheckpoint();
+    }
+    if (this.pendingTransfer !== null && ids.has(this.pendingTransfer.spawnId)) this.pendingTransfer = null;
+    this.batches.delete(sceneId);
+    this.setSceneStatus(sceneId, 'unloaded');
+    this.sceneRevision += 1;
+    this.rebuildGameContent();
+  }
+
+  /** A replay starts from the start scenes again: others unloaded, unloaded start scenes restored. */
+  private restoreStartSet(): boolean {
+    if (this.sceneRows === null) return true;
+    for (const b of [...this.batches.values()]) if (!b.start) this.removeBatch(b.sceneId);
+    for (const sceneId of [...this.requestedLoads.keys(), ...this.fetchingLoads.keys(), ...this.readyLoads.keys()]) {
+      if (!this.startBatchSource.has(sceneId)) this.setSceneStatus(sceneId, 'unloaded');
+    }
+    this.requestedLoads.clear();
+    this.fetchingLoads.clear();
+    this.readyLoads.clear();
+    this.pendingUnloads.clear();
+    this.pendingTransfer = null;
+    this.exitsInside.clear();
+    for (const [sceneId, entities] of this.startBatchSource) {
+      if (this.batches.has(sceneId)) continue;
+      if (!this.addBatch(sceneId, entities, true)) return false;
+    }
+    return true;
+  }
+
+  /** The gameplay projection over every loaded scene (zones/spawns in entity-id order). */
+  private rebuildGameContent(): void {
+    const current = this.gameContent;
+    if (current === null) return;
+    const zones: GameZoneSpec[] = [];
+    const spawns: { entityId: string; center: Vec2 }[] = [];
+    for (const b of this.batches.values()) {
+      zones.push(...b.contribution.zones);
+      spawns.push(...b.contribution.spawns);
+    }
+    this.gameContent = deepFreeze({ ...current, zones: zones.sort(byEntityId), spawns: spawns.sort(byEntityId) });
+  }
+
+  /**
+   * Exit zones (after the step commits, while playing): entering one requests
+   * its unloads and loads; its spawn becomes the pending transfer.
+   */
+  private checkExitZones(): void {
+    const content = this.gameContent;
+    const session = this.session;
+    if (content === null || session === null || this.sceneRows === null || session.runState !== 'playing') return;
+    const segment = this.lastSegments.get(this.playerEntityId);
+    if (segment === undefined) return;
+    for (const zone of content.zones) {
+      if (zone.role !== 'exit') continue;
+      const inside = capsuleInZone(segment.to, zone, GAME_CAPSULE_RADIUS, GAME_CAPSULE_HALF_HEIGHT, GAME_ZONE_OVERLAP_EPS);
+      if (!inside) {
+        this.exitsInside.delete(zone.entityId);
+        continue;
+      }
+      if (this.exitsInside.has(zone.entityId)) continue;
+      this.exitsInside.add(zone.entityId);
+      const ops: SceneOp[] = [
+        ...(zone.unload ?? []).map((sceneId): SceneOp => ({ op: 'unload', sceneId })),
+        ...(zone.load ?? []).map((sceneId): SceneOp => ({ op: 'load', sceneId })),
+      ];
+      for (const op of ops) {
+        const problem = this.sceneOpProblem(op.op, op.sceneId);
+        if (problem !== null) {
+          this.recordError({ code: 'scene_invalid', message: clipMessage(`exit "${zone.entityId}": ${problem}`), stepIndex: this.stepIndex, reason: op.op });
+          continue;
+        }
+        this.enqueueSceneOp(op);
+      }
+      if (zone.spawnId !== undefined) this.pendingTransfer = { spawnId: zone.spawnId, waitFor: zone.load ?? [] };
+    }
+  }
+
+  /**
+   * The pending exit transfer, at the boundary once its scenes are loaded:
+   * the player moves to the spawn through the reset transaction. Returns
+   * `false` after a fail-stop.
+   */
+  private runTransfer(ordinal: number): boolean {
+    const transfer = this.pendingTransfer;
+    const session = this.session;
+    if (transfer === null || session === null || session.runState !== 'playing') return true;
+    if (transfer.waitFor.some((id) => this.sceneStatus.get(id) === 'loading')) return true;
+    this.pendingTransfer = null;
+    if (!this.gameContent!.spawns.some((sp) => sp.entityId === transfer.spawnId)) {
+      this.recordError({ code: 'scene_invalid', message: clipMessage(`exit spawn "${transfer.spawnId}" is not loaded; the player stays`), stepIndex: this.stepIndex, reason: 'transfer' });
+      return true;
+    }
+    return this.runResetTransaction('transfer', ordinal, transfer.spawnId);
+  }
+
   private buildGameSessionPort(): GameSessionPort {
     const session = this.session!;
-    const content = this.gameContent!;
     const rt = this;
     const requireGameplayPhase = (): void => {
       if (rt.currentPhase !== 'gameplay') throw new GameplayPhaseError();
     };
     return Object.freeze({
-      content,
+      // Phase 12 (c): the projection follows scene loads (a getter over the current one).
+      get content(): GameContent {
+        return rt.gameContent!;
+      },
       run: (): Readonly<RunSnapshot> => session.runSnapshot(rt.stepIndex + 1),
       lastMotionSegment: (entityId: string): Readonly<MotionSegment> | undefined => rt.lastSegments.get(entityId),
       viewport: (): Readonly<ViewportInfo> => rt.viewport,
@@ -2057,7 +2524,7 @@ class RuntimeInstance implements Runtime {
         if (session.checkpointTotal !== null) {
           throw new GameplayInvalidError('the checkpoint has already been activated in this run (single activation, §4.5)');
         }
-        const zone = content.zones.find((z) => z.entityId === zoneEntityId);
+        const zone = rt.gameContent!.zones.find((z) => z.entityId === zoneEntityId);
         if (zone === undefined || zone.role !== 'checkpoint') {
           throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a checkpoint zone`);
         }
@@ -2069,7 +2536,7 @@ class RuntimeInstance implements Runtime {
         if (st !== 'playing') {
           throw new GameplayInvalidError(`reachGoal is valid only while "playing" (state: "${st}")`);
         }
-        const zone = content.zones.find((z) => z.entityId === zoneEntityId);
+        const zone = rt.gameContent!.zones.find((z) => z.entityId === zoneEntityId);
         if (zone === undefined || zone.role !== 'goal') {
           throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a goal zone`);
         }
@@ -2110,6 +2577,7 @@ class RuntimeInstance implements Runtime {
           // M3 (gameplay.md §3.3 / runtime.md §15.3): the frozen gameplay
           // port, present iff this runtime is M3-enabled.
           ...(this.sessionPort !== null ? { gameplay: this.sessionPort } : {}),
+          ...(this.sceneRows !== null ? { scenes: this.sceneControl } : {}),
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {
@@ -2158,6 +2626,11 @@ class RuntimeInstance implements Runtime {
       this.bumpIntentCount();
       this.intents.move = quantizeIntentMove(intent.value);
       this.intents.moveWriter = entry.id;
+      return;
+    }
+    if (intent.kind === 'respawn') {
+      this.bumpIntentCount();
+      this.respawnRequested = true;
       return;
     }
     if (intent.kind === 'control_jump') {

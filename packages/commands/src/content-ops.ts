@@ -754,7 +754,10 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   const changedFields: string[] = [];
   for (const f of COMPONENT_FIELD_ORDER[args.component]) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
-      candidate[f] = deepClone(args.value[f]);
+      // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
+      // the model validation below refuses removing a required one.
+      if (args.value[f] === null && isV3Component(args.component)) delete candidate[f];
+      else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }
   }

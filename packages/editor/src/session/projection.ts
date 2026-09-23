@@ -76,6 +76,10 @@ export interface ProjectedEntity {
   surface?: SurfaceComponent;
   /** M3 (packet 57): the model-animation profile, when present (project-model §23.3.6). */
   modelAnimation?: ModelAnimationComponent;
+  /** Phase 12 (c): the instance set (one model, many placements from a buffer). */
+  instances?: { assetId: string; buffer: string; count: number };
+  /** Phase 12 (c): the scene the entity lives in (v4 projects; absent for older ones). */
+  sceneId?: string;
 }
 
 /** The result of applying one `mutation.applied` to the projection. */
@@ -92,6 +96,16 @@ export interface ApplyMutationResult {
 export interface FullState {
   revision: number;
   entities: readonly Entity[];
+  /** Phase 12 (c), v4: each entity's scene (aligned with `entities`), the scenes and the start set. */
+  entitySceneIds?: readonly string[];
+  scenes?: readonly SceneRowView[];
+  startScenes?: readonly string[];
+}
+
+/** Phase 12 (c): one scene of the project as the editor shows it. */
+export interface SceneRowView {
+  sceneId: string;
+  name: string;
 }
 
 /** A `mutation.applied` event (sessions.md §7). */
@@ -99,6 +113,8 @@ export interface MutationApplied {
   requestId: string;
   revision: number;
   change: ChangeData;
+  /** Phase 12 (c): the scene the edit touched (v4). */
+  sceneId?: string;
 }
 
 /** A structured conflict surfaced to the UI (commands.md §6.4). */
@@ -135,6 +151,7 @@ function toProjected(e: Entity): ProjectedEntity {
     light?: LightComponent;
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
+    instances?: { asset?: { assetId?: string }; buffer?: string; count?: number };
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
@@ -162,6 +179,9 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, ...(c.cameraFollow.bounds !== undefined ? { bounds: { ...c.cameraFollow.bounds } } : {}) } } : {}),
     ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
     ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
+    ...(c.instances?.asset?.assetId !== undefined && typeof c.instances.buffer === 'string' && typeof c.instances.count === 'number'
+      ? { instances: { assetId: c.instances.asset.assetId, buffer: c.instances.buffer, count: c.instances.count } }
+      : {}),
     ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
   };
   return projected;
@@ -177,6 +197,9 @@ export class Projection {
   private order: string[] = [];
   private lastSeen = 0;
   private applied = new Set<string>();
+  /** Phase 12 (c): the project's scenes (empty for a pre-v4 project) and start set. */
+  private sceneRows: SceneRowView[] = [];
+  private startSet: string[] = [];
   /** Set when the gap rule fires; the client must resync. */
   needsResync = false;
 
@@ -184,13 +207,27 @@ export class Projection {
   hydrate(full: FullState): void {
     this.entities.clear();
     this.order = [];
-    for (const e of full.entities) {
+    full.entities.forEach((e, i) => {
       const p = toProjected(e);
+      const sceneId = full.entitySceneIds?.[i];
+      if (sceneId !== undefined) p.sceneId = sceneId;
       this.entities.set(p.id, p);
       this.order.push(p.id);
-    }
+    });
+    this.sceneRows = (full.scenes ?? []).map((r) => ({ sceneId: r.sceneId, name: r.name }));
+    this.startSet = [...(full.startScenes ?? [])];
     this.lastSeen = full.revision;
     this.needsResync = false;
+  }
+
+  /** Phase 12 (c): the scenes, in index order (empty: a single-scene project). */
+  get scenes(): readonly SceneRowView[] {
+    return this.sceneRows;
+  }
+
+  /** Phase 12 (c): the scenes the game starts with. */
+  get startScenes(): readonly string[] {
+    return this.startSet;
   }
 
   /** The current revision the projection reflects. */
@@ -239,10 +276,19 @@ export class Projection {
       this.lastSeen = Math.max(this.lastSeen, ev.revision);
       return { deduped: true, gap: false, applied: false };
     }
+    const before = this.sceneRows.length > 0 ? new Set(this.entities.keys()) : null;
     const ok = this.applyChange(ev.change);
     if (ok) {
       this.applied.add(ev.requestId);
       this.lastSeen = Math.max(this.lastSeen, ev.revision);
+      // Phase 12 (c): entities that just appeared live in the edited scene
+      // (or their parent's; the first scene as the last resort).
+      if (before !== null) {
+        for (const [id, p] of this.entities) {
+          if (before.has(id)) continue;
+          p.sceneId = ev.sceneId ?? (p.parentId !== null ? this.entities.get(p.parentId)?.sceneId : undefined) ?? this.sceneRows[0]?.sceneId;
+        }
+      }
     }
     return { deduped: false, gap: false, applied: ok };
   }
@@ -371,6 +417,10 @@ export class Projection {
         } else if (change.component === 'surface') {
           if (change.next === null) delete p.surface;
           else p.surface = { ...(change.next as SurfaceComponent) };
+        } else if (change.component === 'instances') {
+          const next = change.next as { asset: { assetId: string }; buffer: string; count: number } | null;
+          if (next === null) delete p.instances;
+          else p.instances = { assetId: next.asset.assetId, buffer: next.buffer, count: next.count };
         } else if (change.component === 'modelAnimation') {
           if (change.next === null) delete p.modelAnimation;
           else {
@@ -401,6 +451,11 @@ export class Projection {
       // / `queryEntity` carry the value.
       case 'setGameConfig':
       case 'setTags':
+        return true;
+      case 'setSceneIndex':
+        // Phase 12 (c): the scene list and start set (files come and go with it).
+        this.sceneRows = change.next.scenes.map((r) => ({ sceneId: r.sceneId, name: r.name }));
+        this.startSet = [...change.next.startScenes];
         return true;
       case 'applySurfacePreset': {
         const p = this.entities.get(change.id);
