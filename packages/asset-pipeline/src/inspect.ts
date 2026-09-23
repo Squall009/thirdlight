@@ -23,6 +23,7 @@
 import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 
 import { decodedImageBytes, detectImageMime, imageDimensions, type ImportImageMime } from './images';
+import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
 import { escapePointer, strictJsonParse } from './json';
 import {
   ANIMATION_PROFILE_MAX_CLIPS,
@@ -113,11 +114,6 @@ const ATTRIBUTE_ALLOWLIST = new Set([
   'WEIGHTS_0',
 ]);
 
-const COMPRESSION_EXTENSIONS = new Set([
-  'KHR_draco_mesh_compression',
-  'EXT_meshopt_compression',
-]);
-
 const ANIMATION_PATHS = new Set(['translation', 'rotation', 'scale', 'weights']);
 
 const ANIMATION_OUTPUT_TYPES: Readonly<Record<string, string>> = {
@@ -174,7 +170,10 @@ type ExtensionPlace =
  * `KHR_mesh_quantization` is a declaration only (it widens attribute types).
  */
 const EXTENSION_PLACES: Readonly<Record<string, readonly ExtensionPlace[]>> = {
+  EXT_meshopt_compression: ['buffer', 'bufferView'],
   EXT_texture_webp: ['texture'],
+  KHR_draco_mesh_compression: ['primitive'],
+  KHR_texture_basisu: ['texture'],
   KHR_materials_clearcoat: ['material'],
   KHR_materials_emissive_strength: ['material'],
   KHR_materials_ior: ['material'],
@@ -442,7 +441,10 @@ class Inspector {
   private jsonChunk: Uint8Array = new Uint8Array(0);
   private bin: Uint8Array = new Uint8Array(0);
   private bufferByteLength = 0;
-  private bufferViews: { byteOffset: number; byteLength: number }[] = [];
+  /** Validated bufferViews; `data` is the view's bytes (decoded when meshopt-compressed). */
+  private bufferViews: { byteOffset: number; byteLength: number; buffer: number; compressed: boolean; data: Uint8Array }[] = [];
+  /** Declared byteLength of each EXT_meshopt_compression fallback buffer (index > 0). */
+  private fallbackBuffers = new Map<number, number>();
   private accessors: AccessorInfo[] = [];
   private primitives: PrimitiveRef[] = [];
   private imageDecodedBytes = 0;
@@ -918,23 +920,6 @@ class Inspector {
       }
     }
 
-    const compressionSeen = new Set<string>();
-    for (const [listName, list] of [
-      ['extensionsUsed', usedList],
-      ['extensionsRequired', requiredList],
-    ] as const) {
-      for (const name of list) {
-        if (COMPRESSION_EXTENSIONS.has(name) && !compressionSeen.has(name)) {
-          compressionSeen.add(name);
-          out.push(
-            diag('asset_compression_unsupported', ptr(listName), `compression extension "${name}" is not in the M2 profile`, {
-              found: name,
-              expected: 'uncompressed embedded buffer data',
-            }),
-          );
-        }
-      }
-    }
     if (out.length > 0) return out;
 
     for (const name of usedList) {
@@ -1042,15 +1027,44 @@ class Inspector {
   private checkBuffers(): ImportDiagnostic[] | null {
     const out: ImportDiagnostic[] = [];
     const buffers = this.json['buffers'];
-    if (!Array.isArray(buffers) || buffers.length !== 1) {
+    if (!Array.isArray(buffers) || buffers.length < 1) {
       out.push(
-        diag('asset_buffer_invalid', ptr('buffers'), 'the M2 profile requires exactly one embedded buffer', {
+        diag('asset_buffer_invalid', ptr('buffers'), 'the profile requires one embedded buffer (plus EXT_meshopt_compression fallbacks)', {
           found: Array.isArray(buffers) ? buffers.length : buffers === undefined ? 'absent' : typeof buffers,
           expected: 'one buffer without uri',
         }),
       );
       return out;
     }
+    // Buffers after the first can only be EXT_meshopt_compression fallbacks:
+    // no data (no uri) — the compressed bufferViews decode into them.
+    for (let i = 1; i < buffers.length; i++) {
+      const fb = buffers[i];
+      const fpath = ptr('buffers', i);
+      const fext = isPlainObject(fb) && isPlainObject(fb['extensions']) ? fb['extensions']['EXT_meshopt_compression'] : undefined;
+      const length = isPlainObject(fb) ? fb['byteLength'] : undefined;
+      if (!isPlainObject(fb) || fb['uri'] !== undefined || !isPlainObject(fext) || fext['fallback'] !== true) {
+        out.push(
+          diag('asset_buffer_invalid', fpath, 'a second buffer is only allowed as an EXT_meshopt_compression fallback without uri', {
+            found: isPlainObject(fb) ? Object.keys(fb) : typeof fb,
+            expected: '{ byteLength, extensions: { EXT_meshopt_compression: { fallback: true } } }',
+          }),
+        );
+        continue;
+      }
+      this.checkExtensionObject(fb, fpath, out, 'buffer');
+      if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || length > M2_GLTF_DECODED_GEOMETRY_BYTES) {
+        out.push(
+          diag('asset_buffer_invalid', `${fpath}/byteLength`, 'a fallback buffer byteLength must be an integer within the decoded-geometry cap', {
+            found: length,
+            expected: `0 .. ${M2_GLTF_DECODED_GEOMETRY_BYTES}`,
+          }),
+        );
+        continue;
+      }
+      this.fallbackBuffers.set(i, length);
+    }
+    if (out.length > 0) return out;
     const buffer = buffers[0];
     if (!isPlainObject(buffer)) {
       out.push(
@@ -1123,12 +1137,14 @@ class Inspector {
         continue;
       }
       this.checkExtensionObject(bv, path, out, 'bufferView');
+      const meshopt = isPlainObject(bv['extensions']) ? bv['extensions']['EXT_meshopt_compression'] : undefined;
       const bufferIndex = bv['buffer'] ?? 0;
-      if (bufferIndex !== 0) {
+      const bufferLength = bufferIndex === 0 ? this.bufferByteLength : typeof bufferIndex === 'number' ? this.fallbackBuffers.get(bufferIndex) : undefined;
+      if (bufferLength === undefined || (bufferIndex !== 0 && meshopt === undefined)) {
         out.push(
-          diag('asset_buffer_invalid', `${path}/buffer`, 'every bufferView must reference buffer 0', {
+          diag('asset_buffer_invalid', `${path}/buffer`, 'a bufferView must reference buffer 0, or a fallback buffer when it is EXT_meshopt_compression-compressed', {
             found: bufferIndex,
-            expected: '0',
+            expected: '0 (or a fallback buffer with EXT_meshopt_compression)',
           }),
         );
         continue;
@@ -1165,10 +1181,10 @@ class Inspector {
         );
         continue;
       }
-      if (byteOffset + byteLength > this.bufferByteLength) {
+      if (byteOffset + byteLength > bufferLength) {
         out.push(
-          diag('asset_buffer_invalid', `${path}/byteLength`, 'bufferView range overruns the embedded buffer', {
-            found: { byteOffset, byteLength, bufferByteLength: this.bufferByteLength },
+          diag('asset_buffer_invalid', `${path}/byteLength`, 'bufferView range overruns its buffer', {
+            found: { byteOffset, byteLength, bufferByteLength: bufferLength },
             expected: 'byteOffset + byteLength <= buffer byteLength',
           }),
         );
@@ -1184,13 +1200,82 @@ class Inspector {
         );
         continue;
       }
-      this.bufferViews.push({ byteOffset, byteLength });
+      let data: Uint8Array;
+      if (meshopt !== undefined) {
+        const decoded = this.decodeMeshoptView(meshopt, byteLength, path, out);
+        if (decoded === null) continue;
+        data = decoded;
+      } else {
+        data = this.bin.subarray(byteOffset, byteOffset + byteLength);
+      }
+      this.bufferViews.push({ byteOffset, byteLength, buffer: bufferIndex as number, compressed: meshopt !== undefined, data });
     }
     return out.length > 0 ? out : null;
   }
 
+  /** Decoded bytes of all meshopt views so far (bounded by the decoded-geometry cap). */
+  private meshoptDecodedBytes = 0;
+
+  /**
+   * Decode one EXT_meshopt_compression bufferView (its compressed stream lives
+   * in the BIN chunk) into exactly `byteLength` bytes, or report why not.
+   */
+  private decodeMeshoptView(ext: unknown, byteLength: number, path: string, out: ImportDiagnostic[]): Uint8Array | null {
+    const epath = `${path}/extensions/EXT_meshopt_compression`;
+    const bad = (message: string, found: unknown, expected: string): null => {
+      out.push(diag('asset_buffer_invalid', epath, message, { found, expected }));
+      return null;
+    };
+    if (!isPlainObject(ext)) return bad('EXT_meshopt_compression must be an object', typeof ext, 'an object');
+    const { buffer, byteOffset = 0, byteLength: srcLength, byteStride, count, mode, filter = 'NONE' } = ext as Record<string, unknown>;
+    if (buffer !== 0) return bad('the compressed stream must be in buffer 0 (the BIN chunk)', buffer, '0');
+    if (typeof byteOffset !== 'number' || !Number.isSafeInteger(byteOffset) || byteOffset < 0) return bad('byteOffset must be a non-negative integer', byteOffset, '>= 0');
+    if (typeof srcLength !== 'number' || !Number.isSafeInteger(srcLength) || srcLength < 1 || byteOffset + srcLength > this.bufferByteLength) {
+      return bad('the compressed range must lie inside the BIN chunk', { byteOffset, byteLength: srcLength }, `byteOffset + byteLength <= ${this.bufferByteLength}`);
+    }
+    if (mode !== 'ATTRIBUTES' && mode !== 'TRIANGLES' && mode !== 'INDICES') return bad('mode must be ATTRIBUTES, TRIANGLES or INDICES', mode, 'ATTRIBUTES | TRIANGLES | INDICES');
+    if (filter !== 'NONE' && filter !== 'OCTAHEDRAL' && filter !== 'QUATERNION' && filter !== 'EXPONENTIAL') {
+      return bad('filter must be NONE, OCTAHEDRAL, QUATERNION or EXPONENTIAL', filter, 'NONE | OCTAHEDRAL | QUATERNION | EXPONENTIAL');
+    }
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) return bad('count must be a positive integer', count, '>= 1');
+    if (typeof byteStride !== 'number' || !Number.isSafeInteger(byteStride) || byteStride < 1 || byteStride > 256) return bad('byteStride must be 1..256', byteStride, '1 .. 256');
+    if (count * byteStride !== byteLength) return bad('count * byteStride must equal the bufferView byteLength', { count, byteStride, byteLength }, `${byteLength}`);
+    this.meshoptDecodedBytes += byteLength;
+    if (this.meshoptDecodedBytes > M2_GLTF_DECODED_GEOMETRY_BYTES) {
+      out.push(
+        diag('asset_limits_exceeded', epath, 'the meshopt-compressed data decodes past the decoded-geometry cap', {
+          found: this.meshoptDecodedBytes,
+          expected: `<= ${M2_GLTF_DECODED_GEOMETRY_BYTES}`,
+          limit: 'decoded_bytes',
+        }),
+      );
+      return null;
+    }
+    try {
+      return decodeMeshopt(this.bin.subarray(byteOffset, byteOffset + srcLength), count, byteStride, mode as MeshoptMode, filter as MeshoptFilter);
+    } catch (e) {
+      if (!(e instanceof MeshoptError)) throw e;
+      return bad(`the meshopt-compressed stream does not decode: ${e.message}`, mode, 'a valid EXT_meshopt_compression stream');
+    }
+  }
+
+  /** Accessors a KHR_draco_mesh_compression primitive decodes into (they carry no bufferView). */
+  private dracoAccessors(): Set<number> {
+    const out = new Set<number>();
+    for (const mesh of this.collection('meshes')) {
+      if (!isPlainObject(mesh) || !Array.isArray(mesh['primitives'])) continue;
+      for (const p of mesh['primitives']) {
+        if (!isPlainObject(p) || !isPlainObject(p['extensions']) || !isPlainObject(p['extensions']['KHR_draco_mesh_compression'])) continue;
+        if (isPlainObject(p['attributes'])) for (const v of Object.values(p['attributes'])) if (asIndex(v) !== null) out.add(v as number);
+        if (asIndex(p['indices']) !== null) out.add(p['indices'] as number);
+      }
+    }
+    return out;
+  }
+
   private checkAccessors(): ImportDiagnostic[] | null {
     const out: ImportDiagnostic[] = [];
+    const draco = this.dracoAccessors();
     const raw = this.json['accessors'];
     if (raw !== undefined && !Array.isArray(raw)) {
       return [
@@ -1252,6 +1337,11 @@ class Inspector {
         continue;
       }
       const bufferViewIndex = a['bufferView'];
+      if (bufferViewIndex === undefined && draco.has(i)) {
+        // Filled by the Draco decoder at load; its size is the declared count.
+        this.accessors.push({ count, type: typeof type === 'string' ? type : 'SCALAR', componentType, byteLength: count * components * componentSize });
+        continue;
+      }
       const bv = typeof bufferViewIndex === 'number' ? this.bufferViews[bufferViewIndex] : undefined;
       if (bv === undefined) {
         out.push(
@@ -1340,15 +1430,24 @@ class Inspector {
           );
           continue;
         }
-        const ext = primitive['extensions'];
-        if (ext !== undefined) {
-          out.push(
-            diag('asset_primitive_unsupported', `${ppath}/extensions`, 'primitive extensions are not in the M2 profile', {
-              found: Object.keys(isPlainObject(ext) ? ext : {}),
-              expected: 'no primitive extensions',
-            }),
-          );
-          continue;
+        const before = out.length;
+        this.checkExtensionObject(primitive, ppath, out, 'primitive');
+        if (out.length > before) continue;
+        const dracoExt = isPlainObject(primitive['extensions']) ? primitive['extensions']['KHR_draco_mesh_compression'] : undefined;
+        if (isPlainObject(dracoExt)) {
+          const dpath = `${ppath}/extensions/KHR_draco_mesh_compression`;
+          const dbv = asIndex(dracoExt['bufferView']);
+          const view = dbv === null ? undefined : this.bufferViews[dbv];
+          const dattrs = dracoExt['attributes'];
+          const prim = isPlainObject(primitive['attributes']) ? primitive['attributes'] : {};
+          if (view === undefined || view.compressed || view.buffer !== 0) {
+            out.push(diag('asset_primitive_unsupported', `${dpath}/bufferView`, 'the Draco stream must be an existing uncompressed bufferView in the BIN chunk', { found: dracoExt['bufferView'], expected: `0 .. ${this.bufferViews.length - 1}` }));
+            continue;
+          }
+          if (!isPlainObject(dattrs) || Object.entries(dattrs).some(([name, id]) => asIndex(id) === null || prim[name] === undefined)) {
+            out.push(diag('asset_primitive_unsupported', `${dpath}/attributes`, 'Draco attributes must map primitive attributes to Draco attribute ids', { found: dattrs, expected: 'an object of primitive attribute names → integer ids' }));
+            continue;
+          }
         }
         const mode = primitive['mode'] ?? 4;
         if (mode !== 4) {
@@ -1648,11 +1747,11 @@ class Inspector {
         continue;
       }
       const mime = image['mimeType'];
-      if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
+      if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp' && mime !== 'image/ktx2') {
         out.push(
-          diag('asset_image_invalid', `${path}/mimeType`, 'image mimeType must be image/png, image/jpeg or image/webp', {
+          diag('asset_image_invalid', `${path}/mimeType`, 'image mimeType must be image/png, image/jpeg, image/webp or image/ktx2', {
             found: mime,
-            expected: 'image/png | image/jpeg | image/webp',
+            expected: 'image/png | image/jpeg | image/webp | image/ktx2',
           }),
         );
         continue;
@@ -1667,13 +1766,13 @@ class Inspector {
         );
         continue;
       }
-      const data = this.bin.subarray(bv.byteOffset, bv.byteOffset + bv.byteLength);
+      const data = bv.data;
       const actualMime = detectImageMime(data);
       if (actualMime === null) {
         out.push(
-          diag('asset_image_invalid', path, 'image bytes are not PNG, JPEG or WebP', {
+          diag('asset_image_invalid', path, 'image bytes are not PNG, JPEG, WebP or KTX2', {
             found: [...data.subarray(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join(' '),
-            expected: 'a PNG, JPEG or WebP signature',
+            expected: 'a PNG, JPEG, WebP or KTX2 signature',
           }),
         );
         continue;
@@ -1692,7 +1791,7 @@ class Inspector {
         out.push(
           diag('asset_image_invalid', path, 'the image header is unreadable, so decoded bytes cannot be bounded', {
             found: 'unreadable header',
-            expected: 'a readable PNG IHDR, JPEG frame header or WebP VP8/VP8L/VP8X header',
+            expected: 'a readable PNG IHDR, JPEG frame header, WebP VP8/VP8L/VP8X header or a 2D Basis Universal KTX2 header',
           }),
         );
         continue;
@@ -1776,6 +1875,9 @@ class Inspector {
       if (texture['source'] !== undefined) sources.push({ key: 'source', value: texture['source'], mimes: CORE_TEXTURE_MIMES });
       if (isPlainObject(ext['EXT_texture_webp'])) {
         sources.push({ key: 'extensions/EXT_texture_webp/source', value: ext['EXT_texture_webp']['source'], mimes: new Set(['image/webp']) });
+      }
+      if (isPlainObject(ext['KHR_texture_basisu'])) {
+        sources.push({ key: 'extensions/KHR_texture_basisu/source', value: ext['KHR_texture_basisu']['source'], mimes: new Set(['image/ktx2']) });
       }
       if (sources.length === 0) {
         out.push(
@@ -2302,22 +2404,9 @@ class Inspector {
     const bv = bufferViewIndex === null ? undefined : this.bufferViews[bufferViewIndex];
     if (bv === undefined) return [];
     const byteOffset = typeof accessor['byteOffset'] === 'number' ? accessor['byteOffset'] : 0;
-    const start = bv.byteOffset + byteOffset;
-    const view = new DataView(new ArrayBuffer(4));
+    const view = new DataView(bv.data.buffer, bv.data.byteOffset, bv.data.byteLength);
     const out: number[] = [];
-    for (let i = 0; i < info.count; i++) {
-      const off = start + i * 4;
-      view.setUint32(
-        0,
-        (((this.bin[off] as number) |
-          ((this.bin[off + 1] as number) << 8) |
-          ((this.bin[off + 2] as number) << 16) |
-          ((this.bin[off + 3] as number) << 24)) >>>
-          0),
-        true,
-      );
-      out.push(view.getFloat32(0, true));
-    }
+    for (let i = 0; i < info.count; i++) out.push(view.getFloat32(byteOffset + i * 4, true));
     return out;
   }
 

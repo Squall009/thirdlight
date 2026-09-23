@@ -14,7 +14,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { colorCount, decodePng } from './png';
+import { colorCount, decodePng, litBands } from './png';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FIXTURES = join(REPO, 'fixtures', 'import-ext');
@@ -142,7 +142,8 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
-  await expect.poll(async () => colorCount(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBeGreaterThan(8);
+  await expect.poll(async () => litBands(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBe(3);
+  expect(colorCount(decodePng(await frame.screenshot()))).toBeGreaterThan(8);
   await page.waitForTimeout(1000);
   await frame.screenshot({ path: join(SHOTS, '2-play.png') });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
@@ -161,7 +162,7 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   exported.on('pageerror', (e) => exportErrors.push(e.message));
   try {
     await exported.goto(site.url);
-    await expect.poll(async () => colorCount(decodePng(await exported.screenshot())), { timeout: 15_000 }).toBeGreaterThan(8);
+    await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 15_000 }).toBe(3);
     await exported.waitForTimeout(1000);
     await exported.screenshot({ path: join(SHOTS, '3-export.png') });
     expect(exportErrors).toEqual([]);
@@ -170,5 +171,76 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   }
   expect(errors).toEqual([]);
   // No blocked texture fetch or loader error in the editor or the Play frame.
+  expect(consoleErrors).toEqual([]);
+});
+
+test('Draco (Blender), meshopt (animated) and KTX2/Basis GLBs render in the editor, Play and the export', async ({ page }) => {
+  test.setTimeout(180_000);
+  mkdirSync(SHOTS, { recursive: true });
+  const game = join(games, 'game');
+  const made = await be.admin('projects', { projectId: 'game', name: 'Compressed', folder: game });
+  expect(made.status, JSON.stringify(made.json)).toBe(201);
+  mkdirSync(join(game, 'assets'), { recursive: true });
+  const cubes = ['draco-cube', 'meshopt-cube', 'ktx2-cube'];
+  for (const c of cubes) copyFileSync(join(FIXTURES, `${c}.glb`), join(game, 'assets', `${c}.glb`));
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const consoleErrors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300));
+  });
+
+  for (const [i, c] of cubes.entries()) {
+    await importFromFolder(`assets/${c}.glb`, c);
+    await place(c, (i - 1) * 1.5);
+  }
+  await page.goto(`${be.origin}/?project=game#token=${be.token}`);
+  await expect(status(page)).toContainText('connected');
+  await expect(page.locator('.tl-hierarchy__list li').filter({ hasText: /-cube/ })).toHaveCount(3);
+  await page.waitForTimeout(2000);
+  await page.locator('.tl-app__stage').screenshot({ path: join(SHOTS, '4-compressed-editor.png') });
+  await page.getByRole('tab', { name: /Problems/ }).click();
+  await expect(page.getByRole('list', { name: 'Scene view' })).toHaveCount(0);
+
+  // Play: the decoders come from the preview origin's /decoders/.
+  const decoderHits: string[] = [];
+  page.on('response', (r) => {
+    if (r.url().includes('/decoders/') && r.status() === 200) decoderHits.push(r.url());
+  });
+  await page.getByTitle('Start an isolated play preview').click();
+  const frame = page.locator('iframe.tl-app__preview-frame');
+  await expect(frame).toBeVisible();
+  // All three cubes (left, centre, right) are drawn.
+  await expect.poll(async () => litBands(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBe(3);
+  await page.waitForTimeout(1500);
+  await frame.screenshot({ path: join(SHOTS, '5-compressed-play.png') });
+  expect(decoderHits.some((u) => u.includes('/decoders/draco/'))).toBe(true);
+  expect(decoderHits.some((u) => u.includes('/decoders/basis/'))).toBe(true);
+  await page.getByTitle('Stop the play preview').click();
+
+  // Export ships exactly the decoders its models need, then runs alone.
+  const res = await be.admin('projects/game/export');
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  const out = join(be.exportRoot, String(res.json.outputDir));
+  expect(readdirSync(join(out, 'decoders')).sort()).toEqual(['basis', 'draco']);
+  await page.goto('about:blank');
+  await be.halt();
+  const site = await serveDir(out);
+  const exported = await page.context().newPage();
+  const exportErrors: string[] = [];
+  exported.on('pageerror', (e) => exportErrors.push(e.message));
+  exported.on('console', (m) => {
+    if (m.type() === 'error') exportErrors.push(m.text().slice(0, 300));
+  });
+  try {
+    await exported.goto(site.url);
+    await expect.poll(async () => litBands(decodePng(await exported.screenshot())), { timeout: 20_000 }).toBe(3);
+    await exported.waitForTimeout(1500);
+    await exported.screenshot({ path: join(SHOTS, '6-compressed-export.png') });
+    expect(exportErrors).toEqual([]);
+  } finally {
+    await site.close();
+  }
+  expect(errors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });

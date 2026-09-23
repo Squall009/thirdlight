@@ -47,6 +47,22 @@ describe('import-ext fixtures through the real inspector', () => {
     });
   }
 
+  it('reads animation times out of meshopt-compressed data (a 2 s clip) and counts Draco geometry by its accessors', () => {
+    const m = inspect(base64ToBytes(files['meshopt-cube.glb'] ?? ''));
+    expect(m.status).toBe('ok');
+    expect(m.metrics?.animations).toBe(1);
+    expect(m.metrics?.clipDurationMs).toBe(2000);
+    expect(m.metrics?.vertices).toBe(24);
+    const d = inspect(base64ToBytes(files['draco-cube.glb'] ?? ''));
+    expect(d.metrics?.vertices).toBe(24);
+    expect(d.metrics?.triangles).toBe(12);
+  });
+
+  it('reads KTX2 header dimensions into the decoded-image budget', () => {
+    const k = inspect(base64ToBytes(files['ktx2-cube.glb'] ?? ''));
+    expect(k.metrics?.decodedImageBytes).toBe(64 * 64 * 4);
+  });
+
   it('reads WebP dimensions into the decoded-image budget (64x64 RGBA)', () => {
     const p = inspect(base64ToBytes(files['webp-cube.glb'] ?? ''));
     expect(p.status).toBe('ok');

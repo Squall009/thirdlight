@@ -37,6 +37,9 @@ import {
   type AnimationClip,
 } from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import {
   visualLoadFailure,
   type AssetVersionDescriptor,
@@ -46,7 +49,9 @@ import {
 
 /** The extensions this realization path honors (the import allowlist, restated: no import edge exists). */
 export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = Object.freeze([
+  'EXT_meshopt_compression',
   'EXT_texture_webp',
+  'KHR_draco_mesh_compression',
   'KHR_materials_clearcoat',
   'KHR_materials_emissive_strength',
   'KHR_materials_ior',
@@ -56,6 +61,7 @@ export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = Object.freeze([
   'KHR_materials_unlit',
   'KHR_materials_volume',
   'KHR_mesh_quantization',
+  'KHR_texture_basisu',
   'KHR_texture_transform',
 ]);
 
@@ -66,6 +72,30 @@ const GLB_IMAGE_ENTRY_LIMIT = 4_096;
 export interface GltfLoaderPortOptions {
   /** Extensions this path may honor; default: GLTF_LOADER_ALLOWED_EXTENSIONS. */
   readonly allowedExtensions?: readonly string[];
+  /**
+   * Where three's Draco and Basis decoder files are served (`<base>draco/`,
+   * `<base>basis/`, a URL ending in `/`). Without it a GLB that needs one of
+   * them fails with `unsupported_extension` (meshopt needs no files).
+   */
+  readonly decoderBase?: string;
+}
+
+/** Extensions whose payload needs decoder files at load time. */
+const DECODER_EXTENSIONS: Readonly<Record<string, 'draco' | 'basis'>> = {
+  KHR_draco_mesh_compression: 'draco',
+  KHR_texture_basisu: 'basis',
+};
+
+/**
+ * KTX2Loader picks the GPU format to transcode to from the renderer's
+ * compressed-texture extensions. The port does not own the game's renderer, so
+ * it asks a small WebGL2 context of its own (same browser and GPU).
+ */
+function textureSupport(): { isWebGPURenderer: false; extensions: { has(name: string): boolean; get(name: string): unknown } } {
+  const doc = (globalThis as { document?: { createElement(tag: string): { getContext(kind: string): unknown } } }).document;
+  const gl = doc?.createElement('canvas').getContext('webgl2') as { getExtension(name: string): unknown } | null | undefined;
+  const get = (name: string): unknown => (gl ? gl.getExtension(name) : null);
+  return { isWebGPURenderer: false, extensions: { has: (name) => get(name) !== null, get } };
 }
 
 function messageOf(e: unknown): string {
@@ -157,6 +187,9 @@ function collectOwned(gltf: GLTF): OwnedSets {
 /** The GLTFLoader-backed loader port (one instance may serve many loads). */
 export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLoaderPort {
   const allowed = new Set(options.allowedExtensions ?? GLTF_LOADER_ALLOWED_EXTENSIONS);
+  // The Draco/KTX2 loaders start decoder workers: created on first need, then shared.
+  let draco: DRACOLoader | null = null;
+  let ktx2: KTX2Loader | null = null;
   return {
     async load(
       bytes: Uint8Array,
@@ -169,8 +202,29 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
         throw visualLoadFailure('unsupported_extension', `the GLB declares extension '${unsupported}', which this visual path cannot honor`);
       }
 
+      const needs = new Set([...guard.used, ...guard.required].map((name) => DECODER_EXTENSIONS[name]).filter((d) => d !== undefined));
+      if (needs.size > 0 && options.decoderBase === undefined) {
+        throw visualLoadFailure('unsupported_extension', `the GLB needs the ${[...needs].join(' and ')} decoder, which is not available here`);
+      }
+
       const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      if (needs.has('draco')) {
+        if (draco === null) {
+          draco = new DRACOLoader();
+          draco.setDecoderPath(`${options.decoderBase}draco/`);
+        }
+        loader.setDRACOLoader(draco);
+      }
+      if (needs.has('basis')) {
+        if (ktx2 === null) {
+          ktx2 = new KTX2Loader();
+          ktx2.setTranscoderPath(`${options.decoderBase}basis/`);
+          ktx2.detectSupport(textureSupport() as unknown as Parameters<KTX2Loader['detectSupport']>[0]);
+        }
+        loader.setKTX2Loader(ktx2);
+      }
       let gltf: GLTF;
       try {
         gltf = await loader.parseAsync(arrayBuffer, '');

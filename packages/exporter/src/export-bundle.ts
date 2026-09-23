@@ -28,6 +28,10 @@ export const PINNED_OPTIONS = {
   treeShaking: false,
   sourcemap: false,
   minify: false,
+  // three's DRACOLoader computes default decoder URLs from import.meta.url at
+  // module load, which an IIFE does not have; the page URL stands in (the
+  // loader port always sets ./decoders/).
+  define: { 'import.meta.url': 'location.href' },
 } as const;
 
 /** The virtual module specifiers (allowed graph nodes; see graph.ts). */

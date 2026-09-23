@@ -64,6 +64,10 @@ const PINNED_OPTIONS = {
   treeShaking: false,
   sourcemap: false,
   minify: false,
+  // three's DRACOLoader computes default decoder URLs from import.meta.url at
+  // module load, which an IIFE does not have; the page URL stands in (the
+  // loader port always sets the real decoder path).
+  define: { 'import.meta.url': 'location.href' },
 };
 
 /** dependencies.md §4.2 — the two bundles built by the workspace build script. */
@@ -82,6 +86,26 @@ const BUNDLES = [
     out: 'dist/preview/preview-m3.js',
   },
 ];
+
+/**
+ * three's Draco and Basis decoders (pinned three@0.186.0), served next to the
+ * editor page and on the preview origin at /decoders/ for GLBs that use
+ * KHR_draco_mesh_compression / KHR_texture_basisu.
+ */
+const DECODER_FILES = [
+  ['draco/draco_wasm_wrapper.js', 'node_modules/three/examples/jsm/libs/draco/draco_wasm_wrapper.js'],
+  ['draco/draco_decoder.wasm', 'node_modules/three/examples/jsm/libs/draco/draco_decoder.wasm'],
+  ['basis/basis_transcoder.js', 'node_modules/three/examples/jsm/libs/basis/basis_transcoder.js'],
+  ['basis/basis_transcoder.wasm', 'node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm'],
+];
+for (const dir of ['dist/editor/decoders', 'dist/preview/decoders']) {
+  for (const [rel, src] of DECODER_FILES) {
+    const out = join(root, dir, rel);
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, readFileSync(join(root, src)));
+  }
+}
+console.log('build: decoders: three Draco + Basis -> dist/editor/decoders, dist/preview/decoders');
 
 let built = 0;
 let skipped = 0;

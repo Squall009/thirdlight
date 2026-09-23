@@ -394,7 +394,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
         runtime,
         snapshot,
         ...(models !== null
-          ? { models, modelsLoader: createGltfLoaderPort() }
+          ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
           : {}),
       });
       adapterRef.current = a;

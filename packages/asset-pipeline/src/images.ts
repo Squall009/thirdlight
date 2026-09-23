@@ -11,7 +11,7 @@
  * payload is small; this is deliberately *not* a full image validation.
  */
 
-export type ImportImageMime = 'image/png' | 'image/jpeg' | 'image/webp';
+export type ImportImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/ktx2';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
 
@@ -34,11 +34,21 @@ function hasWebpSignature(bytes: Uint8Array): boolean {
   );
 }
 
+/** `«KTX 20»\r\n\x1A\n` (KHR_texture_basisu sources). */
+const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a] as const;
+
+function hasKtx2Signature(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  for (let i = 0; i < 12; i++) if (bytes[i] !== KTX2_IDENTIFIER[i]) return false;
+  return true;
+}
+
 /** Detect the container by its actual magic bytes (`null` = none of them). */
 export function detectImageMime(bytes: Uint8Array): ImportImageMime | null {
   if (hasPngSignature(bytes)) return 'image/png';
   if (hasJpegSignature(bytes)) return 'image/jpeg';
   if (hasWebpSignature(bytes)) return 'image/webp';
+  if (hasKtx2Signature(bytes)) return 'image/ktx2';
   return null;
 }
 
@@ -153,10 +163,40 @@ export function webpDimensions(bytes: Uint8Array): ImageDimensions | null {
   return { width, height };
 }
 
+function u32le(bytes: Uint8Array, off: number): number {
+  return (
+    ((bytes[off] as number) | ((bytes[off + 1] as number) << 8) | ((bytes[off + 2] as number) << 16) | ((bytes[off + 3] as number) << 24)) >>> 0
+  );
+}
+
+/**
+ * KTX2 dims for a Basis Universal texture (KHR_texture_basisu): a 2D image
+ * (no depth, one face, not an array) with `vkFormat` 0 (the payload is
+ * Basis: ETC1S under BasisLZ supercompression 1, or UASTC with none/Zstandard
+ * 0/2) and at most 32 mip levels. `null` for anything else.
+ */
+export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
+  if (!hasKtx2Signature(bytes) || bytes.length < 80) return null;
+  const vkFormat = u32le(bytes, 12);
+  const width = u32le(bytes, 20);
+  const height = u32le(bytes, 24);
+  const depth = u32le(bytes, 28);
+  const layers = u32le(bytes, 32);
+  const faces = u32le(bytes, 36);
+  const levels = u32le(bytes, 40);
+  const supercompression = u32le(bytes, 44);
+  if (vkFormat !== 0 || depth !== 0 || layers !== 0 || faces !== 1) return null;
+  if (supercompression !== 0 && supercompression !== 1 && supercompression !== 2) return null;
+  if (width === 0 || height === 0 || width > 0x7fffffff || height > 0x7fffffff) return null;
+  if (levels > 32) return null; // 0 = one level, mips generated at load
+  return { width, height };
+}
+
 /** Declared dimensions for an accepted container; `null` when unreadable. */
 export function imageDimensions(bytes: Uint8Array, mime: ImportImageMime): ImageDimensions | null {
   if (mime === 'image/png') return pngDimensions(bytes);
   if (mime === 'image/jpeg') return jpegDimensions(bytes);
+  if (mime === 'image/ktx2') return ktx2Dimensions(bytes);
   return webpDimensions(bytes);
 }
 

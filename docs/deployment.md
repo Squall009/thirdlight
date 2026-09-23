@@ -240,13 +240,30 @@ copied. Projects in the data root keep copying uploads as before.
 GLB is the only model format the game loads. Besides core glTF 2.0 the
 importer accepts these extensions (each has a fixture in `fixtures/import-ext`
 that imports, and renders in the editor, Play and the export):
-`EXT_texture_webp` (what the Blender pipeline writes), `KHR_texture_transform`,
-`KHR_mesh_quantization`, `KHR_materials_unlit` and the material extensions
-`clearcoat`, `emissive_strength`, `ior`, `sheen`, `specular`, `transmission`
-and `volume`. Any other extension is refused at import with
-`asset_extension_unsupported`, naming it; an allowlisted extension in a place
-where it would mean nothing, or not declared in `extensionsUsed`, is refused
-too.
+
+- `EXT_texture_webp` (what the Blender pipeline writes), `KHR_texture_transform`,
+  `KHR_mesh_quantization`, `KHR_materials_unlit` and the material extensions
+  `clearcoat`, `emissive_strength`, `ior`, `sheen`, `specular`, `transmission`
+  and `volume`;
+- compression: `EXT_meshopt_compression` (the importer decodes it itself and
+  checks the decoded data), `KHR_draco_mesh_compression` and
+  `KHR_texture_basisu` (KTX2 / Basis Universal GPU textures). Draco and KTX2
+  payloads are checked for structure, header and declared sizes at import and
+  decoded when the model loads; a stream that does not decode shows in
+  Problems ("view") in the editor.
+
+Any other extension is refused at import with `asset_extension_unsupported`,
+naming it; an allowlisted extension in a place where it would mean nothing, or
+not declared in `extensionsUsed`, is refused too.
+
+The Draco and Basis decoders are three's own (`three@0.186.0`,
+`examples/jsm/libs/{draco,basis}`, Apache-2.0). The editor and the Play
+preview serve them at `/decoders/`; an export gets a `decoders/` folder (and a
+license row in `meta.json`) only when one of its models needs it. Both run in
+Web Workers, so the Play preview allows `worker-src blob:`; the Basis
+transcoder also builds functions at run time, so a Play whose models carry a
+KTX2 texture is served with `'unsafe-eval'` added to its script policy (other
+Plays are not).
 
 Backups find folder projects through the registry and copy the **whole game
 folder**: the marker, `thirdlight/`, the assets, art sources and `.git` —

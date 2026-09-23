@@ -334,10 +334,14 @@ fixtures['required-extension.glb'] = basedOnTinyV1((json) => {
   json.extensionsRequired = ['KHR_materials_variants'];
 });
 
-// 11 — compression extension.
+// 11 — compression extension with a Draco stream that does not exist
+// (Draco itself is in the profile since 2026-09-23).
 fixtures['compression.glb'] = basedOnTinyV1((json) => {
   json.extensionsUsed = ['KHR_draco_mesh_compression'];
   json.extensionsRequired = ['KHR_draco_mesh_compression'];
+  json.meshes[0].primitives[0].extensions = {
+    KHR_draco_mesh_compression: { bufferView: 99, attributes: { POSITION: 0 } },
+  };
 });
 
 // 12 — decoded image byte cap (header-declared 20000x20000 = 1.6 GB pixels).

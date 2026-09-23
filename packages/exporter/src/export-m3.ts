@@ -25,6 +25,7 @@
  * output tree is byte-untouched. Source-bearing behaviors ship as separate
  * `behaviors/<outputDigest>.js` modules the bootstrap imports.
  */
+import { DECODER_LICENSES, decoderFiles, decodersNeeded } from './decoders';
 import { build, version as esbuildVersion } from 'esbuild';
 import {
   canonicalJsonText,
@@ -298,6 +299,14 @@ export async function exportProjectM3(
 
   // ---- the output tree + meta.json v2 -----------------------------------------
 
+  // three's Draco/Basis decoders ship only when a shipped GLB needs them.
+  const decoders = decodersNeeded(closure.assetArtifacts);
+  const threeDir = ctx.fs.join(ctx.threePackageJson, '..');
+  const decoderArtifacts = decoderFiles(decoders, threeDir, (p) => ctx.fs.read(p), (...p) => ctx.fs.join(...p)).map((f) => ({
+    ...f,
+    digest: digestBytes(f.bytes),
+  }));
+
   const indexBytes = new TextEncoder().encode(INDEX_HTML);
   const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
   const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
@@ -307,6 +316,7 @@ export async function exportProjectM3(
     { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
     { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
+    ...decoderArtifacts.map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
   ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const outputDigest = digestEmittedClosure(closureEntries);
 
@@ -315,6 +325,7 @@ export async function exportProjectM3(
     installedPackage(ctx, ctx.typescriptPackageJson, 'typescript'),
     { id: 'esbuild', version: esbuildVersion, license: 'MIT', source: 'npm' },
     { id: '@dimforge/rapier2d-compat', version: readJsonStringField(ctx, ctx.fs.join(ctx.repoRoot, 'node_modules/@dimforge/rapier2d-compat/package.json'), 'version'), license: 'Apache-2.0', source: 'npm' },
+    ...decoders.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
   ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const sceneEntities = (captured.scene as { entities?: unknown[] })?.entities ?? [];
@@ -367,6 +378,7 @@ export async function exportProjectM3(
     { name: MANIFEST_NAME, bytes: manifestBytes },
     { name: SCENE_NAME, bytes: closure.sceneBytes },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
+    ...decoderArtifacts.map((a) => ({ name: a.path, bytes: a.bytes })),
     { name: META_NAME, bytes: metaBytes },
   ];
 

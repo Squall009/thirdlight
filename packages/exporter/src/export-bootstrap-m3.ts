@@ -271,7 +271,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         runtime,
         snapshot,
         ...(models !== null
-          ? { models, modelsLoader: createGltfLoaderPort() }
+          ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
       });
       adapterRef.current = a;

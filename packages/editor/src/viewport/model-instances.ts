@@ -83,7 +83,8 @@ export class ModelInstances {
   private readonly scene: THREE.Scene;
   private readonly options: ModelInstancesOptions;
   private readonly store: VisualResourceStore = createVisualResourceStore();
-  private readonly loader = createGltfLoaderPort();
+  // Draco/Basis decoder files are served next to the editor page (dist/editor/decoders/).
+  private readonly loader = createGltfLoaderPort({ decoderBase: './decoders/' });
   private readonly live = new Map<string, LiveInstance>();
   private readonly loading = new Set<string>();
   /**

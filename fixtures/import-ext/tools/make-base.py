@@ -9,6 +9,8 @@ render shows at a glance whether the texture arrived) and exports it twice:
                  EXT_texture_webp (required), plus KHR_texture_transform
                  (the mapping node repeats the checker 2x), and
                  KHR_materials_specular / KHR_materials_ior from the BSDF.
+  draco-cube.glb the PNG cube with Blender's own Draco mesh compression
+                 (KHR_draco_mesh_compression, required).
 
 Run:  blender -b --factory-startup --python make-base.py -- <out dir>
 """
@@ -45,11 +47,12 @@ bsdf.inputs["Roughness"].default_value = 0.6
 cube.data.materials.append(mat)
 
 
-def export(path, fmt):
+def export(path, fmt, draco=False):
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
         export_image_format=fmt,
+        export_draco_mesh_compression_enable=draco,
         export_yup=True,
         export_animations=False,
         export_extras=False,
@@ -59,6 +62,7 @@ def export(path, fmt):
 
 
 export(f"{out}/base-png.glb", "AUTO")
+export(f"{out}/draco-cube.glb", "AUTO", draco=True)
 
 # The WebP variant: repeat the checker through a mapping node and set
 # specular tint / IOR so the exporter writes those extensions.

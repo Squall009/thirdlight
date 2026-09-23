@@ -57,13 +57,18 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
    * per-response nonce for the shell's injected page config (delivery §7); the
    * artifact responses use the same policy without a nonce.
    */
-  const previewCsp = (nonce?: string): string =>
+  const previewCsp = (nonce?: string, allowEval = false): string =>
     // 'wasm-unsafe-eval': the game's physics (Rapier) is WebAssembly.
     // blob: (connect/img): GLTFLoader hands a GLB's embedded textures to the
-    // image decoder as blob: URLs of bytes already in the page.
+    // image decoder as blob: URLs of bytes already in the page. worker-src
+    // blob:: three's Draco/KTX2 decoders run in workers built from blob: URLs.
+    // 'unsafe-eval' only for a play whose models carry KTX2/Basis textures:
+    // three's Basis transcoder (Emscripten embind) builds functions at run
+    // time, and its worker inherits this policy.
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'" +
+    (allowEval ? " 'unsafe-eval'" : '') +
     (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
-    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src 'none'; " +
+    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src blob:; " +
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
     `frame-ancestors ${config.authoringOrigin}`;
 

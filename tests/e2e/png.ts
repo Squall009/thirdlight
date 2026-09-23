@@ -81,3 +81,23 @@ export function colorCount(img: Image, frac = 0.5): number {
   }
   return seen.size;
 }
+
+/** How many of `bands` equal vertical slices of the central region (`frac`
+ * of each dimension) contain a lit pixel (any channel above `threshold`). */
+export function litBands(img: Image, bands = 3, frac = 0.5, threshold = 40): number {
+  const x0 = Math.floor((img.width * (1 - frac)) / 2);
+  const y0 = Math.floor((img.height * (1 - frac)) / 2);
+  const w = img.width - 2 * x0;
+  let lit = 0;
+  for (let b = 0; b < bands; b++) {
+    let found = false;
+    for (let x = x0 + Math.floor((b * w) / bands); x < x0 + Math.floor(((b + 1) * w) / bands) && !found; x += 2) {
+      for (let y = y0; y < img.height - y0 && !found; y += 2) {
+        const [r, g, bl] = img.pixel(x, y);
+        if (Math.max(r, g, bl) > threshold) found = true;
+      }
+    }
+    if (found) lit += 1;
+  }
+  return lit;
+}

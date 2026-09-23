@@ -138,8 +138,11 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
 
     // d = the recorded baseline (three core) + the Rapier row (+1) + the
     //    counted engine call sites (one ./manifest.json + one ./scene.json +
-    //    one read per unique declared asset path). game-host adds 0.
-    expect(c.d).toBe(ref.d + 1 + 2 + nAssets);
+    //    one read per unique declared asset path). game-host adds 0. The
+    //    compressed-GLB loaders (2026-09-23) add 1: three's zstddec, pulled in
+    //    by KTX2Loader, fetches its own embedded `data:application/wasm` URL
+    //    (no network).
+    expect(c.d).toBe(ref.d + 1 + 2 + nAssets + 1);
 
     // f/j = exactly the table's counts + 0 from game-host + 0 from the
     //    GLTFLoader subpath (C64-6: d/f/j/a/b/c/e/g/i +0 for the subpath
@@ -152,16 +155,32 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     //    entered the M3 export graph (delivery.md (M4) §2 — the wrapper
     //    builds the loader port the `models` block uses), adding the
     //    pinned `three@0.186.0` GLTFLoader addon's documented URL comments
-    //    (+12 `https://`; `GLTFLoader` ×37 in the bundle bytes).
-    expect(c.h).toBe(ref.h + 12);
+    //    (+12 `https://`; `GLTFLoader` ×37 in the bundle bytes). The
+    //    compressed-GLB loaders (2026-09-23: DRACOLoader, KTX2Loader and their
+    //    helpers, meshopt_decoder) add +1: a documentation URL in a comment
+    //    that esbuild keeps (KTX2Loader's gpuweb issue link). No fetch target.
+    expect(c.h).toBe(ref.h + 12 + 1);
     expect(count(text, 'GLTFLoader')).toBe(37);
 
     // The C64-6 graph rows: the M3 export graph reaches the `./gltf-loader`
-    //    subpath + the pinned GLTFLoader addon (nothing else from
-    //    `three/examples/jsm`).
+    //    subpath + the pinned three addons listed below.
     const inputs = Object.keys(bundle.metafile.inputs);
     expect(inputs.some((p) => p.includes('packages/three-adapter/src/gltf-loader.ts'))).toBe(true);
-    expect(inputs.filter((p) => p.includes('three/examples/jsm/')).length).toBe(3);
+    const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
+    // GLTFLoader and its two utils, plus (2026-09-23) three's Draco/KTX2
+    // loaders with their helpers and the meshopt decoder — nothing else.
+    expect(addons).toEqual([
+      'libs/ktx-parse.module.js',
+      'libs/meshopt_decoder.module.js',
+      'libs/zstddec.module.js',
+      'loaders/DRACOLoader.js',
+      'loaders/GLTFLoader.js',
+      'loaders/KTX2Loader.js',
+      'math/ColorSpaces.js',
+      'utils/BufferGeometryUtils.js',
+      'utils/SkeletonUtils.js',
+      'utils/WorkerPool.js',
+    ]);
 
     // No absolute/remote fetch literal (every target is a relative artifact).
     expect(text).not.toContain('fetch("http');

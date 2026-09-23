@@ -89,7 +89,7 @@ describe('fixture index', () => {
       expect(proposal.importRecipe.profile).toBe('gltf-glb');
       expect(proposal.importRecipe.recipeVersion).toBe(1);
       expect(proposal.importRecipe.toolchain).toEqual({ three: '0.186.0' });
-      expect(proposal.importRecipe.extensions).toEqual([]);
+      expect(proposal.importRecipe.extensions).toEqual(entry.file === 'compression.glb' ? ['KHR_draco_mesh_compression'] : []);
 
       // §8 job identity and the applied caps come from the injected job port.
       expect(proposal.proposalId).toBe(index.job.proposalId);
@@ -194,13 +194,14 @@ describe('fixture index', () => {
     expect(proposalSourceBytes()).toBe(33_554_432);
   });
 
-  it('the effective extension allowlist is the pinned no-decoder set and frozen (§18.8.1)', () => {
-    expect([...M2_GLTF_EXTENSION_ALLOWLIST]).toEqual(['EXT_texture_webp',  'KHR_materials_clearcoat',  'KHR_materials_emissive_strength',  'KHR_materials_ior',  'KHR_materials_sheen',  'KHR_materials_specular',  'KHR_materials_transmission',  'KHR_materials_unlit',  'KHR_materials_volume',  'KHR_mesh_quantization',  'KHR_texture_transform']);
+  it('the effective extension allowlist is the pinned set and frozen (§18.8.1)', () => {
+    expect([...M2_GLTF_EXTENSION_ALLOWLIST]).toEqual(['EXT_meshopt_compression',  'EXT_texture_webp',  'KHR_draco_mesh_compression',  'KHR_materials_clearcoat',  'KHR_materials_emissive_strength',  'KHR_materials_ior',  'KHR_materials_sheen',  'KHR_materials_specular',  'KHR_materials_transmission',  'KHR_materials_unlit',  'KHR_materials_volume',  'KHR_mesh_quantization',  'KHR_texture_basisu',  'KHR_texture_transform']);
     expect(Object.isFrozen(M2_GLTF_EXTENSION_ALLOWLIST)).toBe(true);
-    // Every committed fixture declares no used extension, so every recipe's
-    // extension list is empty.
-    for (const entry of index.entries) {
-      expect(entry.recipeDigest).toBe(index.entries[0]?.recipeDigest);
+    // Every committed fixture except compression.glb (Draco) declares no
+    // allowlisted extension, so their recipes' extension lists are empty.
+    const plain = index.entries.filter((e) => e.file !== 'compression.glb');
+    for (const entry of plain) {
+      expect(entry.recipeDigest).toBe(plain[0]?.recipeDigest);
     }
   });
 });

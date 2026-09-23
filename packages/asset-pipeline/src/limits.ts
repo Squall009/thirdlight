@@ -90,14 +90,19 @@ export const AUDIO_PCM_WAV_LIMITS: Readonly<Record<string, number>> = Object.fre
 
 /**
  * §18.8.1 extension allowlist: the glTF extensions the pinned
- * `three@0.186.0` GLTFLoader honors without an extra decoder, each covered by
- * a committed fixture that imports here and renders in Play and export
- * (fixtures/import-ext). The same list is restated in project-model (recipe
+ * `three@0.186.0` GLTFLoader honors (Draco and Basis/KTX2 through the decoders
+ * three ships, delivered with the game only when an asset needs them), each
+ * covered by a committed fixture that imports here and renders in the editor,
+ * Play and export (fixtures/import-ext). Meshopt streams are decoded by the
+ * importer itself (meshopt.ts); Draco and KTX2 payloads are checked for
+ * structure and declared sizes here and decoded at load. The same list is restated in project-model (recipe
  * validation) and three-adapter (the loader guard); a cross-package test keeps
  * the three equal. Everything else is `asset_extension_unsupported`.
  */
 export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
+  'EXT_meshopt_compression',
   'EXT_texture_webp',
+  'KHR_draco_mesh_compression',
   'KHR_materials_clearcoat',
   'KHR_materials_emissive_strength',
   'KHR_materials_ior',
@@ -107,6 +112,7 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
   'KHR_materials_unlit',
   'KHR_materials_volume',
   'KHR_mesh_quantization',
+  'KHR_texture_basisu',
   'KHR_texture_transform',
 ]);
 

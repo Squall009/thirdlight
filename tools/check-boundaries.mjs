@@ -129,8 +129,18 @@ export const NODE_SIDE_ALLOWED = {
     external: ['three', '@types/three'],
     // dependencies.md §4.2/§7 (the GLTFLoader note): only the pinned
     // three@0.186.0 package's own GLTFLoader subpath is approved; the empty
-    // subpath '' is the bare `three` specifier.
-    externalSubpaths: { three: ['', 'examples/jsm/loaders/GLTFLoader.js'] },
+    // subpath '' is the bare `three` specifier. Added 2026-09-23 (owner
+    // go-ahead for compressed GLBs): three's own Draco/KTX2 loaders and
+    // meshopt decoder, used only by the gltf-loader port.
+    externalSubpaths: {
+      three: [
+        '',
+        'examples/jsm/loaders/GLTFLoader.js',
+        'examples/jsm/loaders/DRACOLoader.js',
+        'examples/jsm/loaders/KTX2Loader.js',
+        'examples/jsm/libs/meshopt_decoder.module.js',
+      ],
+    },
     node: [],
   },
   // Packet 55 (delivery.md §3.1/§3.2, dependencies.md §4.1 row): the local

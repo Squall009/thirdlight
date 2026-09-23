@@ -32,6 +32,7 @@ export {
   type ContentClosureM3Input,
 } from './content-closure';
 export { checkBundleGraphM3 } from './graph';
+export { decodersNeeded } from './decoders';
 export {
   assertRelativeClosure,
   scanGlbContainer,

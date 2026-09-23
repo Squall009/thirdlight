@@ -82,21 +82,21 @@
     },
     {
       "file": "compression.glb",
-      "sha256": "263bd7fc7fef74a3a2e5d88d1abb97a3e526cbaa64f94b1e15b8b1b08a9eb37d",
-      "byteLength": 1652,
-      "purpose": "compression extension (Draco) is not in the M2 profile",
+      "sha256": "bc8508f26905373f7788147e1f363d9c0b9875f6872cf27d4a585c89c72c8ad5",
+      "byteLength": 1740,
+      "purpose": "Draco-compressed primitive whose stream bufferView does not exist",
       "status": "rejected",
       "codes": [
-        "asset_compression_unsupported"
+        "asset_primitive_unsupported"
       ],
       "limits": [
         null
       ],
       "paths": [
-        "/extensionsUsed"
+        "/meshes/0/primitives/0/extensions/KHR_draco_mesh_compression/bufferView"
       ],
-      "recipeDigest": "dc1484512d50f8a83e321c7cc41dfbef56ddc0f89199987e90abcf5ef4e9df2e",
-      "metadataDigest": "8128c67f7246e1231fb820358bfac265143b20b69d5bbc89499a595ee08be619"
+      "recipeDigest": "2e049be6b02653b8c6664ae5eb7a6e587d8c01cfe3f83338fba1f613aa6151e9",
+      "metadataDigest": "f22518a544349a4ee0ab8d45df995afa5d7a869e0a045eca87929d3619f0457b"
     },
     {
       "file": "count-limit.glb",

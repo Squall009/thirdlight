@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { classifyLocatorPath, isContentId, redactContentId, sessionError, type SessionError } from '@thirdlight/protocol';
 import { type BackendConfig } from './config';
+import { decodersNeeded } from '@thirdlight/exporter';
 import { PlayContentStore, type PlayContentSet } from './play-content';
 
 import { hex } from './util';
@@ -14,7 +15,7 @@ export interface PreviewRoutesContext {
   readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
   readonly parseQuery: (qs: string) => Map<string, string>;
   readonly serveStatic: (res: ServerResponse, dir: string, urlPath: string) => void;
-  readonly previewCsp: (nonce?: string) => string;
+  readonly previewCsp: (nonce?: string, allowEval?: boolean) => string;
   readonly locatorBaseHeaders: (res: ServerResponse) => void;
   readonly previewTemplate: () => string;
   readonly previewShellHtml: (playSessionId: string, contentId: string, nonce: string) => string;
@@ -68,6 +69,9 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
     sendJson(res, status, { ok: false, error });
   };
 
+  /** Does this play ship a KTX2/Basis texture (the transcoder then needs 'unsafe-eval')? */
+  const needsBasis = (set: PlayContentSet): boolean => decodersNeeded([...set.artifacts.values()]).includes('basis');
+
   const dispatchPreview = (req: IncomingMessage, res: ServerResponse): void => {
     const url = req.url ?? '';
     const qIdx = url.indexOf('?');
@@ -99,7 +103,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         }
         const nonce = hex(16);
         res.setHeader('content-type', 'text/html; charset=utf-8');
-        res.setHeader('content-security-policy', previewCsp(nonce));
+        res.setHeader('content-security-policy', previewCsp(nonce, needsBasis(set)));
         res.setHeader('referrer-policy', 'no-referrer');
         res.setHeader('cache-control', 'no-store');
         res.end(previewShellHtml(psid, contentId, nonce));
@@ -130,7 +134,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           }
           const nonce = hex(16);
           res.setHeader('content-type', 'text/html; charset=utf-8');
-          res.setHeader('content-security-policy', previewCsp(nonce));
+          res.setHeader('content-security-policy', previewCsp(nonce, needsBasis(set)));
           res.setHeader('referrer-policy', 'no-referrer');
           res.setHeader('cache-control', 'no-store');
           res.end(previewShellHtml(set.playSessionId, set.contentId, nonce));

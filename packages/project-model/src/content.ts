@@ -165,7 +165,9 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 /** §18.8.1: the effective extension allowlist (asset-pipeline owns the list; restated here, kept equal by a cross-package test). */
 export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
+  'EXT_meshopt_compression',
   'EXT_texture_webp',
+  'KHR_draco_mesh_compression',
   'KHR_materials_clearcoat',
   'KHR_materials_emissive_strength',
   'KHR_materials_ior',
@@ -175,6 +177,7 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
   'KHR_materials_unlit',
   'KHR_materials_volume',
   'KHR_mesh_quantization',
+  'KHR_texture_basisu',
   'KHR_texture_transform',
 ]);
 

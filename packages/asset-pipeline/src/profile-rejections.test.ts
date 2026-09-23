@@ -205,13 +205,17 @@ describe('§18.7.2 step 5 — glTF version, extensions and compression', () => {
       '/extensionsRequired',
     );
   });
-  it('reports the compression code for Draco and meshopt', () => {
+  it('rejects a meshopt-compressed bufferView whose stream does not decode', () => {
     expectRejected(
       mutate((json) => {
         json['extensionsUsed'] = ['EXT_meshopt_compression'];
+        const bv = (json['bufferViews'] as Record<string, unknown>[])[0]!;
+        const length = bv['byteLength'] as number;
+        // The raw (uncompressed) bytes are not a meshopt stream.
+        bv['extensions'] = { EXT_meshopt_compression: { buffer: 0, byteOffset: 0, byteLength: length, byteStride: 4, count: length / 4, mode: 'ATTRIBUTES' } };
       }),
-      'asset_compression_unsupported',
-      '/extensionsUsed',
+      'asset_buffer_invalid',
+      '/bufferViews/0/extensions/EXT_meshopt_compression',
     );
   });
 });
@@ -223,7 +227,7 @@ describe('§18.7.2 step 6/7 — buffers and bufferViews', () => {
         json['buffers'] = [{ byteLength: 140 }, { byteLength: 4 }];
       }),
       'asset_buffer_invalid',
-      '/buffers',
+      '/buffers/1',
     );
     expectRejected(
       mutate((json) => {
@@ -382,8 +386,8 @@ describe('§18.7.2 step 9 — meshes and primitives', () => {
           'extensions'
         ] = { KHR_materials_unlit: {} };
       }),
-      'asset_primitive_unsupported',
-      '/meshes/0/primitives/0/extensions',
+      'asset_extension_unsupported',
+      '/meshes/0/primitives/0/extensions/KHR_materials_unlit',
     );
   });
   it('rejects a signed index accessor', () => {
