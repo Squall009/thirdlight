@@ -17,7 +17,7 @@
  * refuses `publishBehavior{mode:"source"}` with
  * `behavior_publication_unavailable`.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
@@ -48,11 +48,13 @@ import {
   type ContentJobState,
   type ContentJobView,
   type SessionError,
+  type StageInspectRequest,
 } from '@thirdlight/protocol';
 import { inspectAudio, inspectGlb, AUDIO_PCM_WAV_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
+import { isFbx, type FbxConverter } from './fbx';
 
 // ---- error surfacing (workspace/command codes → session-layer shape) ----------
 
@@ -517,7 +519,12 @@ export interface ContentRouteDeps {
   log: (message: string) => void;
   /** A content job (import inspection, publication) failed. */
   onJobFailed?: (projectId: string, kind: string, code: string, message: string) => void;
+  /** FBX → GLB conversion (headless Blender); without it an FBX import is `converter_unavailable`. */
+  fbx?: FbxConverter;
 }
+
+/** Where an FBX to convert comes from: a game-folder file or an upload stage. */
+type FbxSource = { kind: 'file'; path: string } | { kind: 'stage'; stageId: string; bytes: Uint8Array };
 
 const FRAME_BOUND_MS = CONTENT_JOB_RESULT_TTL_MS;
 
@@ -734,9 +741,14 @@ export class ContentRoutes {
     // inspection, byte-unchanged.
     const inspected0 = parseStageInspectRequest(body);
     if (!inspected0.ok) return this.deps.sendError(res, inspected0.error);
+    const upload = this.uploads.get(sid.stageId);
+    // An uploaded FBX is converted to GLB first; the GLB is what gets inspected.
+    const staged0 = this.deps.service.readStage(projectId, sid.stageId);
+    if (staged0.ok && isFbx(staged0.bytes)) {
+      return this.inspectConverted(res, projectId, { kind: 'stage', stageId: sid.stageId, bytes: staged0.bytes }, inspected0.request, upload?.displayName);
+    }
     const job = this.jobs.begin('inspect', projectId);
     if (!job.ok) return this.deps.sendError(res, job.error);
-    const upload = this.uploads.get(sid.stageId);
     const result = this.deps.service.inspectStage(projectId, sid.stageId, {
       isCancelled: () => this.jobs.isCancelled(job.jobId),
       ...(upload?.displayName !== undefined ? { displayName: upload.displayName } : {}),
@@ -856,9 +868,10 @@ export class ContentRoutes {
     if (body === null) return;
     const parsed = parseProjectFileInspectRequest(body);
     if (!parsed.ok) return this.deps.sendError(res, parsed.error);
+    const { path, displayName, kind, animation } = parsed.request;
+    if (/\.fbx$/i.test(path)) return this.inspectConverted(res, projectId, { kind: 'file', path }, parsed.request, displayName);
     const job = this.jobs.begin('inspect', projectId);
     if (!job.ok) return this.deps.sendError(res, job.error);
-    const { path, displayName, kind, animation } = parsed.request;
     const result = this.deps.service.inspectProjectFile(projectId, path, {
       isCancelled: () => this.jobs.isCancelled(job.jobId),
       ...(displayName !== undefined ? { displayName } : {}),
@@ -877,6 +890,101 @@ export class ContentRoutes {
         ? { ...p, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount: (p.inspection as { sceneCount: number }).sceneCount, truncated: true } }
         : p;
     this.deps.sendJson(res, 200, { ok: true, sourcePath: result.sourcePath, proposal, truncated: proposal !== p, jobId: job.jobId });
+  }
+
+  /**
+   * FBX import: convert with headless Blender, stage the GLB like an upload,
+   * inspect it through the ordinary profile and publish it as a blob (the
+   * version's stored bytes). The response carries `convertedFrom` for the
+   * `publishAsset` args: the FBX's digest/size, its game-folder path (a file
+   * stays where it is) — an uploaded FBX is published as a blob too — and the
+   * Blender version.
+   */
+  private async inspectConverted(
+    res: ServerResponse,
+    projectId: string,
+    source: FbxSource,
+    request: StageInspectRequest,
+    displayName: string | undefined,
+  ): Promise<void> {
+    const failed = (code: string, cls: SessionError['cls'], message: string, extra: Partial<SessionError> = {}): void => {
+      this.deps.onJobFailed?.(projectId, 'inspect', code, message);
+      this.deps.sendError(res, sessionError(code as SessionError['code'], cls, message, extra));
+    };
+    if (request.kind === 'audio') return failed('field_value', 'validation', 'an FBX file is a model, not audio', { path: '/kind' });
+    const converter = this.deps.fbx;
+    if (converter === undefined) return failed('converter_unavailable', 'unavailable', 'FBX import needs Blender on the server (THIRDLIGHT_BLENDER)');
+    let original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string };
+    let input: { path: string } | { bytes: Uint8Array };
+    if (source.kind === 'file') {
+      const src = this.deps.service.conversionSource(projectId, source.path);
+      if (!src.ok) return this.deps.sendError(res, commandErrorToSession(src.error));
+      input = { path: src.real };
+      original = { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: source.path };
+    } else {
+      input = { bytes: source.bytes };
+      original = { sourceDigest: createHash('sha256').update(source.bytes).digest('hex'), sourceByteLength: source.bytes.length };
+    }
+    const converted = await converter.convert(input);
+    if (!converted.ok) return failed(converted.code, converted.code === 'converter_unavailable' ? 'unavailable' : 'validation', converted.message);
+    if (source.kind === 'file') {
+      const again = this.deps.service.conversionSource(projectId, source.path);
+      if (!again.ok || again.digest !== original.sourceDigest) {
+        return failed('asset_source_changed', 'conflict', `${source.path} changed while it was being converted; import it again`, { path: source.path });
+      }
+    }
+    // Stage the GLB (a fresh stage id) and run the ordinary inspection.
+    const name = displayName ?? (source.kind === 'file' ? (source.path.split('/').pop() ?? source.path).replace(/\.fbx$/i, '') : undefined);
+    const begun = this.uploads.begin(projectId, name);
+    if (!begun.ok) return this.deps.sendError(res, begun.error);
+    this.uploads.discard(begun.stageId);
+    const glbStage = begun.stageId;
+    const staged = this.deps.service.stageContent(projectId, { stageId: glbStage, bytes: converted.glb, ...(name !== undefined ? { displayName: name } : {}) });
+    if (!staged.ok) return this.deps.sendError(res, commandErrorToSession(staged.error));
+    const job = this.jobs.begin('inspect', projectId);
+    if (!job.ok) {
+      this.deps.service.discardStage(projectId, glbStage);
+      return this.deps.sendError(res, job.error);
+    }
+    try {
+      const result = this.deps.service.inspectStage(projectId, glbStage, {
+        isCancelled: () => this.jobs.isCancelled(job.jobId),
+        ...(name !== undefined ? { displayName: name } : {}),
+        kind: 'model',
+        ...(request.animation !== undefined ? { animation: request.animation } : {}),
+      });
+      if (!result.ok) {
+        this.jobs.fail(job.jobId, result.error.code, result.error.message);
+        return this.deps.sendError(res, commandErrorToSession(result.error));
+      }
+      const glb = this.deps.service.publishBlob(projectId, {
+        digest: result.proposal.sourceDigest,
+        byteLength: result.proposal.sourceByteLength,
+        source: { kind: 'stage', stageId: glbStage },
+      });
+      if (!glb.ok) {
+        this.jobs.fail(job.jobId, glb.error.code, glb.error.message);
+        return this.deps.sendError(res, commandErrorToSession(glb.error));
+      }
+      if (source.kind === 'stage') {
+        // An uploaded original has no other home: keep it as a blob.
+        const fbx = this.deps.service.publishBlob(projectId, {
+          digest: original.sourceDigest,
+          byteLength: original.sourceByteLength,
+          source: { kind: 'stage', stageId: source.stageId },
+        });
+        if (!fbx.ok) {
+          this.jobs.fail(job.jobId, fbx.error.code, fbx.error.message);
+          return this.deps.sendError(res, commandErrorToSession(fbx.error));
+        }
+      }
+      const p = result.proposal;
+      this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+      const convertedFrom = { format: 'fbx' as const, ...original, converter: { name: 'blender' as const, version: converted.blenderVersion } };
+      this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
+    } finally {
+      this.deps.service.discardStage(projectId, glbStage);
+    }
   }
 
   // ---- bounded content queries ----------------------------------------------

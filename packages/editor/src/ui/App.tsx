@@ -1432,7 +1432,7 @@ function EditorApp(): JSX.Element {
       mediaPendingRef.current = null;
       await c.fullResync();
       refreshEntities();
-      if (args.args.sourcePath !== undefined) void checkFiles();
+      if (args.args.sourcePath !== undefined || args.args.convertedFrom !== undefined) void checkFiles();
     } else {
       const response = res.response;
       setImportState(importFailed(s, response.ok === false ? { code: response.code, message: response.message ?? response.code } : { code: 'network', message: 'the command response was lost' }));

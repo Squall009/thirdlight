@@ -118,7 +118,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'optional); target="integrity" returns the bounded content-integrity report (a file referenced in place is ' +
       'ok / changed / missing); target="game" returns the ' +
       'full normalized `content.game` block (the v3 `queryGameConfig`, or null); target="projectFiles" lists one ' +
-      'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.wav ' +
+      'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav ' +
       'files) for tl_content_upload projectPath. Never returns bytes.',
     inputSchema: {
       type: 'object',
@@ -147,14 +147,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup. ' +
       'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
-      'the file. Give exactly one of dataBase64 or projectPath.',
+      'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
+      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include.',
     inputSchema: {
       type: 'object',
       properties: {
         dataBase64: { type: 'string', description: 'base64 of the source bytes (≤ 32 MiB decoded)' },
         projectPath: {
           type: 'string',
-          description: 'a .glb/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
+          description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
         kind: { type: 'string', enum: ['model', 'audio'] },

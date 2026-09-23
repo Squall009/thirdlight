@@ -33,7 +33,7 @@ import {
 import { basename, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { captureContent, isValidSourcePath, validateContent } from '@thirdlight/project-model';
+import { captureContent, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES, validateContent } from '@thirdlight/project-model';
 import type {
   CapturedContent,
   ContentCatalog,
@@ -1108,7 +1108,7 @@ export interface ProjectFileEntry {
 }
 
 export const MAX_PROJECT_FILE_ENTRIES = 500;
-const IMPORTABLE: Readonly<Record<string, 'model' | 'audio'>> = { '.glb': 'model', '.wav': 'audio' };
+const IMPORTABLE: Readonly<Record<string, 'model' | 'audio'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio' };
 
 export type ProjectFileListResult =
   | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }
@@ -1116,7 +1116,7 @@ export type ProjectFileListResult =
 
 /**
  * `listProjectFiles(dir)`: one folder of the game folder, for the "import from
- * project folder" picker. Lists subfolders and `.glb`/`.wav` files; hidden
+ * project folder" picker. Lists subfolders and `.glb`/`.fbx`/`.wav` files; hidden
  * entries, `.git` and the project's own folder are left out, and a symlink
  * is listed only when it stays inside the game folder.
  */
@@ -1156,6 +1156,46 @@ export function listProjectFiles(ctx: ContentContext, dir: unknown): ProjectFile
   }
   entries.sort((a, b) => (a.kind === 'dir') === (b.kind === 'dir') ? (a.name < b.name ? -1 : 1) : a.kind === 'dir' ? -1 : 1);
   return { ok: true, dir: String(rel), entries, truncated };
+}
+
+export type ConversionSourceResult =
+  | { ok: true; sourcePath: string; real: string; digest: string; byteLength: number }
+  | { ok: false; error: CommandError };
+
+/**
+ * The input of an FBX conversion: a contained game-folder file (up to
+ * MAX_CONVERTED_SOURCE_BYTES), its real path — which only the backend's
+ * converter sees, never a client — and the digest of the bytes it has now.
+ */
+export function conversionSource(ctx: ContentContext, sourcePath: unknown): ConversionSourceResult {
+  const res = resolveProjectFile(ctx, sourcePath);
+  if (!res.ok) return { ok: false, error: res.error };
+  const path = sourcePath as string;
+  if (res.size > MAX_CONVERTED_SOURCE_BYTES) return { ok: false, error: stageLimitError('stage_bytes', res.size, MAX_CONVERTED_SOURCE_BYTES) };
+  const r = readBlobBytes(res.real);
+  if (!r.ok) return { ok: false, error: pathRejected(path, `${path} could not be read`) };
+  const digest = sha256Hex(r.bytes);
+  rememberDigest(res.real, digest);
+  return { ok: true, sourcePath: path, real: res.real, digest, byteLength: r.bytes.length };
+}
+
+/** A converted version's original (FBX): the game-folder file, else its stored blob. */
+export interface ConvertedOriginal {
+  sourceDigest: string;
+  sourceByteLength: number;
+  sourcePath?: string;
+}
+
+/** Commit-time check of a converted version's original: present with the recorded bytes. */
+export function verifyConvertedOriginal(ctx: ContentContext, original: ConvertedOriginal): { ok: true } | { ok: false; error: CommandError } {
+  if (original.sourcePath === undefined) return verifyReferencedBlob(ctx, original.sourceDigest, original.sourceByteLength);
+  const r = readProjectFileBytes(ctx, original.sourcePath);
+  if (!r.ok) return { ok: false, error: r.missing === true ? assetSourceMissing(original.sourceDigest, original.sourcePath) : r.error };
+  const h = sha256Hex(r.bytes);
+  if (h !== original.sourceDigest || r.bytes.length !== original.sourceByteLength) {
+    return { ok: false, error: assetSourceChanged(original.sourceDigest, original.sourcePath, h) };
+  }
+  return { ok: true };
 }
 
 export type InspectProjectFileResult =
@@ -1216,6 +1256,12 @@ export interface ContentIntegrityEntry {
   referenced: boolean;
   /** The file in the game folder, for a version referenced in place. */
   sourcePath?: string;
+  /**
+   * A converted version's original (FBX): where it is and whether it still
+   * has the recorded bytes. The version itself stays readable (its GLB is
+   * stored); a changed original only means a re-import would differ.
+   */
+  convertedFrom?: { format: 'fbx'; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
   /**
    * `changed`: a file referenced in place no longer has the recorded bytes
    * (the version cannot be read until the file is restored).
@@ -1327,12 +1373,26 @@ export function contentIntegrity(
     for (const record of catalog.assets) {
       for (const v of record.versions as readonly CatalogVersionLike[]) {
         known.add(v.sourceDigest);
+        const conv = (v as { convertedFrom?: { format: 'fbx'; sourceDigest: string; sourceByteLength: number; sourcePath?: string } }).convertedFrom;
+        if (conv !== undefined && conv.sourcePath === undefined) known.add(conv.sourceDigest);
         entries.push({
           assetId: record.assetId,
           version: v.version,
           sourceDigest: v.sourceDigest,
           referenced: v.version === record.currentVersion,
           ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
+          ...(conv !== undefined
+            ? {
+                convertedFrom: {
+                  format: conv.format,
+                  ...(conv.sourcePath !== undefined ? { sourcePath: conv.sourcePath } : {}),
+                  status:
+                    conv.sourcePath !== undefined
+                      ? referencedStatus(ctx, conv.sourcePath, conv.sourceDigest, conv.sourceByteLength)
+                      : blobStatus(ctx, conv.sourceDigest, conv.sourceByteLength),
+                },
+              }
+            : {}),
           status:
             v.sourcePath !== undefined
               ? referencedStatus(ctx, v.sourcePath, v.sourceDigest, v.sourceByteLength)

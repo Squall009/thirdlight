@@ -38,6 +38,7 @@ export type {
   ContentIntegrityResult,
   ContentIntegritySummary,
   ImportedProposal,
+  ConversionSourceResult,
   InspectProjectFileResult,
   InspectStageOptions,
   InspectStageResult,

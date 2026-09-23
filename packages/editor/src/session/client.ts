@@ -106,6 +106,8 @@ export interface IntegrityEntryView {
   sourceDigest: string;
   referenced: boolean;
   sourcePath?: string;
+  /** A converted model's original (FBX) and whether it still has the imported bytes. */
+  convertedFrom?: { format: 'fbx'; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
   status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed';
 }
 
@@ -1190,12 +1192,13 @@ export class SessionClient {
       }
       state = uploadCompleted(state);
       emit();
-      const inspected = await this.request<{ ok: true; proposal: ImportProposal['proposal'] & { proposalId?: string; stageId?: string; sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
+      const inspected = await this.request<{ ok: true; convertedFrom?: unknown; proposal: ImportProposal['proposal'] & { proposalId?: string; stageId?: string; sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
         `/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/inspect`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: inspectBody },
       );
       const proposal: ImportProposal = {
         stageId: stage.stageId,
+        ...(inspected.convertedFrom !== undefined ? { convertedFrom: inspected.convertedFrom } : {}),
         digest: String(inspected.proposal?.sourceDigest ?? ''),
         byteLength: Number(inspected.proposal?.sourceByteLength ?? bytes.length),
         status: String(inspected.proposal?.status ?? 'ok'),
@@ -1242,7 +1245,7 @@ export class SessionClient {
     const emit = (): void => options.onState?.(state);
     emit();
     try {
-      const inspected = await this.request<{ ok: true; sourcePath: string; proposal: ImportProposal['proposal'] & { sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
+      const inspected = await this.request<{ ok: true; sourcePath?: string; convertedFrom?: unknown; proposal: ImportProposal['proposal'] & { sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
         `/projects/${this.cfg.projectId}/content/project-files/inspect`,
         {
           method: 'POST',
@@ -1252,7 +1255,8 @@ export class SessionClient {
       );
       const proposal: ImportProposal = {
         stageId: null,
-        sourcePath: inspected.sourcePath,
+        ...(inspected.sourcePath !== undefined ? { sourcePath: inspected.sourcePath } : {}),
+        ...(inspected.convertedFrom !== undefined ? { convertedFrom: inspected.convertedFrom } : {}),
         digest: String(inspected.proposal?.sourceDigest ?? ''),
         byteLength: Number(inspected.proposal?.sourceByteLength ?? 0),
         status: String(inspected.proposal?.status ?? 'ok'),

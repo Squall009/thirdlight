@@ -122,6 +122,15 @@ export interface AssetMetrics {
   decodedImageBytes: number;
 }
 
+/** The original a converted asset version was made from. */
+export interface ConvertedFrom {
+  format: 'fbx';
+  sourceDigest: string;
+  sourceByteLength: number;
+  sourcePath?: string;
+  converter: { name: 'blender'; version: string };
+}
+
 export interface AssetVersion {
   version: number;
   sourceDigest: string;
@@ -132,6 +141,14 @@ export interface AssetVersion {
    * slashes (see `isValidSourcePath`); `sourceDigest` still pins the bytes.
    */
   sourcePath?: string;
+  /**
+   * Optional: the GLB was converted at import from another format (FBX by
+   * headless Blender). The GLB is this version's stored bytes; this records
+   * the original — its digest and size, its path in the game folder when it
+   * is referenced in place (else it is stored as a blob too) — and the
+   * converter, so a changed original can be re-imported.
+   */
+  convertedFrom?: ConvertedFrom;
   importRecipe: ImportRecipe;
   metrics: AssetMetrics;
   importedAt: string;

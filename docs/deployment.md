@@ -256,6 +256,34 @@ Any other extension is refused at import with `asset_extension_unsupported`,
 naming it; an allowlisted extension in a place where it would mean nothing, or
 not declared in `extensionsUsed`, is refused too.
 
+### FBX
+
+An `.fbx` can be imported like a `.glb` (upload, "from project folder…", or
+MCP `tl_content_upload` with `dataBase64` or `projectPath`). The backend
+converts it with headless Blender (`THIRDLIGHT_BLENDER`, default `blender` on
+`PATH`; this LXC has Blender 5.2.2 in `/usr/local/bin`, which the systemd
+unit's default `PATH` includes) into a GLB — Y up, animations kept, textures
+embedded — and that GLB goes through the same import profile. The game only
+ever loads GLB:
+
+- the converted GLB is the version's stored bytes (`thirdlight/sources/`), so
+  Play and export never need Blender or the FBX;
+- the FBX is recorded as the version's original (`convertedFrom`: checksum,
+  size, the Blender version, and its path when it is in the game folder; an
+  uploaded FBX is stored as a blob next to the GLB). An FBX in the game folder
+  stays where it is; textures next to it are found by Blender;
+- when the FBX changes, Problems says so and offers **Re-import**, which
+  converts it again into a new version. Until then Play and export keep using
+  the previous conversion (unlike a referenced GLB, the stored GLB stays
+  readable). A missing FBX is only noted;
+- one conversion runs at a time and is stopped after 3 minutes; an FBX in the
+  folder may be up to 128 MB, an upload up to the 32 MB stage limit. Without
+  Blender an FBX import fails with `converter_unavailable`; a file Blender
+  cannot convert with `conversion_failed` (with Blender's reason).
+
+Animations survive the conversion, but a model's animations only play in the
+game through a role binding (Media panel), as for any GLB.
+
 The Draco and Basis decoders are three's own (`three@0.186.0`,
 `examples/jsm/libs/{draco,basis}`, Apache-2.0). The editor and the Play
 preview serve them at `/decoders/`; an export gets a `decoders/` folder (and a

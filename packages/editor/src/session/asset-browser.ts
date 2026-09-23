@@ -62,6 +62,8 @@ export interface ImportProposal {
   stageId: string | null;
   /** The game-folder file the version will reference (import from project folder). */
   sourcePath?: string;
+  /** Set when the model was converted from an FBX at import (the original's facts). */
+  convertedFrom?: unknown;
   digest: string;
   byteLength: number;
   status: string;
@@ -228,7 +230,8 @@ export function uploadCompleted(state: AssetImportState): AssetImportState {
 export function inspectionSucceeded(state: AssetImportState, proposal: ImportProposal): AssetImportState {
   if (state.phase !== 'inspecting') return state;
   if (state.sourcePath !== null) {
-    if (proposal.sourcePath !== state.sourcePath) return stale(state, 'inspect result belongs to another file');
+    const file = proposal.sourcePath ?? (proposal.convertedFrom as { sourcePath?: string } | undefined)?.sourcePath;
+    if (file !== state.sourcePath) return stale(state, 'inspect result belongs to another file');
     return next(state, { phase: 'proposed', proposal });
   }
   if (proposal.stageId !== state.stageId) return stale(state, 'inspect result belongs to a superseded stage');
@@ -314,6 +317,8 @@ export interface PublishAssetRequestArgs {
   sourceByteLength: number;
   /** A file referenced in place in the game folder (import from project folder). */
   sourcePath?: string;
+  /** The FBX a converted model was made from (the backend's facts, passed through). */
+  convertedFrom?: unknown;
   importRecipe: unknown;
   metrics: unknown;
   importedAt: string;
@@ -376,6 +381,7 @@ export function publishArgsFromProposal(
       sourceDigest: p.sourceDigest,
       sourceByteLength: p.sourceByteLength,
       ...(proposal.sourcePath !== undefined ? { sourcePath: proposal.sourcePath } : {}),
+      ...(proposal.convertedFrom !== undefined ? { convertedFrom: proposal.convertedFrom } : {}),
       importRecipe: p.importRecipe,
       metrics: p.metrics,
       importedAt,

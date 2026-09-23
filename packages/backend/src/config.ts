@@ -49,6 +49,12 @@ export interface BackendConfig {
    * optional; without it the export route reports `unavailable`.
    */
   engineRoot?: string;
+  /**
+   * Optional. The Blender executable FBX imports are converted with
+   * (THIRDLIGHT_BLENDER; default `blender` on PATH). Without a working
+   * Blender an FBX import fails with `converter_unavailable`.
+   */
+  blenderPath?: string;
   tokens: BackendTokenEntry[];
   /** Test-only seam (§11.5 constants stand in production). */
   timeouts?: Partial<BackendTimeouts>;
@@ -69,7 +75,7 @@ export function parseBackendConfig(value: unknown):
     'dataRoot', 'backendId', 'processMarker',
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
-    'engineRoot',
+    'engineRoot', 'blenderPath',
     'tokens', 'timeouts',
   ]);
   for (const k of Object.keys(obj)) {
@@ -122,6 +128,8 @@ export function parseBackendConfig(value: unknown):
   if (exportRoot.e) return { ok: false, error: exportRoot.e };
   const engineRoot = str('engineRoot', false);
   if (engineRoot.e) return { ok: false, error: engineRoot.e };
+  const blenderPath = str('blenderPath', false);
+  if (blenderPath.e) return { ok: false, error: blenderPath.e };
   // authoringOrigins: non-empty exact allowlist, no wildcards (§4.2).
   const ao = obj.authoringOrigins;
   if (!Array.isArray(ao) || ao.length === 0) {
@@ -197,6 +205,7 @@ export function parseBackendConfig(value: unknown):
   if (processMarker.v !== undefined) config.processMarker = processMarker.v;
   if (exportRoot.v !== undefined) config.exportRoot = exportRoot.v;
   if (engineRoot.v !== undefined) config.engineRoot = engineRoot.v;
+  if (blenderPath.v !== undefined) config.blenderPath = blenderPath.v;
   if (Object.keys(timeouts).length > 0) config.timeouts = timeouts;
   return { ok: true, config };
 }

@@ -34,6 +34,7 @@ import type {
   CaptureViewResult,
   CapturedV3ReadResult,
   ContentIntegrityResult,
+  ConversionSourceResult,
   InspectProjectFileResult,
   InspectStageOptions,
   InspectStageResult,
@@ -371,6 +372,13 @@ export interface WorkspaceService {
    * Nothing is copied; `publishAsset` with the returned `sourcePath` records it.
    */
   inspectProjectFile(projectId: string, sourcePath: string, options?: InspectStageOptions): InspectProjectFileResult;
+  /**
+   * The input of an FBX conversion: a contained game-folder file's real path
+   * and current digest. Backend-internal (a host path); never sent to clients.
+   */
+  conversionSource(projectId: string, sourcePath: string): ConversionSourceResult;
+  /** The bytes of an open stage (an uploaded file the backend converts before inspecting). */
+  readStage(projectId: string, stageId: string): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError };
   /**
    * `readSourceBlob` — a digest-addressed verified read of one immutable
    * `sources/sha256/<digest>` blob (packet 35; contract-change request C35-1).

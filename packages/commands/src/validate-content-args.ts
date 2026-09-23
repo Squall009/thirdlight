@@ -60,9 +60,9 @@ export function validatePublishAssetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishAssetArgs> | { ok: false; error: CommandError } {
   const KNOWN =
-    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), importRecipe, metrics, importedAt, animation (reimport only)';
+    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only)';
   for (const key of Object.keys(args)) {
-    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
+    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -169,6 +169,17 @@ export function validatePublishAssetArgs(
       };
     }
     out.sourcePath = args['sourcePath'];
+  }
+  // The original of a converted model (FBX); its fields are the model's to
+  // validate (the resulting-content gate), the workspace re-verifies the file.
+  if (args['convertedFrom'] !== undefined) {
+    if (!isPlainObject(args['convertedFrom'])) {
+      return { ok: false, error: fieldType('/args/convertedFrom', args['convertedFrom'], 'object { format, sourceDigest, sourceByteLength, sourcePath?, converter }') };
+    }
+    if (out.sourcePath !== undefined) {
+      return { ok: false, error: fieldUnexpected('/args/convertedFrom', 'convertedFrom', KNOWN, 'a converted version is stored; it cannot also have a sourcePath') };
+    }
+    out.convertedFrom = args['convertedFrom'] as unknown as PublishAssetArgs['convertedFrom'];
   }
   if (args['importRecipe'] === undefined) {
     return { ok: false, error: fieldMissing('/args/importRecipe', 'importRecipe') };

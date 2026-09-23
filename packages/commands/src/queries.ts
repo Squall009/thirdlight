@@ -165,8 +165,11 @@ export function queryAssets(
       currentVersion: a.currentVersion,
       versionCount: a.versions.length,
     };
-    const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string } | undefined;
+    const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string; convertedFrom?: { format: 'fbx'; sourcePath?: string } } | undefined;
     if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
+    if (current?.convertedFrom !== undefined) {
+      summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}) };
+    }
     if (inc.value) {
       summary.versions = a.versions.map((v) => {
         const sourcePath = (v as { sourcePath?: string }).sourcePath;

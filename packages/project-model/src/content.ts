@@ -34,6 +34,7 @@ import type {
   AssetRecord,
   AssetVersion,
   BehaviorRecord,
+  ConvertedFrom,
   BehaviorSourceRecord,
   BehaviorTrust,
   ContentCatalog,
@@ -200,6 +201,7 @@ const KNOWN_VERSION_FIELDS = new Set([
   'sourceDigest',
   'sourceByteLength',
   'sourcePath',
+  'convertedFrom',
   'importRecipe',
   'metrics',
   'importedAt',
@@ -253,6 +255,9 @@ function digestError(path: string, found: unknown): ModelErrorV2 {
     found,
   );
 }
+
+/** The largest original accepted for conversion (an FBX), in bytes. */
+export const MAX_CONVERTED_SOURCE_BYTES = 134_217_728;
 
 /** The longest accepted `sourcePath` (UTF-16 code units). */
 export const MAX_SOURCE_PATH_LENGTH = 512;
@@ -579,6 +584,36 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
           'sourcePath must be a relative path inside the game folder',
         ),
       );
+    }
+  }
+  const converted = v['convertedFrom'];
+  if (converted !== undefined) {
+    const cpath = `${path}/convertedFrom`;
+    if (kind !== 'model') errors.push(unexpectedField(cpath, 'convertedFrom', 'only a model version can be converted'));
+    else if (sourcePath !== undefined) errors.push(unexpectedField(cpath, 'convertedFrom', 'a converted version is stored; it cannot also have a sourcePath'));
+    else if (!isPlainObject(converted)) errors.push(fieldType(cpath, converted, 'object'));
+    else {
+      if (converted['format'] !== 'fbx') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"fbx"', 'the converted format must be "fbx"'));
+      const d = converted['sourceDigest'];
+      if (typeof d !== 'string') errors.push(fieldType(`${cpath}/sourceDigest`, d, 'string'));
+      else if (!DIGEST_RE.test(d)) errors.push(digestError(`${cpath}/sourceDigest`, d));
+      const n = converted['sourceByteLength'];
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > MAX_CONVERTED_SOURCE_BYTES) {
+        errors.push(withFound({ code: 'number_out_of_range', path: `${cpath}/sourceByteLength`, message: `sourceByteLength must be an integer in [1, ${MAX_CONVERTED_SOURCE_BYTES}]`, expected: `integer 1..${MAX_CONVERTED_SOURCE_BYTES}` }, n));
+      }
+      const sp = converted['sourcePath'];
+      if (sp !== undefined && !isValidSourcePath(sp)) {
+        errors.push(fieldValue(`${cpath}/sourcePath`, sp, 'a relative path inside the game folder', 'convertedFrom.sourcePath must be a relative path inside the game folder'));
+      }
+      const c = converted['converter'];
+      if (!isPlainObject(c) || c['name'] !== 'blender' || typeof c['version'] !== 'string' || !/^\d+\.\d+(\.\d+)?$/.test(c['version']) || Object.keys(c).length !== 2) {
+        errors.push(fieldValue(`${cpath}/converter`, c, '{ name: "blender", version: "X.Y.Z" }', 'the converter must name blender and its exact version'));
+      }
+      for (const k of Object.keys(converted)) {
+        if (!['format', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'converter'].includes(k)) {
+          errors.push(unexpectedField(`${cpath}/${pointerSegment(k)}`, k, 'format, sourceDigest, sourceByteLength, sourcePath, converter'));
+        }
+      }
     }
   }
   if (v['importRecipe'] === undefined) errors.push(fieldMissing(`${path}/importRecipe`, 'importRecipe'));
@@ -1320,12 +1355,24 @@ function canonicalMetrics(m: AssetMetrics): AssetMetrics {
   return out;
 }
 
+/** Canonical key order of a `convertedFrom` record. */
+function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
+  return {
+    format: c.format,
+    sourceDigest: c.sourceDigest,
+    sourceByteLength: c.sourceByteLength,
+    ...(c.sourcePath !== undefined ? { sourcePath: c.sourcePath } : {}),
+    converter: { name: c.converter.name, version: c.converter.version },
+  };
+}
+
 function canonicalVersion(v: AssetVersion): AssetVersion {
   return {
     version: v.version,
     sourceDigest: v.sourceDigest,
     sourceByteLength: v.sourceByteLength,
     ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
+    ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
     importRecipe: canonicalRecipe(v.importRecipe),
     metrics: canonicalMetrics(v.metrics),
     importedAt: v.importedAt,
@@ -1354,6 +1401,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: 'model' | 'audio'): AssetVe
     sourceDigest: v.sourceDigest,
     sourceByteLength: v.sourceByteLength,
     ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
+    ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
   if (kind === 'audio') {

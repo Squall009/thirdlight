@@ -94,7 +94,9 @@ export class ContentProjection {
     }
     const previous = this.assets.get(change.assetId);
     const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
-    const sourcePath = pathOf(next.versions.find((v) => v.version === next.currentVersion));
+    const current = next.versions.find((v) => v.version === next.currentVersion) as { convertedFrom?: { format: 'fbx'; sourcePath?: string } } | undefined;
+    const sourcePath = pathOf(current);
+    const convertedFrom = current?.convertedFrom;
     this.assets.set(change.assetId, {
       assetId: next.assetId,
       kind: next.kind,
@@ -102,6 +104,7 @@ export class ContentProjection {
       currentVersion: next.currentVersion,
       versionCount: next.versions.length,
       ...(sourcePath !== undefined ? { sourcePath } : {}),
+      ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}) } } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
       versions: next.versions.map((v) => {
@@ -154,6 +157,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     currentVersion: a.currentVersion,
     versionCount: a.versionCount,
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
+    ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),
   };
 }

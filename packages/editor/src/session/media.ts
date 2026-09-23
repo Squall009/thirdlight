@@ -18,6 +18,8 @@ import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 // ---------------------------------------------------------------------------
 
 export const MODEL_DROP_EXTENSION = '.glb';
+/** An FBX is converted to GLB by the backend (headless Blender) at import. */
+export const FBX_DROP_EXTENSION = '.fbx';
 export const AUDIO_DROP_EXTENSION = '.wav';
 
 export type AssetKind = 'model' | 'audio';
@@ -41,6 +43,9 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
   if (lower.endsWith(MODEL_DROP_EXTENSION)) {
     kind = 'model';
     ext = MODEL_DROP_EXTENSION;
+  } else if (lower.endsWith(FBX_DROP_EXTENSION)) {
+    kind = 'model';
+    ext = FBX_DROP_EXTENSION;
   } else if (lower.endsWith(AUDIO_DROP_EXTENSION)) {
     kind = 'audio';
     ext = AUDIO_DROP_EXTENSION;
@@ -48,7 +53,7 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
   if (kind === null) {
     return {
       ok: false,
-      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary) and ${AUDIO_DROP_EXTENSION} (PCM WAV) files can be imported` },
+      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF) and ${AUDIO_DROP_EXTENSION} (PCM WAV) files can be imported` },
     };
   }
   if (!Number.isInteger(byteLength) || byteLength < 1) {

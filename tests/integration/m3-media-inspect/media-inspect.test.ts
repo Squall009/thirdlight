@@ -136,7 +136,7 @@ describe('packet 47 — committed media fixture checker', () => {
     const gen = spawnSync(process.execPath, [join(MEDIA, 'tools', 'generate-fixtures.mjs'), '--check'], { encoding: 'utf8' });
     expect(gen.status, gen.stdout + gen.stderr).toBe(0);
     expect(gen.stdout).toContain('reproduce exactly');
-  });
+  }, 30_000); // three node child processes; ~3 s alone, slower while the FBX tests run Blender
 });
 
 describe('packet 47 — inspectAudio over the committed WAV bytes (§41.4.4)', () => {

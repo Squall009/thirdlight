@@ -54,6 +54,7 @@ export type {
   AssetMetrics,
   AssetRecord,
   AssetVersion,
+  ConvertedFrom,
   BehaviorComponent,
   BehaviorRecord,
   BehaviorSourceRecord,
@@ -112,6 +113,7 @@ export {
 export {
   M2_SETTINGS_KEYS,
   MAX_SOURCE_PATH_LENGTH,
+  MAX_CONVERTED_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,
   isValidSourcePath,
   normalizeContent,

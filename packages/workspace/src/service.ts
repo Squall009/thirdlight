@@ -84,6 +84,11 @@ import {
   readBlob,
   listProjectFiles,
   inspectProjectFile,
+  conversionSource,
+  resolveStage,
+  verifyConvertedOriginal,
+  type ConversionSourceResult,
+  type ConvertedOriginal,
   type InspectProjectFileResult,
   type ProjectFileListResult,
   readCapturedV3,
@@ -224,7 +229,9 @@ function sessionEnvelopeBytes(
  * version's digest/length), or null for a non-publication / history-op
  * result. commit-time verification (workspace.md §13.3.2 step 4) uses it.
  */
-function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength: number; sourcePath?: string } | null {
+function publishedBlobRef(
+  result: MutationSuccess,
+): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedOriginal } | null {
   const ch = result.change;
   if (ch.type === 'publishBehavior') {
     // Packet 33: a source publication references the immutable container blob
@@ -237,11 +244,18 @@ function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength
   const last = ch.next.versions[ch.next.versions.length - 1];
   if (last === undefined) return null;
   const sourcePath = (last as { sourcePath?: string }).sourcePath;
+  const convertedFrom = (last as { convertedFrom?: ConvertedOriginal }).convertedFrom;
   // Undo/redo restore a version recorded (and verified) earlier. A file
   // referenced in place may have changed since; that is reported by the
   // integrity check, and reads refuse it, but it must not block the undo.
-  if (sourcePath !== undefined && (result.op === 'undo' || result.op === 'redo')) return null;
-  return { digest: last.sourceDigest, byteLength: last.sourceByteLength, ...(sourcePath !== undefined ? { sourcePath } : {}) };
+  const history = result.op === 'undo' || result.op === 'redo';
+  if (sourcePath !== undefined && history) return null;
+  return {
+    digest: last.sourceDigest,
+    byteLength: last.sourceByteLength,
+    ...(sourcePath !== undefined ? { sourcePath } : {}),
+    ...(convertedFrom !== undefined && !history ? { convertedFrom } : {}),
+  };
 }
 
 export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceService {
@@ -451,6 +465,11 @@ function buildService(core: Core): WorkspaceService {
         // A version referenced in place is verified against the game-folder file.
         const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
         if (!v.ok) return failRequest(request, v.error);
+        // A converted model: its original (FBX) must be there with the recorded bytes.
+        if (ref.convertedFrom !== undefined) {
+          const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
+          if (!o.ok) return failRequest(request, o.error);
+        }
         const used = authoritativeBytes(s.dir);
         if (used > core.content.maxSourceBytesPerProject) {
           return failRequest(
@@ -1006,6 +1025,29 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
+  /** The input file of an FBX conversion (backend-internal: carries a host path). */
+  function conversionSourceOp(projectId: string, sourcePath: string): ConversionSourceResult {
+    return deepFreeze(
+      withOpenSession<ConversionSourceResult>(
+        projectId,
+        (s) => conversionSource(contentCtx(s), sourcePath),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /** The bytes of one open stage (e.g. an uploaded FBX to convert). */
+  function readStageOp(projectId: string, stageId: string): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError } {
+    return withOpenSession<{ ok: true; bytes: Uint8Array } | { ok: false; error: CommandError }>(
+      projectId,
+      (s) => {
+        const r = resolveStage(core, contentCtx(s), stageId);
+        return r.ok ? { ok: true, bytes: r.stage.bytes } : { ok: false, error: r.error };
+      },
+      (error) => ({ ok: false, error }),
+    );
+  }
+
   /** `publishBlob` (workspace.md §13.2/§11): immutable blob publication (no lock). */
   function publishBlobOp(projectId: string, request: BlobPublishRequest): BlobPublishResult {
     return deepFreeze(
@@ -1332,6 +1374,8 @@ function buildService(core: Core): WorkspaceService {
     readBlob: readBlobOp,
     listProjectFiles: listProjectFilesOp,
     inspectProjectFile: inspectProjectFileOp,
+    conversionSource: conversionSourceOp,
+    readStage: readStageOp,
     readSourceBlob: readSourceBlobOp,
     contentIntegrity: contentIntegrityOp,
     captureContentView: captureContentViewOp,

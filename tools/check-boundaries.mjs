@@ -172,7 +172,9 @@ export const NODE_SIDE_ALLOWED = {
   backend: {
     packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build'],
     external: ['ws'],
-    node: ['http', 'fs', 'path', 'crypto'],
+    // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead
+    // 2026-09-23). Nothing else in the backend starts processes.
+    node: ['http', 'fs', 'path', 'crypto', 'child_process'],
     typesOnly: { 'project-model': true },
   },
   // §4.1 explicitly reiterates "imports workspace types only"; the

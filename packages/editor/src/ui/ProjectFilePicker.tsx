@@ -74,10 +74,10 @@ export function ProjectFilePicker(p: Props): JSX.Element {
               </button>
             </li>
           ))}
-          {listing?.dir === dir && listing.entries.length === 0 && <li className="tl-row tl-row--empty">no folders or .glb/.wav files here</li>}
+          {listing?.dir === dir && listing.entries.length === 0 && <li className="tl-row tl-row--empty">no folders or .glb/.fbx/.wav files here</li>}
         </ul>
         {listing?.truncated === true && <p className="tl-note">Only the first {listing.entries.length} entries are shown.</p>}
-        <p className="tl-note">The file stays where it is. The asset records its path and checksum; rebuild the file and Problems offers a re-import.</p>
+        <p className="tl-note">The file stays where it is. The asset records its path and checksum; rebuild the file and Problems offers a re-import. An .fbx is converted to glTF by Blender on the server; the game uses the converted model.</p>
       </div>
     </Dialog>
   );

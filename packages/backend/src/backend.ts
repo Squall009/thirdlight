@@ -27,6 +27,7 @@ import { openWorkspaceService, readMarker, type CommandError, type WorkspaceServ
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { publishBehaviorSource } from './behavior';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
+import { createFbxConverter } from './fbx';
 import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord } from './play';
@@ -238,6 +239,7 @@ export function createBackend(
     requireAuth,
     log: logStartup,
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
+    fbx: createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') }),
   });
 
 

@@ -20,6 +20,7 @@
  *                                 single-owner deployment
  *   THIRDLIGHT_EXPORT_ROOT        optional; the export root
  *   THIRDLIGHT_ENGINE_ROOT        optional; the engine installation root (required for the export route)
+ *   THIRDLIGHT_BLENDER            optional; the Blender executable for FBX imports (default: blender on PATH)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
  */
 import { parseBackendConfig, type BackendTokenEntry } from './config';
@@ -59,6 +60,7 @@ const config = parseBackendConfig({
   previewStaticDir: required('THIRDLIGHT_PREVIEW_DIR'),
   exportRoot: env.THIRDLIGHT_EXPORT_ROOT,
   engineRoot: env.THIRDLIGHT_ENGINE_ROOT,
+  blenderPath: env.THIRDLIGHT_BLENDER,
   tokens,
 });
 if (!config.ok) {

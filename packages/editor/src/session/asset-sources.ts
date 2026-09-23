@@ -5,7 +5,10 @@
  * - the current version's file changed ⇒ one row offering re-import;
  * - the current version's file is missing ⇒ one row (nothing to re-import);
  * - older versions whose file no longer matches ⇒ one row saying they can no
- *   longer be read (they stay in the history; nothing crashes).
+ *   longer be read (they stay in the history; nothing crashes);
+ * - a model converted from an FBX whose FBX changed ⇒ one row offering
+ *   re-import (the stored conversion keeps working until then); a missing FBX
+ *   is only noted.
  *
  * Pure: no DOM, no I/O.
  */
@@ -17,7 +20,7 @@ export interface SourceIssue {
   assetId: string;
   displayName: string;
   sourcePath: string;
-  kind: 'changed' | 'missing' | 'old-versions';
+  kind: 'changed' | 'missing' | 'old-versions' | 'fbx-changed' | 'fbx-missing';
   /** The version(s) the row is about. */
   versions: number[];
   /** Whether "Re-import" applies (the current version's file changed). */
@@ -30,6 +33,26 @@ export function sourceIssuesFrom(
   names: ReadonlyMap<string, string>,
 ): SourceIssue[] {
   const out: SourceIssue[] = [];
+  // Converted models: only the current version's original matters (older
+  // versions are stored GLBs and stay readable whatever the FBX does now).
+  for (const e of entries) {
+    const conv = e.convertedFrom;
+    if (!e.referenced || conv?.sourcePath === undefined || conv.status === 'ok') continue;
+    const name = names.get(e.assetId) ?? e.assetId;
+    const changed = conv.status === 'changed';
+    out.push({
+      key: `${e.assetId}:fbx`,
+      assetId: e.assetId,
+      displayName: name,
+      sourcePath: conv.sourcePath,
+      kind: changed ? 'fbx-changed' : 'fbx-missing',
+      versions: [e.version],
+      canReimport: changed,
+      message: changed
+        ? `${name}: ${conv.sourcePath} has changed since v${e.version} was converted. Re-import to convert it again; until then Play and export use the previous conversion.`
+        : `${name}: ${conv.sourcePath} is missing from the game folder. The imported model still works; it cannot be re-imported until the FBX is back.`,
+    });
+  }
   const byAsset = new Map<string, IntegrityEntryView[]>();
   for (const e of entries) {
     if (e.sourcePath === undefined) continue;

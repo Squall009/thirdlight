@@ -111,21 +111,21 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.wav,model/gltf-binary,audio/wav"
+          accept=".glb,.fbx,.wav,model/gltf-binary,audio/wav"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
             e.target.value = '';
           }}
         />
-        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb) or audio (.wav) asset">
+        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender) or audio (.wav) asset">
           import…
         </button>
         <input
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.wav,model/gltf-binary,audio/wav"
+          accept=".glb,.fbx,.wav,model/gltf-binary,audio/wav"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);
@@ -142,7 +142,7 @@ export function AssetBrowser(p: Props): JSX.Element {
         </button>
         {p.folderImport && (
           <>
-            <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.wav in the game folder; it is referenced where it is, not copied">
+            <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.fbx/.wav in the game folder; a .glb/.wav is referenced where it is, an .fbx is converted to glTF">
               from project folder…
             </button>
             <button
@@ -226,6 +226,11 @@ export function AssetBrowser(p: Props): JSX.Element {
           {selected.sourcePath !== undefined && (
             <div className="tl-assets__source" title="Referenced in place in the game folder (not copied)">
               file: {selected.sourcePath}
+            </div>
+          )}
+          {selected.convertedFrom !== undefined && (
+            <div className="tl-assets__source" title="Converted to glTF by Blender at import; the game loads the converted GLB">
+              from FBX{selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
             </div>
           )}
           <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />

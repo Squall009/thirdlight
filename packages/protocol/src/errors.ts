@@ -47,6 +47,9 @@ export const ERROR_CODES = [
   'blob_corrupt',
   'asset_source_missing',
   'asset_source_changed',
+  // FBX import (headless Blender conversion).
+  'converter_unavailable',
+  'conversion_failed',
   'path_rejected',
   'asset_not_found',
   'asset_version_not_found',

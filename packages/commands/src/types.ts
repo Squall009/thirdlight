@@ -24,6 +24,7 @@ import type {
   AssetKind,
   AssetRecord,
   AssetVersion,
+  ConvertedFrom,
   BehaviorComponent,
   BehaviorRecord,
   BehaviorTrust,
@@ -810,6 +811,8 @@ export interface PublishAssetArgs {
   sourceByteLength: number;
   /** A file referenced in place: its path relative to the game folder. */
   sourcePath?: string;
+  /** The original a converted model was made from (FBX). */
+  convertedFrom?: ConvertedFrom;
   importRecipe: ImportRecipe | ImportRecipeV3;
   metrics: AssetMetrics;
   /** project-model §7.2 timestamp; a prepared fact (see handoff 21 C21-2). */
@@ -989,6 +992,8 @@ export interface AssetSummary {
   versionCount: number;
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
+  /** The current version's original when it was converted at import (FBX). */
+  convertedFrom?: { format: 'fbx'; sourcePath?: string };
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }
