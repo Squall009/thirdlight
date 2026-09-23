@@ -28,6 +28,7 @@ import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config'
 import { publishBehaviorSource } from './behavior';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createFbxConverter } from './fbx';
+import { isTrustedRequest, parseCidrList } from './trusted';
 import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord } from './play';
@@ -200,8 +201,18 @@ export function createBackend(
     return m?.[1] ?? null;
   };
 
-  const tokenScope = (token: string | null): string | null =>
-    token === null ? null : (tokenScopes.get(token) ?? null);
+  // A request from a trusted network (config.trustedNetworks, through a
+  // listed proxy's X-Forwarded-For) is the owner without a token. The Origin
+  // allowlist still applies to it.
+  const trustedNetworks = parseCidrList(config.trustedNetworks);
+  const trustedProxies = parseCidrList(config.trustedProxies);
+  const trustedRequest = (req: IncomingMessage): boolean =>
+    isTrustedRequest(req as unknown as Parameters<typeof isTrustedRequest>[0], trustedNetworks, trustedProxies);
+  const tokenScope = (token: string | null, req?: IncomingMessage): string | null => {
+    const scope = token === null ? null : (tokenScopes.get(token) ?? null);
+    if (scope !== null) return scope;
+    return req !== undefined && trustedRequest(req) ? 'admin' : null;
+  };
 
   /** §4.2: absent `Origin` header ⇒ not checked; present ⇒ exact match. */
   const originRejected = (req: IncomingMessage): string | null => {
@@ -218,7 +229,7 @@ export function createBackend(
    * this project, or an `admin` token (adminOnly: `admin` only).
    */
   const requireAuth = (req: IncomingMessage, projectId: string, adminOnly: boolean): SessionError | null => {
-    const scope = tokenScope(bearerToken(req));
+    const scope = tokenScope(bearerToken(req), req);
     if (scope === null) return sessionError('unauthorized', 'validation', 'a valid bearer token is required');
     if (adminOnly) {
       return scope === 'admin' ? null : sessionError('unauthorized', 'validation', 'this route requires an admin token');
@@ -842,7 +853,7 @@ export function createBackend(
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
             return;
           }
-          if (tokenScope(bearerToken(req)) === null) {
+          if (tokenScope(bearerToken(req), req) === null) {
             sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
             return;
           }
@@ -885,7 +896,7 @@ export function createBackend(
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
             return;
           }
-          if (tokenScope(bearerToken(req)) === null) {
+          if (tokenScope(bearerToken(req), req) === null) {
             sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
             return;
           }
@@ -920,7 +931,7 @@ export function createBackend(
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
             return;
           }
-          if (tokenScope(bearerToken(req)) === null) {
+          if (tokenScope(bearerToken(req), req) === null) {
             sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
             return;
           }
@@ -1092,7 +1103,7 @@ export function createBackend(
     // Fallback: static editor bundle. The page gets its (non-secret) config
     // injected here; access tokens are never part of any served page.
     if (p === '/' || p === '/index.html') {
-      serveEditorPage(res);
+      serveEditorPage(res, trustedRequest(req));
       return;
     }
     serveStatic(res, config.editorStaticDir, p);

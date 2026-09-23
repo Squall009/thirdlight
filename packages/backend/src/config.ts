@@ -5,6 +5,7 @@
  * test-only timeouts seam (§11.5 constants stand in production; the
  * m1-acceptance test-config allowance).
  */
+import { parseCidrList } from './trusted';
 import { sessionError } from '@thirdlight/protocol';
 import type { SessionError } from '@thirdlight/protocol';
 
@@ -55,6 +56,14 @@ export interface BackendConfig {
    * Blender an FBX import fails with `converter_unavailable`.
    */
   blenderPath?: string;
+  /**
+   * Optional. Comma-separated IPv4 ranges whose requests count as the owner
+   * without a token (THIRDLIGHT_TRUSTED_NETWORKS), for a single-user install
+   * that is only reachable on the owner's network. See trusted.ts.
+   */
+  trustedNetworks?: string;
+  /** Optional. Reverse proxies whose X-Forwarded-For names the client (THIRDLIGHT_TRUSTED_PROXIES). */
+  trustedProxies?: string;
   tokens: BackendTokenEntry[];
   /** Test-only seam (§11.5 constants stand in production). */
   timeouts?: Partial<BackendTimeouts>;
@@ -75,7 +84,7 @@ export function parseBackendConfig(value: unknown):
     'dataRoot', 'backendId', 'processMarker',
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
-    'engineRoot', 'blenderPath',
+    'engineRoot', 'blenderPath', 'trustedNetworks', 'trustedProxies',
     'tokens', 'timeouts',
   ]);
   for (const k of Object.keys(obj)) {
@@ -206,6 +215,17 @@ export function parseBackendConfig(value: unknown):
   if (exportRoot.v !== undefined) config.exportRoot = exportRoot.v;
   if (engineRoot.v !== undefined) config.engineRoot = engineRoot.v;
   if (blenderPath.v !== undefined) config.blenderPath = blenderPath.v;
+  for (const key of ['trustedNetworks', 'trustedProxies'] as const) {
+    const v = str(key, false);
+    if (v.e) return { ok: false, error: v.e };
+    if (v.v === undefined) continue;
+    try {
+      parseCidrList(v.v);
+    } catch (e) {
+      return { ok: false, error: sessionError('field_value', 'validation', `config field "${key}": ${(e as Error).message}`, { path: `/${key}` }) };
+    }
+    config[key] = v.v;
+  }
   if (Object.keys(timeouts).length > 0) config.timeouts = timeouts;
   return { ok: true, config };
 }

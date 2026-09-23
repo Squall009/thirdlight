@@ -43,7 +43,7 @@ function freePort(): Promise<number> {
   });
 }
 
-export async function startBackend(projectId = 'e2e-0001', template?: string): Promise<E2EBackend> {
+export async function startBackend(projectId = 'e2e-0001', template?: string, extraEnv: Record<string, string> = {}): Promise<E2EBackend> {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-'));
   const exportRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-export-'));
   const [authPort, previewPort] = [await freePort(), await freePort()];
@@ -65,6 +65,7 @@ export async function startBackend(projectId = 'e2e-0001', template?: string): P
     THIRDLIGHT_OWNER_TOKEN: token,
     THIRDLIGHT_EXPORT_ROOT: exportRoot,
     THIRDLIGHT_ENGINE_ROOT: REPO,
+    ...extraEnv,
   };
 
   let proc: ChildProcess | null = null;

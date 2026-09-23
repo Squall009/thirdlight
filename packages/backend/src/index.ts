@@ -21,6 +21,8 @@
  *   THIRDLIGHT_EXPORT_ROOT        optional; the export root
  *   THIRDLIGHT_ENGINE_ROOT        optional; the engine installation root (required for the export route)
  *   THIRDLIGHT_BLENDER            optional; the Blender executable for FBX imports (default: blender on PATH)
+ *   THIRDLIGHT_TRUSTED_NETWORKS   optional; IPv4 ranges (a,b,…) whose requests need no token
+ *   THIRDLIGHT_TRUSTED_PROXIES    optional; reverse proxies whose X-Forwarded-For names the client
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
  */
 import { parseBackendConfig, type BackendTokenEntry } from './config';
@@ -61,6 +63,8 @@ const config = parseBackendConfig({
   exportRoot: env.THIRDLIGHT_EXPORT_ROOT,
   engineRoot: env.THIRDLIGHT_ENGINE_ROOT,
   blenderPath: env.THIRDLIGHT_BLENDER,
+  trustedNetworks: env.THIRDLIGHT_TRUSTED_NETWORKS,
+  trustedProxies: env.THIRDLIGHT_TRUSTED_PROXIES,
   tokens,
 });
 if (!config.ok) {

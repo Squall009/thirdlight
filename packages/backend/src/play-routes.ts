@@ -28,7 +28,7 @@ export interface PlayRoutesContext {
   readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
   readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
   readonly bearerToken: (req: IncomingMessage) => string | null;
-  readonly tokenScope: (token: string | null) => string | null;
+  readonly tokenScope: (token: string | null, req?: IncomingMessage) => string | null;
   readonly badOriginError: (found: string) => SessionError;
   readonly requireAuth: (req: IncomingMessage, projectId: string, adminOnly: boolean) => SessionError | null;
   readonly readBody: (req: IncomingMessage) => Promise<{ ok: true; bytes: Uint8Array; } | { ok: false; error: SessionError; }>;
@@ -64,7 +64,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, authError);
       return;
     }
-    const scope = tokenScope(bearerToken(req));
+    const scope = tokenScope(bearerToken(req), req);
     const body = await readBody(req);
     if (!body.ok) {
       sendError(res, body.error);

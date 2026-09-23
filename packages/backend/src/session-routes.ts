@@ -15,7 +15,7 @@ export interface SessionRoutesContext {
   readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
   readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
   readonly bearerToken: (req: IncomingMessage) => string | null;
-  readonly tokenScope: (token: string | null) => string | null;
+  readonly tokenScope: (token: string | null, req?: IncomingMessage) => string | null;
   readonly requireAuth: (req: IncomingMessage, projectId: string, adminOnly: boolean) => SessionError | null;
   readonly readBody: (req: IncomingMessage) => Promise<{ ok: true; bytes: Uint8Array; } | { ok: false; error: SessionError; }>;
   readonly fullState: (projectId: string) => { ok: true; revision: number; manifest: Record<string, unknown>; scene: Record<string, unknown>; history: Record<string, unknown>; workspace: Record<string, unknown>; content?: Record<string, unknown>; } | { ok: false; error: SessionError; status: number; };
@@ -29,7 +29,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
   const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const scope = tokenScope(bearerToken(req));
+    const scope = tokenScope(bearerToken(req), req);
     if (scope === null) {
       sendError(res, sessionError('unauthorized', 'validation', 'establishing a session requires a valid bearer token'));
       return;
@@ -94,7 +94,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
   };
 
   const listSessions = async (req: IncomingMessage, res: ServerResponse, query: Map<string, string>): Promise<void> => {
-    const scope = tokenScope(bearerToken(req));
+    const scope = tokenScope(bearerToken(req), req);
     if (scope === null) {
       sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
       return;

@@ -6,13 +6,16 @@
  *
  *   node tools/start.mjs [--data-root DIR] [--host HOST] [--port N]
  *                        [--preview-port N] [--origin URL] [--preview-origin URL]
- *                        [--build]
+ *                        [--trusted-networks CIDRS] [--trusted-proxies IPS] [--build]
  *
  * Defaults: data root `~/thirdlight` (projects under `projects/`, exports
  * under `exports/`, the token in `owner-token`), host 127.0.0.1, ports
  * 8501/8502. Open the editor at the printed URL: the browser must use
  * exactly that origin (the backend allows only exact origins, and the play
- * preview embeds it). To reach it from another machine on the LAN, pass
+ * preview embeds it). `--trusted-networks 10.0.0.0/16,…` lets browsers on those
+ * networks in without the token (single-user installs on a private network
+ * only); behind a reverse proxy add `--trusted-proxies <proxy IP>` so the
+ * client address it forwards (X-Forwarded-For) is what counts. To reach it from another machine on the LAN, pass
  * `--host <this machine's name or IP>`. Behind a reverse proxy, pass the two
  * public origins the browser uses (`--origin https://editor.example`,
  * `--preview-origin https://play.example`): the proxy forwards the first to
@@ -34,12 +37,12 @@ export const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..'
 
 function usage(message) {
   if (message) process.stderr.write(`start: ${message}\n`);
-  process.stderr.write('usage: node tools/start.mjs [--data-root DIR] [--host HOST] [--port N] [--preview-port N] [--origin URL] [--preview-origin URL] [--build]\n');
+  process.stderr.write('usage: node tools/start.mjs [--data-root DIR] [--host HOST] [--port N] [--preview-port N] [--origin URL] [--preview-origin URL] [--trusted-networks CIDRS] [--trusted-proxies IPS] [--build]\n');
   process.exit(2);
 }
 
 export function parseArgs(argv) {
-  const opts = { dataRoot: join(homedir(), 'thirdlight'), host: '127.0.0.1', port: 8501, previewPort: 8502, origin: null, previewOrigin: null, build: false };
+  const opts = { dataRoot: join(homedir(), 'thirdlight'), host: '127.0.0.1', port: 8501, previewPort: 8502, origin: null, previewOrigin: null, trustedNetworks: null, trustedProxies: null, build: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     const next = () => {
@@ -54,6 +57,8 @@ export function parseArgs(argv) {
     else if (a === '--preview-port') opts.previewPort = Number(next());
     else if (a === '--origin') opts.origin = next().replace(/\/$/, '');
     else if (a === '--preview-origin') opts.previewOrigin = next().replace(/\/$/, '');
+    else if (a === '--trusted-networks') opts.trustedNetworks = next();
+    else if (a === '--trusted-proxies') opts.trustedProxies = next();
     else if (a === '--build') opts.build = true;
     else if (a === '--help' || a === '-h') usage();
     else usage(`unknown argument ${a}`);
@@ -125,6 +130,8 @@ function main() {
     THIRDLIGHT_OWNER_TOKEN: tok.token,
     THIRDLIGHT_EXPORT_ROOT: join(opts.dataRoot, 'exports'),
     THIRDLIGHT_ENGINE_ROOT: ENGINE_ROOT,
+    ...(opts.trustedNetworks !== null ? { THIRDLIGHT_TRUSTED_NETWORKS: opts.trustedNetworks } : {}),
+    ...(opts.trustedProxies !== null ? { THIRDLIGHT_TRUSTED_PROXIES: opts.trustedProxies } : {}),
   };
   delete env.THIRDLIGHT_TOKENS;
 
@@ -136,7 +143,12 @@ function main() {
     if (!announced && text.includes('listening')) {
       announced = true;
       // The token goes into the URL only on a terminal; logs (systemd's journal) never get it.
-      const editor = process.stderr.isTTY ? `${authoringOrigin}/#token=${tok.token}` : `${authoringOrigin}/   (the page asks once for the token in ${tok.file})`;
+      const editor =
+        opts.trustedNetworks !== null
+          ? `${authoringOrigin}/   (no token from ${opts.trustedNetworks}; elsewhere the page asks for the token in ${tok.file})`
+          : process.stderr.isTTY
+            ? `${authoringOrigin}/#token=${tok.token}`
+            : `${authoringOrigin}/   (the page asks once for the token in ${tok.file})`;
       process.stderr.write(
         `\nThirdlight is running.\n` +
         `  editor:   ${editor}\n` +

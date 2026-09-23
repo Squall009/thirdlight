@@ -24,7 +24,8 @@ export interface PreviewRoutesContext {
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml } = ctx;
 
-  const serveEditorPage = (res: ServerResponse): void => {
+  /** `trusted`: the page request came from a trusted network — the editor then asks for no token. */
+  const serveEditorPage = (res: ServerResponse, trusted = false): void => {
     let html: string;
     try {
       html = readFileSync(join(config.editorStaticDir, 'index.html'), 'utf8');
@@ -32,7 +33,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
       sendJson(res, 404, { ok: false, error: sessionError('invalid_request', 'validation', 'no such file') });
       return;
     }
-    const pageConfig = JSON.stringify({ v: 1, previewOrigin: config.previewOrigin }).replace(/</g, '\\u003c');
+    const pageConfig = JSON.stringify({ v: 1, previewOrigin: config.previewOrigin, ...(trusted ? { trusted: true } : {}) }).replace(/</g, '\\u003c');
     const script = `<script>window.__thirdlightEditor = ${pageConfig};</script>`;
     const i = html.indexOf('<script src="./main.js">');
     const out = new TextEncoder().encode(i === -1 ? html.replace('</body>', `${script}</body>`) : html.slice(0, i) + script + '\n    ' + html.slice(i));

@@ -95,7 +95,20 @@ iframe must load from a different origin than the editor.
 ## The owner token
 
 There is exactly one token. It is the `Authorization: Bearer` credential
-for the editor, the MCP server and the admin routes. Rotate it by deleting
+for the editor, the MCP server and the admin routes.
+
+**No token on your own network.** `--trusted-networks 10.0.0.0/16,127.0.0.1`
+(env `THIRDLIGHT_TRUSTED_NETWORKS`) lets requests from those IPv4 ranges in
+without a token, and the editor served to them never asks for one — useful
+with throwaway browser profiles. Behind a reverse proxy add
+`--trusted-proxies <proxy IP>` (`THIRDLIGHT_TRUSTED_PROXIES`): for requests
+from the proxy only the client address it forwards in `X-Forwarded-For`
+counts (the rightmost one that is not a listed proxy); a proxied request
+without that header needs the token. Everything else still needs the token,
+and the Origin allowlist still refuses other sites and Play-preview code.
+Only for a single-user install that is not reachable from the internet —
+anyone on a trusted network is treated as the owner. This LXC's unit trusts
+`10.0.0.0/16` and itself, with the proxy `10.0.30.201`. Rotate it by deleting
 `~/thirdlight/owner-token` and restarting (browsers then ask for the new
 one; the picker has "Forget the access token in this browser").
 

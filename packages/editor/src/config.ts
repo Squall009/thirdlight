@@ -8,7 +8,9 @@
  * taken once from the URL fragment (`#token=…`, never sent to the server)
  * or the token form, and kept in this browser's localStorage. The project
  * comes from the URL (`?project=<id>`); without one the editor shows the
- * project picker.
+ * project picker. When the backend served the page to a trusted network
+ * (THIRDLIGHT_TRUSTED_NETWORKS) the page config says so and the editor asks
+ * for no token: the backend accepts that network's requests without one.
  */
 
 import type { ClientConfig } from './session/client';
@@ -16,7 +18,12 @@ import type { ClientConfig } from './session/client';
 export interface EditorPageConfig {
   v: 1;
   previewOrigin: string;
+  /** This page was requested from a trusted network: no token needed. */
+  trusted?: boolean;
 }
+
+/** Sent when no token is stored and the network is trusted (never stored). */
+export const TRUSTED_NETWORK_TOKEN = 'trusted-network';
 
 declare global {
   interface Window {
@@ -75,7 +82,7 @@ export function readEditorConfig(): ConfigResult {
     rememberToken(fromHash);
     history.replaceState(null, '', window.location.pathname + window.location.search);
   }
-  const token = fromHash ?? storedToken();
+  const token = fromHash ?? storedToken() ?? (page.trusted === true ? TRUSTED_NETWORK_TOKEN : null);
   if (!token) return { ok: false, needs: 'token', previewOrigin };
 
   const projectId = new URLSearchParams(window.location.search).get('project') ?? '';
