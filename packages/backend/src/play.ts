@@ -91,13 +91,13 @@ export type InputRelayOutcome =
 export interface PendingInputRelay {
   requestId: string;
   resolve: (r: InputRelayOutcome) => void;
-  timer: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 export interface PendingRelay {
   kind: 'screenshot' | 'diagnostics';
   resolve: (r: RelayOutcome) => void;
-  timer: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /** The §20 closed failure set a game relay may return (never a fabricated value). */
@@ -119,7 +119,7 @@ export type GameRelayOutcome =
 export interface PendingGameRelay {
   kind: 'control' | 'observe';
   resolve: (r: GameRelayOutcome) => void;
-  timer: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 export interface PlayRecord {
@@ -148,9 +148,9 @@ export interface PlayRecord {
   lastActivityAt: number;
   /** ms. */
   expiresAt: number;
-  presentTimer?: number;
-  ttlTimer?: number;
-  stopAckTimer?: number;
+  presentTimer?: ReturnType<typeof setTimeout>;
+  ttlTimer?: ReturnType<typeof setTimeout>;
+  stopAckTimer?: ReturnType<typeof setTimeout>;
   relays: Map<string, PendingRelay>;
   /** At most one bounded input-exercise relay at a time (§18.1). */
   inputRelay?: PendingInputRelay;
@@ -362,7 +362,6 @@ export class PlayManager {
           clearTimeout(timer);
           resolve(r);
         },
-        timer: 0,
       };
       entry.timer = setTimeout(() => {
         rec.relays.delete(relayId);
@@ -478,7 +477,7 @@ export class PlayManager {
     this.touch(rec);
     rec.gameRelayId = relayId;
     return new Promise((resolve) => {
-      const entry: PendingGameRelay = { kind, resolve: () => undefined, timer: 0 };
+      const entry: PendingGameRelay = { kind, resolve: () => undefined };
       entry.resolve = (r: GameRelayOutcome) => {
         clearTimeout(entry.timer);
         if (rec.gameRelay === entry) rec.gameRelay = undefined;
@@ -556,7 +555,7 @@ export class PlayManager {
     }
     this.touch(rec);
     return new Promise((resolve) => {
-      const entry: PendingInputRelay = { requestId, resolve: () => undefined, timer: 0 };
+      const entry: PendingInputRelay = { requestId, resolve: () => undefined };
       entry.resolve = (r: InputRelayOutcome) => {
         clearTimeout(entry.timer);
         if (rec.inputRelay === entry) rec.inputRelay = undefined;

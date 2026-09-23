@@ -91,7 +91,7 @@ export function connectWs(url: string, headers: Record<string, string> = {}): Pr
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers });
     const queue: unknown[] = [];
-    const waiters: Array<{ pred: (m: unknown) => boolean; resolve: (m: unknown) => void; timer: number; reject: (e: Error) => void }> = [];
+    const waiters: Array<{ pred: (m: unknown) => boolean; resolve: (m: unknown) => void; timer: ReturnType<typeof setTimeout>; reject: (e: Error) => void }> = [];
     let closeResolve: ((v: { code: number; reason: string }) => void) | undefined;
     let closedNow = false;
     const closed = new Promise<{ code: number; reason: string }>((r) => {

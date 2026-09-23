@@ -172,7 +172,7 @@ describe('startup checks (sessions.md §13.7)', () => {
       probe.once('error', rej);
       probe.listen(0, '127.0.0.1', () => res());
     });
-    const port = probe.address().port;
+    const port = (probe.address() as { port: number }).port;
     await new Promise<void>((res) => probe.close(() => res()));
     const base = {
       dataRoot: join(root, 'data'),

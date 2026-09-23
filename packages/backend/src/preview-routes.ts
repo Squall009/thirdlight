@@ -69,9 +69,10 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   };
 
   const dispatchPreview = (req: IncomingMessage, res: ServerResponse): void => {
-    const qIdx = req.url?.indexOf('?') ?? -1;
-    const p = qIdx === -1 ? (req.url ?? '') : req.url.slice(0, qIdx);
-    const query = parseQuery(qIdx === -1 ? '' : (req.url ?? '').slice(qIdx + 1));
+    const url = req.url ?? '';
+    const qIdx = url.indexOf('?');
+    const p = qIdx === -1 ? url : url.slice(0, qIdx);
+    const query = parseQuery(qIdx === -1 ? '' : url.slice(qIdx + 1));
     const method = req.method ?? 'GET';
     if (method !== 'GET' && method !== 'HEAD') {
       sendJson(res, 405, { ok: false, error: sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }) });

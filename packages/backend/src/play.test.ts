@@ -47,7 +47,7 @@ class FakeEditor {
     ok: true,
     diagnostics: { fps: 60, errorCount: 0 },
   };
-  private pending: Array<{ type: string; resolve: (m: Record<string, unknown>) => void; reject: (e: Error) => void; timer: number }> = [];
+  private pending: Array<{ type: string; resolve: (m: Record<string, unknown>) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = [];
 
   constructor(ws: TestWs) {
     this.ws = ws;

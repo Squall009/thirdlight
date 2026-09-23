@@ -170,7 +170,7 @@ export function createBackend(
   const wss = new WebSocketServer({ noServer: true });  const authoringServer = createServer();
   const previewServer = createServer();
   let closed = false;
-  let sweepTimer: number | undefined;
+  let sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   // ---------- helpers ----------
 
@@ -625,8 +625,8 @@ export function createBackend(
 
   // The upgrade path (sessions.md §4.3): the token is verified at upgrade;
   // any failure ⇒ close 1008 with the reason code.
-  authoringServer.on('upgrade', (req: IncomingMessage, socket: unknown, head: Uint8Array) => {
-    const sock = socket as { write(d: string): void; destroy(): void };
+  authoringServer.on('upgrade', (req: IncomingMessage, socket: Parameters<WebSocketServer['handleUpgrade']>[1], head: Buffer) => {
+    const sock = socket;
     const qIdx = (req.url ?? '').indexOf('?');
     const p = qIdx === -1 ? (req.url ?? '') : (req.url ?? '').slice(0, qIdx);
     const query = qIdx === -1 ? '' : (req.url ?? '').slice(qIdx + 1);
@@ -780,9 +780,10 @@ export function createBackend(
   };
 
   const dispatch = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const qIdx = req.url?.indexOf('?') ?? -1;
-    const p = qIdx === -1 ? (req.url ?? '') : req.url.slice(0, qIdx);
-    const query = parseQuery(qIdx === -1 ? '' : req.url!.slice(qIdx + 1));
+    const url = req.url ?? '';
+    const qIdx = url.indexOf('?');
+    const p = qIdx === -1 ? url : url.slice(0, qIdx);
+    const query = parseQuery(qIdx === -1 ? '' : url.slice(qIdx + 1));
     const method = req.method ?? 'GET';
 
     const found = originRejected(req);
