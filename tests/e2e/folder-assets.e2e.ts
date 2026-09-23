@@ -6,6 +6,7 @@
  * rebuild the file, see it in Problems, re-import, and Play/export use the new
  * bytes. The MCP server does the same import from inside the game folder.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -23,6 +24,7 @@ const REPO = resolve(import.meta.dirname, '..', '..');
 const GLB_V1 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
 const GLB_V2 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v2.glb');
 const SHOTS = join(REPO, 'test-results', 'folder-assets');
+const BACKUP_TOOL = join(REPO, 'tools', 'backup.mjs');
 const sha = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 const D1 = sha(GLB_V1);
 const D2 = sha(GLB_V2);
@@ -221,6 +223,22 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await be.halt();
   await runExport(page, out2, '6-export-v2.png');
   expect(pageErrors).toEqual([]);
+
+  // Backup (backend stopped) holds the whole game folder, assets included;
+  // restored into a new folder and registered, the asset reads back verified.
+  const backups = join(games, 'backups');
+  const created = spawnSync(process.execPath, [BACKUP_TOOL, 'create', 'meadow', '--data-root', resolve(be.projectDir, '..', '..'), '--out', backups], { encoding: 'utf8' });
+  expect(created.status, created.stderr).toBe(0);
+  const backupDir = /backup: (\S+) /.exec(created.stdout)![1]!;
+  const copy = join(games, 'meadow-copy');
+  const restored = spawnSync(process.execPath, [BACKUP_TOOL, 'restore', backupDir, '--folder', copy, '--as', 'meadow-copy'], { encoding: 'utf8' });
+  expect(restored.status, restored.stderr).toBe(0);
+  expect(readFileSync(join(copy, 'assets', 'props', 'crate.glb'))).toEqual(readFileSync(GLB_V2));
+  await be.restart();
+  expect((await be.admin('projects/register', { folder: copy })).status).toBe(201);
+  const integrity = await fetch(`${be.origin}/api/v1/projects/meadow-copy/content/integrity`, { headers: { authorization: `Bearer ${be.token}` } });
+  const report = (await integrity.json()) as { entries: Array<{ version: number; referenced: boolean; status: string }> };
+  expect(report.entries.filter((e) => e.referenced)).toMatchObject([{ version: 2, status: 'ok' }]);
 });
 
 test('MCP imports a file from the game folder in place (no THIRDLIGHT_PROJECT_ID)', async () => {

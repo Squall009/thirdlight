@@ -23,10 +23,16 @@
  * dropped).
  *
  * Folder projects (registered in <data root>/registry.json) are found through
- * the registry; their `thirdlight.json` marker is kept in the backup manifest.
- * `restore --folder <dir>` restores into a game folder (marker + subfolder);
- * register it afterwards (picker "Open project folder…" or
- * `node tools/project.mjs register <dir>`).
+ * the registry, and their backup is the WHOLE game folder (the folder holding
+ * `thirdlight.json`): the marker, the project subfolder, the assets it
+ * references in place, the art sources and `.git` — everything except
+ * Thirdlight's process state (`<projectDir>/.thirdlight/`). The game folder
+ * is the bound: nothing outside it is referenced or backed up. Such a backup
+ * (backupVersion 2, `scope: "game-folder"`) restores only with
+ * `restore --folder <dir>` into a new or empty folder; register it afterwards
+ * (picker "Open project folder…" or `node tools/project.mjs register <dir>`).
+ * Older backups (backupVersion 1: the project subfolder + the marker in the
+ * manifest) still verify and restore.
  *
  * Defaults: data root `~/thirdlight`, backups under `<data root>/backups`.
  */
@@ -37,6 +43,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const BACKUP_VERSION = 1;
+/** A whole-game-folder backup (folder projects). */
+export const FOLDER_BACKUP_VERSION = 2;
 const MANIFEST = 'backup-manifest.json';
 const EXCLUDED_TOP = new Set(['.thirdlight']);
 const PROJECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -56,14 +64,14 @@ function utcStamp(d = new Date()) {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Every regular file under `dir` (relative POSIX paths, sorted); symlinks are refused. */
-function listFiles(dir, skipTop = new Set()) {
+/** Every regular file under `dir` (relative POSIX paths, sorted); symlinks are refused. `skip`: relative paths left out. */
+function listFiles(dir, skip = new Set()) {
   const out = [];
   const walk = (d, rel) => {
     for (const name of readdirSync(d).sort()) {
-      if (rel === '' && skipTop.has(name)) continue;
-      const p = join(d, name);
       const r = rel === '' ? name : `${rel}/${name}`;
+      if (skip.has(r)) continue;
+      const p = join(d, name);
       const st = statSync(p);
       if (lstatSync(p).isSymbolicLink()) throw new BackupError('backup_symlink', `refusing symbolic link ${r}`);
       if (st.isDirectory()) walk(p, r);
@@ -132,7 +140,15 @@ export function createBackup({ dataRoot, projectId, outRoot, now = new Date(), p
   if (!existsSync(join(projectDir, 'project.json'))) throw new BackupError('project_not_found', `no project "${projectId}" under ${join(dataRoot, 'projects')}`);
   const own = ownershipState(projectDir, procRoot);
   if (own.live) throw new BackupError('backup_live_project', `project "${projectId}" is in use: ${own.reason}. Release it (POST /api/v1/admin/projects/${projectId}/release) or stop the backend first`);
-  const files = listFiles(projectDir, EXCLUDED_TOP);
+  // A folder project: the whole game folder, minus Thirdlight's process state.
+  const sub = marker?.projectDir ?? 'thirdlight';
+  const base = folder !== null ? folder : projectDir;
+  if (folder !== null) {
+    const out = resolve(outRoot);
+    const f = resolve(folder);
+    if (out === f || out.startsWith(`${f}/`)) throw new BackupError('backup_destination_inside', `the backup directory ${out} is inside the game folder ${f}; choose --out outside it`);
+  }
+  const files = listFiles(base, folder !== null ? new Set([`${sub}/.thirdlight`]) : EXCLUDED_TOP);
   const stamp = utcStamp(now);
   const dest = join(outRoot, `${projectId}-${stamp}`);
   if (existsSync(dest)) throw new BackupError('backup_destination_exists', `${dest} already exists`);
@@ -141,19 +157,19 @@ export function createBackup({ dataRoot, projectId, outRoot, now = new Date(), p
   mkdirSync(tmp, { recursive: true });
   const inventory = [];
   for (const rel of files) {
-    const bytes = readFileSync(join(projectDir, rel));
+    const bytes = readFileSync(join(base, rel));
     const target = join(tmp, rel);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, bytes);
     inventory.push({ path: rel, sha256: sha256(bytes), bytes: bytes.length });
   }
   const manifest = {
-    backupVersion: BACKUP_VERSION,
+    backupVersion: folder !== null ? FOLDER_BACKUP_VERSION : BACKUP_VERSION,
     projectId,
     createdAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     revision: readEnvelopeRevision(projectDir),
-    // A folder project keeps its marker (thirdlight.json) so it can be restored into a folder.
-    ...(marker !== null ? { folder, marker } : {}),
+    // A folder project: file paths are relative to the game folder.
+    ...(folder !== null ? { scope: 'game-folder', folder, marker, projectDir: sub } : {}),
     files: inventory,
     inventoryDigest: sha256(JSON.stringify(inventory)),
   };
@@ -174,7 +190,13 @@ export function verifyBackup(backupDir) {
   } catch (e) {
     return { ok: false, manifest: null, problems: [`${MANIFEST} is not valid JSON: ${e.message}`] };
   }
-  if (manifest.backupVersion !== BACKUP_VERSION || !PROJECT_ID_RE.test(String(manifest.projectId)) || !Array.isArray(manifest.files)) {
+  const whole = manifest.backupVersion === FOLDER_BACKUP_VERSION;
+  if (
+    (manifest.backupVersion !== BACKUP_VERSION && !whole) ||
+    (whole && (manifest.scope !== 'game-folder' || typeof manifest.projectDir !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(manifest.projectDir))) ||
+    !PROJECT_ID_RE.test(String(manifest.projectId)) ||
+    !Array.isArray(manifest.files)
+  ) {
     return { ok: false, manifest, problems: [`${MANIFEST} has an unexpected shape`] };
   }
   if (sha256(JSON.stringify(manifest.files)) !== manifest.inventoryDigest) problems.push('the file inventory does not match its digest');
@@ -201,7 +223,9 @@ export function verifyBackup(backupDir) {
     present = [];
   }
   for (const r of present) if (!listed.has(r)) problems.push(`not in the inventory: ${r}`);
-  if (!listed.has('project.json') || !listed.has('scenes/main.json')) problems.push('the backup lacks project.json or scenes/main.json');
+  const pre = whole ? `${manifest.projectDir}/` : '';
+  if (!listed.has(`${pre}project.json`) || !listed.has(`${pre}scenes/main.json`)) problems.push(`the backup lacks ${pre}project.json or ${pre}scenes/main.json`);
+  if (whole && !listed.has('thirdlight.json')) problems.push('the game-folder backup lacks thirdlight.json');
   return { ok: problems.length === 0, manifest, problems };
 }
 
@@ -211,6 +235,7 @@ export function restoreBackup({ backupDir, dataRoot, as, folder }) {
   if (!v.ok) throw new BackupError('backup_invalid', `refusing to restore ${backupDir}:\n  ${v.problems.join('\n  ')}`);
   const projectId = as ?? v.manifest.projectId;
   if (!PROJECT_ID_RE.test(projectId)) throw new BackupError('invalid_project_id', `"${projectId}" is not a project id`);
+  if (v.manifest.backupVersion === FOLDER_BACKUP_VERSION) return restoreGameFolder(backupDir, v.manifest, projectId, folder);
   let dest;
   let tmp;
   let markerOut = null;
@@ -251,6 +276,44 @@ export function restoreBackup({ backupDir, dataRoot, as, folder }) {
   renameSync(tmp, dest);
   if (markerOut !== null) writeFileSync(join(folder, 'thirdlight.json'), `${JSON.stringify(markerOut, null, 2)}\n`);
   return { dir: dest, projectId, revision: v.manifest.revision, ...(markerOut !== null ? { folder } : {}) };
+}
+
+/** Rewrite the project identity in one restored file (`--as`). */
+function reidentify(bytes, kind, projectId) {
+  const doc = JSON.parse(bytes.toString('utf8'));
+  if (kind === 'project') doc.id = projectId;
+  else if (kind === 'marker') doc.projectId = projectId;
+  else {
+    doc.projectId = projectId;
+    if (doc.retry && Array.isArray(doc.retry.records)) doc.retry.records = [];
+  }
+  return Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
+}
+
+/** Restore a whole-game-folder backup into a new or empty folder. */
+function restoreGameFolder(backupDir, manifest, projectId, folder) {
+  if (folder === undefined || folder === null) {
+    throw new BackupError('restore_needs_folder', 'this backup holds a whole game folder; restore it with --folder <dir> (a new or empty folder)');
+  }
+  if (existsSync(folder) && readdirSync(folder).length > 0) {
+    throw new BackupError('restore_destination_exists', `${folder} already exists and is not empty; restore never overwrites`);
+  }
+  const sub = manifest.projectDir;
+  const rename = projectId !== manifest.projectId;
+  const special = { 'thirdlight.json': 'marker', [`${sub}/project.json`]: 'project', [`${sub}/scenes/main.json`]: 'envelope' };
+  const tmp = `${resolve(folder)}.restore-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  for (const f of manifest.files) {
+    let bytes = readFileSync(join(backupDir, f.path));
+    if (rename && special[f.path] !== undefined) bytes = reidentify(bytes, special[f.path], projectId);
+    const target = join(tmp, f.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
+  if (existsSync(folder)) rmSync(folder, { recursive: true });
+  renameSync(tmp, folder);
+  return { dir: join(folder, sub), projectId, revision: manifest.revision, folder, files: manifest.files.length };
 }
 
 export function listBackups(outRoot) {

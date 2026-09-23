@@ -232,17 +232,19 @@ copied. Projects in the data root keep copying uploads as before.
   backend or game folder. With a changed or missing file, Play and export
   refuse and name the file (export: `export_scene_invalid` with
   `reason: asset_source_changed`).
-- **Backups** (`tools/backup.mjs`) hold the project files only, not the
-  referenced files: those live in the game's own repository. A backup restored
-  into another folder shows them as missing in Problems until the game's files
-  are there too.
+- **Backups** of a folder project hold the whole game folder, so the
+  referenced files are in them (see "Backups find folder projects" below).
 
 The import profile is unchanged: the glTF extension allowlist is empty, so a
 GLB using an extension such as `EXT_texture_webp` or `KHR_materials_specular`
 is refused at import, whether it comes from the folder or is uploaded.
 
-Backups find folder projects through the registry and keep the marker.
-Restore one into a folder, then register it:
+Backups find folder projects through the registry and copy the **whole game
+folder**: the marker, `thirdlight/`, the assets, art sources and `.git` —
+everything except Thirdlight's process state (`thirdlight/.thirdlight/`).
+The game folder is the bound; nothing outside it belongs to the project.
+`--out` may not point inside the game folder. Such a backup restores only
+into a new or empty folder, then you register it:
 
 ```sh
 node tools/backup.mjs restore ~/thirdlight/backups/my-game-20260922T120000Z --folder ~/projects/my-game-restored [--as my-game-2]
