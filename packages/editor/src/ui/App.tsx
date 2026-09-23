@@ -656,6 +656,18 @@ function EditorApp(): JSX.Element {
     clientRef.current?.setSelection(selectedId === null ? [] : [selectedId]);
   }, [selectedId]);
 
+  // Shift+F11 toggles full screen (plain F11 belongs to the browser).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'F11' || !e.shiftKey) return;
+      e.preventDefault();
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      else void document.documentElement.requestFullscreen().catch(() => undefined);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // The viewport canvas follows the stage element (dock splitters, tabs).
   useEffect(() => {
     const stage = stageRef.current;
@@ -1894,6 +1906,7 @@ function EditorApp(): JSX.Element {
         'separator',
         ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => setBottomTab(t.id) })),
         'separator',
+        { label: 'Full screen', shortcut: 'Shift+F11', onSelect: () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void document.documentElement.requestFullscreen().catch(() => undefined); } },
         { label: 'Reset layout', onSelect: () => { resetLayout(); window.location.reload(); } },
       ],
     },
@@ -2184,6 +2197,7 @@ function EditorApp(): JSX.Element {
                 ['F', 'Frame the selection'],
                 ['Delete, Backspace', 'Delete the selection'],
                 ['Ctrl+Z / Ctrl+Y', 'Undo / redo'],
+                ['Shift+F11', 'Full screen'],
                 ['Shift (held)', 'Disable snapping for one gesture'],
                 ['Escape', 'Cancel a gesture / clear the selection / close a menu'],
                 ['Double-click a name', 'Rename in the hierarchy'],

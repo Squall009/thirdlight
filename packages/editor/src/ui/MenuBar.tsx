@@ -24,7 +24,24 @@ export interface Menu {
   items: MenuEntry[];
 }
 
+/** Fullscreen state of the page (the Fullscreen API; false where unsupported). */
+function useFullscreen(): { full: boolean; supported: boolean; toggle: () => void } {
+  const supported = typeof document !== 'undefined' && typeof document.documentElement.requestFullscreen === 'function';
+  const [full, setFull] = useState(() => typeof document !== 'undefined' && document.fullscreenElement !== null);
+  useEffect(() => {
+    const on = (): void => setFull(document.fullscreenElement !== null);
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  const toggle = (): void => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void document.documentElement.requestFullscreen().catch(() => undefined);
+  };
+  return { full, supported, toggle };
+}
+
 export function MenuBar(p: { menus: Menu[] }): JSX.Element {
+  const fs = useFullscreen();
   const [open, setOpen] = useState<number | null>(null);
   const [sub, setSub] = useState<string | null>(null);
   const root = useRef<HTMLDivElement | null>(null);
@@ -117,6 +134,24 @@ export function MenuBar(p: { menus: Menu[] }): JSX.Element {
           {open === i && renderItems(m.items, m.label)}
         </div>
       ))}
+      <span className="tl-menubar__spacer" />
+      {fs.supported && (
+        <button
+          className="tl-menubar__icon"
+          onClick={fs.toggle}
+          title={fs.full ? 'Exit full screen (Esc)' : 'Full screen'}
+          aria-label={fs.full ? 'Exit full screen' : 'Full screen'}
+          aria-pressed={fs.full}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            {fs.full ? (
+              <path d="M6 1.5V6H1.5M10 1.5V6h4.5M6 14.5V10H1.5M10 14.5V10h4.5" />
+            ) : (
+              <path d="M1.5 6V1.5H6M14.5 6V1.5H10M1.5 10v4.5H6M14.5 10v4.5H10" />
+            )}
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

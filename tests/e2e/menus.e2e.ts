@@ -124,3 +124,18 @@ function zipNames(b: Buffer): string[] {
   }
   return names;
 }
+
+test('the full-screen button in the menu bar toggles the whole editor in and out of full screen', async ({ page }) => {
+  await open(page);
+  const btn = page.getByRole('button', { name: 'Full screen', exact: true });
+  await expect(btn).toBeVisible();
+  // Top right of the menu bar.
+  const bar = (await page.getByRole('menubar').boundingBox())!;
+  const b = (await btn.boundingBox())!;
+  expect(b.x + b.width).toBeGreaterThan(bar.x + bar.width - 40);
+  await btn.click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === document.documentElement)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Exit full screen' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Exit full screen' }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+});

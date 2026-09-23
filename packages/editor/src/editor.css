@@ -484,3 +484,9 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-row__icon { width: 14px; height: 14px; flex: none; opacity: .9; }
 .tl-btn__icon { width: 16px; height: 16px; display: block; }
 .tl-btn--tool { padding: 5px 8px; }
+
+.tl-menubar__spacer { flex: 1; }
+.tl-menubar__icon { background: none; border: 1px solid transparent; color: var(--text-dim); border-radius: var(--radius);
+  width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.tl-menubar__icon:hover { color: var(--text); background: var(--surface-2); }
+.tl-menubar__icon[aria-pressed="true"] { color: var(--brand); }
