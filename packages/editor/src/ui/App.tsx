@@ -201,6 +201,8 @@ function EditorApp(): JSX.Element {
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  /** The play preview fills the viewport area; `small` keeps it in a corner window. */
+  const [previewSmall, setPreviewSmall] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
   /** Forwards a backend relay request to the running preview (latest play state). */
   const forwardRelayRef = useRef<(req: Record<string, unknown>) => void>(() => undefined);
@@ -1868,9 +1870,14 @@ function EditorApp(): JSX.Element {
             </div>
           )}
           {playing && previewSrc && (
-            <div className="tl-app__preview">
+            <div className={`tl-app__preview${previewSmall ? ' tl-app__preview--small' : ''}`}>
               <div className="tl-app__preview-label">
-                play {playInfo?.snapshotId ?? ''} @ r{playInfo?.revision ?? 0}
+                <span>
+                  play {playInfo?.snapshotId ?? ''} @ r{playInfo?.revision ?? 0}
+                </span>
+                <button className="tl-btn tl-btn--small" onClick={() => setPreviewSmall((v) => !v)} title={previewSmall ? 'Fill the viewport area' : 'Shrink to a corner window'}>
+                  {previewSmall ? 'large' : 'small'}
+                </button>
               </div>
               <iframe
                 ref={playIframeRef}

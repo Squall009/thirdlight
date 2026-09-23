@@ -66,6 +66,24 @@ test('Play renders a fresh project scene in the isolated preview', async ({ page
   await expect(frame).toHaveCount(0);
 });
 
+test('the play preview fills the viewport area; "small" shrinks it to a corner window', async ({ page }) => {
+  await createBox(page);
+  await page.getByTitle('Start an isolated play preview').click();
+  const frame = page.locator('iframe.tl-app__preview-frame');
+  await expect(frame).toBeVisible();
+  const stage = (await page.locator('.tl-app__stage').boundingBox())!;
+  const full = (await frame.boundingBox())!;
+  expect(full.width).toBeGreaterThan(stage.width * 0.95);
+  expect(full.height).toBeGreaterThan(stage.height * 0.9);
+  await page.getByTitle('Shrink to a corner window').click();
+  const small = (await frame.boundingBox())!;
+  expect(small.width).toBeLessThan(stage.width * 0.7);
+  expect(small.height).toBeLessThan(stage.height * 0.6);
+  await page.getByTitle('Fill the viewport area').click();
+  expect((await frame.boundingBox())!.width).toBeGreaterThan(stage.width * 0.95);
+  await page.getByTitle('Stop the play preview').click();
+});
+
 test('the exported game runs from a plain static server with the backend stopped', async ({ page }) => {
   await createBox(page);
   const res = await be.admin(`projects/${be.projectId}/export`);
