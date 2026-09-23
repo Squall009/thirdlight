@@ -40,6 +40,7 @@ import type {
   CommandError,
   CommandState,
   ContentDocument,
+  HistoryEntry,
   HistoryState,
   MutationResult,
   MutationSuccess,
@@ -52,8 +53,13 @@ import type {
   Scene,
   SceneV2,
   SceneV3,
+  SceneV4,
+  ContentCatalogV4,
+  ModelErrorV3,
 } from '@thirdlight/project-model';
 import {
+  composeV4,
+  INSTANCE_FLOATS,
   normalizeManifest,
   normalizeScene,
   parseDocumentBytes,
@@ -146,6 +152,8 @@ import {
   type WriteOps,
 } from './write';
 import { deepFreeze } from './isolate';
+import { isV4Layout, loadV4, writeTransaction, type V4State } from './store-v4';
+import { changedFiles, checkExternalV4, detectExternalChangeV4, publishV4 } from './session-v4';
 import {
   DEFAULT_PROCESS_MARKER,
   DEFAULT_PROC_ROOT,
@@ -206,6 +214,7 @@ function contentCtx(s: ProjectSession): ContentContext {
     scene: s.scene,
     content: s.content,
     gameFolder: s.gameFolder ?? null,
+    ...(s.v4 ? { scenes: [...s.v4.scenes.values()] } : {}),
   };
 }
 
@@ -221,7 +230,7 @@ function sessionEnvelopeBytes(
   content: ContentCatalog | ContentCatalogV3 | null,
   records: readonly RetryRecord[],
 ): Uint8Array {
-  return envelopeBytesFor(s.storageVersion, s.projectId, scene, content, records);
+  return envelopeBytesFor(s.storageVersion as 1 | 2 | 3, s.projectId, scene, content as ContentCatalog | ContentCatalogV3 | null, records);
 }
 
 /**
@@ -292,6 +301,7 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
     utcNow: config.utcNow ?? (() => utcSecond()),
     ops: config.ops ?? defaultOps,
     sessions: new Map(),
+    storageV4: config.storageV4 === true,
     content: {
       maxSourceBytesPerProject: config.maxSourceBytesPerProject ?? DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
       deviceSpaceReserveBytes: config.deviceSpaceReserveBytes ?? DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
@@ -415,6 +425,9 @@ function buildService(core: Core): WorkspaceService {
       }));
     }
 
+    // Phase 12 (c): a v4 project (one file per scene) has its own write path.
+    if (s.storageVersion === 4 && s.v4 !== null && s.v4 !== undefined) return runCommandV4(s, request, D);
+
     // Steps 4–6 — revision check, validation + pure application, no-change
     // check (the pure layer; the input state is never mutated). The v2
     // pipeline wires the envelope's content block and the manifest as the
@@ -494,8 +507,8 @@ function buildService(core: Core): WorkspaceService {
     const records = appendRecord(s.records, newRecord);
     const envBytes = sessionEnvelopeBytes(
       s,
-      outcome.state.scene,
-      outcome.state.content ?? s.content,
+      outcome.state.scene as Scene | SceneV2 | SceneV3,
+      (outcome.state.content ?? s.content) as ContentCatalog | ContentCatalogV3 | null,
       records,
     );
     const res = writeAtomic({
@@ -540,6 +553,129 @@ function buildService(core: Core): WorkspaceService {
     // Step 8 — publish (only after step 7's verification passed).
     publish(s, outcome.state, records, envBytes);
     // Step 9 — acknowledge.
+    return outcome.result;
+  }
+
+  /**
+   * Phase 12 (c): steps 4–9 for a v4 project. The command runs on the one
+   * scene it touches (found from its entity ids, or `args.sceneId` for a
+   * create), with the other scenes' ids reserved; the resulting whole project
+   * is checked against the cross-scene rules; only the changed files are
+   * written (one `W`, or a journaled transaction for several).
+   */
+  function runCommandV4(s: ProjectSession, request: unknown, D: string): MutationResult {
+    const state = s.v4 as V4State;
+    const req = request as { op?: unknown; args?: unknown };
+    const op = typeof req.op === 'string' ? req.op : '';
+    const args = (req.args !== null && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}) as Record<string, unknown>;
+    const target = targetSceneV4(state, s.history, op, args);
+    if (!target.ok) return failRequest(request, target.error);
+    // `sceneId` on a create names the scene; the pure layer never sees it.
+    let pureRequest = request;
+    if ((op === 'createEntity' || op === 'instantiatePrefab') && 'sceneId' in args) {
+      const { sceneId: _s, ...rest } = args;
+      pureRequest = { ...(request as object), args: rest };
+    }
+    const carrierId = target.sceneId ?? primarySceneIdV4(state);
+    const carrier = state.scenes.get(carrierId) as SceneV4;
+    if (op === 'deleteScene') {
+      const doomed = state.scenes.get(String(args['sceneId']));
+      if (doomed !== undefined && doomed.entities.length > 0) {
+        return failRequest(request, {
+          code: 'field_value',
+          cls: 'validation',
+          path: '/args/sceneId',
+          found: args['sceneId'],
+          expected: 'an empty scene',
+          message: `scene "${String(args['sceneId'])}" still holds ${doomed.entities.length} entities; delete them (or move them out) first`,
+        } as unknown as CommandError);
+      }
+    }
+    const reserved = new Set<string>();
+    for (const [id, sc] of state.scenes) if (id !== carrierId) for (const e of sc.entities) reserved.add(e.id);
+    const commandState: CommandState<SceneDocument> = {
+      scene: { ...carrier, revision: state.revision } as SceneDocument,
+      content: state.content as unknown as ContentDocument,
+      history: s.history,
+      reservedIds: reserved,
+    };
+    if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
+    if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+    const outcome = applyMutation(commandState, pureRequest);
+    if (!outcome.ok) return outcome.result;
+    // Remember which scene the new history entry edited (undo/redo route by it).
+    const entries = outcome.state.history.entries;
+    if (op !== 'undo' && op !== 'redo' && entries.length > 0) {
+      const last = entries[entries.length - 1] as HistoryEntry;
+      if (target.sceneId !== null) (last as { sceneId?: string }).sceneId = target.sceneId;
+    }
+
+    // Commit-time blob checks: a published asset version; an instance buffer.
+    const ref = publishedBlobRef(outcome.result);
+    if (ref !== null) {
+      const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
+      if (!v.ok) return failRequest(request, v.error);
+      if (ref.convertedFrom !== undefined) {
+        const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
+        if (!o.ok) return failRequest(request, o.error);
+      }
+      const used = authoritativeBytes(s.dir);
+      if (used > core.content.maxSourceBytesPerProject) {
+        return failRequest(request, contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
+      }
+    }
+    const resultScene = outcome.state.scene as unknown as SceneV4;
+    for (const e of resultScene.entities) {
+      const inst = e.components.instances;
+      if (inst === undefined) continue;
+      const before = carrier.entities.find((x) => x.id === e.id)?.components.instances;
+      if (before !== undefined && before.buffer === inst.buffer && before.count === inst.count) continue;
+      const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
+      if (!v.ok) return failRequest(request, v.error);
+    }
+
+    // The whole resulting project: scenes (the index may have changed) and content.
+    const newRevision = outcome.result.revision;
+    const nextContent = (outcome.state.content ?? state.content) as unknown as ContentCatalogV4;
+    const nextScenes = new Map<string, SceneV4>();
+    for (const entry of nextContent.scenes) {
+      if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
+      else nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, entities: [] });
+    }
+    const errors: ModelErrorV3[] = [];
+    composeV4([...nextScenes.values()], nextContent, errors, newRevision);
+    if (errors.length > 0) {
+      const first = errors[0] as ModelErrorV3;
+      return failRequest(request, {
+        code: first.code,
+        cls: 'validation',
+        detailDocument: 'project',
+        details: errors.slice(0, 10),
+        detailCount: errors.length,
+        message: `the resulting project fails a rule across scenes: ${first.message}`,
+        hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera, player and lights)',
+      } as unknown as CommandError);
+    }
+    const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: outcome.result };
+    const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
+    const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, plan.writes);
+    const nextState: V4State = { manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.files, fileRecords: plan.fileRecords };
+    if (!res.ok) {
+      if ('unreadable' in res) {
+        setPendingUnreadable(s);
+        return failRequest(request, externalChangeUnreadable(s.projectId));
+      }
+      if ('external' in res) {
+        const pc = detectExternalChangeV4(core, s, res.external);
+        return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
+      }
+      if (res.failed.onDiskState === 'previous') return failRequest(request, writeFailed('previous', res.failed.errno));
+      publishV4(s, nextState);
+      s.history = outcome.state.history;
+      return failRequest(request, writeFailed('new-undurable', res.failed.errno));
+    }
+    publishV4(s, nextState);
+    s.history = outcome.state.history;
     return outcome.result;
   }
 
@@ -797,6 +933,12 @@ function buildService(core: Core): WorkspaceService {
    * written"). */
   function convergeExisting(projectId: string): CreateProjectResult {
     const dir = projectBaseDir(core, projectId);
+    // Phase 12 (c): an existing v4 project is loadable when its files validate.
+    if (isV4Layout(core.ops, dir)) {
+      const l = loadV4(core.ops, dir, projectId);
+      if (l.kind === 'loaded') return { ok: true, created: false, revision: l.state.revision };
+      return { ok: false, error: projectExistsInvalid([...l.errors]) };
+    }
 
     // Manifest loadability — report the actual manifest load details (a
     // garbage manifest is still an existing-invalid directory, workspace.md
@@ -1143,6 +1285,8 @@ function buildService(core: Core): WorkspaceService {
     const s = core.sessions.get(projectId);
     if (s === undefined || s.mode !== 'open') return { ok: false };
     if (s.pendingChange !== null) return { ok: true, pending: true };
+    // Phase 12 (c): a v4 project checks each of its files.
+    if (s.storageVersion === 4) return checkExternalV4(core, s);
     let bytes: Uint8Array;
     try {
       bytes = core.ops.readFile(join(s.sceneDir, 'main.json'));
@@ -1500,6 +1644,23 @@ function scanEntry(core: Core, name: string): ScanEntry {
     return entry;
   }
 
+  // Phase 12 (c): a v4 project (one file per scene).
+  if (isV4Layout(core.ops, dir)) {
+    entry.kind = 'project';
+    const l = loadV4(core.ops, dir, name);
+    if (l.kind === 'loaded') {
+      entry.name = l.state.manifest.name;
+      entry.createdAt = l.state.manifest.createdAt;
+      entry.loadable = true;
+      entry.note = stale ? 'complete (v4); stale ownership reported (no action — takeover is explicit)' : 'complete (v4; opens on demand)';
+    } else {
+      entry.loadable = false;
+      entry.code = l.reason;
+      entry.note = `v4 project does not load (${l.reason}); retained until operator repair`;
+    }
+    return entry;
+  }
+
   // Manifest.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
@@ -1642,6 +1803,79 @@ function completeInterruptedCreation(
 // ---- request envelope helpers ----------------------------------------------------------
 
 /** Extract the request envelope's projectId (string or null). */
+/** Phase 12 (c): the id of a v4 project's first start scene. */
+function primarySceneIdV4(state: V4State): string {
+  return state.content.startScenes[0] ?? state.content.scenes[0]?.sceneId ?? '';
+}
+
+/**
+ * Phase 12 (c): the scene a v4 command edits — from the entity ids it names
+ * (ids are unique across scenes), `args.sceneId` or the parent for a create,
+ * the history entry for undo/redo; null for a content-only command. A command
+ * spanning two scenes is refused (one transaction touches one scene).
+ */
+function targetSceneV4(
+  state: V4State,
+  history: HistoryState,
+  op: string,
+  args: Record<string, unknown>,
+): { ok: true; sceneId: string | null } | { ok: false; error: CommandError } {
+  const sceneOf = (id: unknown): string | null => {
+    if (typeof id !== 'string') return null;
+    for (const [sid, sc] of state.scenes) if (sc.entities.some((e) => e.id === id)) return sid;
+    return null;
+  };
+  const cross = (path: string): { ok: false; error: CommandError } => ({
+    ok: false,
+    error: {
+      code: 'field_value',
+      cls: 'validation',
+      path,
+      message: 'the entities of one command must be in one scene (moving between scenes is not supported yet)',
+      expected: 'entities of a single scene',
+    } as unknown as CommandError,
+  });
+  if (op === 'undo' || op === 'redo') {
+    const entry = op === 'undo' ? history.entries[history.cursor - 1] : history.entries[history.cursor];
+    return { ok: true, sceneId: (entry as { sceneId?: string } | undefined)?.sceneId ?? null };
+  }
+  if (op === 'createEntity' || op === 'instantiatePrefab') {
+    const explicit = args['sceneId'];
+    if (explicit !== undefined) {
+      if (typeof explicit !== 'string' || !state.scenes.has(explicit)) {
+        return { ok: false, error: { code: 'reference_missing', cls: 'validation', path: '/args/sceneId', reason: 'scene', found: explicit, message: 'no such scene in this project' } as unknown as CommandError };
+      }
+      const parentScene = sceneOf(args['parentId']);
+      if (typeof args['parentId'] === 'string' && parentScene !== null && parentScene !== explicit) return cross('/args/parentId');
+      return { ok: true, sceneId: explicit };
+    }
+    return { ok: true, sceneId: sceneOf(args['parentId']) ?? primarySceneIdV4(state) };
+  }
+  if (op === 'moveEntities') {
+    const ids = Array.isArray(args['entityIds']) ? (args['entityIds'] as unknown[]) : [];
+    const scenes = new Set(ids.map(sceneOf).filter((x): x is string => x !== null));
+    const parent = sceneOf(args['parentId']);
+    if (parent !== null) scenes.add(parent);
+    const before = sceneOf(args['beforeId']);
+    if (before !== null) scenes.add(before);
+    if (scenes.size > 1) return cross('/args/entityIds');
+    return { ok: true, sceneId: [...scenes][0] ?? primarySceneIdV4(state) };
+  }
+  if (op === 'updateEntity') {
+    const own = sceneOf(args['entityId']);
+    const parent = sceneOf(args['parentId']);
+    if (own !== null && parent !== null && own !== parent) return cross('/args/parentId');
+    return { ok: true, sceneId: own ?? primarySceneIdV4(state) };
+  }
+  if (op === 'createPrefab') return { ok: true, sceneId: sceneOf(args['sourceEntityId']) ?? primarySceneIdV4(state) };
+  if (op === 'publishAsset') {
+    const anim = args['animation'] as { entityId?: unknown } | undefined;
+    return { ok: true, sceneId: anim !== undefined ? sceneOf(anim.entityId) : null };
+  }
+  if ('entityId' in args) return { ok: true, sceneId: sceneOf(args['entityId']) ?? primarySceneIdV4(state) };
+  return { ok: true, sceneId: null };
+}
+
 function envelopeProjectId(request: unknown): string | null {
   if (typeof request !== 'object' || request === null || Array.isArray(request)) return null;
   const v = (request as Record<string, unknown>)['projectId'];

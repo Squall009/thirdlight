@@ -63,7 +63,7 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     expect(j.revision).toBe(0);
     const scene = j.scene as Record<string, unknown>;
     // New projects start at the current scene schema.
-    expect(scene.schemaVersion).toBe(3);
+    expect(scene.schemaVersion).toBe(4); // phase 12 (c): new projects are storage v4
     // A fresh project: the default camera plus the starter lights.
     const ents = scene.entities as Array<Record<string, unknown>>;
     expect(ents.map((e) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);

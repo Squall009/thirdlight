@@ -25,7 +25,7 @@ const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y = 0) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const DIGEST = 'ab'.repeat(32);
 const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } });
-const scene = (sceneId: string, entities: unknown[], name = sceneId) => ({ schemaVersion: 4, sceneId, name, revision: 1, entities });
+const scene = (sceneId: string, entities: unknown[]) => ({ schemaVersion: 4, sceneId, revision: 1, entities });
 const MANIFEST = { schemaVersion: 2, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (extra: Record<string, unknown> = {}) => ({
   assets: [MODEL],
@@ -34,6 +34,11 @@ const content = (extra: Record<string, unknown> = {}) => ({
   settings: {},
   behaviorTrust: { entries: [] },
   game: null,
+  scenes: [
+    { sceneId: 'scene-core', name: 'Core' },
+    { sceneId: 'scene-level', name: 'Level' },
+    { sceneId: 'scene-exit', name: 'Exit' },
+  ],
   startScenes: ['scene-core'],
   ...extra,
 });
@@ -50,15 +55,13 @@ describe('scene v4', () => {
     expect(validateSceneV4(scene('scene-core', [camera()])).ok).toBe(true);
   });
 
-  it('refuses bad instance sets, empty exits, two cameras, a missing name, and exit zones in v3 terms', () => {
+  it('refuses bad instance sets, empty exits and two cameras', () => {
     const bad = (entities: unknown[], extra: Record<string, unknown> = {}) => validateSceneV4({ ...scene('scene-a', entities), ...extra });
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: 'nope', count: 1 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 70000 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#ffffff' } }, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 3 } } }]).ok).toBe(false);
     expect(bad([{ id: 'z-1', components: { transform: T, gameZone: { role: 'exit', size: [1, 1] } } }]).ok).toBe(false);
     expect(bad([camera('c-1'), camera('c-2')]).ok).toBe(false);
-    const { name: _n, ...noName } = scene('scene-a', []);
-    expect(validateSceneV4(noName).ok).toBe(false);
   });
 });
 
@@ -71,6 +74,9 @@ describe('content v4', () => {
     expect(validateContentV4(content({ game })).ok).toBe(true);
     expect(validateContentV4(content({ game: { ...game, killY: -5 } })).ok).toBe(false);
     expect(validateContentV4(content({ game: { ...game, configVersion: 1 } })).ok).toBe(false);
+    // The start set must come from the scene index; scene ids are unique.
+    expect(validateContentV4(content({ startScenes: ['scene-nowhere'] })).ok).toBe(false);
+    expect(validateContentV4(content({ scenes: [{ sceneId: 'scene-core', name: 'A' }, { sceneId: 'scene-core', name: 'B' }] })).ok).toBe(false);
   });
 });
 
@@ -82,7 +88,7 @@ describe('project v4', () => {
   ]);
 
   it('accepts a start scene with the camera and a level scene loaded later', () => {
-    const r = validateProjectV4(MANIFEST, content(), [core, level]);
+    const r = validateProjectV4(MANIFEST, content({ scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] }), [core, level]);
     expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
     if (r.ok) expect(r.normalized.scenes.map((s) => s.sceneId)).toEqual(['scene-core', 'scene-level']);
   });
@@ -116,7 +122,8 @@ describe('migration v3 → v4', () => {
     const manifest: Manifest = { schemaVersion: 1, engineVersion: '0.1.0', id: 'beacon', name: 'Beacon Reach', createdAt: '2026-09-23T00:00:00Z', scenes: [{ id: env.normalized.scene.sceneId, path: 'scenes/main.json' }] };
     const { project, notes } = migrateProjectV3ToV4(manifest, env.normalized.scene, env.normalized.content);
     expect(project.scenes).toHaveLength(1);
-    expect(project.scenes[0]).toMatchObject({ schemaVersion: 4, name: 'Main', sceneId: env.normalized.scene.sceneId });
+    expect(project.scenes[0]).toMatchObject({ schemaVersion: 4, sceneId: env.normalized.scene.sceneId });
+    expect(project.content.scenes).toEqual([{ sceneId: env.normalized.scene.sceneId, name: 'Main' }]);
     expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
     expect(project.content.game).not.toHaveProperty('level');
     expect(project.content.game).not.toHaveProperty('killY');

@@ -31,8 +31,8 @@
  */
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
-import { validateSceneV3 } from './scene-v3';
-import { validateContentV3, resolveGameplaySettings, validateTagRegistry } from './content';
+import { validateSceneV3, validateSceneV4 } from './scene-v3';
+import { validateContentV3, validateContentV4, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
@@ -59,6 +59,19 @@ import {
 /** The v2 manifest shape version (delivery.md §2.1). */
 export const RUNTIME_CONTENT_MANIFEST_VERSION_2 = 2 as const;
 
+/** Phase 12 (c): one scene artifact of a v4 project. */
+export interface ManifestSceneRow {
+  sceneId: string;
+  path: string;
+  digest: string;
+  byteLength: number;
+  /** Loaded when the game starts. */
+  start: boolean;
+}
+
+/** Keys present only when they apply (phase 12): tags, scenes, buffers. */
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'scenes', 'buffers']);
+
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
   'manifestVersion',
@@ -75,6 +88,8 @@ export const MANIFEST_KEYS_V2 = [
   'settings',
   'game',
   'tags',
+  'scenes',
+  'buffers',
   'assets',
   'media',
   'behaviors',
@@ -205,6 +220,10 @@ export interface RuntimeContentManifestV2 {
   game: GameConfig | null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
+  /** Phase 12 (c): a v4 project's scene artifacts. */
+  scenes?: ManifestSceneRow[];
+  /** Phase 12 (c): instance-set buffers. */
+  buffers?: { digest: string; byteLength: number }[];
   assets: ReadonlyArray<Record<string, unknown>>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
@@ -297,12 +316,23 @@ export const M3_SETTINGS_KEYS = [
  * the wrong `kind`, or an absent version) fails `asset_reference_missing` /
  * `asset_kind_mismatch` / `asset_version_invalid` before any capture.
  */
-export function resolveMediaIdentityV3(scene: unknown, content: unknown): ModelResultV2<MediaBlock> {
-  const s = validateSceneV3(scene);
+export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScenes?: readonly unknown[]): ModelResultV2<MediaBlock> {
+  const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
+  const s = v4 ? validateSceneV4(scene) : validateSceneV3(scene);
   if (!s.ok) return { ok: false, errors: s.errors };
-  const c = validateContentV3(content);
+  const c = v4 ? validateContentV4(content) : validateContentV3(content);
   if (!c.ok) return { ok: false, errors: c.errors };
-  return mediaIdentityFrom(s.normalized, c.normalized);
+  let normScene = s.normalized as unknown as SceneV3;
+  if (v4 && allScenes !== undefined) {
+    const entities: SceneV3['entities'] = [];
+    for (const doc of allScenes) {
+      const r = validateSceneV4(doc);
+      if (!r.ok) return { ok: false, errors: r.errors };
+      entities.push(...(r.normalized.entities as SceneV3['entities']));
+    }
+    normScene = { ...normScene, entities };
+  }
+  return mediaIdentityFrom(normScene, c.normalized);
 }
 
 function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3): ModelResultV2<MediaBlock> {
@@ -387,13 +417,26 @@ export function captureContentViewV3(
   scene: unknown,
   content: unknown,
   ctx: { projectId: string; revision: number },
+  /** Phase 12 (c), v4: every scene of the project (the view covers them all). */
+  allScenes?: readonly unknown[],
 ): ModelResultV2<CapturedContentViewV3> {
-  const s = validateSceneV3(scene);
+  const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
+  const s = v4 ? validateSceneV4(scene) : validateSceneV3(scene);
   if (!s.ok) return fail(s.errors);
-  const c = validateContentV3(content);
+  const c = v4 ? validateContentV4(content) : validateContentV3(content);
   if (!c.ok) return fail(c.errors);
-  const normScene = s.normalized as SceneV3;
+  let normScene = s.normalized as unknown as SceneV3;
   const normContent = c.normalized as ContentCatalogV3;
+  if (v4 && allScenes !== undefined) {
+    const entities: SceneV3['entities'] = [];
+    for (const doc of allScenes) {
+      const r = validateSceneV4(doc);
+      if (!r.ok) return fail(r.errors);
+      entities.push(...(r.normalized.entities as SceneV3['entities']));
+    }
+    // The references of every scene (a scene loaded later needs its assets too).
+    normScene = { ...normScene, entities };
+  }
 
   const settingsRes = resolveGameplaySettings(normContent.settings);
   if (!settingsRes.ok) return fail(settingsRes.errors);
@@ -461,6 +504,13 @@ export interface CaptureManifestV2Input {
   game: GameConfig | null;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];
+  /**
+   * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
+   * (`start`) or on demand by the game; present only for a v4 project.
+   */
+  scenes?: readonly ManifestSceneRow[];
+  /** Phase 12 (c): instance-set transform buffers (artifacts `content/sha256/<digest>`). */
+  buffers?: readonly { digest: string; byteLength: number }[];
   /** The resolved media identity (from `resolveMediaIdentityV3`). */
   media: MediaBlock;
   /** The required engine module IDs (the M3 shared-composition set). */
@@ -558,6 +608,8 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     settings: input.settings,
     game: input.game,
     ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
+    ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
+    ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
     media: input.media,
     behaviors,
@@ -593,7 +645,7 @@ export function manifestBuildIdInputV2(manifest: Record<string, unknown>): Uint8
   const without: Record<string, unknown> = {};
   for (const key of MANIFEST_KEYS_V2) {
     if (key === 'buildId') continue;
-    if (key === 'tags' && !(key in manifest)) continue; // phase 12 (b): optional
+    if (OPTIONAL_MANIFEST_KEYS.has(key) && !(key in manifest)) continue; // phase 12: optional
     if (!(key in manifest)) return null;
     without[key] = manifest[key];
   }
@@ -647,7 +699,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     }
   }
   for (const key of MANIFEST_KEYS_V2) {
-    if (key === 'tags') continue; // phase 12 (b): optional
+    if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // phase 12: optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
   }
   if (d['tags'] !== undefined) {

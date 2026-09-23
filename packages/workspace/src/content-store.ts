@@ -33,7 +33,7 @@ import {
 import { basename, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { captureContent, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES, validateContent } from '@thirdlight/project-model';
+import { type SceneV4, type ContentCatalogV4, captureContent, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES, validateContent } from '@thirdlight/project-model';
 import type {
   CapturedContent,
   ContentCatalog,
@@ -152,10 +152,12 @@ export interface ContentContext {
   dir: string;
   /** The verified `.thirdlight` directory (session `thirdlightDir`). */
   thirdlightDir: string;
-  storageVersion: 1 | 2 | 3;
+  storageVersion: 1 | 2 | 3 | 4;
   revision: number;
-  scene: Scene | SceneV2 | SceneV3 | null;
-  content: ContentCatalog | ContentCatalogV3 | null;
+  scene: Scene | SceneV2 | SceneV3 | SceneV4 | null;
+  content: ContentCatalog | ContentCatalogV3 | ContentCatalogV4 | null;
+  /** Phase 12 (c): every scene of a v4 project (the capture covers them all). */
+  scenes?: readonly SceneV4[];
   /**
    * The game folder of a folder project (the folder holding `thirdlight.json`);
    * `null` for a project in the data root. Asset versions with a `sourcePath`
@@ -1546,11 +1548,36 @@ export interface CapturedV3Read {
   scene: unknown;
   /** The captured v3 content block (the acknowledged state's content half). */
   content: unknown;
+  /**
+   * Phase 12 (c), a v4 project: every scene (index order); `scene` is then
+   * the start scenes merged into one runtime scene (schemaVersion 4).
+   */
+  scenes?: readonly unknown[];
+  startScenes?: readonly string[];
 }
 
 export type CapturedV3ReadResult = { ok: true; read: CapturedV3Read } | { ok: false; error: CommandError };
 
 export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
+  // Phase 12 (c): a v4 project — the start scenes merged (what the game starts
+  // with) and every scene (loaded at start or on demand).
+  if (ctx.storageVersion === 4 && ctx.content !== null && ctx.scenes !== undefined) {
+    const content = ctx.content as ContentCatalogV4;
+    const byId = new Map(ctx.scenes.map((sc) => [sc.sceneId, sc]));
+    const entities = content.startScenes.flatMap((id) => byId.get(id)?.entities ?? []);
+    const ordered = content.scenes.map((e) => byId.get(e.sceneId)).filter((x): x is SceneV4 => x !== undefined);
+    return {
+      ok: true,
+      read: {
+        projectId: ctx.projectId,
+        revision: ctx.revision,
+        scene: { schemaVersion: 4, sceneId: content.startScenes[0] ?? '', revision: ctx.revision, entities },
+        content,
+        scenes: ordered.map((sc) => ({ ...sc, revision: ctx.revision })),
+        startScenes: [...content.startScenes],
+      },
+    };
+  }
   if (ctx.storageVersion !== 3 || ctx.content === null || ctx.scene === null) {
     return {
       ok: false,

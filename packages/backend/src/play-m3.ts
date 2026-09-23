@@ -40,6 +40,9 @@ export interface BuildPlayContentM3Input {
   content: Record<string, unknown>;
   /** The prebuilt M3 play bundle bytes served as the entry (`game.js`). */
   gameBundle: Uint8Array;
+  /** Phase 12 (c), a v4 project: every scene, and the start set. */
+  scenes?: readonly unknown[];
+  startScenes?: readonly string[];
 }
 
 export interface BuiltPlayContentM3 {
@@ -95,6 +98,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     capturedAt: input.capturedAt,
     scene: input.scene,
     content: input.content,
+    ...(input.scenes !== undefined ? { scenes: input.scenes, startScenes: input.startScenes ?? [] } : {}),
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };
@@ -132,7 +136,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   // verifies the bridge snapshot against). The sceneBytes re-hash above is a
   // captured-state integrity check only.
   // The declared assets (at their manifest-declared digest-addressed path).
-  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts]) {
+  // Phase 12 (c): a v4 project's scene files and instance buffers (loaded by the game on demand).
+  for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
   // The M3 play entry: the prebuilt bundle served as game.js (the page

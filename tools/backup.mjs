@@ -106,6 +106,20 @@ export function ownershipState(projectDir, procRoot = '/proc') {
 }
 
 function readEnvelopeRevision(projectDir) {
+  // Phase 12 (c): a v4 project is several files; its revision is the highest.
+  if (existsSync(join(projectDir, 'content.json'))) {
+    try {
+      let rev = JSON.parse(readFileSync(join(projectDir, 'content.json'), 'utf8'))?.revision ?? null;
+      for (const f of readdirSync(join(projectDir, 'scenes'))) {
+        if (!f.endsWith('.json')) continue;
+        const r = JSON.parse(readFileSync(join(projectDir, 'scenes', f), 'utf8'))?.scene?.revision;
+        if (Number.isInteger(r) && (rev === null || r > rev)) rev = r;
+      }
+      return Number.isInteger(rev) ? rev : null;
+    } catch {
+      return null;
+    }
+  }
   try {
     const env = JSON.parse(readFileSync(join(projectDir, 'scenes', 'main.json'), 'utf8'));
     const r = env?.scene?.revision;
@@ -113,6 +127,11 @@ function readEnvelopeRevision(projectDir) {
   } catch {
     return null;
   }
+}
+
+/** A project file whose identity (`projectId`, retry records) a restore under a new id rewrites. */
+function isEnvelopeFile(rel) {
+  return rel === 'content.json' || /^scenes\/[^/]+\.json$/.test(rel);
 }
 
 /**
@@ -224,7 +243,10 @@ export function verifyBackup(backupDir) {
   }
   for (const r of present) if (!listed.has(r)) problems.push(`not in the inventory: ${r}`);
   const pre = whole ? `${manifest.projectDir}/` : '';
-  if (!listed.has(`${pre}project.json`) || !listed.has(`${pre}scenes/main.json`)) problems.push(`the backup lacks ${pre}project.json or ${pre}scenes/main.json`);
+  // v1–v3: scenes/main.json; v4 (phase 12 c): content.json plus one file per scene.
+  if (!listed.has(`${pre}project.json`) || (!listed.has(`${pre}scenes/main.json`) && !listed.has(`${pre}content.json`))) {
+    problems.push(`the backup lacks ${pre}project.json or its scene files (scenes/main.json, or content.json + scenes/)`);
+  }
   if (whole && !listed.has('thirdlight.json')) problems.push('the game-folder backup lacks thirdlight.json');
   return { ok: problems.length === 0, manifest, problems };
 }
@@ -262,7 +284,7 @@ export function restoreBackup({ backupDir, dataRoot, as, folder }) {
         const doc = JSON.parse(bytes.toString('utf8'));
         doc.id = projectId;
         bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
-      } else if (f.path === 'scenes/main.json') {
+      } else if (isEnvelopeFile(f.path)) {
         const doc = JSON.parse(bytes.toString('utf8'));
         doc.projectId = projectId;
         if (doc.retry && Array.isArray(doc.retry.records)) doc.retry.records = [];
@@ -300,7 +322,8 @@ function restoreGameFolder(backupDir, manifest, projectId, folder) {
   }
   const sub = manifest.projectDir;
   const rename = projectId !== manifest.projectId;
-  const special = { 'thirdlight.json': 'marker', [`${sub}/project.json`]: 'project', [`${sub}/scenes/main.json`]: 'envelope' };
+  const special = { 'thirdlight.json': 'marker', [`${sub}/project.json`]: 'project' };
+  for (const f of manifest.files) if (f.path.startsWith(`${sub}/`) && isEnvelopeFile(f.path.slice(sub.length + 1))) special[f.path] = 'envelope';
   const tmp = `${resolve(folder)}.restore-${process.pid}`;
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });

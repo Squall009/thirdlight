@@ -125,6 +125,12 @@ export interface WorkspaceServiceConfig {
    * workspace holds only its type.
    */
   behaviorCompiler?: import('@thirdlight/behavior-build').BehaviorCompiler;
+  /**
+   * Phase 12 (c): the v4 product mode — new projects are created in storage
+   * v4 (one file per scene) and a v3 project is upgraded to v4 when it is
+   * opened. Off by default, so the v1–v3 storage behaviour stays testable.
+   */
+  storageV4?: boolean;
 }
 
 // ---- pending external change (workspace.md §7.2) -------------------------------

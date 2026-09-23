@@ -31,7 +31,7 @@ export function createGameSessionModule(
   // The runtime validates the v3 snapshot/game block before `create`
   // (`gameplay.md` §3.4); these checks are the defensive path for a direct
   // caller, so a session module can never run without frozen content.
-  if (cfg.sceneVersion !== 3) {
+  if (cfg.sceneVersion !== 3 && cfg.sceneVersion !== 4) {
     throw new Error(`${PLATFORMER_GAME_MODULE_ID} requires a schemaVersion 3 snapshot scene`);
   }
   if (cfg.game === undefined || cfg.game === null) {

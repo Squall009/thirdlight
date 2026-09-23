@@ -19,7 +19,7 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-const envelope = (): string => join(be.projectDir, 'scenes', 'main.json');
+const envelope = (): string => join(be.projectDir, 'scenes', 'scene-main.json');
 
 test('a valid edit on disk is announced and can be loaded', async ({ page }) => {
   await page.goto(be.editorUrl);

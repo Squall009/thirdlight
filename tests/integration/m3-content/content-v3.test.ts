@@ -124,7 +124,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
   it('edits the bounded game config through tl_command (one revision, one binary-free change frame)', async () => {
     const before = await currentRevision();
     const seen = ws.events.length;
-    const res = await command(mcp, 'setGameConfig', { game: { title: 'Beacon Reach v2', killY: -6 } }, before);
+    // Phase 12 (c): the backend upgrades the v3 fixture to v4 on open — the v4
+    // game block has no kill height (a game rule for scripts / hazard zones).
+    const res = await command(mcp, 'setGameConfig', { game: { title: 'Beacon Reach v2', objective: 'Reach the far beacon' } }, before);
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
     expect(res.body.revision).toBe(before + 1);
     const frame = await ws.waitFor((e) => e.type === 'mutation.applied' && e.revision === before + 1);
@@ -141,9 +143,10 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     // over the shared command surface. Both transports read the same state.
     const viaMcp = await mcp.call('tl_content_query', { target: 'game' });
     expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
-    const game = viaMcp.body.game as { title?: string; killY?: number } | null;
+    const game = viaMcp.body.game as { title?: string; objective?: string; killY?: number } | null;
     expect(game?.title).toBe('Beacon Reach v2');
-    expect(game?.killY).toBe(-6);
+    expect(game?.objective).toBe('Reach the far beacon');
+    expect(game).not.toHaveProperty('killY');
     const viaHttp = await http(`${bp.origin}/api/v1/projects/${V3_PROJECT}/commands`, {
       body: { op: 'queryGameConfig', projectId: V3_PROJECT },
       token: AUTH_TOKEN,
@@ -206,8 +209,9 @@ describe('packet 48 — v3 command parity over the real transports', () => {
       entities: Array<{ id: string; components: Record<string, unknown> }>;
     };
     // C35-5 / CC-48-3 (promoted at Gate L): the scene projection reports the
-    // SCENE document's version (3), not the manifest's (always 1).
-    expect(scene.schemaVersion).toBe(3);
+    // SCENE document's version — 4 once the backend upgraded the v3 fixture
+    // (phase 12 c), not the manifest's.
+    expect(scene.schemaVersion).toBe(4);
     // The v3 fixture's v3-only components cross the wire (gameZone/cameraFollow).
     const zone = scene.entities.find((e) => e.id === 'zone-0001');
     expect(zone?.components['gameZone']).toBeDefined();

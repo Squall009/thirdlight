@@ -8,7 +8,7 @@
  * `validateScene` re-check (project-model §12.1) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { resolveSceneHierarchy, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, validateTagRegistry, type TagDefinition, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateMergedSceneV4, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, validateTagRegistry, type TagDefinition, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -51,7 +51,7 @@ export function validateRuntimeSnapshot(
 ):
   | {
       scene: RuntimeScene;
-      sceneVersion: 1 | 2 | 3;
+      sceneVersion: 1 | 2 | 3 | 4;
       snapshotId: string;
       projectId: string;
       revision: number;
@@ -145,13 +145,13 @@ export function validateRuntimeSnapshot(
   // (≤ 10 reported, total count given).
   const rawScene = snap.scene as { schemaVersion?: unknown };
   const rawVersion: unknown = rawScene.schemaVersion;
-  const sceneVersion: 1 | 2 | 3 = rawVersion === 3 ? 3 : rawVersion === 2 ? 2 : 1;
+  const sceneVersion: 1 | 2 | 3 | 4 = rawVersion === 4 ? 4 : rawVersion === 3 ? 3 : rawVersion === 2 ? 2 : 1;
   // M3 (runtime.md §2): the `game` wrapper field is v3-only and required on
   // v3 snapshots; an absent-on-v3 or present-on-v1/v2 `game` is a strict-shape
   // violation. The value check (block rules) runs once the scene is known to
   // be v3, so v1/v2 scenes never see a `game`-carrying error path.
   const gamePresent = 'game' in snap;
-  if (sceneVersion === 3 && !gamePresent) {
+  if (sceneVersion >= 3 && !gamePresent) {
     return {
       error: {
         code: 'snapshot_invalid',
@@ -161,7 +161,7 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  if (sceneVersion !== 3 && gamePresent) {
+  if (sceneVersion < 3 && gamePresent) {
     return {
       error: {
         code: 'snapshot_invalid',
@@ -173,8 +173,9 @@ export function validateRuntimeSnapshot(
   }
   const rawGame: GameConfig | null = snap.game === undefined ? null : (snap.game as GameConfig | null);
   let scene: RuntimeScene;
-  if (sceneVersion === 3) {
-    const sceneResult = validateSceneV3(snap.scene);
+  if (sceneVersion >= 3) {
+    // v4: the start scenes merged into one runtime scene (no per-scene limits).
+    const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
     if (!sceneResult.ok) {
       const errors: readonly ModelErrorV3[] = sceneResult.errors;
       return {
@@ -195,7 +196,7 @@ export function validateRuntimeSnapshot(
     // an M3-enabled module set rejects it at instantiate (`game_config`).
     if (rawGame !== null) {
       const gameErrors: ModelErrorV2[] = [];
-      validateGameConfig(rawGame, '/game', gameErrors);
+      validateGameConfig(rawGame, '/game', gameErrors, sceneVersion === 4 ? 2 : 1);
       if (gameErrors.length > 0) {
         return {
           error: {
@@ -261,7 +262,7 @@ export function validateRuntimeSnapshot(
   // Phase 12 (b): the optional v3 tag registry.
   let tags: readonly TagDefinition[] = [];
   if (snap.tags !== undefined) {
-    if (sceneVersion !== 3) {
+    if (sceneVersion < 3) {
       return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/tags', message: 'snapshot field "tags" is v3-only' } };
     }
     const tagErrors: ModelErrorV2[] = [];
@@ -289,6 +290,6 @@ function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErr
  */
 export function resolveSnapshotHierarchy<T extends { scene: unknown }>(snapshot: T): T {
   const scene = snapshot.scene as { schemaVersion?: unknown; entities?: unknown };
-  if (scene === null || typeof scene !== 'object' || scene.schemaVersion !== 3 || !Array.isArray(scene.entities)) return snapshot;
+  if (scene === null || typeof scene !== 'object' || (scene.schemaVersion !== 3 && scene.schemaVersion !== 4) || !Array.isArray(scene.entities)) return snapshot;
   return { ...snapshot, scene: resolveSceneHierarchy(scene as unknown as SceneV3) };
 }

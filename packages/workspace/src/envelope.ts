@@ -39,6 +39,7 @@ import {
   validateScene,
   validateSceneV2,
   validateSceneV3,
+  validateSceneV4,
 } from '@thirdlight/project-model';
 import type { MutationSuccess } from '@thirdlight/commands';
 
@@ -528,11 +529,11 @@ function bounded(v: unknown): unknown {
  * (R12: a JSON object such as `{"toString":0}` used to make `String()`
  * throw a TypeError and abort the whole load).
  */
-function validateRetryBlock(
+export function validateRetryBlock(
   retry: unknown,
   sceneRevision: number,
   projectId: string,
-  storageVersion: 1 | 2 | 3,
+  storageVersion: 1 | 2 | 3 | 4,
 ): { ok: true; records: RetryRecord[] } | { ok: false; error: LoadDetail } {
   if (!isPlainObject(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
@@ -653,14 +654,18 @@ const M2_RESULT_OPS = [
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
 const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'];
+/** Phase 12 (c): the ops only a v4 project records (the scene index). */
+const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
 /** The mutation ops an envelope of `storageVersion` can record. */
-export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3): readonly string[] {
+export function mutationOpsForStorageVersion(storageVersion: 1 | 2 | 3 | 4): readonly string[] {
   return storageVersion === 1
     ? M1_MUTATION_OPS
     : storageVersion === 2
       ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS]
-      : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS];
+      : storageVersion === 3
+        ? [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS]
+        : [...M1_MUTATION_OPS, ...M2_RESULT_OPS, ...V3_RESULT_OPS, ...V4_RESULT_OPS];
 }
 
 /**
@@ -684,7 +689,7 @@ function validateRecordResult(
   recordRequestId: string,
   recordAppliedRevision: number,
   envelopeProjectId: string,
-  storageVersion: 1 | 2 | 3,
+  storageVersion: 1 | 2 | 3 | 4,
 ): LoadDetail | null {
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
@@ -916,7 +921,7 @@ function validateChangeShape(change: unknown, op: string): LoadDetail | null {
  * v2-only components the M1 validators reject (the live content block is
  * validated separately by `validateContent`).
  */
-function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 3): LoadDetail | null {
+function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 3 | 4): LoadDetail | null {
   if (!isPlainObject(change)) return rerr('recorded change must be an object', undefined, '/result/change');
   const t = change['type'];
   if (typeof t !== 'string' || !V2_CHANGE_TYPES.includes(t)) {
@@ -989,6 +994,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'updateEntity',
   'moveEntities',
   'setTags',
+  'setSceneIndex',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1011,6 +1017,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   updateEntity: ['type', 'id', 'previous', 'next', 'changedFields', 'order'],
   moveEntities: ['type', 'parentId', 'beforeId', 'entities', 'order'],
   setTags: ['type', 'previous', 'next'],
+  setSceneIndex: ['type', 'previous', 'next'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
@@ -1033,6 +1040,10 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   updateEntity: 'updateEntity',
   moveEntities: 'moveEntities',
   setTags: 'setTags',
+  createScene: 'setSceneIndex',
+  renameScene: 'setSceneIndex',
+  deleteScene: 'setSceneIndex',
+  setStartScenes: 'setSceneIndex',
 };
 
 /**
@@ -1057,7 +1068,7 @@ const ZERO_TRANSFORM = {
 function validateHistoricalEntities(
   ents: readonly unknown[],
   base: string,
-  storageVersion: 1 | 2 | 3 = 1,
+  storageVersion: 1 | 2 | 3 | 4 = 1,
 ): LoadDetail | null {
   // Ids already present in the payload: a parent that is part of the payload
   // is present; every other referenced parent id gets a placeholder.
@@ -1072,14 +1083,14 @@ function validateHistoricalEntities(
     if (typeof pid === 'string' && !present.has(pid) && !placeholders.some((p) => p['id'] === pid)) {
       // A v3 placeholder is a folder: it can hold folders and objects alike,
       // and filing into a folder keeps the zone/spawn/physics root rules.
-      placeholders.push(storageVersion === 3 ? { id: pid, components: { folder: {} } } : { id: pid, components: { transform: ZERO_TRANSFORM } });
+      placeholders.push(storageVersion >= 3 ? { id: pid, components: { folder: {} } } : { id: pid, components: { transform: ZERO_TRANSFORM } });
     }
   }
   const used = new Set(present);
   for (const p of placeholders) used.add(String(p['id']));
   let camId = 'histcam';
   while (used.has(camId)) camId = `${camId}x`;
-  const validate = storageVersion === 3 ? validateSceneV3 : storageVersion === 2 ? validateSceneV2 : validateScene;
+  const validate = storageVersion === 4 ? validateSceneV4 : storageVersion === 3 ? validateSceneV3 : storageVersion === 2 ? validateSceneV2 : validateScene;
   const res = validate({
     schemaVersion: storageVersion,
     sceneId: 'scene-main',

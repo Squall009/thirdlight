@@ -45,6 +45,7 @@ import {
 import { applyCreatePrefab, applyInstantiatePrefab } from './prefab-ops';
 import { applyApplySurfacePreset, applySetGameConfig } from './v3-ops';
 import { applySetTags } from './tag-ops';
+import { applySceneIndexOp } from './scene-ops';
 import type {
   ApplyOutcome,
   CommandState,
@@ -243,10 +244,11 @@ export function applyMutation<S extends SceneDocument>(
   if (state.preparedBehaviorSources !== undefined) {
     input.preparedBehaviorSources = state.preparedBehaviorSources;
   }
+  if (state.reservedIds !== undefined) input.reservedIds = state.reservedIds;
 
   switch (va.validated.op) {
     case 'createEntity': {
-      const r = applyCreateEntity(scene, va.validated.args, state.content);
+      const r = applyCreateEntity(scene, va.validated.args, state.content, state.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(
         state,
@@ -283,6 +285,14 @@ export function applyMutation<S extends SceneDocument>(
         envelope.origin,
         r.op,
       );
+    }
+    case 'createScene':
+    case 'renameScene':
+    case 'deleteScene':
+    case 'setStartScenes': {
+      const r = applySceneIndexOp(input, va.validated.args);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setTags': {
       const r = applySetTags(input, va.validated.args);
@@ -435,7 +445,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, createScene, renameScene, deleteScene, setStartScenes',
         }),
       };
     }

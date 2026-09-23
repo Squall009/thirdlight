@@ -79,6 +79,27 @@ describe('backup create / verify / restore', () => {
     expect(readFileSync(join(root, 'projects', 'game-copy', 'sources', 'sha256', 'abc'), 'utf8')).toBe('blob-bytes');
   });
 
+  it('a v4 project (content.json + one file per scene): revision is the highest, --as rewrites every file', () => {
+    const dir = join(root, 'projects', 'game');
+    mkdirSync(join(dir, 'scenes'), { recursive: true });
+    writeFileSync(join(dir, 'project.json'), JSON.stringify({ schemaVersion: 2, engineVersion: '0.1.0', id: 'game', name: 'Fake', createdAt: '2026-09-22T00:00:00Z' }) + '\n');
+    writeFileSync(join(dir, 'content.json'), JSON.stringify({ storageVersion: 4, type: 'project-content', projectId: 'game', revision: 5, content: {}, retry: { retention: 128, records: [{ requestId: 'r1' }] } }) + '\n');
+    for (const [id, rev] of [['scene-main', 9], ['scene-cave', 3]]) {
+      writeFileSync(join(dir, 'scenes', `${id}.json`), JSON.stringify({ storageVersion: 4, type: 'scene', projectId: 'game', scene: { schemaVersion: 4, sceneId: id, revision: rev, entities: [] }, retry: { retention: 128, records: [{ requestId: 'r2' }] } }) + '\n');
+    }
+    const out = join(root, 'backups');
+    mkdirSync(out);
+    const r = createBackup({ dataRoot: root, projectId: 'game', outRoot: out });
+    expect(r.manifest.revision).toBe(9);
+    expect(verifyBackup(r.dir)).toMatchObject({ ok: true });
+    restoreBackup({ backupDir: r.dir, dataRoot: root, as: 'game-copy' });
+    for (const rel of ['content.json', 'scenes/scene-main.json', 'scenes/scene-cave.json']) {
+      const doc = JSON.parse(readFileSync(join(root, 'projects', 'game-copy', rel), 'utf8'));
+      expect(doc.projectId).toBe('game-copy');
+      expect(doc.retry.records).toEqual([]);
+    }
+  });
+
   it('a tampered, truncated or incomplete backup fails verification and is not restored', () => {
     fakeProject(root, 'game');
     const out = join(root, 'backups');

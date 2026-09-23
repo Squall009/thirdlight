@@ -14,6 +14,11 @@ import {
   validateContent,
   validateContentV3,
   validateEnvelopeV3,
+  validateSceneV4,
+  validateContentV4,
+  composeSceneV4,
+  type SceneV4,
+  type ContentCatalogV4,
   validateProjectV2,
   validateProjectV3,
   validateScene,
@@ -104,6 +109,8 @@ export function behaviorOf(e: AnyEntity): BehaviorComponent | undefined {
 
 /** M1 limits (project-model §10.4, restated in commands.md §5.4/§8.1). */
 const MAX_ENTITIES = 1024;
+/** Phase 12 (c): a v4 scene holds up to 16384 entities. */
+const MAX_ENTITIES_SCENE_V4 = 16_384;
 const MAX_DEPTH = 32; // root = 1
 const ID_MAX = 9999;
 
@@ -205,10 +212,11 @@ export function isNoChange(current: SceneDocument, result: SceneDocument): boole
  * exhaustion (⇒ `id_exhaustion`). The v3 derived prefixes (`zone`, `spawn`,
  * `light`) use the same rule (authoring §A4.1).
  */
-export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder';
+export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder' | 'instances';
 
-export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix): string | undefined {
-  const existing = new Set(scene.entities.map((e) => e.id));
+export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix, reserved?: ReadonlySet<string>): string | undefined {
+  // Phase 12 (c): ids are unique across the project — the other scenes' ids are reserved.
+  const existing = new Set([...scene.entities.map((e) => e.id), ...(reserved ?? [])]);
   for (let n = 1; n <= ID_MAX; n++) {
     const id = `${kind}-${String(n).padStart(4, '0')}`;
     if (!existing.has(id)) return id;
@@ -227,6 +235,7 @@ export function derivedPrefix(components: Record<string, unknown>): EntityIdPref
   if (components['gameZone'] !== undefined) return 'zone';
   if (components['playerSpawn'] !== undefined) return 'spawn';
   if (components['light'] !== undefined) return 'light';
+  if (components['instances'] !== undefined) return 'instances';
   return 'group';
 }
 
@@ -314,6 +323,30 @@ function gateResultV3(
   return { ok: true, scene: nextScene, content: nextContent };
 }
 
+/**
+ * Phase 12 (c): steps 5–6 for a v4 scene — the edited scene (v4 rules) and
+ * the project content block (v4 rules), plus the per-scene cross-block rules
+ * (`composeSceneV4`). The rules that span scenes (ids unique across the
+ * project, the start set, exit targets) are checked by the workspace over the
+ * whole resulting project.
+ */
+function gateResultV4(
+  current: { scene: SceneDocument; content?: ContentDocument },
+  resultScene: unknown,
+  resultContent: ContentDocument | undefined,
+): { ok: true; scene: SceneV4; content: ContentDocument } | { ok: false; error: CommandError } {
+  const sv = validateSceneV4(resultScene);
+  if (!sv.ok) return { ok: false, error: resultSceneError(sv.errors) };
+  const cv = validateContentV4(resultContent ?? current.content);
+  if (!cv.ok) return { ok: false, error: resultSceneError(cv.errors) };
+  const errors: ModelErrorV3[] = [];
+  composeSceneV4(sv.normalized, cv.normalized, errors, sv.normalized.revision);
+  if (errors.length > 0) return { ok: false, error: resultSceneError(errors) };
+  const nextContent = cv.normalized as unknown as ContentDocument;
+  if (stateIsNoChange(current, sv.normalized, nextContent)) return { ok: false, error: noChangeContent() };
+  return { ok: true, scene: sv.normalized, content: nextContent };
+}
+
 /** Strip the envelope prefix from a v3 branch error (paths are `/scene/…`). */
 function envelopeErrorToModel(e: { path: string; code: string; message: string; expected?: string; reason?: string; found?: unknown }): ModelErrorV3 {
   const path = e.path.startsWith('/scene')
@@ -356,6 +389,7 @@ export function gateResultState(
       ? (resultScene as { schemaVersion?: unknown }).schemaVersion
       : undefined;
   if (schema === 3) return gateResultV3(current, resultScene, resultContent);
+  if (schema === 4) return gateResultV4(current, resultScene, resultContent);
   const isV2 = schema === 2;
   if (isV2) {
     if (current.manifest !== undefined && resultContent !== undefined) {
@@ -433,6 +467,7 @@ export function applyCreateEntity(
   scene: SceneDocument,
   args: CreateEntityArgs,
   content?: ContentDocument,
+  reservedIds?: ReadonlySet<string>,
 ): OpOutcome {
   const byId = entitiesById(scene);
   const parentId = args.parentId ?? null;
@@ -455,17 +490,18 @@ export function applyCreateEntity(
     const value = provided[component];
     if (value === undefined) continue;
     const path = `/args/components/${component}`;
-    const errors = validateV3ComponentValue(component, value, path);
+    const errors = validateV3ComponentValue(component, value, path, scene.schemaVersion === 4 ? 4 : 3);
     if (errors.length > 0) return { ok: false, error: commandErrorFromModel(errors[0] as ModelErrorV3) };
     if (component === 'modelAnimation') {
       const roleError = animationRoleError(value, content, `${path}/roles`);
       if (roleError !== null) return { ok: false, error: roleError };
     }
   }
-  if (scene.entities.length + 1 > MAX_ENTITIES) {
+  const maxEntities = scene.schemaVersion === 4 ? MAX_ENTITIES_SCENE_V4 : MAX_ENTITIES;
+  if (scene.entities.length + 1 > maxEntities) {
     return {
       ok: false,
-      error: limitsExceeded('entities', scene.entities.length + 1, MAX_ENTITIES),
+      error: limitsExceeded('entities', scene.entities.length + 1, maxEntities),
     };
   }
   const newDepth = parentId === null ? 1 : entityDepth(scene, parentId) + 1;
@@ -476,7 +512,7 @@ export function applyCreateEntity(
   if (args.kind === 'folder') {
     // Phase 12: a folder is organisation only; it sits at the root or in a folder.
     if (parentId !== null && !isFolder(byId.get(parentId))) return { ok: false, error: folderParentError('/args/parentId', parentId) };
-    const id = nextEntityId(scene, 'folder');
+    const id = nextEntityId(scene, 'folder', reservedIds);
     if (id === undefined) return { ok: false, error: idExhaustion('folder') };
     const folder = {
       id,
@@ -530,7 +566,7 @@ export function applyCreateEntity(
     candidateComponents['surface'] = deepClone(SURFACE_PRESETS[args.surfacePreset]);
   }
 
-  const id = nextEntityId(scene, derivedPrefix(candidateComponents));
+  const id = nextEntityId(scene, derivedPrefix(candidateComponents), reservedIds);
   if (id === undefined) return { ok: false, error: idExhaustion(derivedPrefix(candidateComponents)) };
   const candidateEntity = {
     id,
@@ -727,7 +763,7 @@ export function applyDeleteEntity(
 
   // §23.6 rule 1 (authoring §A4.2): a v3 `content.game`/checkpoint reference
   // inside the closure is refused before application; nothing is cleared.
-  const isV3 = (scene as { schemaVersion?: unknown }).schemaVersion === 3;
+  const isV3 = (scene as { schemaVersion?: unknown }).schemaVersion === 3 || (scene as { schemaVersion?: unknown }).schemaVersion === 4;
   if (isV3) {
     const refs = danglingGameReferences(scene as SceneV3, gameOf(content), closureSet0);
     if (refs.length > 0) {

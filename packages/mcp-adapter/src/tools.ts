@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */

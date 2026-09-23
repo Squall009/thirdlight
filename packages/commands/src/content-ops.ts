@@ -101,6 +101,8 @@ export interface OpInput {
   revision: number;
   /** True when the host registered a behavior-source preparer (packet 33). */
   behaviorPreparerRegistered?: boolean;
+  /** Phase 12 (c): entity ids used by the project's other scenes (never minted here). */
+  reservedIds?: ReadonlySet<string>;
   /** The digest-bound prepared facts the preparer derived (never caller input). */
   preparedBehaviorSources?: ReadonlyMap<string, import('./types').PreparedBehaviorSourceFact>;
 }
@@ -142,7 +144,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     // §3.1.1: on a v3 state the kind is required (the discriminator is
     // immutable at create); a v2 state defaults to `model` (accepted M2
     // fixtures create model records without it — handoff 45 CC-45-4).
-    if (args.kind === undefined && (input.scene as { schemaVersion?: unknown }).schemaVersion === 3) {
+    if (args.kind === undefined && ((input.scene as { schemaVersion?: unknown }).schemaVersion === 3 || (input.scene as { schemaVersion?: unknown }).schemaVersion === 4)) {
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind ?? 'model';
@@ -687,7 +689,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   if (args.value === null) {
     // §23.6 rule 2 (authoring §A4.2): a component removal that would dangle a
     // `content.game`/checkpoint reference is refused before application.
-    const isV3Scene = (input.scene as { schemaVersion?: unknown }).schemaVersion === 3;
+    const isV3Scene = (input.scene as { schemaVersion?: unknown }).schemaVersion === 3 || (input.scene as { schemaVersion?: unknown }).schemaVersion === 4;
     if (isV3Scene && isV3Component(args.component)) {
       // §23.6 rule 2: only the removal that owns the reference dangles it —
       // `playerSpawn` ⇒ game.spawnId/checkpoint safeSpawnId, `controller` ⇒
@@ -759,7 +761,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   // §23.3/§41.3.2: the six v3 components are validated before application —
   // the model owns field values, the command layer owns the role stages 2–4.
   if (isV3Component(args.component)) {
-    const errors = validateV3ComponentValue(args.component, candidate, '/args/value');
+    const errors = validateV3ComponentValue(args.component, candidate, '/args/value', input.scene.schemaVersion === 4 ? 4 : 3);
     if (errors.length > 0) return { ok: false, error: commandErrorFromModel(errors[0] as ModelErrorV3) };
     if (args.component === 'modelAnimation') {
       const version = animationVersionOf(assetsOf(catalog), candidate['assetId'], candidate['version']);

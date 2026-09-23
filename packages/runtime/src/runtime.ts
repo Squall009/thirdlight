@@ -564,7 +564,7 @@ export function instantiateRuntime(
   // Phase 12: for a v3 scene, modules see the scene with folders and
   // inactive entities resolved away (the input stays frozen as well).
   const inputSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
-  const frozenSnapshot = sceneVersion === 3 ? deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot) : inputSnapshot;
+  const frozenSnapshot = sceneVersion >= 3 ? deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot) : inputSnapshot;
 
   // Resolve + deep-freeze the gameplay settings (runtime.md §3.1/§12.2).
   const settingsResult = resolveSettings(settings);
@@ -575,7 +575,7 @@ export function instantiateRuntime(
   // created and before any port method is called.
   const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
   const controllerIds =
-    sceneVersion === 2 || sceneVersion === 3
+    sceneVersion >= 2
       ? scene.entities
           .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
           .map((e) => e.id)
@@ -584,7 +584,7 @@ export function instantiateRuntime(
   if (isM2) {
     if (isM3) {
       // ---- M3 composition (gameplay.md §3.4; runtime.md §12.4 supersession)
-      if (sceneVersion !== 3) {
+      if (sceneVersion < 3) {
         return {
           ok: false,
           error: fail('config_invalid', 'an M3 module requires a schemaVersion 3 snapshot scene', {
@@ -812,7 +812,7 @@ export function instantiateRuntime(
     settings: resolvedSettings,
     sceneVersion,
     // M3 (runtime.md §12.1/§15): the frozen `content.game` block, v3 only.
-    ...(sceneVersion === 3 ? { game } : {}),
+    ...(sceneVersion >= 3 ? { game } : {}),
     behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
   });
   const entries: ModuleEntry[] = [];

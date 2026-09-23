@@ -242,12 +242,12 @@ export interface SceneV3 {
 /**
  * Phase 12 (c): a scene document of schemaVersion 4 — one file per scene in a
  * project (`scenes/<sceneId>.json`). Same entities as v3 (plus instance sets
- * and exit zones), a display name, and at most one camera.
+ * and exit zones) and at most one camera; its display name is in the
+ * project's scene index (`content.scenes`).
  */
 export interface SceneV4 {
   schemaVersion: 4;
   sceneId: string;
-  name: string;
   revision: number;
   entities: SceneEntityV3[];
 }
@@ -257,7 +257,8 @@ export interface SceneV4 {
  * inactive entities; every entity carries its effective flags.
  */
 export interface ResolvedSceneV3 {
-  schemaVersion: 3;
+  /** 3, or 4 for a scene of a v4 project (the runtime treats both alike). */
+  schemaVersion: 3 | 4;
   sceneId: string;
   revision: number;
   entities: EntityV3[];
@@ -381,7 +382,16 @@ export interface ContentCatalogV3 {
  * scenes the game starts with; `game` is configVersion 2 (no level, no killY).
  */
 export interface ContentCatalogV4 extends ContentCatalogV3 {
+  /** The project's scenes, in the order the editor lists them (one file each). */
+  scenes: SceneIndexEntry[];
+  /** The scenes loaded when the game starts (a subset of `scenes`). */
   startScenes: string[];
+}
+
+/** Phase 12 (c): one scene in the project's scene index. */
+export interface SceneIndexEntry {
+  sceneId: string;
+  name: string;
 }
 
 /**

@@ -88,6 +88,7 @@ import type {
   UpdateEntityArgs,
   MoveEntitiesArgs,
   SetTagsArgs,
+  SceneIndexArgs,
 } from './types';
 
 const TOP_FIELDS = [
@@ -122,6 +123,10 @@ const OPS: readonly MutationOp[] = [
   // phase 12 hierarchy + tags:
   'moveEntities',
   'setTags',
+  'createScene',
+  'renameScene',
+  'deleteScene',
+  'setStartScenes',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -142,11 +147,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'light',
   'surface',
   'modelAnimation',
+  // Phase 12 (c): v4 scenes only.
+  'instances',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -885,6 +892,38 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
   return { ok: true, args: out };
 }
 
+/** Phase 12 (c): the scene-index ops' args. */
+function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes', args: Record<string, unknown>):
+  | { ok: true; args: SceneIndexArgs }
+  | { ok: false; error: CommandError } {
+  const allowed = op === 'createScene' ? ['sceneId', 'name'] : op === 'renameScene' ? ['sceneId', 'name'] : op === 'deleteScene' ? ['sceneId'] : ['sceneIds'];
+  for (const key of Object.keys(args)) {
+    if (!allowed.includes(key)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, allowed.join(', ')) };
+  }
+  const name = args['name'];
+  if (op === 'createScene' || op === 'renameScene') {
+    if (name === undefined) return { ok: false, error: fieldMissing('/args/name', 'name') };
+    if (typeof name !== 'string' || !isValidName(name)) {
+      return { ok: false, error: fieldValue('/args/name', name, 'string, 1-128 chars, no control characters', 'a scene name is 1-128 characters') };
+    }
+  }
+  const sceneId = args['sceneId'];
+  if (op !== 'setStartScenes' && !(op === 'createScene' && sceneId === undefined)) {
+    if (sceneId === undefined) return { ok: false, error: fieldMissing('/args/sceneId', 'sceneId') };
+    if (typeof sceneId !== 'string') return { ok: false, error: fieldType('/args/sceneId', sceneId, 'string (scene id)') };
+  }
+  if (op === 'createScene') return { ok: true, args: { op, name: name as string, ...(sceneId !== undefined ? { sceneId: sceneId as string } : {}) } };
+  if (op === 'renameScene') return { ok: true, args: { op, sceneId: sceneId as string, name: name as string } };
+  if (op === 'deleteScene') return { ok: true, args: { op, sceneId: sceneId as string } };
+  const ids = args['sceneIds'];
+  if (ids === undefined) return { ok: false, error: fieldMissing('/args/sceneIds', 'sceneIds') };
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 64 || ids.some((x) => typeof x !== 'string')) {
+    return { ok: false, error: fieldType('/args/sceneIds', ids, 'array of 1-64 scene ids') };
+  }
+  if (new Set(ids).size !== ids.length) return { ok: false, error: fieldValue('/args/sceneIds', ids, 'distinct scene ids', 'a scene is listed twice') };
+  return { ok: true, args: { op, sceneIds: ids as string[] } };
+}
+
 function validateSetTagsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetTagsArgs }
   | { ok: false; error: CommandError } {
@@ -1015,7 +1054,8 @@ export type ValidatedOpArgs =
   | { op: 'setGameConfig'; args: SetGameConfigArgs }
   | { op: 'updateEntity'; args: UpdateEntityArgs }
   | { op: 'moveEntities'; args: MoveEntitiesArgs }
-  | { op: 'setTags'; args: SetTagsArgs };
+  | { op: 'setTags'; args: SetTagsArgs }
+  | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1051,6 +1091,14 @@ export function validateOpArgs(
       const r = validateUpdateEntityArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'updateEntity', args: r.args } };
+    }
+    case 'createScene':
+    case 'renameScene':
+    case 'deleteScene':
+    case 'setStartScenes': {
+      const r = validateSceneIndexArgs(op, args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op, args: r.args } };
     }
     case 'setTags': {
       const r = validateSetTagsArgs(args);

@@ -216,7 +216,7 @@ export function validateModelsBlock(ctx: {
   readonly modelEntities: ReadonlyMap<string, string>;
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
 }): AdapterError | null {
-  if (ctx.schemaVersion !== 3) {
+  if (ctx.schemaVersion !== 3 && ctx.schemaVersion !== 4) {
     return adapterError(
       'models_config_invalid',
       `the models block requires a schemaVersion 3 scene (found ${String(ctx.schemaVersion)}; delivery.md (M4) §2.2)`,

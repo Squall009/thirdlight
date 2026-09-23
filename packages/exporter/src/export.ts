@@ -39,5 +39,16 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
       },
     };
   }
-  return exportProjectM3(ctx, { scene: v3.read.scene, content: v3.read.content, revision: v3.read.revision }, ctx.m3BootstrapEntry, ctx.compiler);
+  return exportProjectM3(
+    ctx,
+    {
+      scene: v3.read.scene,
+      content: v3.read.content,
+      revision: v3.read.revision,
+      // Phase 12 (c): a v4 project ships every scene.
+      ...(v3.read.scenes !== undefined ? { scenes: v3.read.scenes, startScenes: v3.read.startScenes ?? [] } : {}),
+    },
+    ctx.m3BootstrapEntry,
+    ctx.compiler,
+  );
 }

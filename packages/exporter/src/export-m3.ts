@@ -147,7 +147,7 @@ async function probeBundle(ctx: ExportContext, contents: string, sourcefile: str
  */
 export async function exportProjectM3(
   ctx: ExportContext,
-  captured: { scene: unknown; content: unknown; revision: number },
+  captured: { scene: unknown; content: unknown; revision: number; scenes?: readonly unknown[]; startScenes?: readonly string[] },
   m3BootstrapEntry: string,
   compiler: ContentClosureCompilerPort,
 ): Promise<ExportResult> {
@@ -164,6 +164,7 @@ export async function exportProjectM3(
     capturedAt,
     scene: captured.scene,
     content: captured.content,
+    ...(captured.scenes !== undefined ? { scenes: captured.scenes, startScenes: captured.startScenes ?? [] } : {}),
   });
   if (!closureResult.ok) {
     const e = closureResult.error;
@@ -240,7 +241,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -269,6 +270,19 @@ export async function exportProjectM3(
     const bc = textPatternCounts(new TextDecoder().decode(b.bytes), patterns);
     if (bc.a + bc.b + bc.c + bc.e + bc.g + bc.i !== 0 || digestBytes(b.bytes) !== b.digest) {
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in behavior module ${b.path}`);
+    }
+  }
+  // Phase 12 (c): scene files are text (the same forbidden-content and relative-closure
+  // rules as scene.json); instance buffers are plain float data checked by digest.
+  for (const sc of closure.sceneArtifacts) {
+    const sceneCounts = textPatternCounts(new TextDecoder().decode(sc.bytes), patterns);
+    if (sceneCounts.a + sceneCounts.b + sceneCounts.c + sceneCounts.e + sceneCounts.g + sceneCounts.i !== 0 || digestBytes(sc.bytes) !== sc.digest) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in scene file ${sc.path}`);
+    }
+  }
+  for (const b of closure.bufferArtifacts) {
+    if (digestBytes(b.bytes) !== b.digest || b.bytes.length % 40 !== 0) {
+      return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its digest or size (${b.path})`);
     }
   }
   const bundleText = new TextDecoder().decode(built.bytes);
@@ -310,12 +324,13 @@ export async function exportProjectM3(
   const indexBytes = new TextEncoder().encode(INDEX_HTML);
   const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
   const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
+  const extraArtifacts = [...closure.sceneArtifacts, ...closure.bufferArtifacts];
   const closureEntries = [
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },
     { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
     { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
-    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
+    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
     ...decoderArtifacts.map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
   ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const outputDigest = digestEmittedClosure(closureEntries);
@@ -377,7 +392,7 @@ export async function exportProjectM3(
     { name: BUNDLE_NAME, bytes: built.bytes },
     { name: MANIFEST_NAME, bytes: manifestBytes },
     { name: SCENE_NAME, bytes: closure.sceneBytes },
-    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
+    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
     ...decoderArtifacts.map((a) => ({ name: a.path, bytes: a.bytes })),
     { name: META_NAME, bytes: metaBytes },
   ];
@@ -406,7 +421,7 @@ function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<stri
   const without: Record<string, unknown> = {};
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];

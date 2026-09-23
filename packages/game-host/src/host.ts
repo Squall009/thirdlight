@@ -508,7 +508,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     const snapshot = config.snapshot;
     const scene = snapshot.scene;
-    if (scene.schemaVersion !== 3) {
+    if (scene.schemaVersion !== 3 && scene.schemaVersion !== 4) {
       return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
     }
     // Scene mode: without a game block the host plays the scene as authored

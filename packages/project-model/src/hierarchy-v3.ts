@@ -21,6 +21,7 @@ import {
   type ResolvedSceneV3,
   type SceneEntityV3,
   type SceneV3,
+  type SceneV4,
 } from './types-v3';
 
 /** The effective flags of one entity, and which ancestor set an inherited one. */
@@ -111,7 +112,7 @@ export function nearestObjectAncestor(
  * child under its nearest non-folder ancestor, effective `static` on each
  * entity (`locked` is editor-only and dropped). Document order is kept.
  */
-export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3): ResolvedSceneV3 {
+export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4): ResolvedSceneV3 {
   const entities = scene.entities as readonly SceneEntityV3[];
   const flags = effectiveEntityFlags(entities);
   const byId = new Map(entities.map((e) => [e.id, e]));
@@ -137,5 +138,6 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3): Resolve
       components: e.components,
     });
   }
-  return { schemaVersion: 3, sceneId: scene.sceneId, revision: scene.revision, entities: out };
+  // A v4 scene resolves to a v4 runtime scene (instance sets, exit zones).
+  return { schemaVersion: (scene.schemaVersion === 4 ? 4 : 3) as 3, sceneId: scene.sceneId, revision: scene.revision, entities: out };
 }

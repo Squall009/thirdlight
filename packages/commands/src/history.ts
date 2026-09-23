@@ -137,6 +137,12 @@ function gameConfigChangedFields(
   return GAME_CONFIG_FIELDS.filter((f) => !deepEqual(b[f], a[f]));
 }
 
+/** Phase 12 (c): the scene index of a v4 content block. */
+function sceneIndexOf(content: ContentDocument): { scenes: { sceneId: string; name: string }[]; startScenes: string[] } {
+  const c = content as { scenes?: { sceneId: string; name: string }[]; startScenes?: string[] };
+  return { scenes: deepClone(c.scenes ?? []), startScenes: [...(c.startScenes ?? [])] };
+}
+
 /** The next revision for a content-only entry (commands.md §6.1 step 7). */
 function bumped(scene: SceneDocument): SceneDocument {
   return { ...scene, revision: scene.revision + 1 };
@@ -478,6 +484,13 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, result, state.content, change, entry.requestId);
   }
 
+  if (inv.kind === 'setSceneIndex') {
+    const before = sceneIndexOf(content);
+    const after = deepClone(inv.restore);
+    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
+    return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
+  }
+
   if (inv.kind === 'setTags') {
     const before = deepClone(content.tags ?? []);
     const after = deepClone(inv.restore);
@@ -795,6 +808,13 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     };
     const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
+  }
+
+  if (f.type === 'setSceneIndex') {
+    const before = sceneIndexOf(content);
+    const after = deepClone(f.next);
+    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
+    return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
   if (f.type === 'setTags') {

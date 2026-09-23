@@ -142,7 +142,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     // Play builds the SHARED M3 closure from the captured v3 content (the
     // single acknowledged envelope read — readCapturedV3).
     // Only current (v3) projects play; older schema versions are no longer supported.
-    if (sceneSchemaVersion !== 3) {
+    if (sceneSchemaVersion !== 3 && sceneSchemaVersion !== 4) {
       sendError(
         res,
         sessionError('play_build_unavailable', 'validation', `this project uses scene schema v${sceneSchemaVersion}; only v3 projects can play`, { reason: 'version_unsupported' }),
@@ -178,20 +178,27 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         );
         return;
       }
+      // Phase 12 (c): a v4 project plays its start scenes (merged) and ships
+      // every scene for on-demand loading.
+      const v4 = captured.read.scenes !== undefined;
+      if (v4) snapshot.scene = captured.read.scene as RuntimeSnapshotDoc['scene'];
       const builtM3 = await buildPlayContentM3({
         service,
         compiler: behaviorCompiler,
         projectId,
         revision: state.revision,
         capturedAt: utcSecond(now),
-        scene: {
-          schemaVersion: 3,
-          sceneId: state.scene.sceneId as string,
-          revision: state.revision,
-          entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
-        },
+        scene: v4
+          ? (captured.read.scene as { schemaVersion: number; sceneId: string; revision: number; entities: ReadonlyArray<Record<string, unknown>> })
+          : {
+              schemaVersion: 3,
+              sceneId: state.scene.sceneId as string,
+              revision: state.revision,
+              entities: state.scene.entities as ReadonlyArray<Record<string, unknown>>,
+            },
         content: captured.read.content as Record<string, unknown>,
         gameBundle: gameBundleM3,
+        ...(v4 ? { scenes: captured.read.scenes!, startScenes: captured.read.startScenes ?? [] } : {}),
       });
       if (!builtM3.ok) {
         recordProblem(projectId, 'play', builtM3.error.code, `Play build failed: ${builtM3.error.message}`);

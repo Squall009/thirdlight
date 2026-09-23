@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, resolveRequiredModules } from '@thirdlight/project-model';
+import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -117,6 +117,14 @@ export interface ContentClosureM3Input {
   scene: unknown;
   /** The captured v3 content block (the acknowledged state's content half). */
   content: unknown;
+  /**
+   * Phase 12 (c), a v4 project: every scene (index order). Each becomes an
+   * artifact `scenes/<sceneId>.json` the game loads at start or on demand;
+   * `scene` is then the start scenes merged into one runtime scene.
+   */
+  scenes?: readonly unknown[];
+  /** Phase 12 (c): the scenes the game starts with. */
+  startScenes?: readonly string[];
 }
 
 export interface ContentClosureM3 {
@@ -139,6 +147,10 @@ export interface ContentClosureM3 {
   assetArtifacts: readonly ClosureArtifact[];
   /** The reachable behavior artifacts (`behaviors/<outputDigest>.js`), sorted. */
   behaviorArtifacts: readonly ClosureArtifact[];
+  /** Phase 12 (c): one artifact per scene of a v4 project (`scenes/<sceneId>.json`). */
+  sceneArtifacts: readonly ClosureArtifact[];
+  /** Phase 12 (c): the instance-set buffers (`content/sha256/<digest>`). */
+  bufferArtifacts: readonly ClosureArtifact[];
   behaviors: readonly ClosureBehavior[];
   /** Every manifest-declared artifact path, sorted and deduplicated. */
   declaredPaths: readonly string[];
@@ -279,7 +291,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 
   // 1. The captured v3 content view (project-model §19 v3) — reachable
   //    kind-tagged assets, the resolved settings, the frozen game, contentDigest.
-  const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision });
+  const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes);
   if (!viewRes.ok) {
     const e = viewRes.errors[0]!;
     return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
@@ -287,7 +299,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const view = viewRes.normalized;
 
   // 2. The media identity (delivery.md §2.3, the C35-2 rationale).
-  const mediaRes = resolveMediaIdentityV3(input.scene, input.content);
+  const mediaRes = resolveMediaIdentityV3(input.scene, input.content, input.scenes);
   if (!mediaRes.ok) {
     const e = mediaRes.errors[0]!;
     return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
@@ -305,7 +317,11 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       behaviorId: String(row['behaviorId']),
       requiredModules: (((row['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? []),
     }));
-  const modulesRes = resolveRequiredModules({ scene: input.scene as { entities?: Record<string, unknown>[] }, game: view.game, behaviors: behaviorDeps });
+  // A v4 project: the modules every scene needs (a scene loaded later too).
+  const moduleScene = input.scenes !== undefined
+    ? { entities: input.scenes.flatMap((sc) => ((sc as { entities?: Record<string, unknown>[] }).entities ?? [])) }
+    : (input.scene as { entities?: Record<string, unknown>[] });
+  const modulesRes = resolveRequiredModules({ scene: moduleScene, game: view.game, behaviors: behaviorDeps });
   if (!modulesRes.ok) {
     return { ok: false, error: { code: 'module_unresolved', cls: 'validation', reason: 'module_unresolved', message: modulesRes.message.slice(0, 256) } };
   }
@@ -360,6 +376,36 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     });
   }
 
+  // 5b. Phase 12 (c): every scene of a v4 project as its own artifact, and the
+  //     instance-set buffers (verified digest-addressed reads).
+  const sceneArtifacts: ClosureArtifact[] = [];
+  const sceneRows: ManifestSceneRow[] = [];
+  const bufferArtifacts: ClosureArtifact[] = [];
+  if (input.scenes !== undefined) {
+    const start = new Set(input.startScenes ?? []);
+    const buffers = new Map<string, number>();
+    for (const doc of input.scenes) {
+      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number } } }[] };
+      const bytes = new TextEncoder().encode(`${JSON.stringify(doc, null, 2)}\n`);
+      const digest = sha256Hex(bytes);
+      const path = `scenes/${sc.sceneId}.json`;
+      sceneArtifacts.push({ path, bytes, digest, contentType: 'application/json' });
+      sceneRows.push({ sceneId: sc.sceneId, path, digest, byteLength: bytes.length, start: start.has(sc.sceneId) });
+      for (const e of sc.entities) {
+        const inst = e.components.instances;
+        if (inst !== undefined) buffers.set(inst.buffer, inst.count * 40);
+      }
+    }
+    for (const [digest, byteLength] of [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      const read = service.readSourceBlob(projectId, { digest });
+      if (!read.ok) return { ok: false, error: fromCommandError(read.error) };
+      if (read.byteLength !== byteLength) {
+        return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `instance buffer ${digest.slice(0, 12)}… holds ${read.byteLength} bytes, not ${byteLength} (count × 40)` } };
+      }
+      bufferArtifacts.push({ path: `content/sha256/${digest}`, bytes: read.bytes, digest, contentType: 'application/octet-stream' });
+    }
+  }
+
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneDoc = input.scene;
   const sceneBytes = new TextEncoder().encode(`${JSON.stringify(sceneDoc, null, 2)}\n`);
@@ -378,6 +424,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     game: view.game,
     // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
+    ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,
     enginePins: M3_ENGINE_PINS,
@@ -389,7 +436,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path)])].sort();
+  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path)])].sort();
   return {
     ok: true,
     closure: {
@@ -406,6 +453,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       media,
       assetArtifacts,
       behaviorArtifacts,
+      sceneArtifacts,
+      bufferArtifacts,
       behaviors,
       declaredPaths,
     },

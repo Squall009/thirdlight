@@ -42,7 +42,7 @@ export type RuntimeSnapshotEntity =
  * (project-model §8/§12.2 for `schemaVersion` 1, §13 for 2, §23 for 3).
  */
 export interface RuntimeScene {
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
   sceneId: string;
   revision: number;
   entities: RuntimeSnapshotEntity[];
@@ -144,7 +144,7 @@ export interface ModuleConfig {
   /** The resolved, deep-frozen gameplay settings (M2 sets). */
   settings: Readonly<GameplaySettings>;
   /** The snapshot's `schemaVersion` (1, 2 or 3). */
-  sceneVersion: 1 | 2 | 3;
+  sceneVersion: 1 | 2 | 3 | 4;
   /**
    * v3 only: the frozen `content.game` block carried inside the snapshot
    * (runtime.md §2 M3 note). `null` on a v3 snapshot whose content has no

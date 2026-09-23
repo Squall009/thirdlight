@@ -33,6 +33,7 @@ import type {
   EntityV2,
   GameConfig,
   TagDefinition,
+  SceneIndexEntry,
   ImportRecipe,
   ImportRecipeV3,
   LimitName,
@@ -47,6 +48,7 @@ import type {
   SettingsMap,
   TransformComponent,
   TrustEntry,
+  SceneV4,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -83,7 +85,17 @@ export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
  * 45): `applySurfacePreset` copies a preset row; `setGameConfig` is the sole
  * writer of `content.game`.
  */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities' | 'setTags';
+export type V3MutationOp =
+  | 'applySurfacePreset'
+  | 'setGameConfig'
+  | 'updateEntity'
+  | 'moveEntities'
+  | 'setTags'
+  // phase 12 (c): the scene index of a v4 project
+  | 'createScene'
+  | 'renameScene'
+  | 'deleteScene'
+  | 'setStartScenes';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -226,7 +238,9 @@ export type V3OwnedComponent =
   | 'cameraFollow'
   | 'light'
   | 'surface'
-  | 'modelAnimation';
+  | 'modelAnimation'
+  /** Phase 12 (c), v4 scenes only: an instance set. */
+  | 'instances';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -277,6 +291,20 @@ export interface ContentDocument extends ContentCatalog {
   /** Phase 12 (b): the project tag registry (ascending bit; absent = none). */
   tags?: TagDefinition[];
 }
+
+/** Phase 12 (c): the scene index (`content.scenes` + `content.startScenes`) before and after. */
+export interface SetSceneIndexChange {
+  type: 'setSceneIndex';
+  previous: { scenes: SceneIndexEntry[]; startScenes: string[] };
+  next: { scenes: SceneIndexEntry[]; startScenes: string[] };
+}
+
+/** Phase 12 (c): the args of the four scene-index ops, tagged with the op. */
+export type SceneIndexArgs =
+  | { op: 'createScene'; sceneId?: string; name: string }
+  | { op: 'renameScene'; sceneId: string; name: string }
+  | { op: 'deleteScene'; sceneId: string }
+  | { op: 'setStartScenes'; sceneIds: string[] };
 
 /** `setTags` change data: the whole registry before and after. */
 export interface SetTagsChange {
@@ -517,7 +545,8 @@ export type ChangeData =
   | SetGameConfigChange
   | UpdateEntityChange
   | MoveEntitiesChange
-  | SetTagsChange;
+  | SetTagsChange
+  | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -536,7 +565,8 @@ export type ForwardChange =
   | SetGameConfigChange
   | UpdateEntityChange
   | MoveEntitiesChange
-  | SetTagsChange;
+  | SetTagsChange
+  | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -645,7 +675,14 @@ export interface SetTagsInverse {
   restore: TagDefinition[];
 }
 
+/** Undo of a scene-index op: restore the whole previous index. */
+export interface SetSceneIndexInverse {
+  kind: 'setSceneIndex';
+  restore: { scenes: SceneIndexEntry[]; startScenes: string[] };
+}
+
 export type InverseSpec =
+  | SetSceneIndexInverse
   | SetTagsInverse
   | UpdateEntityInverse
   | MoveEntitiesInverse
@@ -680,6 +717,11 @@ export interface HistoryEntry {
   change: ForwardChange;
   /** Inverse spec (§9.1). */
   inverse: InverseSpec;
+  /**
+   * Phase 12 (c): the scene the entry edited in a v4 project (set by the
+   * workspace; absent for content-only entries and in v1–v3).
+   */
+  sceneId?: string;
 }
 
 /**
@@ -708,7 +750,8 @@ export interface HistoryDepths {
  * scene (schemaVersion 1), the embedded M2 scene (schemaVersion 2) or the v3
  * scene (schemaVersion 3).
  */
-export type SceneDocument = Scene | SceneV2 | SceneV3;
+/** Phase 12 (c): a v4 scene (one of a project's scene files) is edited like a v3 scene. */
+export type SceneDocument = Scene | SceneV2 | SceneV3 | SceneV4;
 
 /**
  * The per-project in-memory state the pure apply function operates on.
@@ -726,6 +769,12 @@ export type SceneDocument = Scene | SceneV2 | SceneV3;
  */
 export interface CommandState<S extends SceneDocument = Scene> {
   scene: S;
+  /**
+   * Phase 12 (c): in a v4 project `scene` is the one scene an edit touches;
+   * these are the entity ids of the project's other scenes (ids are unique
+   * across the project, so none of them is ever minted).
+   */
+  reservedIds?: ReadonlySet<string>;
   content?: ContentDocument;
   manifest?: Manifest;
   history: HistoryState;
@@ -999,6 +1048,7 @@ export interface InstantiatePrefabArgs {
 }
 
 export type MutationArgs =
+  | SceneIndexArgs
   | SetTagsArgs
   | UpdateEntityArgs
   | MoveEntitiesArgs

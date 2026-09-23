@@ -30,7 +30,16 @@ import type {
 /** The v3 mutation ops (commands.md §2; packet 45) — the `commands` package
  *  exports the ops in its type module but not from its public entry, so the
  *  wire layer restates exactly the two accepted names. */
-export type V3MutationOp = 'applySurfacePreset' | 'setGameConfig' | 'updateEntity' | 'moveEntities' | 'setTags';
+export type V3MutationOp =
+  | 'applySurfacePreset'
+  | 'setGameConfig'
+  | 'updateEntity'
+  | 'moveEntities'
+  | 'setTags'
+  | 'createScene'
+  | 'renameScene'
+  | 'deleteScene'
+  | 'setStartScenes';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, GameConfig, SceneV3 } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
@@ -75,7 +84,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -97,6 +106,7 @@ export const CHANGE_TYPES = [
   'updateEntity',
   'moveEntities',
   'setTags',
+  'setSceneIndex',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------

@@ -19,6 +19,7 @@
 
 import {
   validateCameraFollowComponent,
+  validateInstancesComponent,
   validateGameZoneComponent,
   validateLightComponent,
   validateModelAnimationComponent,
@@ -40,12 +41,13 @@ import type {
 
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation'],
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
+  instances: ['asset', 'buffer', 'count'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -76,6 +78,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'light',
   'surface',
   'modelAnimation',
+  // Phase 12 (c): v4 scenes only (a v3 scene's registry refuses it).
+  'instances',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -132,17 +136,22 @@ export function validateV3ComponentValue(
   component: V3OwnedComponent,
   value: unknown,
   path: string,
+  /** The scene's schemaVersion: v4 adds exit zones, optional camera bounds and instance sets. */
+  version: 3 | 4 = 3,
 ): ModelErrorV3[] {
   const errors: ModelErrorV3[] = [];
   switch (component) {
     case 'gameZone':
-      validateGameZoneComponent(value, path, errors);
+      validateGameZoneComponent(value, path, errors, version);
       break;
     case 'playerSpawn':
       validatePlayerSpawnComponent(value, path, errors);
       break;
     case 'cameraFollow':
-      validateCameraFollowComponent(value, path, errors);
+      validateCameraFollowComponent(value, path, errors, version);
+      break;
+    case 'instances':
+      validateInstancesComponent(value, path, errors);
       break;
     case 'light':
       validateLightComponent(value, path, errors);

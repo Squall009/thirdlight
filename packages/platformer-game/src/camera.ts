@@ -206,7 +206,7 @@ export function createGameCameraModule(
   snapshot: RuntimeSnapshot,
   cfg: ModuleConfig,
 ): SimulationPhaseModule {
-  if (cfg.sceneVersion !== 3) {
+  if (cfg.sceneVersion !== 3 && cfg.sceneVersion !== 4) {
     throw new Error(`${PLATFORMER_GAME_CAMERA_MODULE_ID} requires a schemaVersion 3 snapshot scene`);
   }
   if (cfg.game === undefined || cfg.game === null) {

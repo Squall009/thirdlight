@@ -41,7 +41,7 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   expect(stage.width).toBeGreaterThan(page.viewportSize()!.width * 0.5);
 
   // Hierarchy is always visible; the panels live in the bottom dock.
-  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(17);
+  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(18); // 17 + the "Fall zone" the v3→v4 upgrade makes from killY
   await page.getByRole('tab', { name: 'Assets' }).click();
   await expect(page.locator('.tl-dock--bottom .tl-assets__list')).toBeVisible();
   // Tile and hierarchy icons are real image files that load.
@@ -50,7 +50,7 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
   await expect.poll(() => page.locator('.tl-btn__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('tab', { name: /Problems/ }).click();
   await expect(page.locator('.tl-dock--bottom .tl-problems, .tl-dock--bottom .tl-panel').first()).toBeVisible();
-  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(17);
+  await expect(page.locator('.tl-dock--left .tl-hierarchy__list li')).toHaveCount(18);
 });
 
 test('Play opens in the Game tab; the Scene tab shows the viewport while the game keeps running', async ({ page }) => {

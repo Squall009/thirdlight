@@ -102,7 +102,10 @@ export function applyApplySurfacePreset(
  */
 export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpOutcome {
   const catalog = contentOf(input.content);
-  const isV3 = (input.scene as { schemaVersion?: unknown }).schemaVersion === 3;
+  const sceneVersion = (input.scene as { schemaVersion?: unknown }).schemaVersion;
+  // Phase 12 (c): a v4 project's game block is configVersion 2 (no level/killY).
+  const gameVersion: 1 | 2 = sceneVersion === 4 ? 2 : 1;
+  const isV3 = sceneVersion === 3 || sceneVersion === 4;
   if (!isV3) {
     return {
       ok: false,
@@ -153,7 +156,7 @@ export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpO
     // command layer maps to the §5.4 `field_*` code (project-model §23.9
     // document rule).
     const errors: ModelErrorV3[] = [];
-    validateGameConfig(raw, '/args/game', errors);
+    validateGameConfig(raw, '/args/game', errors, gameVersion);
     if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };
     next = deepClone(raw) as unknown as GameConfig;
     changedFields = [...GAME_CONFIG_FIELDS];
@@ -185,7 +188,7 @@ export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpO
     }
     next = { ...deepClone(previous), ...deepClone(partial) } as unknown as GameConfig;
     const errors: ModelErrorV3[] = [];
-    validateGameConfig(next, '/args/game', errors);
+    validateGameConfig(next, '/args/game', errors, gameVersion);
     if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };
     changedFields = GAME_CONFIG_FIELDS.filter((f) =>
       Object.prototype.hasOwnProperty.call(partial, f),

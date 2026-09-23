@@ -23,6 +23,8 @@ import type {
   Scene,
   SceneV2,
   SceneV3,
+  SceneV4,
+  ContentCatalogV4,
 } from '@thirdlight/project-model';
 import {
   effectiveEntityFlags,
@@ -95,6 +97,17 @@ import {
 import { sha256Hex } from './digest';
 import { snapshotForeignBytes } from './recovery';
 import type { PendingChangeInfo, QueryResult } from './types';
+import type { V4State } from './store-v4';
+import {
+  acceptExternalV4,
+  clearRecordsV4,
+  discardExternalV4,
+  isV4Layout,
+  legacyManifestOf,
+  openV4,
+  serveQueryV4,
+} from './session-v4';
+import { validateManifestV2Project } from '@thirdlight/project-model';
 
 // ---- internal state ------------------------------------------------------------
 
@@ -117,7 +130,11 @@ export interface PendingChange {
   /** The parsed external content block (v2/v3 only; null for a v1 envelope). */
   externalContent: ContentCatalog | ContentCatalogV3 | null;
   /** The external envelope's storageVersion (null while unreadable). */
-  externalStorageVersion: 1 | 2 | 3 | null;
+  externalStorageVersion: 1 | 2 | 3 | 4 | null;
+  /** Phase 12 (c), v4: the whole external project when it validates. */
+  externalV4?: V4State | null;
+  /** Phase 12 (c), v4: the project file found changed. */
+  externalFile?: string;
 }
 
 /**
@@ -148,12 +165,16 @@ export interface ProjectSession {
   /** The game folder (holding `thirdlight.json`) of a folder project; null in the data root. */
   gameFolder?: string | null;
   manifest: Manifest;
-  /** Published (last acknowledged) scene; null while blocked. */
-  scene: Scene | SceneV2 | SceneV3 | null;
-  /** The envelope's storageVersion (1 for M1, 2 for M2, 3 for v3). */
-  storageVersion: 1 | 2 | 3;
-  /** The published v2/v3 content catalog; null for a storageVersion 1 project. */
-  content: ContentCatalog | ContentCatalogV3 | null;
+  /** Published (last acknowledged) scene; null while blocked. For v4, the first start scene (the whole project is `v4`). */
+  scene: Scene | SceneV2 | SceneV3 | SceneV4 | null;
+  /** The envelope's storageVersion (1 for M1, 2 for M2, 3 for v3, 4: one file per scene). */
+  storageVersion: 1 | 2 | 3 | 4;
+  /** The published v2/v3/v4 content catalog; null for a storageVersion 1 project. */
+  content: ContentCatalog | ContentCatalogV3 | ContentCatalogV4 | null;
+  /** Phase 12 (c): the whole v4 project (scenes, files, per-file records); null for v1–v3. */
+  v4?: V4State | null;
+  /** Phase 12 (c): what the automatic v3 → v4 upgrade did at this open (for the problems log). */
+  upgradeNotes?: string[];
   /** === scene.revision (0 while blocked). */
   revision: number;
   /** Published retry records (ascending appliedRevision). */
@@ -211,6 +232,8 @@ export interface Core {
   /** Content-storage configuration (workspace.md §13.9): quota, device-space
    * reserve and the clock/TTL seam. */
   content: ContentConfig;
+  /** Phase 12 (c): create new projects as v4 and upgrade v3 projects on open. */
+  storageV4: boolean;
 }
 
 export type OpenOutcome =
@@ -408,6 +431,12 @@ export function loadManifest(
   }
   const parsed = parseDocumentBytes(bytes);
   if (!parsed.ok) return { ok: false, errors: [parsed.error] };
+  // Phase 12 (c): a v4 project's manifest is schemaVersion 2 (no scene list).
+  if ((parsed.value as { schemaVersion?: unknown } | null)?.schemaVersion === 2) {
+    const v2 = validateManifestV2Project(parsed.value);
+    if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
+    return { ok: true, manifest: legacyManifestOf(v2.normalized, 'scene-main') };
+  }
   const v = validateManifest(parsed.value);
   if (!v.ok) return { ok: false, errors: v.errors.slice(0, 10) };
   return { ok: true, manifest: v.normalized };
@@ -657,7 +686,7 @@ export function envelopeBytesForSession(
   s: ProjectSession,
   records: readonly RetryRecord[],
 ): Uint8Array {
-  return envelopeBytesFor(s.storageVersion, s.projectId, s.scene!, s.content, records);
+  return envelopeBytesFor(s.storageVersion as 1 | 2 | 3, s.projectId, s.scene as Scene | SceneV2 | SceneV3, s.content as ContentCatalog | ContentCatalogV3 | null, records);
 }
 
 /** Open-time artifact hygiene (workspace.md §5.4/§7.6.2): the owner removes
@@ -745,6 +774,16 @@ function ensureSessionOnce(
       // detected at the next open, workspace.md §8.2): the project is no
       // longer a loadable project.
       return { kind: 'not-found' };
+    }
+    // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
+    const v4Open = openV4OrUpgrade(core, existing.dir, projectId, man.manifest, existing.sceneDir, existing.thirdlightDir, existing.ownership ?? releasedRecord(core));
+    if (v4Open !== null) {
+      if (v4Open.kind === 'open') {
+        core.sessions.set(projectId, v4Open.session);
+        return { kind: 'open', session: v4Open.session };
+      }
+      existing.blocked = { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count };
+      return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
     }
     const l = loadProjectDir(core, existing.sceneDir, projectId, man.manifest);
     if (l.kind === 'loaded') {
@@ -889,6 +928,18 @@ function ensureSessionOnce(
   // §5.4: the owner cleans leftover temps on open, before any command.
   cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
 
+  // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
+  const v4Open = openV4OrUpgrade(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
+  if (v4Open !== null) {
+    if (v4Open.kind === 'open') {
+      core.sessions.set(projectId, v4Open.session);
+      return { kind: 'open', session: v4Open.session };
+    }
+    const bs = blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir);
+    core.sessions.set(projectId, bs);
+    return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
+  }
+
   // The §4.3 load (through the VERIFIED scenes directory).
   const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
   if (l.kind === 'envelope-missing') {
@@ -952,6 +1003,32 @@ function ensureSessionOnce(
   const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
   core.sessions.set(projectId, s);
   return { kind: 'open', session: s };
+}
+
+/**
+ * Phase 12 (c): open a v4 project, or upgrade a valid v3 project to v4 and
+ * open that. Null: neither (a v1/v2 project, or a v3 one that does not load —
+ * the legacy path reports it).
+ */
+function openV4OrUpgrade(
+  core: Core,
+  dir: string,
+  projectId: string,
+  manifest: Manifest,
+  sceneDir: string,
+  thirdlightDir: string,
+  ownership: OwnershipRecord,
+): ReturnType<typeof openV4> | null {
+  if (isV4Layout(core.ops, dir)) return openV4(core, dir, projectId, sceneDir, thirdlightDir, ownership);
+  if (!core.storageV4) return null;
+  const l = loadProjectDir(core, sceneDir, projectId, manifest);
+  if (l.kind !== 'loaded' || l.storageVersion !== 3 || l.content === null) return null;
+  return openV4(core, dir, projectId, sceneDir, thirdlightDir, ownership, {
+    manifest,
+    scene: l.scene as SceneV3,
+    content: l.content as ContentCatalogV3,
+    envelopeBytes: l.bytes,
+  });
 }
 
 function evalToUnavailable(ev: OwnershipEval): OpenOutcome {
@@ -1284,6 +1361,7 @@ export function acceptExternal(
   core: Core,
   s: ProjectSession,
 ): { ok: true; revision: number; historyReset: true; retryCleared: true } | { ok: false; error: CommandError } {
+  if (s.storageVersion === 4) return acceptExternalV4(core, s);
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
@@ -1335,10 +1413,10 @@ export function acceptExternal(
   // storageVersion dispatch follows the parsed external envelope (a v2/v3
   // envelope carries its content block verbatim into the rewrite).
   const newBytes = envelopeBytesFor(
-    pc.externalStorageVersion ?? s.storageVersion,
+    (pc.externalStorageVersion ?? s.storageVersion) as 1 | 2 | 3,
     s.projectId,
-    pc.externalScene,
-    pc.externalContent,
+    pc.externalScene as Scene | SceneV2 | SceneV3,
+    pc.externalContent as ContentCatalog | ContentCatalogV3 | null,
     [],
   );
   const res = writeAtomic({
@@ -1423,6 +1501,7 @@ export function discardExternal(
   core: Core,
   s: ProjectSession,
 ): { ok: true; revision: number; historyReset: true } | { ok: false; error: CommandError } {
+  if (s.storageVersion === 4) return discardExternalV4(core, s);
   if (s.mode !== 'open' || s.pendingChange === null) {
     return { ok: false, error: noPendingChange() };
   }
@@ -1792,6 +1871,16 @@ function performClaimAndLoad(
     return { ok: false, error: ownershipConflict(null) };
   }
   cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
+  // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
+  const v4Open = openV4OrUpgrade(core, dir, projectId, manifest, sceneDir, thirdlightDir, claim.record);
+  if (v4Open !== null) {
+    if (v4Open.kind === 'open') {
+      core.sessions.set(projectId, v4Open.session);
+      return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
+    }
+    core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
+    return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
+  }
   const l = loadProjectDir(core, sceneDir, projectId, manifest);
   if (l.kind === 'loaded') {
     const s = makeSession(core, dir, projectId, l, manifest, claim.record, sceneDir, thirdlightDir);
@@ -1883,6 +1972,23 @@ export function releaseProject(
         [],
       ),
     };
+  }
+  // Phase 12 (c): a v4 project clears the records in each of its files.
+  if (s.storageVersion === 4) {
+    const cleared = clearRecordsV4(core, s);
+    if (!cleared.ok) {
+      s.ownershipReverify = true;
+      return cleared;
+    }
+    if (s.ownership === null) return { ok: false, error: ownershipConflict(null) };
+    const relV4 = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
+    if (relV4.ok) {
+      s.ownership = { ...s.ownership, state: 'released' };
+      s.mode = 'released';
+      return { ok: true, revision: s.revision, retryCleared: true };
+    }
+    s.ownershipReverify = true;
+    return { ok: false, error: relV4.failed !== undefined ? writeFailed(relV4.failed.onDiskState ?? 'previous', relV4.failed.errno) : ownershipConflict(null) };
   }
   // (a) Rewrite the envelope (records cleared) via W.
   const newBytes = envelopeBytesForSession(s, []);
@@ -2238,6 +2344,8 @@ export function serveQuery(
     const b = s.blocked;
     return queryFailure(op, projectId, projectUnavailable(b?.reason ?? 'envelope_invalid', null, b?.errors ?? []));
   }
+  // Phase 12 (c): a v4 project (several scenes) is served by the v4 queries.
+  if (s.storageVersion === 4 && s.v4 !== null && s.v4 !== undefined) return serveQueryV4(s, op, projectId, args, workspaceBlock(s));
   const scene = s.scene;
   // ---- packet 25: the bounded M2 content queries (commands.md §4/§5.6) -------
   // Served from exactly the same last-acknowledged in-memory state as the M1
@@ -2364,7 +2472,7 @@ function tagRegistryOf(content: unknown): { bit: number; name: string }[] {
 /** Any scene entity a query returns (objects of every version, v3 folders). */
 type SceneEntity = (Scene | SceneV2 | SceneV3)['entities'][number];
 
-function cameraIdOf(scene: Scene | SceneV2 | SceneV3): string {
+function cameraIdOf(scene: Scene | SceneV2 | SceneV3 | SceneV4): string {
   for (const e of scene.entities) {
     if (e.components.camera !== undefined) return e.id;
   }

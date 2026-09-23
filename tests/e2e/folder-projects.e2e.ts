@@ -67,7 +67,7 @@ test('a project in a game folder: create, edit, reload, restart, backup/restore,
   const before = await rows(page).count();
   await createBox(page);
   await expect(rows(page)).toHaveCount(before + 1);
-  await expect.poll(() => readFileSync(join(meadow, 'thirdlight', 'scenes', 'main.json'), 'utf8')).toContain('box-');
+  await expect.poll(() => readFileSync(join(meadow, 'thirdlight', 'scenes', 'scene-main.json'), 'utf8')).toContain('box-');
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page)).toHaveCount(before + 1);
@@ -116,7 +116,7 @@ test('a project in a game folder: create, edit, reload, restart, backup/restore,
   await pickerRow(page, 'meadow-copy').getByRole('button', { name: 'remove' }).click();
   await expect(pickerRow(page, 'meadow-copy')).toHaveCount(0);
   expect(existsSync(join(copyFolder, 'thirdlight.json'))).toBe(true);
-  expect(existsSync(join(copyFolder, 'thirdlight', 'scenes', 'main.json'))).toBe(true);
+  expect(existsSync(join(copyFolder, 'thirdlight', 'scenes', 'scene-main.json'))).toBe(true);
   // An in-tree project has no remove button.
   await expect(pickerRow(page, 'home-0001').getByRole('button', { name: 'remove' })).toHaveCount(0);
 
@@ -173,7 +173,7 @@ test('the MCP adapter finds the project from its working folder (no THIRDLIGHT_P
     const project = await call(mcp, 'tl_inspect', { target: 'project' });
     const edit = await call(mcp, 'tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { kind: 'box', name: 'From MCP' } });
     expect(edit.isError, JSON.stringify(edit.body)).toBe(false);
-    await expect.poll(() => readFileSync(join(reach, 'thirdlight', 'scenes', 'main.json'), 'utf8')).toContain('From MCP');
+    await expect.poll(() => readFileSync(join(reach, 'thirdlight', 'scenes', 'scene-main.json'), 'utf8')).toContain('From MCP');
   } finally {
     await mcp.close();
   }

@@ -1802,13 +1802,36 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
  */
 function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 } {
   const errors: ModelErrorV2[] = [];
-  const required = version === 4 ? [...KNOWN_CONTENT_FIELDS_V3, 'startScenes'] : [...KNOWN_CONTENT_FIELDS_V3];
+  const required = version === 4 ? [...KNOWN_CONTENT_FIELDS_V3, 'scenes', 'startScenes'] : [...KNOWN_CONTENT_FIELDS_V3];
   for (const key of required) {
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
     if (!required.includes(k) && k !== 'tags') {
       errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)'].join(', ')));
+    }
+  }
+  if (version === 4 && doc['scenes'] !== undefined) {
+    // Phase 12 (c): the scene index — one entry per scene file.
+    const scenes = doc['scenes'];
+    if (!Array.isArray(scenes)) errors.push(fieldType('/scenes', scenes, 'array of { sceneId, name }'));
+    else {
+      if (scenes.length < 1 || scenes.length > MAX_SCENES) errors.push(fieldValue('/scenes', scenes.length, `1-${MAX_SCENES} scenes`, 'a project has 1 to 64 scenes'));
+      const seen = new Set<string>();
+      scenes.forEach((entry, i) => {
+        const p = `/scenes/${i}`;
+        if (!isPlainObject(entry)) {
+          errors.push(fieldType(p, entry, 'object { sceneId, name }'));
+          return;
+        }
+        for (const k of Object.keys(entry)) if (k !== 'sceneId' && k !== 'name') errors.push(unexpectedField(`${p}/${pointerSegment(k)}`, k, 'sceneId, name'));
+        const id = entry['sceneId'];
+        if (typeof id !== 'string' || !ID_RE_V2.test(id)) errors.push(fieldValue(`${p}/sceneId`, id, '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'a scene id uses the id syntax'));
+        else if (seen.has(id)) errors.push(withFound({ code: 'id_duplicate', path: `${p}/sceneId`, message: 'two scenes use the same id', expected: 'a unique scene id' }, id));
+        else seen.add(id);
+        const name = entry['name'];
+        if (typeof name !== 'string' || !isValidName(name)) errors.push(fieldValue(`${p}/name`, name, '1-128 chars, no control characters', 'a scene name is 1-128 characters'));
+      });
     }
   }
   if (version === 4 && doc['startScenes'] !== undefined) {
@@ -1822,6 +1845,12 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
         else if (!ID_RE_V2.test(id)) errors.push(fieldValue(`/startScenes/${i}`, id, '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'a scene id uses the id syntax'));
       });
       if (new Set(start).size !== start.length) errors.push(fieldValue('/startScenes', start, 'distinct scene ids', 'a start scene is listed twice'));
+      const listed = Array.isArray(doc['scenes']) ? new Set((doc['scenes'] as { sceneId?: unknown }[]).map((e) => e?.sceneId)) : null;
+      if (listed !== null) {
+        start.forEach((id, i) => {
+          if (typeof id === 'string' && !listed.has(id)) errors.push(withFound({ code: 'reference_missing', path: `/startScenes/${i}`, reason: 'scene', message: 'a start scene is not in the scene index', expected: 'a scene id from content.scenes' }, id));
+        });
+      }
     }
   }
 
@@ -1905,7 +1934,10 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
 
   if (errors.length > 0) return { errors };
   const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
-  if (version === 4) (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
+  if (version === 4) {
+    (canonical as ContentCatalogV4).scenes = (doc['scenes'] as { sceneId: string; name: string }[]).map((e) => ({ sceneId: e.sceneId, name: e.name }));
+    (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
+  }
   if (canonical.game !== null && canonicalDocBytes(canonical.game) > MAX_GAME_BYTES) {
     return { errors: [limitsError('/game', 'game_bytes', canonicalDocBytes(canonical.game), MAX_GAME_BYTES, 'canonical content.game exceeds the byte cap')] };
   }
@@ -2001,7 +2033,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
     game: c.game === null ? null : canonicalGame(c.game),
-    // Phase 12 (c): v4 only — the start set.
+    // Phase 12 (c): v4 only — the scene index and the start set.
+    ...((c as ContentCatalogV4).scenes !== undefined ? { scenes: (c as ContentCatalogV4).scenes.map((e) => ({ sceneId: e.sceneId, name: e.name })) } : {}),
     ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
     // Phase 12 (b): present only when the project defines tags.
     ...(c.tags !== undefined && c.tags.length > 0

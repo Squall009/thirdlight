@@ -161,7 +161,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // The snapshot is deep-frozen and runtime-validated; the adapter reads it
   // structurally and never re-validates (the runtime already did).
   const sceneDoc = opts.snapshot.scene;
-  const isV3 = sceneDoc.schemaVersion === 3;
+  const isV3 = sceneDoc.schemaVersion === 3 || sceneDoc.schemaVersion === 4;
   const gameBlock = opts.snapshot.game;
   /** The §41.1.3 input bounds; required on every runtime-validated v3
    *  snapshot (`game.level`). The null fallback below is defensive only. */

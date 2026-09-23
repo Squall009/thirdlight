@@ -119,6 +119,15 @@ export function composeV4(
   const entityById = new Map<string, { entity: SceneEntityV3; sceneId: string }>();
   for (const s of scenes) for (const e of s.entities) if (!entityById.has(e.id)) entityById.set(e.id, { entity: e, sceneId: s.sceneId });
 
+  // The scene index and the scene files match one to one.
+  const indexed = new Set(content.scenes.map((e) => e.sceneId));
+  for (const s of scenes) {
+    if (!indexed.has(s.sceneId)) errors.push(projectError('/scenes', 'reference_missing', `scene file "${s.sceneId}" is not in the scene index`, 'every scene file listed in content.scenes', { document: 'content', reason: 'scene' } as never, s.sceneId));
+  }
+  content.scenes.forEach((e, i) => {
+    if (!sceneIds.has(e.sceneId)) errors.push(projectError(`/scenes/${i}/sceneId`, 'reference_missing', `the scene index lists "${e.sceneId}" but there is no scene file for it`, 'a scene file per index entry', { document: 'content', reason: 'scene' } as never, e.sceneId));
+  });
+
   // The start set.
   const start = new Set(content.startScenes);
   content.startScenes.forEach((id, i) => {
@@ -203,27 +212,35 @@ export function composeV4(
     });
   }
 
-  // Per-scene references against the content block (assets, cues, tags,
-  // behaviors, prefabs — the v3 rules; the game rules above replace v3's).
+  // Per-scene references against the content block.
+  for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
+}
+
+/**
+ * The rules one v4 scene must meet against the project content block: the
+ * v3 per-scene cross-block rules (assets, cues, tags, behaviors, prefabs —
+ * v3's game rules are replaced by the project-level ones in `composeV4`) and
+ * instance-set assets. The command layer runs this on the scene an edit
+ * touches; `composeV4` runs it for every scene.
+ */
+export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: ModelErrorV3[], projectRevision: number = Number.MAX_SAFE_INTEGER): void {
   const assetById = new Map(content.assets.map((a) => [a.assetId, a]));
-  for (const s of scenes) {
-    const local: ModelErrorV3[] = [];
-    // The v3 rules compare published revisions with the scene's revision; in
-    // v4 the project revision (shared by all files) is the bound.
-    const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
-    composeV3(asV3, { ...(content as ContentCatalogV3), game: null }, local);
-    for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
-    s.entities.forEach((e, i) => {
-      const inst = e.components.instances;
-      if (inst === undefined) return;
-      const record = assetById.get(inst.asset.assetId);
-      if (record === undefined) {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/instances/asset/assetId`, message: 'an instance set names no asset of the catalog', expected: 'an existing model assetId' }, inst.asset.assetId)));
-      } else if (record.kind !== 'model') {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path: `/entities/${i}/components/instances/asset/assetId`, reason: 'model', message: 'an instance set places a model', expected: '"model"' }, record.kind)));
-      }
-    });
-  }
+  const local: ModelErrorV3[] = [];
+  // The v3 rules compare published revisions with the scene's revision; in
+  // v4 the project revision (shared by all files) is the bound.
+  const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
+  composeV3(asV3, { ...(content as ContentCatalogV3), game: null }, local);
+  for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
+  s.entities.forEach((e, i) => {
+    const inst = e.components.instances;
+    if (inst === undefined) return;
+    const record = assetById.get(inst.asset.assetId);
+    if (record === undefined) {
+      errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/instances/asset/assetId`, message: 'an instance set names no asset of the catalog', expected: 'an existing model assetId' }, inst.asset.assetId)));
+    } else if (record.kind !== 'model') {
+      errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path: `/entities/${i}/components/instances/asset/assetId`, reason: 'model', message: 'an instance set places a model', expected: '"model"' }, record.kind)));
+    }
+  });
 }
 
 /**
@@ -262,7 +279,7 @@ export function validateProjectV4(
 
 // ---- migration v3 → v4 -------------------------------------------------------
 
-/** The display name the migration gives the one v3 scene. */
+/** The display name the migration gives the one v3 scene (in the scene index). */
 export const MIGRATED_SCENE_NAME = 'Main';
 
 export interface MigrationV4Result {
@@ -318,11 +335,15 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
   const sceneV4: SceneV4 = {
     schemaVersion: 4,
     sceneId: scene.sceneId,
-    name: MIGRATED_SCENE_NAME,
     revision: scene.revision,
     entities,
   };
-  const contentV4: ContentCatalogV4 = { ...(JSON.parse(JSON.stringify(content)) as ContentCatalogV3), game, startScenes: [scene.sceneId] };
+  const contentV4: ContentCatalogV4 = {
+    ...(JSON.parse(JSON.stringify(content)) as ContentCatalogV3),
+    game,
+    scenes: [{ sceneId: scene.sceneId, name: MIGRATED_SCENE_NAME }],
+    startScenes: [scene.sceneId],
+  };
   const manifestV2: ProjectManifestV2 = {
     schemaVersion: 2,
     engineVersion: manifest.engineVersion,

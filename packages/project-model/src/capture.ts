@@ -125,6 +125,9 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     if (animation) setRef(animation.assetId, animation.version);
     const activation = e.components.gameZone?.activation;
     if (activation && activation.cueAssetId !== null) setRef(activation.cueAssetId);
+    // Phase 12 (c): an instance set places one model.
+    const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
+    if (instances) setRef(instances.asset.assetId);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);

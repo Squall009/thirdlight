@@ -467,7 +467,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
   if (resultingDepth > MAX_SCENE_DEPTH) {
     return { ok: false, error: limitsExceeded('depth', resultingDepth, MAX_SCENE_DEPTH) };
   }
-  const used = new Set<string>(byId.keys());
+  const used = new Set<string>([...byId.keys(), ...(input.reservedIds ?? [])]);
   const mapping = new Map<string, string>();
   for (const de of definition.entities) {
     const prefix = idPrefix(de.components);

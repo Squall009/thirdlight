@@ -108,7 +108,7 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'name', 'revision', 'entities']);
+const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 /** Phase 12 (c): the v4 per-scene entity cap (instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
@@ -990,16 +990,10 @@ interface SceneV3ValueResult {
   doc?: SceneV3;
 }
 
-export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): SceneV3ValueResult {
+export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3, merged = false): SceneV3ValueResult {
   const errors: ModelErrorV3[] = [];
-  if (version === 4) {
-    // Phase 12 (c): a v4 scene has a display name.
-    const name = doc['name'];
-    if (name === undefined) errors.push(fieldMissing('/name', 'name'));
-    else if (typeof name !== 'string') errors.push(fieldType('/name', name, 'string'));
-    else if (!isValidName(name)) errors.push(fieldValue('/name', name, `string, ${NAME_MIN}-${NAME_MAX} chars, no control characters`, 'scene name must be 1-128 characters without control characters'));
-  }
-  const maxEntities = version === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
+  // A merged runtime scene (several scenes loaded together) is bounded by the project, not one scene.
+  const maxEntities = merged ? MAX_ENTITIES_V4 * 64 : version === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
   const sceneId = doc['sceneId'];
   if (sceneId === undefined) errors.push(fieldMissing('/sceneId', 'sceneId'));
   else if (typeof sceneId !== 'string') errors.push(fieldType('/sceneId', sceneId, 'string'));
@@ -1162,19 +1156,19 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         ),
       );
     }
-    if (counts.colliders > MAX_COLLIDERS) {
+    if (!merged && counts.colliders > MAX_COLLIDERS) {
       errors.push(limitsError('/entities', 'colliders', counts.colliders, MAX_COLLIDERS, `scene exceeds the collider limit of ${MAX_COLLIDERS}`));
     }
-    if (counts.polygonVertices > MAX_POLYGON_VERTICES_TOTAL) {
+    if (!merged && counts.polygonVertices > MAX_POLYGON_VERTICES_TOTAL) {
       errors.push(
         limitsError('/entities', 'collider_vertices_total', counts.polygonVertices, MAX_POLYGON_VERTICES_TOTAL, `scene exceeds the total polygon-vertex limit of ${MAX_POLYGON_VERTICES_TOTAL}`),
       );
     }
-    // §23.10 v3 scene limits
-    if (counts.zones > GAME_ZONE_LIMITS.zones) {
+    // §23.10 v3 scene limits (per scene: a merged runtime scene holds several)
+    if (!merged && counts.zones > GAME_ZONE_LIMITS.zones) {
       errors.push(limitsError('/entities', 'zones', counts.zones, GAME_ZONE_LIMITS.zones, `scene exceeds the game-zone limit of ${GAME_ZONE_LIMITS.zones}`));
     }
-    if (counts.spawns > GAME_ZONE_LIMITS.playerSpawns) {
+    if (!merged && counts.spawns > GAME_ZONE_LIMITS.playerSpawns) {
       errors.push(
         limitsError('/entities', 'player_spawns', counts.spawns, GAME_ZONE_LIMITS.playerSpawns, `scene exceeds the player-spawn limit of ${GAME_ZONE_LIMITS.playerSpawns}`),
       );
@@ -1187,7 +1181,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     if (counts.ambient > GAME_ZONE_LIMITS.lightsAmbient) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, GAME_ZONE_LIMITS.lightsAmbient, 'scene exceeds the ambient-light limit'));
     }
-    if (counts.checkpointZoneIds.length > GAME_ZONE_LIMITS.checkpointZones) {
+    if (!merged && counts.checkpointZoneIds.length > GAME_ZONE_LIMITS.checkpointZones) {
       errors.push(
         withFound(
           {
@@ -1303,7 +1297,6 @@ function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version
     return {
       schemaVersion: 4,
       sceneId: doc['sceneId'] as string,
-      name: doc['name'] as string,
       revision: canonNum(doc['revision']),
       entities: (ents as Record<string, unknown>[]).map(canonicalEntityV3),
     } as unknown as SceneV3;
@@ -1340,8 +1333,23 @@ export function normalizeSceneV3(doc: unknown): ModelResultV3<SceneV3> {
 }
 
 /**
- * Phase 12 (c): the `schemaVersion` 4 scene validator — the v3 rules plus a
- * scene name, instance sets, exit zones, optional camera-follow bounds and at
+ * Phase 12 (c): a runtime scene made of several v4 scenes loaded together
+ * (the start set, merged by the host): the v4 rules without the per-scene
+ * limits (one checkpoint, zone/spawn/collider counts, the entity cap).
+ */
+export function validateMergedSceneV4(doc: unknown): ModelResultV3<SceneV4> {
+  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
+  if (doc['schemaVersion'] !== 4) {
+    return fail([fieldValue('/schemaVersion', doc['schemaVersion'], '4', 'a merged runtime scene is schemaVersion 4')]);
+  }
+  const { errors, doc: canonical } = validateSceneV3Value(doc, 4, true);
+  if (errors.length > 0) return fail(errors);
+  return { ok: true, normalized: canonical as unknown as SceneV4 };
+}
+
+/**
+ * Phase 12 (c): the `schemaVersion` 4 scene validator — the v3 rules plus
+ * instance sets, exit zones, optional camera-follow bounds and at
  * most (not exactly) one camera. Rules that span scenes (unique ids across the
  * project, the start set, exit targets) are `validateProjectV4`'s.
  */
