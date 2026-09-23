@@ -60,9 +60,9 @@ const INDEX_HTML = `<!doctype html>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Thirdlight Export</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #0e1015; }
-      #game { width: 100vw; height: 100vh; display: block; }
-      #hud { position: fixed; top: 8px; left: 8px; font: 12px/1.4 system-ui, sans-serif; color: #9aa4b2; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1015; }
+      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud, #hud-root { position: fixed; top: 8px; left: 8px; font: 12px/1.4 system-ui, sans-serif; color: #9aa4b2; }
       #hud.error { color: #f87171; }
     </style>
   </head>

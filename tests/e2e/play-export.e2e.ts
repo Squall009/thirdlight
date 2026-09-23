@@ -75,6 +75,13 @@ test('the play preview fills the viewport area; "small" shrinks it to a corner w
   const full = (await frame.boundingBox())!;
   expect(full.width).toBeGreaterThan(stage.width * 0.95);
   expect(full.height).toBeGreaterThan(stage.height * 0.9);
+  // The game page inside the frame fits it exactly: nothing to scroll.
+  await expect
+    .poll(() => page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').evaluate((c) => {
+      const d = c.ownerDocument.documentElement;
+      return { scrollable: d.scrollHeight > d.clientHeight || d.scrollWidth > d.clientWidth, w: c.clientWidth, h: c.clientHeight, vw: d.clientWidth, vh: d.clientHeight };
+    }))
+    .toMatchObject({ scrollable: false });
   await page.getByTitle('Shrink to a corner window').click();
   const small = (await frame.boundingBox())!;
   expect(small.width).toBeLessThan(stage.width * 0.7);
@@ -101,6 +108,7 @@ test('the exported game runs from a plain static server with the backend stopped
     await game.goto(site.url);
     await expect.poll(async () => colorCount(decodePng(await game.screenshot())), { timeout: 15_000 }).toBeGreaterThan(1);
     expect(errors).toEqual([]);
+    expect(await game.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight)).toBe(false);
     await expect(game.getByText(/error/i)).toHaveCount(0);
     expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
   } finally {

@@ -279,8 +279,10 @@ export function bootstrapPreview(): void {
   const manifestPath = `${contentRoot}manifest.json`;
 
   const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'width:100vw;height:100vh;display:block;background:#0e1015;';
-  document.body.style.margin = '0';
+  // The game fills the page exactly: fixed canvas, no scrolling, HUD on top.
+  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;background:#0e1015;';
+  document.documentElement.style.cssText = 'margin:0;height:100%;overflow:hidden;';
+  document.body.style.cssText = 'margin:0;height:100%;overflow:hidden;';
   document.body.appendChild(canvas);
 
   let trustedSource: unknown = null;

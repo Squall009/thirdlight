@@ -484,11 +484,14 @@ export function bootstrapPreviewM3(): void {
   }
   const playId = cfg.playSessionId;
   const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'width:100vw;height:100vh;display:block;background:#0e1015;';
-  document.body.style.margin = '0';
+  // The game fills the page exactly: fixed canvas, no scrolling, HUD on top.
+  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;background:#0e1015;';
+  document.documentElement.style.cssText = 'margin:0;height:100%;overflow:hidden;';
+  document.body.style.cssText = 'margin:0;height:100%;overflow:hidden;';
   document.body.appendChild(canvas);
   const container = document.createElement('div');
   container.id = 'tl-hud-root';
+  container.style.cssText = 'position:fixed;top:8px;left:8px;font:12px/1.4 system-ui,sans-serif;color:#9aa4b2;';
   document.body.appendChild(container);
 
   let trustedSource: unknown = null;
