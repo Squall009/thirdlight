@@ -208,7 +208,8 @@ export {
   type ManifestError,
   type RuntimeContentManifest,
 } from './manifest';
-export { canonicalJsonText, sha256Hex, sha256HexOfText, sha256Hex as sha256HexBytes } from './sha256';
+export { canonicalJsonText, sha256Hex, sha256HexOfText,
+  sha256HexAsync, sha256Hex as sha256HexBytes } from './sha256';
 
 // Packet 58: the pure manifest v2 derivation (delivery.md §2, sessions.md §17.1.1)
 // — the M3 immutable runtime-content identity, the captured v3 content view, the

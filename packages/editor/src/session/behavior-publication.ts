@@ -287,17 +287,3 @@ function cloneDeclaration(declaration: PropertyDeclaration): PropertyDeclaration
   return { properties: declaration.properties.map((p) => ({ ...p })) };
 }
 
-/**
- * SHA-256 hex of the staged container bytes (project-model §22.1: the digest
- * covers the exact canonical container bytes). WebCrypto is available in the
- * browser and in Node 22 (`globalThis.crypto.subtle`); the editor never sends
- * source bytes as an authoritative record.
- */
-export async function sourceDigestOf(bytes: Uint8Array): Promise<string> {
-  const subtle = (globalThis as { crypto?: { subtle?: { digest(alg: string, data: Uint8Array): Promise<ArrayBuffer> } } }).crypto?.subtle;
-  if (!subtle) throw new Error('WebCrypto subtle.digest is unavailable in this environment');
-  const copy = new Uint8Array(bytes.length);
-  copy.set(bytes);
-  const digest = await subtle.digest('SHA-256', copy);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}

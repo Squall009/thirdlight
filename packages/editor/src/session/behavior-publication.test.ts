@@ -22,7 +22,6 @@ import {
   planPublishSource,
   publicationFailed,
   published,
-  sourceDigestOf,
   sourceStaged,
   stageSourceEdit,
   trustObserved,
@@ -227,12 +226,5 @@ describe('trust projection (packet 34)', () => {
       },
     });
     expect(projection.getBehavior('behavior-0100')?.source?.sourceDigest).toBe(DIGEST_A);
-  });
-});
-
-describe('client-side source digest', () => {
-  it('is the SHA-256 of the exact bytes', async () => {
-    const digest = await sourceDigestOf(new TextEncoder().encode('abc'));
-    expect(digest).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
 });

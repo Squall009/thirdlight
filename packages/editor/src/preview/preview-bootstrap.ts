@@ -23,6 +23,7 @@
  * the manifest-declared relative artifact reads.
  */
 
+import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   BUILTIN_MODULES,
   behaviorModuleId,
@@ -105,15 +106,8 @@ function showNoPlay(): void {
   document.body.appendChild(el);
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto?.subtle;
-  if (subtle === undefined) throw new Error('WebCrypto unavailable');
-  const buf = await subtle.digest('SHA-256', bytes as unknown as BufferSource);
-  const view = new Uint8Array(buf);
-  let out = '';
-  for (let i = 0; i < view.length; i += 1) out += (view[i] ?? 0).toString(16).padStart(2, '0');
-  return out;
-}
+/** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
+const sha256Hex = sha256HexAsync;
 
 /** The preview-owned three.js rendering of the snapshot + realized GLB models. */
 class PreviewRenderer {

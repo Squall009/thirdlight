@@ -57,7 +57,6 @@ import {
   planAcknowledgeTrust,
   planPublishDeclaration,
   planPublishSource,
-  sourceDigestOf,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
@@ -1010,8 +1009,11 @@ export class SessionClient {
         `/projects/${this.cfg.projectId}/content/stages`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
       );
+      // The backend digests the staged bytes; the final frame's response
+      // carries the digest (the editor never hashes locally).
+      let digest: string | null = null;
       for (const frame of planUploadFrames(bytes.length)) {
-        await this.request(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
+        const put = await this.request<{ complete?: boolean; digest?: string }>(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
           method: 'PUT',
           headers: {
             'content-type': 'application/octet-stream',
@@ -1020,8 +1022,9 @@ export class SessionClient {
           },
           body: bytes.slice(frame.offset, frame.offset + frame.length),
         });
+        if (put.complete === true && typeof put.digest === 'string') digest = put.digest;
       }
-      const digest = await sourceDigestOf(bytes);
+      if (digest === null) throw new Error('the upload completed without a digest');
       return { ok: true, stageId: stage.stageId, digest, byteLength: bytes.length };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };

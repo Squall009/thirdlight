@@ -63,6 +63,7 @@
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import type { RuntimeSnapshot, GameplaySettings } from '@thirdlight/runtime';
+import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   createGameHost,
   linkBehaviorModules,
@@ -144,13 +145,8 @@ export interface M3PreviewHandle {
   dispose(): void;
 }
 
-/** Lowercase hex SHA-256 of a byte string via the Web Crypto API. */
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource);
-  let out = '';
-  for (const b of new Uint8Array(digest)) out += b.toString(16).padStart(2, '0');
-  return out;
-}
+/** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
+const sha256Hex = sha256HexAsync;
 
 /** The locator-relative artifact reader (manifest-declared paths only). */
 function readPreviewArtifact(contentRoot: string, path: string): Promise<ArrayBuffer> {

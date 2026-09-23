@@ -39,6 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
+import { sha256HexAsync } from '@thirdlight/project-model';
 import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -93,15 +94,8 @@ function hud(text: string, isError: boolean): void {
   }
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto?.subtle;
-  if (subtle === undefined) throw new Error('WebCrypto unavailable');
-  const buf = await subtle.digest('SHA-256', bytes as unknown as BufferSource);
-  const view = new Uint8Array(buf);
-  let out = '';
-  for (let i = 0; i < view.length; i += 1) out += (view[i] ?? 0).toString(16).padStart(2, '0');
-  return out;
-}
+/** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
+const sha256Hex = sha256HexAsync;
 
 /** The canonical v2 `buildId` preimage object (every key but `buildId`, in the
  * manifest key order — the page re-derives it to verify the single manifest

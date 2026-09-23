@@ -31,6 +31,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser) — procedure in docs/acceptance/evidence-m2/36/.
  */
+import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   type ActionFrame,
   type PhysicsPort,
@@ -84,15 +85,8 @@ function hud(text: string, isError: boolean): void {
   }
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto?.subtle;
-  if (subtle === undefined) throw new Error('WebCrypto unavailable');
-  const buf = await subtle.digest('SHA-256', bytes as unknown as BufferSource);
-  const view = new Uint8Array(buf);
-  let out = '';
-  for (let i = 0; i < view.length; i += 1) out += (view[i] ?? 0).toString(16).padStart(2, '0');
-  return out;
-}
+/** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
+const sha256Hex = sha256HexAsync;
 
 /** The scene-derived Rapier init config (the same derivation as preview/play). */
 function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot): RapierPhysicsInitConfig | null {

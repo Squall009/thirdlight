@@ -175,3 +175,21 @@ export function canonicalJsonText(value: unknown): string {
   // Functions/symbols/undefined cannot appear in validated documents.
   return 'null';
 }
+
+/**
+ * SHA-256 hex for browser bundles: the Web Crypto API when the page has it,
+ * otherwise the pure implementation above. `crypto.subtle` exists only in
+ * secure contexts (https, localhost, 127.0.0.1); the editor and an exported
+ * game are commonly served over plain http on a LAN address, where it is
+ * undefined.
+ */
+export async function sha256HexAsync(bytes: Uint8Array): Promise<string> {
+  const subtle = (globalThis as { crypto?: { subtle?: { digest(alg: string, data: Uint8Array): Promise<ArrayBuffer> } } }).crypto?.subtle;
+  if (subtle === undefined) return sha256Hex(bytes);
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  const digest = new Uint8Array(await subtle.digest('SHA-256', copy));
+  let out = '';
+  for (let i = 0; i < digest.length; i += 1) out += (digest[i] ?? 0).toString(16).padStart(2, '0');
+  return out;
+}
