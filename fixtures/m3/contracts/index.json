@@ -109,6 +109,12 @@
       "bytes": 1207,
       "kind": "catalog"
     },
+    "catalog/referenced-model-record-v3.json": {
+      "sha256": "3c7ca1005b25c29731139c8cde897cadbf0ee00e8d25d4b2a55d8cd4f03a0c3c",
+      "bytes": 1363,
+      "kind": "catalog",
+      "notes": "Phase 10 (2026-09-23): a model version referenced in place in a game folder (optional sourcePath, relative to the folder holding thirdlight.json); sourceDigest still pins the bytes (source-preimages/courier.glb)."
+    },
     "envelope/invalid/combination-scene3-storage2.json": {
       "sha256": "69718a58e6bb13e5dbfb19ef88ae18d46fd2149241b74e59e1f80639c937dd3e",
       "bytes": 6980,

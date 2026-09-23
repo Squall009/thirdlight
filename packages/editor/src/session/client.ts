@@ -32,6 +32,7 @@ import type { GameConfigLike } from './gameplay';
 import {
   applyAssetQueryPage,
   beginImport,
+  beginProjectFileImport,
   canPublish,
   cancelImport,
   committed,
@@ -89,6 +90,23 @@ export interface ClientUiState {
   external: { valid: boolean | null; errorCount: number | null } | null;
   /** Recent project problems (failed commands, Play/export failures, external edits), oldest first. */
   problems: readonly ProblemView[];
+}
+
+/** One folder of the game folder, as the import-from-project-folder picker shows it. */
+export interface ProjectFileListing {
+  dir: string;
+  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio'; byteLength?: number }>;
+  truncated: boolean;
+}
+
+/** One row of the content-integrity report. */
+export interface IntegrityEntryView {
+  assetId: string;
+  version: number;
+  sourceDigest: string;
+  referenced: boolean;
+  sourcePath?: string;
+  status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed';
 }
 
 /** One entry of the backend's problems log. */
@@ -1194,6 +1212,73 @@ export class SessionClient {
       state = importFailed(state, described);
       emit();
       return { ok: false, error: described };
+    }
+  }
+
+  /**
+   * One folder of the game folder (import from project folder). A project in
+   * the data root has no game folder: the backend answers `path_rejected`.
+   */
+  async listProjectFiles(dir: string): Promise<{ ok: true; listing: ProjectFileListing } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const q = dir === '' ? '' : `?${new URLSearchParams({ dir }).toString()}`;
+      const listing = await this.request<ProjectFileListing>(`/projects/${this.cfg.projectId}/content/project-files${q}`, { method: 'GET' });
+      return { ok: true, listing };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Import from the project folder: inspect a file of the game folder in place
+   * (nothing is uploaded or copied). The proposal carries `sourcePath`, which
+   * the `publishAsset` args then record.
+   */
+  async importProjectFile(
+    sourcePath: string,
+    options: { target: ImportTarget; kind: 'model' | 'audio'; displayName?: string; onState?: (s: AssetImportState) => void },
+  ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
+    let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
+    const emit = (): void => options.onState?.(state);
+    emit();
+    try {
+      const inspected = await this.request<{ ok: true; sourcePath: string; proposal: ImportProposal['proposal'] & { sourceDigest?: string; sourceByteLength?: number; status?: string } }>(
+        `/projects/${this.cfg.projectId}/content/project-files/inspect`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ path: sourcePath, kind: options.kind, ...(options.displayName ? { displayName: options.displayName } : {}) }),
+        },
+      );
+      const proposal: ImportProposal = {
+        stageId: null,
+        sourcePath: inspected.sourcePath,
+        digest: String(inspected.proposal?.sourceDigest ?? ''),
+        byteLength: Number(inspected.proposal?.sourceByteLength ?? 0),
+        status: String(inspected.proposal?.status ?? 'ok'),
+        proposal: inspected.proposal,
+      };
+      state = inspectionSucceeded(state, proposal);
+      emit();
+      if (!canPublish(state)) {
+        return { ok: false, error: state.error ?? { code: 'import_rejected', message: 'the inspection result was stale' } };
+      }
+      return { ok: true, proposal };
+    } catch (e) {
+      const described = this.describeError(e);
+      state = importFailed(state, described);
+      emit();
+      return { ok: false, error: described };
+    }
+  }
+
+  /** The content-integrity report (a file referenced in place: ok / changed / missing). */
+  async contentIntegrity(): Promise<{ ok: true; entries: IntegrityEntryView[] } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; entries: IntegrityEntryView[] }>(`/projects/${this.cfg.projectId}/content/integrity`, { method: 'GET' });
+      return { ok: true, entries: r.entries };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
     }
   }
 

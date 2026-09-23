@@ -771,6 +771,67 @@ export function parseStageInspectRequest(
   };
 }
 
+// ---- phase 10: assets referenced in place in a game folder -------------------
+
+/**
+ * The project-model `isValidSourcePath` rule, restated here because protocol
+ * imports project-model types only: relative, forward slashes, 1–512 chars,
+ * no empty/`.`/`..` segment, no backslash, colon or control character.
+ */
+function isValidSourcePath(s: unknown): s is string {
+  if (typeof s !== 'string' || s.length < 1 || s.length > 512) return false;
+  if (/[\u0000-\u001f\u007f\\:]/.test(s)) return false;
+  return s.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
+/**
+ * `GET /content/project-files?dir=<path>`: one folder of the game folder. `dir`
+ * is absent/empty for the game folder itself, else a path relative to it.
+ */
+export function parseProjectFilesQuery(
+  params: ReadonlyMap<string, string>,
+): { ok: true; dir: string } | { ok: false; error: SessionError } {
+  for (const key of params.keys()) {
+    if (key !== 'dir') {
+      return { ok: false, error: sessionError('field_unexpected', 'validation', `unknown query parameter "${key.slice(0, 64)}"`, { path: `?${key.slice(0, 64)}`, expected: 'dir' }) };
+    }
+  }
+  const dir = params.get('dir') ?? '';
+  if (dir !== '' && !isValidSourcePath(dir)) {
+    return { ok: false, error: sessionError('path_rejected', 'validation', 'dir must be a folder relative to the game folder (forward slashes, no "..")', { path: '/dir', found: params.get('dir')?.slice(0, 256) }) };
+  }
+  return { ok: true, dir };
+}
+
+export interface ProjectFileInspectRequest extends StageInspectRequest {
+  /** The file, relative to the game folder. */
+  path: string;
+  displayName?: string;
+}
+
+/**
+ * `POST /content/project-files/inspect` body: `{ path, displayName?, kind?,
+ * animation? }` — the stage inspect body plus the file to inspect in place.
+ */
+export function parseProjectFileInspectRequest(
+  value: unknown,
+): { ok: true; request: ProjectFileInspectRequest } | { ok: false; error: SessionError } {
+  if (!isPlainObject(value)) {
+    return { ok: false, error: sessionError('field_type', 'validation', 'the body must be an object', { path: '', found: typeof value }) };
+  }
+  const { path, displayName, ...rest } = value;
+  if (path === undefined) return { ok: false, error: sessionError('field_missing', 'validation', 'path is required', { path: '/path', expected: 'a file relative to the game folder' }) };
+  if (!isValidSourcePath(path)) {
+    return { ok: false, error: sessionError('path_rejected', 'validation', 'path must be a file relative to the game folder (forward slashes, no "..")', { path: '/path', found: String(path).slice(0, 256) }) };
+  }
+  if (displayName !== undefined && (!isStringNoControl(displayName) || displayName.length < 1 || displayName.length > 128)) {
+    return { ok: false, error: sessionError('field_value', 'validation', 'displayName must be 1–128 characters without control characters', { path: '/displayName' }) };
+  }
+  const inspect = parseStageInspectRequest(rest);
+  if (!inspect.ok) return inspect;
+  return { ok: true, request: { ...inspect.request, path, ...(displayName !== undefined ? { displayName: displayName as string } : {}) } };
+}
+
 /** The relay id shape used by the §20 WS forwarding rows. */
 export function isGameRelayId(v: unknown): v is string {
   return isRelayId(v);

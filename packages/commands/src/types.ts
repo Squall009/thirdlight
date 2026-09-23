@@ -808,6 +808,8 @@ export interface PublishAssetArgs {
   /** 64 lowercase hex; stage-free digest-addressed fact. */
   sourceDigest: string;
   sourceByteLength: number;
+  /** A file referenced in place: its path relative to the game folder. */
+  sourcePath?: string;
   importRecipe: ImportRecipe | ImportRecipeV3;
   metrics: AssetMetrics;
   /** project-model §7.2 timestamp; a prepared fact (see handoff 21 C21-2). */
@@ -985,8 +987,10 @@ export interface AssetSummary {
   displayName: string;
   currentVersion: number;
   versionCount: number;
+  /** The current version's file in the game folder, when it is referenced in place. */
+  sourcePath?: string;
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
-  versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number }[];
+  versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }
 
 /** One `queryBehaviors` element: a summary, or the full record with `includeDeclaration`. */

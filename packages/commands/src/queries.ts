@@ -165,12 +165,18 @@ export function queryAssets(
       currentVersion: a.currentVersion,
       versionCount: a.versions.length,
     };
+    const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string } | undefined;
+    if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
     if (inc.value) {
-      summary.versions = a.versions.map((v) => ({
-        version: v.version,
-        sourceDigest: v.sourceDigest,
-        sourceByteLength: v.sourceByteLength,
-      }));
+      summary.versions = a.versions.map((v) => {
+        const sourcePath = (v as { sourcePath?: string }).sourcePath;
+        return {
+          version: v.version,
+          sourceDigest: v.sourceDigest,
+          sourceByteLength: v.sourceByteLength,
+          ...(sourcePath !== undefined ? { sourcePath } : {}),
+        };
+      });
     }
     return summary;
   });

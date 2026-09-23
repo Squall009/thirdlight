@@ -111,8 +111,9 @@ one shipped today.
 
 A project directory is `project.json`, `scenes/main.json` (the scene +
 content envelope) and `sources/sha256/<digest>` (imported asset and script
-sources). `.thirdlight/` is process state (ownership, recovery, staging,
-derived caches); it is not part of a backup.
+sources; a folder project's assets can instead stay in the game folder, see
+"Assets referenced in place"). `.thirdlight/` is process state (ownership,
+recovery, staging, derived caches); it is not part of a backup.
 
 ## MCP (coding harness)
 
@@ -194,6 +195,51 @@ different commit alone is normal after an upgrade; the project still opens.
 `project.mjs export` refuses a version or lockfile mismatch unless
 `--force`; `check --repin` records this engine once you have checked the
 game. The export is a static directory that needs nothing else.
+
+### Assets referenced in place
+
+In a folder project, an asset can stay where the game keeps it (for example
+`assets/env/kit/meadow/env_kit_meadow.glb`, built by a script, in Git LFS)
+instead of being copied into `thirdlight/sources/`. The asset version records
+the file's path relative to the game folder and its SHA-256; nothing is
+copied. Projects in the data root keep copying uploads as before.
+
+- **Import.** Assets tab → "from project folder…" opens a picker limited to
+  the game folder (it starts in `assets/`; hidden entries, `.git` and
+  `thirdlight/` are not offered, and a symlink that leads out of the folder is
+  refused). "reimport from folder…" records a file as a new version of the
+  selected asset. The MCP server does the same:
+  `tl_content_query {target:"projectFiles", dir:"assets"}` lists a folder,
+  `tl_content_upload {projectPath:"assets/props/crate.glb"}` inspects the file
+  in place and returns `sourcePath`, and `tl_command publishAsset` with
+  `sourcePath` in its args records it — the same command the editor sends.
+  Paths are always relative to the folder holding `thirdlight.json`.
+- **Reads are verified.** Every read (the editor view, Play, export) checks
+  that the file is still inside the game folder and still has the recorded
+  SHA-256. A changed file is `asset_source_changed`, a missing one
+  `asset_source_missing`; other bytes are never used.
+- **When a file changes** (a Blender rebuild): the editor checks the files
+  when it opens a project, when its window gets focus back, after each import
+  and on "check files" in Problems. Problems then says which asset and file
+  changed and offers **Re-import**, which records a new version with the new
+  bytes as one undoable command. There is no file watcher: the check on focus
+  covers switching back from Blender, rebuild scripts write many files at
+  once, and the reads are verified anyway. Older versions of that asset can
+  no longer be read once the file changed; Problems says so. They stay in the
+  history, and come back if the old bytes do (for example `git checkout`).
+- **Play and export** copy the referenced bytes into the play build and the
+  standalone game (`content/sha256/<digest>`), so an export needs no editor,
+  backend or game folder. With a changed or missing file, Play and export
+  refuse and name the file (export: `export_scene_invalid` with
+  `reason: asset_source_changed`).
+- **Backups** (`tools/backup.mjs`) hold the project files only, not the
+  referenced files: those live in the game's own repository. A backup restored
+  into another folder shows them as missing in Problems until the game's files
+  are there too.
+
+The import profile is unchanged: the glTF extension allowlist is empty, so a
+GLB using an extension such as `EXT_texture_webp` or `KHR_materials_specular`
+is refused at import, whether it comes from the folder or is uploaded.
 
 Backups find folder projects through the registry and keep the marker.
 Restore one into a folder, then register it:

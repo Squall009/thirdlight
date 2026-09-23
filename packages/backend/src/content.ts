@@ -36,6 +36,8 @@ import {
   parseAssetByteParams,
   parseContentAssetsQuery,
   parseJobId,
+  parseProjectFileInspectRequest,
+  parseProjectFilesQuery,
   parseStageCreateRequest,
   parseStageId,
   parseStageInspectRequest,
@@ -575,6 +577,18 @@ export class ContentRoutes {
       this.discardStage(req, res, projectId, parts[6] ?? '');
       return true;
     }
+    // GET /api/v1/projects/:projectId/content/project-files?dir=
+    if (n === 6 && parts[5] === 'project-files') {
+      if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
+      this.listProjectFiles(req, res, projectId, query);
+      return true;
+    }
+    // POST /api/v1/projects/:projectId/content/project-files/inspect
+    if (n === 7 && parts[5] === 'project-files' && parts[6] === 'inspect') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.inspectProjectFile(req, res, projectId);
+      return true;
+    }
     // GET /api/v1/projects/:projectId/content/assets
     if (n === 6 && parts[5] === 'assets') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
@@ -816,6 +830,53 @@ export class ContentRoutes {
       return;
     }
     this.deps.sendError(res, commandErrorToSession(result.error));
+  }
+
+  // ---- import from the project folder (assets referenced in place) ----------
+
+  private listProjectFiles(req: IncomingMessage, res: ServerResponse, projectId: string, query: Map<string, string>): void {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const parsed = parseProjectFilesQuery(query);
+    if (!parsed.ok) return this.deps.sendError(res, parsed.error);
+    const result = this.deps.service.listProjectFiles(projectId, parsed.dir);
+    if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
+    this.deps.sendJson(res, 200, { ok: true, dir: result.dir, entries: result.entries, truncated: result.truncated });
+  }
+
+  /**
+   * Inspect a file already in the game folder. Unlike a staged upload nothing
+   * is published: the proposal carries `sourcePath`, and the ordinary
+   * `publishAsset` command records the version referencing the file.
+   */
+  private async inspectProjectFile(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const parsed = parseProjectFileInspectRequest(body);
+    if (!parsed.ok) return this.deps.sendError(res, parsed.error);
+    const job = this.jobs.begin('inspect', projectId);
+    if (!job.ok) return this.deps.sendError(res, job.error);
+    const { path, displayName, kind, animation } = parsed.request;
+    const result = this.deps.service.inspectProjectFile(projectId, path, {
+      isCancelled: () => this.jobs.isCancelled(job.jobId),
+      ...(displayName !== undefined ? { displayName } : {}),
+      ...(kind !== undefined ? { kind } : {}),
+      ...(animation !== undefined ? { animation } : {}),
+    });
+    if (!result.ok) {
+      this.jobs.fail(job.jobId, result.error.code, result.error.message);
+      return this.deps.sendError(res, commandErrorToSession(result.error));
+    }
+    const p = result.proposal;
+    this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+    const encoded = JSON.stringify({ ok: true, sourcePath: result.sourcePath, proposal: p });
+    const proposal =
+      new TextEncoder().encode(encoded).length > CONTENT_PROPOSAL_MAX_BYTES && p.kind !== 'audio'
+        ? { ...p, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount: (p.inspection as { sceneCount: number }).sceneCount, truncated: true } }
+        : p;
+    this.deps.sendJson(res, 200, { ok: true, sourcePath: result.sourcePath, proposal, truncated: proposal !== p, jobId: job.jobId });
   }
 
   // ---- bounded content queries ----------------------------------------------

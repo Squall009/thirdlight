@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import type { PropertyValue, SettingsKeySpec } from '@thirdlight/project-model';
+import { isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -60,9 +60,9 @@ export function validatePublishAssetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishAssetArgs> | { ok: false; error: CommandError } {
   const KNOWN =
-    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, importRecipe, metrics, importedAt, animation (reimport only)';
+    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), importRecipe, metrics, importedAt, animation (reimport only)';
   for (const key of Object.keys(args)) {
-    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
+    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -151,6 +151,25 @@ export function validatePublishAssetArgs(
     };
   }
   out.sourceByteLength = len;
+  // A file referenced in place in the game folder; the workspace checks at
+  // commit that it exists inside the folder and has exactly these bytes.
+  if (args['sourcePath'] !== undefined) {
+    if (typeof args['sourcePath'] !== 'string') {
+      return { ok: false, error: fieldType('/args/sourcePath', args['sourcePath'], 'string (path inside the game folder)') };
+    }
+    if (!isValidSourcePath(args['sourcePath'])) {
+      return {
+        ok: false,
+        error: fieldValue(
+          '/args/sourcePath',
+          args['sourcePath'],
+          'a relative path with forward slashes, no "..", "." or empty segments, no ":" or backslash',
+          'sourcePath must be a relative path inside the game folder',
+        ),
+      };
+    }
+    out.sourcePath = args['sourcePath'];
+  }
   if (args['importRecipe'] === undefined) {
     return { ok: false, error: fieldMissing('/args/importRecipe', 'importRecipe') };
   }

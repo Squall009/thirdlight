@@ -1,0 +1,52 @@
+{
+  "content": {
+    "assets": [
+      {
+        "assetId": "asset-model-courier",
+        "kind": "model",
+        "displayName": "Courier",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc",
+            "sourceByteLength": 47,
+            "sourcePath": "assets/characters/courier.glb",
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 4,
+              "meshes": 1,
+              "primitives": 1,
+              "materials": 1,
+              "images": 0,
+              "textures": 0,
+              "vertices": 96,
+              "triangles": 32,
+              "animations": 3,
+              "animationChannels": 3,
+              "clipDurationMs": 900,
+              "decodedGeometryBytes": 4096,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-19T10:00:00Z",
+            "publishedRevision": 1
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  }
+}

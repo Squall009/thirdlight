@@ -35,6 +35,10 @@ interface Props {
   onSelect: (assetId: string) => void;
   onImport: (file: File) => void;
   onReimport: (file: File) => void;
+  /** A folder project: files can be imported from the game folder in place. */
+  folderImport: boolean;
+  onImportFromFolder: () => void;
+  onReimportFromFolder: () => void;
   onPublish: () => void;
   onCancel: () => void;
   onDiscard: () => void;
@@ -90,7 +94,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           >
             <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true"><img className="tl-tile__img" src={`./icons/${a.kind === 'audio' ? 'audio' : 'model'}.png`} alt="" /></span>
             <span className="tl-tile__name">{a.displayName}</span>
-            <span className="tl-tile__meta" title={`${a.versionCount} version(s)`}>
+            <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
               {a.kind} · v{a.currentVersion}
             </span>
           </li>
@@ -136,6 +140,21 @@ export function AssetBrowser(p: Props): JSX.Element {
         >
           reimport…
         </button>
+        {p.folderImport && (
+          <>
+            <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.wav in the game folder; it is referenced where it is, not copied">
+              from project folder…
+            </button>
+            <button
+              className="tl-btn"
+              disabled={!selected || BUSY.has(p.importState.phase)}
+              onClick={p.onReimportFromFolder}
+              title="Record a file in the game folder as a new version of the selected asset"
+            >
+              reimport from folder…
+            </button>
+          </>
+        )}
       </div>
 
       <div className={`tl-assets__status tl-assets__status--${p.importState.phase}`}>
@@ -204,6 +223,11 @@ export function AssetBrowser(p: Props): JSX.Element {
           <div className="tl-assets__preview-head" title={selected.assetId}>
             preview · {selected.displayName}
           </div>
+          {selected.sourcePath !== undefined && (
+            <div className="tl-assets__source" title="Referenced in place in the game folder (not copied)">
+              file: {selected.sourcePath}
+            </div>
+          )}
           <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onPreview(selected.assetId)} title="Realize the current version locally (play/pause/scrub)">
             load preview

@@ -45,6 +45,8 @@ export const ERROR_CODES = [
   'import_rejected',
   'blob_missing',
   'blob_corrupt',
+  'asset_source_missing',
+  'asset_source_changed',
   'path_rejected',
   'asset_not_found',
   'asset_version_not_found',

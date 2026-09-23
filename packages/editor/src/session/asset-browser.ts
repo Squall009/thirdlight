@@ -58,7 +58,10 @@ export interface ImportTarget {
 
 /** The bounded inspection proposal the inspect route returned (never bytes). */
 export interface ImportProposal {
-  stageId: string;
+  /** The upload stage, or `null` for a file inspected in place in the game folder. */
+  stageId: string | null;
+  /** The game-folder file the version will reference (import from project folder). */
+  sourcePath?: string;
   digest: string;
   byteLength: number;
   status: string;
@@ -70,6 +73,8 @@ export interface AssetImportState {
   phase: ImportPhase;
   target: ImportTarget | null;
   stageId: string | null;
+  /** Set for an import from the project folder: the file inspected in place. */
+  sourcePath: string | null;
   jobId: string | null;
   bytesSent: number;
   totalBytes: number;
@@ -83,6 +88,7 @@ export const initialImportState: AssetImportState = Object.freeze({
   phase: 'idle',
   target: null,
   stageId: null,
+  sourcePath: null,
   jobId: null,
   bytesSent: 0,
   totalBytes: 0,
@@ -174,6 +180,7 @@ export function beginImport(state: AssetImportState, target: ImportTarget): Asse
     phase: 'staging',
     target: { ...target },
     stageId: null,
+    sourcePath: null,
     jobId: null,
     bytesSent: 0,
     totalBytes: 0,
@@ -181,6 +188,15 @@ export function beginImport(state: AssetImportState, target: ImportTarget): Asse
     job: null,
     error: null,
   });
+}
+
+/**
+ * Start an import from the project folder: no stage and no upload, the file is
+ * inspected where it is (`POST /content/project-files/inspect`).
+ */
+export function beginProjectFileImport(state: AssetImportState, target: ImportTarget, sourcePath: string): AssetImportState {
+  if (isBusy(state)) return state;
+  return next(beginImport(state, target), { phase: 'inspecting', sourcePath });
 }
 
 /** `POST /content/stages` succeeded. */
@@ -211,6 +227,10 @@ export function uploadCompleted(state: AssetImportState): AssetImportState {
  */
 export function inspectionSucceeded(state: AssetImportState, proposal: ImportProposal): AssetImportState {
   if (state.phase !== 'inspecting') return state;
+  if (state.sourcePath !== null) {
+    if (proposal.sourcePath !== state.sourcePath) return stale(state, 'inspect result belongs to another file');
+    return next(state, { phase: 'proposed', proposal });
+  }
   if (proposal.stageId !== state.stageId) return stale(state, 'inspect result belongs to a superseded stage');
   return next(state, { phase: 'proposed', proposal });
 }
@@ -292,6 +312,8 @@ export interface PublishAssetRequestArgs {
   displayName?: string;
   sourceDigest: string;
   sourceByteLength: number;
+  /** A file referenced in place in the game folder (import from project folder). */
+  sourcePath?: string;
   importRecipe: unknown;
   metrics: unknown;
   importedAt: string;
@@ -353,6 +375,7 @@ export function publishArgsFromProposal(
       ...(target.displayName ? { displayName: target.displayName } : {}),
       sourceDigest: p.sourceDigest,
       sourceByteLength: p.sourceByteLength,
+      ...(proposal.sourcePath !== undefined ? { sourcePath: proposal.sourcePath } : {}),
       importRecipe: p.importRecipe,
       metrics: p.metrics,
       importedAt,

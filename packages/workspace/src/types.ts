@@ -34,8 +34,10 @@ import type {
   CaptureViewResult,
   CapturedV3ReadResult,
   ContentIntegrityResult,
+  InspectProjectFileResult,
   InspectStageOptions,
   InspectStageResult,
+  ProjectFileListResult,
   StageDiscardResult,
   StageInspector,
   StageRequest,
@@ -356,8 +358,19 @@ export interface WorkspaceService {
   inspectStage(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult;
   /** `publishBlob` — immutable blob publication (workspace.md §13.2, no lock). */
   publishBlob(projectId: string, request: BlobPublishRequest): BlobPublishResult;
-  /** `readBlob` — the only public verified byte read (workspace.md §13.5). */
+  /**
+   * `readBlob` — the only public verified byte read (workspace.md §13.5). A
+   * version with a `sourcePath` is read from the game folder and verified
+   * against its digest (`asset_source_missing` / `asset_source_changed`).
+   */
   readBlob(projectId: string, request: BlobReadRequest): BlobReadResult;
+  /** One folder of a folder project's game folder: subfolders and `.glb`/`.wav` files. */
+  listProjectFiles(projectId: string, dir: string): ProjectFileListResult;
+  /**
+   * Inspect a file in the game folder in place ("import from project folder").
+   * Nothing is copied; `publishAsset` with the returned `sourcePath` records it.
+   */
+  inspectProjectFile(projectId: string, sourcePath: string, options?: InspectStageOptions): InspectProjectFileResult;
   /**
    * `readSourceBlob` — a digest-addressed verified read of one immutable
    * `sources/sha256/<digest>` blob (packet 35; contract-change request C35-1).

@@ -322,7 +322,14 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const assets: ManifestAssetInputV2[] = [];
   for (const a of view.assets) {
     const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
-    if (!read.ok) return { ok: false, error: fromCommandError(read.error) };
+    if (!read.ok) {
+      // A file referenced in place that changed or went missing: the message
+      // names it; the reason keeps the workspace code through the closed
+      // export/play error sets.
+      const e = read.error;
+      const referenced = e.code === 'asset_source_changed' || e.code === 'asset_source_missing';
+      return { ok: false, error: fromCommandError(referenced && e.reason === undefined ? { ...e, reason: e.code } : e) };
+    }
     if (read.digest !== a.sourceDigest || read.byteLength !== a.sourceByteLength) {
       return {
         ok: false,

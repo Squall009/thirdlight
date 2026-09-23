@@ -62,6 +62,9 @@ export const WORKSPACE_ERROR_CODES = [
   'migration_marker_conflict',
   'migration_resume_required',
   'migration_version_unsupported',
+  // Phase 10: asset versions referenced in place in a game folder.
+  'asset_source_missing',
+  'asset_source_changed',
 ] as const;
 
 /**
@@ -714,6 +717,43 @@ export function blobCorrupt(
   e['message'] = `blob content at ${path} does not match its digest ${digest}`;
   e['hint'] =
     'the bytes are retained byte-for-byte and never auto-repaired; restore the correct bytes from a backup or re-import the version';
+  return e as unknown as CommandError;
+}
+
+/**
+ * `asset_source_missing`: a version referenced in place names a file that is
+ * not in the game folder any more. `path` is relative to the game folder.
+ */
+export function assetSourceMissing(digest: string, path: string, assetId?: string, version?: number): CommandError {
+  const e: Record<string, unknown> = { code: 'asset_source_missing', cls: 'not_found' };
+  if (assetId !== undefined) e['assetId'] = assetId;
+  if (version !== undefined) e['assetVersion'] = version;
+  e['sourceDigest'] = digest;
+  e['path'] = path;
+  e['message'] = `${assetId !== undefined ? `asset ${assetId}${version !== undefined ? ` v${version}` : ''}: ` : ''}the file ${path} is missing from the game folder`;
+  e['hint'] = 'put the file back (for example from git), or import another file as a new version';
+  return e as unknown as CommandError;
+}
+
+/**
+ * `asset_source_changed`: a version referenced in place names a file whose
+ * bytes are no longer the ones recorded. The file is never served instead.
+ */
+export function assetSourceChanged(
+  digest: string,
+  path: string,
+  found: string,
+  assetId?: string,
+  version?: number,
+): CommandError {
+  const e: Record<string, unknown> = { code: 'asset_source_changed', cls: 'conflict' };
+  if (assetId !== undefined) e['assetId'] = assetId;
+  if (version !== undefined) e['assetVersion'] = version;
+  e['sourceDigest'] = digest;
+  e['path'] = path;
+  e['found'] = found;
+  e['message'] = `${assetId !== undefined ? `asset ${assetId}${version !== undefined ? ` v${version}` : ''}: ` : ''}${path} has changed since it was imported (sha256 ${digest.slice(0, 12)}… recorded, ${found.slice(0, 12)}… on disk)`;
+  e['hint'] = 're-import the file to record a new version with the new bytes; a version whose file changed can no longer be read';
   return e as unknown as CommandError;
 }
 

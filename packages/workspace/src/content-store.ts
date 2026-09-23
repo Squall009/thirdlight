@@ -30,10 +30,10 @@ import {
   statfsSync,
   unlinkSync,
 } from 'node:fs';
-import { join, sep } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { captureContent, validateContent } from '@thirdlight/project-model';
+import { captureContent, isValidSourcePath, validateContent } from '@thirdlight/project-model';
 import type {
   CapturedContent,
   ContentCatalog,
@@ -53,6 +53,8 @@ import type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behav
 
 import { sha256Hex } from './digest';
 import {
+  assetSourceChanged,
+  assetSourceMissing,
   blobCorrupt,
   blobMissing,
   contentPublishFailed,
@@ -154,6 +156,12 @@ export interface ContentContext {
   revision: number;
   scene: Scene | SceneV2 | SceneV3 | null;
   content: ContentCatalog | ContentCatalogV3 | null;
+  /**
+   * The game folder of a folder project (the folder holding `thirdlight.json`);
+   * `null` for a project in the data root. Asset versions with a `sourcePath`
+   * are files inside it.
+   */
+  gameFolder?: string | null;
 }
 
 /**
@@ -173,6 +181,8 @@ export interface PreparedMediaFacts {
   readonly version: number;
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
+  /** Set when the bytes are a file in the game folder (relative to it). */
+  readonly sourcePath?: string;
   readonly importRecipe: ModelImportRecipe;
 }
 
@@ -769,6 +779,7 @@ interface CatalogVersionLike {
   readonly version: number;
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
+  readonly sourcePath?: string;
   readonly importRecipe: ModelImportRecipe;
 }
 interface CatalogAssetLike {
@@ -812,6 +823,7 @@ export function preparedMediaFacts(
       version: v.version,
       sourceDigest: v.sourceDigest,
       sourceByteLength: v.sourceByteLength,
+      ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
       importRecipe: v.importRecipe,
     },
   };
@@ -821,7 +833,7 @@ function findVersion(
   ctx: ContentContext,
   assetId: unknown,
   version: unknown,
-): { ok: true; digest: string; byteLength: number; version: number } | { ok: false; error: CommandError } {
+): { ok: true; digest: string; byteLength: number; version: number; sourcePath?: string } | { ok: false; error: CommandError } {
   const found = preparedMediaFacts(ctx, assetId, version);
   if (!found.ok) return found;
   return {
@@ -829,6 +841,7 @@ function findVersion(
     digest: found.facts.sourceDigest,
     byteLength: found.facts.sourceByteLength,
     version: found.facts.version,
+    ...(found.facts.sourcePath !== undefined ? { sourcePath: found.facts.sourcePath } : {}),
   };
 }
 
@@ -845,6 +858,19 @@ export function readBlob(
 ): BlobReadResult {
   const found = findVersion(ctx, request?.assetId, request?.version);
   if (!found.ok) return found;
+  if (found.sourcePath !== undefined) {
+    const ref = readReferencedSource(ctx, found.sourcePath, found.digest, found.byteLength, request.assetId, found.version);
+    if (!ref.ok) return ref;
+    return {
+      ok: true,
+      assetId: request.assetId,
+      version: found.version,
+      digest: found.digest,
+      byteLength: ref.bytes.length,
+      verified: true,
+      bytes: ref.bytes,
+    };
+  }
   const dirRes = verifyArtifactDir(ctx.dir, ['sources', 'sha256'], false);
   if (!dirRes.ok) {
     // A missing sources dir means the blob is missing; a symlink/escape is
@@ -931,6 +957,254 @@ export function readSourceBlob(
   return { ok: true, digest, byteLength: r.bytes.length, bytes: r.bytes, verified: true };
 }
 
+// ---- files referenced in place in the game folder (phase 10, option B) -------
+
+/**
+ * Resolve a project-relative `sourcePath` to a real file inside the game
+ * folder, with the same containment rule as `resolveContained`: the realpath
+ * must stay inside the realpath of the game folder (a symlink pointing out is
+ * refused). The project's own files (`<folder>/<projectDir>/`) and `.git/`
+ * are not asset sources. Errors carry only the relative path.
+ */
+export function resolveProjectFile(
+  ctx: ContentContext,
+  sourcePath: unknown,
+  want: 'file' | 'dir' = 'file',
+): { ok: true; real: string; size: number } | { ok: false; error: CommandError; missing?: true } {
+  const shown = typeof sourcePath === 'string' ? sourcePath.slice(0, 512) : String(sourcePath);
+  const folder = ctx.gameFolder ?? null;
+  if (folder === null) {
+    return { ok: false, error: pathRejected(shown, 'this project is not in a game folder; only folder projects reference files in place') };
+  }
+  const root = want === 'dir' && sourcePath === '';
+  if (!root && !isValidSourcePath(sourcePath)) {
+    return { ok: false, error: pathRejected(shown, 'the path must be relative to the game folder, with forward slashes and no "..", "." or empty parts') };
+  }
+  const segs = root ? [] : (sourcePath as string).split('/');
+  if (segs.includes('.git')) return { ok: false, error: pathRejected(shown, '.git/ is not an asset folder') };
+  if (segs.length > 0 && join(folder, segs[0]!) === ctx.dir) {
+    return { ok: false, error: pathRejected(shown, `${segs[0]!}/ holds the project's own files, not asset sources`) };
+  }
+  let realRoot: string;
+  let realProject: string;
+  try {
+    realRoot = realpathSync(folder);
+    realProject = realpathSync(ctx.dir);
+  } catch {
+    return { ok: false, error: pathRejected(shown, 'the game folder is unavailable') };
+  }
+  let real: string;
+  try {
+    real = realpathSync(join(folder, ...segs));
+  } catch {
+    return { ok: false, error: pathRejected(shown, `${shown} does not exist in the game folder`), missing: true };
+  }
+  const within = (parent: string, child: string): boolean =>
+    child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  if (!within(realRoot, real)) {
+    return { ok: false, error: pathRejected(shown, `${shown} resolves outside the game folder (symlinks may not leave it)`) };
+  }
+  if (!root && within(realProject, real)) {
+    return { ok: false, error: pathRejected(shown, `${shown} resolves into the project's own files`) };
+  }
+  let st;
+  try {
+    st = statSync(real);
+  } catch {
+    return { ok: false, error: pathRejected(shown, `${shown} does not exist in the game folder`), missing: true };
+  }
+  if (want === 'file' ? !st.isFile() : !st.isDirectory()) {
+    return { ok: false, error: pathRejected(shown, `${shown} is not a ${want === 'file' ? 'regular file' : 'folder'}`) };
+  }
+  return { ok: true, real, size: st.size };
+}
+
+/** Read one contained game-folder file (size-bounded, the final component never followed). */
+function readProjectFileBytes(
+  ctx: ContentContext,
+  sourcePath: string,
+): { ok: true; bytes: Uint8Array; real: string } | { ok: false; error: CommandError; missing?: true } {
+  const res = resolveProjectFile(ctx, sourcePath);
+  if (!res.ok) return res;
+  if (res.size > MAX_SOURCE_BYTES) return { ok: false, error: stageLimitError('stage_bytes', res.size, MAX_SOURCE_BYTES) };
+  const r = readBlobBytes(res.real);
+  if (!r.ok) {
+    if (r.code === 'ENOENT') return { ok: false, error: pathRejected(sourcePath, `${sourcePath} does not exist in the game folder`), missing: true };
+    return { ok: false, error: pathRejected(sourcePath, `${sourcePath} could not be read`) };
+  }
+  return { ok: true, bytes: r.bytes, real: res.real };
+}
+
+/**
+ * The verified read of a version referenced in place: the file must exist
+ * inside the game folder and hash to the recorded digest. Missing ⇒
+ * `asset_source_missing`, other bytes ⇒ `asset_source_changed`; other bytes are
+ * never returned.
+ */
+function readReferencedSource(
+  ctx: ContentContext,
+  sourcePath: string,
+  digest: string,
+  byteLength: number,
+  assetId?: string,
+  version?: number,
+): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError } {
+  const r = readProjectFileBytes(ctx, sourcePath);
+  if (!r.ok) return { ok: false, error: r.missing === true ? assetSourceMissing(digest, sourcePath, assetId, version) : r.error };
+  const h = sha256Hex(r.bytes);
+  rememberDigest(r.real, h);
+  if (h !== digest || r.bytes.length !== byteLength) {
+    return { ok: false, error: assetSourceChanged(digest, sourcePath, h, assetId, version) };
+  }
+  return { ok: true, bytes: r.bytes };
+}
+
+/**
+ * Digests of game-folder files keyed by (realpath, size, mtime, ctime, inode):
+ * the integrity report runs on open, on focus and on demand, and must not
+ * re-hash an unchanged 30 MB model every time. Reads that serve bytes always
+ * hash what they read; only the status report uses this cache.
+ */
+const digestCache = new Map<string, { stamp: string; digest: string }>();
+const DIGEST_CACHE_MAX = 1024;
+
+function fileStamp(real: string): string | null {
+  try {
+    const st = statSync(real);
+    return `${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.ino}`;
+  } catch {
+    return null;
+  }
+}
+
+function rememberDigest(real: string, digest: string): void {
+  const stamp = fileStamp(real);
+  if (stamp === null) return;
+  digestCache.delete(real);
+  digestCache.set(real, { stamp, digest });
+  while (digestCache.size > DIGEST_CACHE_MAX) digestCache.delete(digestCache.keys().next().value as string);
+}
+
+function referencedStatus(ctx: ContentContext, sourcePath: string, digest: string, byteLength: number): ContentIntegrityEntry['status'] {
+  const res = resolveProjectFile(ctx, sourcePath);
+  if (!res.ok) return res.missing === true ? 'missing' : 'unreadable';
+  if (res.size !== byteLength) return 'changed';
+  const cached = digestCache.get(res.real);
+  if (cached !== undefined && cached.stamp === fileStamp(res.real)) return cached.digest === digest ? 'ok' : 'changed';
+  const r = readProjectFileBytes(ctx, sourcePath);
+  if (!r.ok) return r.missing === true ? 'missing' : 'unreadable';
+  const h = sha256Hex(r.bytes);
+  rememberDigest(r.real, h);
+  return h === digest ? 'ok' : 'changed';
+}
+
+/** One entry of a game-folder listing (importable files and subfolders only). */
+export interface ProjectFileEntry {
+  name: string;
+  /** Relative to the game folder, forward slashes. */
+  path: string;
+  kind: 'dir' | 'model' | 'audio';
+  byteLength?: number;
+}
+
+export const MAX_PROJECT_FILE_ENTRIES = 500;
+const IMPORTABLE: Readonly<Record<string, 'model' | 'audio'>> = { '.glb': 'model', '.wav': 'audio' };
+
+export type ProjectFileListResult =
+  | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }
+  | { ok: false; error: CommandError };
+
+/**
+ * `listProjectFiles(dir)`: one folder of the game folder, for the "import from
+ * project folder" picker. Lists subfolders and `.glb`/`.wav` files; hidden
+ * entries, `.git` and the project's own folder are left out, and a symlink
+ * is listed only when it stays inside the game folder.
+ */
+export function listProjectFiles(ctx: ContentContext, dir: unknown): ProjectFileListResult {
+  const rel = dir === undefined || dir === '' ? '' : dir;
+  const res = resolveProjectFile(ctx, rel, 'dir');
+  if (!res.ok) return { ok: false, error: res.error };
+  const prefix = rel === '' ? '' : `${rel as string}/`;
+  let names: string[];
+  try {
+    names = readdirSync(res.real).sort();
+  } catch {
+    return { ok: false, error: pathRejected(String(rel), `${String(rel) || 'the game folder'} could not be listed`) };
+  }
+  const entries: ProjectFileEntry[] = [];
+  let truncated = false;
+  for (const name of names) {
+    if (name.startsWith('.')) continue;
+    const path = `${prefix}${name}`;
+    if (!isValidSourcePath(path)) continue;
+    const dot = name.lastIndexOf('.');
+    const kind = dot > 0 ? IMPORTABLE[name.slice(dot).toLowerCase()] : undefined;
+    let st;
+    try {
+      st = statSync(join(res.real, name));
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory() && (kind === undefined || !st.isFile())) continue;
+    const inside = resolveProjectFile(ctx, path, st.isDirectory() ? 'dir' : 'file');
+    if (!inside.ok) continue;
+    if (entries.length >= MAX_PROJECT_FILE_ENTRIES) {
+      truncated = true;
+      break;
+    }
+    entries.push(st.isDirectory() ? { name, path, kind: 'dir' } : { name, path, kind: kind!, byteLength: st.size });
+  }
+  entries.sort((a, b) => (a.kind === 'dir') === (b.kind === 'dir') ? (a.name < b.name ? -1 : 1) : a.kind === 'dir' ? -1 : 1);
+  return { ok: true, dir: String(rel), entries, truncated };
+}
+
+export type InspectProjectFileResult =
+  | { ok: true; sourcePath: string; proposal: ImportedProposal }
+  | { ok: false; error: CommandError };
+
+/**
+ * `inspectProjectFile(path)`: the "import from project folder" preparation.
+ * Reads the contained file, runs the same injected inspector as a staged
+ * upload and returns the proposal plus the `sourcePath` the `publishAsset`
+ * command records. Nothing is copied or written: the bytes stay in the game
+ * folder, and the command re-verifies them at commit.
+ */
+export function inspectProjectFile(
+  core: { ops: WriteOps; content: ContentConfig },
+  ctx: ContentContext,
+  sourcePath: unknown,
+  options: InspectStageOptions = {},
+): InspectProjectFileResult {
+  const inspector = core.content.assetInspector;
+  if (inspector === undefined) {
+    return { ok: false, error: derivedCacheUnavailable('', '.thirdlight/derived/') };
+  }
+  const read = readProjectFileBytes(ctx, sourcePath as string);
+  if (!read.ok) return read;
+  const path = sourcePath as string;
+  if (read.bytes.length === 0) return { ok: false, error: pathRejected(path, `${path} is empty`) };
+  rememberDigest(read.real, sha256Hex(read.bytes));
+  const makeProposalId = options.proposalId ?? defaultProposalId;
+  const expiresAt = new Date(core.content.now() + STAGE_TTL_SECONDS * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const job: ImportJobPort = {
+    now: () => core.content.now(),
+    isCancelled: options.isCancelled ?? (() => false),
+    proposalId: () => makeProposalId(),
+    stageId: () => 'project-file',
+    expiresAt: () => expiresAt,
+    timeoutMs: core.content.inspectTimeoutMs ?? INSPECT_TIMEOUT_MS,
+    suggestedDisplayName: options.displayName ?? basename(path).replace(/\.[^.]+$/, ''),
+  };
+  const proposal = inspector(read.bytes, job, {
+    ...(options.kind !== undefined ? { kind: options.kind } : {}),
+    ...(options.animation !== undefined ? { animation: options.animation } : {}),
+  });
+  if (proposal.status === 'rejected') {
+    return { ok: false, error: importRejected(proposal.sourceDigest, proposal.diagnostics, proposal.diagnosticCount) };
+  }
+  return { ok: true, sourcePath: path, proposal };
+}
+
 // ---- integrity (workspace.md §13.5) -----------------------------------------
 
 export interface ContentIntegrityEntry {
@@ -940,7 +1214,13 @@ export interface ContentIntegrityEntry {
   /** True when this version is the record's `currentVersion` (the version the
    * scene closure resolves); a superseded version is `referenced: false`. */
   referenced: boolean;
-  status: 'ok' | 'missing' | 'corrupt' | 'unreadable';
+  /** The file in the game folder, for a version referenced in place. */
+  sourcePath?: string;
+  /**
+   * `changed`: a file referenced in place no longer has the recorded bytes
+   * (the version cannot be read until the file is restored).
+   */
+  status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed';
 }
 
 export interface ContentIntegritySummary {
@@ -949,6 +1229,7 @@ export interface ContentIntegritySummary {
   missing: number;
   corrupt: number;
   unreadable: number;
+  changed: number;
   /** Authoritative files under sources/sha256/ named by no catalog version. */
   orphanBlobs: number;
 }
@@ -1044,14 +1325,18 @@ export function contentIntegrity(
   const catalog = ctx.content;
   if (catalog !== null) {
     for (const record of catalog.assets) {
-      for (const v of record.versions) {
+      for (const v of record.versions as readonly CatalogVersionLike[]) {
         known.add(v.sourceDigest);
         entries.push({
           assetId: record.assetId,
           version: v.version,
           sourceDigest: v.sourceDigest,
           referenced: v.version === record.currentVersion,
-          status: blobStatus(ctx, v.sourceDigest, v.sourceByteLength),
+          ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
+          status:
+            v.sourcePath !== undefined
+              ? referencedStatus(ctx, v.sourcePath, v.sourceDigest, v.sourceByteLength)
+              : blobStatus(ctx, v.sourceDigest, v.sourceByteLength),
         });
       }
     }
@@ -1074,6 +1359,7 @@ export function contentIntegrity(
     missing: entries.filter((e) => e.status === 'missing').length,
     corrupt: entries.filter((e) => e.status === 'corrupt').length,
     unreadable: entries.filter((e) => e.status === 'unreadable').length,
+    changed: entries.filter((e) => e.status === 'changed').length,
     orphanBlobs,
   };
   return { ok: true, entries, summary };
@@ -1107,7 +1393,12 @@ export function verifyReferencedBlob(
   ctx: ContentContext,
   digest: string,
   byteLength: number,
+  sourcePath?: string,
 ): { ok: true } | { ok: false; error: CommandError } {
+  if (sourcePath !== undefined) {
+    const ref = readReferencedSource(ctx, sourcePath, digest, byteLength);
+    return ref.ok ? { ok: true } : ref;
+  }
   const dirRes = verifyArtifactDir(ctx.dir, ['sources', 'sha256'], false);
   if (!dirRes.ok) {
     try {

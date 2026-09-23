@@ -88,6 +88,8 @@ import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
+import { ProjectFilePicker } from './ProjectFilePicker';
+import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
 import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
@@ -1255,6 +1257,78 @@ function EditorApp(): JSX.Element {
     [refreshEntities, mediaCommandResult],
   );
 
+  // ---- phase 10: assets referenced in place in the game folder -------------
+  // A folder project can import files where they are; Problems shows the ones
+  // whose bytes changed since import. The check runs when the editor connects,
+  // when the window gets focus back (e.g. after a Blender rebuild), after each
+  // publish and on "check files"; Play and export verify on every read anyway.
+  const [folderProject, setFolderProject] = useState(false);
+  const [sourceIssues, setSourceIssues] = useState<SourceIssue[] | null>(null);
+  const [checkingFiles, setCheckingFiles] = useState(false);
+  const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
+  const loadProjectFiles = useCallback(
+    (dir: string) =>
+      clientRef.current !== null
+        ? clientRef.current.listProjectFiles(dir)
+        : Promise.resolve({ ok: false as const, error: { code: 'session_unavailable', message: 'not connected' } }),
+    [],
+  );
+  const checkFiles = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    setCheckingFiles(true);
+    const r = await c.contentIntegrity();
+    setCheckingFiles(false);
+    if (!r.ok) return;
+    const names = new Map(c.content.listAssets().map((a) => [a.assetId, a.displayName]));
+    setSourceIssues(sourceIssuesFrom(r.entries, names));
+  }, []);
+  useEffect(() => {
+    if (ui.connection !== 'connected') return;
+    const c = clientRef.current;
+    if (!c) return;
+    let live = true;
+    void c.listProjectFiles('').then((r) => {
+      if (!live) return;
+      setFolderProject(r.ok);
+      if (r.ok) void checkFiles();
+      else setSourceIssues(null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ui.connection, checkFiles]);
+  useEffect(() => {
+    if (!folderProject) return;
+    const onFocus = (): void => void checkFiles();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [folderProject, checkFiles]);
+
+  /** After an inspect: remember the proposal and the §8.5.1 role-mapping obligation.
+   * Returns whether the publish needs no role mapping. */
+  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio'): boolean => {
+    const c = clientRef.current;
+    if (!c) return false;
+    pendingProposalRef.current = { proposal, target };
+    const inspection = (proposal.proposal as { inspection?: { clipNames?: unknown } } | null)?.inspection;
+    const clipNames = Array.isArray(inspection?.clipNames) ? (inspection.clipNames as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+    // §8.5.1: a model reimport whose asset is referenced by modelAnimation
+    // components MUST carry the atomic `animation` — the panel collects the
+    // new version's role bindings before the publish is enabled.
+    const referencingEntityIds =
+      kind === 'model' && target.mode === 'reimport'
+        ? c.projection.listEntities().filter((e) => e.modelAnimation !== undefined && e.modelAnimation.assetId === target.assetId).map((e) => e.id)
+        : [];
+    mediaPendingRef.current = { kind, clipNames, referencingEntityIds };
+    if (target.mode === 'reimport') {
+      setReimportRoles({ idle: '', run: '', airborne: '' });
+      setReimportEntity(referencingEntityIds[0] ?? '');
+    }
+    setSelectedAssetId(target.assetId);
+    return referencingEntityIds.length === 0;
+  }, []);
+
   const importFile = useCallback(async (file: File, mode: 'create' | 'reimport') => {
     const c = clientRef.current;
     if (!c) return;
@@ -1272,27 +1346,41 @@ function EditorApp(): JSX.Element {
         : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
     const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, onState: setImportState });
     if (res.ok) {
-      pendingProposalRef.current = { proposal: res.proposal, target };
-      const inspection = (res.proposal.proposal as { inspection?: { clipNames?: unknown } } | null)?.inspection;
-      const clipNames = Array.isArray(inspection?.clipNames) ? (inspection.clipNames as unknown[]).filter((x): x is string => typeof x === 'string') : null;
-      // §8.5.1: a model reimport whose asset is referenced by modelAnimation
-      // components MUST carry the atomic `animation` — the panel collects the
-      // new version's role bindings before the publish is enabled.
-      const referencingEntityIds =
-        candidate.kind === 'model' && mode === 'reimport'
-          ? c.projection.listEntities().filter((e) => e.modelAnimation !== undefined && e.modelAnimation.assetId === target.assetId).map((e) => e.id)
-          : [];
-      mediaPendingRef.current = { kind: candidate.kind, clipNames, referencingEntityIds };
-      if (mode === 'reimport') {
-        setReimportRoles({ idle: '', run: '', airborne: '' });
-        setReimportEntity(referencingEntityIds[0] ?? '');
-      }
-      setSelectedAssetId(target.assetId);
+      acceptProposal(res.proposal, target, candidate.kind);
     } else {
       pendingProposalRef.current = null;
       mediaPendingRef.current = null;
     }
-  }, []);
+  }, [acceptProposal]);
+
+  /** Import from the project folder: the file is inspected in place, never copied.
+   * Returns whether the proposal can be published without a role mapping. */
+  const importFromFolder = useCallback(async (path: string, mode: 'create' | 'reimport', assetId: string | null): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const candidate = validateMediaDrop(path.slice(path.lastIndexOf('/') + 1), 1);
+    if (!candidate.ok) {
+      setImportState(importFailed(initialImportState, candidate.error));
+      return false;
+    }
+    const target: ImportTarget =
+      mode === 'reimport' ? { mode: 'reimport', assetId, displayName: null } : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
+    const res = await c.importProjectFile(path, {
+      target,
+      kind: candidate.kind,
+      displayName: candidate.displayName,
+      onState: (st) => {
+        importStateRef.current = st;
+        setImportState(st);
+      },
+    });
+    if (!res.ok) {
+      pendingProposalRef.current = null;
+      mediaPendingRef.current = null;
+      return false;
+    }
+    return acceptProposal(res.proposal, target, candidate.kind);
+  }, [acceptProposal]);
 
   /** M3 (packet 57): the §8.5.1 `animation` args for the pending reimport, or
    * `null` (a create / an audio reimport / a model reimport with no referencing
@@ -1340,11 +1428,23 @@ function EditorApp(): JSX.Element {
       mediaPendingRef.current = null;
       await c.fullResync();
       refreshEntities();
+      if (args.args.sourcePath !== undefined) void checkFiles();
     } else {
       const response = res.response;
       setImportState(importFailed(s, response.ok === false ? { code: response.code, message: response.message ?? response.code } : { code: 'network', message: 'the command response was lost' }));
     }
-  }, [refreshEntities, animatedReimportArgs]);
+  }, [refreshEntities, animatedReimportArgs, checkFiles]);
+
+  /** Problems → Re-import: a new version from the same file, published at once
+   * unless the asset's animation needs a role mapping (then the Assets tab asks). */
+  const reimportIssue = useCallback(
+    async (issue: SourceIssue) => {
+      const ready = await importFromFolder(issue.sourcePath, 'reimport', issue.assetId);
+      if (ready) await publish();
+      else setBottomTab('assets');
+    },
+    [importFromFolder, publish],
+  );
 
   const cancelImportFlow = useCallback(async () => {
     const c = clientRef.current;
@@ -2014,11 +2114,19 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length > 0 ? <span className="tl-tab__count">{ui.problems.length}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0)}</span> : null}
                 </button>
               ))}
             </div>
-          {bottomTab === 'problems' && <ProblemsPanel problems={ui.problems} />}
+          {bottomTab === 'problems' && (
+            <ProblemsPanel
+              problems={ui.problems}
+              sourceIssues={folderProject ? sourceIssues : null}
+              checking={checkingFiles}
+              onCheckFiles={() => void checkFiles()}
+              onReimport={(i) => void reimportIssue(i)}
+            />
+          )}
           {bottomTab === 'assets' && (
             <AssetBrowser
               assets={assets}
@@ -2032,6 +2140,9 @@ function EditorApp(): JSX.Element {
               onSelect={setSelectedAssetId}
               onImport={(f) => void importFile(f, 'create')}
               onReimport={(f) => void importFile(f, 'reimport')}
+              folderImport={folderProject}
+              onImportFromFolder={() => setFilePicker('create')}
+              onReimportFromFolder={() => setFilePicker('reimport')}
               onPublish={() => void publish()}
               onCancel={() => void cancelImportFlow()}
               onDiscard={() => void discardImportFlow()}
@@ -2168,6 +2279,19 @@ function EditorApp(): JSX.Element {
         </div>
       </div>
       <StatusBar state={ui} onResync={resync} />
+      {filePicker !== null && (
+        <ProjectFilePicker
+          title={filePicker === 'create' ? 'Import from project folder' : 'Reimport from project folder'}
+          startDir="assets"
+          load={loadProjectFiles}
+          onClose={() => setFilePicker(null)}
+          onPick={(entry) => {
+            const mode = filePicker;
+            setFilePicker(null);
+            void importFromFolder(entry.path, mode, mode === 'reimport' ? selectedAssetIdRef.current : null);
+          }}
+        />
+      )}
       {dialog === 'export' && (
         <Dialog title="Export game" onClose={() => setDialog(null)}>
           <p>Builds the current revision into a standalone web game: a folder of static files that runs from any web server without Thirdlight.</p>

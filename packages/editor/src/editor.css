@@ -493,3 +493,15 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 
 .tl-projects__folder { display: block; font-size: 10.5px; color: var(--text-faint); font-family: var(--tl-font-mono);
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+
+/* Phase 10: files referenced in place in the game folder. */
+.tl-problem__source--asset { color: var(--warn); }
+.tl-problem .tl-btn { margin-left: auto; flex: none; }
+.tl-assets__source { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.tl-files { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
+.tl-files__crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.tl-files__list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border); }
+.tl-files__entry { display: flex; width: 100%; gap: 8px; justify-content: space-between; padding: 5px 10px; background: none; border: 0; border-bottom: 1px solid var(--border); color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.tl-files__entry:hover { background: var(--hover, rgba(255, 255, 255, 0.06)); }
+.tl-files__entry--dir { font-weight: 600; }
+.tl-files__size { color: var(--muted); font-size: 11px; }

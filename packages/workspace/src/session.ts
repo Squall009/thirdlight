@@ -144,6 +144,8 @@ export interface ProjectSession {
    */
   sceneDir: string;
   thirdlightDir: string;
+  /** The game folder (holding `thirdlight.json`) of a folder project; null in the data root. */
+  gameFolder?: string | null;
   manifest: Manifest;
   /** Published (last acknowledged) scene; null while blocked. */
   scene: Scene | SceneV2 | SceneV3 | null;
@@ -548,6 +550,7 @@ function makeSession(
     dir,
     sceneDir,
     thirdlightDir,
+    gameFolder: core.registry.get(projectId)?.folder ?? null,
     manifest,
     scene: loaded.scene,
     storageVersion: loaded.storageVersion,
@@ -589,6 +592,7 @@ function blockSession(
     dir,
     sceneDir,
     thirdlightDir,
+    gameFolder: core.registry.get(projectId)?.folder ?? null,
     manifest,
     scene: null,
     storageVersion: 1,

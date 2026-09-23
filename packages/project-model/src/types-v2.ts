@@ -126,6 +126,12 @@ export interface AssetVersion {
   version: number;
   sourceDigest: string;
   sourceByteLength: number;
+  /**
+   * Optional: the bytes are a file in the game folder (a folder project's
+   * marker folder), not a stored blob. A project-relative path with forward
+   * slashes (see `isValidSourcePath`); `sourceDigest` still pins the bytes.
+   */
+  sourcePath?: string;
   importRecipe: ImportRecipe;
   metrics: AssetMetrics;
   importedAt: string;

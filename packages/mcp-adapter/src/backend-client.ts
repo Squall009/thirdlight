@@ -197,6 +197,17 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/inspect`, body);
   }
 
+  /** GET one folder of the game folder (subfolders and importable files). */
+  listProjectFiles(projectId: string, dir: string): Promise<BackendResponse> {
+    const q = dir === '' ? '' : `?${new URLSearchParams({ dir }).toString()}`;
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/project-files${q}`);
+  }
+
+  /** POST inspect a file already in the game folder, in place (`{ path, displayName?, kind?, animation? }`). */
+  inspectProjectFile(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/project-files/inspect`, body);
+  }
+
   /** DELETE a stage (non-authoritative cleanup). */
   discardStage(projectId: string, stageId: string): Promise<BackendResponse> {
     return this.request('DELETE', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}`);

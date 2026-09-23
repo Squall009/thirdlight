@@ -111,6 +111,8 @@ export {
 
 export {
   M2_SETTINGS_KEYS,
+  MAX_SOURCE_PATH_LENGTH,
+  isValidSourcePath,
   normalizeContent,
   normalizeContentV3,
   resolveGameplaySettings,

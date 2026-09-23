@@ -93,18 +93,24 @@ export class ContentProjection {
       return this.assets.delete(change.assetId);
     }
     const previous = this.assets.get(change.assetId);
+    const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
+    const sourcePath = pathOf(next.versions.find((v) => v.version === next.currentVersion));
     this.assets.set(change.assetId, {
       assetId: next.assetId,
       kind: next.kind,
       displayName: next.displayName,
       currentVersion: next.currentVersion,
       versionCount: next.versions.length,
+      ...(sourcePath !== undefined ? { sourcePath } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
-      versions: next.versions.map((v) => ({ version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength })),
+      versions: next.versions.map((v) => {
+        const path = pathOf(v);
+        return { version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength, ...(path !== undefined ? { sourcePath: path } : {}) };
+      }),
     });
     if (!previous) return true;
-    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName;
+    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath;
   }
 
   /** The `(version, digest, byteLength)` a placement resolves through now. */
@@ -147,6 +153,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     displayName: a.displayName,
     currentVersion: a.currentVersion,
     versionCount: a.versionCount,
+    ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),
   };
 }

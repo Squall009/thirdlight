@@ -184,6 +184,7 @@ const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
   'sourceByteLength',
+  'sourcePath',
   'importRecipe',
   'metrics',
   'importedAt',
@@ -236,6 +237,24 @@ function digestError(path: string, found: unknown): ModelErrorV2 {
     },
     found,
   );
+}
+
+/** The longest accepted `sourcePath` (UTF-16 code units). */
+export const MAX_SOURCE_PATH_LENGTH = 512;
+
+/**
+ * A referenced asset version's `sourcePath`: relative to the game folder,
+ * forward slashes only, 1–512 characters, no empty, `.` or `..` segment, no
+ * leading `/`, no drive letter, no backslash and no control characters. It
+ * is a name inside the game folder, never a host path (charter §4).
+ */
+export function isValidSourcePath(s: unknown): s is string {
+  if (typeof s !== 'string' || s.length < 1 || s.length > MAX_SOURCE_PATH_LENGTH) return false;
+  for (let k = 0; k < s.length; k++) {
+    const c = s.charCodeAt(k);
+    if (c <= 0x1f || c === 0x7f || c === 0x5c /* backslash */ || c === 0x3a /* colon */) return false;
+  }
+  return s.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
 }
 
 function canonicalBytes(text: string): number {
@@ -532,6 +551,20 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
         len,
       ),
     );
+  }
+  const sourcePath = v['sourcePath'];
+  if (sourcePath !== undefined) {
+    if (typeof sourcePath !== 'string') errors.push(fieldType(`${path}/sourcePath`, sourcePath, 'string'));
+    else if (!isValidSourcePath(sourcePath)) {
+      errors.push(
+        fieldValue(
+          `${path}/sourcePath`,
+          sourcePath,
+          'a relative path with forward slashes, 1-512 characters, no "..", "." or empty segments, no ":" or "\\"',
+          'sourcePath must be a relative path inside the game folder',
+        ),
+      );
+    }
   }
   if (v['importRecipe'] === undefined) errors.push(fieldMissing(`${path}/importRecipe`, 'importRecipe'));
   else validateImportRecipe(v['importRecipe'], `${path}/importRecipe`, errors, kind);
@@ -1277,6 +1310,7 @@ function canonicalVersion(v: AssetVersion): AssetVersion {
     version: v.version,
     sourceDigest: v.sourceDigest,
     sourceByteLength: v.sourceByteLength,
+    ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
     importRecipe: canonicalRecipe(v.importRecipe),
     metrics: canonicalMetrics(v.metrics),
     importedAt: v.importedAt,
@@ -1304,6 +1338,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: 'model' | 'audio'): AssetVe
     version: v.version,
     sourceDigest: v.sourceDigest,
     sourceByteLength: v.sourceByteLength,
+    ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
   if (kind === 'audio') {

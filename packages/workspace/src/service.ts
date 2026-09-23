@@ -82,6 +82,10 @@ import {
   inspectStage,
   publishBlob,
   readBlob,
+  listProjectFiles,
+  inspectProjectFile,
+  type InspectProjectFileResult,
+  type ProjectFileListResult,
   readCapturedV3,
   readSourceBlob,
   stageContent,
@@ -196,6 +200,7 @@ function contentCtx(s: ProjectSession): ContentContext {
     revision: s.revision,
     scene: s.scene,
     content: s.content,
+    gameFolder: s.gameFolder ?? null,
   };
 }
 
@@ -219,7 +224,7 @@ function sessionEnvelopeBytes(
  * version's digest/length), or null for a non-publication / history-op
  * result. commit-time verification (workspace.md §13.3.2 step 4) uses it.
  */
-function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength: number } | null {
+function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength: number; sourcePath?: string } | null {
   const ch = result.change;
   if (ch.type === 'publishBehavior') {
     // Packet 33: a source publication references the immutable container blob
@@ -231,7 +236,12 @@ function publishedBlobRef(result: MutationSuccess): { digest: string; byteLength
   if (ch.type !== 'publishAsset' || ch.next === null) return null;
   const last = ch.next.versions[ch.next.versions.length - 1];
   if (last === undefined) return null;
-  return { digest: last.sourceDigest, byteLength: last.sourceByteLength };
+  const sourcePath = (last as { sourcePath?: string }).sourcePath;
+  // Undo/redo restore a version recorded (and verified) earlier. A file
+  // referenced in place may have changed since; that is reported by the
+  // integrity check, and reads refuse it, but it must not block the undo.
+  if (sourcePath !== undefined && (result.op === 'undo' || result.op === 'redo')) return null;
+  return { digest: last.sourceDigest, byteLength: last.sourceByteLength, ...(sourcePath !== undefined ? { sourcePath } : {}) };
 }
 
 export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceService {
@@ -438,7 +448,8 @@ function buildService(core: Core): WorkspaceService {
     if (s.storageVersion !== 1 && s.content !== null) {
       const ref = publishedBlobRef(outcome.result);
       if (ref !== null) {
-        const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength);
+        // A version referenced in place is verified against the game-folder file.
+        const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
         if (!v.ok) return failRequest(request, v.error);
         const used = authoritativeBytes(s.dir);
         if (used > core.content.maxSourceBytesPerProject) {
@@ -970,6 +981,31 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
+  /** One folder of a folder project's game folder (importable files and subfolders). */
+  function listProjectFilesOp(projectId: string, dir: string): ProjectFileListResult {
+    return deepFreeze(
+      withOpenSession<ProjectFileListResult>(
+        projectId,
+        (s) => listProjectFiles(contentCtx(s), dir),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
+  /**
+   * "Import from project folder": inspect a file in the game folder in place.
+   * Nothing is copied; the returned `sourcePath` goes into `publishAsset`.
+   */
+  function inspectProjectFileOp(projectId: string, sourcePath: string, options?: InspectStageOptions): InspectProjectFileResult {
+    return deepFreeze(
+      withOpenSession<InspectProjectFileResult>(
+        projectId,
+        (s) => inspectProjectFile(core, contentCtx(s), sourcePath, options ?? {}),
+        (error) => ({ ok: false, error }),
+      ),
+    );
+  }
+
   /** `publishBlob` (workspace.md §13.2/§11): immutable blob publication (no lock). */
   function publishBlobOp(projectId: string, request: BlobPublishRequest): BlobPublishResult {
     return deepFreeze(
@@ -1294,6 +1330,8 @@ function buildService(core: Core): WorkspaceService {
     inspectStage: inspectStageOp,
     publishBlob: publishBlobOp,
     readBlob: readBlobOp,
+    listProjectFiles: listProjectFilesOp,
+    inspectProjectFile: inspectProjectFileOp,
     readSourceBlob: readSourceBlobOp,
     contentIntegrity: contentIntegrityOp,
     captureContentView: captureContentViewOp,

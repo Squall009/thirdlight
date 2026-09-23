@@ -115,12 +115,16 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ 128, default 50); ' +
       'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
-      'optional); target="integrity" returns the bounded content-integrity report; target="game" returns the ' +
-      'full normalized `content.game` block (the v3 `queryGameConfig`, or null). Never returns bytes.',
+      'optional); target="integrity" returns the bounded content-integrity report (a file referenced in place is ' +
+      'ok / changed / missing); target="game" returns the ' +
+      'full normalized `content.game` block (the v3 `queryGameConfig`, or null); target="projectFiles" lists one ' +
+      'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.wav ' +
+      'files) for tl_content_upload projectPath. Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles'] },
+        dir: { type: 'string', description: 'target="projectFiles": a folder relative to the game folder ("" = the game folder)' },
         assetId: { type: 'string' },
         prefabId: { type: 'string' },
         behaviorId: { type: 'string' },
@@ -140,11 +144,18 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Stage and inspect a source file over the real backend content routes (no filesystem bypass): creates a ' +
       'bounded upload stage, uploads ≤ 1 MiB frames, and returns the bounded import proposal (or the structured ' +
       'import_rejected error carrying the ordered diagnostics). dataBase64 ≤ 32 MiB decoded. The command that ' +
-      'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup.',
+      'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup. ' +
+      'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
+      'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
+      'the file. Give exactly one of dataBase64 or projectPath.',
     inputSchema: {
       type: 'object',
       properties: {
         dataBase64: { type: 'string', description: 'base64 of the source bytes (≤ 32 MiB decoded)' },
+        projectPath: {
+          type: 'string',
+          description: 'a .glb/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
+        },
         displayName: { type: 'string' },
         kind: { type: 'string', enum: ['model', 'audio'] },
         animation: {
@@ -158,7 +169,6 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           additionalProperties: false,
         },
       },
-      required: ['dataBase64'],
       additionalProperties: false,
     },
   },
@@ -530,6 +540,12 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
 /** Bounded M2 content queries (commands.md §4/§5.6 + the content routes). */
 async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const target = a.target;
+  if (target === 'projectFiles') {
+    const dir = a.dir ?? '';
+    if (typeof dir !== 'string') return toolError('dir must be a string');
+    const res = await ctx.client.listProjectFiles(ctx.projectId, dir);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
   if (target === 'integrity') {
     const res = await ctx.client.contentIntegrity(ctx.projectId);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
@@ -586,7 +602,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBehaviors', args: { ...args, ...paged.args } });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", or "game"');
+  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", or "projectFiles"');
 }
 
 function pageArgs(a: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; error: CallToolResult } {
@@ -619,7 +635,11 @@ function decodeBase64(text: string): Uint8Array | null {
 
 /** Stage + upload (bounded frames) + inspect over the real backend routes. */
 async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
-  if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return toolError('dataBase64 is required');
+  if (a.projectPath !== undefined) {
+    if (a.dataBase64 !== undefined) return toolError('give either dataBase64 or projectPath, not both');
+    return projectFileInspect(ctx, a);
+  }
+  if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return toolError('dataBase64 or projectPath is required');
   const bytes = decodeBase64(a.dataBase64);
   if (bytes === null) return toolError('dataBase64 is not valid base64');
   if (bytes.length === 0) return toolError('dataBase64 decodes to zero bytes');
@@ -656,6 +676,28 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
   }
   const inspected = await ctx.client.inspectStage(ctx.projectId, stageId, inspectBody);
   return isObj(inspected.body) && inspected.body.ok === true ? toolOk(inspected.body) : surfaceBackendError(inspected);
+}
+
+/** Inspect a file already in the game folder, in place (no upload, no copy). */
+async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (typeof a.projectPath !== 'string' || a.projectPath.length === 0) return toolError('projectPath must be a non-empty string');
+  const body: Record<string, unknown> = { path: a.projectPath };
+  if (a.displayName !== undefined) {
+    if (typeof a.displayName !== 'string' || a.displayName.length < 1 || a.displayName.length > 128) {
+      return toolError('displayName must be a 1–128 character string');
+    }
+    body.displayName = a.displayName;
+  }
+  if (a.kind !== undefined) {
+    if (a.kind !== 'model' && a.kind !== 'audio') return toolError('kind must be "model" or "audio"');
+    body.kind = a.kind;
+  }
+  if (a.animation !== undefined) {
+    if (!isObj(a.animation) || !isObj(a.animation.roles)) return toolError('animation.roles must be an object');
+    body.animation = a.animation;
+  }
+  const res = await ctx.client.inspectProjectFile(ctx.projectId, body);
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 // ---- packet 48 §20 game control/observation relay tools -----------------------
