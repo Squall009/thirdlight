@@ -31,10 +31,12 @@ Thirdlight is running.
   editor:   http://127.0.0.1:8501/#token=<token>
   projects: /home/dadmin/thirdlight/projects
   token:    /home/dadmin/thirdlight/owner-token
-  MCP:      THIRDLIGHT_AUTHORING_ORIGIN=... THIRDLIGHT_MCP_TOKEN=<the token> ...
+  MCP:      THIRDLIGHT_AUTHORING_ORIGIN=... THIRDLIGHT_MCP_TOKEN=<the token> node .../mcp.mjs ...
 ```
 
-Open the printed URL. The browser stores the token in localStorage; after
+Open the printed URL. On a terminal it carries the token
+(`#token=...`); when the output is not a terminal (systemd, a log file) the
+token is left out and the page asks for it once. The browser stores the token in localStorage; after
 that `http://127.0.0.1:8501/` is enough. Ctrl+C stops the backend cleanly
 (projects are released for the next start).
 
@@ -64,14 +66,15 @@ sudo cp deploy/thirdlight.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now thirdlight
 systemctl status thirdlight            # state
-journalctl -u thirdlight -n 50         # the printed editor URL is in here
+journalctl -u thirdlight -n 50         # the printed editor URL (without the token)
 sudo systemctl restart thirdlight      # after a rebuild
 ```
 
 Edit `--host` in the unit if the address browsers use changes. The editor
 is then at `http://10.0.10.223:8501/` (token from
-`~/thirdlight/owner-token`). Note the start script prints the token to the
-journal, which other local users in `adm`/`systemd-journal` can read.
+`~/thirdlight/owner-token`). The journal never gets the token. Builds
+before 2026-09-23 printed it there; if yours did, rotate the token (see
+below).
 
 ## Behind a reverse proxy
 

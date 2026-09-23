@@ -135,12 +135,14 @@ function main() {
     process.stderr.write(text);
     if (!announced && text.includes('listening')) {
       announced = true;
+      // The token goes into the URL only on a terminal; logs (systemd's journal) never get it.
+      const editor = process.stderr.isTTY ? `${authoringOrigin}/#token=${tok.token}` : `${authoringOrigin}/   (the page asks once for the token in ${tok.file})`;
       process.stderr.write(
         `\nThirdlight is running.\n` +
-        `  editor:   ${authoringOrigin}/#token=${tok.token}\n` +
+        `  editor:   ${editor}\n` +
         `  projects: ${join(opts.dataRoot, 'projects')}\n` +
         `  token:    ${tok.file}\n` +
-        `  MCP:      THIRDLIGHT_AUTHORING_ORIGIN=${authoringOrigin} THIRDLIGHT_MCP_TOKEN=<the token> THIRDLIGHT_PROJECT_ID=<project> node ${join(ENGINE_ROOT, 'dist', 'mcp-adapter', 'mcp.mjs')}\n` +
+        `  MCP:      THIRDLIGHT_AUTHORING_ORIGIN=${authoringOrigin} THIRDLIGHT_MCP_TOKEN=<the token> node ${join(ENGINE_ROOT, 'dist', 'mcp-adapter', 'mcp.mjs')}   (run in a project folder, or set THIRDLIGHT_PROJECT_ID)\n` +
         `Press Ctrl+C to stop.\n`,
       );
     }

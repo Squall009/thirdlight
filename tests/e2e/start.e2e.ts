@@ -1,7 +1,8 @@
 /**
  * The one-command start: `node tools/start.mjs` on an empty data root
  * creates the owner token, starts the backend, and prints an editor URL that
- * opens the project picker in a real browser. Stopping it is clean, and the
+ * opens the project picker in a real browser (the token itself is printed only
+ * to a terminal, never to a log). Stopping it is clean, and the
  * next start reuses the same token.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -77,11 +78,13 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
     expect(existsSync(tokenFile)).toBe(true);
     expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
     const token = readFileSync(tokenFile, 'utf8').trim();
-    expect(first.editorUrl).toBe(`http://127.0.0.1:${port}/#token=${token}`);
+    // Not a terminal (like systemd's journal): the URL is printed without the token.
+    expect(first.editorUrl).toBe(`http://127.0.0.1:${port}/`);
+    expect(first.output()).not.toContain(token);
     expect(existsSync(join(dataRoot, 'projects'))).toBe(true);
 
-    // The printed URL opens the project picker (no projects yet).
-    await page.goto(first.editorUrl);
+    // The printed URL + the token opens the project picker (no projects yet).
+    await page.goto(`${first.editorUrl}#token=${token}`);
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
     await expect(page.getByText('No projects yet')).toBeVisible();
     // The token is usable against the API from the browser's origin.
@@ -126,8 +129,8 @@ test('behind a reverse proxy: --origin/--preview-origin are the origins the brow
   try {
     const started = await start(dataRoot, port, previewPort, ['--origin', origin, '--preview-origin', preview]);
     const token = readFileSync(join(dataRoot, 'owner-token'), 'utf8').trim();
-    expect(started.editorUrl).toBe(`${origin}/#token=${token}`);
-    await page.goto(started.editorUrl);
+    expect(started.editorUrl).toBe(`${origin}/`);
+    await page.goto(`${started.editorUrl}#token=${token}`);
     await page.getByLabel('Project id').fill('proxied');
     await page.getByLabel('Template').selectOption('beacon-reach');
     await page.getByRole('button', { name: 'Create and open' }).click();
