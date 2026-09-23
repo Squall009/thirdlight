@@ -24,8 +24,26 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .tl-app__preview { position: absolute; inset: 0; background: var(--panel); overflow: hidden;
   display: flex; flex-direction: column; z-index: 1; }
-.tl-app__preview--small { inset: auto; right: 12px; top: 12px; width: min(640px, 60%); aspect-ratio: 16 / 10;
-  border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+/* The Scene tab while playing: the game keeps running behind the viewport. */
+.tl-app__preview--hidden { visibility: hidden; }
+.tl-app__game-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); background: #0e1015; }
+
+/* Unity-like docks: hierarchy left, scene/game centre, inspector right, a
+ * tabbed dock along the bottom; splitters between them. */
+.tl-app__main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tl-app__row { flex: 1; display: flex; min-height: 0; }
+.tl-app__center { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tl-dock { flex: none; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  background: var(--panel); overflow: hidden; }
+.tl-dock--left { border-right: 0; }
+.tl-dock--right { border-left: 0; }
+.tl-dock--bottom { border-top: 0; }
+.tl-splitter { flex: none; background: var(--border); touch-action: none; }
+.tl-splitter--v { width: 4px; cursor: col-resize; }
+.tl-splitter--h { height: 4px; cursor: row-resize; }
+.tl-splitter:hover { background: var(--accent); }
+.tl-tabs--center { flex: none; }
 .tl-app__preview-label { display: flex; align-items: center; gap: 8px; }
 .tl-app__preview-label .tl-btn { margin-left: auto; }
 .tl-notice { position: absolute; left: 12px; top: 12px; max-width: 60%; display: flex; gap: 10px;
@@ -38,11 +56,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-panel { width: 100%; background: var(--panel); display: flex; flex-direction: column;
   min-height: 0; flex: 1; overflow-y: auto; }
 
-/* Left sidebar: one tabbed column so the viewport keeps the space. */
-.tl-sidebar { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0;
-  background: var(--panel); border-right: 1px solid var(--border); }
 .tl-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 6px 0;
-  border-bottom: 1px solid var(--border); }
+  border-bottom: 1px solid var(--border); background: var(--panel); }
 .tl-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
   padding: 5px 8px; cursor: pointer; font-size: 12px; }
 .tl-tab:hover { color: var(--text); }
@@ -74,7 +89,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-row__kind--camera { color: #ffe08a; }
 .tl-row__name { overflow: hidden; text-overflow: ellipsis; }
 
-.tl-inspector { width: 300px; flex: none; border-left: 1px solid var(--border); }
+.tl-inspector { flex: 1; }
 .tl-inspector__modes { display: flex; gap: 6px; padding: 10px; }
 .tl-inspector__body { padding: 10px 12px; }
 .tl-inspector__name { font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; }
@@ -120,7 +135,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Packet 27 — content browser panel (queries/jobs/placement). Practical
  * panels only; no decorative or graph UI (decision 0001 §10 scope guard). */
 .tl-panel__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tl-assets__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 42%; }
+/* Wide (bottom-dock) layout: the list and its actions left, preview + place right. */
+.tl-assets__body { flex: 1; display: flex; min-height: 0; }
+.tl-assets__main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tl-assets__side { width: 340px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid var(--border); overflow-y: auto; }
+.tl-assets__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 60px; }
 .tl-assets__version { margin-left: auto; color: var(--muted); font-size: 11px; }
 .tl-assets__paging { padding: 4px 10px; color: var(--muted); font-size: 11px; }
 .tl-assets__actions { display: flex; gap: 6px; padding: 6px 10px; flex-wrap: wrap; }
@@ -130,7 +150,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .tl-assets__status--committed { color: var(--ok); }
 .tl-assets__error { color: var(--err); font-size: 11px; margin-top: 2px; }
 .tl-assets__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-.tl-assets__preview { border-top: 1px solid var(--border); padding: 6px 10px; }
+.tl-assets__preview { padding: 6px 10px; }
 .tl-assets__preview-head { color: var(--muted); font-size: 11px; margin-bottom: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-assets__preview-body { margin-top: 6px; }
@@ -174,10 +194,15 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 /* Packet 34 — trusted behavior publication (runtime.md §14.2; project-model
  * §22). Form rows, the normative trust notice and bounded diagnostics only;
  * there is deliberately no source evaluator or "run" control here. */
+/* Wide (bottom-dock) layout: notice + list left, detail/source/new right. */
+.tl-behaviors__body { flex: 1; display: flex; min-height: 0; }
+.tl-behaviors__main { width: 38%; min-width: 260px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--border); }
+.tl-behaviors__side { flex: 1; min-width: 0; overflow-y: auto; }
 .tl-behaviors__notice { padding: 8px 10px; border-bottom: 1px solid var(--border);
-  background: rgba(255, 136, 0, 0.08); max-height: 30%; overflow-y: auto; }
+  background: rgba(255, 136, 0, 0.08); max-height: 45%; overflow-y: auto; flex: none; }
 .tl-behaviors__notice-line { color: var(--warn); font-size: 10px; margin: 0 0 6px 0; line-height: 1.35; }
-.tl-behaviors__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 22%; }
+.tl-behaviors__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 60px; }
 .tl-behaviors__meta { margin-left: auto; color: var(--muted); font-size: 11px; }
 .tl-behaviors__detail { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-behaviors__props { width: 100%; font-size: 11px; border-collapse: collapse; }
@@ -313,7 +338,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-problem__source--workspace { color: var(--warn); }
 .tl-problem__message { overflow-wrap: anywhere; }
 
-.tl-assets__preview-canvas { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--border);
+.tl-assets__preview-canvas { display: block; width: 100%; max-height: 150px; aspect-ratio: 4 / 3; border: 1px solid var(--border);
   border-radius: 4px; margin: 6px 0; }
 .tl-row__kind--light { color: #ffe08a; }
 .tl-problem__source--import, .tl-problem__source--compile { color: var(--warn); }

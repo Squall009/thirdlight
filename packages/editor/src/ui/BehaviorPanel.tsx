@@ -64,6 +64,8 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
     <div className="tl-panel tl-behaviors">
       <div className="tl-panel__title">Behaviors — trusted source</div>
 
+      <div className="tl-behaviors__body">
+      <div className="tl-behaviors__main">
       <div className="tl-behaviors__notice" role="note" aria-label="trust notice">
         {BEHAVIOR_TRUST_NOTICE.map((line) => (
           <p key={line.slice(0, 24)} className="tl-behaviors__notice-line">
@@ -90,6 +92,9 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
         ))}
         {p.behaviors.length === 0 && <li className="tl-row tl-row--empty">no published behaviors</li>}
       </ul>
+      </div>
+
+      <div className="tl-behaviors__side">
 
       {selected && (
         <div className="tl-behaviors__detail">
@@ -210,6 +215,8 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
       <div className="tl-prop__caption">
         active play: {p.activePlay ? `${p.activePlay.snapshotId} @ r${p.activePlay.revision}` : 'none'} — a staged edit or a
         new publication never changes the running play instance (a fresh play is required).
+      </div>
+      </div>
       </div>
     </div>
   );

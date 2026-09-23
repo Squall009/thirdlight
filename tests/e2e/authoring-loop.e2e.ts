@@ -41,7 +41,7 @@ test('the viewport gets the space at 1920×1080 and an existing scene shows on o
   await openEditor(page);
   const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
   expect(box.width).toBeGreaterThan(1000);
-  expect(box.height).toBeGreaterThan(700);
+  expect(box.height).toBeGreaterThan(600); // a 300px bottom dock sits under it
   // The default scene's camera is listed without any edit first.
   await expect(rows(page)).toHaveCount(BASE);
   await expect(rows(page).first()).toContainText('camera');

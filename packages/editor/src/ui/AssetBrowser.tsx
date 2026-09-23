@@ -78,6 +78,8 @@ export function AssetBrowser(p: Props): JSX.Element {
         </button>
       </div>
 
+      <div className="tl-assets__body">
+      <div className="tl-assets__main">
       <ul className="tl-assets__list">
         {p.assets.map((a) => (
           <li
@@ -195,7 +197,9 @@ export function AssetBrowser(p: Props): JSX.Element {
           </div>
         )}
       </div>
+      </div>
 
+      <div className="tl-assets__side">
       {selected && (
         <div className="tl-assets__preview">
           <div className="tl-assets__preview-head" title={selected.assetId}>
@@ -240,6 +244,8 @@ export function AssetBrowser(p: Props): JSX.Element {
           place
         </button>
         {!p.placementAvailable && <span className="tl-assets__hint">select an asset to place</span>}
+      </div>
+      </div>
       </div>
     </div>
   );

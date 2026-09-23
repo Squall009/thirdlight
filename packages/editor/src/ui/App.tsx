@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 import { createRoot } from 'react-dom/client';
 import { forgetToken, readEditorConfig } from '../config';
 import { ProjectsScreen, TokenForm } from './Projects';
+import { useDockSizes } from './layout';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
@@ -197,12 +198,15 @@ function EditorApp(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0, external: null, problems: [] });
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
-  const [leftTab, setLeftTab] = useState<LeftTab>('scene');
+  /** The bottom dock's active panel. */
+  const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
+  /** The centre view: the editor scene or the running game. */
+  const [centerTab, setCenterTab] = useState<'scene' | 'game'>('scene');
+  const { sizes, splitter } = useDockSizes();
+  const stageRef = useRef<HTMLDivElement | null>(null);
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  /** The play preview fills the viewport area; `small` keeps it in a corner window. */
-  const [previewSmall, setPreviewSmall] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
   /** Forwards a backend relay request to the running preview (latest play state). */
   const forwardRelayRef = useRef<(req: Record<string, unknown>) => void>(() => undefined);
@@ -353,6 +357,7 @@ function EditorApp(): JSX.Element {
       onSceneChanged: () => refreshEntities(),
       onPlayStarted: (r: PlayStartResult & { snapshot: unknown }) => {
         setPlaying(true);
+        setCenterTab('game');
         setPlayInfo((p) => ({
           playSessionId: r.playSessionId,
           playBase: r.playBase,
@@ -369,6 +374,7 @@ function EditorApp(): JSX.Element {
       },
       onPlayStopped: () => {
         setPlaying(false);
+        setCenterTab('scene');
         setPlayInfo(null);
         bridgeRef.current = null;
       },
@@ -644,6 +650,15 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     clientRef.current?.setSelection(selectedId === null ? [] : [selectedId]);
   }, [selectedId]);
+
+  // The viewport canvas follows the stage element (dock splitters, tabs).
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => viewportRef.current?.resize());
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, []);
 
   // ---- the isolated play preview (separate-origin iframe + bridge) --------
   useEffect(() => {
@@ -1691,17 +1706,9 @@ function EditorApp(): JSX.Element {
         onStop={() => void stop()}
       />
       <div className="tl-app__body">
-        <div className="tl-sidebar">
-          <div className="tl-tabs" role="tablist">
-            {LEFT_TABS.map((t) => (
-              <button key={t.id} role="tab" aria-selected={leftTab === t.id} className={`tl-tab${leftTab === t.id ? ' is-active' : ''}`} onClick={() => setLeftTab(t.id)}>
-                {t.label}
-                {t.id === 'problems' && ui.problems.length > 0 ? <span className="tl-tab__count">{ui.problems.length}</span> : null}
-              </button>
-            ))}
-          </div>
-          {leftTab === 'problems' && <ProblemsPanel problems={ui.problems} />}
-          {leftTab === 'scene' && (
+        <div className="tl-app__main">
+          <div className="tl-app__row">
+            <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
             <Hierarchy
           entities={entities}
           selectedId={selectedId}
@@ -1709,137 +1716,22 @@ function EditorApp(): JSX.Element {
           onRename={(id, name) => void rename(id, name)}
           onReparent={(id, parentId) => void reparent(id, parentId)}
         />
-          )}
-          {leftTab === 'assets' && (
-            <AssetBrowser
-              assets={assets}
-              query={assetQuery}
-              importState={importState}
-              selectedAssetId={selectedAssetId}
-              placementAvailable={placement !== null && assetPlacementAvailable()}
-              placementMessage={placementError?.message ?? null}
-              preview={assetPreview}
-              onRefresh={() => void refreshAssets()}
-              onSelect={setSelectedAssetId}
-              onImport={(f) => void importFile(f, 'create')}
-              onReimport={(f) => void importFile(f, 'reimport')}
-              onPublish={() => void publish()}
-              onCancel={() => void cancelImportFlow()}
-              onDiscard={() => void discardImportFlow()}
-              onPreview={(id) => void loadPreview(id)}
-              previewCanvasRef={previewCanvasRef}
-              onPreviewPlay={previewPlay}
-              onPreviewPause={previewPause}
-              onPreviewScrub={previewScrub}
-              onPlace={() => void placeAsset()}
-              roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
-              roleEntity={reimportEntity}
-              roleDraft={reimportRoles}
-              onRoleEntityChange={setReimportEntity}
-              onRoleDraftChange={setReimportRoles}
-            />
-          )}
-          {leftTab === 'prefabs' && (
-            <PrefabPanel
-              selection={selected}
-              definitions={prefabSummaries}
-              selectedPrefabId={selectedPrefabId}
-              targets={overrideTargets}
-              captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
-              captureError={captureError}
-              copyError={copyError}
-              overrideCount={Object.keys(overrideDrafts).length}
-              onCaptureName={setCaptureName}
-              onCapture={() => void capturePrefab()}
-              onSelect={(id) => {
-                setSelectedPrefabId(id);
-                setOverrideDrafts({});
-                setCopyError(null);
-              }}
-              onPlaceCopy={(id) => void placeCopy(id)}
-              onOverrideCommit={commitOverride}
-            />
-          )}
-          {leftTab === 'behaviors' && (
-            <BehaviorPanel
-              behaviors={behaviorViews}
-              selectedBehaviorId={selectedBehaviorId}
-              publication={publication}
-              sourceDraft={sourceDraft}
-              activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
-              error={behaviorError}
-              newBehaviorId={newBehaviorId}
-              newDisplayName={newDisplayName}
-              newPropertyKey={newPropertyKey}
-              newPropertyDefault={newPropertyDefault}
-              onSelect={(id) => {
-                setSelectedBehaviorId(id);
-                setBehaviorError(null);
-              }}
-              onSourceDraft={setSourceDraft}
-              onStage={() => void stageBehaviorSource()}
-              onAcknowledge={(digest) => void acknowledgeDigest(digest)}
-              onPublishSource={() => void publishStagedSource()}
-              onNewBehaviorId={setNewBehaviorId}
-              onNewDisplayName={setNewDisplayName}
-              onNewPropertyKey={setNewPropertyKey}
-              onNewPropertyDefault={setNewPropertyDefault}
-              onCreateDeclaration={() => void createDeclaration()}
-            />
-          )}
-          {leftTab === 'gameplay' && (
-            <GameplayPanel
-              entities={entities}
-              gameConfig={gameConfig}
-              gameConfigLoaded={gameConfigLoaded}
-              settings={settings}
-              tool={gameplayTool}
-              onArmTool={armZoneTool}
-              onSaveGameConfig={(g) => void saveGameConfig(g)}
-              onAddZone={(r, s) => void addZone(r, s)}
-              onEditZone={(id, n) => void editZone(id, n)}
-              onDeleteZone={(id) => void deleteZone(id)}
-              onAddSpawn={() => void addSpawn()}
-              onDeleteSpawn={(id) => void deleteSpawn(id)}
-              onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
-              onSaveSettings={(s) => void saveSettings(s)}
-              backendError={gameplayError}
-            />
-          )}
-          {leftTab === 'media' && (
-            <MediaPanel
-              entities={entities}
-              selected={selected}
-              gameConfig={gameConfig}
-              gameConfigLoaded={gameConfigLoaded}
-              assets={assets}
-              clipNames={
-                selected !== null && selected.kind === 'model' && selected.assetId !== undefined
-                  ? (assetPreview !== null && assetPreview.assetId === selected.assetId
-                      ? assetPreview.clips.map((c) => c.name)
-                      : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
-                        ? mediaPendingRef.current.clipNames
-                        : null)
-                  : null
-              }
-              backendError={mediaError}
-              onDismissError={() => setMediaError(null)}
-              onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
-              onAddLight={(t) => void addLight(t)}
-              onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
-              onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
-              onApplyPreset={(id, p) => void applyPreset(id, p)}
-              onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
-              onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
-              previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
-              previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
-              onUnlockPreview={unlockPreview}
-              onPreviewCue={(id) => void previewCue(id)}
-            />
-          )}
-        </div>
-        <div className="tl-app__stage">
+            </div>
+            <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
+            <div className="tl-app__center">
+              <div className="tl-tabs tl-tabs--center" role="tablist">
+                <button role="tab" aria-selected={centerTab === 'scene'} className={`tl-tab${centerTab === 'scene' ? ' is-active' : ''}`} onClick={() => setCenterTab('scene')}>
+                  Scene
+                </button>
+                <button role="tab" aria-selected={centerTab === 'game'} className={`tl-tab${centerTab === 'game' ? ' is-active' : ''}`} onClick={() => setCenterTab('game')}>
+                  Game
+                </button>
+              </div>
+        <div className="tl-app__stage" ref={stageRef}>
           <canvas ref={canvasRef} className="tl-viewport" />
+          {centerTab === 'game' && !playing && (
+            <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
+          )}
           {ui.external !== null && (
             <div className="tl-notice tl-notice--external" role="alert">
               <span>
@@ -1870,14 +1762,11 @@ function EditorApp(): JSX.Element {
             </div>
           )}
           {playing && previewSrc && (
-            <div className={`tl-app__preview${previewSmall ? ' tl-app__preview--small' : ''}`}>
+            <div className={`tl-app__preview${centerTab === 'game' ? '' : ' tl-app__preview--hidden'}`}>
               <div className="tl-app__preview-label">
                 <span>
                   play {playInfo?.snapshotId ?? ''} @ r{playInfo?.revision ?? 0}
                 </span>
-                <button className="tl-btn tl-btn--small" onClick={() => setPreviewSmall((v) => !v)} title={previewSmall ? 'Fill the viewport area' : 'Shrink to a corner window'}>
-                  {previewSmall ? 'large' : 'small'}
-                </button>
               </div>
               <iframe
                 ref={playIframeRef}
@@ -1889,6 +1778,150 @@ function EditorApp(): JSX.Element {
             </div>
           )}
         </div>
+            </div>
+          </div>
+          <div className="tl-splitter tl-splitter--h" onPointerDown={splitter('bottom')} role="separator" aria-orientation="horizontal" aria-label="Resize the bottom panel" />
+          <div className="tl-dock tl-dock--bottom" style={{ height: sizes.bottom }}>
+            <div className="tl-tabs" role="tablist">
+              {BOTTOM_TABS.map((t) => (
+                <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
+                  {t.label}
+                  {t.id === 'problems' && ui.problems.length > 0 ? <span className="tl-tab__count">{ui.problems.length}</span> : null}
+                </button>
+              ))}
+            </div>
+          {bottomTab === 'problems' && <ProblemsPanel problems={ui.problems} />}
+          {bottomTab === 'assets' && (
+            <AssetBrowser
+              assets={assets}
+              query={assetQuery}
+              importState={importState}
+              selectedAssetId={selectedAssetId}
+              placementAvailable={placement !== null && assetPlacementAvailable()}
+              placementMessage={placementError?.message ?? null}
+              preview={assetPreview}
+              onRefresh={() => void refreshAssets()}
+              onSelect={setSelectedAssetId}
+              onImport={(f) => void importFile(f, 'create')}
+              onReimport={(f) => void importFile(f, 'reimport')}
+              onPublish={() => void publish()}
+              onCancel={() => void cancelImportFlow()}
+              onDiscard={() => void discardImportFlow()}
+              onPreview={(id) => void loadPreview(id)}
+              previewCanvasRef={previewCanvasRef}
+              onPreviewPlay={previewPlay}
+              onPreviewPause={previewPause}
+              onPreviewScrub={previewScrub}
+              onPlace={() => void placeAsset()}
+              roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
+              roleEntity={reimportEntity}
+              roleDraft={reimportRoles}
+              onRoleEntityChange={setReimportEntity}
+              onRoleDraftChange={setReimportRoles}
+            />
+          )}
+          {bottomTab === 'prefabs' && (
+            <PrefabPanel
+              selection={selected}
+              definitions={prefabSummaries}
+              selectedPrefabId={selectedPrefabId}
+              targets={overrideTargets}
+              captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
+              captureError={captureError}
+              copyError={copyError}
+              overrideCount={Object.keys(overrideDrafts).length}
+              onCaptureName={setCaptureName}
+              onCapture={() => void capturePrefab()}
+              onSelect={(id) => {
+                setSelectedPrefabId(id);
+                setOverrideDrafts({});
+                setCopyError(null);
+              }}
+              onPlaceCopy={(id) => void placeCopy(id)}
+              onOverrideCommit={commitOverride}
+            />
+          )}
+          {bottomTab === 'behaviors' && (
+            <BehaviorPanel
+              behaviors={behaviorViews}
+              selectedBehaviorId={selectedBehaviorId}
+              publication={publication}
+              sourceDraft={sourceDraft}
+              activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
+              error={behaviorError}
+              newBehaviorId={newBehaviorId}
+              newDisplayName={newDisplayName}
+              newPropertyKey={newPropertyKey}
+              newPropertyDefault={newPropertyDefault}
+              onSelect={(id) => {
+                setSelectedBehaviorId(id);
+                setBehaviorError(null);
+              }}
+              onSourceDraft={setSourceDraft}
+              onStage={() => void stageBehaviorSource()}
+              onAcknowledge={(digest) => void acknowledgeDigest(digest)}
+              onPublishSource={() => void publishStagedSource()}
+              onNewBehaviorId={setNewBehaviorId}
+              onNewDisplayName={setNewDisplayName}
+              onNewPropertyKey={setNewPropertyKey}
+              onNewPropertyDefault={setNewPropertyDefault}
+              onCreateDeclaration={() => void createDeclaration()}
+            />
+          )}
+          {bottomTab === 'gameplay' && (
+            <GameplayPanel
+              entities={entities}
+              gameConfig={gameConfig}
+              gameConfigLoaded={gameConfigLoaded}
+              settings={settings}
+              tool={gameplayTool}
+              onArmTool={armZoneTool}
+              onSaveGameConfig={(g) => void saveGameConfig(g)}
+              onAddZone={(r, s) => void addZone(r, s)}
+              onEditZone={(id, n) => void editZone(id, n)}
+              onDeleteZone={(id) => void deleteZone(id)}
+              onAddSpawn={() => void addSpawn()}
+              onDeleteSpawn={(id) => void deleteSpawn(id)}
+              onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
+              onSaveSettings={(s) => void saveSettings(s)}
+              backendError={gameplayError}
+            />
+          )}
+          {bottomTab === 'media' && (
+            <MediaPanel
+              entities={entities}
+              selected={selected}
+              gameConfig={gameConfig}
+              gameConfigLoaded={gameConfigLoaded}
+              assets={assets}
+              clipNames={
+                selected !== null && selected.kind === 'model' && selected.assetId !== undefined
+                  ? (assetPreview !== null && assetPreview.assetId === selected.assetId
+                      ? assetPreview.clips.map((c) => c.name)
+                      : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
+                        ? mediaPendingRef.current.clipNames
+                        : null)
+                  : null
+              }
+              backendError={mediaError}
+              onDismissError={() => setMediaError(null)}
+              onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
+              onAddLight={(t) => void addLight(t)}
+              onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
+              onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
+              onApplyPreset={(id, p) => void applyPreset(id, p)}
+              onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
+              onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
+              previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
+              previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
+              onUnlockPreview={unlockPreview}
+              onPreviewCue={(id) => void previewCue(id)}
+            />
+          )}
+          </div>
+        </div>
+        <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
+        <div className="tl-dock tl-dock--right" style={{ width: sizes.right }}>
         <Inspector
           entity={selected}
           gizmoMode={gizmoMode}
@@ -1904,16 +1937,16 @@ function EditorApp(): JSX.Element {
           onRename={(entityId, name) => void rename(entityId, name)}
           onEditTransform={(entityId, patch) => void editTransform(entityId, patch)}
         />
+        </div>
       </div>
       <StatusBar state={ui} onResync={resync} />
     </div>
   );
 }
 
-type LeftTab = 'scene' | 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media' | 'problems';
+type BottomTab = 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'media' | 'problems';
 
-const LEFT_TABS: ReadonlyArray<{ id: LeftTab; label: string }> = [
-  { id: 'scene', label: 'Scene' },
+const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
