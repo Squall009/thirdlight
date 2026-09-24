@@ -109,8 +109,8 @@ export function LightEditor({ light, onSave }: Props): JSX.Element {
   );
 }
 
-/** Phase 9.5: the fog volume section of the Inspector (size, density, colour, soft edges). */
-export function FogVolumeEditor({ volume, onSave }: { volume: { size: [number, number, number]; density: number; color: string; falloff?: number }; onSave: (patch: Record<string, unknown>) => void }): JSX.Element {
+/** Phase 9.5: the fog volume section of the Inspector (size, density, colour, soft edges; 14.4: height falloff). */
+export function FogVolumeEditor({ volume, onSave }: { volume: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number }; onSave: (patch: Record<string, unknown>) => void }): JSX.Element {
   const [draft, setDraft] = useState(volume);
   useEffect(() => setDraft(volume), [JSON.stringify(volume)]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -146,6 +146,11 @@ export function FogVolumeEditor({ volume, onSave }: { volume: { size: [number, n
       <label className="tl-field">
         <span className="tl-field__label">soft edges</span>
         <input type="range" aria-label="fog falloff" min={0} max={1} step={0.01} value={draft.falloff ?? 0.5} onChange={(e) => setDraft({ ...draft, falloff: Number(e.target.value) })} onPointerUp={() => onSave({ falloff: draft.falloff ?? 0.5 })} onKeyUp={() => onSave({ falloff: draft.falloff ?? 0.5 })} />
+      </label>
+      <label className="tl-field" title="how fast the fog thins with height above the box bottom (per metre; 0: even)">
+        <span className="tl-field__label">thins with height</span>
+        <input type="range" aria-label="fog height falloff" min={0} max={10} step={0.05} value={draft.heightFalloff ?? 0} onChange={(e) => setDraft({ ...draft, heightFalloff: Number(e.target.value) })} onPointerUp={() => (draft.heightFalloff ?? 0) !== (volume.heightFalloff ?? 0) && onSave({ heightFalloff: draft.heightFalloff ?? 0 })} onKeyUp={() => (draft.heightFalloff ?? 0) !== (volume.heightFalloff ?? 0) && onSave({ heightFalloff: draft.heightFalloff ?? 0 })} />
+        <span className="tl-param__value">{(draft.heightFalloff ?? 0).toFixed(2)}</span>
       </label>
       <label className="tl-field">
         <span className="tl-field__label">colour</span>

@@ -51,7 +51,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   instances: ['asset', 'buffer', 'count'],
   // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
-  fogVolume: ['size', 'density', 'color', 'falloff'],
+  fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   // Phase 9.9: gameplay building blocks.
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],

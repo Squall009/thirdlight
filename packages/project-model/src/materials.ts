@@ -287,7 +287,12 @@ export interface PostConfig {
   toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
   exposure?: number;
   bloom?: { enabled: boolean; strength?: number; radius?: number; threshold?: number };
-  grading?: { contrast?: number; saturation?: number; brightness?: number; tint?: string; lut?: string };
+  /**
+   * Colour grading. Phase 14.4: lift (raises the blacks, −0.5–0.5, default 0),
+   * gamma (mid-tones, 0.2–5, default 1: >1 brightens) and gain (scales the
+   * whites, 0–4, default 1) — the defaults leave the image unchanged.
+   */
+  grading?: { contrast?: number; saturation?: number; brightness?: number; tint?: string; lut?: string; lift?: number; gamma?: number; gain?: number };
   vignette?: { enabled: boolean; darkness?: number; offset?: number };
   ssao?: { enabled: boolean; radius?: number; intensity?: number };
   dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
@@ -315,22 +320,57 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   if (value['quality'] !== undefined && !['low', 'medium', 'high'].includes(value['quality'] as string)) err(errors, 'field_value', `${path}/quality`, 'quality is low, medium or high', value['quality']);
-  const w = value['wind'];
-  if (w === undefined) return;
+  if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
+}
+
+/**
+ * Phase 14.4: a level's look (`flow.levels[].environment`) — the parts of the
+ * environment a level may lay over the project's while it plays. Quality is
+ * the player's setting and stays project-wide.
+ */
+export type LevelEnvironment = Pick<EnvironmentConfig, 'sky' | 'fog' | 'post' | 'wind'>;
+
+export function validateLevelEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) {
+    err(errors, 'field_type', path, 'a level environment is an object { sky?, fog?, post?, wind? }', value);
+    return;
+  }
+  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown level environment field "${k}"`, k, 'sky, fog, post, wind');
+  if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
+  if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
+  if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
+  if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
+}
+
+export function canonicalLevelEnvironment(e: LevelEnvironment): LevelEnvironment {
+  const { quality: _q, ...rest } = canonicalEnvironment(e);
+  return rest;
+}
+
+/** The texture assets a level look names (sky images, the grading LUT). */
+export function environmentTextureRefs(e: Pick<EnvironmentConfig, 'sky' | 'post'>): string[] {
+  const out: string[] = [];
+  if (e.sky?.texture !== undefined) out.push(e.sky.texture);
+  for (const id of e.sky?.cube ?? []) out.push(id);
+  if (e.post?.grading?.lut !== undefined) out.push(e.post.grading.lut);
+  return out;
+}
+
+function validateWind(w: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(w)) {
-    err(errors, 'field_type', `${path}/wind`, 'wind is an object', w);
+    err(errors, 'field_type', path, 'wind is an object', w);
     return;
   }
   const d = w['direction'];
   if (!Array.isArray(d) || d.length !== 2 || !d.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= 1) || (d[0] === 0 && d[1] === 0)) {
-    err(errors, 'field_value', `${path}/wind/direction`, 'direction is [x, z], each in [-1, 1], not both 0', d);
+    err(errors, 'field_value', `${path}/direction`, 'direction is [x, z], each in [-1, 1], not both 0', d);
   }
   const range: Record<string, [number, number]> = { strength: [0, 10], gust: [0, 10], gustFrequency: [0, 10], turbulence: [0, 1] };
   for (const [k, [lo, hi]] of Object.entries(range)) {
     const v = w[k];
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) err(errors, 'field_value', `${path}/wind/${k}`, `${k} must be a number in [${lo}, ${hi}]`, v);
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) err(errors, 'field_value', `${path}/${k}`, `${k} must be a number in [${lo}, ${hi}]`, v);
   }
-  for (const k of Object.keys(w)) if (k !== 'direction' && !(k in range)) err(errors, 'field_unexpected', `${path}/wind/${k}`, `unknown wind field "${k}"`, k, 'direction, strength, gust, gustFrequency, turbulence');
+  for (const k of Object.keys(w)) if (k !== 'direction' && !(k in range)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown wind field "${k}"`, k, 'direction, strength, gust, gustFrequency, turbulence');
 }
 
 /** Keys in a fixed order, colours lowercase (values were validated). */
@@ -464,7 +504,16 @@ export function validatePost(value: unknown, path: string, errors: ModelErrorV2[
   if (v === null) return;
   const sub: Record<string, Record<string, FieldRule>> = {
     bloom: { enabled: { kind: 'bool' }, strength: { kind: 'num', min: 0, max: 3 }, radius: { kind: 'num', min: 0, max: 1 }, threshold: { kind: 'num', min: 0, max: 2 } },
-    grading: { contrast: { kind: 'num', min: -1, max: 1 }, saturation: { kind: 'num', min: -1, max: 1 }, brightness: { kind: 'num', min: -1, max: 1 }, tint: { kind: 'color' }, lut: { kind: 'id' } },
+    grading: {
+      contrast: { kind: 'num', min: -1, max: 1 },
+      saturation: { kind: 'num', min: -1, max: 1 },
+      brightness: { kind: 'num', min: -1, max: 1 },
+      tint: { kind: 'color' },
+      lut: { kind: 'id' },
+      lift: { kind: 'num', min: -0.5, max: 0.5 },
+      gamma: { kind: 'num', min: 0.2, max: 5 },
+      gain: { kind: 'num', min: 0, max: 4 },
+    },
     vignette: { enabled: { kind: 'bool' }, darkness: { kind: 'num', min: 0, max: 1 }, offset: { kind: 'num', min: 0, max: 2 } },
     ssao: { enabled: { kind: 'bool' }, radius: { kind: 'num', min: 0.01, max: 4 }, intensity: { kind: 'num', min: 0, max: 4 } },
     dof: { enabled: { kind: 'bool' }, focus: { kind: 'num', min: 0.1, max: 1000 }, aperture: { kind: 'num', min: 0, max: 0.1 }, maxBlur: { kind: 'num', min: 0, max: 0.05 } },
@@ -481,12 +530,18 @@ export interface FogVolumeComponent {
   color: string;
   /** Soft edges: 0 = hard box, 1 = fades from the centre. */
   falloff?: number;
+  /**
+   * Phase 14.4: how fast the density fades with height above the box's
+   * bottom, per metre (density × e^(−heightFalloff × height); 0–10). Absent
+   * or 0: the same density at every height, as before.
+   */
+  heightFalloff?: number;
 }
 
 export const MAX_FOG_VOLUMES = 16;
 
 export function validateFogVolumeComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  const v = checkFields(value, path, { size: { kind: 'other' }, density: { kind: 'num', min: 0, max: 1 }, color: { kind: 'color' }, falloff: { kind: 'num', min: 0, max: 1 } }, ['size', 'density', 'color'], errors);
+  const v = checkFields(value, path, { size: { kind: 'other' }, density: { kind: 'num', min: 0, max: 1 }, color: { kind: 'color' }, falloff: { kind: 'num', min: 0, max: 1 }, heightFalloff: { kind: 'num', min: 0, max: 10 } }, ['size', 'density', 'color'], errors);
   if (v === null) return;
   const size = v['size'];
   if (!Array.isArray(size) || size.length !== 3 || !size.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 1000)) {
@@ -495,5 +550,5 @@ export function validateFogVolumeComponent(value: unknown, path: string, errors:
 }
 
 export function canonicalFogVolume(v: FogVolumeComponent): FogVolumeComponent {
-  return { size: [v.size[0], v.size[1], v.size[2]], density: v.density, color: v.color.toLowerCase(), ...(v.falloff !== undefined ? { falloff: v.falloff } : {}) };
+  return { size: [v.size[0], v.size[1], v.size[2]], density: v.density, color: v.color.toLowerCase(), ...(v.falloff !== undefined ? { falloff: v.falloff } : {}), ...(v.heightFalloff !== undefined ? { heightFalloff: v.heightFalloff } : {}) };
 }

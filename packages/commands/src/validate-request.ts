@@ -1233,7 +1233,7 @@ export function validateOpArgs(
     case 'setFlow': {
       for (const k of Object.keys(args)) if (k !== 'flow') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'flow') };
       if (args['flow'] === undefined) return { ok: false, error: fieldMissing('/args/flow', 'flow') };
-      if (args['flow'] !== null && !isPlainObject(args['flow'])) return { ok: false, error: fieldType('/args/flow', args['flow'], 'object ({ levels, lives?, title?, hud?, ui?, texts?, volumes? }) or null (no flow)') };
+      if (args['flow'] !== null && !isPlainObject(args['flow'])) return { ok: false, error: fieldType('/args/flow', args['flow'], 'object ({ levels, lives?, title?, hud?, ui?, texts?, volumes?, score? }) or null (no flow)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setAnimator':

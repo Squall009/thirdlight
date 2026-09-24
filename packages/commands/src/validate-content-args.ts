@@ -465,7 +465,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   modelAnimation: ['assetId', 'version', 'roles'],
   // Phase 12 (c) / 9.4 (v4 scenes).
   instances: ['asset', 'buffer', 'count'],
-  fogVolume: ['size', 'density', 'color', 'falloff'],
+  fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
   audioSource: ['assetId', 'volume', 'range'],

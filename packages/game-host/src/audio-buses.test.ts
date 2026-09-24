@@ -80,4 +80,25 @@ describe('audio buses, music, sounds and loops', () => {
     expect(loop.stopped).toBe(true);
     expect(owner.loops!()).toEqual({});
   });
+
+  it('phase 14.5: menu sounds play on the ui bus, which has its own volume', async () => {
+    const f = fakeContext();
+    const owner = createGameAudioOwner({ contextFactory: () => f.ctx });
+    owner.setVolume!('ui', 0.4);
+    owner.registerCue('tick', new Uint8Array([7]));
+    await owner.unlock();
+    await flush();
+    expect(owner.playSound!('tick', 1, 'ui')).toBe(true);
+    const [master, , sfx, ui] = f.gains;
+    expect(ui.to).toBe(master);
+    expect(ui.gain.value).toBeCloseTo(0.4, 5);
+    const tick = f.sources[f.sources.length - 1];
+    expect(tick.to.to).toBe(ui);
+    expect(owner.playSound!('tick', 1)).toBe(true);
+    expect(f.sources[f.sources.length - 1].to.to).toBe(sfx);
+    expect(owner.soundsPlayed!()).toEqual({ sfx: 1, ui: 1 });
+    owner.setVolume!('ui', 0.9);
+    expect(ui.gain.value).toBeCloseTo(0.9, 5);
+    expect(owner.volumes!()).toMatchObject({ ui: 0.9, sfx: 1 });
+  });
 });

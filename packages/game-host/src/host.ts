@@ -64,7 +64,7 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges } from './flow';
+import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, type SaveStorage } from './save';
 
 /** delivery.md §3.1. */
@@ -100,6 +100,8 @@ export interface HostInputOwner {
   /** Phase 9.10: menu edges, key capture and rebinding (the browser owner has them). */
   sampleUi?(): FlowUiEdges;
   captureKey?(onKey: (code: string | null) => void): () => void;
+  /** Phase 14.5: the next pad button pressed (the settings screen's pad rebinding). */
+  capturePadButton?(onButton: (button: number | null) => void): () => void;
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
 }
 
@@ -136,8 +138,14 @@ export interface GameHostObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 9.10, additive: the game flow (screen, level, lives, music, volumes). */
   readonly flow?: FlowObservation;
-  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain). */
+  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain; phase 14.5: `ambience:<n>` for a level's ambience). */
   readonly loops?: Readonly<Record<string, number>>;
+  /**
+   * Phase 14.5, additive: while the title menu shows, its background scene
+   * (null: the first level's start) and the camera's offset from where it
+   * follows the player (the title scene's framing plus the pan).
+   */
+  readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -209,6 +217,14 @@ export interface GameHostConfig {
   readonly saveNamespace?: string;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Phase 14.4: apply the playing level's look (the wrapper forwards it to the renderer; null = the project environment). */
+  readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
+  /**
+   * Phase 14.5: move the rendered camera by an offset from where the game
+   * places it (the title background and pan; null = none). Presentation
+   * only: the simulation's camera is unchanged.
+   */
+  readonly setCameraOffset?: (offset: readonly [number, number, number] | null) => void;
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -531,6 +547,66 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
+  /** Phase 14.5: the playing level's ambience, looped on the sfx bus (keys `ambience:<n>`). */
+  const liveAmbience = new Set<string>();
+  const serviceAmbience = (): void => {
+    if (config.audio.setLoop === undefined || flowCtl === null) return;
+    const want = flowCtl.ambience();
+    const seen = new Set<string>();
+    want.forEach((assetId, i) => {
+      const key = `ambience:${i}`;
+      config.audio.setLoop!(key, assetId, 1);
+      seen.add(key);
+      liveAmbience.add(key);
+    });
+    for (const key of [...liveAmbience]) {
+      if (seen.has(key)) continue;
+      config.audio.setLoop(key, null, 0);
+      liveAmbience.delete(key);
+    }
+  };
+
+  /**
+   * Phase 14.5: the camera behind the title menu. With a background scene it
+   * frames the scene's first player spawn (else the middle of its objects)
+   * as it frames the player: the offset is that point minus the player's
+   * position. The pan adds `distance · (1 − cos(π·t/seconds)) / 2` along x —
+   * out over `seconds`, back over the next. Wall-clock time, presentation
+   * only (the simulation never sees it).
+   */
+  let titleSince: number | null = null;
+  let titleOffset: [number, number, number] | null = null;
+  const nowSeconds = (): number => {
+    const perf = (globalThis as { performance?: { now(): number } }).performance;
+    return perf !== undefined ? perf.now() / 1000 : Date.now() / 1000;
+  };
+  const serviceTitleView = (rt: Runtime): void => {
+    const tv = flowCtl?.titleView() ?? null;
+    if (tv === null || (tv.scene === null && tv.pan === null)) {
+      titleSince = null;
+      if (titleOffset !== null) {
+        titleOffset = null;
+        config.setCameraOffset?.(null);
+      }
+      return;
+    }
+    if (titleSince === null) titleSince = nowSeconds();
+    let offset: [number, number, number] = [0, 0, 0];
+    if (tv.scene !== null) {
+      const batch = rt.sceneSet?.().batches.find((b) => b.sceneId === tv.scene);
+      const st = rt.getInterpolatedState();
+      const player = st.ok ? st.state.transforms.find((t) => t.id === config.snapshot.game?.playerId) : undefined;
+      const anchor = batch !== undefined ? titleAnchor(batch.entities) : null;
+      if (anchor !== null && player !== undefined) offset = [anchor[0] - player.position[0]!, anchor[1] - player.position[1]!, anchor[2] - player.position[2]!];
+    }
+    if (tv.pan !== null) {
+      const t = nowSeconds() - titleSince;
+      offset = [offset[0] + (tv.pan.distance * (1 - Math.cos((Math.PI * t) / tv.pan.seconds))) / 2, offset[1], offset[2]];
+    }
+    titleOffset = offset;
+    config.setCameraOffset?.(offset);
+  };
+
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
@@ -612,6 +688,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // Phase 9.10: the sounds scripts played, and the audio sources' loops.
     for (const req of runtime.takeAudioRequests?.() ?? []) config.audio.playSound?.(req.assetId, req.volume);
     serviceAudioSources(runtime);
+    serviceAmbience();
+    serviceTitleView(runtime);
     if (hud !== null) {
       const state = buildHudState(view.state, view.deathCount, view.checkpointActive, lastCheckpointStep);
       hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
@@ -760,6 +838,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
         dom,
         container: config.container,
         runtime: {
+          ...(typeof rt.requestScene === 'function'
+            ? {
+                requestScene: (op: 'load' | 'unload', sceneId: string) => {
+                  const r = rt.requestScene!(op, sceneId);
+                  return r.ok ? { ok: true as const } : { ok: false as const, error: { message: r.error.message } };
+                },
+              }
+            : {}),
           startLevel: (l, restore) => rt.startLevel!(l, restore),
           runState: () => rt.runState!(),
           setPaused: (p) => rt.setPaused?.(p),
@@ -768,10 +854,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
         audio: config.audio,
         input: {
           ...(config.input.captureKey !== undefined ? { captureKey: (cb: (code: string | null) => void) => config.input.captureKey!(cb) } : {}),
+          ...(config.input.capturePadButton !== undefined ? { capturePadButton: (cb: (button: number | null) => void) => config.input.capturePadButton!(cb) } : {}),
           ...(config.input.configure !== undefined ? { configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => config.input.configure!(c) } : {}),
           ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
         },
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
+        ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).
@@ -790,6 +878,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         const tracks = new Set<string>();
         for (const l of flow.levels) if (l.music !== undefined) tracks.add(l.music);
         if (flow.title?.music !== undefined) tracks.add(flow.title.music);
+        // Phase 14.5: a music-kind ambience loop needs its bytes too (audio-kind ones are registered as cues below).
+        for (const l of flow.levels) for (const id of l.ambience ?? []) if (config.assetKinds?.[id] === 'music') tracks.add(id);
         for (const id of tracks) {
           const path = config.assetPaths[id];
           if (typeof path !== 'string' || path.length === 0) continue;
@@ -872,7 +962,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
         ...scenesObservation(runtime),
         ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
-        ...(liveLoops.size > 0 && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
+        ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
+        ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
       },
     };
   };
@@ -989,4 +1080,26 @@ export async function linkBehaviorModules(
     specs.push(spec);
   }
   return specs;
+}
+
+/**
+ * Phase 14.5: the point a title background scene is framed on — its first
+ * player spawn, else the middle of its objects' positions (null: an empty scene).
+ */
+export function titleAnchor(entities: readonly { readonly components?: unknown }[]): [number, number, number] | null {
+  const pos = (e: { readonly components?: unknown }): readonly number[] | undefined => ((e.components ?? {}) as { transform?: { position?: readonly number[] } }).transform?.position;
+  const spawn = entities.find((e) => ((e.components ?? {}) as { playerSpawn?: unknown }).playerSpawn !== undefined);
+  const sp = spawn !== undefined ? pos(spawn) : undefined;
+  if (sp !== undefined) return [sp[0] ?? 0, sp[1] ?? 0, sp[2] ?? 0];
+  const all = entities.map(pos).filter((p): p is readonly number[] => p !== undefined);
+  if (all.length === 0) return null;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of all) {
+    for (let i = 0; i < 3; i++) {
+      lo[i] = Math.min(lo[i]!, p[i] ?? 0);
+      hi[i] = Math.max(hi[i]!, p[i] ?? 0);
+    }
+  }
+  return [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2];
 }

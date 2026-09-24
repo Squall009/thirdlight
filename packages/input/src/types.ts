@@ -58,13 +58,16 @@ export interface RawInputSnapshot {
     id: string;
     /** `Gamepad.mapping`; only exactly `'standard'` contributes (input.md §4.1). */
     mapping: string;
-    /** Left stick axis 0, raw; dead-zone rescaling happens in the mapping. */
+    /**
+     * The move stick axis, raw (axis 0 unless the project's `move` action
+     * binds other axes — phase 14.5); dead-zone rescaling happens in the mapping.
+     */
     axis0: number;
-    /** Primary face button (`buttons[0].pressed`, the standard A/cross). */
+    /** The jump button(s) held (standard: `buttons[0]`, A/cross; phase 14.5: the `jump` action's pad buttons when bound). */
     button0: boolean;
-    /** D-pad left (`buttons[14].pressed`). */
+    /** Move left held (standard: D-pad left, `buttons[14]`; or the `move` action's rebound button). */
     button14: boolean;
-    /** D-pad right (`buttons[15].pressed`). */
+    /** Move right held (standard: D-pad right, `buttons[15]`; or the `move` action's rebound button). */
     button15: boolean;
   } | null;
 }

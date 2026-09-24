@@ -198,6 +198,10 @@ export function composeV4(
   if (flow !== undefined) {
     const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
     const holder = (id: string | undefined): string | undefined => (id === undefined ? undefined : entityById.get(id)?.sceneId);
+    // Phase 14.5: the title background is a scene of this project.
+    if (flow.title?.scene !== undefined && !sceneIds.has(flow.title.scene)) {
+      errors.push(projectError('/flow/title/scene', 'reference_missing', 'the title background names an unknown scene', 'a sceneId of this project', { document: 'content' } as never, flow.title.scene));
+    }
     flow.levels.forEach((level, i) => {
       const p = `/flow/levels/${i}`;
       for (const id of level.scenes) {

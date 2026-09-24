@@ -4,10 +4,15 @@
  * same renderer Play and export use). Each control commits on release as one
  * `setEnvironment` (one undo).
  *
+ * Phase 14.4: with `level` it edits that level's look instead (the Game flow
+ * window's "Level look…"): each part (sky, fog, post, wind) switched on for
+ * the level replaces the project's while the level plays (post merges per
+ * effect); every change is one `setFlow`.
+ *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { EnvironmentConfig, FogConfig, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
+import type { EnvironmentConfig, FogConfig, LevelEnvironment, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { DEFAULT_WIND } from '../session/material-schema';
 
 interface Props {
@@ -15,7 +20,12 @@ interface Props {
   textures: readonly { assetId: string; displayName: string }[];
   onSave: (environment: EnvironmentConfig) => void;
   error: string | null;
+  /** Phase 14.4: edit this level's look (over the project environment) instead of the project environment. */
+  level?: { id: string; name: string; environment: LevelEnvironment | null; onSave: (environment: LevelEnvironment | null) => void; onBack: () => void };
 }
+
+type LevelPart = 'sky' | 'fog' | 'post' | 'wind';
+const PART_LABEL: Record<LevelPart, string> = { sky: 'sky', fog: 'fog', post: 'post-processing', wind: 'wind' };
 
 const round = (v: number, d = 3): number => Number(v.toFixed(d));
 
@@ -90,8 +100,36 @@ function Toggle(props: { label: string; name: string; value: boolean; onCommit: 
 }
 
 export function EnvironmentPanel(p: Props): JSX.Element {
-  const env: EnvironmentConfig = p.environment ?? {};
-  const save = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...env, ...patch });
+  const lv = p.level;
+  const project: EnvironmentConfig = p.environment ?? {};
+  const override: LevelEnvironment = lv?.environment ?? {};
+  // What the level plays with: the project's parts, the level's own laid over them (post per effect).
+  const env: EnvironmentConfig =
+    lv === undefined ? project : { ...project, ...override, ...(override.post !== undefined ? { post: { ...(project.post ?? {}), ...override.post } } : {}) };
+  const saveLevel = (next: LevelEnvironment): void => {
+    const clean = Object.fromEntries(Object.entries(next).filter(([k, v]) => v !== undefined && k !== 'quality')) as LevelEnvironment;
+    lv!.onSave(Object.keys(clean).length > 0 ? clean : null);
+  };
+  const save = (patch: Partial<EnvironmentConfig>): void => (lv !== undefined ? saveLevel({ ...override, ...patch }) : p.onSave({ ...env, ...patch }));
+  /** In level mode a part is edited only when the level has its own; the project's parts are always edited. */
+  const own = (k: LevelPart): boolean => lv === undefined || override[k] !== undefined;
+  const ownToggle = (k: LevelPart, fallback: () => unknown): JSX.Element | null =>
+    lv === undefined ? null : (
+      <>
+        <Toggle
+          label={`this level has its own ${PART_LABEL[k]}`}
+          name={`level own ${k}`}
+          value={override[k] !== undefined}
+          onCommit={(on) => {
+            const next: Record<string, unknown> = { ...override };
+            if (on) next[k] = JSON.parse(JSON.stringify(env[k] ?? fallback()));
+            else delete next[k];
+            saveLevel(next as LevelEnvironment);
+          }}
+        />
+        {override[k] === undefined && <p className="tl-hint">uses the project's {PART_LABEL[k]}</p>}
+      </>
+    );
   const sky: SkyConfig = env.sky ?? { mode: 'procedural' };
   const setSky = (patch: Partial<SkyConfig>): void => save({ sky: { ...sky, ...patch } });
   const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d8e8' };
@@ -108,18 +146,31 @@ export function EnvironmentPanel(p: Props): JSX.Element {
       <div className="tl-panel__title">
         <img className="tl-row__icon" src="./icons/sky.png" alt="" aria-hidden="true" /> Environment
       </div>
-      <p className="tl-inspector__hint">The Scene view shows this with game lighting (toolbar “light: game”); Play and the export use the same.</p>
+      {lv === undefined ? (
+        <p className="tl-inspector__hint">The Scene view shows this with game lighting (toolbar “light: game”); Play and the export use the same.</p>
+      ) : (
+        <div className="tl-animator__row" aria-label="level look">
+          <strong>Level look: {lv.name}</strong>
+          <span className="tl-inspector__hint">Each part this level has its own replaces the project's while it plays (post-processing per effect). The Scene view shows it with “level look” on.</span>
+          <button type="button" className="tl-button" onClick={lv.onBack}>
+            project environment
+          </button>
+        </div>
+      )}
       <div className="tl-environment__grid">
         <section className="tl-inspector__section" aria-label="sky">
           <div className="tl-subhead">Sky</div>
-          <Choice
-            label="sky"
-            name="sky mode"
-            value={env.sky === undefined ? ('' as 'procedural') : sky.mode}
-            options={[['' as 'procedural', '— none (plain background) —'], ['procedural', 'physical (sun + atmosphere)'], ['gradient', 'gradient'], ['texture', 'image'], ['color', 'solid colour']]}
-            onCommit={(mode) => ((mode as string) === '' ? save({ sky: undefined as unknown as SkyConfig }) : setSky({ mode }))}
-          />
-          {env.sky !== undefined && sky.mode === 'procedural' && (
+          {ownToggle('sky', () => ({ mode: 'procedural' }))}
+          {own('sky') && (
+            <Choice
+              label="sky"
+              name="sky mode"
+              value={env.sky === undefined ? ('' as 'procedural') : sky.mode}
+              options={[...(lv === undefined ? [['' as 'procedural', '— none (plain background) —'] as const] : []), ['procedural', 'physical (sun + atmosphere)'], ['gradient', 'gradient'], ['texture', 'image'], ['color', 'solid colour']]}
+              onCommit={(mode) => ((mode as string) === '' ? save({ sky: undefined as unknown as SkyConfig }) : setSky({ mode }))}
+            />
+          )}
+          {own('sky') && env.sky !== undefined && sky.mode === 'procedural' && (
             <>
               <Toggle label="sun from the directional light" name="sun from light" value={sky.sunFromLight !== false} onCommit={(v) => setSky({ sunFromLight: v })} />
               {sky.sunFromLight === false && (
@@ -133,18 +184,18 @@ export function EnvironmentPanel(p: Props): JSX.Element {
               <Slider label="sun glow" name="sky mie" value={sky.mieCoefficient ?? 0.005} min={0} max={0.1} step={0.001} onCommit={(v) => setSky({ mieCoefficient: v })} />
             </>
           )}
-          {env.sky !== undefined && sky.mode === 'gradient' && (
+          {own('sky') && env.sky !== undefined && sky.mode === 'gradient' && (
             <>
               <Colour label="top" name="sky top colour" value={sky.topColor ?? '#3d7cd6'} onCommit={(v) => setSky({ topColor: v })} />
               <Colour label="horizon" name="sky horizon colour" value={sky.horizonColor ?? '#bfe3ff'} onCommit={(v) => setSky({ horizonColor: v })} />
               <Colour label="below" name="sky bottom colour" value={sky.bottomColor ?? '#6b7b5a'} onCommit={(v) => setSky({ bottomColor: v })} />
             </>
           )}
-          {env.sky !== undefined && sky.mode === 'color' && <Colour label="colour" name="sky colour" value={sky.color ?? '#7ec8ff'} onCommit={(v) => setSky({ color: v })} />}
-          {env.sky !== undefined && sky.mode === 'texture' && (
+          {own('sky') && env.sky !== undefined && sky.mode === 'color' && <Colour label="colour" name="sky colour" value={sky.color ?? '#7ec8ff'} onCommit={(v) => setSky({ color: v })} />}
+          {own('sky') && env.sky !== undefined && sky.mode === 'texture' && (
             <Choice label="panorama (equirect)" name="sky texture" value={sky.texture ?? ''} options={textureOptions} onCommit={(v) => setSky(v === '' ? { texture: undefined } : { texture: v })} />
           )}
-          {env.sky !== undefined && (
+          {own('sky') && env.sky !== undefined && (
             <>
               <Slider label="background brightness" name="sky intensity" value={sky.intensity ?? 1} min={0} max={4} step={0.05} onCommit={(v) => setSky({ intensity: v })} />
               <Slider label="sky lighting (IBL)" name="sky environment intensity" value={sky.environmentIntensity ?? 1} min={0} max={4} step={0.05} onCommit={(v) => setSky({ environmentIntensity: v })} />
@@ -154,19 +205,23 @@ export function EnvironmentPanel(p: Props): JSX.Element {
 
         <section className="tl-inspector__section" aria-label="fog">
           <div className="tl-subhead">Fog (fog volumes: GameObject → Fog volume)</div>
-          <Choice label="fog" name="fog mode" value={fog.mode} options={[['none', 'none'], ['linear', 'linear (near → far)'], ['exp2', 'exponential']]} onCommit={(mode) => setFog({ mode })} />
-          {fog.mode !== 'none' && <Colour label="colour" name="fog colour" value={fog.color} onCommit={(v) => setFog({ color: v })} />}
-          {fog.mode === 'linear' && (
+          {ownToggle('fog', () => ({ mode: 'none', color: '#c8d8e8' }))}
+          {own('fog') && <Choice label="fog" name="fog mode" value={fog.mode} options={[['none', 'none'], ['linear', 'linear (near → far)'], ['exp2', 'exponential']]} onCommit={(mode) => setFog({ mode })} />}
+          {own('fog') && fog.mode !== 'none' && <Colour label="colour" name="fog colour" value={fog.color} onCommit={(v) => setFog({ color: v })} />}
+          {own('fog') && fog.mode === 'linear' && (
             <>
               <Slider label="starts at (m)" name="fog near" value={fog.near ?? 10} min={0} max={500} step={1} onCommit={(v) => setFog({ near: v })} />
               <Slider label="full at (m)" name="fog far" value={fog.far ?? 120} min={1} max={2000} step={1} onCommit={(v) => setFog({ far: v })} />
             </>
           )}
-          {fog.mode === 'exp2' && <Slider label="density" name="fog density" value={fog.density ?? 0.01} min={0} max={0.2} step={0.001} onCommit={(v) => setFog({ density: v })} />}
+          {own('fog') && fog.mode === 'exp2' && <Slider label="density" name="fog density" value={fog.density ?? 0.01} min={0} max={0.2} step={0.001} onCommit={(v) => setFog({ density: v })} />}
         </section>
 
         <section className="tl-inspector__section" aria-label="post-processing">
           <div className="tl-subhead">Post-processing</div>
+          {ownToggle('post', () => ({}))}
+          {own('post') && (
+          <>
           <Choice label="tone mapping" name="tone mapping" value={post.toneMapping ?? 'agx'} options={[['agx', 'AgX'], ['aces', 'ACES filmic'], ['neutral', 'neutral'], ['none', 'none']]} onCommit={(v) => setPost({ toneMapping: v })} />
           <Slider label="exposure" name="exposure" value={post.exposure ?? 1} min={0} max={4} step={0.05} onCommit={(v) => setPost({ exposure: v })} />
           <Toggle label="bloom" name="bloom" value={post.bloom?.enabled === true} onCommit={(v) => setPost({ bloom: { ...(post.bloom ?? {}), enabled: v } })} />
@@ -180,6 +235,9 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Slider label="brightness" name="grading brightness" value={post.grading?.brightness ?? 0} min={-1} max={1} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), brightness: v } })} />
           <Slider label="contrast" name="grading contrast" value={post.grading?.contrast ?? 0} min={-1} max={1} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), contrast: v } })} />
           <Slider label="saturation" name="grading saturation" value={post.grading?.saturation ?? 0} min={-1} max={1} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), saturation: v } })} />
+          <Slider label="lift (blacks)" name="grading lift" value={post.grading?.lift ?? 0} min={-0.5} max={0.5} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), lift: v } })} />
+          <Slider label="gamma (mid-tones)" name="grading gamma" value={post.grading?.gamma ?? 1} min={0.2} max={5} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), gamma: v } })} />
+          <Slider label="gain (whites)" name="grading gain" value={post.grading?.gain ?? 1} min={0} max={4} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), gain: v } })} />
           <Colour label="tint" name="grading tint" value={post.grading?.tint ?? '#ffffff'} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), tint: v } })} />
           <Choice label="LUT (strip image)" name="grading lut" value={post.grading?.lut ?? ''} options={textureOptions} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), lut: v === '' ? undefined : v } })} />
           <Toggle label="vignette" name="vignette" value={post.vignette?.enabled === true} onCommit={(v) => setPost({ vignette: { ...(post.vignette ?? {}), enabled: v } })} />
@@ -188,11 +246,16 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Toggle label="depth of field (high quality)" name="depth of field" value={post.dof?.enabled === true} onCommit={(v) => setPost({ dof: { ...(post.dof ?? {}), enabled: v } })} />
           {post.dof?.enabled === true && <Slider label="focus distance (m)" name="dof focus" value={post.dof.focus ?? 10} min={0.5} max={100} step={0.5} onCommit={(v) => setPost({ dof: { ...post.dof!, focus: v } })} />}
           <Choice label="anti-aliasing" name="antialias" value={post.antialias ?? 'none'} options={[['none', 'none (MSAA only)'], ['fxaa', 'FXAA'], ['smaa', 'SMAA']]} onCommit={(v) => setPost({ antialias: v })} />
-          <Choice label="quality (default)" name="quality" value={env.quality ?? 'high'} options={[['low', 'low'], ['medium', 'medium'], ['high', 'high']]} onCommit={(v) => save({ quality: v })} />
+          </>
+          )}
+          {lv === undefined && <Choice label="quality (default)" name="quality" value={env.quality ?? 'high'} options={[['low', 'low'], ['medium', 'medium'], ['high', 'high']]} onCommit={(v) => save({ quality: v })} />}
         </section>
 
         <section className="tl-inspector__section" aria-label="wind">
           <div className="tl-subhead">Wind (bends foliage materials by their vertex colour)</div>
+          {ownToggle('wind', () => ({ ...DEFAULT_WIND, direction: [...DEFAULT_WIND.direction] }))}
+          {own('wind') && (
+          <>
           <Slider
             label="direction (°)"
             name="wind direction"
@@ -209,6 +272,8 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Slider label="gusts" name="wind gust" value={wind.gust} min={0} max={10} step={0.05} onCommit={(v) => setWind({ gust: v })} />
           <Slider label="gusts per second" name="wind gustFrequency" value={wind.gustFrequency} min={0} max={10} step={0.05} onCommit={(v) => setWind({ gustFrequency: v })} />
           <Slider label="turbulence" name="wind turbulence" value={wind.turbulence} min={0} max={1} step={0.01} onCommit={(v) => setWind({ turbulence: v })} />
+          </>
+          )}
         </section>
       </div>
       {p.error !== null && <div className="tl-assets__error" role="alert">{p.error}</div>}

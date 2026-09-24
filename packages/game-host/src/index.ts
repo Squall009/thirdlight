@@ -41,8 +41,9 @@ export {
   type AudioBus,
   MUSIC_MAX_REGISTERED,
 } from './audio';
-export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
-export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges } from './flow';
+export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
+export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';
+export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges, type LevelEnvironmentLike, type MenuSoundKind, type TitlePanLike, type TitleView } from './flow';
 export {
   GAME_HOST_API_VERSION,
   GAME_CONTROL_ACTIONS,
@@ -51,6 +52,7 @@ export {
   cueEventsForView,
   linkBehaviorModules,
   mapSoundStatus,
+  titleAnchor,
   type GameControlAction,
   type GameControlResult,
   type GameControlError,

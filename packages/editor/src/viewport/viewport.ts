@@ -1196,7 +1196,7 @@ export class Viewport {
       const obj = this.meshes.get(id);
       if (obj === undefined || this.hierarchyFlags.get(id)?.active === false) continue;
       obj.getWorldPosition(p);
-      out.push({ center: [p.x, p.y, p.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}) });
+      out.push({ center: [p.x, p.y, p.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
     }
     return out;
   }

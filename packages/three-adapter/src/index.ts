@@ -138,7 +138,10 @@ export {
 // Phase 9.5: sky, fog, fog volumes, tone mapping and the post stack.
 export {
   createEnvironmentRenderer,
+  environmentHasLook,
+  layerEnvironment,
   QUALITY_PROFILE,
+  type EnvironmentLayerLike,
   type EnvironmentLike,
   type EnvironmentRenderer,
   type EnvironmentRendererOptions,

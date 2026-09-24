@@ -50,3 +50,5 @@ export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';
 // Phase 9.8: named input actions.
 export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';
+// Phase 14.5: the platformer's pad controls (rebindable).
+export { platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type PlatformerPad } from './actions';

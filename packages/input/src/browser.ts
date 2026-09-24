@@ -29,7 +29,7 @@ import {
   createMenuController,
   type MenuSample,
 } from './menu';
-import { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputConfigLike } from './actions';
+import { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, platformerPad, readPlatformerPad, STANDARD_PLATFORMER_PAD, type InputConfigLike, type PlatformerPad } from './actions';
 import {
   DEFAULT_KEYBOARD_MAP,
   GAMEPAD_DEAD_ZONE,
@@ -160,6 +160,14 @@ export function attachBrowserInput(
   configure(inputConfig: InputConfigLike): void;
   /** Phase 9.10: hand the next key press to `onKey` (Escape gives null); returns a cancel function. */
   captureKey(onKey: (code: string | null) => void): () => void;
+  /**
+   * Phase 14.5: hand the next pad button pressed (a fresh press — a button
+   * already held when the capture starts must be released first) to
+   * `onButton`; the Escape key gives null. Polled by `sampleUi` (the host
+   * calls it every frame).
+   * Returns a cancel function.
+   */
+  capturePadButton(onButton: (button: number | null) => void): () => void;
 } {
   const globalWindow =
     typeof globalThis === 'object'
@@ -183,6 +191,8 @@ export function attachBrowserInput(
   let LEFT_CODES = new Set<string>();
   let RIGHT_CODES = new Set<string>();
   let JUMP_CODES = new Set<string>();
+  /** Phase 14.5: the pad buttons/axes of the platformer's move and jump (rebindable). */
+  let PAD: PlatformerPad = STANDARD_PLATFORMER_PAD;
   let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
   /** Every key an action uses (held keys and taps between samples feed the evaluator). */
   let ACTION_CODES = new Set<string>();
@@ -193,6 +203,7 @@ export function attachBrowserInput(
     LEFT_CODES = new Set(keyMap.left);
     RIGHT_CODES = new Set(keyMap.right);
     JUMP_CODES = new Set(keyMap.jump);
+    PAD = cfg !== undefined ? platformerPad(cfg) : STANDARD_PLATFORMER_PAD;
     evaluator = cfg !== undefined ? createActionEvaluator(cfg) : null;
     ACTION_CODES = new Set(cfg?.actions.flatMap(actionKeys) ?? []);
     UI_KEYS = uiKeys(cfg ?? DEFAULT_INPUT_CONFIG);
@@ -205,6 +216,9 @@ export function attachBrowserInput(
   };
   let prevUiPad: boolean[] = [];
   let capture: ((code: string | null) => void) | null = null;
+  let padCapture: ((button: number | null) => void) | null = null;
+  /** The buttons held when the pad capture last looked (a press is a fresh down edge). */
+  let padCaptureBase: boolean[] | null = null;
   const actionHeld = new Set<string>();
   const actionPressed = new Set<string>();
   const isMappedCode = (code: unknown): code is string =>
@@ -301,30 +315,33 @@ export function attachBrowserInput(
 
   // --- gamepad bookkeeping (input.md §4.4/§5.4) ----------------------------
 
-  const toSnapshot = (gp: Gamepad): NonNullable<RawInputSnapshot['gamepad']> => {
-    const axis0 = gp.axes[0];
-    const button = (i: number): boolean => gp.buttons[i]?.pressed === true;
+  /**
+   * The pad reduced to the snapshot through the platformer's pad bindings
+   * (phase 14.5: `button0` is the mapped jump, `button14`/`button15` the
+   * mapped left/right buttons, `axis0` the mapped stick — the standard
+   * layout unless rebound). `ignore`: buttons that must not count (a
+   * consumed menu confirm still held).
+   */
+  const padButtons = (gp: Gamepad): boolean[] => Array.from(gp.buttons, (b) => b?.pressed === true);
+  const padAxes = (gp: Gamepad): number[] => Array.from(gp.axes, (a) => (typeof a === 'number' && Number.isFinite(a) ? a : 0));
+  const toSnapshot = (gp: Gamepad, ignore?: ReadonlySet<number>): NonNullable<RawInputSnapshot['gamepad']> => {
+    const r = readPlatformerPad(PAD, padButtons(gp), padAxes(gp), ignore);
     return {
       index: gp.index,
       id: clipDeviceId(gp.id),
       mapping: typeof gp.mapping === 'string' ? gp.mapping : '',
-      axis0: typeof axis0 === 'number' && Number.isFinite(axis0) ? axis0 : 0,
-      button0: button(0),
-      button14: button(14),
-      button15: button(15),
+      axis0: r.axis,
+      button0: r.jump,
+      button14: r.left,
+      button15: r.right,
     };
   };
 
   const deviceHasActivity = (gp: Gamepad): boolean => {
-    const axis0 = gp.axes[0];
-    if (typeof axis0 === 'number' && Number.isFinite(axis0) && Math.abs(axis0) > GAMEPAD_DEAD_ZONE) {
-      return true;
-    }
-    return (
-      gp.buttons[0]?.pressed === true ||
-      gp.buttons[14]?.pressed === true ||
-      gp.buttons[15]?.pressed === true
-    );
+    const r = readPlatformerPad(PAD, padButtons(gp), padAxes(gp));
+    if (Math.abs(r.axis) > GAMEPAD_DEAD_ZONE) return true;
+    // The menu confirm (button 0) wakes a pad too, whatever jump is bound to.
+    return r.jump || r.left || r.right || gp.buttons[0]?.pressed === true;
   };
 
   const reportMappingUnsupported = (gp: Gamepad): void => {
@@ -414,6 +431,15 @@ export function attachBrowserInput(
     const e = event as unknown as KeyboardEventLike;
     if (isEditableTarget(e.target)) return; // typing in the inspector must not move the character
     const code = String(e.code ?? '');
+    if (padCapture !== null && code === 'Escape' && e.repeat !== true) {
+      // Phase 14.5: Escape cancels a pad rebinding.
+      const cb = padCapture;
+      padCapture = null;
+      padCaptureBase = null;
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      cb(null);
+      return;
+    }
     if (capture !== null && e.repeat !== true) {
       // Phase 9.10: a rebinding screen takes this key (nothing else sees it).
       const cb = capture;
@@ -549,27 +575,26 @@ export function attachBrowserInput(
 
     let gamepad: NonNullable<RawInputSnapshot['gamepad']> | null = null;
     let keyboardJumpSuppressed = false;
+    let active: Gamepad | null = null;
     if (gamepadEnabled && pollGamepads) {
       try {
         const list = pollGamepads();
-        const active = pickActiveGamepad(list);
-        gamepad = active ? toSnapshot(active) : null;
-        lastPad = active ? { buttons: Array.from(active.buttons, (b) => b?.pressed === true), axes: Array.from(active.axes, (a) => (Number.isFinite(a) ? a : 0)) } : null;
+        active = pickActiveGamepad(list);
+        lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
-        gamepad = null;
+        active = null;
       }
     }
     // The menu channel sees the primary button (a fresh press confirms; the
-    // same button is the pad's M2 jump — §4.2 suppression below). A
-    // disabled/blocked poll reads as released.
-    menu.gamepadButton0(gamepad !== null && gamepad.button0);
+    // same button is the pad's M2 jump unless rebound — §4.2 suppression
+    // below). A disabled/blocked poll reads as released.
+    menu.gamepadButton0(active !== null && active.buttons[0]?.pressed === true);
     const suppressed = menu.suppress();
-    if (suppressed.gamepad && gamepad !== null) {
-      // A consumed confirm press still held: the SAME physical button must
-      // not also drive the pad jump until it is released.
-      gamepad = { ...gamepad, button0: false };
-    }
+    // A consumed confirm press still held: the SAME physical button must
+    // not also drive the pad jump until it is released (phase 14.5: only
+    // when button 0 is one of the jump buttons; a rebound jump is another button).
+    gamepad = active !== null ? toSnapshot(active, suppressed.gamepad ? new Set([0]) : undefined) : null;
     if (suppressed.keyboard) {
       // A consumed confirm press still held: the same physical key must not
       // contribute to the jump at all — the mapping derives the jump
@@ -654,6 +679,23 @@ export function attachBrowserInput(
         try {
           const pad = Array.from(pollGamepads()).find((g) => g !== null && g.mapping === 'standard') ?? null;
           const now = pad === null ? [] : Array.from(pad.buttons, (b) => b?.pressed === true);
+          if (padCapture !== null) {
+            // Phase 14.5: a pad rebinding takes the next fresh button press
+            // (nothing else sees the pad meanwhile).
+            const base = padCaptureBase ?? now;
+            const hit = now.findIndex((d, i) => d && base[i] !== true);
+            padCaptureBase = now;
+            prevUiPad = [];
+            if (hit >= 0 && hit <= 31) {
+              const cb = padCapture;
+              padCapture = null;
+              padCaptureBase = null;
+              // The chosen button is still down: the menus wait for its release.
+              prevUiPad = [now[12] === true, now[13] === true, now[14] === true, now[15] === true, now[0] === true, now[1] === true, now[9] === true];
+              cb(hit);
+            }
+            return { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+          }
           const ax = pad === null ? [0, 0] : [pad.axes[0] ?? 0, pad.axes[1] ?? 0];
           const dirs = [ax[1]! < -0.6, ax[1]! > 0.6, ax[0]! < -0.6, ax[0]! > 0.6];
           const cur = [now[12] === true || dirs[0]!, now[13] === true || dirs[1]!, now[14] === true || dirs[2]!, now[15] === true || dirs[3]!, now[0] === true, now[1] === true, now[9] === true];
@@ -677,6 +719,24 @@ export function attachBrowserInput(
       actionHeld.clear();
       actionPressed.clear();
       freshActivation();
+    },
+    capturePadButton(onButton: (button: number | null) => void): () => void {
+      padCapture = onButton;
+      padCaptureBase = null;
+      if (gamepadEnabled && pollGamepads && !detached) {
+        try {
+          const pad = Array.from(pollGamepads()).find((g) => g !== null && g.mapping === 'standard') ?? null;
+          padCaptureBase = pad === null ? [] : Array.from(pad.buttons, (b) => b?.pressed === true);
+        } catch {
+          padCaptureBase = [];
+        }
+      }
+      return () => {
+        if (padCapture === onButton) {
+          padCapture = null;
+          padCaptureBase = null;
+        }
+      };
     },
     captureKey(onKey: (code: string | null) => void): () => void {
       capture = onKey;
