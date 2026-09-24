@@ -566,7 +566,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.11 save system | done 2026-09-24 | see git log "9.11" |
 | 9.12 placeholders, icons, gizmos | done 2026-09-24 (owner look pending) | see git log "9.12" |
 | 9.13 Sprout demo levels | done 2026-09-24 (owner look pending) | see git log "9.13"; Sprout 10e0b5a + level-script static pieces (not pushed) |
-| 9.14 wrap-up | todo | |
+| 9.14 wrap-up | done 2026-09-24 | STATUS rows, row 13; deployment.md already had the bake host and headless browser settings |
 
 ## 6. Decision log
 
