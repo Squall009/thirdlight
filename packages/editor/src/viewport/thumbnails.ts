@@ -28,6 +28,15 @@ interface Job {
   resolve: (url: string | null) => void;
 }
 
+/** Resolve when the browser is idle (or after a short pause where idle callbacks are missing). */
+function idle(): Promise<void> {
+  return new Promise((resolve) => {
+    const w = globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(() => resolve(), { timeout: 500 });
+    else setTimeout(resolve, 30);
+  });
+}
+
 export class ThumbnailRenderer {
   private renderer: THREE.WebGLRenderer | null = null;
   private readonly scene = new THREE.Scene();
@@ -73,6 +82,8 @@ export class ThumbnailRenderer {
     this.running = true;
     try {
       for (let job = this.queue.shift(); job !== undefined; job = this.queue.shift()) {
+        // Previews are background work: let input and the editor's own frames run first.
+        await idle();
         if (this.disposed) {
           job.resolve(null);
           continue;
