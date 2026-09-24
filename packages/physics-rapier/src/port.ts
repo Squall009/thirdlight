@@ -29,6 +29,7 @@ import {
   DEFAULT_CAPSULE_HALF_HEIGHT,
   DEFAULT_CAPSULE_RADIUS,
   GROUND_SNAP_DISTANCE,
+  ONE_WAY_LANDING_TOLERANCE,
   PHYSICS_IMPLEMENTATION,
 } from './constants';
 import { correctionError, disposedError, resetError } from './errors';
@@ -376,8 +377,18 @@ function createAdapter(
     // 1. blocked: the deepest capsule-vs-static overlap.
     let blocked = false;
     let maxPenetration = 0;
+    // Phase 14.7: a one-way platform never blocks a spawn — the character
+    // passes up through it (the sweep ignores it while the feet are below its
+    // top), so a spawn inside one is free; it only supports feet on its top.
+    const feet = c.y - feetOffset;
+    const ignoredOneWay = (collider: RAPIER.Collider, forSupport: boolean): boolean => {
+      const info = colliderInfo.get(collider.handle);
+      if (info === undefined || !info.oneWay) return false;
+      return !forSupport || feet < info.body.translation().y + info.top - ONE_WAY_LANDING_TOLERANCE;
+    };
     world.colliders.forEach((collider) => {
       if (collider === characterCollider) return; // the probe is against statics only
+      if (ignoredOneWay(collider, false)) return;
       const contact = collider.contactShape(capsule, { x: c.x, y: c.y }, 0, 0);
       if (contact !== null && contact.distance < -CLEARANCE_PENETRATION_EPS) {
         blocked = true;
@@ -397,6 +408,7 @@ function createAdapter(
     let bestToi = Infinity;
     world.colliders.forEach((collider) => {
       if (collider === characterCollider) return;
+      if (ignoredOneWay(collider, true)) return;
       const hit = collider.castRayAndGetNormal(ray, CLEARANCE_SUPPORT_PROBE, true);
       if (hit !== null && hit.timeOfImpact < bestToi) {
         bestToi = hit.timeOfImpact;
@@ -456,10 +468,38 @@ function createAdapter(
         const top = oneWayTops.get(collider.handle);
         if (top === undefined) return true;
         if (dropSteps > 0 || rising) return false;
-        return feet >= top - 0.06;
+        return feet >= top - ONE_WAY_LANDING_TOLERANCE;
       };
       if (dropSteps > 0) dropSteps -= 1;
+      // Phase 14.7: Rapier's character controller drags the character along
+      // with a kinematic body it touches (the body's velocity along the
+      // contact, "kinematic friction"). Against the side of a mover that
+      // rises past the character — a gate opening, a pillar rising — that
+      // lifts the character up the wall and wedges it. A mover moving mostly
+      // upward only carries a character that is above it (the capsule's
+      // centre over the mover's top: standing on it, or scooped at its edge,
+      // which the runtime's carry and push already move); beside or under it,
+      // its velocity is hidden from this sweep, so it can only push the
+      // character sideways (the runtime's mover push) and never up.
+      // A position-based kinematic body keeps the velocity of its last move
+      // and ignores `setLinvel`, so for the sweep it is made velocity-based at
+      // rest and turned back right after; its next pose is set below, and the
+      // world step derives its velocity from that pose as always.
+      const centreY = before.y + off.y;
+      const stilled: RAPIER.RigidBody[] = [];
+      for (const info of colliderInfo.values()) {
+        const body = info.body;
+        if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
+        const v = body.linvel();
+        if (!(v.y > 0 && v.y >= Math.abs(v.x))) continue;
+        if (centreY >= body.translation().y + info.top) continue;
+        body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);
+        body.setLinvel({ x: 0, y: 0 }, false);
+        body.setAngvel(0, false);
+        stilled.push(body);
+      }
       controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY }, undefined, undefined, oneWayFilter);
+      for (const body of stilled) body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
       const movement = controller.computedMovement();
       const next = { x: before.x + movement.x, y: before.y + movement.y };
       if (
