@@ -677,3 +677,29 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-prop__input.is-invalid { outline: 1px solid #d05050; }
 .tl-playdebug__script { margin-top: 4px; }
 .tl-playdebug .tl-comp__field[data-visibility="private"] .tl-comp__name { font-style: italic; }
+
+/* Phase 16.0: centre workspace tabs (Scene, Game, documents) and maximize. */
+.tl-tabs--center { flex-wrap: nowrap; overflow-x: auto; align-items: flex-end; }
+.tl-wtab { display: flex; align-items: center; flex: none; border-radius: var(--radius) var(--radius) 0 0; }
+.tl-wtab.is-drop-target { box-shadow: inset 2px 0 0 var(--select-line); }
+.tl-tab--doc { display: flex; align-items: center; gap: 6px; padding-right: 26px; max-width: 260px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-tab__icon { width: 14px; height: 14px; flex: none; }
+.tl-wtab__close { margin-left: -24px; position: relative; top: 1px; z-index: 1; width: 20px; height: 20px;
+  border: 0; border-radius: 4px; background: none; color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1; }
+.tl-wtab__close:hover { background: var(--surface-3); color: var(--text); }
+.tl-tabs__maximize { margin-left: auto; align-self: center; flex: none; border: 1px solid transparent; border-radius: var(--radius);
+  background: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 2px 8px; }
+.tl-tabs__maximize:hover, .tl-tabs__maximize.is-active { color: var(--text); background: var(--surface-2); }
+/* A document tab covers the viewport (which stays laid out underneath); notices stay on top. */
+.tl-workspace__doc { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column;
+  background: var(--panel); overflow: hidden; }
+.tl-workspace__view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 8px; overflow: auto; }
+.tl-animator--document { flex: 1; min-height: 0; }
+.tl-animator--document .tl-animator__body { flex: 1; min-height: 320px; }
+.tl-animator--document .tl-animator__graph { height: auto; min-height: 320px; }
+.tl-animator__list { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0 0 6px; padding: 0; }
+.tl-animator__list .is-active { outline: 2px solid #f2b544; }
+/* Maximize: the docks and their splitters are hidden (kept mounted, so their state survives). */
+.tl-app__body.is-maximized .tl-dock,
+.tl-app__body.is-maximized .tl-splitter { display: none; }
