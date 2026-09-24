@@ -380,7 +380,23 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     } else if (sky.texture !== undefined) {
       void texture(sky.texture).then((t) => {
         if (t === null || disposed || key !== skyKey) return;
-        const eq = t.clone();
+        // The sky image goes through a canvas: WebGL ignores flipY for an
+        // ImageBitmap but applies it to a canvas, and the equirect lookup
+        // wants the image flipped (v = 1 at the top row) like any three
+        // texture (tests/e2e/sky-texture.e2e.ts pins it in Play).
+        let image: unknown = t.image;
+        const src = image as { width?: number; height?: number };
+        if (typeof document !== 'undefined' && src.width !== undefined && src.height !== undefined && typeof HTMLCanvasElement !== 'undefined' && !(image instanceof HTMLCanvasElement)) {
+          const c = document.createElement('canvas');
+          c.width = src.width;
+          c.height = src.height;
+          const g = c.getContext('2d');
+          if (g !== null) {
+            g.drawImage(image as CanvasImageSource, 0, 0);
+            image = c;
+          }
+        }
+        const eq = new THREE.Texture(image as HTMLImageElement);
         eq.mapping = THREE.EquirectangularReflectionMapping;
         eq.colorSpace = THREE.SRGBColorSpace;
         eq.flipY = true;

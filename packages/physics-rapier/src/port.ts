@@ -252,6 +252,9 @@ function createAdapter(
 ): RapierPhysicsPort {
   // Phase 9.9: mover poses for this step, one-way drop-through, the ground entity.
   let kinematicPoses: readonly { entityId: string; position: Vec2; rotationZ: number }[] = [];
+  /** Phase 9.13: where each kinematic body was posed last, and the largest move of the last world step. */
+  const kinematicAt = new Map<string, Vec2>();
+  let kinematicMoved = 0;
   let dropSteps = 0;
   const feetOffset = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
   const groundUnder = (at: Vec2): string | null => {
@@ -522,7 +525,10 @@ function createAdapter(
       // and the capsule is left where it was.
       const appliedLength = Math.hypot(movement.x, movement.y);
       const requestedLength = Math.hypot(requested.x, requested.y);
-      const allowance = snapped ? snapDistance + CONTROLLER_OFFSET_SKIN : 0.001;
+      // A moving platform or door that moved into the character in the last
+      // world step may push it by up to that move (Phase 9.13).
+      const kinematicSlack = Math.min(0.5, kinematicMoved);
+      const allowance = (snapped ? snapDistance + CONTROLLER_OFFSET_SKIN : 0.001) + kinematicSlack;
       if (appliedLength > requestedLength + allowance + 1e-12) {
         throw correctionError(
           `collision correction out of the contracted bound: requested ` +
@@ -536,9 +542,13 @@ function createAdapter(
       characterCollider.setTranslation(next);
       // Phase 9.9: the movers move after the character's sweep (the runtime
       // already added the carried platform's motion to the requested move).
+      kinematicMoved = 0;
       for (const pose of kinematicPoses) {
         const body = staticBodies.get(pose.entityId);
         if (body === undefined || !body.isKinematic()) continue;
+        const before = kinematicAt.get(pose.entityId);
+        if (before !== undefined) kinematicMoved = Math.max(kinematicMoved, Math.hypot(pose.position.x - before.x, pose.position.y - before.y));
+        kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y });
         body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y });
         body.setNextKinematicRotation(pose.rotationZ);
       }
@@ -563,6 +573,7 @@ function createAdapter(
         },
         snapped,
         groundEntityId,
+        ...(kinematicSlack > 0 ? { kinematicSlack } : {}),
       };
     },
 

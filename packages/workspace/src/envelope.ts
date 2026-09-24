@@ -653,7 +653,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -1122,6 +1122,18 @@ function validateHistoricalEntities(
       // A v3 placeholder is a folder: it can hold folders and objects alike,
       // and filing into a folder keeps the zone/spawn/physics root rules.
       placeholders.push(storageVersion >= 3 ? { id: pid, components: { folder: {} } } : { id: pid, components: { transform: ZERO_TRANSFORM } });
+    }
+  }
+  // A zone's spawn (a checkpoint's safe spawn, an exit's spawn) need not be in
+  // the payload either: a placeholder spawn stands in for it.
+  for (const e of ents) {
+    if (!isPlainObject(e) || !isPlainObject(e['components'])) continue;
+    const zone = (e['components'] as Record<string, unknown>)['gameZone'];
+    if (!isPlainObject(zone)) continue;
+    for (const ref of [zone['safeSpawnId'], zone['spawnId']]) {
+      if (typeof ref === 'string' && !present.has(ref) && !placeholders.some((p) => p['id'] === ref)) {
+        placeholders.push({ id: ref, components: { transform: ZERO_TRANSFORM, playerSpawn: {} } });
+      }
     }
   }
   const used = new Set(present);

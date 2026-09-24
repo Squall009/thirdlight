@@ -107,9 +107,14 @@ function styleText(flow: FlowConfigLike): string {
 .tl-flow__items{display:flex;flex-direction:column;gap:6px;margin-top:16px}
 .tl-flow__item{font:inherit;font-size:17px;padding:8px 14px;border-radius:8px;border:2px solid transparent;background:#ffffff14;color:inherit;cursor:pointer}
 .tl-flow__item.is-selected{border-color:${ui.accent};background:${ui.accent}33}
-.tl-flow-hud .tl-flow-hud__line{font-family:${FONTS[ui.font] ?? FONTS['sans']}}
-.tl-hud--minimal h1,.tl-hud--minimal p:not(.tl-flow-hud__line){display:none}
-.tl-hud--corners{display:flex;justify-content:space-between;align-items:flex-start;width:100%}
+.tl-flow-hud{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:6px 14px;border-radius:999px;background:${ui.panel}cc;color:${ui.text};font-family:${FONTS[ui.font] ?? FONTS['sans']};z-index:4;pointer-events:auto}
+.tl-flow-hud h1:empty,.tl-flow-hud p:empty{display:none}
+.tl-flow-hud p{margin:0}
+.tl-flow-hud .tl-flow-hud__line{font-size:18px;font-weight:600;letter-spacing:.01em}
+.tl-flow-hud p:not(.tl-flow-hud__line){font-size:12px;opacity:.7}
+.tl-flow-hud button{font:inherit;font-size:12px;border-radius:999px;border:1px solid ${ui.text}55;background:transparent;color:inherit;padding:2px 10px;cursor:pointer}
+.tl-hud--minimal p:not(.tl-flow-hud__line){display:none}
+.tl-hud--corners{top:12px;left:auto;right:16px;transform:none}
 `;
 }
 

@@ -46,6 +46,8 @@ export interface CharacterMoveResult {
   snapped: boolean;
   /** Phase 9.9: the collider entity the character stands on (grounded), when the port knows it. */
   groundEntityId?: string | null;
+  /** Phase 9.13: how far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
+  kinematicSlack?: number;
 }
 
 /** Counters a port may expose (physics.md §10). */
@@ -182,7 +184,8 @@ export function validateCharacterMoveResult(
   if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) {
     return bad('applied != position - previousPosition within 1e-9');
   }
-  const allowance = result.snapped ? 0.11 : 0.001;
+  const slack = typeof (result as { kinematicSlack?: unknown }).kinematicSlack === 'number' ? Math.min(0.5, Math.max(0, (result as { kinematicSlack: number }).kinematicSlack)) : 0;
+  const allowance = (result.snapped ? 0.11 : 0.001) + slack;
   const appliedLen = Math.hypot(result.applied.x, result.applied.y);
   const requestedLen = Math.hypot(requested.x, requested.y);
   if (appliedLen > requestedLen + allowance + 1e-12) {

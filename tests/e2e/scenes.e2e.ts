@@ -239,3 +239,17 @@ test('Play: an exit zone loads its scene and moves the player there; MCP unloads
   await page.waitForTimeout(300);
   await page.screenshot({ path: 'test-results/scenes-exit-unloaded.png' });
 });
+
+test('a project whose recent commands include scene edits and a checkpoint loads again after a backend restart', async () => {
+  be = await startBackend('scenes-restart', 'beacon-reach');
+  await cmd('createScene', { sceneId: 'scene-extra', name: 'Extra' });
+  await cmd('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
+  await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });
+  // A checkpoint names its safe spawn: its recorded creation must load without the spawn beside it.
+  const spawn = String((await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Safe spot', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } })).createdId);
+  await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Flag', transform: { position: [69, 1, 0] }, components: { gameZone: { role: 'checkpoint', size: [1, 2], safeSpawnId: spawn, activation: { emissive: '#ffffff', emissiveIntensity: 1, cueAssetId: null } } } });
+  await be.restart();
+  const q = await query('queryProject');
+  expect(q['ok'], JSON.stringify(q).slice(0, 300)).toBe(true);
+  expect((q['scenes'] as { name: string }[]).map((s) => s.name)).toContain('Extra room');
+});
