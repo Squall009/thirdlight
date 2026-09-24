@@ -49,6 +49,8 @@ interface Props {
   /** Phase 12 (b): the project tag registry. */
   tags: readonly { bit: number; name: string }[];
   onSetTags: (entityId: string, names: string[]) => void;
+  /** Phase 12 (c): open the exit-zone editor for this zone (absent: no scenes). */
+  onEditExit?: (entityId: string) => void;
 }
 
 /**
@@ -192,7 +194,7 @@ function quaternionOf(deg: number[]): number[] {
   return [q.x, q.y, q.z, q.w];
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -237,6 +239,24 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           <div className="tl-inspector__kind">{entity.kind}{selectionCount > 1 ? ` · ${selectionCount} selected` : ''}</div>
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
           <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
+          {entity.gameZone?.role === 'exit' && (
+            <div className="tl-inspector__exit">
+              <p className="tl-inspector__hint">
+                Exit: entering loads {entity.gameZone.load?.length ? entity.gameZone.load.join(', ') : 'nothing'}, unloads {entity.gameZone.unload?.length ? entity.gameZone.unload.join(', ') : 'nothing'}
+                {entity.gameZone.spawnId !== undefined ? `, then moves the player to ${entityName(entity.gameZone.spawnId)}` : ''}.
+              </p>
+              {onEditExit !== undefined && (
+                <button className="tl-btn" onClick={() => onEditExit(entity.id)}>
+                  Edit exit…
+                </button>
+              )}
+            </div>
+          )}
+          {entity.instances !== undefined && (
+            <p className="tl-inspector__hint" data-instances={entity.instances.count}>
+              Instance set: {entity.instances.count} copies of one model, drawn with instancing. The transform moves, turns and scales the whole set.
+            </p>
+          )}
           {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}
           {entity.prefab && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>

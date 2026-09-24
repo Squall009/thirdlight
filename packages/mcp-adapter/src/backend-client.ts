@@ -208,6 +208,11 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/project-files/inspect`, body);
   }
 
+  /** Phase 12 (c): POST publish an instance-set buffer (`{ transforms }` or `{ stageId }`). */
+  publishInstanceBuffer(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/buffers`, body);
+  }
+
   /** DELETE a stage (non-authoritative cleanup). */
   discardStage(projectId: string, stageId: string): Promise<BackendResponse> {
     return this.request('DELETE', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}`);

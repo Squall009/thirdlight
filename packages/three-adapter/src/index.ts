@@ -107,3 +107,4 @@ export {
   type VisualResourceStore,
   type VisualResourceStoreOptions,
 } from './visual';
+export { buildInstanceSet, INSTANCE_BUFFER_FLOATS, type BuiltInstanceSet } from './instancing';

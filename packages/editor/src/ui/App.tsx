@@ -23,6 +23,7 @@ import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } 
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf } from '../session/hierarchy';
+import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
 import type { AssetView } from '../session/content-projection';
 import {
@@ -230,7 +231,11 @@ function EditorApp(): JSX.Element {
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   /** The open modal (File → Export…, Help → Shortcuts / About). */
-  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | null>(null);
+  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | null>(null);
+  /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
+  const [exitForm, setExitForm] = useState<{ entityId: string | null; load: string[]; unload: string[]; spawnId: string; error: string | null }>({ entityId: null, load: [], unload: [], spawnId: '', error: null });
+  /** Phase 12 (c): the scatter dialog's form (an instance set of one model). */
+  const [scatter, setScatter] = useState({ assetId: '', count: '200', width: '40', depth: '8', scaleMin: '0.7', scaleMax: '1.3', randomYaw: true, seed: '1', busy: false, error: null as string | null });
   const [exportState, setExportState] = useState<{ busy: boolean; result: { outputDir: string; revision: number; files: number } | null; error: string | null }>({ busy: false, result: null, error: null });
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
@@ -573,6 +578,7 @@ function EditorApp(): JSX.Element {
       },
       onChanged: () => viewport.requestRender(),
       parentFor: (entityId) => viewport.objectFor(entityId),
+      resolveBuffer: (digest) => client.instanceBufferBytes(digest),
       onFailuresChanged: (failures) =>
         setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
@@ -995,6 +1001,60 @@ function EditorApp(): JSX.Element {
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);
   }, [reportFailure]);
+  /** Phase 12 (c): create or edit an exit zone (scenes to load/unload, the spawn to move the player to). */
+  const saveExit = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    if (exitForm.load.length === 0 && exitForm.unload.length === 0) {
+      setExitForm((f) => ({ ...f, error: 'choose at least one scene to load or unload' }));
+      return;
+    }
+    const fields = { load: exitForm.load, unload: exitForm.unload };
+    if (exitForm.entityId === null) {
+      await createEntityAt('Exit zone', {
+        kind: 'group',
+        name: 'Exit',
+        components: { gameZone: { role: 'exit', size: [2, 3], ...fields, ...(exitForm.spawnId !== '' ? { spawnId: exitForm.spawnId } : {}) } },
+      });
+      setDialog(null);
+      return;
+    }
+    const res = await c.setComponent(exitForm.entityId, 'gameZone', { ...fields, spawnId: exitForm.spawnId !== '' ? exitForm.spawnId : null }, c.projection.revision);
+    if (!res.ok) {
+      setExitForm((f) => ({ ...f, error: (res.response as { message?: string }).message ?? 'the exit could not be saved' }));
+      return;
+    }
+    setDialog(null);
+  }, [exitForm, createEntityAt]);
+  /** Phase 12 (c): scatter copies of one model into a new instance set at the point the camera looks at. */
+  const createInstanceSet = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c) return;
+    const opts = {
+      count: Number(scatter.count),
+      width: Number(scatter.width),
+      depth: Number(scatter.depth),
+      scaleMin: Number(scatter.scaleMin),
+      scaleMax: Number(scatter.scaleMax),
+      randomYaw: scatter.randomYaw,
+      seed: Number(scatter.seed),
+    };
+    const problem = scatter.assetId === '' ? 'choose a model' : scatterProblem(opts);
+    if (problem !== null) {
+      setScatter((f) => ({ ...f, error: problem }));
+      return;
+    }
+    setScatter((f) => ({ ...f, busy: true, error: null }));
+    const published = await c.publishInstanceBuffer(scatterTransforms(opts));
+    if (!published.ok) {
+      setScatter((f) => ({ ...f, busy: false, error: published.error.message }));
+      return;
+    }
+    const name = `${c.content.getAsset(scatter.assetId)?.displayName ?? 'Model'} ×${published.count}`;
+    await createEntityAt('Instance set', { kind: 'group', name, components: { instances: { asset: { assetId: scatter.assetId }, buffer: published.digest, count: published.count } } });
+    setScatter((f) => ({ ...f, busy: false }));
+    setDialog(null);
+  }, [scatter, createEntityAt]);
   /** Phase 12 (c): the scene controls (headers, new/open) — index ops are commands, open/active are local. */
   const sceneAction = useCallback(async (action: SceneAction) => {
     const c = clientRef.current;
@@ -2131,9 +2191,14 @@ function EditorApp(): JSX.Element {
           { label: 'Hazard zone', onSelect: () => void addZone('hazard', null) },
           { label: 'Checkpoint zone', onSelect: () => void addZone('checkpoint', null) },
           { label: 'Goal zone', onSelect: () => void addZone('goal', null) },
+          { label: 'Exit zone…', disabled: sceneHeaders === null, reason: 'exits load other scenes (a v4 project)', onSelect: () => {
+            setExitForm({ entityId: null, load: [], unload: [], spawnId: '', error: null });
+            setDialog('exit');
+          } },
         ] },
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
+        { label: 'Instance set…', onSelect: () => setDialog('instances') },
         { label: 'Prefab copy…', onSelect: () => setBottomTab('prefabs') },
       ],
     },
@@ -2435,6 +2500,15 @@ function EditorApp(): JSX.Element {
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
         <div className="tl-dock tl-dock--right" style={{ width: sizes.right }}>
         <Inspector
+          {...(sceneHeaders !== null
+            ? {
+                onEditExit: (entityId: string) => {
+                  const z = clientRef.current?.projection.getEntity(entityId)?.gameZone;
+                  setExitForm({ entityId, load: [...(z?.load ?? [])], unload: [...(z?.unload ?? [])], spawnId: z?.spawnId ?? '', error: null });
+                  setDialog('exit');
+                },
+              }
+            : {})}
           entity={selected}
           gizmoMode={gizmoMode}
           onGizmoMode={setGizmoMode}
@@ -2513,6 +2587,88 @@ function EditorApp(): JSX.Element {
               ))}
             </tbody>
           </table>
+        </Dialog>
+      )}
+      {dialog === 'exit' && (
+        <Dialog title={exitForm.entityId === null ? 'New exit zone' : 'Edit exit zone'} onClose={() => setDialog(null)}>
+          <p>When the player enters the zone, these scenes load and unload; then the player can be moved to a spawn (in a scene that is loaded by then).</p>
+          <div className="tl-exit">
+            {(['load', 'unload'] as const).map((which) => (
+              <fieldset key={which} className="tl-exit__scenes">
+                <legend>{which === 'load' ? 'Load' : 'Unload'}</legend>
+                {[...(sceneHeaders ?? []), ...closedScenes].map((sc) => (
+                  <label key={sc.sceneId} className="tl-field tl-field--inline">
+                    <input
+                      type="checkbox"
+                      aria-label={`${which} ${sc.name}`}
+                      checked={exitForm[which].includes(sc.sceneId)}
+                      onChange={(e) =>
+                        setExitForm((f) => ({ ...f, error: null, [which]: e.target.checked ? [...f[which], sc.sceneId] : f[which].filter((id) => id !== sc.sceneId) }))
+                      }
+                    />
+                    <span>{sc.name}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ))}
+            <label className="tl-field">
+              <span className="tl-field__label">Move the player to</span>
+              <select className="tl-input" aria-label="exit spawn" value={exitForm.spawnId} onChange={(e) => setExitForm((f) => ({ ...f, spawnId: e.target.value }))}>
+                <option value="">— stay —</option>
+                {(clientRef.current?.projection.listEntities() ?? []).filter((e) => e.playerSpawn === true).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                    {e.sceneId !== undefined ? ` (${[...(sceneHeaders ?? []), ...closedScenes].find((sc) => sc.sceneId === e.sceneId)?.name ?? e.sceneId})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {exitForm.error !== null && <p className="tl-dialog__error" role="alert">{exitForm.error}</p>}
+          <button className="tl-btn" onClick={() => void saveExit()}>
+            {exitForm.entityId === null ? 'Create exit zone' : 'Save exit'}
+          </button>
+        </Dialog>
+      )}
+      {dialog === 'instances' && (
+        <Dialog title="Instance set" onClose={() => setDialog(null)}>
+          <p>Many copies of one model as a single object (drawn with instancing): good for foliage, rocks and other repeated detail. The copies are spread on the ground plane around the point the camera looks at.</p>
+          <div className="tl-scatter">
+            <label className="tl-field">
+              <span className="tl-field__label">Model</span>
+              <select className="tl-input" aria-label="instance model" value={scatter.assetId} onChange={(e) => setScatter((f) => ({ ...f, assetId: e.target.value }))}>
+                <option value="">— select —</option>
+                {assets.filter((a) => a.kind === 'model').map((a) => (
+                  <option key={a.assetId} value={a.assetId}>
+                    {a.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(
+              [
+                ['count', 'Copies'],
+                ['width', 'Width (X, m)'],
+                ['depth', 'Depth (Z, m)'],
+                ['scaleMin', 'Min scale'],
+                ['scaleMax', 'Max scale'],
+                ['seed', 'Seed'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="tl-field">
+                <span className="tl-field__label">{label}</span>
+                <input className="tl-input" type="number" aria-label={label} value={scatter[key]} onChange={(e) => setScatter((f) => ({ ...f, [key]: e.target.value }))} />
+              </label>
+            ))}
+            <label className="tl-field tl-field--inline">
+              <input type="checkbox" checked={scatter.randomYaw} onChange={(e) => setScatter((f) => ({ ...f, randomYaw: e.target.checked }))} />
+              <span className="tl-field__label">Random turn</span>
+            </label>
+          </div>
+          {scatter.error !== null && <p className="tl-dialog__error" role="alert">{scatter.error}</p>}
+          <button className="tl-btn" disabled={scatter.busy} onClick={() => void createInstanceSet()}>
+            {scatter.busy ? 'Creating…' : 'Create instance set'}
+          </button>
         </Dialog>
       )}
       {dialog === 'about' && (

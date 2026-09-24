@@ -21,8 +21,11 @@
 
 import * as THREE from 'three';
 import {
+  buildInstanceSet,
   createVisualResourceStore,
   injectedResolver,
+  type BuiltInstanceSet,
+  type PreparedVisualResource,
   type AssetPreviewController,
   type AssetVersionDescriptor,
   type ModelInstance,
@@ -50,6 +53,8 @@ export interface ModelInstancesOptions {
   parentFor?: (entityId: string) => THREE.Object3D | null;
   /** Called when the set of realization failures changes (the editor shows them in Problems). */
   onFailuresChanged?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
+  /** Phase 12 (c): read an instance-set buffer by digest (absent: instance sets stay empty). */
+  resolveBuffer?: (digest: string) => Promise<Float32Array>;
 }
 
 interface LiveInstance {
@@ -95,6 +100,12 @@ export class ModelInstances {
    */
   private readonly failed = new Map<string, { version: number; attempts: number }>();
   private entities: readonly ProjectedEntity[] = [];
+  /** Phase 12 (c): prepared resources by assetId (instance sets draw from them). */
+  private readonly resources = new Map<string, { version: number; resource: PreparedVisualResource }>();
+  /** Phase 12 (c): realized instance sets by entity id. */
+  private readonly sets = new Map<string, { key: string; template: ModelInstance; built: BuiltInstanceSet }>();
+  private readonly buffers = new Map<string, Float32Array>();
+  private readonly bufferLoads = new Set<string>();
   private preview: AssetPreviewSession | null = null;
   private previewSequence = 0;
   private previewHandle: VisualResourceHandle | null = null;
@@ -118,20 +129,22 @@ export class ModelInstances {
     this.entities = entities;
     const wanted = new Set<string>();
     for (const e of entities) {
-      if (!e.assetId) continue;
-      wanted.add(e.id);
-      const descriptor = this.options.descriptorFor(e.assetId);
+      const assetId = e.assetId ?? e.instances?.assetId;
+      if (!assetId) continue;
+      if (e.instances !== undefined) this.ensureBuffer(e.instances.buffer);
+      else wanted.add(e.id);
+      const descriptor = this.options.descriptorFor(assetId);
       if (descriptor === null) continue; // no immutable version facts yet
-      const current = this.store.current(e.assetId);
+      const current = this.store.current(assetId);
       const live = this.live.get(e.id);
       const upToDate = current !== null && current.descriptor.version === descriptor.version;
-      const failure = this.failed.get(e.assetId);
+      const failure = this.failed.get(assetId);
       const exhausted =
         failure !== undefined &&
         failure.version === descriptor.version &&
         failure.attempts >= FAILED_LOAD_RETRY_LIMIT;
-      if (!upToDate && !this.loading.has(e.assetId) && !exhausted) {
-        this.loadAsset(e.assetId, descriptor);
+      if (!upToDate && !this.loading.has(assetId) && !exhausted) {
+        this.loadAsset(assetId, descriptor);
       }
       if (live && this.options.parentFor === undefined) this.applyTransform(live.holder, e);
     }
@@ -139,6 +152,67 @@ export class ModelInstances {
       if (wanted.has(entityId)) continue;
       this.detach(entityId);
     }
+    this.syncSets();
+  }
+
+  /** Phase 12 (c): fetch an instance buffer once (then draw the sets that use it). */
+  private ensureBuffer(digest: string): void {
+    const resolve = this.options.resolveBuffer;
+    if (resolve === undefined || this.buffers.has(digest) || this.bufferLoads.has(digest)) return;
+    this.bufferLoads.add(digest);
+    void resolve(digest).then(
+      (floats) => {
+        this.bufferLoads.delete(digest);
+        if (this.disposed) return;
+        this.buffers.set(digest, floats);
+        this.syncSets();
+      },
+      (e: unknown) => {
+        this.bufferLoads.delete(digest);
+        this.failures.set(digest, { code: 'instance_buffer_unavailable', message: e instanceof Error ? e.message : String(e) });
+        this.options.onFailuresChanged?.(this.failures);
+      },
+    );
+  }
+
+  /** Phase 12 (c): one set of instanced meshes per instance-set entity whose model and buffer are here. */
+  private syncSets(): void {
+    const wanted = new Set<string>();
+    for (const e of this.entities) {
+      const ref = e.instances;
+      if (ref === undefined) continue;
+      wanted.add(e.id);
+      const res = this.resources.get(ref.assetId);
+      const floats = this.buffers.get(ref.buffer);
+      const key = `${ref.assetId}@${res?.version ?? 0}:${ref.buffer}:${ref.count}`;
+      const current = this.sets.get(e.id);
+      if (current !== undefined && current.key === key) continue;
+      if (res === undefined || floats === undefined) continue;
+      this.detachSet(e.id);
+      const created = res.resource.createInstance();
+      if (!created.ok) continue;
+      const built = buildInstanceSet(created.instance, floats, ref.count, `instances:${e.id}`);
+      (built.group as { entityId?: string }).entityId = e.id;
+      for (const m of built.meshes) (m as { entityId?: string }).entityId = e.id;
+      const parent = this.options.parentFor?.(e.id) ?? null;
+      (parent ?? this.scene).add(built.group);
+      if (parent === null) this.applyTransform(built.group, e);
+      this.sets.set(e.id, { key, template: created.instance, built });
+      this.options.onChanged?.();
+    }
+    for (const id of [...this.sets.keys()]) if (!wanted.has(id)) this.detachSet(id);
+    for (const digest of [...this.buffers.keys()]) {
+      if (!this.entities.some((e) => e.instances?.buffer === digest)) this.buffers.delete(digest);
+    }
+  }
+
+  private detachSet(entityId: string): void {
+    const set = this.sets.get(entityId);
+    if (set === undefined) return;
+    set.built.dispose();
+    set.template.dispose();
+    this.sets.delete(entityId);
+    this.options.onChanged?.();
   }
 
   private loadAsset(assetId: string, descriptor: VisualDescriptor): void {
@@ -158,10 +232,12 @@ export class ModelInstances {
       }
       if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
       this.failed.delete(assetId);
+      this.resources.set(assetId, { version: descriptor.version, resource: result.resource });
       for (const e of this.entities) {
         if (e.assetId !== assetId) continue;
         this.attach(e.id, result.resource.createInstance());
       }
+      this.syncSets();
     });
   }
 
@@ -293,6 +369,7 @@ export class ModelInstances {
     this.disposed = true;
     this.clearPreview();
     for (const entityId of [...this.live.keys()]) this.detach(entityId);
+    for (const entityId of [...this.sets.keys()]) this.detachSet(entityId);
     this.store.dispose();
   }
 }

@@ -20,6 +20,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+/** Phase 12 (c): an instance set's copies (10 float32 each) and the inline bound of the buffer route. */
+const INSTANCE_FLOATS = 10;
+const INSTANCES_MAX = 65_536;
+const INLINE_INSTANCES_MAX = 4_096;
+
 import {
   CONTENT_ASSET_BYTES_CACHE,
   CONTENT_ASSET_BYTES_MAX,
@@ -620,6 +625,18 @@ export class ContentRoutes {
       this.integrity(req, res, projectId);
       return true;
     }
+    // Phase 12 (c): POST /api/v1/projects/:projectId/content/buffers (an instance-set buffer)
+    if (n === 6 && parts[5] === 'buffers') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.publishBuffer(req, res, projectId);
+      return true;
+    }
+    // Phase 12 (c): GET /api/v1/projects/:projectId/content/buffers/:digest
+    if (n === 7 && parts[5] === 'buffers') {
+      if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
+      this.bufferBytes(req, res, projectId, parts[6] ?? '');
+      return true;
+    }
     // GET /api/v1/projects/:projectId/content/jobs/:jobId
     if (n === 7 && parts[5] === 'jobs') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
@@ -1040,6 +1057,83 @@ export class ContentRoutes {
       return this.deps.sendError(res, sessionError('job_not_found', 'not_found', `no content job '${parsed.jobId}' exists`, { jobId: parsed.jobId }));
     }
     this.deps.sendJson(res, 200, { ok: true, job: got.job });
+  }
+
+  // ---- Phase 12 (c): instance-set buffers ------------------------------------
+
+  /**
+   * Publish one instance-set buffer (10 little-endian float32 per copy:
+   * position xyz, rotation quaternion xyzw, scale xyz; 1–65536 copies) into
+   * the project's content-addressed source store. The body is either
+   * `{ transforms: number[] }` (flat, ≤ 4096 copies inline) or `{ stageId }`
+   * (bytes uploaded through a stage). Nothing references the buffer until a
+   * `setComponent instances` / `createEntity` names its digest.
+   */
+  private async publishBuffer(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const bad = (message: string, path = ''): void =>
+      this.deps.sendError(res, sessionError('field_value', 'validation', message, { path }));
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('the body must be an object');
+    const b = body as Record<string, unknown>;
+    for (const k of Object.keys(b)) if (k !== 'transforms' && k !== 'stageId') return this.deps.sendError(res, sessionError('field_unexpected', 'validation', `unknown field "${k}"`, { path: `/${k}` }));
+    let bytes: Uint8Array;
+    let stageId: string | null = null;
+    if (Array.isArray(b['transforms'])) {
+      const t = b['transforms'] as unknown[];
+      if (t.length === 0 || t.length % INSTANCE_FLOATS !== 0 || t.length > INLINE_INSTANCES_MAX * INSTANCE_FLOATS) {
+        return bad(`transforms must be a flat list of 10 numbers per copy (1–${INLINE_INSTANCES_MAX} copies inline; upload larger sets through a stage)`, '/transforms');
+      }
+      const floats = new Float32Array(t.length);
+      for (let i = 0; i < t.length; i += 1) {
+        const v = t[i];
+        if (typeof v !== 'number' || !Number.isFinite(v)) return bad(`transforms[${i}] must be a finite number`, `/transforms/${i}`);
+        floats[i] = v;
+      }
+      bytes = new Uint8Array(floats.buffer);
+    } else if (typeof b['stageId'] === 'string') {
+      const sid = parseStageId(b['stageId']);
+      if (!sid.ok) return this.deps.sendError(res, sid.error);
+      const read = this.deps.service.readStage(projectId, sid.stageId);
+      if (!read.ok) return this.deps.sendError(res, commandErrorToSession(read.error));
+      bytes = read.bytes;
+      stageId = sid.stageId;
+    } else {
+      return bad('give transforms (flat numbers) or a stageId', '');
+    }
+    const copies = bytes.byteLength / (INSTANCE_FLOATS * 4);
+    if (!Number.isInteger(copies) || copies < 1 || copies > INSTANCES_MAX) {
+      return bad(`an instance buffer holds 1–${INSTANCES_MAX} copies of 40 bytes (got ${bytes.byteLength} bytes)`);
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (let i = 0; i < copies * INSTANCE_FLOATS; i += 1) {
+      if (!Number.isFinite(view.getFloat32(i * 4, true))) return bad(`value ${i} of the buffer is not a finite number`);
+    }
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const published = this.deps.service.publishBlob(projectId, { digest, byteLength: bytes.byteLength, source: { kind: 'bytes', bytes } });
+    if (!published.ok) return this.deps.sendError(res, commandErrorToSession(published.error));
+    if (stageId !== null) this.deps.service.discardStage(projectId, stageId);
+    this.deps.sendJson(res, 200, { ok: true, digest, byteLength: bytes.byteLength, count: copies });
+  }
+
+  /** The bytes of one instance-set buffer (the editor viewport draws instance sets from them). */
+  private bufferBytes(req: IncomingMessage, res: ServerResponse, projectId: string, rawDigest: string): void {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    if (!/^[0-9a-f]{64}$/.test(rawDigest)) {
+      return this.deps.sendError(res, sessionError('field_value', 'validation', 'the buffer is named by its SHA-256 digest', { path: '/digest' }));
+    }
+    const read = this.deps.service.readSourceBlob(projectId, { digest: rawDigest });
+    if (!read.ok) return this.deps.sendError(res, commandErrorToSession(read.error));
+    res.setHeader('content-type', 'application/octet-stream');
+    res.setHeader('content-length', String(read.byteLength));
+    res.setHeader('x-thirdlight-digest', rawDigest);
+    res.setHeader('etag', `"${rawDigest}"`);
+    res.setHeader('cache-control', CONTENT_ASSET_BYTES_CACHE);
+    res.statusCode = 200;
+    res.end(read.bytes);
   }
 
   // ---- authenticated committed asset bytes (sessions.md §16.1) ---------------

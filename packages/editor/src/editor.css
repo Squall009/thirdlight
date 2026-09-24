@@ -566,3 +566,13 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-tags__add input { background: var(--surface-0); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; }
 .tl-inspector__tags { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .tl-field--inline { flex-direction: row; align-items: center; gap: 6px; }
+/* Phase 12 (c): the instance-set (scatter) dialog. */
+.tl-scatter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin: 8px 0; }
+.tl-scatter > .tl-field:first-child { grid-column: 1 / -1; }
+.tl-dialog__error { color: var(--warn); margin: 6px 0; }
+/* Phase 12 (c): the exit-zone dialog. */
+.tl-exit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; }
+.tl-exit > .tl-field { grid-column: 1 / -1; }
+.tl-exit__scenes { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; margin: 0; }
+.tl-exit__scenes legend { color: var(--text-dim); font-size: 11px; padding: 0 4px; }
+.tl-exit__scenes .tl-field { margin-bottom: 2px; }

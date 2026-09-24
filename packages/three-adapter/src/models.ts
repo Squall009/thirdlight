@@ -60,6 +60,7 @@ import {
   type VisualResourceStore,
   createVisualResourceStore,
 } from './visual';
+import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -237,8 +238,7 @@ export interface InstanceSetRef {
   readonly count: number;
 }
 
-/** 10 float32 per instance: position xyz, rotation quaternion xyzw, scale xyz. */
-const INSTANCE_FLOATS = 10;
+
 
 // ---- block validation (fail-fast; delivery.md (M4) §2.2) ------------------
 
@@ -572,50 +572,13 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const created = resource.createInstance();
     if (created.ok === false) return;
     const template = created.instance;
-    template.glbRoot.updateMatrixWorld(true);
-    const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
-    const group = new THREE.Group();
-    group.name = `instances:${entityId}`;
-    const meshes: THREE.InstancedMesh[] = [];
-    const count = Math.min(ref.count, Math.floor(floats.length / INSTANCE_FLOATS));
-    const place = new THREE.Matrix4();
-    const pos = new THREE.Vector3();
-    const rot = new THREE.Quaternion();
-    const scl = new THREE.Vector3();
-    template.glbRoot.traverse((node) => {
-      const mesh = node as THREE.Mesh;
-      if (mesh.isMesh !== true) return;
-      // The mesh's transform relative to the model root.
-      const local = new THREE.Matrix4().multiplyMatrices(rootInverse, mesh.matrixWorld);
-      const inst = new THREE.InstancedMesh(mesh.geometry, mesh.material, count);
-      inst.castShadow = true;
-      inst.receiveShadow = true;
-      for (let i = 0; i < count; i += 1) {
-        const o = i * INSTANCE_FLOATS;
-        pos.set(floats[o]!, floats[o + 1]!, floats[o + 2]!);
-        rot.set(floats[o + 3]!, floats[o + 4]!, floats[o + 5]!, floats[o + 6]!).normalize();
-        scl.set(floats[o + 7]!, floats[o + 8]!, floats[o + 9]!);
-        place.compose(pos, rot, scl).multiply(local);
-        inst.setMatrixAt(i, place);
-      }
-      inst.instanceMatrix.needsUpdate = true;
-      inst.computeBoundingSphere();
-      meshes.push(inst);
-    });
-    for (const m of meshes) group.add(m);
-    holder.add(group);
-    attachedSets.set(entityId, { entityId, template, group, meshes });
+    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`);
+    holder.add(built.group);
+    attachedSets.set(entityId, { entityId, template, built });
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {
-    for (const m of set.meshes) {
-      try {
-        m.dispose(); // the instance attribute buffers (geometry/materials belong to the resource)
-      } catch {
-        /* best effort */
-      }
-    }
-    set.group.removeFromParent();
+    set.built.dispose(); // the instance matrices (geometry/materials belong to the resource)
     try {
       set.template.dispose();
     } catch {
@@ -870,6 +833,5 @@ interface AttachedInstanceSet {
   readonly entityId: string;
   /** The model instance the meshes' geometry/materials come from (holds the resource reference). */
   readonly template: ModelInstance;
-  readonly group: THREE.Group;
-  readonly meshes: THREE.InstancedMesh[];
+  readonly built: BuiltInstanceSet;
 }

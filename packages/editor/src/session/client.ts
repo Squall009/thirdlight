@@ -1270,6 +1270,54 @@ export class SessionClient {
    * PCM-WAV inspector; absent = the accepted M2 GLB inspector, byte-unchanged)
    * and `animation` requests the role-aware animated GLB profile (stages 3–6
    * validate the bindings against the staged bytes' real clip list). */
+  /**
+   * Phase 12 (c): publish an instance-set buffer (10 float32 per copy) and
+   * return its digest. Small sets go inline; larger ones through a stage.
+   */
+  async publishInstanceBuffer(floats: Float32Array): Promise<{ ok: true; digest: string; count: number } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const path = `/projects/${this.cfg.projectId}/content/buffers`;
+      if (floats.length <= 4096 * 10) {
+        const r = await this.request<{ ok: true; digest: string; count: number }>(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ transforms: Array.from(floats) }),
+        });
+        return { ok: true, digest: r.digest, count: r.count };
+      }
+      const bytes = new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength);
+      const stage = await this.request<{ ok: true; stageId: string }>(`/projects/${this.cfg.projectId}/content/stages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ displayName: 'instance buffer' }),
+      });
+      for (const frame of planUploadFrames(bytes.length)) {
+        await this.request(`/projects/${this.cfg.projectId}/content/stages/${stage.stageId}/bytes`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/octet-stream', 'x-thirdlight-offset': String(frame.offset), 'x-thirdlight-total': String(bytes.length) },
+          body: bytes.slice(frame.offset, frame.offset + frame.length),
+        });
+      }
+      const r = await this.request<{ ok: true; digest: string; count: number }>(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ stageId: stage.stageId }),
+      });
+      return { ok: true, digest: r.digest, count: r.count };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** Phase 12 (c): the bytes of an instance-set buffer (the viewport draws the copies from them). */
+  async instanceBufferBytes(digest: string): Promise<Float32Array> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/buffers/${digest}`, {
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+    });
+    if (!res.ok) throw new Error(`instance buffer read failed (HTTP ${res.status})`);
+    return new Float32Array(await res.arrayBuffer());
+  }
+
   async uploadAsset(
     bytes: Uint8Array,
     options: {

@@ -232,6 +232,23 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'tl_instance_buffer',
+    description:
+      'Publish an instance-set buffer (phase 12 c): the placements of many copies of one model, drawn with ' +
+      'instancing as ONE entity (foliage, rocks, repeated detail). transforms is a flat list of 10 numbers per copy ' +
+      '(position x y z, rotation quaternion x y z w, scale x y z; local to the entity), 1-4096 copies. Returns ' +
+      '{digest, count}; then create the entity with tl_command createEntity {kind:"group", components:{instances:' +
+      '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        transforms: { type: 'array', items: { type: 'number' }, minItems: 10, maxItems: 40960 },
+      },
+      required: ['transforms'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'tl_game_control',
     description:
       'Submit one bounded §20 game-control command (start, replay, mute, unmute, or loadScene / unloadScene with ' +
@@ -376,6 +393,8 @@ export async function handleToolCall(
         return await inputExercise(ctx, a);
       case 'tl_game_control':
         return await gameControl(ctx, a);
+      case 'tl_instance_buffer':
+        return await instanceBuffer(ctx, a);
       case 'tl_game_observe':
         return await gameObserve(ctx, a);
       case 'tl_content_query':
@@ -722,6 +741,16 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
 }
 
 // ---- packet 48 §20 game control/observation relay tools -----------------------
+
+/** Phase 12 (c): publish an instance-set buffer (inline transforms). */
+async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  const t = a.transforms;
+  if (!Array.isArray(t) || t.length === 0 || t.length % 10 !== 0 || t.length > 40960 || !t.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return toolError('transforms must be a flat list of finite numbers, 10 per copy, 1-4096 copies');
+  }
+  const res = await ctx.client.publishInstanceBuffer(ctx.projectId, { transforms: t });
+  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
 
 /** sessions.md §20.1: bounded game-control relay (never a simulation). */
 async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
