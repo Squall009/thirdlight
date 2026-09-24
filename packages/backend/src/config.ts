@@ -57,6 +57,11 @@ export interface BackendConfig {
    */
   blenderPath?: string;
   /**
+   * Phase 11: a headless editor for MCP play when no browser is connected
+   * (absent = on, with defaults; see headless.ts).
+   */
+  headless?: { enabled: boolean; libs?: string; idleMs: number };
+  /**
    * Optional. Comma-separated IPv4 ranges whose requests count as the owner
    * without a token (THIRDLIGHT_TRUSTED_NETWORKS), for a single-user install
    * that is only reachable on the owner's network. See trusted.ts.
@@ -85,7 +90,7 @@ export function parseBackendConfig(value: unknown):
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
     'engineRoot', 'blenderPath', 'trustedNetworks', 'trustedProxies',
-    'tokens', 'timeouts',
+    'tokens', 'timeouts', 'headless',
   ]);
   for (const k of Object.keys(obj)) {
     if (!allowed.has(k)) {
@@ -215,6 +220,13 @@ export function parseBackendConfig(value: unknown):
   if (exportRoot.v !== undefined) config.exportRoot = exportRoot.v;
   if (engineRoot.v !== undefined) config.engineRoot = engineRoot.v;
   if (blenderPath.v !== undefined) config.blenderPath = blenderPath.v;
+  if (obj.headless !== undefined) {
+    const h = obj.headless as { enabled?: unknown; libs?: unknown; idleMs?: unknown } | null;
+    if (typeof h !== 'object' || h === null || typeof h.enabled !== 'boolean' || (h.libs !== undefined && typeof h.libs !== 'string') || typeof h.idleMs !== 'number' || !(h.idleMs > 0)) {
+      return { ok: false, error: sessionError('field_value', 'validation', 'headless must be { enabled: boolean, libs?: string, idleMs: number > 0 }', { path: '/headless' }) };
+    }
+    config.headless = { enabled: h.enabled, ...(h.libs !== undefined ? { libs: h.libs } : {}), idleMs: h.idleMs };
+  }
   for (const key of ['trustedNetworks', 'trustedProxies'] as const) {
     const v = str(key, false);
     if (v.e) return { ok: false, error: v.e };

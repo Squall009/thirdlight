@@ -186,7 +186,9 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     // checkout it resolves from node_modules as usual. The artifact is
     // therefore run from the engine checkout (documented in the
     // deployment docs; the mcp-adapter bundle stays fully self-contained).
-    external: ['esbuild'],
+    // playwright-core (the headless editor, phase 11) resolves its browser
+    // registry relative to its own files: loaded from node_modules at runtime.
+    external: ['esbuild', 'playwright-core'],
     banner: {
       js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
     },

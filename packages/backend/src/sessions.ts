@@ -145,6 +145,26 @@ export class SessionRegistry {
   }
 
   /** Forget a session and every wsToken issued to it. */
+  /**
+   * Phase 11: drop a project's session outright (the backend's headless
+   * editor giving way to the owner's browser). Its socket is closed.
+   */
+  evictProject(projectId: string): void {
+    const s = this.byProject.get(projectId);
+    if (s === undefined) return;
+    if (s.socket !== null) {
+      this.markReplaced(s.socket);
+      try {
+        s.socket.close(1000, 'replaced by the owner browser');
+      } catch {
+        /* already closing */
+      }
+    }
+    s.connected = false;
+    s.socket = null;
+    this.remove(s);
+  }
+
   private remove(session: SessionRecord): void {
     this.byProject.delete(session.projectId);
     this.bySessionId.delete(session.sessionId);

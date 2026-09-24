@@ -9,6 +9,7 @@ import { PlayContentStore, type PlayArtifact } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
+import type { HeadlessEditors } from './headless';
 
 // ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
 
@@ -37,10 +38,12 @@ export interface PlayRoutesContext {
   readonly connectedOwner: (rec: PlayRecord) => SessionRecord | undefined;
   readonly unavailableError: (playSessionId: string | undefined, hint: string) => SessionError;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
+  /** Phase 11: opens a headless editor when no browser is connected. */
+  readonly headless: HeadlessEditors;
 }
 
 export function makePlayRoutes(ctx: PlayRoutesContext) {
-  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem } = ctx;
+  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless } = ctx;
 
   /** The prebuilt play bundle bytes served as `game.js` (bounded read). */
   const readGameBundle = (file = 'preview-m3.js'): Uint8Array | null => {
@@ -86,9 +89,14 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, workspaceError(probe.error), statusFor(probe.error.cls));
       return;
     }
+    // Phase 11: no browser connected → the backend opens its own headless editor.
+    if (sessions.sessionForProject(projectId)?.connected !== true && parsedReq.request.sessionId === undefined) {
+      const opened = await headless.ensure(projectId);
+      if (!opened.ok) logStartup(`headless: ${opened.reason}`);
+    }
     const session = sessions.sessionForProject(projectId);
     if (session === undefined) {
-      sendError(res, unavailableError(undefined, 'connect the editor browser: no registered authoring session for this project'), 503);
+      sendError(res, unavailableError(undefined, 'connect the editor browser: no registered authoring session for this project (and no headless editor could start)'), 503);
       return;
     }
     if (parsedReq.request.sessionId !== undefined && parsedReq.request.sessionId !== session.sessionId) {

@@ -123,7 +123,7 @@ export async function ensureBackendBundle(): Promise<string> {
     format: 'esm',
     target: 'node22',
     outfile: out,
-    external: ['ws', 'esbuild'],
+    external: ['ws', 'esbuild', 'playwright-core'],
     logLevel: 'silent',
   });
   childBundle = out;
@@ -142,7 +142,7 @@ export async function ensureMcpBundle(): Promise<string> {
     format: 'esm',
     target: 'node22',
     outfile: out,
-    external: ['ws', 'esbuild', '@modelcontextprotocol/sdk'],
+    external: ['ws', 'esbuild', '@modelcontextprotocol/sdk', 'playwright-core'],
     logLevel: 'silent',
   });
   mcpBundle = out;

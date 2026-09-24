@@ -14,6 +14,11 @@ const LIB_CANDIDATES = [
   '/home/dadmin/projects/visionary/.browser-libs/root/usr/lib/x86_64-linux-gnu',
 ].filter((p) => typeof p === 'string' && p.length > 0);
 
+/** The extracted browser-library tree on this host (undefined where none is needed). */
+export function browserLibs() {
+  return LIB_CANDIDATES.find((p) => existsSync(p));
+}
+
 export function browserLaunchEnv() {
   const env = { ...process.env };
   const libs = LIB_CANDIDATES.find((p) => existsSync(p));

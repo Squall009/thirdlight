@@ -369,7 +369,7 @@ export class SessionClient {
     try {
       const est = await this.api<{ ok: true; sessionId: string; connId: string; wsToken: string; revision: number; entities?: unknown[] }>(
         '/sessions',
-        makeEstablishBody(this.cfg.projectId, this.sessionId),
+        makeEstablishBody(this.cfg.projectId, this.sessionId, headlessEditor() ? 'headless' : 'editor'),
       );
       this.connId = est.connId;
       await this.fullResync();
@@ -1594,5 +1594,14 @@ export class SessionClient {
     }
     this.connection = 'disconnected';
     this.emit();
+  }
+}
+
+/** Phase 11: the backend's own headless editor opens the page with `headless=1`. */
+function headlessEditor(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('headless') === '1';
+  } catch {
+    return false;
   }
 }

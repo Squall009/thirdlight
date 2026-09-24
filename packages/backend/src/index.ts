@@ -24,6 +24,9 @@
  *   THIRDLIGHT_TRUSTED_NETWORKS   optional; IPv4 ranges (a,b,…) whose requests need no token
  *   THIRDLIGHT_TRUSTED_PROXIES    optional; reverse proxies whose X-Forwarded-For names the client
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
+ *   THIRDLIGHT_HEADLESS           optional; `off` = never open a headless editor for MCP play
+ *   THIRDLIGHT_BROWSER_LIBS       optional; an extracted library tree for Chromium (hosts without browser libraries)
+ *   THIRDLIGHT_HEADLESS_IDLE_SECONDS optional; close an idle headless editor after this long (default 300)
  */
 import { parseBackendConfig, type BackendTokenEntry } from './config';
 import { createBackend } from './backend';
@@ -66,6 +69,11 @@ const config = parseBackendConfig({
   trustedNetworks: env.THIRDLIGHT_TRUSTED_NETWORKS,
   trustedProxies: env.THIRDLIGHT_TRUSTED_PROXIES,
   tokens,
+  headless: {
+    enabled: env.THIRDLIGHT_HEADLESS !== 'off',
+    ...(env.THIRDLIGHT_BROWSER_LIBS !== undefined && env.THIRDLIGHT_BROWSER_LIBS !== '' ? { libs: env.THIRDLIGHT_BROWSER_LIBS } : {}),
+    idleMs: Math.max(30, Number(env.THIRDLIGHT_HEADLESS_IDLE_SECONDS ?? 300) || 300) * 1000,
+  },
 });
 if (!config.ok) {
   fail(`backend config invalid: ${config.error.message}`);

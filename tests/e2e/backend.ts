@@ -65,6 +65,8 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
     THIRDLIGHT_OWNER_TOKEN: token,
     THIRDLIGHT_EXPORT_ROOT: exportRoot,
     THIRDLIGHT_ENGINE_ROOT: REPO,
+    // Phase 11: no headless editor unless a test asks for one.
+    THIRDLIGHT_HEADLESS: 'off',
     ...extraEnv,
   };
 

@@ -15,6 +15,7 @@
     "@thirdlight/project-model": "0.1.0",
     "@thirdlight/protocol": "0.1.0",
     "@thirdlight/workspace": "0.1.0",
+    "playwright-core": "1.62.1",
     "ws": "8.21.3"
   }
 }

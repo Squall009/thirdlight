@@ -48,6 +48,7 @@ export const PINS = {
   '@types/react-dom': '19.3.0',
   '@dimforge/rapier2d-compat': '0.20.0',
   '@playwright/test': '1.62.1',
+  'playwright-core': '1.62.1',
   '@types/node': '22.20.4',
   '@types/ws': '8.18.1',
 };
@@ -67,6 +68,7 @@ const PIN_CONSUMERS = {
   vitest: 'workspace (root dev)',
   '@types/node': 'Node-side packages (backend, workspace, exporter, mcp-adapter), dev — replaces the hand-written ambient stubs (D21)',
   '@types/ws': 'backend, dev',
+  'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
   '@dimforge/rapier2d-compat':
     'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',
 };

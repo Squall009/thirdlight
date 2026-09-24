@@ -316,8 +316,22 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 (`tl_inspect`, `tl_command`, `tl_diagnostics`, `tl_sessions`,
 `tl_play_start`/`tl_play_stop`, `tl_input_exercise`, `tl_game_control`,
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
-`tl_content_query`, `tl_instance_buffer`). Play tools need an editor browser
-connected to the project; without one they return `session_unavailable`.
+`tl_content_query`, `tl_instance_buffer`).
+
+Play tools use the owner's editor browser when it is connected to the
+project. When none is, `tl_play_start` makes the backend open the editor
+itself in a headless Chromium (`playwright-core`, installed with the engine;
+the browser is Playwright's own download, `npx playwright install chromium`)
+on the authoring origin with the owner token; screenshots, input and
+observations then go through it. It closes after 5 idle minutes
+(`THIRDLIGHT_HEADLESS_IDLE_SECONDS`), and when the owner's browser connects
+it gives the project up at once. `THIRDLIGHT_HEADLESS=off` switches it off
+(play tools then return `session_unavailable` without a browser). Hosts
+without Chromium's system libraries (this LXC) set `THIRDLIGHT_BROWSER_LIBS`
+to an extracted library tree (see `deploy/thirdlight.service`); the backend
+compiles two no-op libavahi stubs into `<dataRoot>/.browser-stubs` with gcc.
+WebGL runs on SwiftShader there, so the headless play is slower than a
+desktop GPU.
 
 ## Backup and restore
 

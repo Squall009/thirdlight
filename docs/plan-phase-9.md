@@ -554,7 +554,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 |---|---|---|
 | 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
-| 9.2 headless Play (phase 11) | todo | |
+| 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
 | 9.3 one schema version (phase 8 rest) | todo | |
 | 9.4 textures, materials, wind | todo | |
 | 9.5 lights, environment, sky, fog, post | todo | |
@@ -585,3 +585,10 @@ Add one dated line per decision taken during the run (what, why).
   clipboard holds full entity values read with `queryEntity`, so it works
   across scenes. Deleting a folder that holds a checkpoint and its own safe
   spawn is no longer refused (the reference goes away with it).
+- 2026-09-24 (9.2): the headless editor is the normal editor page opened by
+  the backend (`playwright-core`, pinned 1.62.1, external to the bundle) on the
+  public authoring origin with `?headless=1`; its session is labelled
+  `headless` and evicted when the owner's browser establishes. On by default
+  from the process entry (env), off for embedded/test backends unless
+  configured.
+

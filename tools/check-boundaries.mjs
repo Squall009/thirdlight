@@ -174,7 +174,8 @@ export const NODE_SIDE_ALLOWED = {
   // sessions.md §10.1)".
   backend: {
     packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build'],
-    external: ['ws'],
+    // playwright-core: the headless editor for MCP play (phase 11, headless.ts).
+    external: ['ws', 'playwright-core'],
     // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead
     // 2026-09-23). Nothing else in the backend starts processes.
     node: ['http', 'fs', 'path', 'crypto', 'child_process'],

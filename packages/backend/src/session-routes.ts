@@ -1,3 +1,4 @@
+import type { HeadlessEditors } from './headless';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
@@ -23,10 +24,14 @@ export interface SessionRoutesContext {
   readonly sessionView: (s: SessionRecord) => SessionView;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
+  /** Phase 11: the backend's headless editors (the owner's browser evicts them). */
+  readonly headless: HeadlessEditors;
+  /** The owner of a play went away (its play is stopped after the grace period). */
+  readonly onOwnerLost: (sessionId: string) => void;
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -59,6 +64,14 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
     if (!probe.ok) {
       sendError(res, workspaceError(probe.error), statusFor(probe.error.cls));
       return;
+    }
+    // Phase 11: the owner's browser takes the project over from a headless editor.
+    const current = sessions.sessionForProject(projectId);
+    if (current !== undefined && current.sessionId !== sessionId && clientInfo?.label !== 'headless' && current.clientInfo?.label === 'headless') {
+      const old = current.sessionId;
+      sessions.evictProject(projectId);
+      onOwnerLost(old);
+      await headless.evict(projectId);
     }
     const est = sessions.establish(projectId, sessionId, clientInfo, newConnId(), nowMs());
     if (est.result === 'conflict') {

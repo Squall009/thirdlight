@@ -34,6 +34,7 @@ import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord } from './play';
 import { makeSessionRoutes } from './session-routes';
+import { createHeadlessEditors } from './headless';
 import { makePreviewRoutes } from './preview-routes';
 import { makeStaticRoutes } from './static-routes';
 import { makeAdminRoutes } from './admin-routes';
@@ -173,6 +174,19 @@ export function createBackend(
 
   /** The §11.5 relay ack timeout (the §20 control relay shares it). */
   const relayTimeoutMs = (): number => timeouts.relayTimeoutSeconds * 1000;
+
+  // Phase 11: MCP play without the owner's browser (a headless editor).
+  const ownerToken = config.tokens.find((t) => t.scope === 'admin')?.token ?? '';
+  const headless = createHeadlessEditors({
+    // Off unless configured (the process entry turns it on; tests and embeddings do not).
+    config: config.headless ?? { enabled: false, idleMs: 300_000 },
+    dataRoot: config.dataRoot,
+    editorUrl: (projectId) => `${config.authoringOrigin}/?project=${encodeURIComponent(projectId)}&headless=1#token=${ownerToken}`,
+    connected: (projectId) => sessions.sessionForProject(projectId)?.connected === true,
+    playing: (projectId) => plays.activeFor(projectId) !== undefined,
+    log: logStartup,
+    now: nowMs,
+  });
 
   const wss = new WebSocketServer({ noServer: true });  const authoringServer = createServer();
   const previewServer = createServer();
@@ -1197,7 +1211,7 @@ export function createBackend(
     }
   }, sweepIntervalMs);
 
-  const { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem });
+  const { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless });
 
   const pinWarned = new Set<string>();
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
@@ -1219,7 +1233,7 @@ export function createBackend(
   const externalAnnounced = new Set<string>();
 
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost: (sessionId: string) => plays.onOwnerDisconnected(sessionId) });
 
   const backend: Backend = {
     config,
@@ -1251,6 +1265,7 @@ export function createBackend(
           return;
         }
         closed = true;
+        void headless.dispose();
         if (sweepTimer !== undefined) clearInterval(sweepTimer);
         clearInterval(externalTimer);
         plays.dispose();

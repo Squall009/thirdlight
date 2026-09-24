@@ -17,6 +17,10 @@ RestartSec=3
 KillSignal=SIGTERM
 TimeoutStopSec=20
 Environment=NODE_ENV=production
+# Phase 11: MCP play without a browser opens a headless editor (Chromium from
+# playwright-core). This LXC has no browser libraries: point at an extracted
+# tree (delete the line on hosts with `npx playwright install-deps chromium`).
+Environment=THIRDLIGHT_BROWSER_LIBS=/home/dadmin/projects/visionary/.browser-libs/root/usr/lib/x86_64-linux-gnu
 
 [Install]
 WantedBy=multi-user.target
