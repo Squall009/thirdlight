@@ -118,7 +118,7 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   const flow = (content as { flow?: GameFlow }).flow;
   if (flow !== undefined) {
     const refs = flowAssetRefs(flow);
-    for (const id of [...refs.music, ...refs.textures]) setRef(id);
+    for (const id of [...refs.music, ...refs.textures, ...refs.menuSounds, ...refs.ambience]) setRef(id);
   }
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;

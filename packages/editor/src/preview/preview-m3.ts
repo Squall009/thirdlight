@@ -80,9 +80,9 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, environmentHasLook } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { RelayActionSource } from './relay-input';
@@ -424,6 +424,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     // Phase 9.10: the game flow's menus and rebinding.
     sampleUi: () => browserInput.sampleUi(),
     captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
+    // Phase 14.5: pad rebinding in the settings.
+    capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
     configure: (c: InputConfigLike) => browserInput.configure(c),
   };
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
@@ -469,6 +471,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
     inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
+    setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
+    // Phase 14.5: the title screen's background scene and camera pan.
+    setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
     // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
     ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
@@ -730,6 +735,8 @@ export function bootstrapPreviewM3(): void {
       // Phase 9.10: the game flow (screen, level, lives, music, volumes).
       ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
+      // Phase 14.5: the title background and the camera's offset behind the title menu.
+      ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
     };
   };
 
@@ -818,7 +825,9 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
 function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
-  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return {};
+  // Phase 14.4: a level with its own look needs the environment renderer (and wind) even when the project has no environment.
+  const levelLooks = ((manifest as unknown as { flow?: FlowConfigLike }).flow?.levels ?? []).some((l) => l.environment !== undefined);
+  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined && !levelLooks) return {};
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
     const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
     const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
@@ -826,7 +835,7 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
   };
   const env = manifest.environment;
   return {
-    ...(env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined) ? { environment: { value: env, loadTexture } } : {}),
+    ...(environmentHasLook(env) || levelLooks ? { environment: { value: env ?? {}, loadTexture } } : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
     materials: {
       defs: manifest.materials ?? [],

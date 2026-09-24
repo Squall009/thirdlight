@@ -558,8 +558,11 @@ pad A), `cancel` (Backspace, pad B), `navigate` (arrows/WASD, stick). "+ key"
 listens for the next key (an axis asks for two or four keys), "+ pad" for
 the next gamepad button; × removes a binding; new actions can be added. The
 first edit makes the controls the project's own; "Reset to defaults" goes
-back. The platformer moves and jumps with the `move` and `jump` keys (its
-gamepad controls stay the standard ones). Scripts read
+back. The platformer moves and jumps with the `move` and `jump` bindings:
+their keys, and their pad buttons and stick axis (`jump`'s pad buttons,
+`move`'s button pair and axis; a part with no pad binding of its kind keeps
+the standard layout — A jumps, D-pad and left stick move). Players rebind
+the pad in the game's Settings (see Game flow). Scripts read
 `ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
 `.released(name)`; the actions are part of the recorded input, so replays
 match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
@@ -698,13 +701,33 @@ then:
 - **HUD and menus**: layout (classic, minimal, corners), a level timer, the
   menu font, colours and an optional logo (a texture asset), the *Level
   complete* / *Game over* texts and credits for the end screen, default
-  music and sound volumes.
+  music, sound and menu-sound volumes.
+- **Title screen background**: *the first level's start* (as before) or any
+  scene of the project. The chosen scene is loaded while the title shows
+  (like a level scene: it may not hold the camera, the player or lights —
+  the start scenes' lights shine on it) and unloaded when a level starts;
+  the game camera frames its first player spawn (else the middle of its
+  objects) the way it frames the player, so keep it away from the levels'
+  space. *Slow camera pan* slides the camera sideways by the given metres
+  over the given seconds and back (default 4 m, 20 s; works with either
+  background).
+- **Menu sounds**: an audio asset each for *move* (the selection or a value
+  changes), *confirm* (an item is chosen) and *back* (leaving a menu, a
+  cancelled rebinding). They play on their own `ui` sound bus; the game's
+  Settings then offer *Menu sounds volume*.
+- **Ambience** per level: up to four audio or music assets looped together
+  on the sound-effects bus while the level plays (and while it is paused);
+  they stop on the title, *Level complete*, *Game over* and end screens.
 
 In the game: Esc (or the pad's Start) pauses — *Resume*, *Restart level*,
 *Settings*, *Quit to title*. Arrow keys / W-S / D-pad move through a menu,
 Enter or pad A chooses, left/right change a volume. **Settings** has music
-and sound volume, quality (low/medium/high) and the jump/attack/interact
-keys (choose one, press the new key). Reaching a goal shows *Level
+and sound volume (and the menu-sound volume when the game has menu sounds),
+quality (low/medium/high), the jump/attack/interact keys (choose one, press
+the new key) and the pad buttons for jump, attack, interact, move left and
+move right (choose one, press the new button on the pad; Esc cancels). A
+rebound pad button replaces that action's pad button (the keys stay); the
+platformer jumps and moves with it at once. Reaching a goal shows *Level
 complete* (time, counters, deaths) and goes on to the next level; after the
 last one the end screen shows the totals and credits.
 
@@ -712,8 +735,11 @@ last one the end screen shows the totals and credits.
 16 MB (import them like other assets; a long WAV can be imported with kind
 `music` through MCP). Music starts with the first key press or click (the
 browser's sound rule), loops, and crossfades between the title and the
-levels. `tl_game_observe` reports `flow` (screen, level, lives, music, its
-volume) and `loops` (each audio source's current gain).
+levels. `tl_game_observe` reports `flow` (screen, level, lives, music, the
+volumes, `menuSounds` {played, last}, `ambience`, the rebound `pad`
+buttons), `loops` (each audio source's current gain; a level's ambience as
+`ambience:<n>`) and, while the title shows, `titleView` (its scene and the
+camera's offset).
 
 Inspector → Gameplay → **Audio source** loops an audio or music asset where
 the object is: full volume within a quarter of its range, fading to silent
@@ -732,11 +758,61 @@ and three **slots** (pause menu → *Save game*). The title screen offers
 level and checkpoint with the lives, health, counters, collected pickups and
 defeated enemies it had, and with the scripts' saved values
 (`ctx.save.get/set/remove/keys`, at most 64 keys of 4 KB JSON each).
-Settings (volumes, quality, rebound keys) are saved as soon as they change.
+Settings (volumes, quality, rebound keys and pad buttons) are saved as soon
+as they change.
 Each save is versioned, checksummed and at most 64 KB; a damaged one is
 named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →
 Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
+
+## Score
+
+**Game flow → Score**: tick *keep score*, then add the counters that earn
+points and how many each (*counter*, *points each*, *Add counter*). The
+names are the game's own counters: pickups count into `coins`, `gems`,
+`keys`, `lives` or a custom pickup's counter, stomped enemies into
+`defeated` (the field suggests these and the open scenes' custom counters);
+negative points are a penalty. *Time bonus* adds points for every second a
+level takes under a target time (default 60 s and 10 points a second;
+rounded down, nothing over the target).
+
+In the game the HUD shows the game's score so far ("Score 1230": the
+levels completed plus the current level's counters); *Level complete* adds
+the time bonus and shows the level's score and its best (or *New best
+score!*), the end screen shows the game's total. The best score per level
+is kept in the player's browser apart from the save slots, so it survives a
+new game (the pause menu shows it); the save slots keep the game's score so
+far. Without score rules nothing about score is shown (projects from before
+stay as they were). MCP: `setFlow` with `flow.score: { points?: { counter:
+points }, timeBonus?: { targetSeconds, perSecond } }`; `tl_game_observe`
+reports `flow.score` (game, level, best per level id).
+
+## Level look (per-level environment)
+
+**Game flow → Level look…** on a level opens the **Environment** window for
+that level's look. Tick *this level has its own sky / fog /
+post-processing / wind* for each part the level changes: the part starts as
+a copy of the project's and is edited with the usual controls; everything
+not ticked stays the project's. While the level plays (Play and the
+exported game) its own sky, fog and wind replace the project's, and its
+post-processing settings replace the project's effect by effect (e.g. only
+the grading). The title screen shows level 1's look. Levels without a look
+(and projects from before) look exactly as before. *project environment*
+(or choosing another window) goes back to editing the project environment.
+
+The Scene view shows the look of the level being edited, otherwise of the
+level the active scene belongs to (the first level that loads it), with game
+lighting; the toolbar's **level look: on/off** (beside *light: game*,
+present when that level has a look) switches between it and the project
+environment. MCP: `setFlow` with `flow.levels[].environment: { sky?, fog?,
+post?, wind? }` (quality stays project-wide).
+
+Also in the Environment window, post-processing grading has **lift**
+(raises the blacks, −0.5–0.5), **gamma** (mid-tones, 0.2–5; above 1
+brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
+leave the image unchanged. A **fog volume** (Inspector) has *thins with
+height*: its density fades by e^(−k·height) above the box bottom (k per
+metre, 0–10; 0 = even fog, as before).
 
 ## Icons and gizmos
 

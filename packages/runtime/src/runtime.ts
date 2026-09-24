@@ -1945,6 +1945,10 @@ class RuntimeInstance implements Runtime {
     }
     if (this.paused) {
       // Phase 9.10: no steps while paused; the clock resumes from here.
+      // Phase 14.5: scene loads/unloads still apply (a paused game's menu may
+      // show another scene — the title background); this is the same step
+      // boundary the next step would apply them at, so runs replay alike.
+      if (!this.applySceneOps()) return;
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
       this.onFrame?.();

@@ -734,7 +734,7 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   }
   // Phase 9.10: the optional game-flow block.
   if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
-    return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality }');
+    return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality, save?, score? }');
   }
   const n = utf8Bytes(value);
   if (n === null || n > GAME_OBSERVATION_MAX_BYTES) {

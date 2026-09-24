@@ -166,6 +166,67 @@ export function platformerKeys(config: InputConfigLike): { left: string[]; right
   return { left, right, jump: jumpKeys };
 }
 
+/** Phase 14.5: the pad controls the platformer's move and jump come from. */
+export interface PlatformerPad {
+  /** Buttons that jump (any held = jump down). */
+  readonly jump: readonly number[];
+  /** Buttons that move left / right (digital, like the D-pad). */
+  readonly left: readonly number[];
+  readonly right: readonly number[];
+  /** Stick axes that move (the one pushed furthest wins). */
+  readonly axes: readonly number[];
+}
+
+/** The standard layout the platformer used before pad rebinding: A jumps, D-pad left/right and the left stick move. */
+export const STANDARD_PLATFORMER_PAD: PlatformerPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]) });
+
+const PAD_BUTTON_MAX = 31;
+const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PAD_BUTTON_MAX;
+
+/**
+ * Phase 14.5: the pad buttons and axes of the project's `move` and `jump`
+ * actions (`gamepadButton`, `gamepadButtons1d`, `gamepadAxis` bindings). A
+ * part with no pad binding of its kind keeps the standard layout — so every
+ * project made before pad rebinding (whose pad bindings were never read)
+ * plays exactly as before; a rebinding replaces the part.
+ */
+export function platformerPad(config: InputConfigLike): PlatformerPad {
+  const move = config.actions.find((a) => a.name === 'move');
+  const jump = config.actions.find((a) => a.name === 'jump');
+  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button)).map((b) => b.button as number);
+  const left: number[] = [];
+  const right: number[] = [];
+  const axes: number[] = [];
+  for (const b of move?.bindings ?? []) {
+    if (b.kind === 'gamepadButtons1d') {
+      if (padIndex(b.negative)) left.push(b.negative);
+      if (padIndex(b.positive)) right.push(b.positive);
+    } else if (b.kind === 'gamepadAxis' && padIndex(b.axis)) axes.push(b.axis);
+  }
+  const hasButtons = (move?.bindings ?? []).some((b) => b.kind === 'gamepadButtons1d');
+  return {
+    jump: jumpButtons.length > 0 ? jumpButtons : STANDARD_PLATFORMER_PAD.jump,
+    left: hasButtons ? left : STANDARD_PLATFORMER_PAD.left,
+    right: hasButtons ? right : STANDARD_PLATFORMER_PAD.right,
+    axes: axes.length > 0 ? axes : STANDARD_PLATFORMER_PAD.axes,
+  };
+}
+
+/**
+ * Phase 14.5: reduce one pad's buttons and axes to the platformer's jump,
+ * left, right and stick values through `pad` (pure; the fake pads of the
+ * tests and the browser owner both go through here).
+ */
+export function readPlatformerPad(pad: PlatformerPad, buttons: readonly boolean[], axes: readonly number[], ignoreButtons?: ReadonlySet<number>): { jump: boolean; left: boolean; right: boolean; axis: number } {
+  const down = (i: number): boolean => buttons[i] === true && ignoreButtons?.has(i) !== true;
+  let axis = 0;
+  for (const i of pad.axes) {
+    const v = axes[i];
+    if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) > Math.abs(axis)) axis = v;
+  }
+  return { jump: pad.jump.some(down), left: pad.left.some(down), right: pad.right.some(down), axis };
+}
+
 /**
  * The default actions (a copy of project-model's `DEFAULT_INPUT`, which the
  * editor may not import as a value; tests/input-defaults-parity.test.ts keeps

@@ -18,6 +18,13 @@ interface Props {
   /** Phase 9.5: the Scene view's lighting — the fixed editor rig or the scene's own lights. */
   lighting?: 'editor' | 'game';
   onToggleLighting?: () => void;
+  /**
+   * Phase 14.4: the Scene view shows the look of the level the active scene
+   * belongs to (on) or the project environment (off). Absent: that level has
+   * no look of its own (nothing to toggle).
+   */
+  levelLook?: { on: boolean; levelName: string };
+  onToggleLevelLook?: () => void;
   onPlay: () => void;
   onStop: () => void;
 }
@@ -56,6 +63,15 @@ export function Toolbar(p: Props): JSX.Element {
             title="Scene view lighting: the scene's own lights (as in Play) or a fixed editor rig"
           >
             light: {p.lighting}
+          </button>
+        )}
+        {p.levelLook !== undefined && (
+          <button
+            className={p.levelLook.on ? 'tl-btn is-active' : 'tl-btn'}
+            onClick={p.onToggleLevelLook}
+            title={`Scene view: the look of level “${p.levelLook.levelName}” (as it plays) or the project environment — with game lighting`}
+          >
+            level look{p.levelLook.on ? ': on' : ': off'}
           </button>
         )}
       </div>

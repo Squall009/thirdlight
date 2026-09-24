@@ -1,15 +1,17 @@
 /**
  * Phase 9.10: the Game window — the game flow in one place: the levels in
  * order (the scenes each loads, the spawn it starts at, its music), lives,
- * the title screen, the HUD layout, the menu look, menu texts and default
- * volumes. Every edit is one `setFlow` with the whole flow (text fields
- * commit on Enter or when they lose focus); "Remove game flow" goes back to
- * one level with unlimited lives and no title screen.
+ * the title screen, the HUD layout, the menu look, menu texts, default
+ * volumes, (phase 14.3) the score rules and (phase 14.5) the menu sounds,
+ * each level's ambience and the title background and pan. Every edit is one `setFlow` with
+ * the whole flow (text fields commit on Enter or when they lose focus);
+ * "Remove game flow" goes back to one level with unlimited lives and no
+ * title screen.
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { FlowLevel, GameFlow } from '@thirdlight/project-model';
+import type { FlowLevel, FlowScore, GameFlow, MenuSounds } from '@thirdlight/project-model';
 
 interface Props {
   flow: GameFlow | null;
@@ -18,13 +20,19 @@ interface Props {
   /** Player spawns the editor knows (open scenes), with their scene. */
   spawns: readonly { id: string; name: string; sceneId: string | null }[];
   music: readonly { assetId: string; displayName: string }[];
+  /** Phase 14.5: the project's audio (sound) assets — menu sounds and ambience. */
+  sounds?: readonly { assetId: string; displayName: string }[];
   textures: readonly { assetId: string; displayName: string }[];
   /** The game block's spawn (the first level starts there by default). */
   gameSpawnId: string | null;
   onSave: (flow: GameFlow | null) => void;
   error: string | null;
+  /** Phase 14.3: counter names the game counts (the engine's and the open scenes' custom pickup counters), offered for score rules. */
+  counters?: readonly string[];
   /** Phase 9.11: forget the running Play's saves (null: no Play running). */
   onClearPlaySave?: (() => void) | null;
+  /** Phase 14.4: open the Environment window on this level's look. */
+  onEditLook?: (levelId: string) => void;
   note?: string | null;
 }
 
@@ -39,6 +47,130 @@ function Text(p: { label: string; value: string; onCommit: (v: string) => void; 
     <textarea className="tl-input" aria-label={p.label} value={draft} rows={3} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
   ) : (
     <input className={p.wide === true ? 'tl-input tl-input--wide' : 'tl-input'} aria-label={p.label} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+  );
+}
+
+const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+/** A new time bonus: a minute's target and 10 points a second — round starting figures the designer tunes. */
+const DEFAULT_TIME_BONUS = { targetSeconds: 60, perSecond: 10 };
+
+/** Phase 14.3: the Score section — points per counter and a time bonus. */
+function ScoreSection(p: { score: FlowScore | undefined; counters: readonly string[]; onChange: (score: FlowScore | undefined) => void }): JSX.Element {
+  const [name, setName] = useState('');
+  const [points, setPoints] = useState('10');
+  const sc = p.score;
+  const rows = Object.entries(sc?.points ?? {});
+  const withPoints = (next: Record<string, number>): FlowScore => {
+    const { points: _p, ...rest } = sc ?? {};
+    return Object.keys(next).length > 0 ? { ...rest, points: next } : rest;
+  };
+  const addName = name.trim();
+  const addPoints = Number(points);
+  const canAdd = sc !== undefined && COUNTER_RE.test(addName) && !(sc.points !== undefined && Object.prototype.hasOwnProperty.call(sc.points, addName)) && Number.isInteger(addPoints) && Math.abs(addPoints) <= 1_000_000;
+  return (
+    <>
+      <div className="tl-panel__title">Score</div>
+      <label className="tl-flag">
+        <input type="checkbox" aria-label="keep score" checked={sc !== undefined} onChange={(e) => p.onChange(e.target.checked ? {} : undefined)} />
+        keep score (shown on the HUD and the level complete and end screens; the best per level is saved)
+      </label>
+      {sc !== undefined && (
+        <div className="tl-flow-panel__score" aria-label="score rules">
+          {rows.length === 0 && <p className="tl-hint">No counter scores points yet: add one below.</p>}
+          {rows.map(([k, v]) => (
+            <div className="tl-animator__row" key={k}>
+              <span className="tl-field__label">{k}</span>
+              <label className="tl-field">
+                <span className="tl-field__label">points each</span>
+                <Text label={`points per ${k}`} value={String(v)} onCommit={(t) => Number.isInteger(Number(t)) && t.trim() !== '' && p.onChange(withPoints({ ...sc.points, [k]: Number(t) }))} />
+              </label>
+              <button type="button" className="tl-button" aria-label={`stop scoring ${k}`} onClick={() => p.onChange(withPoints(Object.fromEntries(rows.filter(([x]) => x !== k))))}>
+                remove
+              </button>
+            </div>
+          ))}
+          <div className="tl-animator__row">
+            <label className="tl-field">
+              <span className="tl-field__label">counter</span>
+              <input className="tl-input" aria-label="scored counter" list="tl-flow-score-counters" value={name} placeholder="coins" onChange={(e) => setName(e.target.value)} />
+              <datalist id="tl-flow-score-counters">
+                {p.counters.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">points each</span>
+              <input className="tl-input" aria-label="points for the new counter" value={points} onChange={(e) => setPoints(e.target.value)} />
+            </label>
+            <button
+              type="button"
+              className="tl-button"
+              disabled={!canAdd}
+              title={canAdd ? undefined : 'a counter name (letters, digits, _) not scored yet, and whole points'}
+              onClick={() => {
+                p.onChange(withPoints({ ...(sc.points ?? {}), [addName]: addPoints }));
+                setName('');
+              }}
+            >
+              Add counter
+            </button>
+          </div>
+          <label className="tl-flag">
+            <input
+              type="checkbox"
+              aria-label="time bonus"
+              checked={sc.timeBonus !== undefined}
+              onChange={(e) => p.onChange(e.target.checked ? { ...sc, timeBonus: { ...DEFAULT_TIME_BONUS } } : (({ timeBonus: _t, ...rest }) => rest)(sc))}
+            />
+            time bonus (points for every second under a target time)
+          </label>
+          {sc.timeBonus !== undefined && (
+            <div className="tl-animator__row">
+              <label className="tl-field">
+                <span className="tl-field__label">target seconds</span>
+                <Text label="time bonus target seconds" value={String(sc.timeBonus.targetSeconds)} onCommit={(t) => Number(t) >= 1 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, targetSeconds: Number(t) } })} />
+              </label>
+              <label className="tl-field">
+                <span className="tl-field__label">points per second</span>
+                <Text label="time bonus points per second" value={String(sc.timeBonus.perSecond)} onCommit={(t) => t.trim() !== '' && Number(t) >= 0 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, perSecond: Number(t) } })} />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Phase 14.5: a new title pan — 4 m out and back over 20 s each way: a slow drift at human scale. */
+const DEFAULT_TITLE_PAN = { distance: 4, seconds: 20 };
+const MENU_SOUND_LABELS: Record<keyof MenuSounds, string> = { move: 'move', confirm: 'confirm', back: 'back' };
+
+/** Phase 14.5: a level's ambience — up to four sounds looped while it plays. */
+function Ambience(p: { index: number; ambience: readonly string[]; options: readonly { assetId: string; displayName: string }[]; onChange: (ambience: string[]) => void }): JSX.Element {
+  const name = (id: string): string => p.options.find((o) => o.assetId === id)?.displayName ?? id;
+  const free = p.options.filter((o) => !p.ambience.includes(o.assetId));
+  return (
+    <div className="tl-animator__row" aria-label={`level ${p.index + 1} ambience`}>
+      <span className="tl-field__label">ambience</span>
+      {p.ambience.length === 0 && <span className="tl-hint">none</span>}
+      {p.ambience.map((id) => (
+        <button key={id} type="button" className="tl-button" aria-label={`level ${p.index + 1} stop ambience ${name(id)}`} title="remove from the ambience" onClick={() => p.onChange(p.ambience.filter((x) => x !== id))}>
+          {name(id)} ✕
+        </button>
+      ))}
+      {p.ambience.length < 4 && free.length > 0 && (
+        <select className="tl-input" aria-label={`level ${p.index + 1} add ambience`} value="" onChange={(e) => e.target.value !== '' && p.onChange([...p.ambience, e.target.value])}>
+          <option value="">+ add a looping sound</option>
+          {free.map((o) => (
+            <option key={o.assetId} value={o.assetId}>
+              {o.displayName}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }
 
@@ -73,7 +205,26 @@ export function FlowPanel(p: Props): JSX.Element {
   const save = (patch: Partial<GameFlow>): void => p.onSave({ ...f, ...patch });
   const setLevel = (i: number, patch: Partial<FlowLevel>): void => {
     const levels = f.levels.map((l, j) => (j === i ? { ...l, ...patch } : l));
-    save({ levels: levels.map((l) => (l.music === undefined || l.music === '' ? (({ music: _m, ...rest }) => rest)(l) : l)) as FlowLevel[] });
+    const tidy = (l: FlowLevel): FlowLevel => {
+      let out = l.music === undefined || l.music === '' ? (({ music: _m, ...rest }) => rest)(l) : l;
+      if (out.ambience !== undefined && out.ambience.length === 0) out = (({ ambience: _a, ...rest }) => rest)(out);
+      return out as FlowLevel;
+    };
+    save({ levels: levels.map(tidy) });
+  };
+  const soundOptions = p.sounds ?? [];
+  const ambienceOptions = [...soundOptions, ...p.music];
+  const title = f.title ?? {};
+  const setTitle = (patch: Partial<NonNullable<GameFlow['title']>>): void => {
+    const next = { ...title, ...patch } as Record<string, unknown>;
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    save({ title: next as NonNullable<GameFlow['title']> });
+  };
+  const setSound = (k: keyof MenuSounds, id: string): void => {
+    const next: Record<string, string> = { ...(f.sounds ?? {}) };
+    if (id === '') delete next[k];
+    else next[k] = id;
+    p.onSave(Object.keys(next).length > 0 ? { ...f, sounds: next as MenuSounds } : (({ sounds: _s, ...rest }) => rest)(f));
   };
   const move = (i: number, d: number): void => {
     const levels = [...f.levels];
@@ -118,6 +269,17 @@ export function FlowPanel(p: Props): JSX.Element {
                   ))}
                 </select>
               </label>
+              {p.onEditLook !== undefined && (
+                <button
+                  type="button"
+                  className={l.environment !== undefined ? 'tl-button is-active' : 'tl-button'}
+                  aria-label={`level ${i + 1} look`}
+                  title={l.environment !== undefined ? `this level has its own ${Object.keys(l.environment).join(', ')}` : 'this level uses the project environment'}
+                  onClick={() => p.onEditLook!(l.id)}
+                >
+                  Level look…{l.environment !== undefined ? ' (own)' : ''}
+                </button>
+              )}
               <button type="button" className="tl-button" aria-label={`move level ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>
@@ -147,6 +309,7 @@ export function FlowPanel(p: Props): JSX.Element {
                 <span className="tl-hint">open this level's scenes in the Hierarchy to choose a spawn in them</span>
               )}
             </div>
+            <Ambience index={i} ambience={l.ambience ?? []} options={ambienceOptions} onChange={(ambience) => setLevel(i, { ambience })} />
           </li>
         ))}
       </ol>
@@ -184,11 +347,11 @@ export function FlowPanel(p: Props): JSX.Element {
       <div className="tl-animator__row">
         <label className="tl-field">
           <span className="tl-field__label">subtitle</span>
-          <Text label="title subtitle" wide value={f.title?.subtitle ?? ''} onCommit={(v) => save({ title: { ...(f.title ?? {}), ...(v !== '' ? { subtitle: v } : { subtitle: undefined }) } })} />
+          <Text label="title subtitle" wide value={f.title?.subtitle ?? ''} onCommit={(v) => setTitle({ subtitle: v !== '' ? v : undefined })} />
         </label>
         <label className="tl-field">
           <span className="tl-field__label">music</span>
-          <select className="tl-input" aria-label="title music" value={f.title?.music ?? ''} onChange={(e) => save({ title: { ...(f.title?.subtitle !== undefined ? { subtitle: f.title.subtitle } : {}), ...(e.target.value !== '' ? { music: e.target.value } : {}) } })}>
+          <select className="tl-input" aria-label="title music" value={f.title?.music ?? ''} onChange={(e) => setTitle({ music: e.target.value !== '' ? e.target.value : undefined })}>
             <option value="">— none —</option>
             {p.music.map((m) => (
               <option key={m.assetId} value={m.assetId}>
@@ -197,7 +360,35 @@ export function FlowPanel(p: Props): JSX.Element {
             ))}
           </select>
         </label>
+        <label className="tl-field">
+          <span className="tl-field__label">background</span>
+          <select className="tl-input" aria-label="title background scene" value={title.scene ?? ''} onChange={(e) => setTitle({ scene: e.target.value !== '' ? e.target.value : undefined })}>
+            <option value="">— the first level's start —</option>
+            {p.scenes.map((sc) => (
+              <option key={sc.sceneId} value={sc.sceneId}>
+                {sc.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tl-flag">
+          <input type="checkbox" aria-label="title camera pan" checked={title.pan !== undefined} onChange={(e) => setTitle({ pan: e.target.checked ? { ...DEFAULT_TITLE_PAN } : undefined })} />
+          slow camera pan
+        </label>
+        {title.pan !== undefined && (
+          <>
+            <label className="tl-field">
+              <span className="tl-field__label">pan metres (sideways)</span>
+              <Text label="title pan distance" value={String(title.pan.distance)} onCommit={(v) => Number(v) !== 0 && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= 100 && setTitle({ pan: { ...title.pan!, distance: Number(v) } })} />
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">seconds each way</span>
+              <Text label="title pan seconds" value={String(title.pan.seconds)} onCommit={(v) => Number(v) >= 2 && Number(v) <= 600 && setTitle({ pan: { ...title.pan!, seconds: Number(v) } })} />
+            </label>
+          </>
+        )}
       </div>
+      {title.scene !== undefined && <p className="tl-hint">The camera frames the background scene's first player spawn (else its middle) as it frames the player; keep the scene apart from the levels.</p>}
 
       <div className="tl-panel__title">HUD and menus</div>
       <div className="tl-animator__row">
@@ -256,23 +447,45 @@ export function FlowPanel(p: Props): JSX.Element {
         <Text label="credits" area value={f.texts?.credits ?? ''} onCommit={(v) => save({ texts: { ...(f.texts ?? {}), credits: v === '' ? undefined : v } })} />
       </label>
 
-      <div className="tl-panel__title">Default volumes</div>
+      <div className="tl-panel__title">Menu sounds</div>
       <div className="tl-animator__row">
-        {(['music', 'sfx'] as const).map((k) => (
+        {(['move', 'confirm', 'back'] as const).map((k) => (
           <label className="tl-field" key={k}>
-            <span className="tl-field__label">{k === 'music' ? 'music' : 'sound effects'}</span>
-            <input
-              type="range"
-              aria-label={`default ${k} volume`}
-              min={0}
-              max={1}
-              step={0.1}
-              defaultValue={f.volumes?.[k] ?? (k === 'music' ? 0.8 : 1)}
-              onPointerUp={(e) => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, [k]: Number((e.target as HTMLInputElement).value) } })}
-              onKeyUp={(e) => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, [k]: Number((e.target as HTMLInputElement).value) } })}
-            />
+            <span className="tl-field__label">{MENU_SOUND_LABELS[k]}</span>
+            <select className="tl-input" aria-label={`menu sound ${k}`} value={f.sounds?.[k] ?? ''} onChange={(e) => setSound(k, e.target.value)}>
+              <option value="">— none —</option>
+              {soundOptions.map((o) => (
+                <option key={o.assetId} value={o.assetId}>
+                  {o.displayName}
+                </option>
+              ))}
+            </select>
           </label>
         ))}
+      </div>
+
+      <ScoreSection score={f.score} counters={p.counters ?? []} onChange={(score) => p.onSave(score !== undefined ? { ...f, score } : (({ score: _s, ...rest }) => rest)(f))} />
+
+      <div className="tl-panel__title">Default volumes</div>
+      <div className="tl-animator__row">
+        {(['music', 'sfx', 'ui'] as const).map((k) => {
+          const commit = (v: number): void => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, ...(f.volumes?.ui !== undefined ? { ui: f.volumes.ui } : {}), [k]: v } });
+          return (
+            <label className="tl-field" key={k}>
+              <span className="tl-field__label">{k === 'music' ? 'music' : k === 'sfx' ? 'sound effects' : 'menu sounds'}</span>
+              <input
+                type="range"
+                aria-label={`default ${k} volume`}
+                min={0}
+                max={1}
+                step={0.1}
+                defaultValue={f.volumes?.[k] ?? (k === 'music' ? 0.8 : 1)}
+                onPointerUp={(e) => commit(Number((e.target as HTMLInputElement).value))}
+                onKeyUp={(e) => commit(Number((e.target as HTMLInputElement).value))}
+              />
+            </label>
+          );
+        })}
       </div>
       <div className="tl-panel__title">Saves</div>
       <p className="tl-hint">Players have three save slots and an autosave (at checkpoints and at the start of each level); Play keeps its own saves, apart from exported games.</p>

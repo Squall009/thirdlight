@@ -151,8 +151,8 @@ export interface AudioContextLike {
   readonly currentTime?: number;
 }
 
-/** Phase 9.10: the mixer buses. */
-export type AudioBus = 'master' | 'music' | 'sfx';
+/** Phase 9.10: the mixer buses (phase 14.5: `ui`, the menu sounds). */
+export type AudioBus = 'master' | 'music' | 'sfx' | 'ui';
 export const MUSIC_MAX_REGISTERED = 64;
 
 export interface GameAudioOwnerConfig {
@@ -213,8 +213,14 @@ export interface GameAudioOwner {
   volumes?(): Readonly<Record<AudioBus, number>>;
   /** Phase 9.10: the wanted track, whether it sounds, and the music bus gain node's value. */
   musicStatus?(): { readonly assetId: string | null; readonly playing: boolean; readonly gain: number };
-  /** Phase 9.10: a one-shot sound (a registered cue) at a volume (a script's ctx.audio.play). */
-  playSound?(assetId: string, volume: number): boolean;
+  /**
+   * Phase 9.10: a one-shot sound (a registered cue) at a volume (a script's
+   * ctx.audio.play). Phase 14.5: `bus` 'ui' plays it on the menu-sound bus
+   * (default 'sfx').
+   */
+  playSound?(assetId: string, volume: number, bus?: 'sfx' | 'ui'): boolean;
+  /** Phase 14.5: one-shot sounds started per bus since creation (observation). */
+  soundsPlayed?(): Readonly<Record<'sfx' | 'ui', number>>;
   /** Phase 9.10: a looping emitter (an audio source) at a gain; null stops it. */
   setLoop?(key: string, assetId: string | null, gain: number): void;
   /** Phase 9.10: the live loops (key → gain), for observation. */
@@ -242,7 +248,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   const voices = new Set<Voice>();
   const diagnostics: GameAudioDiagnostic[] = [];
   // Phase 9.10: buses (created with the context) and music.
-  const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1 };
+  const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1, ui: 1 };
+  const played: Record<'sfx' | 'ui', number> = { sfx: 0, ui: 0 };
   let buses: Record<AudioBus, GainNodeLike> | null = null;
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
   let wantedMusic: string | null = null;
@@ -254,13 +261,16 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     const master = ctx.createGain();
     const musicBus = ctx.createGain();
     const sfx = ctx.createGain();
+    const ui = ctx.createGain();
     master.gain.value = muted ? 0 : volumes.master;
     musicBus.gain.value = volumes.music;
     sfx.gain.value = volumes.sfx;
+    ui.gain.value = volumes.ui;
     musicBus.connect(master);
     sfx.connect(master);
+    ui.connect(master);
     master.connect(ctx.destination);
-    buses = { master, music: musicBus, sfx };
+    buses = { master, music: musicBus, sfx, ui };
     return buses;
   }
 
@@ -765,7 +775,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       return { ...volumes };
     },
 
-    playSound(assetId, volume) {
+    playSound(assetId, volume, bus = 'sfx') {
       if (disposed || muted || context === null || !unlocked || context.state === 'closed') return false;
       if (voices.size >= AUDIO_MAX_VOICES) {
         diag('voice_cap', assetId, `sound ${assetId} dropped: ${AUDIO_MAX_VOICES} voices busy`);
@@ -779,7 +789,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       const gain = ctx.createGain();
       gain.gain.value = Math.max(0, Math.min(1, volume));
       source.connect(gain);
-      gain.connect(ensureBuses(ctx).sfx);
+      gain.connect(ensureBuses(ctx)[bus === 'ui' ? 'ui' : 'sfx']);
+      played[bus === 'ui' ? 'ui' : 'sfx'] += 1;
       const voice: Voice = { source, assetId, ended: false, released: false };
       source.onended = () => {
         voice.ended = true;
@@ -818,6 +829,10 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       gainNode.connect(ensureBuses(ctx).sfx);
       source.start();
       loopVoices.set(key, { assetId, source, gain: gainNode });
+    },
+
+    soundsPlayed() {
+      return { ...played };
     },
 
     loops() {

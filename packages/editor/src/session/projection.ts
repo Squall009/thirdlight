@@ -52,7 +52,7 @@ export interface ProjectedEntity {
   /** Phase 9.4: the object's material mapping (source material name or "*" → materialId). */
   materials?: Record<string, string>;
   /** Phase 9.5: a fog volume around the entity. */
-  fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number };
+  fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
   /** Phase 9.7: the animator controller the model plays. */
   animator?: { controller: string; parameters?: Record<string, number | boolean> };
   /** Phase 9.9: the gameplay block components present on the entity (mover, trigger, switch, health, pickup, enemy). */
@@ -183,7 +183,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     modelAnimation?: ModelAnimationComponent;
     instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number };
     materials?: Record<string, string>;
-    fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number };
+    fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
     animator?: { controller: string; parameters?: Record<string, number | boolean> };
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';

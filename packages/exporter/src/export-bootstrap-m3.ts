@@ -58,9 +58,9 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, environmentHasLook } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { playerCapsuleOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
@@ -305,6 +305,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [],
     (path) => import(/* @vite-ignore */ new URL(path, document.baseURI).href),
   );
+  // Phase 14.4: a level with its own look needs the environment renderer (and wind) even when the project has no environment.
+  const levelLooks = ((manifest as unknown as { flow?: FlowConfigLike }).flow?.levels ?? []).some((l) => l.environment !== undefined);
   const config: GameHostConfig = {
     snapshot,
     settings,
@@ -319,10 +321,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
         // Phase 9.5: sky, fog, fog volumes, post-processing.
-        ...(manifest.environment !== undefined && (manifest.environment.sky !== undefined || manifest.environment.fog !== undefined || manifest.environment.post !== undefined || manifest.environment.quality !== undefined)
+        ...(environmentHasLook(manifest.environment) || levelLooks
           ? {
               environment: {
-                value: manifest.environment,
+                value: manifest.environment ?? {},
                 loadTexture: (assetId: string) => {
                   const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
                   const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
@@ -345,7 +347,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
             }
           : {}),
         // Phase 9.4: project materials and wind (textures from the verified bytes).
-        ...(manifest.materials !== undefined || manifest.environment !== undefined
+        ...(manifest.materials !== undefined || manifest.environment !== undefined || levelLooks
           ? {
               materials: {
                 defs: manifest.materials ?? [],
@@ -373,6 +375,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
     inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
+    setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
+    // Phase 14.5: the title screen's background scene and camera pan.
+    setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
     // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
     ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),

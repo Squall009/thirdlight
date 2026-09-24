@@ -2187,8 +2187,25 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     for (const id of refs.music) {
       if (kindOf.get(id) !== 'music') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow', message: 'flow music must name a music asset of this project', expected: 'a music assetId' }, id));
     }
+    // Phase 14.5: the menu sounds are audio assets; a level's ambience audio or music.
+    for (const id of refs.menuSounds) {
+      if (kindOf.get(id) !== 'audio') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/sounds', message: 'a menu sound must name an audio asset of this project', expected: 'an audio assetId' }, id));
+    }
+    for (const id of refs.ambience) {
+      if (kindOf.get(id) !== 'audio' && kindOf.get(id) !== 'music') {
+        const at = (flow['levels'] as unknown[]).findIndex((l) => isPlainObject(l) && Array.isArray(l['ambience']) && (l['ambience'] as unknown[]).includes(id));
+        errors.push(withFound({ code: 'asset_reference_missing', path: at >= 0 ? `/flow/levels/${at}/ambience` : '/flow', message: 'a level ambience must name an audio or music asset of this project', expected: 'an audio or music assetId' }, id));
+      }
+    }
+    const logo = isPlainObject(flow['ui']) ? flow['ui']['logo'] : undefined;
     for (const id of refs.textures) {
-      if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/ui/logo', message: 'the menu logo must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      if (kindOf.get(id) === 'texture') continue;
+      if (id === logo) errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/ui/logo', message: 'the menu logo must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      else {
+        // Phase 14.4: a level look's sky image or grading LUT.
+        const at = (flow['levels'] as unknown[]).findIndex((l) => isPlainObject(l) && JSON.stringify(l['environment'] ?? null).includes(JSON.stringify(id)));
+        errors.push(withFound({ code: 'asset_reference_missing', path: at >= 0 ? `/flow/levels/${at}/environment` : '/flow', message: 'this level look image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      }
     }
   }
   // Phase 9.7: a controller's clips come from model assets of this project.

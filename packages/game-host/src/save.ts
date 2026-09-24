@@ -30,6 +30,16 @@ export interface SaveDocument {
   run: RunSaveState;
   /** Per level: what was collected there and the best time. */
   levels: Record<string, { collected: string[]; bestSeconds?: number }>;
+  /** Phase 14.3: the game's score from the levels completed before this save (with score rules). */
+  score?: number;
+}
+
+/**
+ * Phase 14.3: records kept apart from the slots (best score per level id),
+ * so they survive a new game and the last level (which writes no autosave).
+ */
+export interface SaveRecords {
+  bestScores: Record<string, number>;
 }
 
 export interface SaveSettings {
@@ -38,6 +48,10 @@ export interface SaveSettings {
   quality: 'low' | 'medium' | 'high';
   /** Rebound keys by action name. */
   keys: Record<string, string>;
+  /** Phase 14.5: the menu-sound volume (absent: the game's default). */
+  ui?: number;
+  /** Phase 14.5: rebound pad buttons by action name (`left`/`right`: the move buttons). */
+  pad?: Record<string, number>;
 }
 
 export type SlotState = { state: 'ok'; doc: SaveDocument } | { state: 'empty' } | { state: 'damaged'; reason: string };
@@ -57,6 +71,9 @@ export interface SaveStore {
   write(slot: SaveSlot, doc: SaveDocument): { ok: true } | { ok: false; reason: string };
   readSettings(): SaveSettings | null;
   writeSettings(s: SaveSettings): void;
+  /** Phase 14.3: the best scores per level (empty when none or unreadable). */
+  readRecords(): SaveRecords;
+  writeRecords(r: SaveRecords): void;
   /** Every slot and the settings of this game's namespace. */
   clear(): void;
 }
@@ -108,6 +125,10 @@ export function createSaveStore(storage: SaveStorage, namespace: string): SaveSt
           sfx: unit(s.sfx, 1),
           quality: s.quality === 'low' || s.quality === 'medium' ? s.quality : 'high',
           keys: typeof s.keys === 'object' && s.keys !== null ? Object.fromEntries(Object.entries(s.keys).filter(([k, v]) => /^[A-Za-z_]\w{0,31}$/.test(k) && typeof v === 'string' && /^[A-Za-z0-9]{1,32}$/.test(v))) : {},
+          ...(typeof s.ui === 'number' && s.ui >= 0 && s.ui <= 1 ? { ui: s.ui } : {}),
+          ...(typeof s.pad === 'object' && s.pad !== null && !Array.isArray(s.pad)
+            ? { pad: Object.fromEntries(Object.entries(s.pad).filter(([k, v]) => /^[A-Za-z_]\w{0,31}$/.test(k) && typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 31)) }
+            : {}),
         };
       } catch {
         return null;
@@ -120,8 +141,27 @@ export function createSaveStore(storage: SaveStorage, namespace: string): SaveSt
         // storage full or refused: the settings still apply for this session
       }
     },
+    readRecords() {
+      const raw = safeGet('records');
+      if (raw === null || raw.length > SAVE_MAX_BYTES) return { bestScores: {} };
+      try {
+        const r = JSON.parse(raw) as { bestScores?: unknown };
+        const b = r.bestScores;
+        if (typeof b !== 'object' || b === null || Array.isArray(b)) return { bestScores: {} };
+        return { bestScores: Object.fromEntries(Object.entries(b).filter(([k, v]) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(k) && Number.isSafeInteger(v))) as Record<string, number> };
+      } catch {
+        return { bestScores: {} };
+      }
+    },
+    writeRecords(r) {
+      try {
+        storage.set(key('records'), JSON.stringify({ bestScores: r.bestScores }));
+      } catch {
+        // storage full or refused: the records still hold for this session
+      }
+    },
     clear() {
-      for (const k of [...SAVE_SLOTS, 'settings']) {
+      for (const k of [...SAVE_SLOTS, 'settings', 'records']) {
         try {
           storage.remove(key(k));
         } catch {

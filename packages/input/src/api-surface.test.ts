@@ -26,7 +26,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
     // Packet 55 (delivery.md §4.1/§4.2) adds the menu-control channel
     // constants + the pure controller (additive — the contracted names above
     // are unchanged).
-    // Phase 9.8 adds the named input actions (additive).
+    // Phase 9.8 adds the named input actions (additive); phase 14.5 the platformer's pad controls.
     expect(Object.keys(input).sort()).toEqual([
       'DEFAULT_INPUT_CONFIG',
       'DEFAULT_KEYBOARD_MAP',
@@ -34,6 +34,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'MENU_CONFIRM_CODES',
       'MENU_GAMEPAD_CONFIRM_BUTTON',
       'MENU_MUTE_CODE',
+      'STANDARD_PLATFORMER_PAD',
       'actionKeys',
       'attachBrowserInput',
       'createActionEvaluator',
@@ -42,6 +43,8 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'focusGameSurface',
       'mapRawInput',
       'platformerKeys',
+      'platformerPad',
+      'readPlatformerPad',
     ]);
   });
 
