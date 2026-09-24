@@ -247,7 +247,7 @@ Play shows the player walking under a low ceiling afterwards.
 | 14.1 spawn / destroy | done 2026-09-24 | 47563db,8758504 |
 | 14.2 timers, sensors | done 2026-09-24 | f091c7c |
 | 14.3 score rules | done 2026-09-24 | b9203e0 |
-| 14.4 per-level environment, fog height, lift/gamma/gain | todo | |
+| 14.4 per-level environment, fog height, lift/gamma/gain | done 2026-09-24 | 74727fc |
 | 14.5 pad rebinding, UI sounds, title scene, ambience | todo | |
 | 14.6 animation layers, animation-only GLBs, modelAnimation migration | todo | |
 | 14.7 physics fixes (gate lift, one-way spawn) | todo | |
