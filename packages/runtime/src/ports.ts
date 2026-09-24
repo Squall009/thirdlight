@@ -22,6 +22,17 @@ export interface StaticColliderSpec {
   position: Vec2;
   /** Radians, derived from the normalized z/w quaternion copy. */
   rotationZ: number;
+  /** Phase 9.9: a mover's collider (posed every step with `setKinematicPositions`). */
+  kinematic?: boolean;
+  /** Phase 9.9: the character passes from below and the sides and lands from above. */
+  oneWay?: boolean;
+}
+
+/** Phase 9.9: a ray hit (`raycast`). */
+export interface RaycastHit {
+  entityId: string;
+  distance: number;
+  normal: Vec2;
 }
 
 /** The port's per-step character result (physics.md §5). */
@@ -33,6 +44,8 @@ export interface CharacterMoveResult {
   supportNormal: Vec2;
   contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
   snapped: boolean;
+  /** Phase 9.9: the collider entity the character stands on (grounded), when the port knows it. */
+  groundEntityId?: string | null;
 }
 
 /** Counters a port may expose (physics.md §10). */
@@ -59,6 +72,12 @@ export interface PhysicsPort {
    */
   addStaticColliders?(specs: readonly StaticColliderSpec[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
+  /** Phase 9.9: where the kinematic (mover) colliders are after this step's move. */
+  setKinematicPositions?(poses: readonly { entityId: string; position: Vec2; rotationZ: number }[]): void;
+  /** Phase 9.9: ignore one-way colliders for the next `steps` steps (drop through). */
+  dropThrough?(steps: number): void;
+  /** Phase 9.9: the nearest collider hit by a ray (the character excluded). */
+  raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
   dispose(): void;
 }
 
@@ -68,6 +87,8 @@ export interface PhysicsStepClient {
   stageCharacterMove(entityId: string, delta: Vec2): void;
   /** The last completed step's result, or `undefined` before the first step. */
   characterResult(entityId: string): CharacterMoveResult | undefined;
+  /** Phase 9.9: a ray against the level's colliders (bounded per step; null when nothing is hit). */
+  raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */

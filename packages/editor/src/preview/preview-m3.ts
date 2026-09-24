@@ -283,12 +283,15 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
     if (components['collider'] !== undefined) {
-      const collider = components['collider'] as { shape?: unknown; rotationZ?: number };
+      const collider = components['collider'] as { shape?: unknown; rotationZ?: number; oneWay?: boolean };
       statics.push({
         entityId: entity.id,
         position: { x: position[0] ?? 0, y: position[1] ?? 0 },
         rotationZ: collider.rotationZ ?? 0,
         shape: collider.shape as never,
+        // Phase 9.9: movers are kinematic; one-way platforms.
+        ...(components['mover'] !== undefined ? { kinematic: true } : {}),
+        ...(collider.oneWay === true ? { oneWay: true } : {}),
       });
     }
     if (components['controller'] !== undefined) {
@@ -691,6 +694,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
       // Phase 9.7: each animator's current state (entity id → state name).
       ...animatorStates(h.host.runtime),
+      // Phase 9.9: the run's counters and the player's health.
+      ...gameCounters(h.host.runtime),
     };
   };
 
@@ -754,6 +759,14 @@ export function bootstrapPreviewM3(): void {
 // `game.js` for a v3 play is this bundle — the same role as the M2
 // `preview.js`/`preview-bootstrap.ts`).
 bootstrapPreviewM3();
+
+/** Phase 9.9: counters (at most 32) and health, for tl_game_observe. */
+function gameCounters(runtime: unknown): { counters?: Record<string, number>; health?: { current: number; max: number } } {
+  const g = (runtime as { gameCounters?: () => { counters: Record<string, number>; health: { current: number; max: number } | null } }).gameCounters?.();
+  if (g === undefined) return {};
+  const entries = Object.entries(g.counters).slice(0, 32);
+  return { ...(entries.length > 0 ? { counters: Object.fromEntries(entries) } : {}), ...(g.health !== null ? { health: g.health } : {}) };
+}
 
 /** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */
 function animatorStates(runtime: unknown): { animators?: Record<string, string> } {

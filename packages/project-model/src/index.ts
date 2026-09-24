@@ -309,6 +309,22 @@ export {
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
+// Phase 9.9: gameplay building blocks.
+export {
+  BLOCK_COMPONENT_NAMES,
+  BLOCK_COMPONENTS,
+  ENEMY_PATROLS,
+  MOVER_MODES,
+  PICKUP_KINDS,
+  SWITCH_MODES,
+  type BlockComponentName,
+  type EnemyComponent,
+  type HealthComponent,
+  type MoverComponent,
+  type PickupComponent,
+  type SwitchComponent,
+  type TriggerComponent,
+} from './blocks';
 // Phase 9.8: input actions.
 export {
   canonicalInput,

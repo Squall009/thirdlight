@@ -167,6 +167,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'fogVolume',
   // Phase 9.7: v4 scenes only.
   'animator',
+  // Phase 9.9: v4 scenes only.
+  'mover',
+  'trigger',
+  'switch',
+  'health',
+  'pickup',
+  'enemy',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

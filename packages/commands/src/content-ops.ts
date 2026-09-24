@@ -728,7 +728,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       component: args.component,
       previous,
       next: null,
-      changedFields: [...COMPONENT_FIELD_ORDER[args.component]],
+      changedFields: [...COMPONENT_FIELD_ORDER[args.component], ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : [])],
     };
     return {
       ok: true,
@@ -761,11 +761,13 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       if (before[k] !== (args.value as Record<string, unknown>)[k]) changedFields.push(k);
     }
   }
-  for (const f of COMPONENT_FIELD_ORDER[args.component]) {
+  // Phase 9.9 (v4): a collider's `oneWay` flag (not in the M2 field order).
+  const fieldOrder = args.component === 'collider' ? [...COMPONENT_FIELD_ORDER.collider, 'oneWay'] : COMPONENT_FIELD_ORDER[args.component];
+  for (const f of fieldOrder) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && isV3Component(args.component)) delete candidate[f];
+      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay'))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }

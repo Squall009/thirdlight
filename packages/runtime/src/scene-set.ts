@@ -47,13 +47,15 @@ export function sceneContribution(entities: readonly EntityV3[]): SceneContribut
       });
     }
     if (c['playerSpawn'] !== undefined) out.spawns.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] } });
-    const collider = c['collider'] as { shape?: unknown; rotationZ?: number } | undefined;
+    const collider = c['collider'] as { shape?: unknown; rotationZ?: number; oneWay?: boolean } | undefined;
     if (collider !== undefined && c['controller'] === undefined) {
       out.colliders.push({
         entityId: e.id,
         shape: collider.shape,
         position: { x: t.position[0], y: t.position[1] },
         rotationZ: collider.rotationZ ?? 0,
+        ...(c['mover'] !== undefined ? { kinematic: true } : {}),
+        ...(collider.oneWay === true ? { oneWay: true } : {}),
       });
     }
   }

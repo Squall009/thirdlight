@@ -527,6 +527,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           input: inputView(ctx.action),
           // Phase 9.7: animators (`ctx.animator(id)?.set(...)`) and last step's clip events.
           ...(ctx.animators !== undefined ? { animator: ctx.animators.of, events: ctx.animatorEvents ?? [] } : {}),
+          // Phase 9.9: signals and the run's counters.
+          ...(ctx.signals !== undefined ? { signals: ctx.signals } : {}),
+          ...(ctx.game !== undefined ? { game: ctx.game } : {}),
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });

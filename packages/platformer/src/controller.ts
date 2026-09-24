@@ -185,6 +185,7 @@ export function controllerStep(
   cosMinSlopeSlide: number,
   tanMinSlopeSlide: number,
   physics: PhysicsStepClient,
+  bounce?: number,
 ): void {
   const p = state.prevResult;
   const groundedPrev = isGrounded(p, cosMaxSlopeClimb);
@@ -202,6 +203,13 @@ export function controllerStep(
     state.jumpStarted = true;
   } else {
     state.jumpStarted = false;
+  }
+  // Phase 9.9: a stomp or a hit throws the character up (an airborne arc).
+  if (bounce !== undefined && bounce > 0) {
+    state.vy = bounce;
+    state.airborne = true;
+    state.buffer = 0;
+    state.coyote = 0;
   }
   // D. grounded (and not airborne) ⇒ rest vertically; else integrate gravity.
   if (groundedPrev && !state.airborne) state.vy = 0;
@@ -316,6 +324,7 @@ export function createControllerModule(
           cosMinSlopeSlide,
           tanMinSlopeSlide,
           ctx.physics,
+          ctx.intents.bounce,
         );
         return;
       }

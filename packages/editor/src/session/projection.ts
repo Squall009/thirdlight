@@ -55,6 +55,8 @@ export interface ProjectedEntity {
   fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number };
   /** Phase 9.7: the animator controller the model plays. */
   animator?: { controller: string; parameters?: Record<string, number | boolean> };
+  /** Phase 9.9: the gameplay block components present on the entity (mover, trigger, switch, health, pickup, enemy). */
+  blocks?: Partial<Record<BlockName, Record<string, unknown>>>;
   /**
    * M2 (packet 28): the informational prefab provenance a materialized copy
    * carries (`components.prefab`, project-model §20.4). It is what lets the
@@ -140,6 +142,16 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
   return { size: [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1], color: b.material?.color ?? '#cccccc' };
 }
 
+/** Phase 9.9: the gameplay block component names (project-model BLOCK_COMPONENT_NAMES). */
+export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy'] as const;
+export type BlockName = (typeof BLOCK_NAMES)[number];
+
+function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName, Record<string, unknown>>> | undefined {
+  const out: Partial<Record<BlockName, Record<string, unknown>>> = {};
+  for (const n of BLOCK_NAMES) if (components[n] !== undefined) out[n] = structuredClone(components[n]) as Record<string, unknown>;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 
 function toProjected(e: Entity): ProjectedEntity {
@@ -166,6 +178,7 @@ function toProjected(e: Entity): ProjectedEntity {
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
+  const blocks = blocksOf(e.components as unknown as Record<string, unknown>);
   const projected: ProjectedEntity = {
     id: e.id,
     name: e.name ?? e.id,
@@ -183,6 +196,7 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(typeof c.model?.piece === 'string' ? { piece: c.model.piece } : {}),
     ...(c.materials !== undefined ? { materials: { ...c.materials } } : {}),
     ...(c.fogVolume !== undefined ? { fogVolume: { ...c.fogVolume, size: [...c.fogVolume.size] as [number, number, number] } } : {}),
+    ...(blocks !== undefined ? { blocks } : {}),
     ...(c.animator !== undefined ? { animator: { controller: c.animator.controller, ...(c.animator.parameters !== undefined ? { parameters: { ...c.animator.parameters } } : {}) } } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
     ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
@@ -412,6 +426,12 @@ export class Projection {
         } else if (change.component === 'animator') {
           if (change.next === null) delete p.animator;
           else p.animator = structuredClone(change.next as NonNullable<ProjectedEntity['animator']>);
+        } else if ((BLOCK_NAMES as readonly string[]).includes(change.component)) {
+          const blocks = { ...(p.blocks ?? {}) };
+          if (change.next === null) delete blocks[change.component as BlockName];
+          else blocks[change.component as BlockName] = structuredClone(change.next) as Record<string, unknown>;
+          if (Object.keys(blocks).length > 0) p.blocks = blocks;
+          else delete p.blocks;
         } else if (change.component === 'fogVolume') {
           if (change.next === null) delete p.fogVolume;
           else p.fogVolume = { ...(change.next as NonNullable<ProjectedEntity['fogVolume']>) };

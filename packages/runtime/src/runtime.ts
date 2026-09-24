@@ -55,6 +55,7 @@ import { lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { GameplayBlocks } from './blocks';
 import {
   DEFAULT_ASPECT,
   GameSession,
@@ -1210,6 +1211,23 @@ class RuntimeInstance implements Runtime {
   private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
   private animatorWasGrounded = true;
   private readonly animatorControl: BehaviorAnimatorControl;
+  // ---- Phase 9.9: gameplay building blocks ----
+  private blocks: GameplayBlocks | null = null;
+  private stepBounce: number | null = null;
+  private raycastsThisStep = 0;
+  private readonly signalControl = Object.freeze({
+    emit: (name: string): void => {
+      if (typeof name === 'string' && name.length > 0 && name.length <= 64) this.blocks?.emit(name);
+    },
+    on: (name: string): boolean => this.blocks?.signaled(String(name)) ?? false,
+  });
+  private readonly gameControl = Object.freeze({
+    counter: (name: string): number => this.blocks?.counter(String(name)) ?? 0,
+    add: (name: string, delta: number): void => {
+      if (typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name)) this.blocks?.addCounter(name, Number(delta));
+    },
+    health: (): { current: number; max: number } | null => this.blocks?.healthView() ?? null,
+  });
   /** Exit zones the player is inside (entry is edge-triggered). */
   private exitsInside = new Set<string>();
   /** An exit's spawn: the player moves there once `waitFor` are loaded. */
@@ -1296,6 +1314,35 @@ class RuntimeInstance implements Runtime {
     this.sceneControl = this.buildSceneControl();
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
+    // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
+    const rt = this;
+    this.blocks = new GameplayBlocks(
+      {
+        hz: this.hz,
+        physics: this.physics,
+        curr: this.curr,
+        playerId: this.playerEntityId,
+        player: () => {
+          const t = rt.curr.get(rt.playerEntityId);
+          return t === undefined ? null : { x: t.position[0], y: t.position[1] };
+        },
+        playerDelta: () => {
+          const seg = rt.lastSegments.get(rt.playerEntityId);
+          return seg === undefined ? { x: 0, y: 0 } : { x: seg.to.x - seg.from.x, y: seg.to.y - seg.from.y };
+        },
+        groundEntityId: () => rt.lastCharacterResult?.groundEntityId ?? null,
+        kill: () => {
+          if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
+        },
+        animator: (id: string) => {
+          const own = rt.animatorMachines.get(id)?.machine;
+          if (own !== undefined) return own;
+          for (const [childId, rec] of rt.animatorMachines) if (rt.parentOf.get(childId) === id) return rec.machine;
+          return null;
+        },
+      },
+      args.initialEntities,
+    );
     this.animatorControl = Object.freeze({
       of: (entityId: string): BehaviorAnimatorHandle | null => {
         const rec = this.animatorMachines.get(String(entityId));
@@ -1376,6 +1423,16 @@ class RuntimeInstance implements Runtime {
       for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex: this.stepIndex }));
     }
     this.animatorEvents = Object.freeze(fired);
+  }
+
+  /** Phase 9.9: entities collected or defeated (the renderer hides them). */
+  hiddenEntities(): ReadonlySet<string> {
+    return this.blocks?.hiddenEntities() ?? new Set();
+  }
+
+  /** Phase 9.9: the run's counters (coins, gems, keys, lives, custom) and the player's health. */
+  gameCounters(): { counters: Record<string, number>; health: { current: number; max: number } | null } {
+    return { counters: this.blocks?.countersView() ?? {}, health: this.blocks?.healthView() ?? null };
   }
 
   /** Phase 9.7: every loaded animator's pose (the renderer plays these). */
@@ -1858,6 +1915,19 @@ class RuntimeInstance implements Runtime {
     // M3 effective-frame override (gameplay.md §2.5): the sampled frame stays
     // the recorded input; the controller receives the effective frame.
     if (this.isM3) action = this.effectiveFrame(action, ordinal);
+    // Phase 9.9: movers advance (and are posed for physics), a pending bounce
+    // reaches the controller; down + jump on a one-way platform drops through.
+    this.raycastsThisStep = 0;
+    this.blocks?.beforeStep(ordinal);
+    this.stepBounce = this.blocks?.takeBounce() ?? null;
+    if (
+      action.jump === 'pressed' &&
+      (action.actions?.['navigate']?.y ?? 0) < -0.5 &&
+      this.blocks?.isOneWay(this.lastCharacterResult?.groundEntityId ?? null) === true
+    ) {
+      this.physics?.dropThrough?.(15);
+      action = { ...action, jump: 'none' };
+    }
     const backup = cloneCurr(this.curr);
     this.staged.clear();
     this.currentPhase = undefined;
@@ -1878,6 +1948,8 @@ class RuntimeInstance implements Runtime {
         if (this.respawnRequested && this.session !== null && this.session.runState === 'playing') {
           this.session.beginRespawn(ordinal, 'fall');
         }
+        // Phase 9.9: pickups, switches, triggers, enemies and damage.
+        this.blocks?.afterPhysics(action, this.session?.runState === 'playing');
         this.runPhase('camera', action);
       }
     } catch (e) {
@@ -2132,6 +2204,9 @@ class RuntimeInstance implements Runtime {
     });
     // Phase 9.7: a replay or a new run starts the animators over.
     if (reset === 'replay' || reset === 'start') this.resetAnimators();
+    // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
+    if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
+    else if (reset === 'spawn') this.blocks?.onRespawn();
 
     return true;
   }
@@ -2456,6 +2531,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
     this.addAnimators(frozen as unknown as readonly EntityV3[]);
+    this.blocks?.add(frozen as unknown as readonly EntityV3[]);
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
     this.rebuildGameContent();
@@ -2513,6 +2589,7 @@ class RuntimeInstance implements Runtime {
     }
     if (this.pendingTransfer !== null && ids.has(this.pendingTransfer.spawnId)) this.pendingTransfer = null;
     this.removeAnimators(ids);
+    this.blocks?.remove(ids);
     this.batches.delete(sceneId);
     this.setSceneStatus(sceneId, 'unloaded');
     this.sceneRevision += 1;
@@ -2625,6 +2702,8 @@ class RuntimeInstance implements Runtime {
         if (st !== 'playing') {
           throw new GameplayInvalidError(`beginRespawn is valid only while "playing" (state: "${st}")`);
         }
+        // Phase 9.9: a damaging hazard hurts a player with health instead of killing.
+        if (cause === 'hazard' && rt.blocks !== null && rt.blocks.hazard(zoneId) === 'handled') return;
         session.beginRespawn(rt.stepIndex + 1, cause, zoneId);
       },
       activateCheckpoint: (zoneEntityId: string): void => {
@@ -2692,6 +2771,8 @@ class RuntimeInstance implements Runtime {
           ...(this.sceneRows !== null ? { scenes: this.sceneControl } : {}),
           animators: this.animatorControl,
           animatorEvents: this.animatorEvents,
+          signals: this.signalControl,
+          game: this.gameControl,
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {
@@ -2715,6 +2796,8 @@ class RuntimeInstance implements Runtime {
       moveWriter: s.moveWriter,
       jumpWriter: s.jumpWriter,
       transformWrites: Object.freeze(writes),
+      // Phase 9.9: a stomp/hit bounce for the controller this step.
+      ...(this.stepBounce !== null ? { bounce: this.stepBounce } : {}),
     });
   }
 
@@ -2813,6 +2896,12 @@ class RuntimeInstance implements Runtime {
   private readonly physicsClient: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
     characterResult: (): CharacterMoveResult | undefined => this.lastCharacterResult,
+    // Phase 9.9: at most 32 rays per step for modules and scripts.
+    raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
+      if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
+      this.raycastsThisStep += 1;
+      return this.physics.raycast(origin, direction, maxDistance);
+    },
   };
 
   private stageMove(entityId: string, delta: unknown): void {
@@ -2828,8 +2917,11 @@ class RuntimeInstance implements Runtime {
     if (!isFiniteVec2(delta)) {
       throw new Error('a staged character move must be a finite { x, y }');
     }
-    this.staged.set(entityId, { x: delta.x, y: delta.y });
-    this.physics?.stageCharacterMove({ x: delta.x, y: delta.y });
+    // Phase 9.9: the player moves with the platform it stands on.
+    const carry = entityId === this.controllerEntityId ? (this.blocks?.carryDelta() ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
+    const moved = { x: delta.x + carry.x, y: delta.y + carry.y };
+    this.staged.set(entityId, moved);
+    this.physics?.stageCharacterMove(moved);
   }
 
   /** Phase 4 (runtime, not a module): one validated `port.step()`. */
@@ -2847,6 +2939,7 @@ class RuntimeInstance implements Runtime {
     try {
       raw = port.step();
     } catch (e) {
+
       throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
     }
     const check = validateCharacterMoveResult(raw, previousPosition, requested);

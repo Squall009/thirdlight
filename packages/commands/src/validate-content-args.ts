@@ -455,9 +455,9 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   box: ['size', 'material'],
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset'],
-  collider: ['shape'],
+  collider: ['shape', 'oneWay'],
   controller: [],
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation'],
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
@@ -467,6 +467,12 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   instances: ['asset', 'buffer', 'count'],
   fogVolume: ['size', 'density', 'color', 'falloff'],
   animator: ['controller', 'parameters'],
+  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
+  trigger: ['size', 'signal', 'once'],
+  switch: ['mode', 'signal', 'size', 'once'],
+  health: ['max', 'invulnerableSeconds'],
+  pickup: ['kind', 'value', 'counter', 'size', 'respawn'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -485,6 +491,12 @@ const OWNED: readonly OwnedComponent[] = [
   'materials',
   'fogVolume',
   'animator',
+  'mover',
+  'trigger',
+  'switch',
+  'health',
+  'pickup',
+  'enemy',
 ];
 const REMOVABLE: readonly OwnedComponent[] = [
   'collider',
@@ -499,6 +511,12 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'materials',
   'fogVolume',
   'animator',
+  'mover',
+  'trigger',
+  'switch',
+  'health',
+  'pickup',
+  'enemy',
 ];
 /** The two field-less markers whose ADD value is exactly `{}`. */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -659,7 +677,13 @@ export function validateSetComponentArgs(
     component === 'instances' ||
     component === 'materials' ||
     component === 'fogVolume' ||
-    component === 'animator'
+    component === 'animator' ||
+    component === 'mover' ||
+    component === 'trigger' ||
+    component === 'switch' ||
+    component === 'health' ||
+    component === 'pickup' ||
+    component === 'enemy'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

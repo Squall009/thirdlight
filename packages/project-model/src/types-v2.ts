@@ -70,6 +70,8 @@ export type ColliderShape = ColliderBoxShape | ColliderPolygonShape;
 
 export interface ColliderComponent {
   shape: ColliderShape;
+  /** Phase 9.9, v4 only: the character passes from below and the sides, lands from above. */
+  oneWay?: true;
 }
 
 /** §10.8/§21.1 marker component: no fields in M2. */

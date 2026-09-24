@@ -49,6 +49,8 @@ export interface HudState {
   readonly checkpointStep: number | null;
   /** The mapped audio status for the HUD line. */
   readonly sound: 'ready' | 'muted' | 'blocked' | 'unavailable';
+  /** Phase 9.9: the run's counters and health, formatted ("Coins 3 · Health 2/3"), or ''. */
+  readonly counters?: string;
 }
 
 export interface Hud {
@@ -136,7 +138,8 @@ export function createHud(dom: HostDom, config: {
       const checkpoint = state.checkpointActive && state.checkpointStep !== null
         ? ` (checkpoint @ step ${state.checkpointStep} active)`
         : '';
-      text(statusNode, `Deaths: ${state.deathCount}${checkpoint} — sound: ${state.sound}`);
+      const counters = state.counters !== undefined && state.counters !== '' ? `${state.counters} · ` : '';
+      text(statusNode, `${counters}Deaths: ${state.deathCount}${checkpoint} — sound: ${state.sound}`);
     },
     dispose(): void {
       for (const fn of disposers.splice(0)) fn();

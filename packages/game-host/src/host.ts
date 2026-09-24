@@ -419,7 +419,19 @@ export function createGameHost(config: GameHostConfig): GameHost {
     checkpointActive,
     checkpointStep: checkpointActive ? checkpointStep : null,
     sound: mapSoundStatus(config.audio).status,
+    counters: countersLine(),
   });
+
+  /** Phase 9.9: "Coins 3 · Gems 5 · Health 2/3" from the runtime's counters. */
+  const countersLine = (): string => {
+    const g = (runtime as unknown as { gameCounters?: () => { counters: Record<string, number>; health: { current: number; max: number } | null } } | null)?.gameCounters?.();
+    if (g === undefined) return '';
+    const parts = Object.entries(g.counters)
+      .filter(([k]) => k !== 'defeated')
+      .map(([k, v]) => `${k.charAt(0).toUpperCase()}${k.slice(1)} ${v}`);
+    if (g.health !== null) parts.push(`Health ${g.health.current}/${g.health.max}`);
+    return parts.join(' · ');
+  };
 
   /** Phase 12 (c): hand the game's scene requests to the wrapper's loader. */
   const serviceSceneRequests = (rt: Runtime): void => {

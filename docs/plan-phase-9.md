@@ -561,7 +561,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
 | 9.7 rigs + Animator + Sprout clips | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.7"; Sprout 33e92d9 (clips, not pushed) |
 | 9.8 input actions + Input window | done 2026-09-24 (owner look pending) | see git log "9.7/9.8" |
-| 9.9 physics + gameplay building blocks | todo | |
+| 9.9 physics + gameplay building blocks | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.9" |
 | 9.10 game flow, menus, HUD, audio | todo | |
 | 9.11 save system | todo | |
 | 9.12 placeholders, icons, gizmos | todo | |
@@ -661,3 +661,18 @@ Add one dated line per decision taken during the run (what, why).
   keeps a copy of the defaults (a parity test pins it) and `queryGameConfig`
   returns `inputDefaults`. Runtime rebinding for players (a settings screen)
   and storing it in saves move to 9.10/9.11.
+- 2026-09-24 (9.9): the blocks live in the runtime (`runtime/src/blocks.ts`,
+  one `GameplayBlocks` per run) and run inside the fixed step: movers
+  advance before the controller, the player's move gets the platform's
+  motion (carry) or a push out of a mover that moves into it, Rapier
+  kinematic bodies take the new poses after the character sweep; overlaps
+  (triggers, switches, pickups, enemies, damage) are box tests after
+  physics. While grounded, the physics port now reports the surface right
+  under the feet as the support normal (a lift's upward sweep otherwise
+  only touched corners, which read as slopes). Enemies are kinematic boxes
+  that patrol with raycasts, not capsule characters; there is no chase,
+  knockback, defeat animation, collect cue, `health.start`, sensor
+  enter/stay/exit events for scripts, `overlapBox/Circle`, or the extra
+  script intents (rotation/scale, set active, spawn/destroy, timers) —
+  left for 9.10/9.13/9.14 as needed. Known limit: a player spawn inside a
+  one-way platform counts as blocked. Blocks need v4 projects.

@@ -524,6 +524,24 @@ export interface StepContext {
   readonly animators?: BehaviorAnimatorControl;
   /** Phase 9.7: the clip events of the previous step (`ctx.events` in scripts). */
   readonly animatorEvents?: readonly AnimatorEventRecord[];
+  /** Phase 9.9: signals (seen one step after they are emitted). */
+  readonly signals?: BehaviorSignals;
+  /** Phase 9.9: the run's counters and the player's health. */
+  readonly game?: BehaviorGameState;
+}
+
+/** Phase 9.9: `ctx.signals`. */
+export interface BehaviorSignals {
+  emit(name: string): void;
+  /** Emitted in the previous step (by a switch, a trigger or a script). */
+  on(name: string): boolean;
+}
+
+/** Phase 9.9: `ctx.game`. */
+export interface BehaviorGameState {
+  counter(name: string): number;
+  add(name: string, delta: number): void;
+  health(): { current: number; max: number } | null;
 }
 
 /** Phase 9.7: one entity's animator, as a script sees it. */

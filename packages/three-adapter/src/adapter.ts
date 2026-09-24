@@ -236,6 +236,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           }),
         )
       : null;
+  /** Phase 9.9: entities the runtime hides (collected, defeated). */
+  const hiddenIds = new Set<string>();
   /** Phase 9.7: the animator poses the runtime committed, played on the models. */
   const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
   const applyAnimatorPoses = (): void => {
@@ -801,6 +803,22 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
     syncCheckpointLook();
+    // Phase 9.9: collected pickups and defeated enemies disappear (and come back on a replay).
+    const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
+    if (hiddenNow !== undefined) {
+      for (const id of hiddenIds) {
+        if (hiddenNow.has(id)) continue;
+        const obj = objects.get(id);
+        if (obj !== undefined) obj.visible = true;
+        hiddenIds.delete(id);
+      }
+      for (const id of hiddenNow) {
+        if (hiddenIds.has(id)) continue;
+        const obj = objects.get(id);
+        if (obj !== undefined) obj.visible = false;
+        hiddenIds.add(id);
+      }
+    }
     if (localShadowLights > 0 && owned.renderer !== null && !owned.renderer.shadowMap.enabled) {
       owned.renderer.shadowMap.enabled = true;
       owned.renderer.shadowMap.type = THREE.PCFShadowMap;

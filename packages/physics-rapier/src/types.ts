@@ -48,6 +48,10 @@ export interface RapierStaticColliderSpec {
   parentId?: string | null;
   /** Authored scale when known: must be exactly unit scale. */
   scale?: readonly [number, number, number];
+  /** Phase 9.9: on a kinematic body (a mover), posed each step. */
+  kinematic?: boolean;
+  /** Phase 9.9: a one-way platform (landed on from above only). */
+  oneWay?: boolean;
   /** Authored quaternion when known: rotation about Z only. */
   rotation?: readonly [number, number, number, number];
 }

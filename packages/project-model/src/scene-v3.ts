@@ -18,6 +18,7 @@
  * result, never throws, never reads files.
  */
 
+import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, type FogVolumeComponent } from './materials';
 import {
@@ -117,11 +118,11 @@ export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
 const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
-const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId']);
+const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage']);
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
@@ -298,6 +299,12 @@ export function validateGameZoneComponent(c: unknown, path: string, errors: Mode
     for (const key of ['load', 'unload', 'spawnId'] as const) {
       if (c[key] !== undefined) errors.push(unexpectedField(`${path}/${key}`, key, 'nothing (only an exit zone carries load, unload, spawnId)'));
     }
+  }
+  // Phase 9.9: a hazard may do damage instead of killing outright.
+  const damage = c['damage'];
+  if (version === 4 && damage !== undefined) {
+    if (role !== 'hazard') errors.push(unexpectedField(`${path}/damage`, 'damage', 'nothing (only a hazard does damage)'));
+    else if (typeof damage !== 'number' || !Number.isInteger(damage) || damage < 0 || damage > 1000) errors.push(fieldValue(`${path}/damage`, damage, 'an integer 0–1000', 'damage is a whole number (0: instant death)'));
   }
   const known = version === 4 ? KNOWN_GAMEZONE_FIELDS_V4 : KNOWN_GAMEZONE_FIELDS;
   for (const k of Object.keys(c)) {
@@ -783,7 +790,13 @@ function validateEntityComponentsV3(
   if (comps['camera'] !== undefined) validateCameraV2(comps['camera'], `${path}/camera`, errors);
   if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/behavior`, errors);
   if (comps['prefab'] !== undefined) validatePrefabProvenance(comps['prefab'], `${path}/prefab`, errors);
-  if (comps['collider'] !== undefined) validateColliderComponent(comps['collider'], `${path}/collider`, errors);
+  if (comps['collider'] !== undefined) {
+    // Phase 9.9 (v4): `oneWay: true` on a collider.
+    const col = comps['collider'];
+    const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
+    if (oneWay !== undefined && (version !== 4 || oneWay !== true)) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true (v4 scenes)', 'oneWay is true or absent'));
+    validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
+  }
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors);
 
   // v3 components (field values, §23.3.1–§23.3.6)
@@ -808,6 +821,12 @@ function validateEntityComponentsV3(
   }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
+  // Phase 9.9: gameplay building blocks.
+  for (const name of BLOCK_COMPONENT_NAMES) {
+    if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
+  }
+  if (comps['mover'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'a mover cannot carry the player controller', ['mover', 'controller']));
+  if (comps['enemy'] !== undefined && (comps['controller'] !== undefined || comps['collider'] !== undefined)) errors.push(collisionConflict(path, 'an enemy has no collider or controller (its size is its body)', ['enemy', comps['controller'] !== undefined ? 'controller' : 'collider']));
   if (comps['animator'] !== undefined) {
     validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
     if (comps['model'] === undefined) errors.push(componentMissing(`${path}/animator`, 'model', 'an animator sits only on an entity with a model'));
@@ -941,6 +960,7 @@ function canonicalGameZone(c: unknown): GameZoneComponent {
   if (o['load'] !== undefined) out.load = [...(o['load'] as string[])];
   if (o['unload'] !== undefined) out.unload = [...(o['unload'] as string[])];
   if (o['spawnId'] !== undefined) out.spawnId = o['spawnId'] as string;
+  if (o['damage'] !== undefined) out.damage = o['damage'] as number;
   return out;
 }
 
@@ -1044,7 +1064,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     components.behavior = { behaviorId: b.behaviorId, values: b.values };
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']) };
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}) };
   if (comps['controller'] !== undefined) components.controller = {};
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) components.playerSpawn = {};
@@ -1055,6 +1075,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
   if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
   if (comps['animator'] !== undefined) components.animator = canonicalAnimatorComponent(comps['animator'] as AnimatorComponent);
+  for (const name of BLOCK_COMPONENT_NAMES) {
+    if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
+  }
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
     components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };

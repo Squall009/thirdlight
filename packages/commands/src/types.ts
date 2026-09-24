@@ -260,7 +260,14 @@ export type V3OwnedComponent =
   /** Phase 9.5, v4 scenes only: a fog volume. */
   | 'fogVolume'
   /** Phase 9.7, v4 scenes only: an animator controller on a model. */
-  | 'animator';
+  | 'animator'
+  /** Phase 9.9, v4 scenes only: gameplay building blocks. */
+  | 'mover'
+  | 'trigger'
+  | 'switch'
+  | 'health'
+  | 'pickup'
+  | 'enemy';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

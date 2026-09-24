@@ -97,6 +97,7 @@ import { AnimatorPanel } from './AnimatorPanel';
 import { InputPanel } from './InputPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { FogVolumeEditor, LightEditor } from './LightEditor';
+import { BLOCK_DEFAULTS, BlocksEditor } from './BlocksEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -1108,6 +1109,12 @@ function EditorApp(): JSX.Element {
     const c = clientRef.current;
     if (!c) return;
     reportFailure('Light', await c.setComponent(entityId, 'light', patch, c.projection.revision));
+  }, [reportFailure]);
+  /** Phase 9.9: a gameplay component edit (a partial value; null removes the component). */
+  const saveBlock = useCallback(async (entityId: string, component: string, value: Record<string, unknown> | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure(component, await c.setComponent(entityId, component, value, c.projection.revision));
   }, [reportFailure]);
   const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
@@ -2556,6 +2563,7 @@ function EditorApp(): JSX.Element {
       ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}`
       : null;
 
+  const v4Reason = 'gameplay components need a v4 project (scenes)';
   const hasCamera = entities.some((e) => e.kind === 'camera');
   // The scene allows one directional and one ambient light.
   const hasDirectional = entities.some((e) => e.light?.type === 'directional');
@@ -2620,6 +2628,15 @@ function EditorApp(): JSX.Element {
             setExitForm({ entityId: null, load: [], unload: [], spawnId: '', error: null });
             setDialog('exit');
           } },
+        ] },
+        { label: 'Gameplay', items: [
+          { label: 'Moving platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create moving platform', { kind: 'box', name: 'Moving platform', box: { size: [2, 0.4, 2], material: { color: '#c9a36a' } }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: BLOCK_DEFAULTS.mover } }) },
+          { label: 'One-way platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create one-way platform', { kind: 'box', name: 'One-way platform', box: { size: [3, 0.2, 2], material: { color: '#8fb573' } }, components: { collider: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true } } }) },
+          { label: 'Switch', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create switch', { kind: 'box', name: 'Switch', box: { size: [0.6, 0.2, 0.6], material: { color: '#d9534f' } }, components: { switch: BLOCK_DEFAULTS.switch } }) },
+          { label: 'Door (opens on "open")', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create door', { kind: 'box', name: 'Door', box: { size: [0.6, 3, 2], material: { color: '#7a5230' } }, components: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5 } }, mover: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' } } }) },
+          { label: 'Coin', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create coin', { kind: 'box', name: 'Coin', box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { pickup: BLOCK_DEFAULTS.pickup } }) },
+          { label: 'Enemy', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create enemy', { kind: 'box', name: 'Enemy', box: { size: [0.8, 0.8, 0.8], material: { color: '#8e3fb0' } }, components: { enemy: BLOCK_DEFAULTS.enemy } }) },
+          { label: 'Trigger', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create trigger', { kind: 'group', name: 'Trigger', components: { trigger: BLOCK_DEFAULTS.trigger } }) },
         ] },
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
@@ -3066,7 +3083,8 @@ function EditorApp(): JSX.Element {
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
           extra={
-            selected !== null && selected.fogVolume !== undefined ? (
+            <>
+            {selected !== null && selected.fogVolume !== undefined ? (
               <FogVolumeEditor volume={selected.fogVolume} onSave={(patch) => void saveFogVolume(selected.id, patch)} />
             ) : selected !== null && selected.light !== undefined ? (
               <LightEditor light={selected.light} onSave={(patch) => void saveLightPatch(selected.id, patch)} />
@@ -3093,7 +3111,16 @@ function EditorApp(): JSX.Element {
                   </label>
                 )}
               </>
-            ) : null
+            ) : null}
+            {selected !== null && selected.kind !== 'folder' && selected.kind !== 'camera' && selected.light === undefined && selected.fogVolume === undefined && sceneHeaders !== null && (
+              <BlocksEditor
+                blocks={selected.blocks ?? {}}
+                collider={selected.collider}
+                hazard={selected.gameZone?.role === 'hazard' ? selected.gameZone : null}
+                onSave={(component, value) => void saveBlock(selected.id, component, value)}
+              />
+            )}
+            </>
           }
         />
         </div>

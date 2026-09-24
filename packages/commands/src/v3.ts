@@ -17,7 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping } from '@thirdlight/project-model';
+import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
   validateInstancesComponent,
@@ -42,7 +42,7 @@ import type {
 
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId'],
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
@@ -53,6 +53,13 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff'],
   animator: ['controller', 'parameters'],
+  // Phase 9.9: gameplay building blocks.
+  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
+  trigger: ['size', 'signal', 'once'],
+  switch: ['mode', 'signal', 'size', 'once'],
+  health: ['max', 'invulnerableSeconds'],
+  pickup: ['kind', 'value', 'counter', 'size', 'respawn'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -91,6 +98,13 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'fogVolume',
   // Phase 9.7: v4 scenes only.
   'animator',
+  // Phase 9.9: v4 scenes only.
+  'mover',
+  'trigger',
+  'switch',
+  'health',
+  'pickup',
+  'enemy',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -172,6 +186,14 @@ export function validateV3ComponentValue(
       break;
     case 'animator':
       validateAnimatorComponent(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);
+      break;
+    case 'mover':
+    case 'trigger':
+    case 'switch':
+    case 'health':
+    case 'pickup':
+    case 'enemy':
+      BLOCK_COMPONENTS[component].validate(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);
       break;
     case 'light':
       validateLightComponent(value, path, errors, version);

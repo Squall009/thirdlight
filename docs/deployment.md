@@ -560,6 +560,37 @@ gamepad controls stay the standard ones). Scripts read
 match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
 frames may carry `actions: {name: {v, p}}`.
 
+## Gameplay blocks
+
+GameObject → Gameplay places ready-made pieces (v4 projects): a moving
+platform, a one-way platform, a switch, a door (opens on the signal `open`),
+a coin, an enemy and a trigger. Any object can get these in the Inspector
+under Gameplay ("+ Add gameplay component"):
+
+- **Mover** — a path of offsets from where the object stands (`x y z; x y z`),
+  speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
+  "waits for signal" (a door or a lift that starts when a switch or trigger
+  fires). With a box collider it carries the player standing on it and
+  pushes a player it moves into. The Scene view draws its path.
+- **Trigger** — an area that sends a signal when the player enters it.
+- **Switch** — `interact` (the interact action while inside) or `stand`
+  (a pressure plate); sends a signal.
+- **Health** — on the player: max health and invulnerability after a hit.
+  Without it an enemy touch or a hazard is a death, as before.
+- **Pickup** — coin, gem, heart (heals), extra life, key or a custom counter;
+  collected pickups disappear; "comes back" on death if wanted.
+- **Enemy** — walks between two x offsets or until a ledge/wall, hurts on
+  contact, can be defeated by jumping on it (the player bounces).
+- A collider's **one-way** flag: jump up through it, land on it from above,
+  Down + Jump drops through. A hazard zone's **damage** takes health instead
+  of a life.
+
+The HUD shows the counters and health ("Coins 2 · Health 3/3").
+`tl_game_observe` reports `counters` and `health`. Scripts use
+`ctx.signals.emit(name)` / `.on(name)` (seen the next step),
+`ctx.game.counter(name)` / `.add(name, n)` / `.health()`, and
+`ctx.physics.raycast(origin, direction, maxDistance)` (32 per step).
+
 ## Upgrade
 
 ```sh

@@ -130,7 +130,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
       '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
       '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y}], deadZone?, invert?, scale?}]} | null} (null = defaults: ' +
-      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). Returns the new revision on success, ' +
+      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). ' +
+      'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
+      'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal} (with a box collider it is a moving platform that carries ' +
+      'the player; startOn makes a door); trigger {size: [w, h], signal, once?}; switch {mode: interact|stand, signal, size, once?}; ' +
+      'health {max, invulnerableSeconds?} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
+      'respawn?: never|death}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
+      'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life). ' +
+      'Scripts use ctx.signals.emit/on(name) and ctx.game.counter/add/health(). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {
@@ -308,7 +315,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {

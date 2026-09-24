@@ -347,7 +347,8 @@ describe('capsule against static geometry (real library)', () => {
     probe.settle(1);
     const r = probe.last!;
     expect(Object.keys(r).sort()).toEqual(
-      ['applied', 'contacts', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
+      // Phase 9.9 adds groundEntityId (the collider under a grounded character).
+      ['applied', 'contacts', 'groundEntityId', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
     );
     for (const vec of [r.requested, r.applied, r.position, r.supportNormal]) {
       expect(Object.keys(vec).sort()).toEqual(['x', 'y']);

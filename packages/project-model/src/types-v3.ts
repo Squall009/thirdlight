@@ -17,6 +17,7 @@
 
 import type { AnimatorComponent, AnimatorController } from './animator';
 import type { InputConfig } from './input';
+import type { EnemyComponent, HealthComponent, MoverComponent, PickupComponent, SwitchComponent, TriggerComponent } from './blocks';
 import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
 import type {
@@ -71,6 +72,8 @@ export interface CheckpointActivationAppearance {
 /** §23.3.1 axis-aligned XY game zone. */
 export interface GameZoneComponent {
   role: GameZoneRole;
+  /** Phase 9.9, v4 hazards only: the damage it does (absent or 0: instant death). */
+  damage?: number;
   /** `[widthX, heightY]` full extents (meters). */
   size: [number, number];
   /** Required iff `role === 'checkpoint'`; resolves to a `playerSpawn` entity. */
@@ -183,6 +186,13 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   fogVolume?: FogVolumeComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
   animator?: AnimatorComponent;
+  /** Phase 9.9, v4 only: gameplay building blocks. */
+  mover?: MoverComponent;
+  trigger?: TriggerComponent;
+  switch?: SwitchComponent;
+  health?: HealthComponent;
+  pickup?: PickupComponent;
+  enemy?: EnemyComponent;
   gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
   cameraFollow?: CameraFollowComponent;

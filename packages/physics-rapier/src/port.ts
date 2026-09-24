@@ -206,24 +206,40 @@ function failedResult(
   return { ok: false, error: { code: 'physics_init_failed', reason, message } };
 }
 
-/** One fixed body + collider for a static collider spec (the body is what removal frees). */
+/** Phase 9.9: what the port knows about a level collider. */
+interface ColliderInfo {
+  entityId: string;
+  oneWay: boolean;
+  body: RAPIER.RigidBody;
+  /** Height of the collider's top above its body origin (for one-way tests). */
+  top: number;
+}
+
+/** One fixed (or, for a mover, kinematic) body + collider for a collider spec (the body is what removal frees). */
 function addStaticBody(
   world: RAPIER.World,
   spec: RapierStaticColliderSpec,
-): { ok: true; body: RAPIER.RigidBody } | { ok: false; detail: string } {
+): { ok: true; body: RAPIER.RigidBody; collider: RAPIER.Collider; top: number } | { ok: false; detail: string } {
   const shape = validateColliderShape(spec.shape);
   if (!shape.ok) return { ok: false, detail: shape.detail };
   let desc: RAPIER.ColliderDesc | null;
+  const sin = Math.sin(spec.rotationZ);
+  const cos = Math.cos(spec.rotationZ);
+  let top: number;
   if (shape.shape.type === 'box') {
     desc = RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy);
+    top = Math.abs(shape.shape.hx * sin) + Math.abs(shape.shape.hy * cos);
   } else {
     const buffer = polygonVertexBuffer(shape.shape);
     desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
     if (!desc) return { ok: false, detail: 'polygon vertices do not form a convex hull' };
+    top = -Infinity;
+    for (const v of (shape.shape as { vertices: readonly (readonly number[])[] }).vertices) top = Math.max(top, (v[0] ?? 0) * sin + (v[1] ?? 0) * cos);
   }
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(spec.position.x, spec.position.y));
-  world.createCollider(desc.setRotation(spec.rotationZ), body);
-  return { ok: true, body };
+  const bodyDesc = spec.kinematic === true ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
+  const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y));
+  const collider = world.createCollider(desc.setRotation(spec.rotationZ), body);
+  return { ok: true, body, collider, top };
 }
 
 function createAdapter(
@@ -232,7 +248,22 @@ function createAdapter(
   controller: RAPIER.KinematicCharacterController,
   config: RapierPhysicsInitConfig,
   staticBodies: Map<string, RAPIER.RigidBody>,
+  colliderInfo: Map<number, ColliderInfo>,
 ): RapierPhysicsPort {
+  // Phase 9.9: mover poses for this step, one-way drop-through, the ground entity.
+  let kinematicPoses: readonly { entityId: string; position: Vec2; rotationZ: number }[] = [];
+  let dropSteps = 0;
+  const feetOffset = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
+  const groundUnder = (at: Vec2): string | null => {
+    const hit = world.castRay(new RAPIER.Ray({ x: at.x, y: at.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
+    return hit === null ? null : (colliderInfo.get(hit.collider.handle)?.entityId ?? null);
+  };
+  const floorNormalUnder = (at: Vec2): Vec2 | null => {
+    const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: at.x, y: at.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
+    if (hit === null) return null;
+    const len = Math.hypot(hit.normal.x, hit.normal.y);
+    return len > 0 ? { x: hit.normal.x / len, y: hit.normal.y / len } : null;
+  };
   const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
   const snapDistance = config.controller.groundSnap;
   // The authoritative character position is kept as a double here. Rapier
@@ -372,7 +403,22 @@ function createAdapter(
       // `computeColliderMovement` → `computedMovement` → `setTranslation`
       // pattern. `before` is the authoritative double.
       const before = position;
-      controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY });
+      // Phase 9.9: a one-way collider only counts when the feet are on or above
+      // its top and the character is not rising (and not while dropping through).
+      const rising = commandedY > 1e-9;
+      const feet = before.y - feetOffset;
+      // The predicate runs inside Rapier's query (a callback from WASM): it
+      // must not call back into the world, so the platform tops are read first.
+      const oneWayTops = new Map<number, number>();
+      for (const [handle, info] of colliderInfo) if (info.oneWay) oneWayTops.set(handle, info.body.translation().y + info.top);
+      const oneWayFilter = (collider: RAPIER.Collider): boolean => {
+        const top = oneWayTops.get(collider.handle);
+        if (top === undefined) return true;
+        if (dropSteps > 0 || rising) return false;
+        return feet >= top - 0.06;
+      };
+      if (dropSteps > 0) dropSteps -= 1;
+      controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY }, undefined, undefined, oneWayFilter);
       const movement = controller.computedMovement();
       const next = { x: before.x + movement.x, y: before.y + movement.y };
       if (
@@ -428,6 +474,17 @@ function createAdapter(
       // normal observed together with a ground flag (a stale/character-side
       // contact entry) must never be reported as the support.
       if (rawGrounded && !(supportNormal.y > 0)) supportNormal = { x: 0, y: 1 };
+      // Phase 9.9: a sweep that moves the character up (a lift carrying it)
+      // never touches the floor, so its only contact can be a corner or a
+      // wall beside it — never the support. While grounded, the surface
+      // right under the feet (when there is one) is the support.
+      if (rawGrounded) {
+        const floor = floorNormalUnder(next);
+        if (floor !== null && floor.y > 0) {
+          supportNormal = floor;
+          retainedSupport = floor;
+        }
+      }
       const climbable = supportNormal.y >= climbCos - GROUND_NORMAL_TOLERANCE;
       // physics.md §8 items 1 and 4: the adapter reports Rapier's
       // `computedGrounded()`; the climbable/steep classification is carried
@@ -477,10 +534,20 @@ function createAdapter(
       // Apply the correction and run the pipeline update exactly once (no
       // dynamic bodies: this is the broad/narrow-phase update).
       characterCollider.setTranslation(next);
+      // Phase 9.9: the movers move after the character's sweep (the runtime
+      // already added the carried platform's motion to the requested move).
+      for (const pose of kinematicPoses) {
+        const body = staticBodies.get(pose.entityId);
+        if (body === undefined || !body.isKinematic()) continue;
+        body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y });
+        body.setNextKinematicRotation(pose.rotationZ);
+      }
+      kinematicPoses = [];
       world.step();
       position = next;
       grounded = isGrounded;
       steps += 1;
+      const groundEntityId = isGrounded ? groundUnder(next) : null;
 
       return {
         requested: { x: requested.x, y: requested.y },
@@ -495,7 +562,28 @@ function createAdapter(
           steepSlope: rawGrounded && !climbable,
         },
         snapped,
+        groundEntityId,
       };
+    },
+
+    setKinematicPositions(poses) {
+      assertLive('setKinematicPositions');
+      kinematicPoses = poses.map((p) => ({ entityId: p.entityId, position: { x: p.position.x, y: p.position.y }, rotationZ: p.rotationZ }));
+    },
+
+    dropThrough(steps: number): void {
+      assertLive('dropThrough');
+      dropSteps = Math.max(0, Math.min(120, Math.floor(steps)));
+    },
+
+    raycast(origin: Vec2, direction: Vec2, maxDistance: number) {
+      assertLive('raycast');
+      const len = Math.hypot(direction.x, direction.y);
+      if (!(len > 0) || !Number.isFinite(maxDistance) || maxDistance <= 0 || !Number.isFinite(origin.x) || !Number.isFinite(origin.y)) return null;
+      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y }, { x: direction.x / len, y: direction.y / len }), Math.min(maxDistance, 1000), true, undefined, undefined, characterCollider);
+      if (hit === null) return null;
+      const entityId = colliderInfo.get(hit.collider.handle)?.entityId;
+      return entityId === undefined ? null : { entityId, distance: hit.timeOfImpact, normal: { x: hit.normal.x, y: hit.normal.y } };
     },
 
     reset(next: Vec2): void {
@@ -582,6 +670,7 @@ function createAdapter(
         const added = addStaticBody(world, spec as RapierStaticColliderSpec);
         if (!added.ok) throw new Error(`statics(${spec.entityId}): ${added.detail}`);
         staticBodies.set(spec.entityId, added.body);
+        colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top });
       }
     },
     removeStaticColliders(entityIds: readonly string[]): void {
@@ -589,6 +678,7 @@ function createAdapter(
       for (const id of entityIds) {
         const body = staticBodies.get(id);
         if (body === undefined) continue;
+        for (const [handle, info] of [...colliderInfo]) if (info.body === body) colliderInfo.delete(handle);
         // Removing the body frees its collider too.
         world.removeRigidBody(body);
         staticBodies.delete(id);
@@ -637,6 +727,7 @@ export async function createPhysicsPort(
     world = new RAPIER.World({ x: 0, y: config.solver.gravityY });
     world.timestep = 1 / config.solver.hz;
     const staticBodies = new Map<string, RAPIER.RigidBody>();
+    const colliderInfo = new Map<number, ColliderInfo>();
     for (const spec of config.statics) {
       const added = addStaticBody(world, spec);
       if (!added.ok) {
@@ -646,6 +737,7 @@ export async function createPhysicsPort(
         return failedResult('invalid_shape', `statics(${spec.entityId}): ${added.detail}`);
       }
       staticBodies.set(spec.entityId, added.body);
+      colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top });
     }
     if (signal?.aborted) {
       world.free();
@@ -665,7 +757,7 @@ export async function createPhysicsPort(
     controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);
     controller.enableSnapToGround(GROUND_SNAP_DISTANCE);
     // Autostep stays disabled (contract constant): never enabled.
-    return { ok: true, port: createAdapter(world, characterCollider, controller, config, staticBodies) };
+    return { ok: true, port: createAdapter(world, characterCollider, controller, config, staticBodies, colliderInfo) };
   } catch (error) {
     world?.free();
     return failedResult(

@@ -110,7 +110,8 @@ describe('public exports', () => {
       return port.step();
     })();
     expect(Object.keys(moved).sort()).toEqual(
-      ['applied', 'contacts', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
+      // Phase 9.9 adds groundEntityId (the collider under a grounded character).
+      ['applied', 'contacts', 'groundEntityId', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
     );
     port.dispose();
   });

@@ -46,6 +46,8 @@ const ZONE_COLORS: Record<ZoneRole, number> = {
   exit: 0xc86bff,
 };
 const SPAWN_COLOR = 0xffc857;
+/** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/enemy/pickup areas). */
+const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, enemy: 0xb05aff, pickup: 0xf2c230 } as const;
 const CAMERA_FOLLOW_COLOR = 0x9aa7ff;
 /** The z=0 game plane (the 2D side-view game coordinates are XY). */
 const GAME_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -75,6 +77,8 @@ export class ZoneOverlay {
   /** Whether a gesture is in flight (pointer down consumed, not yet up/cancel). */
   managing = false;
   private readonly raycaster = new THREE.Raycaster();
+  /** Phase 9.9: the gameplay block helpers, rebuilt on every sync. */
+  private readonly blocks = new THREE.Group();
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.scene = scene;
@@ -82,6 +86,8 @@ export class ZoneOverlay {
     this.canvas = canvas;
     this.root = new THREE.Group();
     this.root.name = 'zone-overlay';
+    this.blocks.name = 'block-overlay';
+    this.root.add(this.blocks);
     scene.add(this.root);
   }
 
@@ -223,6 +229,61 @@ export class ZoneOverlay {
       }
     }
     this.updateResizeHandle();
+    this.syncBlocks(entities);
+  }
+
+  /**
+   * Phase 9.9: a mover's path (a line through its stops, a dot per stop) and
+   * the outline of each trigger, switch, enemy and sized pickup area.
+   */
+  private syncBlocks(entities: readonly ProjectedEntity[]): void {
+    for (const c of [...this.blocks.children]) {
+      this.blocks.remove(c);
+      this.disposeGroup(c as THREE.Group);
+    }
+    const rect = (x: number, y: number, w: number, h: number, color: number): THREE.Line => {
+      const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([a, b]) => new THREE.Vector3(x + (a! * w) / 2, y + (b! * h) / 2, 0.02));
+      return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
+    };
+    for (const e of entities) {
+      const b = e.blocks;
+      if (b === undefined) continue;
+      const x = N(e.position[0]);
+      const y = N(e.position[1]);
+      const z = N(e.position[2]);
+      const mover = b.mover as { waypoints?: number[][]; mode?: string } | undefined;
+      if (mover?.waypoints !== undefined) {
+        const stops = [[0, 0, 0], ...mover.waypoints].map((p) => new THREE.Vector3(x + N(p[0]), y + N(p[1]), z + N(p[2])));
+        if (mover.mode === 'loop') stops.push(stops[0]!.clone());
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(stops), new THREE.LineBasicMaterial({ color: BLOCK_COLORS.mover, depthTest: false }));
+        line.name = `mover-path:${e.id}`;
+        line.renderOrder = 10;
+        this.blocks.add(line);
+        for (const s of stops) {
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: BLOCK_COLORS.mover, depthTest: false }));
+          dot.position.copy(s);
+          dot.renderOrder = 10;
+          this.blocks.add(dot);
+        }
+      }
+      for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
+        const size = (b[k] as { size?: number[] } | undefined)?.size;
+        if (size !== undefined) this.blocks.add(rect(x, y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
+      }
+      const range = (b.enemy as { range?: number[] } | undefined)?.range;
+      if (range !== undefined) {
+        const line = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x + N(range[0]), y, 0.02), new THREE.Vector3(x + N(range[1]), y, 0.02)]),
+          new THREE.LineBasicMaterial({ color: BLOCK_COLORS.enemy }),
+        );
+        this.blocks.add(line);
+      }
+    }
+  }
+
+  /** Phase 9.9: the drawn gameplay helpers (names of the mover paths), for tests. */
+  blockHelpers(): { moverPaths: string[]; count: number } {
+    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length };
   }
 
   private kindSignature(e: ProjectedEntity): string {
@@ -370,6 +431,7 @@ export class ZoneOverlay {
 
   dispose(): void {
     for (const g of this.objects.values()) this.disposeGroup(g);
+    this.disposeGroup(this.blocks);
     this.objects.clear();
     if (this.resizeHandle) {
       this.resizeHandle.geometry.dispose();
