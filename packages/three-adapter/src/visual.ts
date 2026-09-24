@@ -232,6 +232,14 @@ export interface PreparedVisualResource {
   bounds(piece: string | null): THREE.Box3;
   /** The names of the file's materials (of one piece), in first-use order. */
   materialNames(piece: string | null): string[];
+  /** Phase 14.6: the file's animation clips (shared, read-only). */
+  animationClips(): readonly THREE.AnimationClip[];
+  /**
+   * Phase 14.6: the file's skeleton for bone masks — its bones (every node
+   * when the file has none: rigid-node clips animate nodes), in hierarchy
+   * order, each with its parent bone (null at the top) and depth.
+   */
+  skeleton(): readonly { readonly name: string; readonly parent: string | null; readonly depth: number }[];
   diagnostics(): VisualResourceDiagnostics;
   ownership(): ResourceOwnership;
   /** Retire the resource: no new instances; shared resources are released when
@@ -730,6 +738,30 @@ function createPreviewController(
   return controller;
 }
 
+/** Phase 14.6: the bones of a loaded hierarchy (or its named nodes when it has no bones), parents first. */
+export function skeletonOf(root: THREE.Object3D): { name: string; parent: string | null; depth: number }[] {
+  let bones = false;
+  root.traverse((o) => {
+    if ((o as THREE.Bone).isBone === true) bones = true;
+  });
+  const keep = (o: THREE.Object3D): boolean => o.name !== '' && (bones ? (o as THREE.Bone).isBone === true : (o as THREE.Mesh).isMesh !== true || o.children.length > 0);
+  const out: { name: string; parent: string | null; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (o: THREE.Object3D, parent: string | null, depth: number): void => {
+    let p = parent;
+    let d = depth;
+    if (o !== root && keep(o) && !seen.has(o.name)) {
+      seen.add(o.name);
+      out.push({ name: o.name, parent, depth });
+      p = o.name;
+      d = depth + 1;
+    }
+    for (const c of o.children) walk(c, p, d);
+  };
+  walk(root, null, 0);
+  return out;
+}
+
 function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, ledger: OwnershipLedger): PreparedVisualResource {
   const extras = loaded.ownership ?? {};
   const declared = {
@@ -812,6 +844,12 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
         });
       }
       return names;
+    },
+    animationClips() {
+      return loaded.animations;
+    },
+    skeleton() {
+      return skeletonOf(loaded.root);
     },
     createInstance(options: CreateInstanceOptions = {}) {
       if (disposed) {

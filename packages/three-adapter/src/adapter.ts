@@ -257,7 +257,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (rec === undefined) {
         const found = realization.instanceOf(id);
         if (found === null) continue;
-        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), found.assetId) };
+        const rig = found.assetId;
+        const r = realization;
+        // Phase 14.6: clips of an animation-only asset marked "clips for" this model's asset.
+        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig) }) };
         animatorPlayers.set(id, rec);
       }
       rec.player.apply(pose);

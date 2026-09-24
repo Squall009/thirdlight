@@ -262,7 +262,7 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     }
   }
   return {
-    assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}) })),
+    assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
       const buf = bytes.get(`${assetId}@${version}`);
@@ -798,9 +798,11 @@ function gameCounters(runtime: unknown): { counters?: Record<string, number>; he
 
 /** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */
 function animatorStates(runtime: unknown): { animators?: Record<string, string> } {
-  const poses = (runtime as { animatorPoses?: () => ReadonlyMap<string, { state: string }> }).animatorPoses?.();
+  const poses = (runtime as { animatorPoses?: () => ReadonlyMap<string, { state: string; layers?: readonly { name: string; state: string }[] }> }).animatorPoses?.();
   if (poses === undefined || poses.size === 0) return {};
-  return { animators: Object.fromEntries([...poses].slice(0, 64).map(([id, p]) => [id, p.state])) };
+  // Phase 14.6: override layers follow the base state ("Run | Upper body: Attack").
+  const text = (p: { state: string; layers?: readonly { name: string; state: string }[] }): string => [p.state, ...(p.layers ?? []).map((l) => `${l.name}: ${l.state}`)].join(' | ').slice(0, 256);
+  return { animators: Object.fromEntries([...poses].slice(0, 64).map(([id, p]) => [id, text(p)])) };
 }
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */

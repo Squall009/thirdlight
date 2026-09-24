@@ -848,13 +848,18 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined && args['materials'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors or materials') };
+  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials or clipsFor') };
+  // Phase 14.6: the rig an animation-only file's clips are for (null clears it).
+  const clipsFor = args['clipsFor'];
+  if (clipsFor !== undefined && clipsFor !== null && typeof clipsFor !== 'string') {
+    return { ok: false, error: fieldType('/args/clipsFor', clipsFor, 'string (the model assetId whose rig the clips are for) or null') };
+  }
   if (args['vertexColors'] !== undefined && args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint') {
     return {
       ok: false,
@@ -871,6 +876,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
       assetId: args['assetId'],
       ...(args['vertexColors'] !== undefined ? { vertexColors: args['vertexColors'] } : {}),
       ...(materials !== undefined ? { materials: materials as Record<string, string> | null } : {}),
+      ...(clipsFor !== undefined ? { clipsFor: clipsFor as string | null } : {}),
     },
   };
 }

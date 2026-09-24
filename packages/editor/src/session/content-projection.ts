@@ -83,12 +83,13 @@ export class ContentProjection {
       case 'setAssetOptions': {
         const a = this.assets.get(change.assetId);
         if (a === undefined) return false;
-        const next = change.next as CommandAssetRecord & { materials?: Record<string, string> };
-        const { vertexColors: _old, materials: _m, ...rest } = a;
+        const next = change.next as CommandAssetRecord & { materials?: Record<string, string>; clipsFor?: string };
+        const { vertexColors: _old, materials: _m, clipsFor: _c, ...rest } = a;
         this.assets.set(change.assetId, {
           ...rest,
           ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
           ...(next.materials !== undefined ? { materials: { ...next.materials } } : {}),
+          ...(next.clipsFor !== undefined ? { clipsFor: next.clipsFor } : {}),
         });
         return true;
       }
@@ -117,6 +118,7 @@ export class ContentProjection {
       versionCount: next.versions.length,
       ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
+      ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}) } } : {}),
       // `change.next` carries the full record, so the version facts (never
@@ -172,6 +174,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     versionCount: a.versionCount,
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
+    ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),

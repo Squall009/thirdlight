@@ -175,6 +175,6 @@ export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from 
 export { createTagQuery } from './behavior';
 export { capsuleHalfTotal, playerCapsuleOf, sceneEntitiesFromDocument } from './scene-set';
 // Phase 9.7/9.8: animators and ctx.input.
-export { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+export { AnimatorMachine, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';
 export { inputView, type BehaviorInputView } from './behavior';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorSave, RunRestore, RunSaveState } from './types';

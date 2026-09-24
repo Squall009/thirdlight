@@ -15,11 +15,25 @@
  * Browser-only (React).
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
-import type { AnimatorClipRef, AnimatorCondition, AnimatorController, AnimatorParameter, AnimatorState, AnimatorTransition } from '@thirdlight/project-model';
+import type { AnimatorClipRef, AnimatorCondition, AnimatorController, AnimatorLayer, AnimatorParameter, AnimatorState, AnimatorTransition } from '@thirdlight/project-model';
 
 export interface ClipInfo {
   name: string;
   duration: number;
+}
+
+/** Phase 14.6: one bone of a model's skeleton (for layer masks). */
+export interface BoneInfo {
+  name: string;
+  parent: string | null;
+  depth: number;
+}
+
+/** A clip a state can play: the model's own, or one of an animation-only asset marked "clips for" it. */
+interface ClipChoice extends ClipInfo {
+  assetId: string;
+  /** The asset's name when it is not the model itself. */
+  source: string | null;
 }
 
 /** A running live preview of one controller (App owns the model and the frame loop). */
@@ -28,6 +42,8 @@ export interface AnimatorPreview {
   trigger(name: string): void;
   /** The current state's name. */
   state(): string;
+  /** Phase 14.6: every layer's current state (the base layer first). */
+  layerStates?(): string[];
   dispose(): void;
 }
 
@@ -35,8 +51,11 @@ interface Props {
   controllers: AnimatorController[];
   /** Start a live preview of `controller` in `canvas`, or say why not. */
   preview?: (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
-  models: { assetId: string; displayName: string }[];
+  /** Model assets; `clipsFor` marks an animation-only file whose clips play on that model (phase 14.6). */
+  models: { assetId: string; displayName: string; clipsFor?: string }[];
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
+  /** Phase 14.6: the model's skeleton (its bones, or its nodes when it has none). */
+  skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
   onSave: (controller: AnimatorController) => void;
   onDelete: (controllerId: string) => void;
   error: string | null;
@@ -56,6 +75,28 @@ const newId = (prefix: string, taken: Iterable<string>): string => {
 };
 const posOf = (s: AnimatorState, i: number): [number, number] => s.position ?? [180 + (i % 4) * 170, 20 + Math.floor(i / 4) * 80];
 const clipLabel = (c: AnimatorClipRef): string => c.clip;
+
+/** Phase 14.6: one layer's graph (0 = the base layer: the controller's own states). */
+type Graph = { states: AnimatorState[]; transitions: AnimatorTransition[]; entry: string };
+export const MAX_LAYERS = 3;
+function graphOf(c: AnimatorController, layer: number): Graph {
+  return layer === 0 ? c : (c.layers?.[layer - 1] ?? c);
+}
+function withGraph(c: AnimatorController, layer: number, patch: Partial<Graph>): AnimatorController {
+  if (layer === 0) return { ...c, ...patch };
+  return { ...c, layers: (c.layers ?? []).map((l, i) => (i === layer - 1 ? { ...l, ...patch } : l)) };
+}
+const allStateIds = (c: AnimatorController): string[] => [c, ...(c.layers ?? [])].flatMap((g) => g.states.map((s) => s.id));
+/** Where a controller's clips come from: its first clip's asset (a clips-only asset stands for its rig). */
+function rigOf(c: AnimatorController | null, models: Props['models']): string | undefined {
+  for (const g of c === null ? [] : [c, ...(c.layers ?? [])]) {
+    for (const s of g.states) {
+      const id = s.motion.kind === 'clip' ? s.motion.clip.assetId : s.motion.kind === 'blend1d' ? s.motion.children[0]?.clip.assetId : undefined;
+      if (id !== undefined) return models.find((m) => m.assetId === id)?.clipsFor ?? id;
+    }
+  }
+  return undefined;
+}
 
 /** A controller for a platformer character from clips named like idle/run/jump/fall/land. */
 export function platformerController(controllerId: string, assetId: string, clips: readonly ClipInfo[]): AnimatorController | string {
@@ -113,8 +154,12 @@ export function platformerController(controllerId: string, assetId: string, clip
 
 export function AnimatorPanel(p: Props): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(p.controllers[0]?.controllerId ?? null);
-  const [model, setModel] = useState<string>(p.models[0]?.assetId ?? '');
-  const [clips, setClips] = useState<ClipInfo[]>([]);
+  // Rigs: models that are not animation-only files (their clips are listed under their rig).
+  const rigs = p.models.filter((m) => m.clipsFor === undefined);
+  const [model, setModel] = useState<string>(rigs[0]?.assetId ?? '');
+  const [clips, setClips] = useState<ClipChoice[]>([]);
+  const [layer, setLayer] = useState(0);
+  const [bones, setBones] = useState<BoneInfo[]>([]);
   const [draft, setDraft] = useState<AnimatorController | null>(null);
   const [selection, setSelection] = useState<{ kind: 'state'; id: string } | { kind: 'transition'; index: number } | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
@@ -131,10 +176,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
     if (selectedId === null && p.controllers.length > 0) setSelectedId(p.controllers[0]!.controllerId);
   }, [p.controllers.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // The model whose clips the pickers list: the controller's first clip's, else the chosen one.
-  const firstAsset = useMemo(() => {
-    for (const s of draft?.states ?? []) return s.motion.kind === 'clip' ? s.motion.clip.assetId : s.motion.children[0]?.clip.assetId;
-    return undefined;
-  }, [draft]);
+  const firstAsset = useMemo(() => rigOf(draft, p.models), [draft, p.models]);
   useEffect(() => {
     if (firstAsset !== undefined && firstAsset !== model) setModel(firstAsset);
   }, [firstAsset]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -144,17 +186,34 @@ export function AnimatorPanel(p: Props): JSX.Element {
       setClips([]);
       return;
     }
-    void p.clipsOf(model).then((c) => live && setClips(c));
+    // The model's own clips, then those of every animation-only asset marked "clips for" it.
+    const sources = [{ assetId: model, source: null as string | null }, ...p.models.filter((m) => m.clipsFor === model).map((m) => ({ assetId: m.assetId, source: m.displayName }))];
+    void Promise.all(sources.map(async (src) => (await p.clipsOf(src.assetId)).map((c) => ({ ...c, assetId: src.assetId, source: src.source })))).then((lists) => live && setClips(lists.flat()));
+    if (p.skeletonOf !== undefined) void p.skeletonOf(model).then((b) => live && setBones(b));
     return () => {
       live = false;
     };
-  }, [model]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [model, JSON.stringify(p.models)]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setLayer(0);
+  }, [selectedId]);
+  // A removed layer: back to the base layer.
+  useEffect(() => {
+    if (draft !== null && layer > (draft.layers?.length ?? 0)) setLayer(0);
+  }, [draft, layer]);
+  const g: Graph | null = draft === null ? null : graphOf(draft, layer);
+  const gs = g?.states ?? [];
+  const gt = g?.transitions ?? [];
+  const gentry = g?.entry ?? '';
+  const put = (patch: Partial<Graph>): void => {
+    if (draft !== null) save(withGraph(draft, layer, patch));
+  };
 
   const save = (next: AnimatorController): void => {
     setDraft(next);
     p.onSave(next);
   };
-  const ref = (c: ClipInfo): AnimatorClipRef => ({ assetId: model, clip: c.name, duration: Math.max(0.001, c.duration) });
+  const ref = (c: ClipInfo & { assetId?: string }): AnimatorClipRef => ({ assetId: c.assetId ?? model, clip: c.name, duration: Math.max(0.001, c.duration) });
 
   const create = async (preset: 'empty' | 'platformer'): Promise<void> => {
     setMessage(null);
@@ -185,31 +244,33 @@ export function AnimatorPanel(p: Props): JSX.Element {
     const r = svg.current?.getBoundingClientRect();
     return r === undefined ? [0, 0] : [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
   };
-  const addState = (kind: 'clip' | 'blend1d', at: [number, number]): void => {
+  const addState = (kind: 'clip' | 'blend1d' | 'empty', at: [number, number]): void => {
     if (draft === null) return;
-    if (clips.length === 0) return setMessage('the model has no clips');
-    const id = newId('state', draft.states.map((s) => s.id));
+    if (kind !== 'empty' && clips.length === 0) return setMessage('the model has no clips');
+    const id = newId('state', allStateIds(draft));
     const numeric = draft.parameters.find((x) => x.type === 'float' || x.type === 'int');
     if (kind === 'blend1d' && numeric === undefined) return setMessage('a blend tree needs a float or int parameter; add one first');
     const state: AnimatorState = {
       id,
-      name: kind === 'clip' ? clips[0]!.name : 'Blend',
+      name: kind === 'clip' ? clips[0]!.name : kind === 'empty' ? 'Empty' : 'Blend',
       motion:
-        kind === 'clip'
+        kind === 'empty'
+          ? { kind: 'empty' }
+          : kind === 'clip'
           ? { kind: 'clip', clip: ref(clips[0]!) }
           : { kind: 'blend1d', parameter: numeric!.name, children: [{ threshold: 0, clip: ref(clips[0]!) }, { threshold: 1, clip: ref(clips[Math.min(1, clips.length - 1)]!) }] },
       speed: 1,
       loop: true,
       position: [Math.max(0, at[0] - NODE_W / 2), Math.max(0, at[1] - NODE_H / 2)],
     };
-    save({ ...draft, states: [...draft.states, state] });
+    put({ states: [...gs, state] });
     setSelection({ kind: 'state', id });
   };
   const deleteState = (id: string): void => {
     if (draft === null) return;
-    if (draft.states.length === 1) return setMessage('a controller keeps at least one state');
-    const states = draft.states.filter((s) => s.id !== id);
-    save({ ...draft, states, transitions: draft.transitions.filter((t) => t.from !== id && t.to !== id), entry: draft.entry === id ? states[0]!.id : draft.entry });
+    if (gs.length === 1) return setMessage('a layer keeps at least one state');
+    const states = gs.filter((s) => s.id !== id);
+    put({ states, transitions: gt.filter((t) => t.from !== id && t.to !== id), entry: gentry === id ? states[0]!.id : gentry });
     setSelection(null);
   };
   const clickNode = (id: string): void => {
@@ -217,8 +278,8 @@ export function AnimatorPanel(p: Props): JSX.Element {
     if (linking !== null) {
       if (id === ANY) return;
       const t: AnimatorTransition = { from: linking, to: id, conditions: [], duration: 0.1, exitTime: 1 };
-      save({ ...draft, transitions: [...draft.transitions, t] });
-      setSelection({ kind: 'transition', index: draft.transitions.length });
+      put({ transitions: [...gt, t] });
+      setSelection({ kind: 'transition', index: gt.length });
       setLinking(null);
       return;
     }
@@ -227,30 +288,32 @@ export function AnimatorPanel(p: Props): JSX.Element {
 
   const nodePos = (id: string): [number, number] => {
     if (id === ANY) return ANY_POS;
-    const i = draft?.states.findIndex((s) => s.id === id) ?? -1;
-    return i < 0 ? [0, 0] : posOf(draft!.states[i]!, i);
+    const i = gs.findIndex((s) => s.id === id);
+    return i < 0 ? [0, 0] : posOf(gs[i]!, i);
   };
 
-  const stateSel = selection?.kind === 'state' ? draft?.states.find((s) => s.id === selection.id) ?? null : null;
-  const transSel = selection?.kind === 'transition' ? draft?.transitions[selection.index] ?? null : null;
+  const stateSel = selection?.kind === 'state' ? gs.find((s) => s.id === selection.id) ?? null : null;
+  const transSel = selection?.kind === 'transition' ? gt[selection.index] ?? null : null;
 
   const setState = (next: AnimatorState): void => {
     if (draft === null) return;
-    save({ ...draft, states: draft.states.map((s) => (s.id === next.id ? next : s)) });
+    put({ states: gs.map((s) => (s.id === next.id ? next : s)) });
   };
   const setTransition = (index: number, next: AnimatorTransition): void => {
     if (draft === null) return;
-    save({ ...draft, transitions: draft.transitions.map((t, i) => (i === index ? next : t)) });
+    put({ transitions: gt.map((t, i) => (i === index ? next : t)) });
   };
+  /** An option's value: the clip name for the model's own clips, `assetId/clip` for another asset's. */
+  const choiceValue = (assetId: string, clip: string): string => (assetId === model ? clip : `${assetId}/${clip}`);
   const clipSelect = (value: AnimatorClipRef, onPick: (c: AnimatorClipRef) => void, label: string): JSX.Element => (
-    <select className="tl-input" aria-label={label} value={value.assetId === model ? value.clip : ''} onChange={(e) => {
-      const c = clips.find((x) => x.name === e.target.value);
+    <select className="tl-input" aria-label={label} value={clips.some((c) => c.assetId === value.assetId && c.name === value.clip) ? choiceValue(value.assetId, value.clip) : ''} onChange={(e) => {
+      const c = clips.find((x) => choiceValue(x.assetId, x.name) === e.target.value);
       if (c !== undefined) onPick(ref(c));
     }}>
-      {value.assetId !== model && <option value="">{clipLabel(value)} (other model)</option>}
+      {!clips.some((c) => c.assetId === value.assetId && c.name === value.clip) && <option value="">{clipLabel(value)} (other model)</option>}
       {clips.map((c) => (
-        <option key={c.name} value={c.name}>
-          {c.name} ({c.duration.toFixed(2)} s)
+        <option key={choiceValue(c.assetId, c.name)} value={choiceValue(c.assetId, c.name)}>
+          {c.name}{c.source !== null ? ` · ${c.source}` : ''} ({c.duration.toFixed(2)} s)
         </option>
       ))}
     </select>
@@ -304,8 +367,8 @@ export function AnimatorPanel(p: Props): JSX.Element {
           ))}
         </select>
         <select className="tl-input" aria-label="animator model" value={model} onChange={(e) => setModel(e.target.value)} title="The model whose clips the controller uses">
-          {p.models.length === 0 && <option value="">— no model —</option>}
-          {p.models.map((m) => (
+          {rigs.length === 0 && <option value="">— no model —</option>}
+          {rigs.map((m) => (
             <option key={m.assetId} value={m.assetId}>
               {m.displayName}
             </option>
@@ -327,6 +390,42 @@ export function AnimatorPanel(p: Props): JSX.Element {
         )}
       </div>
       {(message ?? p.error) !== null && <p className="tl-lighting__message" role="alert">{message ?? p.error}</p>}
+      {draft !== null && (
+        <div className="tl-animator__layers" role="tablist" aria-label="animator layers">
+          {[draft, ...(draft.layers ?? [])].map((l, i) => (
+            <button
+              key={i}
+              type="button"
+              role="tab"
+              aria-selected={layer === i}
+              className={`tl-button${layer === i ? ' is-active' : ''}`}
+              onClick={() => {
+                setLayer(i);
+                setSelection(null);
+                setLinking(null);
+              }}
+            >
+              {i === 0 ? 'Base layer' : (l as AnimatorLayer).name}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="tl-button"
+            disabled={(draft.layers?.length ?? 0) >= MAX_LAYERS}
+            title="An override layer: its own states on the bones of its mask (e.g. an upper-body attack while running)"
+            onClick={() => {
+              const id = newId('state', allStateIds(draft));
+              const n = (draft.layers?.length ?? 0) + 1;
+              const next: AnimatorLayer = { name: `Layer ${n}`, mask: [], weight: 1, states: [{ id, name: 'Empty', motion: { kind: 'empty' }, speed: 1, loop: true, position: [180, 40] }], transitions: [], entry: id };
+              save({ ...draft, layers: [...(draft.layers ?? []), next] });
+              setLayer(n);
+              setSelection(null);
+            }}
+          >
+            Add layer
+          </button>
+        </div>
+      )}
       {linking !== null && <p className="tl-hint">Click the state the transition goes to (Esc cancels).</p>}
       {draft !== null && (
         <div className="tl-animator__body">
@@ -347,7 +446,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
               if (d === null) return;
               const [x, y] = point(e);
               d.moved = true;
-              setDraft({ ...draft, states: draft.states.map((s) => (s.id === d.id ? { ...s, position: [Math.max(0, x - d.dx), Math.max(0, y - d.dy)] } : s)) });
+              setDraft(withGraph(draft, layer, { states: gs.map((s) => (s.id === d.id ? { ...s, position: [Math.max(0, x - d.dx), Math.max(0, y - d.dy)] } : s)) }));
             }}
             onPointerUp={() => {
               const d = drag.current;
@@ -360,7 +459,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#9fb4d6" />
               </marker>
             </defs>
-            {draft.transitions.map((t, i) => {
+            {gt.map((t, i) => {
               const [ax, ay] = nodePos(t.from);
               const [bx, by] = nodePos(t.to);
               const x1 = ax + NODE_W / 2;
@@ -378,7 +477,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
               const ey = y2 + oy - (y2 - y1) * shrink;
               const selected = selection?.kind === 'transition' && selection.index === i;
               return (
-                <g key={i} role="button" aria-label={`transition ${t.from === ANY ? 'Any State' : draft.states.find((s) => s.id === t.from)?.name} to ${draft.states.find((s) => s.id === t.to)?.name}`} onClick={(e) => { e.stopPropagation(); setSelection({ kind: 'transition', index: i }); }}>
+                <g key={i} role="button" aria-label={`transition ${t.from === ANY ? 'Any State' : gs.find((s) => s.id === t.from)?.name} to ${gs.find((s) => s.id === t.to)?.name}`} onClick={(e) => { e.stopPropagation(); setSelection({ kind: 'transition', index: i }); }}>
                   <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="transparent" strokeWidth={12} />
                   <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={selected ? '#f2b544' : '#9fb4d6'} strokeWidth={selected ? 2.5 : 1.5} markerEnd="url(#tl-arrow)" />
                 </g>
@@ -395,7 +494,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
                 Any State
               </text>
             </g>
-            {draft.states.map((s, i) => {
+            {gs.map((s, i) => {
               const [x, y] = posOf(s, i);
               const selected = selection?.kind === 'state' && selection.id === s.id;
               return (
@@ -411,10 +510,10 @@ export function AnimatorPanel(p: Props): JSX.Element {
                   onClick={(e) => { e.stopPropagation(); clickNode(s.id); }}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); const [mx, my] = point(e); setMenu({ x: mx, y: my, target: s.id }); }}
                 >
-                  <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={6} className={`tl-animator__node${selected ? ' is-selected' : ''}${draft.entry === s.id ? ' is-entry' : ''}`} />
+                  <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={6} className={`tl-animator__node${selected ? ' is-selected' : ''}${gentry === s.id ? ' is-entry' : ''}`} />
                   <text x={x + NODE_W / 2} y={y + NODE_H / 2 + 4} textAnchor="middle" className="tl-animator__label">
                     {s.name}
-                    {s.motion.kind === 'blend1d' ? ' ◇' : ''}
+                    {s.motion.kind === 'blend1d' ? ' ◇' : s.motion.kind === 'empty' ? ' ∅' : ''}
                   </text>
                 </g>
               );
@@ -430,6 +529,11 @@ export function AnimatorPanel(p: Props): JSX.Element {
                   <button type="button" role="menuitem" onClick={() => { addState('blend1d', [menu.x, menu.y]); setMenu(null); }}>
                     Add blend tree
                   </button>
+                  {layer > 0 && (
+                    <button type="button" role="menuitem" onClick={() => { addState('empty', [menu.x, menu.y]); setMenu(null); }}>
+                      Add empty state
+                    </button>
+                  )}
                 </>
               )}
               {menu.target !== null && (
@@ -439,7 +543,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
               )}
               {menu.target !== null && menu.target !== ANY && (
                 <>
-                  <button type="button" role="menuitem" onClick={() => { save({ ...draft, entry: menu.target! }); setMenu(null); }}>
+                  <button type="button" role="menuitem" onClick={() => { put({ entry: menu.target! }); setMenu(null); }}>
                     Set as entry state
                   </button>
                   <button type="button" role="menuitem" onClick={() => { deleteState(menu.target!); setMenu(null); }}>
@@ -450,6 +554,21 @@ export function AnimatorPanel(p: Props): JSX.Element {
             </div>
           )}
           <div className="tl-animator__side">
+            {layer > 0 && draft.layers?.[layer - 1] !== undefined && (
+              <LayerSettings
+                layer={draft.layers[layer - 1]!}
+                parameters={draft.parameters}
+                bones={bones}
+                onChange={(next) => save({ ...draft, layers: draft.layers!.map((l, i) => (i === layer - 1 ? next : l)) })}
+                onRemove={() => {
+                  const rest = draft.layers!.filter((_, i) => i !== layer - 1);
+                  const { layers: _drop, ...base } = draft;
+                  save(rest.length > 0 ? { ...base, layers: rest } : base);
+                  setLayer(0);
+                  setSelection(null);
+                }}
+              />
+            )}
             {stateSel !== null && (
               <div aria-label="state inspector">
                 <div className="tl-panel__title">State</div>
@@ -457,7 +576,9 @@ export function AnimatorPanel(p: Props): JSX.Element {
                   <span className="tl-field__label">name</span>
                   <input className="tl-input" aria-label="state name" defaultValue={stateSel.name} key={stateSel.id} onBlur={(e) => e.target.value.trim() !== '' && setState({ ...stateSel, name: e.target.value.trim() })} />
                 </label>
-                {stateSel.motion.kind === 'clip' ? (
+                {stateSel.motion.kind === 'empty' ? (
+                  <p className="tl-hint">Empty: this layer plays nothing here (the layers under it show through).</p>
+                ) : stateSel.motion.kind === 'clip' ? (
                   <label className="tl-field">
                     <span className="tl-field__label">clip</span>
                     {clipSelect(stateSel.motion.clip, (c) => setState({ ...stateSel, motion: { kind: 'clip', clip: c } }), 'state clip')}
@@ -542,7 +663,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
             {transSel !== null && selection?.kind === 'transition' && (
               <div aria-label="transition inspector">
                 <div className="tl-panel__title">
-                  Transition: {transSel.from === ANY ? 'Any State' : draft.states.find((s) => s.id === transSel.from)?.name} → {draft.states.find((s) => s.id === transSel.to)?.name}
+                  Transition: {transSel.from === ANY ? 'Any State' : gs.find((s) => s.id === transSel.from)?.name} → {gs.find((s) => s.id === transSel.to)?.name}
                 </div>
                 {transSel.conditions.map((c, j) => conditionRow(transSel, selection.index, c, j))}
                 <button type="button" className="tl-button" disabled={draft.parameters.length === 0} onClick={() => {
@@ -574,7 +695,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
                     <option value="source">by the source state</option>
                   </select>
                 </label>
-                <button type="button" className="tl-button" onClick={() => { save({ ...draft, transitions: draft.transitions.filter((_, i) => i !== selection.index) }); setSelection(null); }}>
+                <button type="button" className="tl-button" onClick={() => { put({ transitions: gt.filter((_, i) => i !== selection.index) }); setSelection(null); }}>
                   Delete transition
                 </button>
               </div>
@@ -588,12 +709,101 @@ export function AnimatorPanel(p: Props): JSX.Element {
   );
 }
 
+/**
+ * Phase 14.6: an override layer's name, weight (and weight parameter) and its
+ * bone mask, picked from the model's skeleton. A bone's checkbox toggles that
+ * bone; "+ children" sets the bone and every bone under it. An empty mask
+ * drives every bone.
+ */
+function LayerSettings({ layer, parameters, bones, onChange, onRemove }: { layer: AnimatorLayer; parameters: readonly AnimatorParameter[]; bones: readonly BoneInfo[]; onChange: (l: AnimatorLayer) => void; onRemove: () => void }): JSX.Element {
+  const mask = new Set(layer.mask);
+  const below = (name: string): string[] => {
+    const out = [name];
+    for (let i = 0; i < out.length; i++) for (const b of bones) if (b.parent === out[i]) out.push(b.name);
+    return out;
+  };
+  const setMask = (next: Set<string>): void => {
+    // Keep the skeleton's order (names the model does not have stay at the end).
+    const ordered = [...bones.map((b) => b.name).filter((n) => next.has(n)), ...[...next].filter((n) => !bones.some((b) => b.name === n))];
+    onChange({ ...layer, mask: ordered });
+  };
+  const missing = layer.mask.filter((n) => !bones.some((b) => b.name === n));
+  return (
+    <div aria-label="layer settings">
+      <div className="tl-panel__title">Layer</div>
+      <label className="tl-field">
+        <span className="tl-field__label">name</span>
+        <input className="tl-input" aria-label="layer name" defaultValue={layer.name} key={layer.name} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== layer.name && onChange({ ...layer, name: e.target.value.trim() })} />
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">weight</span>
+        <input className="tl-input tl-input--num" type="number" min={0} max={1} step={0.05} aria-label="layer weight" value={layer.weight} onChange={(e) => Number.isFinite(Number(e.target.value)) && onChange({ ...layer, weight: Math.min(1, Math.max(0, Number(e.target.value))) })} />
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">× parameter</span>
+        <select className="tl-input" aria-label="layer weight parameter" value={layer.weightParameter ?? ''} onChange={(e) => {
+          const { weightParameter: _drop, ...rest } = layer;
+          onChange(e.target.value === '' ? rest : { ...rest, weightParameter: e.target.value });
+        }}>
+          <option value="">— none —</option>
+          {parameters.filter((x) => x.type === 'float').map((x) => (
+            <option key={x.name} value={x.name}>
+              {x.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="tl-field__label">bones ({layer.mask.length === 0 ? 'none picked: every bone' : `${layer.mask.length} picked`})</div>
+      <div className="tl-animator__bones" aria-label="layer bone mask">
+        {bones.length === 0 && <p className="tl-hint">The model has no skeleton loaded.</p>}
+        {bones.map((b) => (
+          <div className="tl-animator__row" key={b.name} style={{ paddingLeft: b.depth * 12 }}>
+            <label className="tl-flag">
+              <input type="checkbox" aria-label={`mask bone ${b.name}`} checked={mask.has(b.name)} onChange={(e) => {
+                const next = new Set(mask);
+                if (e.target.checked) next.add(b.name);
+                else next.delete(b.name);
+                setMask(next);
+              }} />
+              {b.name}
+            </label>
+            {bones.some((x) => x.parent === b.name) && (
+              <button type="button" className="tl-button" aria-label={`mask branch ${b.name}`} title="This bone and every bone under it" onClick={() => {
+                const next = new Set(mask);
+                const on = !mask.has(b.name);
+                for (const n of below(b.name)) if (on) next.add(n);
+                else next.delete(n);
+                setMask(next);
+              }}>
+                + children
+              </button>
+            )}
+          </div>
+        ))}
+        {missing.map((n) => (
+          <div className="tl-animator__row" key={`missing-${n}`}>
+            <label className="tl-flag" title="This model has no bone of this name">
+              <input type="checkbox" aria-label={`mask bone ${n}`} checked onChange={() => setMask(new Set(layer.mask.filter((x) => x !== n)))} />
+              {n} (not in this model)
+            </label>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="tl-button" onClick={onRemove}>
+        Remove layer
+      </button>
+    </div>
+  );
+}
+
 function ParameterList({ controller, onSave }: { controller: AnimatorController; onSave: (c: AnimatorController) => void }): JSX.Element {
   const [name, setName] = useState('');
   const [type, setType] = useState<AnimatorParameter['type']>('float');
+  const graphs = [controller, ...(controller.layers ?? [])];
   const used = (n: string): boolean =>
-    controller.transitions.some((t) => t.conditions.some((c) => c.parameter === n)) ||
-    controller.states.some((s) => s.speedParameter === n || (s.motion.kind === 'blend1d' && s.motion.parameter === n));
+    (controller.layers ?? []).some((l) => l.weightParameter === n) ||
+    graphs.some((g) => g.transitions.some((t) => t.conditions.some((c) => c.parameter === n))) ||
+    graphs.some((g) => g.states.some((s) => s.speedParameter === n || (s.motion.kind === 'blend1d' && s.motion.parameter === n)));
   return (
     <div aria-label="animator parameters">
       <div className="tl-panel__title">Parameters</div>
@@ -636,6 +846,7 @@ function ParameterList({ controller, onSave }: { controller: AnimatorController;
 function LivePreview({ controller, start }: { controller: AnimatorController; start: NonNullable<Props['preview']> }): JSX.Element {
   const [on, setOn] = useState(false);
   const [state, setState] = useState('');
+  const [layerStates, setLayerStates] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, number | boolean>>({});
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -663,7 +874,10 @@ function LivePreview({ controller, start }: { controller: AnimatorController; st
       for (const [k, v] of Object.entries(valuesRef.current)) r.set(k, v);
       live.current = r;
     });
-    const timer = setInterval(() => setState(live.current?.state() ?? ''), 100);
+    const timer = setInterval(() => {
+      setState(live.current?.state() ?? '');
+      setLayerStates(live.current?.layerStates?.() ?? []);
+    }, 100);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -685,8 +899,12 @@ function LivePreview({ controller, start }: { controller: AnimatorController; st
       {error !== null && <p className="tl-hint" role="alert">{error}</p>}
       {on && (
         <>
-          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} ref={canvas} />
-          <div className="tl-hint">state: <b aria-label="preview state">{state}</b></div>
+          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} data-layer-states={layerStates.slice(1).join('|')} ref={canvas} />
+          <div className="tl-hint">state: <b aria-label="preview state">{state}</b>
+            {layerStates.slice(1).map((x, i) => (
+              <span key={i}> · {controller.layers?.[i]?.name ?? `layer ${i + 1}`}: <b aria-label={`preview layer ${i + 1} state`}>{x}</b></span>
+            ))}
+          </div>
           {controller.parameters.map((x) => (
             <div className="tl-animator__row" key={x.name}>
               <span className="tl-animator__param">{x.name}</span>

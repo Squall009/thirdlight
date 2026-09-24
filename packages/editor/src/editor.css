@@ -621,6 +621,9 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-animator__label { fill: #e3e8f2; font-size: 12px; pointer-events: none; user-select: none; }
 .tl-animator__side { width: 320px; flex: none; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
 .tl-animator__row { display: flex; gap: 4px; align-items: center; margin: 2px 0; }
+.tl-animator__layers { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.tl-animator__layers .is-active { outline: 2px solid #f2b544; }
+.tl-animator__bones { max-height: 220px; overflow-y: auto; border: 1px solid rgba(255, 255, 255, 0.12); padding: 4px; }
 .tl-animator__param { flex: 1; }
 .tl-animator__menu { position: absolute; z-index: 20; display: flex; flex-direction: column; min-width: 160px; }
 
