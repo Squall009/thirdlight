@@ -17,6 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
+import { validateMaterialMapping } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
   validateInstancesComponent,
@@ -48,6 +49,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   instances: ['asset', 'buffer', 'count'],
+  // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
+  materials: [],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -80,6 +83,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'modelAnimation',
   // Phase 12 (c): v4 scenes only (a v3 scene's registry refuses it).
   'instances',
+  // Phase 9.4: v4 scenes only.
+  'materials',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -152,6 +157,9 @@ export function validateV3ComponentValue(
       break;
     case 'instances':
       validateInstancesComponent(value, path, errors);
+      break;
+    case 'materials':
+      validateMaterialMapping(value, path, errors as unknown as Parameters<typeof validateMaterialMapping>[2]);
       break;
     case 'light':
       validateLightComponent(value, path, errors);

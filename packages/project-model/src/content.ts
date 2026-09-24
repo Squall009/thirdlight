@@ -11,6 +11,7 @@
  * §4.3).
  */
 
+import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
 import { utf8Encode } from './sha256';
 import {
   canonicalBox,
@@ -206,7 +207,7 @@ const GAME_STRING_BOUNDS: Readonly<Record<'title' | 'objective' | 'instructions'
   objective: 160,
   instructions: 320,
 };
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -1494,6 +1495,7 @@ function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     currentVersion: a.currentVersion,
     versions: a.versions.map((v) => canonicalVersionV3(v, kind)),
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+    ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
   };
 }
 
@@ -1869,8 +1871,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags') {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)'].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2000,6 +2002,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
 
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
+  // Phase 9.4 (v4): project materials, the asset default mappings and the environment.
+  if (doc['materials'] !== undefined) validateMaterials(doc['materials'], '/materials', errors);
+  if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
+  if (version === 4) validateMaterialReferences(doc, errors);
+
   if (errors.length > 0) return { errors };
   const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
   if (version === 4) {
@@ -2108,7 +2115,44 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...(c.tags !== undefined && c.tags.length > 0
       ? { tags: [...c.tags].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })) }
       : {}),
+    // Phase 9.4: present only when there are materials / environment settings.
+    ...((c as ContentCatalogV4).materials !== undefined && (c as ContentCatalogV4).materials!.length > 0 ? { materials: canonicalMaterials((c as ContentCatalogV4).materials!) } : {}),
+    ...((c as ContentCatalogV4).environment !== undefined ? { environment: canonicalEnvironment((c as ContentCatalogV4).environment!) } : {}),
   };
+}
+
+/**
+ * Phase 9.4: a material's texture slots name texture assets; an asset's
+ * default material mapping (and only a model asset has one) names existing
+ * materials.
+ */
+function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
+  const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
+  const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));
+  const materials = Array.isArray(doc['materials']) ? (doc['materials'] as unknown[]).filter(isPlainObject) : [];
+  const materialIds = new Set(materials.map((m) => m['materialId']));
+  materials.forEach((m, i) => {
+    const textures = m['textures'];
+    if (!isPlainObject(textures)) return;
+    for (const [slot, id] of Object.entries(textures)) {
+      if (kindOf.get(id) !== 'texture') {
+        errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      }
+    }
+  });
+  assets.forEach((a, i) => {
+    const mapping = a['materials'];
+    if (mapping === undefined) return;
+    if (a['kind'] !== 'model') {
+      errors.push(unexpectedField(`/assets/${i}/materials`, 'materials', 'only a model asset has a default material mapping'));
+      return;
+    }
+    validateMaterialMapping(mapping, `/assets/${i}/materials`, errors);
+    if (!isPlainObject(mapping)) return;
+    for (const [slot, id] of Object.entries(mapping)) {
+      if (!materialIds.has(id)) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/materials/${pointerSegment(slot)}`, message: 'a material mapping names no material of this project', expected: 'a materialId in content.materials' }, id));
+    }
+  });
 }
 
 /** §12.1/§23.4: the explicit v3 content validator. */

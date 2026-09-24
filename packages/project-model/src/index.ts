@@ -309,3 +309,26 @@ export {
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
+// Phase 9.4: materials, material mappings and the environment (wind).
+export {
+  canonicalEnvironment,
+  canonicalMaterialMapping,
+  canonicalMaterials,
+  DEFAULT_WIND,
+  MATERIAL_PARAMS,
+  MATERIAL_SHADERS,
+  MATERIAL_SLOT_ALL,
+  MATERIAL_TEXTURE_SLOTS,
+  materialParamError,
+  MAX_MATERIALS,
+  MAX_MATERIAL_SLOTS,
+  validateEnvironment,
+  validateMaterialMapping,
+  validateMaterials,
+  type EnvironmentConfig,
+  type MaterialDef,
+  type MaterialParamType,
+  type MaterialParamValue,
+  type MaterialShader,
+  type WindConfig,
+} from './materials';

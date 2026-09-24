@@ -49,6 +49,8 @@ import type {
   TransformComponent,
   TrustEntry,
   SceneV4,
+  EnvironmentConfig,
+  MaterialDef,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -93,6 +95,9 @@ export type V3MutationOp =
   | 'setTags'
   | 'setAssetOptions'
   | 'pasteEntities'
+  | 'setMaterial'
+  | 'deleteMaterial'
+  | 'setEnvironment'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -242,7 +247,9 @@ export type V3OwnedComponent =
   | 'surface'
   | 'modelAnimation'
   /** Phase 12 (c), v4 scenes only: an instance set. */
-  | 'instances';
+  | 'instances'
+  /** Phase 9.4, v4 scenes only: the object's material mapping. */
+  | 'materials';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -309,6 +316,20 @@ export type SceneIndexArgs =
   | { op: 'renameScene'; sceneId: string; name: string }
   | { op: 'deleteScene'; sceneId: string }
   | { op: 'setStartScenes'; sceneIds: string[] };
+
+/** `setMaterial`/`deleteMaterial` change data: the whole materials list before and after. */
+export interface SetMaterialsChange {
+  type: 'setMaterials';
+  previous: MaterialDef[];
+  next: MaterialDef[];
+}
+
+/** `setEnvironment` change data (null = no environment block). */
+export interface SetEnvironmentChange {
+  type: 'setEnvironment';
+  previous: EnvironmentConfig | null;
+  next: EnvironmentConfig | null;
+}
 
 /** `pasteEntities` change data: the created entities, parents first. */
 export interface PasteEntitiesChange {
@@ -568,6 +589,8 @@ export type ChangeData =
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
+  | SetMaterialsChange
+  | SetEnvironmentChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -590,6 +613,8 @@ export type ForwardChange =
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
+  | SetMaterialsChange
+  | SetEnvironmentChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -693,6 +718,18 @@ export interface MoveEntitiesInverse {
   restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
+/** Undo of a material op: restore the whole previous list. */
+export interface SetMaterialsInverse {
+  kind: 'setMaterials';
+  restore: MaterialDef[];
+}
+
+/** Undo of `setEnvironment`: restore the previous block (null = none). */
+export interface SetEnvironmentInverse {
+  kind: 'setEnvironment';
+  restore: EnvironmentConfig | null;
+}
+
 /** Undo of a `pasteEntities`: remove the created entities. */
 export interface RemoveEntitiesInverse {
   kind: 'removeEntities';
@@ -719,6 +756,8 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | SetMaterialsInverse
+  | SetEnvironmentInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse
@@ -928,7 +967,9 @@ export interface PasteEntitiesArgs {
 
 export interface SetAssetOptionsArgs {
   assetId: string;
-  vertexColors: 'data' | 'tint';
+  vertexColors?: 'data' | 'tint';
+  /** Phase 9.4: the default material mapping of every placement (null = none). */
+  materials?: Record<string, string> | null;
 }
 
 export interface SetTransformArgs {

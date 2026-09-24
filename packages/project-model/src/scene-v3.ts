@@ -18,6 +18,7 @@
  * result, never throws, never reads files.
  */
 
+import { canonicalMaterialMapping, validateMaterialMapping } from './materials';
 import {
   canonicalBox,
   canonicalCamera,
@@ -119,7 +120,7 @@ const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activa
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
@@ -737,6 +738,13 @@ function validateEntityComponentsV3(
       if (comps[other] !== undefined) errors.push(collisionConflict(path, `instances and ${other} are mutually exclusive on one entity`, ['instances', other]));
     }
   }
+  if (comps['materials'] !== undefined) {
+    // Phase 9.4: which project material each of the object's materials uses.
+    validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
+      errors.push(componentMissing(`${path}/materials`, 'model|box|instances', 'a materials component sits only on an entity with a model, a box or an instance set'));
+    }
+  }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors);
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
@@ -970,6 +978,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
+  if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
     components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };

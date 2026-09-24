@@ -131,6 +131,10 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);
+  // Phase 9.4: every texture a project material uses travels with the game.
+  for (const m of (content as { materials?: { textures: Record<string, string> }[] }).materials ?? []) {
+    for (const id of Object.values(m.textures)) setRef(id);
+  }
   const game = content.game;
   if (game !== null) {
     for (const k of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {

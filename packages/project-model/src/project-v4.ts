@@ -190,6 +190,20 @@ export function composeV4(
     if (goals < 1) errors.push(projectError('/game', 'zone_goal_missing', 'content.game requires at least one goal zone in the project', '>= 1 goal zone', { document: 'content' } as never));
   }
 
+  // Phase 9.4: an object's material mapping names project materials.
+  const materialIds = new Set((content.materials ?? []).map((m) => m.materialId));
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const mapping = e.components.materials;
+      if (mapping === undefined) return;
+      for (const [slot, id] of Object.entries(mapping)) {
+        if (!materialIds.has(id)) {
+          errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/materials/${slot}`, message: 'the material mapping names no material of this project', expected: 'a materialId in content.materials' }, id)));
+        }
+      }
+    });
+  }
+
   // Exit zones.
   for (const s of scenes) {
     s.entities.forEach((e, i) => {

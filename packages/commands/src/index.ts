@@ -150,6 +150,8 @@ export type {
   SetAssetOptionsChange,
   PasteEntitiesArgs,
   PasteEntitiesChange,
+  SetMaterialsChange,
+  SetEnvironmentChange,
   SetTagsInverse,
   SetTransformInverse,
 } from './types';

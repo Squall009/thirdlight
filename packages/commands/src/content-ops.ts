@@ -752,6 +752,15 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     ? {}
     : (deepClone(currentComponent) as Record<string, unknown>);
   const changedFields: string[] = [];
+  if (args.component === 'materials') {
+    // Phase 9.4: a material mapping is replaced whole (its keys are material names).
+    for (const k of Object.keys(candidate)) delete candidate[k];
+    Object.assign(candidate, deepClone(args.value));
+    const before = (currentComponent ?? {}) as Record<string, unknown>;
+    for (const k of [...new Set([...Object.keys(before), ...Object.keys(args.value)])].sort()) {
+      if (before[k] !== (args.value as Record<string, unknown>)[k]) changedFields.push(k);
+    }
+  }
   for (const f of COMPONENT_FIELD_ORDER[args.component]) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);

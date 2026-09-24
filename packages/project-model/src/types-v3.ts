@@ -15,6 +15,7 @@
  * the `audio` discriminator) — see §23.3.6/§23.3.7.
  */
 
+import type { EnvironmentConfig, MaterialDef } from './materials';
 import type {
   AssetMetrics,
   AssetVersion,
@@ -160,6 +161,8 @@ export interface ModelAnimationComponent {
 
 /** v3 component set (canonical order = {@link V3_REGISTRY}). */
 export interface EntityComponentsV3 extends EntityComponentsV2 {
+  /** Phase 9.4, v4 only: source material name (or "*") → materialId. */
+  materials?: Record<string, string>;
   gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
   cameraFollow?: CameraFollowComponent;
@@ -345,6 +348,8 @@ export interface AssetRecordV3 {
    * `tint` = the glTF default (vertex colour multiplies the base colour).
    */
   vertexColors?: 'tint';
+  /** Model only (phase 9.4): the default material mapping of every placement (source material name or "*" → materialId). */
+  materials?: Record<string, string>;
 }
 
 /** §23.4 a cue reference: an audio `assetId` or `null`. */
@@ -394,6 +399,10 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   scenes: SceneIndexEntry[];
   /** The scenes loaded when the game starts (a subset of `scenes`). */
   startScenes: string[];
+  /** Phase 9.4: the project materials (absent = none). */
+  materials?: MaterialDef[];
+  /** Phase 9.4: the environment (global wind; sky/fog/post in 9.5). */
+  environment?: EnvironmentConfig;
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

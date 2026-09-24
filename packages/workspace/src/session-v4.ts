@@ -405,7 +405,14 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     if (args !== undefined) request['args'] = args;
     const result = op === 'queryAssets' ? queryAssets(cs, request) : op === 'queryPrefabs' ? queryPrefabs(cs, request) : op === 'queryBehaviors' ? queryBehaviors(cs, request) : queryGameConfig(cs, request);
     if (op === 'queryGameConfig' && (result as { ok?: boolean }).ok === true) {
-      return { ...(result as object), scenes: state.content.scenes.map((e) => ({ ...e })), startScenes: [...state.content.startScenes] } as unknown as QueryResult;
+      // Phase 9.4: the project materials and the environment travel with the game block.
+      return {
+        ...(result as object),
+        scenes: state.content.scenes.map((e) => ({ ...e })),
+        startScenes: [...state.content.startScenes],
+        materials: JSON.parse(JSON.stringify(state.content.materials ?? [])) as unknown,
+        environment: state.content.environment !== undefined ? (JSON.parse(JSON.stringify(state.content.environment)) as unknown) : null,
+      } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;
   }

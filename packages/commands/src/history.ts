@@ -23,6 +23,8 @@
  * (§9.4, defensive).
  */
 
+import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
+import { withEnvironment, withMaterials } from './material-ops';
 import type {
   BehaviorComponent,
   BehaviorRecord,
@@ -491,6 +493,18 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
+  if (inv.kind === 'setMaterials') {
+    const before = deepClone((content as { materials?: MaterialDef[] }).materials ?? []);
+    const change: ChangeData = { type: 'setMaterials', previous: before, next: deepClone(inv.restore) };
+    return finish(state, bumped(scene), withMaterials(content, inv.restore), change, entry.requestId);
+  }
+
+  if (inv.kind === 'setEnvironment') {
+    const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
+    const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'removeEntities') {
     const gone = new Set(inv.ids);
     if (!inv.ids.every((id) => scene.entities.some((e) => e.id === id))) return { ok: false, error: historyInvalid(entry.requestId) };
@@ -839,6 +853,18 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const after = deepClone(f.next);
     const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
+  }
+
+  if (f.type === 'setMaterials') {
+    const before = deepClone((content as { materials?: MaterialDef[] }).materials ?? []);
+    const change: ChangeData = { type: 'setMaterials', previous: before, next: deepClone(f.next) };
+    return finish(state, bumped(scene), withMaterials(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setEnvironment') {
+    const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
+    const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'pasteEntities') {

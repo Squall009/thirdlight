@@ -463,6 +463,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
+  // Phase 12 (c) / 9.4 (v4 scenes).
+  instances: ['asset', 'buffer', 'count'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -477,6 +479,8 @@ const OWNED: readonly OwnedComponent[] = [
   'light',
   'surface',
   'modelAnimation',
+  'instances',
+  'materials',
 ];
 const REMOVABLE: readonly OwnedComponent[] = [
   'collider',
@@ -487,12 +491,14 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'light',
   'surface',
   'modelAnimation',
+  'instances',
+  'materials',
 ];
 /** The two field-less markers whose ADD value is exactly `{}`. */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 const COMPONENT_EXPECTED =
-  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation"';
+  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials"';
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
@@ -574,6 +580,8 @@ export function validateSetComponentArgs(
     };
   }
   for (const key of keys) {
+    // A material mapping's keys are material names (the model validates them).
+    if (component === 'materials') break;
     if (!fields.includes(key)) {
       return {
         ok: false,

@@ -16,6 +16,7 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
+import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -284,6 +285,9 @@ export class SessionClient {
   private settings: Record<string, unknown> | null = null;
   /** Phase 12 (b): the project tag registry (from `queryGameConfig`, then `setTags` changes). */
   private tags: { bit: number; name: string }[] = [];
+  /** Phase 9.4: the project materials and the environment (from queryGameConfig, then changes). */
+  private materials: MaterialDef[] = [];
+  private environment: EnvironmentConfig | null = null;
   /**
    * Phase 12 (c): the scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
@@ -484,6 +488,10 @@ export class SessionClient {
         this.gameConfigLoaded = true;
         const tags = (g as { tags?: { bit: number; name: string }[] }).tags;
         this.tags = Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
+        const mats = (g as { materials?: MaterialDef[] }).materials;
+        this.materials = Array.isArray(mats) ? structuredClone(mats) : [];
+        const env = (g as { environment?: EnvironmentConfig | null }).environment;
+        this.environment = env !== undefined && env !== null ? structuredClone(env) : null;
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -660,6 +668,10 @@ export class SessionClient {
         this.settings = { ...(change.next as Record<string, unknown>) };
       } else if (change.type === 'setTags') {
         this.tags = change.next.map((t) => ({ bit: t.bit, name: t.name }));
+      } else if (change.type === 'setMaterials') {
+        this.materials = structuredClone(change.next);
+      } else if (change.type === 'setEnvironment') {
+        this.environment = change.next === null ? null : structuredClone(change.next);
       }
       this.save = 'saved';
       this.cb.onSceneChanged();
@@ -976,6 +988,16 @@ export class SessionClient {
 
   getTags(): { bit: number; name: string }[] {
     return this.tags.map((t) => ({ ...t }));
+  }
+
+  /** Phase 9.4: the project materials. */
+  getMaterials(): MaterialDef[] {
+    return structuredClone(this.materials);
+  }
+
+  /** Phase 9.4: the environment (null = defaults). */
+  getEnvironment(): EnvironmentConfig | null {
+    return this.environment === null ? null : structuredClone(this.environment);
   }
 
   getSettings(): Record<string, unknown> | null {

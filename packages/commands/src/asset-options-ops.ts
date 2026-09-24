@@ -17,9 +17,17 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   const existing = (catalog.assets as unknown as CommandAssetRecord[]).find((a) => a.assetId === args.assetId);
   if (existing === undefined) return { ok: false, error: assetNotFound(args.assetId) };
   if (assetKindOf(existing) !== 'model') return { ok: false, error: assetKindMismatch(args.assetId, 'model', assetKindOf(existing)) };
+  if (args.materials !== undefined && assetKindOf(existing) !== 'model') return { ok: false, error: assetKindMismatch(args.assetId, 'model', assetKindOf(existing)) };
   const previous = deepClone(existing);
-  const { vertexColors: _old, ...rest } = deepClone(existing);
-  const next: CommandAssetRecord = args.vertexColors === 'tint' ? { ...rest, vertexColors: 'tint' } : rest;
+  let next: CommandAssetRecord = deepClone(existing);
+  if (args.vertexColors !== undefined) {
+    const { vertexColors: _old, ...rest } = next;
+    next = args.vertexColors === 'tint' ? { ...rest, vertexColors: 'tint' } : rest;
+  }
+  if (args.materials !== undefined) {
+    const { materials: _m, ...rest } = next as CommandAssetRecord & { materials?: Record<string, string> };
+    next = (args.materials === null ? rest : { ...rest, materials: deepClone(args.materials) }) as CommandAssetRecord;
+  }
   const assets = (catalog.assets as unknown as CommandAssetRecord[]).map((a) => (a.assetId === args.assetId ? next : a));
   const nextContent = { ...catalog, assets } as unknown as ContentDocument;
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };

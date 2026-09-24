@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { M2_SETTINGS_KEYS, TAG_NAME_RE } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type EnvironmentConfig, type MaterialDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -128,6 +128,9 @@ const OPS: readonly MutationOp[] = [
   'setTags',
   'setAssetOptions',
   'pasteEntities',
+  'setMaterial',
+  'deleteMaterial',
+  'setEnvironment',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -154,11 +157,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'modelAnimation',
   // Phase 12 (c): v4 scenes only.
   'instances',
+  // Phase 9.4: v4 scenes only.
+  'materials',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -825,20 +830,31 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors') };
-  if (args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint') {
+  if (args['vertexColors'] === undefined && args['materials'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors or materials') };
+  if (args['vertexColors'] !== undefined && args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint') {
     return {
       ok: false,
       error: fieldValue('/args/vertexColors', args['vertexColors'], '"data" or "tint"', 'vertexColors is "data" (COLOR_0 is shader data) or "tint" (it multiplies the base colour)'),
     };
   }
-  return { ok: true, args: { assetId: args['assetId'], vertexColors: args['vertexColors'] } };
+  const materials = args['materials'];
+  if (materials !== undefined && materials !== null && !isPlainObject(materials)) {
+    return { ok: false, error: fieldType('/args/materials', materials, 'object { <material name or "*">: materialId } or null') };
+  }
+  return {
+    ok: true,
+    args: {
+      assetId: args['assetId'],
+      ...(args['vertexColors'] !== undefined ? { vertexColors: args['vertexColors'] } : {}),
+      ...(materials !== undefined ? { materials: materials as Record<string, string> | null } : {}),
+    },
+  };
 }
 
 function validateSetTransformArgs(args: Record<string, unknown>):
@@ -1121,6 +1137,9 @@ export type ValidatedOpArgs =
   | { op: 'setTags'; args: SetTagsArgs }
   | { op: 'setAssetOptions'; args: SetAssetOptionsArgs }
   | { op: 'pasteEntities'; args: PasteEntitiesArgs }
+  | { op: 'setMaterial'; args: { material: MaterialDef } }
+  | { op: 'deleteMaterial'; args: { materialId: string } }
+  | { op: 'setEnvironment'; args: { environment: EnvironmentConfig } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1170,6 +1189,17 @@ export function validateOpArgs(
       const r = validateSetTagsArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'setTags', args: r.args } };
+    }
+    case 'setMaterial':
+    case 'deleteMaterial':
+    case 'setEnvironment': {
+      const key = op === 'setMaterial' ? 'material' : op === 'deleteMaterial' ? 'materialId' : 'environment';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteMaterial' ? 'string (materialId)' : 'object') };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'pasteEntities': {
       const r = validatePasteArgs(args);

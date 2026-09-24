@@ -467,6 +467,8 @@ export class Projection {
       case 'setGameConfig':
       case 'setTags':
       case 'setAssetOptions':
+      case 'setMaterials':
+      case 'setEnvironment':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).
