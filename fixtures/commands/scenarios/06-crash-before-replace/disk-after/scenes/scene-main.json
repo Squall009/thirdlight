@@ -260,6 +260,7 @@
     ]
   },
   "retry": {
+    "recordVersion": 2,
     "retention": 128,
     "records": [
       {
@@ -314,7 +315,8 @@
           "history": {
             "undoDepth": 1,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -369,7 +371,8 @@
           "history": {
             "undoDepth": 2,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -429,7 +432,8 @@
           "history": {
             "undoDepth": 3,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -475,7 +479,8 @@
           "history": {
             "undoDepth": 4,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -535,7 +540,8 @@
           "history": {
             "undoDepth": 5,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -590,7 +596,8 @@
           "history": {
             "undoDepth": 6,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       },
       {
@@ -645,7 +652,8 @@
           "history": {
             "undoDepth": 1,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       }
     ]

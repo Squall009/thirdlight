@@ -29,6 +29,16 @@ import { isPlainObject, isSafeInt, pointerSegment } from './errors';
 
 /** The constant recorded in every retry block (workspace.md §4.2). */
 export const RETRY_RETENTION = 128;
+/**
+ * Phase 14.8: the retry-record format a storage-v4 file is written with.
+ * Version 1 (no `recordVersion` key in the retry block — every v4 file
+ * written before phase 14) stores the commands.md §5.1 payload; version 2
+ * also stores the acknowledged `sceneId` (the scene the command edited;
+ * absent for a scene-index change), so an identical retry replays the live
+ * acknowledgement. Both are read; only version 2 is written. A v3 envelope's
+ * retry block never carries the key.
+ */
+export const RETRY_RECORD_VERSION = 2;
 /** The envelope discriminator (workspace.md §4.2). */
 export const ENVELOPE_TYPE = 'authoring-state';
 
@@ -44,7 +54,10 @@ export interface RetryRecord {
   requestId: string;
   digest: string;
   appliedRevision: number;
-  /** The full §5.1 success payload as originally acked, `duplicated: false`. */
+  /**
+   * The full §5.1 success payload as originally acked, `duplicated: false`;
+   * in a record-version-2 block also the acked `sceneId` (phase 14.8).
+   */
   result: MutationSuccess;
 }
 
@@ -315,10 +328,20 @@ export function validateRetryBlock(
   if (!isPlainObject(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
   }
+  // Phase 14.8: a v4 block names its record format (absent = version 1).
+  const blockKeys = storageVersion === 4 ? ['recordVersion', 'retention', 'records'] : ['retention', 'records'];
   for (const k of Object.keys(retry)) {
-    if (k !== 'retention' && k !== 'records') {
-      return bad('unknown field in retry block', k, 'known fields: retention, records', `/retry/${pointerSegment(k)}`);
+    if (!blockKeys.includes(k)) {
+      return bad('unknown field in retry block', k, `known fields: ${blockKeys.join(', ')}`, `/retry/${pointerSegment(k)}`);
     }
+  }
+  let recordVersion = 1;
+  if ('recordVersion' in retry) {
+    const rv = retry['recordVersion'];
+    if (!isSafeInt(rv) || rv !== RETRY_RECORD_VERSION) {
+      return bad(`retry recordVersion must be ${RETRY_RECORD_VERSION} (version 1 omits the key)`, rv, String(RETRY_RECORD_VERSION), '/retry/recordVersion');
+    }
+    recordVersion = rv;
   }
   const retention = retry['retention'];
   if (!isSafeInt(retention) || retention !== RETRY_RETENTION) {
@@ -389,7 +412,7 @@ export function validateRetryBlock(
       );
     }
     prev = applied;
-    const resultErr = validateRecordResult(r['result'], rid, applied, projectId, storageVersion);
+    const resultErr = validateRecordResult(r['result'], rid, applied, projectId, storageVersion, recordVersion);
     if (resultErr !== null) {
       return { ok: false, error: resultErr };
     }
@@ -457,6 +480,7 @@ function validateRecordResult(
   recordAppliedRevision: number,
   envelopeProjectId: string,
   storageVersion: 3 | 4,
+  recordVersion: number,
 ): LoadDetail | null {
   if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
@@ -474,6 +498,8 @@ function validateRecordResult(
   if (op === 'createEntity' || op === 'pasteEntities') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
   else allowed = base;
+  // Record version 2 (phase 14.8) also stores the acked scene id.
+  if (recordVersion >= 2) allowed = [...allowed, 'sceneId'];
   for (const k of keys) {
     if (!allowed.includes(k)) {
       return rerr('unknown field in recorded result', k, `${k}`, `/result/${pointerSegment(k)}`);
@@ -517,6 +543,15 @@ function validateRecordResult(
   }
   const changeErr = validateChangeShape(result['change'], op, storageVersion);
   if (changeErr !== null) return changeErr;
+  if ('sceneId' in result) {
+    if (typeof result['sceneId'] !== 'string' || !ID_RE.test(result['sceneId'])) {
+      return rerr('recorded result sceneId must use the project-model ID syntax', result['sceneId'], '/result/sceneId');
+    }
+    // A scene-index change names no scene (the live acknowledgement omits it).
+    if ((result['change'] as { type?: unknown })['type'] === 'setSceneIndex') {
+      return rerr('recorded result of a scene-index change carries no sceneId', result['sceneId'], '/result/sceneId');
+    }
+  }
   if (op === 'createEntity') {
     if (typeof result['createdId'] !== 'string' || result['createdId'] !== (result['change'] as { id: string })['id']) {
       return rerr('createdId must equal the change id (createEntity only)', result['createdId'], '/result/createdId');

@@ -7,7 +7,7 @@
  * double-applied.
  */
 
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -153,5 +153,132 @@ describe('durable retry records', () => {
     expect(ok.ok).toBe(true);
     svc.dispose();
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+/**
+ * Phase 14.8: the retry record stores the live acknowledgement, `sceneId`
+ * included (record version 2). A retry block written before (version 1, no
+ * `recordVersion` key, records without `sceneId`) is still read.
+ */
+describe('retry records name the edited scene (record version 2)', () => {
+  type FileDoc = { retry: { recordVersion?: number; retention: number; records: { requestId: string; result: Record<string, unknown> }[] } };
+  const readDoc = (p: string): FileDoc => JSON.parse(readFileSync(p, 'utf8')) as FileDoc;
+  const writeDoc = (p: string, doc: unknown): void => writeFileSync(p, `${JSON.stringify(doc, null, 2)}\n`);
+  /** Rewrite a project file as a pre-14.8 file: no recordVersion, records without sceneId. */
+  const toRecordVersion1 = (p: string): void => {
+    const doc = readDoc(p);
+    delete doc.retry.recordVersion;
+    for (const r of doc.retry.records) delete r.result['sceneId'];
+    writeDoc(p, doc);
+  };
+  const A5 = {
+    op: 'setTransform',
+    projectId: 'demo-0001',
+    expectedRevision: 4,
+    requestId: 'req-10000000000000000000000000000005',
+    origin: { kind: 'mcp', clientId: 'pi-harness' },
+    args: { entityId: 'box-0002', transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } },
+  };
+
+  it('a retry after a restart returns the acked sceneId (a second scene)', () => {
+    const root = makeRoot('dedup-scene-id');
+    const dir = seedRev5(root);
+    const procRoot = buildFakeProc(root, { 6100: 'dead' });
+    const a = openWorkspaceService({ root, backendId: 'tb-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', pid: 6100, procRoot });
+    const sceneReq = { op: 'createScene', projectId: 'demo-0001', expectedRevision: 5, requestId: req(7101), origin: { kind: 'mcp', clientId: 'c1' }, args: { sceneId: 'level-two', name: 'Level two' } };
+    const sceneAck = a.runCommand(sceneReq) as MutationResult;
+    if (sceneAck.ok !== true) throw new Error(`createScene failed: ${JSON.stringify(sceneAck)}`);
+    expect('sceneId' in sceneAck).toBe(false);
+    const createReq = { op: 'createEntity', projectId: 'demo-0001', expectedRevision: 6, requestId: req(7102), origin: { kind: 'mcp', clientId: 'c1' }, args: { kind: 'box', parentId: null, sceneId: 'level-two' } };
+    const createAck = a.runCommand(createReq) as MutationResult;
+    if (createAck.ok !== true) throw new Error(`create failed: ${JSON.stringify(createAck)}`);
+    expect(createAck.sceneId).toBe('level-two');
+    a.dispose();
+
+    // The record on disk is the live ack (sceneId last), in a version-2 block.
+    const sceneFile = readDoc(join(dir, 'scenes', 'level-two.json'));
+    expect(sceneFile.retry.recordVersion).toBe(2);
+    expect(sceneFile.retry.records.at(-1)?.result).toEqual(createAck);
+    expect(Object.keys(sceneFile.retry.records.at(-1)!.result).at(-1)).toBe('sceneId');
+    const contentFile = readDoc(join(dir, 'content.json'));
+    expect(contentFile.retry.records.at(-1)?.result).toEqual(sceneAck);
+
+    const b = openWorkspaceService({ root, backendId: 'tb-ffffffffffffffffffffffffffffffff', pid: 6101, procRoot });
+    const replay = b.runCommand(createReq) as MutationResult;
+    expect(replay).toEqual({ ...createAck, duplicated: true });
+    const sceneReplay = b.runCommand(sceneReq) as MutationResult;
+    expect(sceneReplay).toEqual({ ...sceneAck, duplicated: true });
+    expect('sceneId' in sceneReplay).toBe(false);
+    b.dispose();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('reads a record-version-1 file: old records replay without sceneId, new ones with it', () => {
+    const root = makeRoot('dedup-record-v1');
+    const dir = seedRev5(root);
+    toRecordVersion1(join(dir, SCENE_FILE));
+    toRecordVersion1(join(dir, 'content.json'));
+    const procRoot = buildFakeProc(root, { 6200: 'dead' });
+    const a = openWorkspaceService({ root, backendId: 'tb-abababababababababababababababab', pid: 6200, procRoot });
+    const old = a.runCommand(A5) as MutationResult;
+    if (old.ok !== true) throw new Error(`replay failed: ${JSON.stringify(old)}`);
+    expect(old.duplicated).toBe(true);
+    expect('sceneId' in old).toBe(false);
+    const fresh = { ...A5, expectedRevision: 5, requestId: req(7201), args: { entityId: 'box-0001', transform: { position: [3, 0, 0] } } };
+    const ack = a.runCommand(fresh) as MutationResult;
+    if (ack.ok !== true) throw new Error(`fresh failed: ${JSON.stringify(ack)}`);
+    expect(ack.sceneId).toBe('scene-main');
+    a.dispose();
+
+    // The rewritten file is version 2; the old records stay as they were.
+    const doc = readDoc(join(dir, SCENE_FILE));
+    expect(doc.retry.recordVersion).toBe(2);
+    expect(doc.retry.records.length).toBe(6);
+    expect(doc.retry.records.slice(0, 5).every((r) => !('sceneId' in r.result))).toBe(true);
+    expect(doc.retry.records[5]?.result['sceneId']).toBe('scene-main');
+
+    const b = openWorkspaceService({ root, backendId: 'tb-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd', pid: 6201, procRoot });
+    expect(b.runCommand(fresh)).toEqual({ ...ack, duplicated: true });
+    const oldAgain = b.runCommand(A5) as MutationResult;
+    expect(oldAgain.ok).toBe(true);
+    expect('sceneId' in oldAgain).toBe(false);
+    b.dispose();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Open demo-0001 at T5 with its scene file edited; the service's unavailable reason and first detail path. */
+  function blocked(mutate: (sceneDoc: FileDoc) => void): { reason?: string; path?: string } {
+    const root = makeRoot('dedup-record-bad');
+    const dir = seedRev5(root);
+    const p = join(dir, SCENE_FILE);
+    const doc = readDoc(p);
+    mutate(doc);
+    writeDoc(p, doc);
+    const svc = openWorkspaceService({ root });
+    const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; error?: { code: string; reason?: string; details?: { path?: string }[] } };
+    svc.dispose();
+    rmSync(root, { recursive: true, force: true });
+    expect(q.ok).toBe(false);
+    expect(q.error?.code).toBe('project_unavailable');
+    return { reason: q.error?.reason, path: q.error?.details?.[0]?.path };
+  }
+
+  it('refuses a sceneId in a version-1 record, an unknown recordVersion, and a malformed sceneId', () => {
+    // (A recorded-result detail path starts at `/result`, without the record
+    // index — the existing convention, see json-pointer-escaping.test.ts.)
+    // The corpus records carry sceneId: without the version key they are version 1.
+    expect(blocked((d) => { delete d.retry.recordVersion; })).toEqual({
+      reason: 'retry_records_invalid',
+      path: '/scenes/scene-main.json/result/sceneId',
+    });
+    expect(blocked((d) => { d.retry.recordVersion = 3; })).toEqual({
+      reason: 'retry_records_invalid',
+      path: '/scenes/scene-main.json/retry/recordVersion',
+    });
+    expect(blocked((d) => { d.retry.records[0]!.result['sceneId'] = 'Not An Id'; })).toEqual({
+      reason: 'retry_records_invalid',
+      path: '/scenes/scene-main.json/result/sceneId',
+    });
   });
 });

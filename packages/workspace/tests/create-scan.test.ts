@@ -82,12 +82,12 @@ describe('createProject (§8)', () => {
     expect(scene.scene.schemaVersion).toBe(4);
     expect(scene.scene.revision).toBe(0);
     expect(scene.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);
-    expect(scene.retry).toEqual({ retention: 128, records: [] });
+    expect(scene.retry).toEqual({ recordVersion: 2, retention: 128, records: [] });
     const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8'));
     expect(content.storageVersion).toBe(4);
     expect(content.revision).toBe(0);
     expect(content.content.game).toBeNull();
-    expect(content.retry).toEqual({ retention: 128, records: [] });
+    expect(content.retry).toEqual({ recordVersion: 2, retention: 128, records: [] });
     // A new project is not an upgrade: no v3 safety copy is written.
     expect(existsSync(join(dir, '.thirdlight', 'migrated-v3'))).toBe(false);
 

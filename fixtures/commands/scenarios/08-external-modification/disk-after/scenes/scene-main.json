@@ -260,6 +260,7 @@
     ]
   },
   "retry": {
+    "recordVersion": 2,
     "retention": 128,
     "records": [
       {
@@ -319,7 +320,8 @@
           "history": {
             "undoDepth": 1,
             "redoDepth": 0
-          }
+          },
+          "sceneId": "scene-main"
         }
       }
     ]

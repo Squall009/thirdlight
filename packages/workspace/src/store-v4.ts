@@ -18,7 +18,9 @@
  *   then the files are written and the journal removed. A journal left by a
  *   crash is completed (rolled forward) before the project is read.
  * - Retry records live in the files a transaction wrote; the project's
- *   record map is the union over its files.
+ *   record map is the union over its files. The retry block names its record
+ *   format (`recordVersion` 2 since phase 14.8: a record also stores the
+ *   acked `sceneId`); a block without the key (version 1) is still read.
  * - External changes are detected per file (a changed, missing or new file
  *   in the index): the foreign bytes are snapshotted and writes pause.
  *
@@ -44,7 +46,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { sha256Hex } from './digest';
-import { RETRY_RETENTION, validateRetryBlock, type RetryRecord } from './envelope';
+import { RETRY_RECORD_VERSION, RETRY_RETENTION, validateRetryBlock, type RetryRecord } from './envelope';
 import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
@@ -90,7 +92,7 @@ export function contentFileBytes(projectId: string, revision: number, content: C
     projectId,
     revision,
     content,
-    retry: { retention: RETRY_RETENTION, records },
+    retry: { recordVersion: RETRY_RECORD_VERSION, retention: RETRY_RETENTION, records },
   });
 }
 
@@ -100,7 +102,7 @@ export function sceneFileBytes(projectId: string, scene: SceneV4, records: reado
     type: 'scene',
     projectId,
     scene,
-    retry: { retention: RETRY_RETENTION, records },
+    retry: { recordVersion: RETRY_RECORD_VERSION, retention: RETRY_RETENTION, records },
   });
 }
 

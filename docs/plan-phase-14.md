@@ -317,3 +317,24 @@ Add one dated line per decision taken during the run (what, why).
 - 2026-09-24 (14.7): the runtime's mover push follows the same rule: a mover moving mostly upward pushes a player whose capsule centre is below the mover's top out along x (away from the mover, ≤ 0.5 m per step), never up; others keep the shallower-axis push. Only a deep overlap (a wide block rising into the player's side) changes; a thin gate already pushed sideways.
 - 2026-09-24 (14.7): the spawn clearance probe ignores one-way colliders for "blocked" and counts one as support only when the feet are on its top (the sweep's landing rule, now the named constant `ONE_WAY_LANDING_TOLERANCE` = the old 0.06 m literal) — a spawn inside a shelf is free and the player drops through it to the floor, one above a pit with only a shelf around the body is `no_support`. Applies to start, respawn and checkpoint spawns alike (they share the probe).
 - 2026-09-24 (14.7): tests: port unit tests (`physics-rapier/src/physics-fixes.test.ts`), the push rule (`runtime/src/blocks-push.test.ts`) and an integration test through the real host, platformer and Rapier with a neutral switch-opened gate (box and polygon), a rising block carrying a player, and spawns inside a one-way shelf vs a solid slab (`tests/integration/m14-physics`). The opt-in Sprout bot still plays both meadows (15.1 s / 15.9 s, 0 deaths).
+
+- 2026-09-24 (14.8): the record version lives in the v4 retry block
+  (`retry: { recordVersion: 2, retention, records }`), not in
+  `storageVersion` — only the record format changed; a storage bump would
+  have touched every loader for no reason. A block without the key is
+  record version 1 and is still read; only version 2 is written (the next
+  change of a file rewrites its block as version 2, older records kept as
+  they are). A v3 envelope's retry block is unchanged.
+- 2026-09-24 (14.8): a version-2 record stores the live acknowledgement
+  itself (`sceneId` last, absent for a scene-index change), so a replay is
+  exactly the live ack with `duplicated: true`. `sceneId` is optional in a
+  version-2 record (records carried over from a version-1 block have none;
+  they keep replaying without it — not recoverable, the scene of an old
+  record is unknown); a version-1 record with `sceneId`, a malformed id, a
+  `sceneId` on a scene-index change or an unknown `recordVersion` blocks
+  the project (`retry_records_invalid`), like any malformed record.
+- 2026-09-24 (14.8): corpus regenerated (every retry block version 2;
+  scenarios 01 and 07 replay with `sceneId`; scenario 08's recovery snapshot
+  name follows its new hash). Seen, left as is: a recorded-result detail
+  path starts at `/result` without the `/retry/records/<i>` prefix (already
+  pinned by `json-pointer-escaping.test.ts`).
