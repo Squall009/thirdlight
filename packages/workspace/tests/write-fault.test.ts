@@ -10,19 +10,17 @@
  * claim, no write) so the fault can only hit the mutation's W.
  */
 
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { defaultWriteOps, openWorkspaceService, type MutationResult, type WriteOps } from '@thirdlight/workspace';
 
-import { FIXTURES, makeRoot, seedProject } from './helpers';
+import { SCENE_FILE, makeRoot, projectFixture, seedProject } from './helpers';
 
+/** demo-0001 at mainline T5 (storage v4): a setTransform writes the scene file only (one W). */
 function seedRev5(root: string): string {
-  const dir = seedProject(root, join(FIXTURES, 'scenarios', '01-retry-lost-ack', 'disk-before'), 'demo-0001');
-  mkdirSync(join(dir, 'scenes'), { recursive: true });
-  writeFileSync(join(dir, 'scenes', 'main.json'), readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5.json')));
-  return dir;
+  return seedProject(root, projectFixture('demo-0001-rev5'), 'demo-0001');
 }
 
 function makeRequest(n: number, revision: number) {
@@ -52,7 +50,7 @@ function persistentFault(faultAt: keyof WriteOps, errno: string): WriteOps {
   return out as unknown as WriteOps;
 }
 
-const SHARED = { backendId: 'tb-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', pid: 7000 };
+const SHARED = { storageV4: true, backendId: 'tb-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', pid: 7000 };
 
 /** Open the project with a healthy service (claim), returning the dir.
  * The faulted service re-opens with the SAME identity (own record — a
@@ -69,7 +67,7 @@ describe('write fault injection (workspace.md §5)', () => {
   it('open failure ⇒ write_failed{previous}: state unchanged, retry re-executes fresh', () => {
     const root = makeRoot('wf-1');
     const dir = seedRev5(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const before = readFileSync(envPath);
     openHealthy(root);
     const svc = openWorkspaceService({ root, ...SHARED, ops: persistentFault('openTempFile', 'EACCES') });
@@ -96,7 +94,7 @@ describe('write fault injection (workspace.md §5)', () => {
   it('directory-flush failure after rename ⇒ write_failed{new-undurable}: in-memory advances, ack still fails', () => {
     const root = makeRoot('wf-2');
     const dir = seedRev5(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     openHealthy(root);
     const svc = openWorkspaceService({ root, ...SHARED, ops: persistentFault('fsyncDir', 'EIO') });
     const r = svc.runCommand(makeRequest(2001, 5)) as MutationResult;
@@ -126,7 +124,7 @@ describe('write fault injection (workspace.md §5)', () => {
   it('a foreign replacement in the flush/verify window is detected (external) and snapshotted', () => {
     const root = makeRoot('wf-3');
     const dir = seedRev5(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     openHealthy(root);
     const foreign = Buffer.concat([lkg, Buffer.from('\n// foreign edit\n')]);
@@ -161,7 +159,7 @@ describe('write fault injection (workspace.md §5)', () => {
   it('bounded retries: a persistent rename failure leaves the previous state (temps cleaned)', () => {
     const root = makeRoot('wf-4');
     const dir = seedRev5(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const before = readFileSync(envPath);
     openHealthy(root);
     const svc = openWorkspaceService({ root, ...SHARED, ops: persistentFault('renameFile', 'EIO') });

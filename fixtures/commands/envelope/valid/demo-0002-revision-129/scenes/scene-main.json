@@ -1,0 +1,7824 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "demo-0002",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 129,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Sun",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              10,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#ffffff",
+            "intensity": 1.2,
+            "direction": [
+              0.4,
+              -1,
+              -0.3
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-0002",
+        "name": "Ambient",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#8090a8",
+            "intensity": 0.6
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "components": {
+          "transform": {
+            "position": [
+              1.28,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "retry": {
+    "retention": 128,
+    "records": [
+      {
+        "requestId": "req-40000000000000000000000000000002",
+        "digest": "74f3f64f6447723aef17acc2918a78f95d3e9b37a12b2c8eb7bb87c3e4ca9896",
+        "appliedRevision": 2,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000002",
+          "revision": 2,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.01,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 2,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000003",
+        "digest": "9d1b1e7186647704357862b6c4e8d094f5e67bd6368d9ce5b0662ab6d9701183",
+        "appliedRevision": 3,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000003",
+          "revision": 3,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.01,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.02,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 3,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000004",
+        "digest": "d501edb5a632521a3be88e2c46558a3e3b826168884cc9c5eceb0b011b322e49",
+        "appliedRevision": 4,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000004",
+          "revision": 4,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.02,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.03,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 4,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000005",
+        "digest": "ede94765cac9c77a9bad23e4a57d00d6ee1b3f129ca1c4986ad76aa378b0d2f2",
+        "appliedRevision": 5,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000005",
+          "revision": 5,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.03,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.04,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 5,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000006",
+        "digest": "eba1edb80f61c13a535724d005b5296d5b358f9b1b67fb721374a6f0d7abc47c",
+        "appliedRevision": 6,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000006",
+          "revision": 6,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.04,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.05,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 6,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000007",
+        "digest": "fa3636c637bc9fad2da5c48ab878ee9b20b2a2aef7057b20fcd0cf72d3f4f6cd",
+        "appliedRevision": 7,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000007",
+          "revision": 7,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.05,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.06,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 7,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000008",
+        "digest": "89652a5e2f19436156f13e6302e51be664655c4a19744fdcf2b5619956ac3c25",
+        "appliedRevision": 8,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000008",
+          "revision": 8,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.06,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.07,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 8,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000009",
+        "digest": "29ced6c47620cd77a62189c6fc5326875751e41f2a84e87e13758ba09dc37acd",
+        "appliedRevision": 9,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000009",
+          "revision": 9,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.07,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.08,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 9,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000010",
+        "digest": "1f22d70f450a0c24075ba05cd9c1c30f73f07f24cfc5c414d49ddd7b85b9cfe7",
+        "appliedRevision": 10,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000010",
+          "revision": 10,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.08,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.09,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 10,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000011",
+        "digest": "b13303bb9ce1fb3eedd30089529478a50ec5273dc1e0dcc11094e55fd3735949",
+        "appliedRevision": 11,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000011",
+          "revision": 11,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.09,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 11,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000012",
+        "digest": "0d6e77c9537b3c60b9006a330ffe8d0df9db6e14b763785af238b9160b85e267",
+        "appliedRevision": 12,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000012",
+          "revision": 12,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.11,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 12,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000013",
+        "digest": "9466ec2d4c9299b40c9f5a84ec8603f2eddc89dd67be3a4c0dda3d7d425e6265",
+        "appliedRevision": 13,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000013",
+          "revision": 13,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.11,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.12,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 13,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000014",
+        "digest": "19217df8edaa0166183c2305ee32f6f14b0be59d8a079dc9586dd44513d16408",
+        "appliedRevision": 14,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000014",
+          "revision": 14,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.12,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.13,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 14,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000015",
+        "digest": "e5dc5142ea7c58a3d29dec44203b4a924b855fd1cd25e1e6ff3b48849a0c291c",
+        "appliedRevision": 15,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000015",
+          "revision": 15,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.13,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.14,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 15,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000016",
+        "digest": "ad686e0f0765b1830c20d9ad1a3c42dbb17a8f93fc3f25c9f4289df6ba6cb556",
+        "appliedRevision": 16,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000016",
+          "revision": 16,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.14,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.15,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 16,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000017",
+        "digest": "669c19c37b7b37667cf23606572ddc4c84ef54f6f5e6216a796e103b52b8c92b",
+        "appliedRevision": 17,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000017",
+          "revision": 17,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.15,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.16,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 17,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000018",
+        "digest": "4af684c37279b5cd79281a91c818d57be7311eb99c7a8ae22385cfbfe0dcdc25",
+        "appliedRevision": 18,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000018",
+          "revision": 18,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.16,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.17,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 18,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000019",
+        "digest": "190574b79b48fd0ad70e9b5764d3d9342e689f71c84b2b465bea2068af9cdbd5",
+        "appliedRevision": 19,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000019",
+          "revision": 19,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.17,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.18,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 19,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000020",
+        "digest": "ce149b5a9e4be2cba806ca9b76d684af60b0a25b6cc5ef3b7587aecd91008834",
+        "appliedRevision": 20,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000020",
+          "revision": 20,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.18,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.19,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 20,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000021",
+        "digest": "12915484b66fed34cbac57c774bfcf74949263ff420ad6f79b7071687fa53f38",
+        "appliedRevision": 21,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000021",
+          "revision": 21,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.19,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 21,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000022",
+        "digest": "2a17241e590e061959068126a7aaa5a900725ff9babf936aa44617beb28a198b",
+        "appliedRevision": 22,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000022",
+          "revision": 22,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.21,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 22,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000023",
+        "digest": "58fe6e3fc2db33c5b23b48d2eddfdc0bfde6ccf0d277d64b8104ffce2d939d59",
+        "appliedRevision": 23,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000023",
+          "revision": 23,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.21,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.22,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 23,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000024",
+        "digest": "d8b5ba3a611bb610a60d0acf3d629417b6299c0de681f48399c4859d91cde82a",
+        "appliedRevision": 24,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000024",
+          "revision": 24,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.22,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.23,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 24,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000025",
+        "digest": "e7d5a5656ccbb78d80e0661f646851fd3636f30f1e4bfaf4007e0d66945a13dd",
+        "appliedRevision": 25,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000025",
+          "revision": 25,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.23,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.24,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 25,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000026",
+        "digest": "971a62055c188ddde942157c2ef0963beb7ee0979df248b2a8aaf8d18ebf5d46",
+        "appliedRevision": 26,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000026",
+          "revision": 26,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.24,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 26,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000027",
+        "digest": "c6d23fd988e4b049f7c9e5ab9ac5c8f7094a9c00234db1d921382bf8516c6033",
+        "appliedRevision": 27,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000027",
+          "revision": 27,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.26,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 27,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000028",
+        "digest": "14a777d6b11456e19897f645abd6177b2dc01d34b22a363f13d6c0951b4df8f3",
+        "appliedRevision": 28,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000028",
+          "revision": 28,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.26,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.27,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 28,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000029",
+        "digest": "4c093cbb8c8f47dd7d6fbc735b9fbe29753d499f4fb6cfcea6b708fe7207dca8",
+        "appliedRevision": 29,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000029",
+          "revision": 29,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.27,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.28,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 29,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000030",
+        "digest": "3d7607fee41c29c997e47b885f66e9a29c3a15e20099731029924c704d079ede",
+        "appliedRevision": 30,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000030",
+          "revision": 30,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.28,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.29,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 30,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000031",
+        "digest": "1e48c5aba6d9ae2688f7e66208e8d6a09301466e21ecd1f17c8d97ddefc1e9b0",
+        "appliedRevision": 31,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000031",
+          "revision": 31,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.29,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.3,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 31,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000032",
+        "digest": "9554d723885d9cbb89e723024fe53a822e2be7974aa2f085bf96b54d1e4bfcd4",
+        "appliedRevision": 32,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000032",
+          "revision": 32,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.3,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.31,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 32,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000033",
+        "digest": "963f6b33c92383294584f98119838a4e65ec95d872e4675f0805e0e845dd2cb0",
+        "appliedRevision": 33,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000033",
+          "revision": 33,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.31,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.32,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 33,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000034",
+        "digest": "68001ac89af39c7db528d80437e51f60a1bc64236d7c234d40abd9238bb17a60",
+        "appliedRevision": 34,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000034",
+          "revision": 34,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.32,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.33,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 34,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000035",
+        "digest": "73460d8fa76fd7f2fcc811a060a32907d549ce9c8d93074c3a32bc9ab67ab057",
+        "appliedRevision": 35,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000035",
+          "revision": 35,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.33,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.34,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 35,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000036",
+        "digest": "3f993f726d6857aa9e5c30d532b9b622700254d680a070b743421c2f0879c776",
+        "appliedRevision": 36,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000036",
+          "revision": 36,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.34,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.35,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 36,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000037",
+        "digest": "92979680d854406f5ab7de689e730c9a276cc6e65727e9e181916f5f3491d531",
+        "appliedRevision": 37,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000037",
+          "revision": 37,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.35,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.36,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 37,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000038",
+        "digest": "a99eab7692a2c1d932a6e9138a6c5c9af26aed98ffb1db62ede6265282e577b1",
+        "appliedRevision": 38,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000038",
+          "revision": 38,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.36,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.37,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 38,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000039",
+        "digest": "ad51d2c1b6fd2b82ba246fca4416a66ce590c8d45ddfb72863f9ef680a041101",
+        "appliedRevision": 39,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000039",
+          "revision": 39,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.37,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.38,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 39,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000040",
+        "digest": "20751939c5db8e73f1eff7d8ce977c0244524fd000479eca7e4aa36847dcbe0c",
+        "appliedRevision": 40,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000040",
+          "revision": 40,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.38,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.39,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 40,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000041",
+        "digest": "bb6a0b1e878d4279078bcdacf21b93ed3ddab9b6d73e96c4cbe4ddc406037977",
+        "appliedRevision": 41,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000041",
+          "revision": 41,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.39,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.4,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 41,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000042",
+        "digest": "87ced4974e39748a32f2a0a227e146af007df3b8645967fd12f6ca87428950d7",
+        "appliedRevision": 42,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000042",
+          "revision": 42,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.4,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.41,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 42,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000043",
+        "digest": "201c9e97031b2505c6b61e2c609e3d768435b627fdd2a8706c7af787b16be218",
+        "appliedRevision": 43,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000043",
+          "revision": 43,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.41,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.42,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 43,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000044",
+        "digest": "bcadb9c310dcda7f9360723018f265f9cb7044a6e4a708d49a46829d0fe57747",
+        "appliedRevision": 44,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000044",
+          "revision": 44,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.42,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.43,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 44,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000045",
+        "digest": "5d6c412710b97eb314c62c31388a2f5054e92309bec688c74b901fea40c4bf24",
+        "appliedRevision": 45,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000045",
+          "revision": 45,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.43,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.44,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 45,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000046",
+        "digest": "0d340e39229fa519aa52df7fc44f1e442c03bb77c3778d532ef17588c0705f02",
+        "appliedRevision": 46,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000046",
+          "revision": 46,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.44,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.45,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 46,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000047",
+        "digest": "01d9bbfb390af2f39e8f4128ff1b6c9dca0bba6bb05727ae950b61538ca086c3",
+        "appliedRevision": 47,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000047",
+          "revision": 47,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.45,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.46,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 47,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000048",
+        "digest": "3689a497c3468bc63c6f15a8a6a20f07aa331e29ae8e2455eb521bab818fb4c0",
+        "appliedRevision": 48,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000048",
+          "revision": 48,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.46,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.47,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 48,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000049",
+        "digest": "5a3007229b74982d9610fbb0861d6e44921787d78bf2f0067e08df8eb55c96ab",
+        "appliedRevision": 49,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000049",
+          "revision": 49,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.47,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.48,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 49,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000050",
+        "digest": "1593e888067bba0b6ce787bfbba85ce4d46460a81c12714fcb8ad6e68033967b",
+        "appliedRevision": 50,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000050",
+          "revision": 50,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.48,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.49,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 50,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000051",
+        "digest": "c7d48a00e74c3e4c57358a2df295795fcabd661bbc7142a27ff8b90e91cb58de",
+        "appliedRevision": 51,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000051",
+          "revision": 51,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.49,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.5,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 51,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000052",
+        "digest": "4e7d7e73e454b2cc056016cad9112b910b8ce7d9a76cce56e5ccf832c08e5f20",
+        "appliedRevision": 52,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000052",
+          "revision": 52,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.5,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.51,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 52,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000053",
+        "digest": "9898d9d711972f3dddb56d7905712d5555f778a21c984f3a1eee757eb2b6b7b7",
+        "appliedRevision": 53,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000053",
+          "revision": 53,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.51,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.52,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 53,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000054",
+        "digest": "3a2d85dd01ce6133698c457e3fb3b9e226a8b5a96208a294249dee1c1b7d889d",
+        "appliedRevision": 54,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000054",
+          "revision": 54,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.52,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.53,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 54,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000055",
+        "digest": "0ebabab0ea30b3b8ff86d8e298bfc31a235e94615b4cabfece58bad2f43ece23",
+        "appliedRevision": 55,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000055",
+          "revision": 55,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.53,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.54,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 55,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000056",
+        "digest": "f7176507ddb1dcbef6ebe6a2b84be76fa8341783f8a46d816e6366c7e56ab7cf",
+        "appliedRevision": 56,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000056",
+          "revision": 56,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.54,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.55,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 56,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000057",
+        "digest": "b63cb5a5fb0b470ae44cc5649409e6257bffd5246d532c896048955b8f3596c2",
+        "appliedRevision": 57,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000057",
+          "revision": 57,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.55,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.56,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 57,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000058",
+        "digest": "69247a351b540bb1d6a0b996b38c32391072281a70f63794301c041367e834e5",
+        "appliedRevision": 58,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000058",
+          "revision": 58,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.56,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.57,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 58,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000059",
+        "digest": "cd3adafa37b2faaaeaed219f34b71ef4463e19147486bec5e8f5631435273282",
+        "appliedRevision": 59,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000059",
+          "revision": 59,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.57,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.58,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 59,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000060",
+        "digest": "58afc6aa7f0d2406dfa8511af92863e060b66ec3c863aaf611be8ebbb186a662",
+        "appliedRevision": 60,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000060",
+          "revision": 60,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.58,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.59,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 60,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000061",
+        "digest": "611af647dc5c117e3811008fd628cf96b2123881f26afd5a5304621d25b58491",
+        "appliedRevision": 61,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000061",
+          "revision": 61,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.59,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.6,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 61,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000062",
+        "digest": "677b726d60076eba1a5508d874a35d5a3297f3fb2b907c09426d57fa433094f7",
+        "appliedRevision": 62,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000062",
+          "revision": 62,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.6,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.61,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 62,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000063",
+        "digest": "ee15a0e6a050872b2f489f6ce004d877593856ccce2612e8b3f48d8040f39fc7",
+        "appliedRevision": 63,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000063",
+          "revision": 63,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.61,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.62,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 63,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000064",
+        "digest": "8fcc371e4200fb7f63e2c36dfd4917564f21f1384c515a2b3cffdce74a7dca59",
+        "appliedRevision": 64,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000064",
+          "revision": 64,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.62,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.63,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 64,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000065",
+        "digest": "0f7f7aab0ec84c083457dd7ad8bc9b0f5faa7302d10e6984a91aa5196405aaa5",
+        "appliedRevision": 65,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000065",
+          "revision": 65,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.63,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.64,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 65,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000066",
+        "digest": "b2ebbe73a174363d446af7e06741c9699406243b335056e067198cd4ce6ce4f2",
+        "appliedRevision": 66,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000066",
+          "revision": 66,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.64,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.65,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 66,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000067",
+        "digest": "24d96e6c474be4f41d0a06650e8f38711edcb0d999d846717669417b7f7e9c19",
+        "appliedRevision": 67,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000067",
+          "revision": 67,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.65,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.66,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 67,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000068",
+        "digest": "24ff48a468a36c3a39cc6455dd87e6f85d479f72f1953467e22762a7dcb6ebf9",
+        "appliedRevision": 68,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000068",
+          "revision": 68,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.66,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.67,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 68,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000069",
+        "digest": "1d33052154c089a88ac72cb85b0236015bcfce40582be44c4b4ff13b38eee665",
+        "appliedRevision": 69,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000069",
+          "revision": 69,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.67,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.68,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 69,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000070",
+        "digest": "8fc5900b304f49aa9a18cd60f6415fe57cb3212226256cb7f5cbd0292afe4355",
+        "appliedRevision": 70,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000070",
+          "revision": 70,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.68,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.69,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 70,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000071",
+        "digest": "85f4a550771a55d845b833fbe5b62d63ee0f3fda56bffc9eecd33638a3e2c7d3",
+        "appliedRevision": 71,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000071",
+          "revision": 71,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.69,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.7,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 71,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000072",
+        "digest": "01f24429559361882152a88c27d87dd9733c2b38c1138df608d1c973591eb644",
+        "appliedRevision": 72,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000072",
+          "revision": 72,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.7,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.71,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 72,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000073",
+        "digest": "d8e939ea48a57028ea8fe745afbc49949ad7d22db2ebe22c1e4b07431cc2f0e8",
+        "appliedRevision": 73,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000073",
+          "revision": 73,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.71,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.72,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 73,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000074",
+        "digest": "8cb8f2ff52ec6d5ba93f83a62cc057b9be159f994f5176761c9fb76e54e0b3a3",
+        "appliedRevision": 74,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000074",
+          "revision": 74,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.72,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.73,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 74,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000075",
+        "digest": "55549e52b244de8afdccc31715ee2c63c6863b79ba47a245b6375a4b3427a21f",
+        "appliedRevision": 75,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000075",
+          "revision": 75,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.73,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.74,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 75,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000076",
+        "digest": "ffaaa3cc64611a9ba7be03c21b2eec1377382dbce3faab0dd1ee94bb0841375a",
+        "appliedRevision": 76,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000076",
+          "revision": 76,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.74,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.75,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 76,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000077",
+        "digest": "965f5588814e0e7ce6423c6d714bb5135a2e5f1987b06cfc735ebfa04d367ca8",
+        "appliedRevision": 77,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000077",
+          "revision": 77,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.75,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.76,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 77,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000078",
+        "digest": "2f64123533439ea09e59c189b9a3bbc6212eac05d1659f60685cfd1c5507acc7",
+        "appliedRevision": 78,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000078",
+          "revision": 78,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.76,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.77,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 78,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000079",
+        "digest": "65c8c358b09af8c3e9df69f3eb0b7ea172c4f103687f447502311bc9b884e098",
+        "appliedRevision": 79,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000079",
+          "revision": 79,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.77,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.78,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 79,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000080",
+        "digest": "18014cfed4d389120b16aeaa8435f7221ecf7e4b1a232f3fd0590c108b2ac824",
+        "appliedRevision": 80,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000080",
+          "revision": 80,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.78,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.79,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 80,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000081",
+        "digest": "dbe213ef6ab0f420d9d7d612dd6f3a71f569007ea53b27481eeacc6ef688946c",
+        "appliedRevision": 81,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000081",
+          "revision": 81,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.79,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.8,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 81,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000082",
+        "digest": "70d0f5f4bec967e34aeb2ad2c8b6d6aa07da74109c52a7ac31b4a35da51adce2",
+        "appliedRevision": 82,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000082",
+          "revision": 82,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.8,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.81,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 82,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000083",
+        "digest": "98eb085b439ab8ae41b0a2e7e00bd30e9745b7919dd2b0f5e9a6987969b7ea4f",
+        "appliedRevision": 83,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000083",
+          "revision": 83,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.81,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.82,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 83,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000084",
+        "digest": "4659432422ef51429739dbd9cdfd6793aa610cd8de486b79fb6e1e287afd2616",
+        "appliedRevision": 84,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000084",
+          "revision": 84,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.82,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.83,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 84,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000085",
+        "digest": "00829687813d0f5134fe8c569957bb45439e5275bca66ab93bb1f661f3155f5c",
+        "appliedRevision": 85,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000085",
+          "revision": 85,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.83,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.84,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 85,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000086",
+        "digest": "f5510d223ea036bdc4f9baed40508b68cb361820da6cfd5463ccb2c2edebbd78",
+        "appliedRevision": 86,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000086",
+          "revision": 86,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.84,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.85,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 86,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000087",
+        "digest": "a2f2efa5b94e69aa03d22ba7c2b5c4dfb6c001127f5d4175948200d160232d2a",
+        "appliedRevision": 87,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000087",
+          "revision": 87,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.85,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.86,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 87,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000088",
+        "digest": "766ab4a2c3acb86bbe65e25ce9a24b0b27bc1dba41ccbcddec8357fd70c10f67",
+        "appliedRevision": 88,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000088",
+          "revision": 88,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.86,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.87,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 88,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000089",
+        "digest": "98773f7e9738a8e035c7bac98c2dde15a72df9762b6a67e9305812f347b67e15",
+        "appliedRevision": 89,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000089",
+          "revision": 89,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.87,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.88,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 89,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000090",
+        "digest": "5abd04e6517a322cb90784bd2de85af6c27dceba31d1145103cdfb8ca7b899a1",
+        "appliedRevision": 90,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000090",
+          "revision": 90,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.88,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.89,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 90,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000091",
+        "digest": "f8356c0f0e4d8f15e38eebb1105da571126fda3ff58faaf930ba4deed67734fd",
+        "appliedRevision": 91,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000091",
+          "revision": 91,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.89,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.9,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 91,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000092",
+        "digest": "fa4486bc6a41e7a1689fe10ddfac634ca851da86540c90f53e60389c862884b0",
+        "appliedRevision": 92,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000092",
+          "revision": 92,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.9,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.91,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 92,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000093",
+        "digest": "d25cba516f2379d980730e735204d82e8a81472882ada91bf06a09a6d7822038",
+        "appliedRevision": 93,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000093",
+          "revision": 93,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.91,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.92,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 93,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000094",
+        "digest": "fa5605ef6137b2145fc98e42df0ee21f8cca2e7fa25e4d7fa3c878df7508d598",
+        "appliedRevision": 94,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000094",
+          "revision": 94,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.92,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.93,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 94,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000095",
+        "digest": "bc93ce928e313f02f876826a3e8891e70a96f3286f7e02aecd8271d46df21cc3",
+        "appliedRevision": 95,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000095",
+          "revision": 95,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.93,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.94,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 95,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000096",
+        "digest": "09b0dcb37b75609c8ecb7a5e9bb68824e86e4101c7d722f6379fc6ce63d22ed5",
+        "appliedRevision": 96,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000096",
+          "revision": 96,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.94,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.95,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 96,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000097",
+        "digest": "9e38ccff4ba21c4199a283a77120ac589c8c509d3709ffdb7d198f210d8476b5",
+        "appliedRevision": 97,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000097",
+          "revision": 97,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.95,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.96,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 97,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000098",
+        "digest": "73e35c7e3e431c06f9255c64145df3439544498fd24f0e11092769c8ca42697e",
+        "appliedRevision": 98,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000098",
+          "revision": 98,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.96,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.97,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 98,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000099",
+        "digest": "25566249a719df2ef70e67a1ff70ab65d14b049d2c7f641a53666a0717c18b2c",
+        "appliedRevision": 99,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000099",
+          "revision": 99,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.97,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.98,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 99,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000100",
+        "digest": "6e8a65daae66beceb1d2bf216cd2d332307752e22a624e3548e5f012488d1fb2",
+        "appliedRevision": 100,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000100",
+          "revision": 100,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.98,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0.99,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 100,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000101",
+        "digest": "5e49bf688e2de3431e35615dfbc6d3cd6d2420bd2112d1167dccd4df27d35aee",
+        "appliedRevision": 101,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000101",
+          "revision": 101,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0.99,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 101,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000102",
+        "digest": "4fefe5b21e05d3d24afa4281ffe6e852b39bd219d4b18b0eaa20a6dae9a90be2",
+        "appliedRevision": 102,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000102",
+          "revision": 102,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.01,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 102,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000103",
+        "digest": "d71d04f7781a141414a0a1668dbe2f31cf78ee545d82b90392fac206119515d8",
+        "appliedRevision": 103,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000103",
+          "revision": 103,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.01,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.02,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 103,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000104",
+        "digest": "784aac93046aec25a9c55638022fb080c4111090ef6e371a9d840716b88c9b42",
+        "appliedRevision": 104,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000104",
+          "revision": 104,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.02,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.03,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 104,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000105",
+        "digest": "72b06b1d36930a72d70c0dbafdb2c118e441e906d51056a59d1e937ea4644ed5",
+        "appliedRevision": 105,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000105",
+          "revision": 105,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.03,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.04,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 105,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000106",
+        "digest": "20e347e338b68dcb188afe01819c952551cb41366b0a2880d6c57de9593e778c",
+        "appliedRevision": 106,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000106",
+          "revision": 106,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.04,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.05,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 106,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000107",
+        "digest": "6a4c4a401e0432ce5708e96fc76bc48fe03bbe67b1507930a452d384c15dbe06",
+        "appliedRevision": 107,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000107",
+          "revision": 107,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.05,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.06,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 107,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000108",
+        "digest": "e58d5c58a25abf1feda24bc5d744dff275a96d858c6e22bd39ec9740116de7ea",
+        "appliedRevision": 108,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000108",
+          "revision": 108,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.06,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.07,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 108,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000109",
+        "digest": "400c241f2421053fed2f8f6466d1f9a58175a25e25435f1952940989d6c5c0f4",
+        "appliedRevision": 109,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000109",
+          "revision": 109,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.07,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.08,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 109,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000110",
+        "digest": "6b12943c23a3c7a0ddea9c5771cf35bae5e4d77797c268946afc22a5cd00c505",
+        "appliedRevision": 110,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000110",
+          "revision": 110,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.08,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.09,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 110,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000111",
+        "digest": "25374629e2913de1a3d0e300038b01662989ea4bf6c87b90e4d264ccafec7021",
+        "appliedRevision": 111,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000111",
+          "revision": 111,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.09,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 111,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000112",
+        "digest": "8dd2aa7d31ae8e6e1afbe2421bda8f2e30d7416a10f9064ca4a8e5c128ac91bf",
+        "appliedRevision": 112,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000112",
+          "revision": 112,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.1,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.11,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 112,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000113",
+        "digest": "e0f2c43c5b464964b6fdde3a295ed42d1e27bead83c3bfc94b96c17b05f935b8",
+        "appliedRevision": 113,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000113",
+          "revision": 113,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.11,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.12,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 113,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000114",
+        "digest": "f417bd4eb225bc5c956d840f8999a1ceadea1d512e5c2c0ee2df3833b9b6f7d2",
+        "appliedRevision": 114,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000114",
+          "revision": 114,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.12,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.13,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 114,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000115",
+        "digest": "af6ae144e7fe497e2e218e5d3a3e5b90e11ebf57c0aa043694f98d79749a36cc",
+        "appliedRevision": 115,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000115",
+          "revision": 115,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.13,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.14,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 115,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000116",
+        "digest": "f782f4f660bfefd99436c248bb31aa0df7c8584c4a22481fb09017bb5cc490d1",
+        "appliedRevision": 116,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000116",
+          "revision": 116,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.14,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.15,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 116,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000117",
+        "digest": "d221aceba220288df1da33465717df6f5e24d1fb7ea4db1a3376c2fe1da9d77d",
+        "appliedRevision": 117,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000117",
+          "revision": 117,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.15,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.16,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 117,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000118",
+        "digest": "62a26e5e04c35c5c6ee39ad993640bd1760ce104a7684c6f19dced7ece82763e",
+        "appliedRevision": 118,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000118",
+          "revision": 118,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.16,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.17,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 118,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000119",
+        "digest": "881051ba1352168ccaeaa8a77a8c87feb705023b92fa47be6641f2723cc13c88",
+        "appliedRevision": 119,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000119",
+          "revision": 119,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.17,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.18,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 119,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000120",
+        "digest": "fc7e8f487c7aebdd897469f59473eb6545352278d1a441859451883037c7507f",
+        "appliedRevision": 120,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000120",
+          "revision": 120,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.18,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.19,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 120,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000121",
+        "digest": "31e45c15a3ccf5b8888fc0079ef2b143a3a00e9b1288ecf720cc01460cab6299",
+        "appliedRevision": 121,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000121",
+          "revision": 121,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.19,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 121,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000122",
+        "digest": "ab8a707203968bdfd36d43b8076304c3f2e080cb290b79903b9a2128023b3ca3",
+        "appliedRevision": 122,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000122",
+          "revision": 122,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.21,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 122,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000123",
+        "digest": "8046e013e642d972f9b66e61f4f36564581e307952dcbb8c95ae4e0058642b4b",
+        "appliedRevision": 123,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000123",
+          "revision": 123,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.21,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.22,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 123,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000124",
+        "digest": "3dc33144c452fb4bb0da12021fb9730755d53ac74e0a6f8362cfe27e0a8c8d1a",
+        "appliedRevision": 124,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000124",
+          "revision": 124,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.22,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.23,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 124,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000125",
+        "digest": "b1946f4a1da495f6cdca07b5445a7385e6aef72ca9ae642eff9a97cc360e2fa6",
+        "appliedRevision": 125,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000125",
+          "revision": 125,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.23,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.24,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 125,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000126",
+        "digest": "82f16e1974dfb03172e2b3636d6a0fbda7ceb75b260d38970d62006dbec259c9",
+        "appliedRevision": 126,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000126",
+          "revision": 126,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.24,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 126,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000127",
+        "digest": "e2d38b512b71ebc905aabfec75d3fc83466997f6ed2e6d96cae7b857796bf275",
+        "appliedRevision": 127,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000127",
+          "revision": 127,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.25,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.26,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 127,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000128",
+        "digest": "1f0ad56e8faa1b50ea8d82bd2939e1882c40bde01e7bcab87e1b6c5a64eed21c",
+        "appliedRevision": 128,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000128",
+          "revision": 128,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.26,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.27,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 128,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-40000000000000000000000000000129",
+        "digest": "1e2c6ca9b21a7d932ba36123f77c930a6268f37c4db4d3e807b8c628f51a5a72",
+        "appliedRevision": 129,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0002",
+          "requestId": "req-40000000000000000000000000000129",
+          "revision": 129,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                1.27,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                1.28,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 129,
+            "redoDepth": 0
+          }
+        }
+      }
+    ]
+  }
+}

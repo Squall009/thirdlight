@@ -30,7 +30,7 @@
         "cls": "unavailable",
         "pendingChange": {
           "snapshotState": "ok",
-          "externalHash": "5923fe48ce29b0b9bb3f7e8a00057823910e931a06cad46d7593dfb27e40215f",
+          "externalHash": "df98c4357f60265e52e01a7a05f3efb60cdc3245eeb94cfd1ea5be63a4f96256",
           "externalValid": true,
           "externalErrorCount": 0
         },
@@ -49,24 +49,28 @@
       "projectId": "demo-0001",
       "revision": 7,
       "manifest": {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "engineVersion": "0.1.0",
         "id": "demo-0001",
         "name": "Demo Project",
-        "createdAt": "2026-09-16T23:40:00Z",
-        "scenes": [
-          {
-            "id": "scene-main",
-            "path": "scenes/main.json"
-          }
-        ]
+        "createdAt": "2026-09-16T23:40:00Z"
       },
       "scene": {
         "sceneId": "scene-main",
-        "schemaVersion": 1,
-        "entityCount": 6,
+        "schemaVersion": 4,
+        "entityCount": 8,
         "cameraId": "cam-main"
       },
+      "scenes": [
+        {
+          "sceneId": "scene-main",
+          "name": "Main",
+          "entityCount": 8
+        }
+      ],
+      "startScenes": [
+        "scene-main"
+      ],
       "history": {
         "undoDepth": 0,
         "redoDepth": 0
@@ -76,12 +80,13 @@
         "pauseReason": "external_change",
         "pendingChange": {
           "snapshotState": "ok",
-          "externalHash": "5923fe48ce29b0b9bb3f7e8a00057823910e931a06cad46d7593dfb27e40215f",
+          "externalHash": "df98c4357f60265e52e01a7a05f3efb60cdc3245eeb94cfd1ea5be63a4f96256",
           "externalValid": true,
           "externalErrorCount": 0,
           "externalErrors": []
         }
-      }
+      },
+      "tags": []
     }
   },
   {
@@ -170,7 +175,8 @@
       "history": {
         "undoDepth": 1,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   }
 ]

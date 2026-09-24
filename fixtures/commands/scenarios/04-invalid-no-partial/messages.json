@@ -33,7 +33,7 @@
         "details": [
           {
             "code": "quaternion_invalid",
-            "path": "/entities/1/components/transform/rotation",
+            "path": "/entities/3/components/transform/rotation",
             "message": "rotation quaternion must have unit length within 1e-4",
             "found": [
               0,
@@ -137,8 +137,7 @@
       "error": {
         "code": "no_change",
         "cls": "validation",
-        "message": "request would not change the scene",
-        "hint": "the scene already matches the requested values; nothing was recorded"
+        "message": "the resulting scene and content are byte-identical to the current state"
       }
     }
   }

@@ -1,0 +1,29 @@
+{
+  "storageVersion": 4,
+  "type": "project-content",
+  "projectId": "demo-0002",
+  "revision": 0,
+  "content": {
+    "assets": [],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null,
+    "scenes": [
+      {
+        "sceneId": "scene-main",
+        "name": "Main"
+      }
+    ],
+    "startScenes": [
+      "scene-main"
+    ]
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

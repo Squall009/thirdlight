@@ -36,6 +36,7 @@ describe('ownership (workspace.md §6)', () => {
 
     const b = openWorkspaceService({
       root,
+      storageV4: true,
       backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       pid: 5150,
       procRoot,
@@ -69,6 +70,7 @@ describe('ownership (workspace.md §6)', () => {
 
     const b = openWorkspaceService({
       root,
+      storageV4: true,
       backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       pid: 5150,
       procRoot,
@@ -101,7 +103,7 @@ describe('ownership (workspace.md §6)', () => {
     const dir = seedT7(root);
     // pid 5000 exists but started recently ⇒ pid reuse ⇒ dead.
     const procRoot = buildFakeProc(root, { 5000: 'reused' });
-    const b = openWorkspaceService({ root, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
+    const b = openWorkspaceService({ root, storageV4: true, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
     const q = b.query(QUERY) as QueryResult;
     expect(q.ok).toBe(true);
     const rec = JSON.parse(readFileSync(join(dir, '.thirdlight', 'ownership.json'), 'utf8'));
@@ -115,7 +117,7 @@ describe('ownership (workspace.md §6)', () => {
     const root = makeRoot('own-release');
     const dir = seedT7(root);
     const procRoot = buildFakeProc(root, {});
-    const a = openWorkspaceService({ root, backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pid: 5000, procRoot });
+    const a = openWorkspaceService({ root, storageV4: true, backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pid: 5000, procRoot });
     // The fixture record is our own (pid 5000 + tb-aaaa): re-open keeps it.
     const q1 = a.query(QUERY) as QueryResult;
     expect(q1.ok).toBe(true);
@@ -165,7 +167,7 @@ describe('ownership (workspace.md §6)', () => {
     const procRoot = buildFakeProc(root, {});
     const recPath = join(dir, '.thirdlight', 'ownership.json');
     const original = readFileSync(recPath);
-    const a = openWorkspaceService({ root, backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pid: 5000, procRoot });
+    const a = openWorkspaceService({ root, storageV4: true, backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pid: 5000, procRoot });
     const q = a.query(QUERY) as QueryResult;
     expect(q.ok).toBe(true);
     // The record is untouched (we already owned it).
@@ -177,7 +179,7 @@ describe('ownership (workspace.md §6)', () => {
   it('a fresh claim writes the record at epoch 0 (canonical bytes)', () => {
     const root = makeRoot('own-fresh');
     // An empty project created by the service itself.
-    const svc = openWorkspaceService({ root });
+    const svc = openWorkspaceService({ root, storageV4: true });
     const created = svc.createProject('proj-fresh', 'Fresh');
     expect(created.ok).toBe(true);
     if (!created.ok) throw new Error('create failed');

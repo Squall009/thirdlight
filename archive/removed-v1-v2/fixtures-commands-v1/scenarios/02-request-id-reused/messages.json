@@ -1,0 +1,30 @@
+[
+  {
+    "in": {
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 5,
+      "requestId": "req-10000000000000000000000000000005",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0002"
+      }
+    },
+    "out": {
+      "ok": false,
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-10000000000000000000000000000005",
+      "error": {
+        "code": "request_id_reused",
+        "cls": "conflict",
+        "currentRevision": 5,
+        "message": "requestId was already used with different content",
+        "hint": "re-read the project (queryProject) and re-issue the command with a fresh requestId and the current revision"
+      }
+    }
+  }
+]

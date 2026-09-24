@@ -126,7 +126,7 @@ function reasonHint(reason: UnavailableReason): string {
       // unresolvable — operator file operation, no backend command).
       return 'the claim file at the target epoch cannot be reclaimed: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
     case 'stale_ownership':
-      // Pinned by fixtures/commands/scenarios/09 (messages.json step 2).
+      // Not pinned by the corpus: since the automatic reclaim, scenario 09's step 2 is served (no stale error).
       return 'the previous owner is gone but the automatic reclaim failed; run takeoverWorkspace';
     case 'workspace_closed':
       return 'the project is released for external maintenance; finish the external edit — the next open re-claims it (workspace.md §9)';

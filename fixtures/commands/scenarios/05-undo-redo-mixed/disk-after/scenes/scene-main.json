@@ -1,0 +1,653 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "demo-0001",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 9,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Sun",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              10,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#ffffff",
+            "intensity": 1.2,
+            "direction": [
+              0.4,
+              -1,
+              -0.3
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-0002",
+        "name": "Ambient",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#8090a8",
+            "intensity": 0.6
+          }
+        }
+      },
+      {
+        "id": "box-0001",
+        "name": "Ground",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              -0.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          }
+        }
+      },
+      {
+        "id": "box-0002",
+        "name": "Crate",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "box": {
+            "size": [
+              1,
+              1,
+              1
+            ],
+            "material": {
+              "color": "#b0b0b0"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "retry": {
+    "retention": 128,
+    "records": [
+      {
+        "requestId": "req-20000000000000000000000000000001",
+        "digest": "c3effdd0c86d3562256f3e0fbdec06f5632e980d1267c07720edac1de839ce2f",
+        "appliedRevision": 1,
+        "result": {
+          "ok": true,
+          "op": "createEntity",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000001",
+          "revision": 1,
+          "duplicated": false,
+          "createdId": "box-0001",
+          "change": {
+            "type": "createEntity",
+            "id": "box-0001",
+            "entity": {
+              "id": "box-0001",
+              "name": "Ground",
+              "components": {
+                "transform": {
+                  "position": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "box": {
+                  "size": [
+                    1,
+                    1,
+                    1
+                  ],
+                  "material": {
+                    "color": "#b0b0b0"
+                  }
+                }
+              }
+            }
+          },
+          "history": {
+            "undoDepth": 1,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000002",
+        "digest": "7dcde9adc5884271bcf9b06669317bb1d83efd885a83ef4623360220525c544d",
+        "appliedRevision": 2,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000002",
+          "revision": 2,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0,
+                0,
+                -0.5
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 2,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000003",
+        "digest": "7c593daae4d370d4e1963315479a56641bc71636b48d0ddc7548739e2a2153e4",
+        "appliedRevision": 3,
+        "result": {
+          "ok": true,
+          "op": "createEntity",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000003",
+          "revision": 3,
+          "duplicated": false,
+          "createdId": "box-0002",
+          "change": {
+            "type": "createEntity",
+            "id": "box-0002",
+            "entity": {
+              "id": "box-0002",
+              "name": "Crate",
+              "components": {
+                "transform": {
+                  "position": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "box": {
+                  "size": [
+                    1,
+                    1,
+                    1
+                  ],
+                  "material": {
+                    "color": "#b0b0b0"
+                  }
+                }
+              }
+            }
+          },
+          "history": {
+            "undoDepth": 3,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000004",
+        "digest": "223b2d9957acf45c46c98d9db8eb6c3f83a41d0e8a37f4b554487cd83150623b",
+        "appliedRevision": 4,
+        "result": {
+          "ok": true,
+          "op": "deleteEntity",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000004",
+          "revision": 4,
+          "duplicated": false,
+          "change": {
+            "type": "deleteEntity",
+            "rootId": "box-0002",
+            "deletedIds": [
+              "box-0002"
+            ]
+          },
+          "history": {
+            "undoDepth": 4,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000005",
+        "digest": "74576076e086599ef114eb98c58380209cf58981700cc84ab1592051e569644a",
+        "appliedRevision": 5,
+        "result": {
+          "ok": true,
+          "op": "undo",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000005",
+          "revision": 5,
+          "duplicated": false,
+          "change": {
+            "type": "restoreSubtree",
+            "rootId": "box-0002",
+            "entities": [
+              {
+                "id": "box-0002",
+                "name": "Crate",
+                "components": {
+                  "transform": {
+                    "position": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "rotation": [
+                      0,
+                      0,
+                      0,
+                      1
+                    ],
+                    "scale": [
+                      1,
+                      1,
+                      1
+                    ]
+                  },
+                  "box": {
+                    "size": [
+                      1,
+                      1,
+                      1
+                    ],
+                    "material": {
+                      "color": "#b0b0b0"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "appliedOf": "req-20000000000000000000000000000004",
+          "originOfApplied": {
+            "kind": "mcp",
+            "clientId": "pi-harness"
+          },
+          "history": {
+            "undoDepth": 3,
+            "redoDepth": 1
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000006",
+        "digest": "33fd67bcddfe44e336927452211125217a25b688ac0b123fe73a0d74d11b7409",
+        "appliedRevision": 6,
+        "result": {
+          "ok": true,
+          "op": "undo",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000006",
+          "revision": 6,
+          "duplicated": false,
+          "change": {
+            "type": "deleteEntity",
+            "rootId": "box-0002",
+            "deletedIds": [
+              "box-0002"
+            ]
+          },
+          "appliedOf": "req-20000000000000000000000000000003",
+          "originOfApplied": {
+            "kind": "browser",
+            "clientId": "browser-demo"
+          },
+          "history": {
+            "undoDepth": 2,
+            "redoDepth": 2
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000007",
+        "digest": "d0090c75e3acfc3ad07d1f7835d350481662e3df8e4fce94ed221f87cadd7d24",
+        "appliedRevision": 7,
+        "result": {
+          "ok": true,
+          "op": "redo",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000007",
+          "revision": 7,
+          "duplicated": false,
+          "change": {
+            "type": "createEntity",
+            "id": "box-0002",
+            "entity": {
+              "id": "box-0002",
+              "name": "Crate",
+              "components": {
+                "transform": {
+                  "position": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0,
+                    0,
+                    0,
+                    1
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "box": {
+                  "size": [
+                    1,
+                    1,
+                    1
+                  ],
+                  "material": {
+                    "color": "#b0b0b0"
+                  }
+                }
+              }
+            }
+          },
+          "appliedOf": "req-20000000000000000000000000000003",
+          "originOfApplied": {
+            "kind": "browser",
+            "clientId": "browser-demo"
+          },
+          "history": {
+            "undoDepth": 3,
+            "redoDepth": 1
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000008",
+        "digest": "5143c44249df0f6829d4e40fa0308661283f7e2f8485891ce7d6afee159aee10",
+        "appliedRevision": 8,
+        "result": {
+          "ok": true,
+          "op": "setTransform",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000008",
+          "revision": 8,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0,
+                0,
+                -0.5
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0,
+                0.25,
+                -0.5
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position"
+            ]
+          },
+          "history": {
+            "undoDepth": 4,
+            "redoDepth": 0
+          }
+        }
+      },
+      {
+        "requestId": "req-20000000000000000000000000000009",
+        "digest": "3c82f5e4eb236299716033858723a54a1173b43a35c29bdafeb2a68c991e4815",
+        "appliedRevision": 9,
+        "result": {
+          "ok": true,
+          "op": "undo",
+          "projectId": "demo-0001",
+          "requestId": "req-20000000000000000000000000000009",
+          "revision": 9,
+          "duplicated": false,
+          "change": {
+            "type": "setTransform",
+            "id": "box-0001",
+            "previous": {
+              "position": [
+                0,
+                0.25,
+                -0.5
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "next": {
+              "position": [
+                0,
+                0,
+                -0.5
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "changedFields": [
+              "position",
+              "rotation",
+              "scale"
+            ]
+          },
+          "appliedOf": "req-20000000000000000000000000000008",
+          "originOfApplied": {
+            "kind": "mcp",
+            "clientId": "pi-harness"
+          },
+          "history": {
+            "undoDepth": 3,
+            "redoDepth": 1
+          }
+        }
+      }
+    ]
+  }
+}

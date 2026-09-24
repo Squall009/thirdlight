@@ -63,7 +63,8 @@
       "history": {
         "undoDepth": 1,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -140,7 +141,8 @@
       "history": {
         "undoDepth": 2,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -207,7 +209,8 @@
       "history": {
         "undoDepth": 3,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -241,7 +244,8 @@
       "history": {
         "undoDepth": 4,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -311,7 +315,8 @@
       "history": {
         "undoDepth": 3,
         "redoDepth": 1
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -348,7 +353,8 @@
       "history": {
         "undoDepth": 2,
         "redoDepth": 2
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -416,7 +422,8 @@
       "history": {
         "undoDepth": 3,
         "redoDepth": 1
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -493,7 +500,8 @@
       "history": {
         "undoDepth": 4,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   },
   {
@@ -568,7 +576,8 @@
       "history": {
         "undoDepth": 3,
         "redoDepth": 1
-      }
+      },
+      "sceneId": "scene-main"
     }
   }
 ]

@@ -1,28 +1,23 @@
 /**
  * Durable retry records across restarts (commands.md §7.2, workspace.md §4.1):
- * the record and the state live in ONE atomic envelope, so a lost
+ * the record lives in the same file as the state it describes (storage v4:
+ * the scene file a scene edit writes, in one atomic replacement), so a lost
  * acknowledgement is recoverable after a process restart — the retry is
  * answered from the durable record (replay, `duplicated: true`), never
  * double-applied.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult } from '@thirdlight/workspace';
 
-import { FIXTURES, buildFakeProc, makeRoot, seedProject } from './helpers';
+import { SCENE_FILE, buildFakeProc, makeRoot, projectFixture, seedProject } from './helpers';
 
+/** demo-0001 at mainline T5 (storage v4; 5 records in the scene file). */
 function seedRev5(root: string): string {
-  const base = '01-retry-lost-ack';
-  const dir = seedProject(root, join(FIXTURES, 'scenarios', base, 'disk-before'), 'demo-0001');
-  mkdirSync(join(dir, 'scenes'), { recursive: true });
-  writeFileSync(
-    join(dir, 'scenes', 'main.json'),
-    readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5.json')),
-  );
-  return dir;
+  return seedProject(root, projectFixture('demo-0001-rev5'), 'demo-0001');
 }
 
 function req(n: number): string {
@@ -33,13 +28,13 @@ describe('durable retry records', () => {
   it('replays an applied mutation after a restart (lost-ack recovery)', async () => {
     const root = makeRoot('dedup-restart');
     const dir = seedRev5(root);
-    const envelopePath = join(dir, 'scenes', 'main.json');
+    const envelopePath = join(dir, SCENE_FILE);
 
     // Backend A (pinned identity, fake /proc) applies a fresh mutation;
     // the success ack is "lost" (the service is disposed without the
     // client ever seeing it).
     const procRoot = buildFakeProc(root, { 6000: 'dead' });
-    const a = openWorkspaceService({ root, backendId: 'tb-cccccccccccccccccccccccccccccccc', pid: 6000, procRoot });
+    const a = openWorkspaceService({ root, storageV4: true, backendId: 'tb-cccccccccccccccccccccccccccccccc', pid: 6000, procRoot });
     const request = {
       op: 'setTransform',
       projectId: 'demo-0001',
@@ -58,7 +53,7 @@ describe('durable retry records', () => {
     // Backend B (a DIFFERENT identity, like a real restart) starts on the
     // same root. A's record is stale (pid 6000 absent), so
     // B reclaims it automatically, then the retry.
-    const b = openWorkspaceService({ root, backendId: 'tb-dddddddddddddddddddddddddddddddd', pid: 6001, procRoot });
+    const b = openWorkspaceService({ root, storageV4: true, backendId: 'tb-dddddddddddddddddddddddddddddddd', pid: 6001, procRoot });
     const reopened = b.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(reopened.ok).toBe(true);
     // The retry (byte-identical request) is answered from the durable
@@ -82,8 +77,8 @@ describe('durable retry records', () => {
   it('evicts to 128 records; an evicted retry fails revision_conflict (never double-apply)', () => {
     const root = makeRoot('dedup-evict');
     const dir = seedRev5(root);
-    const svc = openWorkspaceService({ root });
-    const envelopePath = join(dir, 'scenes', 'main.json');
+    const svc = openWorkspaceService({ root, storageV4: true });
+    const envelopePath = join(dir, SCENE_FILE);
     // 130 fresh mutations (records 6..135): retention evicts the oldest.
     const firstRequestId = req(8000);
     for (let i = 0; i < 130; i++) {
@@ -129,8 +124,8 @@ describe('durable retry records', () => {
   it('failed commands are never recorded (commands.md §7.1)', () => {
     const root = makeRoot('dedup-failed');
     const dir = seedRev5(root);
-    const svc = openWorkspaceService({ root });
-    const envelopePath = join(dir, 'scenes', 'main.json');
+    const svc = openWorkspaceService({ root, storageV4: true });
+    const envelopePath = join(dir, SCENE_FILE);
     const before = readFileSync(envelopePath);
     const res = svc.runCommand({
       op: 'setTransform',

@@ -1,0 +1,104 @@
+[
+  {
+    "in": {
+      "op": "queryProject",
+      "projectId": "demo-0001"
+    },
+    "out": {
+      "ok": true,
+      "projectId": "demo-0001",
+      "revision": 6,
+      "manifest": {
+        "schemaVersion": 1,
+        "engineVersion": "0.1.0",
+        "id": "demo-0001",
+        "name": "Demo Project",
+        "createdAt": "2026-09-16T23:40:00Z",
+        "scenes": [
+          {
+            "id": "scene-main",
+            "path": "scenes/main.json"
+          }
+        ]
+      },
+      "scene": {
+        "sceneId": "scene-main",
+        "schemaVersion": 1,
+        "entityCount": 5,
+        "cameraId": "cam-main"
+      },
+      "history": {
+        "undoDepth": 0,
+        "redoDepth": 0
+      },
+      "workspace": {
+        "writePaused": false
+      }
+    }
+  },
+  {
+    "in": {
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 6,
+      "requestId": "req-10000000000000000000000000000007",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "kind": "box"
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-10000000000000000000000000000007",
+      "revision": 7,
+      "duplicated": false,
+      "createdId": "box-0004",
+      "change": {
+        "type": "createEntity",
+        "id": "box-0004",
+        "entity": {
+          "id": "box-0004",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "history": {
+        "undoDepth": 7,
+        "redoDepth": 0
+      }
+    }
+  }
+]

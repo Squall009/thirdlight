@@ -130,7 +130,7 @@ async function main(): Promise<void> {
       console.error(JSON.stringify({ ok: false, error: { code: 'usage', message: 'crash-claim point: before-stamp | after-stamp | mid-record' } }));
       process.exit(2);
     }
-    const svc = openWorkspaceService({ root, backendId, ops: crashOps(point) });
+    const svc = openWorkspaceService({ root, backendId, storageV4: true, ops: crashOps(point) });
     // The open (and its claim) runs synchronously inside the query; the
     // fault seam SIGKILLs the process at the gated point. If the hook
     // never fires, report it and exit non-zero.
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
   }
 
   if (mode === 'claim-hold') {
-    const svc = openWorkspaceService({ root, backendId });
+    const svc = openWorkspaceService({ root, backendId, storageV4: true });
     // Wait a beat so the process start time is strictly before the
     // claim's openedAt (openedAt is second-truncated: a start within the
     // same second as the claim would look like pid reuse).
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const svc = openWorkspaceService({ root, backendId });
+  const svc = openWorkspaceService({ root, backendId, storageV4: true });
   console.log(JSON.stringify({ ready: true, pid: process.pid }));
   // Wait a beat so the process start time is strictly before the claim's
   // openedAt (openedAt is second-truncated: a start within the same second

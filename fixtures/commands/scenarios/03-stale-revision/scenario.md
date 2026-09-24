@@ -6,8 +6,8 @@ recorded), §5.4 (`revision_conflict` fields).
 
 ## Precondition (disk-before)
 
-`demo-0001` at T5 (revision 5; `disk-before/scenes/main.json` ==
-`envelope/valid/demo-0001-rev5.json`).
+`demo-0001` at T5 (revision 5; `disk-before` ==
+`envelope/valid/demo-0001-rev5`).
 
 ## Messages (messages.json)
 
@@ -21,16 +21,18 @@ recorded), §5.4 (`revision_conflict` fields).
    with a **fresh** `requestId req-3…02` and `expectedRevision: 5`.
 4. `out`: success: `revision: 6`, `change` = setTransform with
    `previous.position [1.5, 0.25, 0]` → `next.position [0.75, 0, 0]`,
-   `changedFields: ["position"]`, `history { undoDepth: 1, redoDepth: 0 }`.
+   `changedFields: ["position"]`, `history { undoDepth: 1, redoDepth: 0 }`,
+   `sceneId: "scene-main"` (the v4 acknowledgement names the edited scene).
 
 ## Expected observations
 
 - Message 1 changed nothing and recorded nothing (a failed command leaves
   no record; its requestId may even be safely reused later, but clients
   must generate fresh IDs).
-- `disk-after`: the branch-specific rev-6 envelope (6 records: R1–R5 plus
-  the new record for `req-3…02` at `appliedRevision 6`). Note this state
-  intentionally diverges from the mainline T6 (which instead created
-  box-0003) — scenarios are self-contained.
+- `disk-after`: only the scene file changed — the branch-specific rev-6
+  scene (6 records: R1–R5 plus the new record for `req-3…02` at
+  `appliedRevision 6`); `project.json` and `content.json` are untouched.
+  This state intentionally diverges from the mainline T6 (which instead
+  created box-0003) — scenarios are self-contained.
 - The re-issue proves the conflict response is self-sufficient: it carried
   `currentRevision`, so the client did not even need a query to recover.

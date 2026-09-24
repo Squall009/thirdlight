@@ -1,13 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "engineVersion": "0.1.0",
   "id": "demo-0001",
   "name": "Demo Project",
-  "createdAt": "2026-09-16T23:40:00Z",
-  "scenes": [
-    {
-      "id": "scene-main",
-      "path": "scenes/main.json"
-    }
-  ]
+  "createdAt": "2026-09-16T23:40:00Z"
 }

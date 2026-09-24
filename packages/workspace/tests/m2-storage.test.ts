@@ -21,7 +21,7 @@ import {
   writeDerivedImport,
 } from '../src/content-store';
 
-import { FIXTURES, REPO_ROOT, fileBytes, makeRoot, seedProject, sha256Hex } from './helpers';
+import { REPO_ROOT, fileBytes, makeRoot, seedProject, seedV1Project, sha256Hex } from './helpers';
 
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm2', 'storage');
 const PROJECT_ID = 'demo-store-01';
@@ -194,7 +194,7 @@ describe('packet 23 — v2 envelope, blob reads, integrity and capture (workspac
 
   it('captureContentView is unavailable for an M1 (storageVersion 1) project', () => {
     const root = makeRoot('m2store-v1');
-    seedProject(root, join(FIXTURES, 'scenarios', '01-retry-lost-ack', 'disk-before'), 'demo-0001');
+    seedV1Project(root, 'demo-0001');
     const svc = openWorkspaceService({ root });
     const r = svc.captureContentView('demo-0001');
     expect(r.ok).toBe(false);

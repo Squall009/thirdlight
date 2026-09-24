@@ -5,9 +5,8 @@ Pins: commands.md §6.2 (`request_id_reused`), §5.4 (code/class/fields),
 
 ## Precondition (disk-before)
 
-`demo-0001` at T5 (`disk-before/scenes/main.json` ==
-`envelope/valid/demo-0001-rev5.json`; revision 5, record R5 present for
-`requestId req-1…05`).
+`demo-0001` at T5 (`disk-before` == `envelope/valid/demo-0001-rev5`;
+revision 5, record R5 for `requestId req-1…05` in the scene file).
 
 ## Messages (messages.json)
 
@@ -20,11 +19,14 @@ Pins: commands.md §6.2 (`request_id_reused`), §5.4 (code/class/fields),
 
 ## Expected observations
 
-- The dedup step finds the requestId, compares digests, and fails the
-  request: a requestId is a content-addressed lease, permanently bound to
-  the content first recorded under it.
+- The dedup step finds the requestId (in the union of the project files'
+  records), compares digests, and fails the request: a requestId is a
+  content-addressed lease, permanently bound to the content first recorded
+  under it.
 - No state change: `disk-after` is byte-identical to `disk-before`.
 - The conflicting request is never recorded, and the original record R5 is
   untouched (identical retries of the *original* A5 would still replay).
 - Recovery (client policy, commands.md §5.5): re-read state, re-issue the
   intended `deleteEntity` with a **fresh** `requestId`.
+
+Storage v4 changes nothing here beyond the file layout.
