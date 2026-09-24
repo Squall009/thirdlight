@@ -251,7 +251,7 @@ Play shows the player walking under a low ceiling afterwards.
 | 14.5 pad rebinding, UI sounds, title scene, ambience | done 2026-09-24 | 64ff74b |
 | 14.6 animation layers, animation-only GLBs, modelAnimation migration | done 2026-09-24 | 521ac23 |
 | 14.7 physics fixes (gate lift, one-way spawn) | done 2026-09-24 | 1e34895 |
-| 14.8 replayed ack sceneId | todo | |
+| 14.8 replayed ack sceneId | done 2026-09-24 | e7c2405 |
 | 14.9 Sprout pass | todo | |
 | 14.10 wrap-up | todo | |
 
