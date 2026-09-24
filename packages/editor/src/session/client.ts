@@ -16,7 +16,8 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
-import type { AnimatorController, DescriptorRegistry, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { applyGraphOpsLocal } from '../graph/model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -292,6 +293,9 @@ export class SessionClient {
   private lighting: Record<string, LightingBake> = {};
   /** Phase 9.7: the animator controllers. */
   private animators: AnimatorController[] = [];
+  /** Phase 16.1: the standalone graph documents and the registered graph kinds (from queryGameConfig, then changes). */
+  private graphs: GraphDocument[] = [];
+  private graphKinds: Record<string, GraphKindDef> = {};
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   private inputDefaults: InputConfig = { actions: [] };
@@ -519,6 +523,10 @@ export class SessionClient {
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
         const flow = (g as { flow?: GameFlow | null }).flow;
         this.flow = flow !== undefined && flow !== null ? structuredClone(flow) : null;
+        const graphs = (g as { graphs?: GraphDocument[] }).graphs;
+        this.graphs = Array.isArray(graphs) ? structuredClone(graphs) : [];
+        const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
+        if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -705,6 +713,22 @@ export class SessionClient {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setAnimators') {
         this.animators = structuredClone(change.next);
+      } else if (change.type === 'setGraph') {
+        const rest = this.graphs.filter((g) => g.graphId !== change.graphId);
+        this.graphs = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.graphId < b.graphId ? -1 : 1));
+      } else if (change.type === 'graphEdit') {
+        // Phase 16.1: advance the owner's graph from the change's ops (the
+        // backend applied and validated the same ops); a copy that does not
+        // fit is stale — re-read everything.
+        if (change.owner.kind === 'graph') {
+          const doc = this.graphs.find((g) => g.graphId === change.owner.id);
+          const next = doc !== undefined ? applyGraphOpsLocal(doc.graph, change.ops) : null;
+          if (doc === undefined || next === null) {
+            void this.fullResync().then(() => this.cb.onSceneChanged());
+            return;
+          }
+          this.graphs = this.graphs.map((g) => (g === doc ? { ...g, graph: next } : g));
+        }
       } else if (change.type === 'setLighting') {
         if (change.next === null) delete this.lighting[change.sceneId];
         else this.lighting[change.sceneId] = structuredClone(change.next);
@@ -1054,6 +1078,16 @@ export class SessionClient {
   /** Phase 9.8: the default input actions (what a project without its own uses). */
   getInputDefaults(): InputConfig {
     return structuredClone(this.inputDefaults);
+  }
+
+  /** Phase 16.1: the standalone graph documents (the editor treats them as read-only values). */
+  getGraphs(): readonly GraphDocument[] {
+    return this.graphs;
+  }
+
+  /** Phase 16.1: the registered graph kinds (node catalogues, port types, rules), by kind id. */
+  getGraphKinds(): Readonly<Record<string, GraphKindDef>> {
+    return this.graphKinds;
   }
 
   /** Phase 9.7: the animator controllers. */

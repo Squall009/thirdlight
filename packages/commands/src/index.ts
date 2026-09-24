@@ -154,4 +154,14 @@ export type {
   SetEnvironmentChange,
   SetTagsInverse,
   SetTransformInverse,
+  GraphOwner,
+  GraphEditArgs,
+  GraphEditChange,
+  GraphEditInverse,
+  SetGraphArgs,
+  DeleteGraphArgs,
+  SetGraphChange,
+  SetGraphInverse,
 } from './types';
+// Phase 16.1: graph commands (owner kinds and the shared apply used by undo/redo).
+export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, type GraphOwnerAdapter } from './graph-ops';

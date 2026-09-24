@@ -33,6 +33,7 @@
  * stays the single authority for document value rules.
  */
 
+import { validateGraphOps, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
 
 import {
@@ -140,6 +141,10 @@ const OPS: readonly MutationOp[] = [
   'renameScene',
   'deleteScene',
   'setStartScenes',
+  // phase 16.1: graphs
+  'setGraph',
+  'deleteGraph',
+  'graphEdit',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -181,7 +186,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1169,7 +1174,10 @@ export type ValidatedOpArgs =
   | { op: 'deleteAnimator'; args: { controllerId: string } }
   | { op: 'setInput'; args: { input: InputConfig | null } }
   | { op: 'setFlow'; args: { flow: GameFlow | null } }
-  | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
+  | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
+  | { op: 'setGraph'; args: { graph: GraphDocument } }
+  | { op: 'deleteGraph'; args: { graphId: string } }
+  | { op: 'graphEdit'; args: { owner: { kind: string; id: string }; ops: GraphOp[] } };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1249,6 +1257,31 @@ export function validateOpArgs(
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (op === 'deleteAnimator' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteAnimator' ? 'string (controllerId)' : 'object (a controller)') };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setGraph':
+    case 'deleteGraph': {
+      const key = op === 'setGraph' ? 'graph' : 'graphId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'deleteGraph' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteGraph' ? 'string (graphId)' : 'object ({ graphId, kind, name, graph })') };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'graphEdit': {
+      for (const k of Object.keys(args)) if (k !== 'owner' && k !== 'ops') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'owner, ops') };
+      const owner = args['owner'];
+      if (owner === undefined) return { ok: false, error: fieldMissing('/args/owner', 'owner') };
+      if (!isPlainObject(owner) || typeof owner['kind'] !== 'string' || typeof owner['id'] !== 'string' || Object.keys(owner).length !== 2) {
+        return { ok: false, error: fieldType('/args/owner', owner, 'object { kind, id } (the document that owns the graph)') };
+      }
+      if (args['ops'] === undefined) return { ok: false, error: fieldMissing('/args/ops', 'ops') };
+      const errors: ModelErrorV2[] = [];
+      if (!validateGraphOps(args['ops'], '/args/ops', errors)) {
+        const e = errors[0]!;
+        return { ok: false, error: { ...fieldValue(e.path ?? '/args/ops', e.found, e.expected ?? 'a graph op', e.message), code: e.code === 'field_missing' ? 'field_missing' : e.code === 'field_unexpected' ? 'field_unexpected' : 'field_value' } };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

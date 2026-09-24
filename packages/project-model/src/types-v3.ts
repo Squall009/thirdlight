@@ -18,6 +18,7 @@
 import type { AnimatorComponent, AnimatorController } from './animator';
 import type { InputConfig } from './input';
 import type { GameFlow } from './flow';
+import type { GraphDocument } from './graph';
 import type { EnemyComponent, HealthComponent, MoverComponent, PickupComponent, SwitchComponent, TriggerComponent } from './blocks';
 import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
@@ -458,6 +459,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   input?: InputConfig;
   /** Phase 9.10: levels, lives, title screen, HUD, menus (absent = one level, as before). */
   flow?: GameFlow;
+  /** Phase 16.1: standalone graph documents (absent = none). */
+  graphs?: GraphDocument[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

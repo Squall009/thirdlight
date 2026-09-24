@@ -50,6 +50,8 @@ import { applyPasteEntities } from './paste-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetFlow, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
+import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
+import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
   CommandState,
@@ -334,6 +336,19 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setGraph':
+    case 'deleteGraph':
+    case 'graphEdit': {
+      const a = va.validated.args as Record<string, unknown>;
+      const r =
+        va.validated.op === 'setGraph'
+          ? applySetGraph(input, a as { graph: GraphDocument })
+          : va.validated.op === 'deleteGraph'
+            ? applyDeleteGraph(input, a as { graphId: string })
+            : applyGraphEdit(input, a as { owner: { kind: string; id: string }; ops: GraphOp[] });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setLighting': {
       const r = applySetLighting(input, va.validated.args as { sceneId: string; lighting: LightingBake | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -495,7 +510,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit',
         }),
       };
     }

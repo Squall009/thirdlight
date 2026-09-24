@@ -15,6 +15,8 @@ import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorC
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, validateInput } from './input';
 import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
+import { canonicalGraphDocuments, validateGraphDocuments } from './graph';
+import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
@@ -1987,8 +1989,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2131,6 +2133,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
   if (doc['flow'] !== undefined) validateFlow(doc['flow'], '/flow', errors);
+  // Phase 16.1: standalone graph documents.
+  if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
     // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
@@ -2260,6 +2264,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).input !== undefined ? { input: canonicalInput((c as ContentCatalogV4).input!) } : {}),
     // Phase 9.10: present only when the project has a game flow.
     ...((c as ContentCatalogV4).flow !== undefined ? { flow: canonicalFlow((c as ContentCatalogV4).flow!) } : {}),
+    // Phase 16.1: present only when there are standalone graphs.
+    ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };

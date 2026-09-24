@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -169,7 +169,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'volumes?: {music, sfx, ui? (menu sounds, default 1)}, sounds?: {move?, confirm?, back?: audioAssetId} (menu sounds on the ui bus), score?: {points?: {counterName: points per unit, e.g. coins, gems, keys, lives, defeated or a custom pickup counter}, ' +
       'timeBonus?: {targetSeconds, perSecond} (points per second under the target)}} | null} (score: shown on the HUD and the level complete/end screens, best per level kept in the player\'s save; ' +
       'every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
-      'replay = restart the level). Returns the new revision on success, ' +
+      'replay = restart the level). Graphs (node graphs; one op set for every graph kind): setGraph {graph: {graphId, kind, name, graph: {nodes: [], edges: []}}} ' +
+      'creates or renames a standalone graph (kind "test" is the framework\'s test kind; the kinds\' node catalogues, port types and conversions are in ' +
+      'tl_content_query target="game" includeDescriptors (graphKinds); the graphs themselves in target="game" (graphs)); deleteGraph {graphId}; graphEdit {owner: {kind: "graph", id: graphId}, ' +
+      'ops: [...]} applies up to 512 ops atomically as ONE undo step: addNodes {nodes: [{id, type, position: [x, y], collapsed?: true, data?: {field: value}}]}, ' +
+      'removeNodes {ids} (also removes their edges), moveNodes {moves: [{id, position}]} (nodes, comments or groups), setNodeData {id, data} (replaces the node\'s data; {} = defaults), ' +
+      'setCollapsed {ids, collapsed}, connect {edges: [{id, from: {node, port (an output)}, to: {node, port (an input)}, reroutes?: [[x, y]]}]}, disconnect {ids}, ' +
+      'setReroutes {id, reroutes}, setGroups {groups: [{id, title, color: #rrggbb, rect: [x, y, w, h]}]} (add or replace), removeGroups {ids}, setComments {comments: [{id, text, ' +
+      'position, size?}]}, removeComments {ids}. You choose the ids (1-40 of A-Z a-z 0-9 _ -, unique across the graph\'s nodes, edges, groups and comments). ' +
+      'The result must follow the kind: known node types and fields, output → input between compatible port types (same type, "any", or a listed ' +
+      'implicit conversion), one edge into an input unless it is multi, no cycles unless the kind allows them, the node budget. ' +
+      'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {

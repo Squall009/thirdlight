@@ -105,6 +105,11 @@ import { PlayDebugView } from './PlayDebugView';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
+import { GraphEditor } from '../graph/GraphEditor';
+import { GraphInspector } from '../graph/GraphInspector';
+import { GraphsPanel } from '../graph/GraphsPanel';
+import { diagnoseGraph, type GraphKindDef, type GraphOp } from '../graph/model';
+import type { GraphDocument } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
@@ -253,7 +258,36 @@ function EditorApp(): JSX.Element {
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
   /** The centre view: the editor scene or the running game. */
-  const [centerTab, setCenterTab] = useState<'scene' | 'game'>('scene');
+  const [centerTab, setCenterTab] = useState<'scene' | 'game' | 'graph'>('scene');
+  // Phase 16.1: standalone graphs; the open one shows in the centre area.
+  const [graphs, setGraphs] = useState<readonly GraphDocument[]>([]);
+  const [graphKinds, setGraphKinds] = useState<Readonly<Record<string, GraphKindDef>>>({});
+  const [openGraphId, setOpenGraphId] = useState<string | null>(null);
+  const [graphSelection, setGraphSelection] = useState<readonly string[]>([]);
+  const [graphFocus, setGraphFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const [graphsError, setGraphsError] = useState<string | null>(null);
+  const graphQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const openGraph = openGraphId !== null ? (graphs.find((g) => g.graphId === openGraphId) ?? null) : null;
+  // Every graph's problems (the kind's rules), for the Problems tab.
+  const graphIssues = useMemo(
+    () =>
+      graphs.flatMap((g) => {
+        const k = graphKinds[g.kind];
+        if (k === undefined) return [];
+        return diagnoseGraph(k, g.graph).map((p, i) => {
+          const node = p.nodeId !== undefined ? g.graph.nodes.find((n) => n.id === p.nodeId) : undefined;
+          return { key: `${g.graphId}:${i}`, graphId: g.graphId, graphName: g.name, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}), nodeLabel: node !== undefined ? (k.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null, severity: p.severity, message: p.message };
+        });
+      }),
+    [graphs, graphKinds],
+  );
+  // A graph that went away (deleted here, by MCP or undone) closes its tab.
+  useEffect(() => {
+    if (openGraphId !== null && openGraph === null) {
+      setOpenGraphId(null);
+      setCenterTab((t) => (t === 'graph' ? 'scene' : t));
+    }
+  }, [openGraphId, openGraph, graphs]);
   const { sizes, splitter } = useDockSizes();
   const stageRef = useRef<HTMLDivElement | null>(null);
   /** A dismissible message over the viewport (e.g. why Play failed). */
@@ -546,6 +580,8 @@ function EditorApp(): JSX.Element {
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
     setAnimators(c.getAnimators());
+    setGraphs(c.getGraphs());
+    setGraphKinds(c.getGraphKinds());
     setInputConfig(c.getInput());
     setInputDefaults(c.getInputDefaults());
     setFlow(c.getFlow());
@@ -2236,6 +2272,35 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setAnimatorError(refusal(await c.command('setAnimator', { controller }, c.projection.revision)));
   }, []);
+  // Phase 16.1: graph edits go out one at a time (each after the previous is
+  // applied here), so a burst of gestures never races its own revision.
+  const sendGraphEdit = useCallback((owner: { kind: string; id: string }, ops: GraphOp[]): Promise<string | null> => {
+    const run = async (): Promise<string | null> => {
+      const c = clientRef.current;
+      if (!c) return 'not connected';
+      const res = await c.command('graphEdit', { owner, ops }, c.projection.revision);
+      if (res.ok) {
+        for (let i = 0; i < 100 && c.projection.revision < res.revision; i++) await new Promise((r) => setTimeout(r, 20));
+      }
+      return refusal(res);
+    };
+    const p = graphQueueRef.current.then(run, run);
+    graphQueueRef.current = p;
+    return p;
+  }, []);
+  const graphDocCommand = useCallback(async (op: 'setGraph' | 'deleteGraph', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setGraphsError(err);
+    return err === null;
+  }, []);
+  const showGraph = useCallback((graphId: string, focusId?: string) => {
+    setOpenGraphId(graphId);
+    setCenterTab('graph');
+    setGraphSelection([]);
+    if (focusId !== undefined) setGraphFocus({ id: focusId, nonce: Date.now() });
+  }, []);
   const deleteAnimator = useCallback(async (controllerId: string) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2862,6 +2927,24 @@ function EditorApp(): JSX.Element {
                 <button role="tab" aria-selected={centerTab === 'game'} className={`tl-tab${centerTab === 'game' ? ' is-active' : ''}`} onClick={() => setCenterTab('game')}>
                   Game
                 </button>
+                {openGraph !== null && (
+                  <span className={`tl-tab tl-tab--doc${centerTab === 'graph' ? ' is-active' : ''}`}>
+                    <button role="tab" aria-selected={centerTab === 'graph'} className="tl-tab__label" onClick={() => setCenterTab('graph')}>
+                      Graph: {openGraph.name}
+                    </button>
+                    <button
+                      className="tl-tab__close"
+                      aria-label={`Close ${openGraph.name}`}
+                      onClick={() => {
+                        setOpenGraphId(null);
+                        setGraphSelection([]);
+                        if (centerTab === 'graph') setCenterTab('scene');
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
               </div>
         <div
           className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
@@ -2904,6 +2987,22 @@ function EditorApp(): JSX.Element {
           <canvas ref={canvasRef} className="tl-viewport" />
           {centerTab === 'game' && !playing && (
             <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
+          )}
+          {centerTab === 'graph' && openGraph !== null && (
+            <div className="tl-app__doc">
+              {graphKinds[openGraph.kind] !== undefined ? (
+                <GraphEditor
+                  kind={graphKinds[openGraph.kind]!}
+                  owner={{ kind: 'graph', id: openGraph.graphId }}
+                  graph={openGraph.graph}
+                  onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)}
+                  onSelection={setGraphSelection}
+                  focus={graphFocus}
+                />
+              ) : (
+                <p className="tl-hint">This editor does not know the graph kind "{openGraph.kind}".</p>
+              )}
+            </div>
           )}
           {ui.external !== null && (
             <div className="tl-notice tl-notice--external" role="alert">
@@ -2959,12 +3058,41 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length}</span> : null}
                 </button>
               ))}
             </div>
+          {bottomTab === 'graphs' && (
+            <GraphsPanel
+              graphs={graphs}
+              kinds={graphKinds}
+              openId={openGraphId}
+              error={graphsError}
+              onOpen={(id) => showGraph(id)}
+              onCreate={(kind, name) => {
+                const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'graph';
+                let graphId = base;
+                for (let i = 2; graphs.some((g) => g.graphId === graphId); i++) graphId = `${base}-${i}`;
+                void graphDocCommand('setGraph', { graph: { graphId, kind, name, graph: { nodes: [], edges: [] } } }).then((ok) => ok && showGraph(graphId));
+              }}
+              onRename={(graphId, name) => {
+                const g = graphs.find((x) => x.graphId === graphId);
+                if (g !== undefined) void graphDocCommand('setGraph', { graph: { ...g, name } });
+              }}
+              onDelete={(graphId) => {
+                void graphDocCommand('deleteGraph', { graphId }).then((ok) => {
+                  if (ok && openGraphId === graphId) {
+                    setOpenGraphId(null);
+                    setCenterTab((t) => (t === 'graph' ? 'scene' : t));
+                  }
+                });
+              }}
+            />
+          )}
           {bottomTab === 'problems' && (
             <ProblemsPanel
+              graphIssues={graphIssues}
+              onGraphIssue={(i) => showGraph(i.graphId, i.nodeId)}
               problems={ui.problems}
               viewFailures={viewFailures}
               sourceIssues={folderProject ? sourceIssues : null}
@@ -3200,6 +3328,12 @@ function EditorApp(): JSX.Element {
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
         <div className="tl-dock tl-dock--right" style={{ width: sizes.right }}>
+        {centerTab === 'graph' && openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
+          <div className="tl-inspector">
+            <div className="tl-panel__title">Inspector</div>
+            <GraphInspector kind={graphKinds[openGraph.kind]!} graph={openGraph.graph} ids={graphSelection} onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)} />
+          </div>
+        ) : (
         <Inspector
           {...(sceneHeaders !== null
             ? {
@@ -3280,6 +3414,7 @@ function EditorApp(): JSX.Element {
                 }
           }
         />
+        )}
         {playing && playInfo !== null && selected !== null && selected.behaviorId !== undefined && (
           <PlayDebugView entityId={selected.id} observe={observeEntity} />
         )}
@@ -3436,7 +3571,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -3451,6 +3586,7 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'gameplay', label: 'Gameplay' },
   { id: 'tags', label: 'Tags' },
   { id: 'media', label: 'Media' },
+  { id: 'graphs', label: 'Graphs' },
   { id: 'problems', label: 'Problems' },
 ];
 
