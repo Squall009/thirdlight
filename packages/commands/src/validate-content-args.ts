@@ -82,10 +82,10 @@ export function validatePublishAssetArgs(
   // on reimport (where it must equal the record's kind). The state-aware
   // requirement lives in the op — the accepted v2 fixtures create model
   // records without it (handoff 45 CC-45-4).
-  if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio') {
+  if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio' && args['kind'] !== 'texture') {
     return {
       ok: false,
-      error: fieldValue('/args/kind', args['kind'], '"model" or "audio"', 'kind must be "model" or "audio"'),
+      error: fieldValue('/args/kind', args['kind'], '"model", "audio" or "texture"', 'kind must be "model", "audio" or "texture"'),
     };
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
@@ -207,7 +207,7 @@ export function validatePublishAssetArgs(
   // §8.5.1: `animation` is permitted only on a model reimport; its presence
   // rule and binding are the op's.
   if (args['animation'] !== undefined) {
-    if (args['mode'] !== 'reimport' || args['kind'] === 'audio') {
+    if (args['mode'] !== 'reimport' || args['kind'] === 'audio' || args['kind'] === 'texture') {
       return {
         ok: false,
         error: fieldUnexpected(

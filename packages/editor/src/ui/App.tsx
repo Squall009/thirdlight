@@ -286,6 +286,8 @@ function EditorApp(): JSX.Element {
   const [assetThumbs, setAssetThumbs] = useState<ReadonlyMap<string, string>>(new Map());
   const [assetPieces, setAssetPieces] = useState<ReadonlyMap<string, readonly { name: string }[]>>(new Map());
   const thumbnailsRef = useRef<ThumbnailRenderer | null>(null);
+  /** Texture versions whose tile image was already fetched. */
+  const textureTilesRef = useRef(new Set<string>());
   const [assetDropActive, setAssetDropActive] = useState(false);
   const [assetQuery, setAssetQuery] = useState<AssetQueryState>({ total: 0, offset: 0, limit: 50, hasMore: false });
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
@@ -310,7 +312,7 @@ function EditorApp(): JSX.Element {
   // M3 (packet 57): the media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
   // names (a model proposal) and the §8.5.1 animated-reimport obligation.
-  const mediaPendingRef = useRef<{ kind: 'model' | 'audio'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
+  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
   const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
   const [reimportEntity, setReimportEntity] = useState('');
   const importStateRef = useRef<AssetImportState>(initialImportState);
@@ -649,6 +651,26 @@ function EditorApp(): JSX.Element {
     viewportRef.current?.syncEntities(c.visibleEntities());
     let cancelled = false;
     for (const a of assets) {
+      if (a.kind === 'texture') {
+        // A texture's tile is the image itself (its own bytes, no render).
+        const key = thumbnailKey(a.assetId, null);
+        const v = c.content.resolveVersion(a.assetId);
+        if (v === null || textureTilesRef.current.has(`${a.assetId}@${v.version}`)) continue;
+        textureTilesRef.current.add(`${a.assetId}@${v.version}`);
+        void c.assetBytes(a.assetId, v.version).then(
+          (bytes) => {
+            if (cancelled) return;
+            const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+            setAssetThumbs((prev) => {
+              const old = prev.get(key);
+              if (old !== undefined) URL.revokeObjectURL(old);
+              return new Map(prev).set(key, url);
+            });
+          },
+          () => undefined,
+        );
+        continue;
+      }
       if (a.kind !== 'model') continue;
       const digest = c.content.resolveVersion(a.assetId)?.sourceDigest ?? '';
       if (!/^[0-9a-f]{64}$/.test(digest)) continue;
@@ -1581,7 +1603,7 @@ function EditorApp(): JSX.Element {
 
   /** After an inspect: remember the proposal and the §8.5.1 role-mapping obligation.
    * Returns whether the publish needs no role mapping. */
-  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio'): boolean => {
+  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture'): boolean => {
     const c = clientRef.current;
     if (!c) return false;
     pendingProposalRef.current = { proposal, target };

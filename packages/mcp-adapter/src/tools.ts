@@ -178,7 +178,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
-        kind: { type: 'string', enum: ['model', 'audio'] },
+        kind: { type: 'string', enum: ['model', 'audio', 'texture'] },
         animation: {
           type: 'object',
           description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
@@ -711,7 +711,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
   // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio') return toolError('kind must be "model" or "audio"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture') return toolError('kind must be "model", "audio" or "texture"');
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
@@ -735,7 +735,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.displayName = a.displayName;
   }
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio') return toolError('kind must be "model" or "audio"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture') return toolError('kind must be "model", "audio" or "texture"');
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {

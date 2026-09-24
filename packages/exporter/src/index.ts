@@ -36,6 +36,7 @@ export { decodersNeeded } from './decoders';
 export {
   assertRelativeClosure,
   scanGlbContainer,
+  scanImageContainer,
   scanWavContainer,
   scanWasmContainer,
   textPatternCounts,

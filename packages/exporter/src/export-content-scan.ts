@@ -294,6 +294,24 @@ export function scanWavContainer(bytes: Uint8Array): ContainerResult {
 }
 
 /**
+ * Texture image validation (phase 9.4): PNG (signature + IHDR), JPEG (SOI) or
+ * WebP (RIFF/WEBP with the RIFF length matching the file). No decoding.
+ */
+export function scanImageContainer(bytes: Uint8Array): ContainerResult {
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 24 && png.every((b, i) => bytes[i] === b)) {
+    const ihdr = String.fromCharCode(bytes[12]!, bytes[13]!, bytes[14]!, bytes[15]!);
+    return ihdr === 'IHDR' ? { ok: true } : { ok: false, code: 'image_png_ihdr', message: 'the PNG has no IHDR chunk first', offset: 12 };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { ok: true };
+  if (bytes.length >= 12 && String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!) === 'RIFF' && String.fromCharCode(bytes[8]!, bytes[9]!, bytes[10]!, bytes[11]!) === 'WEBP') {
+    const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
+    return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'image_webp_length', message: 'the WebP RIFF length does not match the file', offset: 4 };
+  }
+  return { ok: false, code: 'image_format', message: 'not a PNG, JPEG or WebP image', offset: 0 };
+}
+
+/**
  * `assertRelativeClosure` (sessions.md §17.5.1): every emitted text file's
  * references are relative — the §5.4 absolute patterns are zero outside the
  * recorded §5.4.1 exception scope.

@@ -39,7 +39,7 @@ import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
 import { buildM3Bundle, PINNED_OPTIONS } from './export-bundle';
-import { assertRelativeClosure, scanGlbContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
+import { assertRelativeClosure, scanGlbContainer, scanImageContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { publishTree, resolveExportTarget, type TreeFile } from './export-io';
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
@@ -255,7 +255,8 @@ export async function exportProjectM3(
     locatorValues: [],
   };
   for (const asset of closure.assetArtifacts) {
-    const container = asset.contentType === 'model/gltf-binary' ? scanGlbContainer(asset.bytes) : scanWavContainer(asset.bytes);
+    const container =
+      asset.contentType === 'model/gltf-binary' ? scanGlbContainer(asset.bytes) : asset.contentType === 'image/x-texture' ? scanImageContainer(asset.bytes) : scanWavContainer(asset.bytes);
     if (!container.ok) {
       return fail('scan_forbidden_content', 'internal', `a declared asset artifact fails container validation (${container.code})`, {
         hits: [{ pattern: container.code, byteOffset: container.offset ?? -1, context: `content/sha256/${asset.digest}` }],

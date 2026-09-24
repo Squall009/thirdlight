@@ -555,7 +555,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
-| 9.3 one schema version (phase 8 rest) | todo | |
+| 9.3 one schema version (phase 8 rest) | deferred to after 9.13 (see §6) | |
 | 9.4 textures, materials, wind | todo | |
 | 9.5 lights, environment, sky, fog, post | todo | |
 | 9.6 light baking | todo | |
@@ -591,4 +591,8 @@ Add one dated line per decision taken during the run (what, why).
   `headless` and evicted when the owner's browser establishes. On by default
   from the process entry (env), off for embedded/test backends unless
   configured.
+- 2026-09-24 (9.3): deferred to after 9.13 under the time-box rule: it touches
+  ~20 source files, ~25 test files and the whole v1 contract corpus, and
+  changes nothing the owner can see; the feature items go first. New work
+  targets v4 only and leaves the old paths alone.
 

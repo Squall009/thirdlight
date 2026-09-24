@@ -18,6 +18,17 @@ export {
   sanitizeDisplayName,
 } from './inspect';
 export { inspectAudio } from './inspect-audio';
+export {
+  IMAGE_TOOLCHAIN,
+  inspectImage,
+  TEXTURE_EDGE_MAX,
+  TEXTURE_SOURCE_BYTES_MAX,
+  type ImageImportOptions,
+  type ImageImportProposal,
+  type ImageMetrics,
+  type ImageRecipe,
+  type TextureFormat,
+} from './inspect-image';
 
 export {
   ANIMATION_PROFILE_MAX_CLIPS,

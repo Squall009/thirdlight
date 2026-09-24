@@ -673,7 +673,7 @@ export type ValidateManifestV2Result =
   | { ok: true; manifest: RuntimeContentManifestV2 }
   | { ok: false; error: ManifestErrorV2 };
 
-const ASSET_KINDS = ['model', 'audio'] as const;
+const ASSET_KINDS = ['model', 'audio', 'texture'] as const;
 
 function isDigest(v: unknown): v is string {
   return typeof v === 'string' && DIGEST_RE.test(v);

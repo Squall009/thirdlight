@@ -46,6 +46,7 @@ import type {
 import type {
   AnimationProfileRequest,
   AudioImportProposal,
+  ImageImportProposal,
   ImportJobPort,
   ImportProposal,
 } from '@thirdlight/asset-pipeline';
@@ -124,13 +125,13 @@ export interface ContentConfig {
  * bytes itself and makes no role or profile decision.
  */
 export interface InspectorRequest {
-  readonly kind?: 'model' | 'audio';
+  readonly kind?: 'model' | 'audio' | 'texture';
   /** presentation.md §41.3.3: request the animated-model profile. */
   readonly animation?: AnimationProfileRequest;
 }
 
-/** Either accepted import proposal (a model GLB or a PCM WAV). */
-export type ImportedProposal = ImportProposal | AudioImportProposal;
+/** An accepted import proposal (a model GLB, a PCM WAV or a texture image). */
+export type ImportedProposal = ImportProposal | AudioImportProposal | ImageImportProposal;
 
 /**
  * The injected inspector surface (asset-pipeline's `inspectGlb`/`inspectAudio`
@@ -179,7 +180,7 @@ export interface ContentContext {
  */
 export interface PreparedMediaFacts {
   readonly assetId: string;
-  readonly kind: 'model' | 'audio';
+  readonly kind: 'model' | 'audio' | 'texture';
   readonly version: number;
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
@@ -821,7 +822,7 @@ export function preparedMediaFacts(
     ok: true,
     facts: {
       assetId: record.assetId,
-      kind: record.kind === 'audio' ? 'audio' : 'model',
+      kind: record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : 'model',
       version: v.version,
       sourceDigest: v.sourceDigest,
       sourceByteLength: v.sourceByteLength,
@@ -1105,12 +1106,12 @@ export interface ProjectFileEntry {
   name: string;
   /** Relative to the game folder, forward slashes. */
   path: string;
-  kind: 'dir' | 'model' | 'audio';
+  kind: 'dir' | 'model' | 'audio' | 'texture';
   byteLength?: number;
 }
 
 export const MAX_PROJECT_FILE_ENTRIES = 500;
-const IMPORTABLE: Readonly<Record<string, 'model' | 'audio'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio' };
+const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture' };
 
 export type ProjectFileListResult =
   | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }
@@ -1306,7 +1307,7 @@ export interface InspectStageOptions {
   /** Test seam: deterministic proposal identity. */
   proposalId?: () => string;
   /** Packet 48: the declared kind of the staged bytes (default `model`). */
-  kind?: 'model' | 'audio';
+  kind?: 'model' | 'audio' | 'texture';
   /** Packet 48: the requested animated GLB profile (presentation.md §41.3.3). */
   animation?: AnimationProfileRequest;
 }

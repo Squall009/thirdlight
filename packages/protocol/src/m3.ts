@@ -740,12 +740,12 @@ export interface AnimationRolesValue {
 }
 
 export interface StageInspectRequest {
-  kind?: 'model' | 'audio';
+  kind?: 'model' | 'audio' | 'texture';
   animation?: { entityId?: string; roles: AnimationRolesValue };
 }
 
 const INSPECT_REQUEST_FIELDS = new Map([
-  ['kind', '"model" | "audio" (default "model")'],
+  ['kind', '"model" | "audio" | "texture" (default "model")'],
   ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
@@ -767,8 +767,8 @@ export function parseStageInspectRequest(
   if (!shape.ok) return { ok: false, error: shape.error };
   let kind: StageInspectRequest['kind'];
   if (shape.value.kind !== undefined) {
-    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio') {
-      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model" or "audio"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio"' }) };
+    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio' && shape.value.kind !== 'texture') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model", "audio" or "texture"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio" | "texture"' }) };
     }
     kind = shape.value.kind;
   }

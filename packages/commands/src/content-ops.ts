@@ -148,12 +148,12 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind ?? 'model';
-    const limit = kind === 'audio' ? 16 : 128;
+    const limit = kind === 'audio' ? 16 : kind === 'texture' ? 256 : 128;
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
     if (count + 1 > limit) {
       return {
         ok: false,
-        error: limitsExceeded(kind === 'audio' ? 'audio_assets' : 'assets', count + 1, limit),
+        error: limitsExceeded(kind === 'audio' ? 'audio_assets' : kind === 'texture' ? 'texture_assets' : 'assets', count + 1, limit),
       };
     }
   } else {
@@ -161,12 +161,12 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (args.kind !== undefined && args.kind !== existingKind) {
       return { ok: false, error: assetKindMismatch(args.assetId, existingKind ?? 'model', args.kind) };
     }
-    const versionLimit = existingKind === 'audio' ? 8 : 32;
+    const versionLimit = existingKind === 'audio' || existingKind === 'texture' ? 8 : 32;
     if (existing.versions.length + 1 > versionLimit) {
       return {
         ok: false,
         error: limitsExceeded(
-          existingKind === 'audio' ? 'audio_versions' : 'asset_versions',
+          existingKind === 'audio' ? 'audio_versions' : existingKind === 'texture' ? 'texture_versions' : 'asset_versions',
           existing.versions.length + 1,
           versionLimit,
         ),

@@ -65,6 +65,11 @@ describe('public surface (dependencies.md §3)', () => {
         'AUDIO_PIPELINE_NAME',
         'AUDIO_PIPELINE_VERSION',
         'AUDIO_REPORTED_LIMITS',
+        // phase 9.4: standalone textures
+        'IMAGE_TOOLCHAIN',
+        'TEXTURE_EDGE_MAX',
+        'TEXTURE_SOURCE_BYTES_MAX',
+        'inspectImage',
         'M2_GLTF_EXTENSION_ALLOWLIST',
         'M2_GLTF_IMAGE_BYTES',
         'M2_GLTF_INSPECTION_ENTRIES',

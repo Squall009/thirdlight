@@ -99,9 +99,11 @@ function fromCommandError(e: {
 // ---------------------------------------------------------------------------
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
-const ASSET_CONTENT_TYPE: Record<'model' | 'audio', string> = {
+const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture', string> = {
   model: 'model/gltf-binary',
   audio: 'audio/wav',
+  // Phase 9.4: PNG/JPEG/WebP; the runtime decodes by magic bytes.
+  texture: 'image/x-texture',
 };
 
 export interface ContentClosureM3Input {

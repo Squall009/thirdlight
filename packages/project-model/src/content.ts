@@ -82,6 +82,12 @@ export const MAX_TRUST_ENTRIES = 64;
 /** §23.10 v3 content limits. */
 export const MAX_AUDIO_ASSETS = 16;
 export const MAX_AUDIO_VERSIONS = 8;
+/** Phase 9.4: texture asset records (PNG/JPEG/WebP) and their versions. */
+export const MAX_TEXTURE_ASSETS = 256;
+export const MAX_TEXTURE_VERSIONS = 8;
+/** The largest texture edge (pixels). */
+export const MAX_TEXTURE_EDGE = 4096;
+type AssetKindV3 = 'model' | 'audio' | 'texture';
 export const MAX_GAME_BYTES = 16_384;
 export const MAX_BEHAVIOR_SOURCE_BYTES = 262_144;
 export const MAX_BEHAVIOR_FILES = 16;
@@ -298,12 +304,24 @@ function sortedKeys(obj: Record<string, unknown>): string[] {
 
 // ---- assets (§18.3–§18.6) -----------------------------------------------------
 
-function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], kind: 'model' | 'audio' = 'model'): void {
+function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], kind: AssetKindV3 = 'model'): void {
   const bad = (message: string, found: unknown): void => {
     errors.push(withFound({ code: 'recipe_invalid', path, message, expected: 'a valid import recipe' }, found));
   };
   if (!isPlainObject(r)) {
     errors.push(fieldType(path, r, 'object'));
+    return;
+  }
+  if (kind === 'texture') {
+    if (r['profile'] !== 'image') bad('a texture import recipe profile must be "image"', r['profile']);
+    if (r['recipeVersion'] !== 1) bad('a texture import recipe version must be exactly 1', r['recipeVersion']);
+    const toolchain = r['toolchain'];
+    if (!isPlainObject(toolchain) || Object.keys(toolchain).length !== 1 || toolchain[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
+      bad(`the image toolchain must name exactly "${AUDIO_PIPELINE_NAME}" at '${AUDIO_PIPELINE_VERSION}'`, toolchain);
+    }
+    for (const k of Object.keys(r)) {
+      if (!AUDIO_RECIPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...AUDIO_RECIPE_FIELDS].join(', ')));
+    }
     return;
   }
   if (kind === 'audio') {
@@ -386,7 +404,7 @@ function validateMetrics(
   m: unknown,
   path: string,
   errors: ModelErrorV2[],
-  kind: 'model' | 'audio' = 'model',
+  kind: AssetKindV3 = 'model',
   sourceByteLength?: unknown,
 ): void {
   if (!isPlainObject(m)) {
@@ -395,6 +413,10 @@ function validateMetrics(
   }
   if (kind === 'audio') {
     validateAudioMetrics(m, path, errors, sourceByteLength);
+    return;
+  }
+  if (kind === 'texture') {
+    validateTextureMetrics(m, path, errors);
     return;
   }
   for (const key of METRIC_ORDER) {
@@ -435,6 +457,25 @@ function validateMetrics(
  * `sourceByteLength` on every load. A disagreeing record is invalid
  * (`limits_exceeded`/`field_value`) and is **never normalized**.
  */
+/** Phase 9.4: `{format, width, height, decodedBytes}` of a texture version. */
+function validateTextureMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
+  if (m['format'] !== 'png' && m['format'] !== 'jpeg' && m['format'] !== 'webp') {
+    errors.push(fieldValue(`${path}/format`, m['format'], '"png" | "jpeg" | "webp"', 'a texture is a PNG, JPEG or WebP image'));
+  }
+  for (const k of ['width', 'height'] as const) {
+    const v = m[k];
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_TEXTURE_EDGE) {
+      errors.push(fieldValue(`${path}/${k}`, v, `integer 1..${MAX_TEXTURE_EDGE}`, `texture ${k} must be 1-${MAX_TEXTURE_EDGE} pixels`));
+    }
+  }
+  if (typeof m['width'] === 'number' && typeof m['height'] === 'number' && m['decodedBytes'] !== m['width'] * m['height'] * 4) {
+    errors.push(fieldValue(`${path}/decodedBytes`, m['decodedBytes'], 'width × height × 4', 'decodedBytes is derived from the size'));
+  }
+  for (const k of Object.keys(m)) {
+    if (!['format', 'width', 'height', 'decodedBytes'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'format, width, height, decodedBytes'));
+  }
+}
+
 function validateAudioMetrics(
   m: Record<string, unknown>,
   path: string,
@@ -548,7 +589,7 @@ function validateAudioMetrics(
   }
 }
 
-function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], kind: 'model' | 'audio' = 'model'): void {
+function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], kind: AssetKindV3 = 'model'): void {
   if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
     return;
@@ -663,10 +704,10 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
   else if (!ID_RE_V2.test(assetId)) errors.push(idInvalid(`${path}/assetId`, assetId));
 
   const rawKind = a['kind'];
-  let kind: 'model' | 'audio' = 'model';
+  let kind: AssetKindV3 = 'model';
   if (v3) {
-    if (rawKind !== 'model' && rawKind !== 'audio') {
-      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio"', 'the v3 asset kind must be model or audio'));
+    if (rawKind !== 'model' && rawKind !== 'audio' && rawKind !== 'texture') {
+      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio" | "texture"', 'the v3 asset kind must be model, audio or texture'));
     } else {
       kind = rawKind;
     }
@@ -688,7 +729,7 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
     errors.push(fieldType(`${path}/versions`, versions, 'array'));
   } else {
     count = versions.length;
-    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : MAX_ASSET_VERSIONS;
+    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : v3 && kind === 'texture' ? MAX_TEXTURE_VERSIONS : MAX_ASSET_VERSIONS;
     if (versions.length < 1 || versions.length > maxVersions) {
       errors.push(
         limitsError(`${path}/versions`, kind === 'audio' ? 'audio_versions' : 'asset_versions', versions.length, maxVersions, `an asset record must have 1-${maxVersions} versions`),
@@ -1407,7 +1448,7 @@ function canonicalAsset(a: AssetRecord): AssetRecord {
  * `PcmWavMetrics`/`pcm-wav` (no `extensions` and no GLB metric fields); the
  * `model` member is the accepted M2 canonicalization above.
  */
-function canonicalVersionV3(v: AssetVersionV3, kind: 'model' | 'audio'): AssetVersionV3 {
+function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV3 {
   const head = {
     version: v.version,
     sourceDigest: v.sourceDigest,
@@ -1416,6 +1457,16 @@ function canonicalVersionV3(v: AssetVersionV3, kind: 'model' | 'audio'): AssetVe
     ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
+  if (kind === 'texture') {
+    const r = v.importRecipe as unknown as { toolchain: Record<string, string> };
+    const m = v.metrics as unknown as { format: string; width: number; height: number; decodedBytes: number };
+    return {
+      ...head,
+      importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
+      metrics: { format: m.format, width: m.width, height: m.height, decodedBytes: m.decodedBytes } as unknown as AssetVersionV3['metrics'],
+      ...tail,
+    };
+  }
   if (kind === 'audio') {
     return {
       ...head,
@@ -1435,7 +1486,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: 'model' | 'audio'): AssetVe
 
 /** §23.7: the kind-aware v3 asset canonicalizer (record order is untouched). */
 function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
-  const kind: 'model' | 'audio' = a.kind === 'audio' ? 'audio' : 'model';
+  const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : 'model';
   return {
     assetId: a.assetId,
     kind,
@@ -1870,22 +1921,28 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (assets !== undefined) {
     if (!Array.isArray(assets)) errors.push(fieldType('/assets', assets, 'array'));
     else {
-      if (assets.length > MAX_ASSETS) {
-        errors.push(limitsError('/assets', 'assets', assets.length, MAX_ASSETS, `the catalog may hold at most ${MAX_ASSETS} assets`));
+      const modelAssets = assets.filter((a) => isPlainObject(a) && a['kind'] !== 'audio' && a['kind'] !== 'texture').length;
+      if (modelAssets > MAX_ASSETS) {
+        errors.push(limitsError('/assets', 'assets', modelAssets, MAX_ASSETS, `the catalog may hold at most ${MAX_ASSETS} model assets`));
       }
       let audioAssets = 0;
+      let textureAssets = 0;
       const seen = new Set<string>();
       for (let i = 0; i < assets.length; i++) {
         versionRecords += validateAsset(assets[i], `/assets/${i}`, errors, true);
         const a = assets[i];
         if (isPlainObject(a)) {
           if (a['kind'] === 'audio') audioAssets += 1;
+          if (a['kind'] === 'texture') textureAssets += 1;
           if (typeof a['assetId'] === 'string') {
             if (seen.has(a['assetId'])) {
               errors.push(withFound({ code: 'id_duplicate', path: `/assets/${i}/assetId`, message: 'assetId is already used by an earlier record (first occurrence wins)', expected: 'a unique assetId' }, a['assetId']));
             } else seen.add(a['assetId']);
           }
         }
+      }
+      if (textureAssets > MAX_TEXTURE_ASSETS) {
+        errors.push(limitsError('/assets', 'assets', textureAssets, MAX_TEXTURE_ASSETS, `the catalog may hold at most ${MAX_TEXTURE_ASSETS} texture asset records`));
       }
       if (audioAssets > MAX_AUDIO_ASSETS) {
         errors.push(limitsError('/assets', 'audio_assets', audioAssets, MAX_AUDIO_ASSETS, `the catalog may hold at most ${MAX_AUDIO_ASSETS} audio asset records`));

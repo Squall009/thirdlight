@@ -59,6 +59,8 @@ export type LimitName =
   | 'lights_ambient'
   | 'audio_assets'
   | 'audio_versions'
+  | 'texture_assets'
+  | 'texture_versions'
   | 'game_bytes'
   | 'animation_profile_bytes'
   // presentation.md §41.7.1 (packet 47, CC-44-5): the animation/audio media

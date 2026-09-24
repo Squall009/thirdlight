@@ -95,7 +95,7 @@ export interface ClientUiState {
 /** One folder of the game folder, as the import-from-project-folder picker shows it. */
 export interface ProjectFileListing {
   dir: string;
-  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio'; byteLength?: number }>;
+  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture'; byteLength?: number }>;
   truncated: boolean;
 }
 
@@ -1345,7 +1345,7 @@ export class SessionClient {
     options: {
       target?: ImportTarget;
       displayName?: string | null;
-      kind?: 'model' | 'audio';
+      kind?: 'model' | 'audio' | 'texture';
       animation?: { entityId: string; roles: unknown };
       onState?: (s: AssetImportState) => void;
     } = {},
@@ -1427,7 +1427,7 @@ export class SessionClient {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio'; displayName?: string; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture'; displayName?: string; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);

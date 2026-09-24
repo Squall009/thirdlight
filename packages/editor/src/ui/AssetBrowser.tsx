@@ -117,7 +117,7 @@ export function AssetBrowser(p: Props): JSX.Element {
                 onDragStart={a.kind === 'model' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
               >
                 <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
-                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : 'model'}.png`} alt="" draggable={false} />
+                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
                 </span>
                 <span className="tl-tile__name">{a.displayName}</span>
                 <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
@@ -180,21 +180,21 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,model/gltf-binary,audio/wav"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
             e.target.value = '';
           }}
         />
-        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender) or audio (.wav) asset">
+        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender), audio (.wav) or texture (.png/.jpg/.webp) asset">
           import…
         </button>
         <input
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,model/gltf-binary,audio/wav"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);
@@ -211,7 +211,7 @@ export function AssetBrowser(p: Props): JSX.Element {
         </button>
         {p.folderImport && (
           <>
-            <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.fbx/.wav in the game folder; a .glb/.wav is referenced where it is, an .fbx is converted to glTF">
+            <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={p.onImportFromFolder} title="Pick a .glb/.fbx/.wav/.png/.jpg/.webp in the game folder; files are referenced where they are, an .fbx is converted to glTF">
               from project folder…
             </button>
             <button

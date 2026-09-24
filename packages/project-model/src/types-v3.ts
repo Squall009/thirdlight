@@ -268,7 +268,8 @@ export interface ResolvedSceneV3 {
 // ---- content: audio kind and content.game (§23.3.7/§23.4) ---------------------
 
 /** §23.3.7 the v3 asset-kind discriminator. */
-export type AssetKind = 'model' | 'audio';
+/** Phase 9.4 adds `texture` (a standalone PNG/JPEG/WebP image). */
+export type AssetKind = 'model' | 'audio' | 'texture';
 
 /**
  * presentation.md §41.4.3: the `gltf-glb` recipe member (the accepted M2
