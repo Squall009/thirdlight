@@ -93,13 +93,16 @@ import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowse
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
-import { AnimatorPanel, type AnimatorPreview } from './AnimatorPanel';
+import { AnimatorPanel, type AnimatorPanelProps, type AnimatorPreview } from './AnimatorPanel';
 import { ClipsForField } from './ClipsForField';
 import { InputPanel } from './InputPanel';
 import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { PrefabPanel } from './PrefabPanel';
-import { BehaviorPanel } from './BehaviorPanel';
+import { BehaviorPanel, type BehaviorPanelProps } from './BehaviorPanel';
+import { ActiveDocument, WorkspaceTabs, resetWorkspaces, useWorkspace } from './workspace/WorkspaceTabs';
+import type { WorkspaceHost } from './workspace/kinds';
+import { activeDoc, docKey } from '../session/workspace-tabs';
 import type { DeclarationSave } from './DeclarationEditor';
 import { PlayDebugView } from './PlayDebugView';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -252,8 +255,16 @@ function EditorApp(): JSX.Element {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
-  /** The centre view: the editor scene or the running game. */
-  const [centerTab, setCenterTab] = useState<'scene' | 'game'>('scene');
+  /**
+   * Phase 16.0: the centre workspace — Scene, Game and the open document tabs
+   * (remembered per project in the layout storage).
+   */
+  const [workspace, workspaceDispatch] = useWorkspace(cfg.current.ok ? cfg.current.config.projectId : null);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  /** The centre view: the editor scene, the running game or a document. */
+  const centerTab: 'scene' | 'game' | 'document' = workspace.active === 'scene' || workspace.active === 'game' ? workspace.active : 'document';
+  const setCenterTab = useCallback((key: 'scene' | 'game') => workspaceDispatch({ type: 'activate', key }), [workspaceDispatch]);
   const { sizes, splitter } = useDockSizes();
   const stageRef = useRef<HTMLDivElement | null>(null);
   /** A dismissible message over the viewport (e.g. why Play failed). */
@@ -586,7 +597,8 @@ function EditorApp(): JSX.Element {
       },
       onPlayStopped: () => {
         setPlaying(false);
-        setCenterTab('scene');
+        // Back to the Scene from the (now empty) Game tab; a document tab stays in front.
+        if (workspaceRef.current.active === 'game') setCenterTab('scene');
         setPlayInfo(null);
         bridgeRef.current = null;
       },
@@ -930,7 +942,15 @@ function EditorApp(): JSX.Element {
       // Editor shortcuts — never while typing into a field.
       const t = e.target as HTMLElement | null;
       const typing = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-      if (!typing) {
+      // Phase 16.0: with a document tab in front, the scene's shortcuts (delete,
+      // tools, frame, copy/paste) stay off; undo/redo remain global.
+      const sceneHidden = activeDoc(workspaceRef.current) !== null;
+      if (!typing && sceneHidden && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        void (e.key.toLowerCase() === 'z' && !e.shiftKey ? undo() : redo());
+        return;
+      }
+      if (!typing && !sceneHidden) {
         const mod = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
         if (mod && key === 'z') {
@@ -2609,6 +2629,53 @@ function EditorApp(): JSX.Element {
     };
   }, [selectedAssetId, assets]);
 
+  // Phase 16.0: a script tab in front selects its behavior (the source
+  // stage/acknowledge/publish flow acts on the selected behavior).
+  const activeScript = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'script' ? d.id : null;
+  })();
+  useEffect(() => {
+    if (activeScript !== null) setSelectedBehaviorId(activeScript);
+  }, [activeScript]);
+
+  // The Animator and Behaviors panels: the bottom dock and the centre document tabs share these.
+  const openDocument = (kind: string, id: string): void => workspaceDispatch({ type: 'open', doc: { kind, id } });
+  const animatorProps: AnimatorPanelProps = {
+    controllers: animators,
+    models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) })),
+    clipsOf,
+    skeletonOf,
+    preview: previewAnimator,
+    onSave: (controller) => void saveAnimator(controller),
+    onDelete: (id) => void deleteAnimator(id),
+    onOpen: (id) => openDocument('animator', id),
+    error: animatorError,
+  };
+  const behaviorProps: BehaviorPanelProps = {
+    behaviors: behaviorViews,
+    selectedBehaviorId,
+    publication,
+    sourceDraft,
+    activePlay: playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null,
+    error: behaviorError,
+    onSelect: (id) => {
+      setSelectedBehaviorId(id);
+      setBehaviorError(null);
+    },
+    onSourceDraft: setSourceDraft,
+    onStage: () => void stageBehaviorSource(),
+    onAcknowledge: (digest) => void acknowledgeDigest(digest),
+    onPublishSource: () => void publishStagedSource(),
+    onSaveDeclaration: saveDeclaration,
+    onOpen: (id) => openDocument('script', id),
+  };
+  const workspaceHost: WorkspaceHost = {
+    animator: animatorProps,
+    behavior: behaviorProps,
+    close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
+  };
+
   if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
     return <TokenForm message={gate.message} />;
   }
@@ -2794,11 +2861,14 @@ function EditorApp(): JSX.Element {
       items: [
         { label: 'Scene', onSelect: () => setCenterTab('scene') },
         { label: 'Game', onSelect: () => setCenterTab('game') },
+        { label: 'Next tab', shortcut: 'Ctrl+Tab', onSelect: () => workspaceDispatch({ type: 'cycle', dir: 1 }) },
+        { label: 'Previous tab', shortcut: 'Ctrl+Shift+Tab', onSelect: () => workspaceDispatch({ type: 'cycle', dir: -1 }) },
+        { label: workspace.maximized ? 'Restore docks' : 'Maximize centre area', onSelect: () => workspaceDispatch({ type: 'maximize' }) },
         'separator',
         ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => setBottomTab(t.id) })),
         'separator',
         { label: 'Full screen', shortcut: 'Shift+F11', onSelect: () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void document.documentElement.requestFullscreen().catch(() => undefined); } },
-        { label: 'Reset layout', onSelect: () => { resetLayout(); window.location.reload(); } },
+        { label: 'Reset layout', onSelect: () => { resetLayout(); resetWorkspaces(); window.location.reload(); } },
       ],
     },
     {
@@ -2832,7 +2902,7 @@ function EditorApp(): JSX.Element {
         onPlay={() => void play()}
         onStop={() => void stop()}
       />
-      <div className="tl-app__body">
+      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`}>
         <div className="tl-app__main">
           <div className="tl-app__row">
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
@@ -2855,14 +2925,7 @@ function EditorApp(): JSX.Element {
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
             <div className="tl-app__center">
-              <div className="tl-tabs tl-tabs--center" role="tablist">
-                <button role="tab" aria-selected={centerTab === 'scene'} className={`tl-tab${centerTab === 'scene' ? ' is-active' : ''}`} onClick={() => setCenterTab('scene')}>
-                  Scene
-                </button>
-                <button role="tab" aria-selected={centerTab === 'game'} className={`tl-tab${centerTab === 'game' ? ' is-active' : ''}`} onClick={() => setCenterTab('game')}>
-                  Game
-                </button>
-              </div>
+              <WorkspaceTabs state={workspace} dispatch={workspaceDispatch} host={workspaceHost} />
         <div
           className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
           ref={stageRef}
@@ -2902,6 +2965,7 @@ function EditorApp(): JSX.Element {
           }}
         >
           <canvas ref={canvasRef} className="tl-viewport" />
+          <ActiveDocument state={workspace} host={workspaceHost} />
           {centerTab === 'game' && !playing && (
             <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
           )}
@@ -3049,25 +3113,7 @@ function EditorApp(): JSX.Element {
               onOverrideCommit={commitOverride}
             />
           )}
-          {bottomTab === 'behaviors' && (
-            <BehaviorPanel
-              behaviors={behaviorViews}
-              selectedBehaviorId={selectedBehaviorId}
-              publication={publication}
-              sourceDraft={sourceDraft}
-              activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
-              error={behaviorError}
-              onSelect={(id) => {
-                setSelectedBehaviorId(id);
-                setBehaviorError(null);
-              }}
-              onSourceDraft={setSourceDraft}
-              onStage={() => void stageBehaviorSource()}
-              onAcknowledge={(digest) => void acknowledgeDigest(digest)}
-              onPublishSource={() => void publishStagedSource()}
-              onSaveDeclaration={saveDeclaration}
-            />
-          )}
+          {bottomTab === 'behaviors' && <BehaviorPanel {...behaviorProps} />}
           {bottomTab === 'gameplay' && (
             <GameplayPanel
               v4={sceneHeaders !== null}
@@ -3147,18 +3193,7 @@ function EditorApp(): JSX.Element {
             />
           )}
           {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
-          {bottomTab === 'animator' && (
-            <AnimatorPanel
-              controllers={animators}
-              models={assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) }))}
-              clipsOf={clipsOf}
-              skeletonOf={skeletonOf}
-              preview={previewAnimator}
-              onSave={(controller) => void saveAnimator(controller)}
-              onDelete={(id) => void deleteAnimator(id)}
-              error={animatorError}
-            />
-          )}
+          {bottomTab === 'animator' && <AnimatorPanel {...animatorProps} />}
           {bottomTab === 'lighting' && (
             activeScene === null ? (
               <p className="tl-hint">Lighting bakes need a project with scenes (storage v4).</p>
@@ -3329,6 +3364,9 @@ function EditorApp(): JSX.Element {
                 ['Delete, Backspace', 'Delete the selection'],
                 ['Ctrl+Z / Ctrl+Y', 'Undo / redo'],
                 ['Shift+F11', 'Full screen'],
+                ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous centre tab'],
+                ['Middle-click a tab', 'Close a document tab'],
+                ['Double-click a controller or behavior', 'Open it in a centre tab'],
                 ['Shift (held)', 'Disable snapping for one gesture'],
                 ['Escape', 'Cancel a gesture / clear the selection / close a menu'],
                 ['Double-click a name', 'Rename in the hierarchy'],

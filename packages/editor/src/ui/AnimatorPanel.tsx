@@ -11,6 +11,9 @@
  * idle/run/jump/fall/land with the parameters the player gets automatically.
  * "Preview" runs the controller live on its model in a small canvas, with
  * the parameters as sliders, checkboxes and trigger buttons (nothing saved).
+ * Phase 16.0: in the bottom dock a controller list (double-click) or "Open in
+ * tab" opens a controller as a centre tab, where the same panel runs in
+ * document mode (`controllerId`: that one controller).
  *
  * Browser-only (React).
  */
@@ -47,8 +50,16 @@ export interface AnimatorPreview {
   dispose(): void;
 }
 
-interface Props {
+export interface AnimatorPanelProps {
   controllers: AnimatorController[];
+  /**
+   * Phase 16.0: document mode — the panel edits this one controller (a
+   * centre workspace tab "Animator: <name>"); the controller picker and the
+   * create buttons are hidden.
+   */
+  controllerId?: string;
+  /** Phase 16.0: open a controller in its own centre tab (double-click in the list). */
+  onOpen?: (controllerId: string) => void;
   /** Start a live preview of `controller` in `canvas`, or say why not. */
   preview?: (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
   /** Model assets; `clipsFor` marks an animation-only file whose clips play on that model (phase 14.6). */
@@ -88,7 +99,7 @@ function withGraph(c: AnimatorController, layer: number, patch: Partial<Graph>):
 }
 const allStateIds = (c: AnimatorController): string[] => [c, ...(c.layers ?? [])].flatMap((g) => g.states.map((s) => s.id));
 /** Where a controller's clips come from: its first clip's asset (a clips-only asset stands for its rig). */
-function rigOf(c: AnimatorController | null, models: Props['models']): string | undefined {
+function rigOf(c: AnimatorController | null, models: AnimatorPanelProps['models']): string | undefined {
   for (const g of c === null ? [] : [c, ...(c.layers ?? [])]) {
     for (const s of g.states) {
       const id = s.motion.kind === 'clip' ? s.motion.clip.assetId : s.motion.kind === 'blend1d' ? s.motion.children[0]?.clip.assetId : undefined;
@@ -160,8 +171,9 @@ export function platformerController(controllerId: string, assetId: string, clip
   };
 }
 
-export function AnimatorPanel(p: Props): JSX.Element {
-  const [selectedId, setSelectedId] = useState<string | null>(p.controllers[0]?.controllerId ?? null);
+export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
+  const doc = p.controllerId !== undefined;
+  const [selectedId, setSelectedId] = useState<string | null>(p.controllerId ?? p.controllers[0]?.controllerId ?? null);
   // Rigs: models that are not animation-only files (their clips are listed under their rig).
   const rigs = p.models.filter((m) => m.clipsFor === undefined);
   const [model, setModel] = useState<string>(rigs[0]?.assetId ?? '');
@@ -181,7 +193,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
     setDraft(saved === null ? null : structuredClone(saved));
   }, [JSON.stringify(saved)]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (selectedId === null && p.controllers.length > 0) setSelectedId(p.controllers[0]!.controllerId);
+    if (!doc && selectedId === null && p.controllers.length > 0) setSelectedId(p.controllers[0]!.controllerId);
   }, [p.controllers.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // The model whose clips the pickers list: the controller's first clip's, else the chosen one.
   const firstAsset = useMemo(() => rigOf(draft, p.models), [draft, p.models]);
@@ -364,8 +376,9 @@ export function AnimatorPanel(p: Props): JSX.Element {
   };
 
   return (
-    <div className="tl-panel tl-animator" aria-label="animator">
+    <div className={`tl-panel tl-animator${doc ? ' tl-animator--document' : ''}`} aria-label="animator">
       <div className="tl-animator__bar">
+        {!doc && (
         <select className="tl-input" aria-label="animator controller" value={selectedId ?? ''} onChange={(e) => { setSelectedId(e.target.value || null); setSelection(null); }}>
           {p.controllers.length === 0 && <option value="">— no controller —</option>}
           {p.controllers.map((c) => (
@@ -374,6 +387,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
             </option>
           ))}
         </select>
+        )}
         <select className="tl-input" aria-label="animator model" value={model} onChange={(e) => setModel(e.target.value)} title="The model whose clips the controller uses">
           {rigs.length === 0 && <option value="">— no model —</option>}
           {rigs.map((m) => (
@@ -382,21 +396,48 @@ export function AnimatorPanel(p: Props): JSX.Element {
             </option>
           ))}
         </select>
-        <button type="button" className="tl-button" onClick={() => void create('empty')}>
-          New controller
-        </button>
-        <button type="button" className="tl-button" onClick={() => void create('platformer')} title="States and transitions for clips named idle/run/jump/fall/land">
-          New from clips: Platformer
-        </button>
+        {!doc && (
+          <>
+            <button type="button" className="tl-button" onClick={() => void create('empty')}>
+              New controller
+            </button>
+            <button type="button" className="tl-button" onClick={() => void create('platformer')} title="States and transitions for clips named idle/run/jump/fall/land">
+              New from clips: Platformer
+            </button>
+            {p.onOpen !== undefined && draft !== null && (
+              <button type="button" className="tl-button" onClick={() => p.onOpen?.(draft.controllerId)} title="Edit this controller in its own tab in the centre area">
+                Open in tab
+              </button>
+            )}
+          </>
+        )}
         {draft !== null && (
           <>
-            <input className="tl-input" aria-label="controller name" defaultValue={draft.name} key={draft.controllerId} onBlur={(e) => e.target.value.trim() !== '' && e.target.value !== draft.name && save({ ...draft, name: e.target.value.trim() })} />
+            <input className="tl-input" aria-label="controller name" defaultValue={draft.name} key={`${draft.controllerId}:${draft.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value !== draft.name && save({ ...draft, name: e.target.value.trim() })} />
             <button type="button" className="tl-button" onClick={() => p.onDelete(draft.controllerId)}>
               Delete controller
             </button>
           </>
         )}
       </div>
+      {!doc && p.onOpen !== undefined && p.controllers.length > 0 && (
+        <ul className="tl-animator__list" aria-label="animator controllers" title="Click to edit here; double-click to open in a centre tab">
+          {p.controllers.map((c) => (
+            <li key={c.controllerId}>
+              <button
+                type="button"
+                className={`tl-button${c.controllerId === selectedId ? ' is-active' : ''}`}
+                aria-pressed={c.controllerId === selectedId}
+                onClick={() => { setSelectedId(c.controllerId); setSelection(null); }}
+                onDoubleClick={() => p.onOpen?.(c.controllerId)}
+              >
+                {c.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {doc && saved === null && <p className="tl-hint">This animator controller no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>}
       {(message ?? p.error) !== null && <p className="tl-lighting__message" role="alert">{message ?? p.error}</p>}
       {draft !== null && (
         <div className="tl-animator__layers" role="tablist" aria-label="animator layers">
@@ -851,7 +892,7 @@ function ParameterList({ controller, onSave }: { controller: AnimatorController;
   );
 }
 
-function LivePreview({ controller, start }: { controller: AnimatorController; start: NonNullable<Props['preview']> }): JSX.Element {
+function LivePreview({ controller, start }: { controller: AnimatorController; start: NonNullable<AnimatorPanelProps['preview']> }): JSX.Element {
   const [on, setOn] = useState(false);
   const [state, setState] = useState('');
   const [layerStates, setLayerStates] = useState<string[]>([]);

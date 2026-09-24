@@ -146,6 +146,32 @@ height becomes a "Fall zone" hazard zone below the old level. Falls are game
 rules now: a hazard zone, or a script (see "Scenes"). Take a backup first if
 you want the old files outside `.thirdlight/`.
 
+## Workspace tabs
+
+The centre area holds **Scene**, **Game** and any number of document tabs
+next to them. Double-click an animator controller (bottom dock → Animator,
+the controller list under the toolbar, or **Open in tab**) to open
+"Animator: <controller>", or a behavior tile (bottom dock → Behaviors) to
+open "Script: <behavior>". The document takes over the centre area: the
+Animator tab is the full state-graph editor for that one controller
+(states, transitions, layers, parameters, live preview); the Script tab is
+the behavior's declaration editor and its source staging/publishing. Edits
+are the same commands as in the bottom dock (one undo step each; Ctrl+Z
+works while a document is in front; the scene's own shortcuts — Delete,
+W/E/R, F, copy/paste — do not act on the hidden scene).
+
+Opening a document that is already open focuses its tab. Document tabs close
+with their **×** or a middle click; Scene and Game cannot be closed. Drag a
+tab onto another to reorder. **Ctrl+Tab** / **Ctrl+Shift+Tab** (or Window →
+Next tab / Previous tab) cycle through all tabs. Some browsers keep
+Ctrl+Tab for their own tabs in a normal window; the Window menu entries
+always work. The **⤢** button at the right of the tab strip (or Window →
+Maximize centre area) hides the docks so the centre fills the window; press
+it again to restore them. The open tabs, their order, the active tab and
+the maximize state are remembered per project in the browser's layout
+storage (Window → Reset layout forgets them). A tab whose document was
+deleted says so; close it.
+
 ## The Inspector
 
 The Inspector shows the selected object's name, flags and tags, then one

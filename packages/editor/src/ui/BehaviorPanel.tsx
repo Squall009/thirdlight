@@ -12,6 +12,8 @@
  *  - source bytes are **staged** (non-authoritative) and published through the
  *    ordinary `publishBehavior{mode:"source"}` command; the panel displays the
  *    bounded compile/publication error verbatim instead of faking a build;
+ *  - phase 16.0: the same view is the "Script: <behavior>" centre tab
+ *    (`document`: one behavior, no list); double-clicking a tile opens it;
  *  - phase 15.4: a declaration editor (`DeclarationEditor`: every property
  *    type, visibility, groups, headers, tooltips) creates or updates the
  *    declared-property schema through the ordinary command path.
@@ -45,6 +47,10 @@ export interface BehaviorPanelProps {
   onPublishSource: () => void;
   /** Phase 15.4: create or update a declaration (one publishBehavior command). */
   onSaveDeclaration: (save: DeclarationSave) => Promise<boolean>;
+  /** Phase 16.0: document mode — the "Script: <behavior>" centre tab edits `selectedBehaviorId` only. */
+  document?: boolean;
+  /** Phase 16.0: open a behavior in its own centre tab (double-click its tile). */
+  onOpen?: (behaviorId: string) => void;
 }
 
 export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
@@ -54,8 +60,8 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
   const acknowledged = digest !== null && p.publication.acknowledgedDigests.includes(digest);
 
   return (
-    <div className="tl-panel tl-behaviors">
-      <div className="tl-panel__title">Behaviors — trusted source</div>
+    <div className={`tl-panel tl-behaviors${p.document === true ? ' tl-behaviors--document' : ''}`}>
+      <div className="tl-panel__title">{p.document === true ? `Script — ${selected?.displayName ?? p.selectedBehaviorId ?? ''}` : 'Behaviors — trusted source'}</div>
 
       <div className="tl-behaviors__body">
       <div className="tl-behaviors__main">
@@ -67,12 +73,15 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
         ))}
       </div>
 
-      <ul className="tl-behaviors__list tl-tiles">
+      {p.document !== true && (
+      <>
+      <ul className="tl-behaviors__list tl-tiles" title={p.onOpen !== undefined ? 'Double-click a behavior to open its script tab' : undefined}>
         {p.behaviors.map((b) => (
           <li
             key={b.behaviorId}
             className={b.behaviorId === p.selectedBehaviorId ? 'tl-tile is-selected' : 'tl-tile'}
             onClick={() => p.onSelect(b.behaviorId)}
+            onDoubleClick={() => p.onOpen?.(b.behaviorId)}
             title={b.behaviorId}
           >
             <span className="tl-tile__icon tl-tile__icon--script" aria-hidden="true"><img className="tl-tile__img" src="./icons/script.png" alt="" /></span>
@@ -90,13 +99,19 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
           + New behavior
         </button>
       </div>
-      {/* Phase 15.4: keyed by the behavior so a selection re-seeds the drafts. */}
+      </>
+      )}
+      {p.document === true && selected === null ? (
+        <p className="tl-hint">This behavior no longer exists (deleted or undone). Close the tab.</p>
+      ) : (
+      /* Phase 15.4: keyed by the behavior so a selection re-seeds the drafts. */
       <DeclarationEditor
         key={selected !== null ? `${selected.behaviorId}@${selected.publishedRevision}` : 'new'}
         behavior={selected}
         error={p.error}
         onSave={p.onSaveDeclaration}
       />
+      )}
       </div>
 
       <div className="tl-behaviors__side">
