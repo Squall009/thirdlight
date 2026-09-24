@@ -323,6 +323,13 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
 `tl_content_query`, `tl_instance_buffer`).
 
+`tl_content_query {target:"game", includeDescriptors:true}` also returns the
+component and content descriptor registry: for every component and content
+block, each field's type, unit, range, step, default, group, label, tooltip,
+when it applies and which Scene-view handle edits it (about 120 KB; the
+command route answers `queryGameConfig {args:{descriptors:true}}` the same
+way, and the editor reads it with its first game query).
+
 Play tools use the owner's editor browser when it is connected to the
 project. When none is, `tl_play_start` makes the backend open the editor
 itself in a headless Chromium (`playwright-core`, installed with the engine;

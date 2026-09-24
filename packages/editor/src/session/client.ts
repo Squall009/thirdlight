@@ -16,7 +16,7 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -295,6 +295,12 @@ export class SessionClient {
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   private inputDefaults: InputConfig = { actions: [] };
+  /**
+   * Phase 15.0: the component and content descriptor registry (the editor
+   * may import project-model types only, so it arrives with the first
+   * `queryGameConfig`; it is static, fetched once).
+   */
+  private descriptors: DescriptorRegistry | null = null;
   /** Phase 9.10: the game flow (null = none). */
   private flow: GameFlow | null = null;
   /**
@@ -491,8 +497,10 @@ export class SessionClient {
     // reopening the editor retains the authored game configuration
     // (authoring §A8 row 1; `null` for a v2 project or an absent block).
     try {
-      const g = await this.queryGameConfig();
+      const g = await this.queryGameConfig({ descriptors: this.descriptors === null });
       if (g.ok) {
+        const descriptors = (g as { descriptors?: DescriptorRegistry }).descriptors;
+        if (descriptors !== undefined) this.descriptors = descriptors;
         this.gameConfig = g.game === null ? null : { ...g.game, ...(g.game.level !== undefined ? { level: { ...g.game.level } } : {}), cues: { ...g.game.cues } };
         this.gameConfigLoaded = true;
         const tags = (g as { tags?: { bit: number; name: string }[] }).tags;
@@ -1038,6 +1046,11 @@ export class SessionClient {
     return this.flow === null ? null : structuredClone(this.flow);
   }
 
+  /** Phase 15.0: the descriptor registry (null until the first full state). */
+  getDescriptors(): DescriptorRegistry | null {
+    return this.descriptors;
+  }
+
   /** Phase 9.8: the default input actions (what a project without its own uses). */
   getInputDefaults(): InputConfig {
     return structuredClone(this.inputDefaults);
@@ -1061,11 +1074,11 @@ export class SessionClient {
    * A bounded `queryGameConfig` (commands.md §4/§5.6, authoring §A6): the
    * full normalized `content.game` block or `null`; read-only.
    */
-  async queryGameConfig(): Promise<{ ok: true; revision: number; game: GameConfigLike | null } | { ok: false; error: { code: string; message: string } }> {
+  async queryGameConfig(opts: { descriptors?: boolean } = {}): Promise<{ ok: true; revision: number; game: GameConfigLike | null } | { ok: false; error: { code: string; message: string } }> {
     try {
       const r = await this.api<{ ok: true; projectId: string; revision: number; game: GameConfigLike | null }>(
         `/projects/${this.cfg.projectId}/commands`,
-        { op: 'queryGameConfig', projectId: this.cfg.projectId, args: {} },
+        { op: 'queryGameConfig', projectId: this.cfg.projectId, args: opts.descriptors === true ? { descriptors: true } : {} },
       );
       // The v4 extras (tags, scenes, materials, environment, lighting) ride along.
       return { ...r, ok: true, revision: r.revision, game: r.game };
