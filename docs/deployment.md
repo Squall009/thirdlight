@@ -155,7 +155,8 @@ the controller list under the toolbar, or **Open in tab**) to open
 open "Script: <behavior>". The document takes over the centre area: the
 Animator tab is the full state-graph editor for that one controller
 (states, transitions, layers, parameters, live preview); the Script tab is
-the behavior's declaration editor and its source staging/publishing. Edits
+the behavior's code editor (see "Script editor" below) with its declaration
+editor docked beside it. Edits
 are the same commands as in the bottom dock (one undo step each; Ctrl+Z
 works while a document is in front; the scene's own shortcuts — Delete,
 W/E/R, F, copy/paste — do not act on the hidden scene).
@@ -171,6 +172,48 @@ it again to restore them. The open tabs, their order, the active tab and
 the maximize state are remembered per project in the browser's layout
 storage (Window → Reset layout forgets them). A tab whose document was
 deleted says so; close it.
+
+## Script editor
+
+The "Script: <behavior>" tab edits a behavior's TypeScript source.
+
+- **Files**: the list on the left holds the behavior's source files
+  (`src/index.ts` is the entry; its `export default { step(state, ctx) {…} }`
+  is the behavior). **+ File** adds one (lower-case path ending in `.ts`,
+  e.g. `src/util.ts`; import it with a relative path, `import { f } from
+  './util'`), **Rename** and **Delete** act on the open file (the entry
+  stays). At most 16 files of 64 KiB each. `behavior-api.d.ts` (italic) is
+  the behavior API — what `ctx` offers, with its documentation — read-only.
+- **Code**: TypeScript highlighting, bracket matching, find (Ctrl+F),
+  undo per file. Completion (Ctrl+Space, or while typing after a `.`)
+  offers the behavior API: `ctx.` lists the context (`ctx.game.`,
+  `ctx.timers.`, `ctx.animator(id)?.` go deeper), and type names after `:`
+  or in `import type { … } from '@thirdlight/runtime'`. Any name annotated
+  with an API type (`info: BehaviorInstanceInfo`) completes too; `ctx`
+  always means the step context. Type-only imports from
+  `@thirdlight/runtime` are erased by the compiler (the editor adds the
+  module to the source's required modules for you).
+- **Compile**: **Ctrl+S** (or **Compile**) and a short pause after typing
+  compile the source with the backend's pinned compiler — the same one
+  publishing uses — without publishing or storing anything. Problems are
+  underlined in the code, marked in the gutter, counted on their file and
+  listed under the code (`src/index.ts:7:96 …`; click one to jump there).
+  The compiler checks syntax, imports and the declaration; it does not
+  type-check, so a misspelt member shows only when the script runs.
+- **Publish**: compiles again and publishes the source through the ordinary
+  source route — one `publishBehavior` command, one undo step. A source
+  digest that was never acknowledged first shows the trust notice and asks
+  for the acknowledgment of that exact digest (its own command). Play then
+  runs the new code (a running Play keeps the code it started with).
+- **Beside the code**: **Moves (owned transforms)** — the objects this
+  script may move (`@self` = the object carrying it, or object ids) — and
+  the declaration editor (properties, visibility, groups; read-only when
+  the code declares `export const properties`).
+
+Unpublished edits are kept while the page is open (switching tabs keeps
+them) and are lost on a reload; the tab shows "unpublished edits" until
+they are published. When another client publishes the same behavior, an
+unedited tab follows; an edited one says so and publishing replaces it.
 
 ## The Inspector
 

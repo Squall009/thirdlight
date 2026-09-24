@@ -51,6 +51,19 @@ export const PINS = {
   'playwright-core': '1.62.1',
   '@types/node': '22.20.4',
   '@types/ws': '8.18.1',
+  // Phase 16.3: the script editor (CodeMirror 6, editor bundle only; plan-phase-16 §6).
+  '@codemirror/state': '6.7.6',
+  '@codemirror/view': '6.43.13',
+  '@codemirror/language': '6.12.4',
+  '@codemirror/commands': '6.11.1',
+  '@codemirror/autocomplete': '6.20.3',
+  '@codemirror/lint': '6.9.7',
+  '@codemirror/search': '6.7.2',
+  '@codemirror/lang-javascript': '6.2.5',
+  '@lezer/common': '1.5.3',
+  '@lezer/highlight': '1.2.4',
+  '@lezer/lr': '1.4.10',
+  '@lezer/javascript': '1.5.5',
 };
 
 /** §7 scope/consumer notes for the pending-pin report. */
@@ -68,6 +81,18 @@ const PIN_CONSUMERS = {
   vitest: 'workspace (root dev)',
   '@types/node': 'Node-side packages (backend, workspace, exporter, mcp-adapter), dev — replaces the hand-written ambient stubs (D21)',
   '@types/ws': 'backend, dev',
+  '@codemirror/state': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/view': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/language': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/commands': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/autocomplete': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/lint': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/search': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@codemirror/lang-javascript': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@lezer/common': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@lezer/highlight': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@lezer/lr': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
+  '@lezer/javascript': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
   'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
   '@dimforge/rapier2d-compat':
     'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',

@@ -104,6 +104,7 @@ import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, typ
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel, type BehaviorPanelProps } from './BehaviorPanel';
 import { ActiveDocument, WorkspaceTabs, resetWorkspaces, useWorkspace } from './workspace/WorkspaceTabs';
+import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from './script/ScriptDocument';
 import type { WorkspaceHost } from './workspace/kinds';
 import { activeDoc, docKey } from '../session/workspace-tabs';
 import type { DeclarationSave } from './DeclarationEditor';
@@ -2673,6 +2674,55 @@ function EditorApp(): JSX.Element {
     refreshEntities();
   }, [behaviorViews, selectedBehaviorId, publication, refreshEntities]);
 
+  // ---- phase 16.3: the script editor tab ------------------------------------
+
+  /** Unpublished script edits per behavior (survive tab switches; not project data). */
+  const scriptDrafts = useRef(new Map<string, ScriptDraft>()).current;
+
+  const checkScript = useCallback(async (behaviorId: string, bytes: Uint8Array, declaration: PropertyDeclaration | null): Promise<ScriptCheckResult> => {
+    const c = clientRef.current;
+    if (!c) return { ok: false, error: { code: 'disconnected', message: 'not connected' } };
+    return c.checkBehaviorSource(behaviorId, bytes, declaration);
+  }, []);
+
+  /**
+   * Publish a script: stage the container, then — when its digest is not
+   * acknowledged yet — ask first (`needs-ack`) or acknowledge it (the
+   * ordinary `acknowledgeBehaviorTrust` command), then the ordinary source
+   * route (compile + one `publishBehavior` command).
+   */
+  const publishScript = useCallback(
+    async (behaviorId: string, bytes: Uint8Array, acknowledge: boolean): Promise<ScriptPublishOutcome> => {
+      const c = clientRef.current;
+      const view = behaviorViews.find((b) => b.behaviorId === behaviorId);
+      if (!c || !view) return { kind: 'failed', message: 'the behavior is not available' };
+      const staged = await c.stageBehaviorSource(bytes);
+      if (!staged.ok) return { kind: 'failed', message: `${staged.error.code}: ${staged.error.message}` };
+      let revision = c.projection.revision;
+      if (!c.acknowledgedDigests().includes(staged.digest)) {
+        if (!acknowledge) return { kind: 'needs-ack', digest: staged.digest };
+        const ack = await c.acknowledgeBehaviorTrust(staged.digest, revision);
+        if (!ack.ok) {
+          const r = ack.response;
+          return { kind: 'failed', message: r.ok ? 'the acknowledgment was not recorded' : `${r.code}: ${r.message ?? r.code}` };
+        }
+        revision = ack.revision;
+        setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest: staged.digest, acknowledgedRevision: ack.revision }]));
+      }
+      const res = await c.publishBehaviorSource(
+        { behaviorId, displayName: view.displayName, declaration: view.declaration, sourceDigest: staged.digest, sourceByteLength: staged.byteLength, stageId: staged.stageId },
+        revision,
+      );
+      if (!res.ok) {
+        const r = res.response;
+        return { kind: 'failed', message: r.ok ? 'the source was not published' : `${r.code}: ${r.message ?? r.code}` };
+      }
+      refreshEntities();
+      return { kind: 'published', revision: res.revision, digest: staged.digest };
+    },
+    [behaviorViews, refreshEntities],
+  );
+
   /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
   const saveDeclaration = useCallback(
     async (save: DeclarationSave): Promise<boolean> => {
@@ -2784,6 +2834,15 @@ function EditorApp(): JSX.Element {
   const workspaceHost: WorkspaceHost = {
     animator: animatorProps,
     behavior: behaviorProps,
+    script: {
+      drafts: scriptDrafts,
+      declarationError: behaviorError,
+      activePlay: behaviorProps.activePlay,
+      onSaveDeclaration: saveDeclaration,
+      loadSource: async (behaviorId) => clientRef.current?.behaviorSource(behaviorId) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
+      check: checkScript,
+      publish: publishScript,
+    },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
 

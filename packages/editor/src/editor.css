@@ -703,3 +703,40 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 /* Maximize: the docks and their splitters are hidden (kept mounted, so their state survives). */
 .tl-app__body.is-maximized .tl-dock,
 .tl-app__body.is-maximized .tl-splitter { display: none; }
+
+/* Phase 16.3: the script editor tab (files | code + problems | declaration). */
+.tl-script { flex: 1; display: flex; min-height: 0; gap: 8px; }
+.tl-script--loading { align-items: flex-start; }
+.tl-script__files { width: 190px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); padding: 6px; }
+.tl-script__heading { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.tl-script__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.tl-script__file { display: flex; width: 100%; align-items: center; gap: 6px; background: none; border: 1px solid transparent;
+  border-radius: var(--radius); color: var(--text); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 3px 6px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-script__file:hover { background: var(--surface-2); }
+.tl-script__file.is-open { background: var(--select-bg); border-color: var(--select-line); }
+.tl-script__file--api { color: var(--text-dim); font-style: italic; margin-top: 6px; }
+.tl-script__badge { margin-left: auto; background: var(--err-bg); color: var(--err); border-radius: 8px; padding: 0 5px; font-size: 10px; }
+.tl-script__row, .tl-script__form { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.tl-script__form .tl-prop__input { flex: 1; min-width: 0; }
+.tl-script__main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; gap: 6px; }
+.tl-script__bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tl-script__path { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.tl-script__status { font-size: 11px; color: var(--text-dim); }
+.tl-script__status--ok { color: var(--ok); }
+.tl-script__status--errors, .tl-script__status--unavailable { color: var(--err); }
+.tl-script__spacer { flex: 1; }
+.tl-script__editor { flex: 1; min-height: 200px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; }
+.tl-script__code { flex: 1; min-width: 0; min-height: 0; }
+.tl-script__code .cm-editor { height: 100%; }
+.tl-script__problems { flex: none; max-height: 120px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-1); padding: 4px 6px; font-size: 11px; }
+.tl-script__problems ul { list-style: none; margin: 0; padding: 0; }
+.tl-script__problem { background: none; border: none; color: var(--err); cursor: pointer; text-align: left; padding: 2px 0; font-size: 11px; width: 100%; }
+.tl-script__problem:hover { text-decoration: underline; }
+.tl-script__where { color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tl-script__side { width: 36%; min-width: 280px; max-width: 520px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.tl-script__trust { border: 1px solid var(--warn); border-radius: var(--radius); background: var(--warn-bg); padding: 8px; }
+.tl-script__published { color: var(--ok); font-size: 12px; }
+.tl-script__owned { display: flex; flex-direction: column; gap: 2px; }

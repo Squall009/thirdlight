@@ -37,6 +37,7 @@ import { containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph, posixResolve, withLimits } from './scan';
 import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
 import type {
+  BehaviorCompileFailure,
   BehaviorCompileInput,
   BehaviorCompileOptions,
   BehaviorCompileResult,
@@ -207,11 +208,13 @@ export async function compileBehavior(
   const entryText = early.ok ? early.container.files.find((f) => f.path === early.container.entryPath)?.text : undefined;
   const code = entryText !== undefined ? readCodeDeclaration(entryText) : ({ found: false } as const);
   if (code.found && !code.ok) {
-    return fail('behavior_source_invalid', 'properties', {
+    const failed = fail('behavior_source_invalid', 'properties', {
       detail: `src/index.ts:${code.line}:${code.column}`,
       path: ENTRY_PATH,
       message: code.message.slice(0, 256),
-    });
+    }) as BehaviorCompileFailure;
+    // Phase 16.3: the position as fields too (the script editor marks it inline).
+    return { ...failed, diagnostics: failed.diagnostics.map((d) => ({ ...d, line: code.line, column: code.column })) };
   }
   const declaredInCode = code.found && code.ok;
   // Declaration bounds (project-model.md §22.4: re-checked here).
@@ -301,10 +304,14 @@ export async function compileBehavior(
         message: `the pinned compiler failed internally: ${message}`,
       });
     }
-    return fail('behavior_source_invalid', 'syntax', {
+    const failed = fail('behavior_source_invalid', 'syntax', {
       detail: message.slice(0, 128),
       message: `the pinned compiler rejected the source: ${message}`,
-    });
+    }) as BehaviorCompileFailure;
+    // Phase 16.3: every located compiler error as its own diagnostic (path,
+    // 1-based line and column), bounded like any diagnostic list.
+    const located = syntaxDiagnostics(structured, limits);
+    return located.length > 0 ? { ...failed, diagnostics: located } : failed;
   }
   const out = outputBytes as Uint8Array;
   if (start !== null && options.now !== undefined && options.now() - start > limits.timeoutMs) {
@@ -365,6 +372,32 @@ export async function compileBehavior(
     declarationDigest: declarationDigestOf(declaration),
     diagnostics: [],
   };
+}
+
+/**
+ * Phase 16.3: esbuild's structured errors as located diagnostics. Files load
+ * from the in-memory namespace (`tl-behavior-memory:src/a.ts`), the entry
+ * from stdin (`src/index.ts`); esbuild columns are 0-based.
+ */
+function syntaxDiagnostics(errors: unknown[], limits: BehaviorCompilerLimits): CompileDiagnostic[] {
+  const out: CompileDiagnostic[] = [];
+  for (const raw of errors) {
+    if (out.length >= limits.diagnostics) break;
+    const e = raw as { text?: unknown; location?: { file?: unknown; line?: unknown; column?: unknown } | null };
+    const text = typeof e.text === 'string' ? e.text : 'compiler error';
+    const d: CompileDiagnostic = { code: 'behavior_source_invalid', reason: 'syntax', message: text.slice(0, 256) };
+    const loc = e.location;
+    if (loc !== null && loc !== undefined) {
+      if (typeof loc.file === 'string') {
+        const path = loc.file.replace(/^[a-z-]+:/, '');
+        if (/^[a-z0-9][a-z0-9._/-]*\.ts$/.test(path)) d.path = path;
+      }
+      if (typeof loc.line === 'number') d.line = loc.line;
+      if (typeof loc.column === 'number') d.column = loc.column + 1;
+    }
+    out.push(d);
+  }
+  return out;
 }
 
 /** Bounded, host-path-free error text for diagnostics (≤ 256 chars). */

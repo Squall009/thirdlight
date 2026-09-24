@@ -767,10 +767,19 @@ export function createBackend(
     }
     const value = strict.value as Record<string, unknown>;
     for (const key of Object.keys(value)) {
-      if (!['stageId', 'bytesBase64', 'behaviorId', 'displayName', 'declaration', 'expectedRevision', 'requestId'].includes(key)) {
+      if (!['stageId', 'bytesBase64', 'behaviorId', 'displayName', 'declaration', 'expectedRevision', 'requestId', 'check'].includes(key)) {
         sendError(res, sessionError('field_unexpected', 'validation', `unknown field "${key}"`, { path: `/${key}` }));
         return;
       }
+    }
+    // Phase 16.3: `check: true` — compile only (the script editor's save and
+    // idle check). The same pinned compiler instance as publication; nothing
+    // is written (no stage, no blob, no derived cache, no revision) and no
+    // code runs, so the per-digest trust gate (which guards the runnable
+    // artifact) does not apply.
+    if (value.check !== undefined) {
+      await behaviorCheck(res, projectId, value);
+      return;
     }
     const behaviorId = value.behaviorId;
     const displayName = value.displayName;
@@ -841,6 +850,107 @@ export function createBackend(
     sendJson(res, statusFor(outcome.error.cls), { ok: false, error: outcome.error });
   };
 
+  /** Phase 16.3: the compile-only check of `POST …/content/behaviors/source` (`check: true`). */
+  const behaviorCheck = async (res: ServerResponse, projectId: string, value: Record<string, unknown>): Promise<void> => {
+    if (value.check !== true) {
+      sendError(res, sessionError('field_value', 'validation', 'check must be true', { path: '/check' }));
+      return;
+    }
+    for (const key of Object.keys(value)) {
+      if (!['check', 'bytesBase64', 'behaviorId', 'declaration'].includes(key)) {
+        sendError(res, sessionError('field_unexpected', 'validation', `a check takes check, bytesBase64, behaviorId and declaration only ("${key}")`, { path: `/${key}` }));
+        return;
+      }
+    }
+    const behaviorId = value.behaviorId;
+    if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+      sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
+      return;
+    }
+    const b64 = value.bytesBase64;
+    if (typeof b64 !== 'string' || b64.length === 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) {
+      sendError(res, sessionError('field_value', 'validation', 'bytesBase64 must be the base64 of the source-graph container', { path: '/bytesBase64' }));
+      return;
+    }
+    const declaration = value.declaration;
+    if (declaration !== undefined && (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration))) {
+      sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
+      return;
+    }
+    const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
+    let result;
+    try {
+      result = await behaviorCompiler.compile({
+        behaviorId,
+        declaration: (declaration ?? { properties: [] }) as never,
+        containerBytes: bytes,
+        pinnedModules: behaviorCompiler.pinnedModules,
+      });
+    } catch (e) {
+      result = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
+    }
+    if (result.ok) {
+      sendJson(res, 200, {
+        ok: true,
+        compiled: true,
+        behaviorId,
+        sourceDigest: result.manifest.sourceDigest,
+        outputByteLength: result.manifest.outputByteLength,
+        declaration: result.manifest.declaration,
+        ...(result.manifest.declaredInCode === true ? { declaredInCode: true } : {}),
+        diagnostics: [],
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      compiled: false,
+      behaviorId,
+      code: result.code,
+      reason: String(result.reason).slice(0, 256),
+      diagnostics: result.diagnostics.slice(0, 32),
+    });
+  };
+
+  /**
+   * Phase 16.3: `GET …/content/behaviors/:behaviorId/source` — the published
+   * source-graph container of one behavior (the script editor loads it). The
+   * digest comes from the behavior record; the bytes are the verified
+   * immutable blob (`readSourceBlob`).
+   */
+  const behaviorSourceRead = (req: IncomingMessage, res: ServerResponse, projectId: string, behaviorId: string): void => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
+      sendError(res, sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }));
+      return;
+    }
+    // includeDeclaration: the stored record (with its source facts, never bytes).
+    const found = service.query({ op: 'queryBehaviors', projectId, args: { behaviorId, includeDeclaration: true, limit: 1, offset: 0 } }) as unknown as { ok: boolean; error?: CommandError; behaviors?: { behaviorId: string; source?: { sourceDigest: string } | null }[] };
+    if (!found.ok && found.error?.code !== 'behavior_not_found') {
+      sendError(res, workspaceError(found.error as CommandError));
+      return;
+    }
+    const record = found.behaviors?.find((b) => b.behaviorId === behaviorId);
+    if (record === undefined) {
+      sendError(res, sessionError('field_value', 'not_found', `no behavior "${behaviorId}"`, { path: '/behaviorId' }), 404);
+      return;
+    }
+    if (record.source === null || record.source === undefined) {
+      sendJson(res, 200, { ok: true, behaviorId, source: null });
+      return;
+    }
+    const read = service.readSourceBlob(projectId, { digest: record.source.sourceDigest });
+    if (!read.ok) {
+      sendError(res, workspaceError(read.error));
+      return;
+    }
+    sendJson(res, 200, { ok: true, behaviorId, sourceDigest: read.digest, source: new TextDecoder().decode(read.bytes) });
+  };
+
   const dispatch = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = req.url ?? '';
     const qIdx = url.indexOf('?');
@@ -866,6 +976,14 @@ export function createBackend(
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
+          return;
+        }
+        if (parts.length === 8 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'behaviors' && parts[7] === 'source') {
+          if (method === 'GET') {
+            behaviorSourceRead(req, res, parts[3]!, decodeURIComponent(parts[6]!));
+            return;
+          }
+          sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
           return;
         }
         // Packet 25 content routes (before the M1-length dispatch table).

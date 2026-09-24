@@ -59,6 +59,7 @@ import {
   planAcknowledgeTrust,
   planPublishDeclaration,
   planPublishSource,
+  type CompileDiagnosticView,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
@@ -1357,6 +1358,64 @@ export class SessionClient {
       const err = body?.error;
       const detail = err?.diagnostics?.[0]?.message;
       return { ok: false, response: { ok: false, code: err?.code ?? 'internal', message: detail ?? err?.message ?? 'the source was not published' } };
+    }
+  }
+
+  /**
+   * Phase 16.3: the published source-graph container of one behavior as text
+   * (`null` when the behavior has no source yet).
+   */
+  async behaviorSource(
+    behaviorId: string,
+  ): Promise<{ ok: true; source: string | null; sourceDigest: string | null } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; source: string | null; sourceDigest?: string }>(
+        `/projects/${this.cfg.projectId}/content/behaviors/${encodeURIComponent(behaviorId)}/source`,
+        { method: 'GET' },
+      );
+      return { ok: true, source: r.source, sourceDigest: r.sourceDigest ?? null };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Phase 16.3: compile a source-graph container without publishing it (the
+   * source route's `check` mode — the same backend compiler; nothing is
+   * written). Returns the compiler's bounded diagnostics.
+   */
+  async checkBehaviorSource(
+    behaviorId: string,
+    bytes: Uint8Array,
+    declaration: PropertyDeclaration | null,
+  ): Promise<
+    | { ok: true; compiled: true; declaredInCode: boolean; declaration: PropertyDeclaration; outputByteLength: number }
+    | { ok: true; compiled: false; code: string; reason: string; diagnostics: CompileDiagnosticView[] }
+    | { ok: false; error: { code: string; message: string } }
+  > {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    try {
+      const r = await this.request<{
+        ok: true;
+        compiled: boolean;
+        declaredInCode?: boolean;
+        declaration?: PropertyDeclaration;
+        outputByteLength?: number;
+        code?: string;
+        reason?: string;
+        diagnostics?: CompileDiagnosticView[];
+      }>(`/projects/${this.cfg.projectId}/content/behaviors/source`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ check: true, behaviorId, bytesBase64: btoa(binary), ...(declaration !== null ? { declaration } : {}) }),
+      });
+      if (r.compiled) {
+        return { ok: true, compiled: true, declaredInCode: r.declaredInCode === true, declaration: r.declaration ?? { properties: [] }, outputByteLength: r.outputByteLength ?? 0 };
+      }
+      return { ok: true, compiled: false, code: r.code ?? 'behavior_compile_failed', reason: r.reason ?? '', diagnostics: r.diagnostics ?? [] };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
     }
   }
 
