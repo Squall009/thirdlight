@@ -58,7 +58,7 @@ export interface PostLike {
   readonly toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
   readonly exposure?: number;
   readonly bloom?: { readonly enabled: boolean; readonly strength?: number; readonly radius?: number; readonly threshold?: number };
-  readonly grading?: { readonly contrast?: number; readonly saturation?: number; readonly brightness?: number; readonly tint?: string; readonly lut?: string };
+  readonly grading?: { readonly contrast?: number; readonly saturation?: number; readonly brightness?: number; readonly tint?: string; readonly lut?: string; readonly lift?: number; readonly gamma?: number; readonly gain?: number };
   readonly vignette?: { readonly enabled: boolean; readonly darkness?: number; readonly offset?: number };
   readonly ssao?: { readonly enabled: boolean; readonly radius?: number; readonly intensity?: number };
   readonly dof?: { readonly enabled: boolean; readonly focus?: number; readonly aperture?: number; readonly maxBlur?: number };
@@ -70,6 +70,36 @@ export interface EnvironmentLike {
   readonly post?: PostLike;
   readonly quality?: 'low' | 'medium' | 'high';
 }
+
+/** Phase 14.4: a level's look (`flow.levels[].environment`), laid over the project environment. */
+export interface EnvironmentLayerLike {
+  readonly sky?: SkyLike;
+  readonly fog?: FogLike;
+  readonly post?: PostLike;
+  readonly wind?: unknown;
+}
+
+/**
+ * Phase 14.4: the environment a level plays with — the project's, with each
+ * part the level gives laid over it: `sky`, `fog` and `wind` replace the
+ * project's part whole (a sky mode's fields only make sense together), `post`
+ * merges per effect (a level may change only its bloom or its grading). No
+ * layer: the base unchanged.
+ */
+export function layerEnvironment<T extends EnvironmentLike & { readonly wind?: unknown }>(base: T | null, layer: EnvironmentLayerLike | null | undefined): (T & { readonly wind?: unknown }) | null {
+  if (layer === null || layer === undefined) return base;
+  const out: Record<string, unknown> = { ...(base ?? {}) };
+  if (layer.sky !== undefined) out['sky'] = layer.sky;
+  if (layer.fog !== undefined) out['fog'] = layer.fog;
+  if (layer.wind !== undefined) out['wind'] = layer.wind;
+  if (layer.post !== undefined) out['post'] = { ...(base?.post ?? {}), ...layer.post };
+  return out as T;
+}
+
+/** True when an environment has anything the renderer draws (sky, fog, post or a quality level). */
+export function environmentHasLook(env: { readonly sky?: unknown; readonly fog?: unknown; readonly post?: unknown; readonly quality?: unknown; readonly wind?: unknown } | null | undefined): boolean {
+  return env !== null && env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined);
+}
 export interface FogVolumeLike {
   /** World-space centre and full size. */
   readonly center: readonly [number, number, number];
@@ -77,6 +107,8 @@ export interface FogVolumeLike {
   readonly density: number;
   readonly color: string;
   readonly falloff?: number;
+  /** Phase 14.4: density fades with height above the box bottom (per metre; 0 = even). */
+  readonly heightFalloff?: number;
 }
 
 export type QualityLevel = 'low' | 'medium' | 'high';
@@ -124,6 +156,9 @@ const GRADING_SHADER = {
     uContrast: { value: 0 },
     uSaturation: { value: 0 },
     uTint: { value: new THREE.Color(1, 1, 1) },
+    uLift: { value: 0 },
+    uGamma: { value: 1 },
+    uGain: { value: 1 },
     uVignette: { value: 0 },
     uVignetteOffset: { value: 1 },
     tLut: { value: null as THREE.Texture | null },
@@ -138,6 +173,9 @@ uniform float uBrightness;
 uniform float uContrast;
 uniform float uSaturation;
 uniform vec3 uTint;
+uniform float uLift;
+uniform float uGamma;
+uniform float uGain;
 uniform float uVignette;
 uniform float uVignetteOffset;
 uniform sampler2D tLut;
@@ -160,6 +198,9 @@ void main() {
   c = (c - 0.5) * (1.0 + uContrast) + 0.5;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = mix(vec3(l), c, 1.0 + uSaturation);
+  // Lift raises the blacks (whites stay), gain scales, gamma bends the mid-tones.
+  c = (c + uLift * (1.0 - c)) * uGain;
+  c = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
   c *= uTint;
   if (uLutSize > 1.0) c = lutLookup(c);
   vec2 d = (vUv - 0.5) * uVignetteOffset;
@@ -182,6 +223,7 @@ const FOG_VOLUME_SHADER = {
     uColor: { value: Array.from({ length: MAX_VOLUMES }, () => new THREE.Color()) },
     uDensity: { value: new Array<number>(MAX_VOLUMES).fill(0) },
     uFalloff: { value: new Array<number>(MAX_VOLUMES).fill(0) },
+    uHeightFalloff: { value: new Array<number>(MAX_VOLUMES).fill(0) },
   },
   vertexShader: GRADING_SHADER.vertexShader,
   fragmentShader: /* glsl */ `
@@ -196,6 +238,7 @@ uniform vec3 uMax[MAX_VOLUMES];
 uniform vec3 uColor[MAX_VOLUMES];
 uniform float uDensity[MAX_VOLUMES];
 uniform float uFalloff[MAX_VOLUMES];
+uniform float uHeightFalloff[MAX_VOLUMES];
 varying vec2 vUv;
 void main() {
   vec4 base = texture2D(tDiffuse, vUv);
@@ -229,7 +272,16 @@ void main() {
     vec3 halfSize = (uMax[i] - uMin[i]) * 0.5;
     vec3 q = abs(mid - (uMin[i] + uMax[i]) * 0.5) / max(halfSize, vec3(1e-4));
     float edge = 1.0 - uFalloff[i] * smoothstep(0.0, 1.0, max(max(q.x, q.y), q.z));
-    float od = uDensity[i] * len * edge;
+    // Height falloff: density × e^(−k·(y − bottom)), integrated along the
+    // segment in closed form: e^(−k·(y_in − bottom)) · (1 − e^(−k·dy·len)) / (k·dy).
+    float k = uHeightFalloff[i];
+    float heightLen = len;
+    if (k > 0.0) {
+      float yIn = origin.y + dir.y * tin - uMin[i].y;
+      float kd = k * dir.y;
+      heightLen = abs(kd * len) < 1e-4 ? exp(-k * yIn) * len : exp(-k * yIn) * (1.0 - exp(-kd * len)) / kd;
+    }
+    float od = uDensity[i] * heightLen * edge;
     optical += od;
     fogColor += uColor[i] * od;
   }
@@ -261,6 +313,8 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
   let skyKey = '';
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   let disposed = false;
+  /** The scene's own background, put back when a sky goes (a level without a sky after one with a colour sky). */
+  const baseBackground = scene.background;
 
   const texture = (id: string): Promise<THREE.Texture | null> => {
     let p = textures.get(id);
@@ -297,6 +351,10 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     envMap?.dispose();
     envMap = null;
     scene.environment = null;
+    scene.background = baseBackground;
+    const s = scene as THREE.Scene & { environmentIntensity?: number; backgroundIntensity?: number };
+    s.environmentIntensity = 1;
+    s.backgroundIntensity = 1;
   };
   const applyEnvIntensity = (sky: SkyLike): void => {
     const s = scene as THREE.Scene & { environmentIntensity?: number; backgroundIntensity?: number };
@@ -429,7 +487,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
       ssao: q.ssao && p?.ssao?.enabled === true,
       dof: q.dof && p?.dof?.enabled === true,
       fogVolumes: q.fogVolumes && volumes.length > 0,
-      grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined)) || p?.vignette?.enabled === true,
+      grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
       aa: q.antialias ? (p?.antialias ?? 'none') : 'none',
     };
   };
@@ -486,6 +544,9 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
         (u['uContrast']!).value = g?.contrast ?? 0;
         (u['uSaturation']!).value = g?.saturation ?? 0;
         (u['uTint']!).value = new THREE.Color(g?.tint ?? '#ffffff');
+        (u['uLift']!).value = g?.lift ?? 0;
+        (u['uGamma']!).value = g?.gamma ?? 1;
+        (u['uGain']!).value = g?.gain ?? 1;
         (u['uVignette']!).value = post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0;
         (u['uVignetteOffset']!).value = post?.vignette?.offset ?? 1;
         if (g?.lut !== undefined) {
@@ -592,6 +653,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
           ((u['uColor']!).value as THREE.Color[])[i]!.set(v.color);
           ((u['uDensity']!).value as number[])[i] = v.density;
           ((u['uFalloff']!).value as number[])[i] = v.falloff ?? 0.5;
+          ((u['uHeightFalloff']!).value as number[])[i] = v.heightFalloff ?? 0;
         });
       }
       composer.render();

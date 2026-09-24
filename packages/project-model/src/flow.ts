@@ -11,6 +11,7 @@
  * the scenes and the asset catalog by the v4 project validator.
  */
 import type { ModelErrorV2 } from './errors';
+import { canonicalLevelEnvironment, environmentTextureRefs, validateLevelEnvironment, type LevelEnvironment } from './materials';
 
 export interface FlowLevel {
   /** Stable id (saves remember levels by it). */
@@ -22,6 +23,12 @@ export interface FlowLevel {
   spawnId: string;
   /** A music asset that loops while the level plays. */
   music?: string;
+  /**
+   * Phase 14.4: the level's look — sky, fog, post and wind laid over the
+   * project environment while the level plays (each part given replaces the
+   * project's part; post merges per effect). Absent: the project environment.
+   */
+  environment?: LevelEnvironment;
 }
 
 export const HUD_PRESETS = ['classic', 'minimal', 'corners'] as const;
@@ -89,7 +96,7 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
     levels.forEach((l, i) => {
       const p = `${path}/levels/${i}`;
       if (!isObj(l)) return err(errors, 'field_type', p, 'a level is an object', l);
-      only(l, ['id', 'name', 'scenes', 'spawnId', 'music'], p, errors);
+      only(l, ['id', 'name', 'scenes', 'spawnId', 'music', 'environment'], p, errors);
       if (typeof l['id'] !== 'string' || !ID_RE.test(l['id'])) err(errors, 'field_value', `${p}/id`, 'a level id is 1–64 letters, digits, _ or -', l['id']);
       else if (ids.has(l['id'])) err(errors, 'id_duplicate', `${p}/id`, 'level ids are unique', l['id']);
       else ids.add(l['id']);
@@ -100,6 +107,7 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
       }
       if (typeof l['spawnId'] !== 'string' || l['spawnId'].length === 0 || l['spawnId'].length > 128) err(errors, 'field_value', `${p}/spawnId`, 'a level names its player spawn', l['spawnId']);
       if (l['music'] !== undefined && (typeof l['music'] !== 'string' || l['music'].length === 0)) err(errors, 'field_value', `${p}/music`, 'music names a music asset', l['music']);
+      if (l['environment'] !== undefined) validateLevelEnvironment(l['environment'], `${p}/environment`, errors);
     });
   }
   const lives = value['lives'];
@@ -192,17 +200,20 @@ function validateScore(score: unknown, path: string, errors: ModelErrorV2[]): vo
   }
 }
 
-/** Every asset the flow names (music, the logo), for capture and export. */
+/** Every asset the flow names (music, the logo, the levels' sky images and LUTs), for capture and export. */
 export function flowAssetRefs(flow: GameFlow): { music: string[]; textures: string[] } {
   const music = new Set<string>();
   for (const l of flow.levels) if (l.music !== undefined) music.add(l.music);
   if (flow.title?.music !== undefined) music.add(flow.title.music);
-  return { music: [...music], textures: flow.ui?.logo !== undefined ? [flow.ui.logo] : [] };
+  const textures = new Set<string>();
+  if (flow.ui?.logo !== undefined) textures.add(flow.ui.logo);
+  for (const l of flow.levels) if (l.environment !== undefined) for (const id of environmentTextureRefs(l.environment)) textures.add(id);
+  return { music: [...music], textures: [...textures] };
 }
 
 export function canonicalFlow(f: GameFlow): GameFlow {
   return {
-    levels: f.levels.map((l) => ({ id: l.id, name: l.name, scenes: [...l.scenes], spawnId: l.spawnId, ...(l.music !== undefined ? { music: l.music } : {}) })),
+    levels: f.levels.map((l) => ({ id: l.id, name: l.name, scenes: [...l.scenes], spawnId: l.spawnId, ...(l.music !== undefined ? { music: l.music } : {}), ...(l.environment !== undefined ? { environment: canonicalLevelEnvironment(l.environment) } : {}) })),
     ...(f.lives !== undefined ? { lives: { start: f.lives.start, max: f.lives.max } } : {}),
     ...(f.title !== undefined ? { title: { ...(f.title.subtitle !== undefined ? { subtitle: f.title.subtitle } : {}), ...(f.title.music !== undefined ? { music: f.title.music } : {}) } } : {}),
     ...(f.hud !== undefined ? { hud: { preset: f.hud.preset, ...(f.hud.timer !== undefined ? { timer: f.hud.timer } : {}) } } : {}),

@@ -119,7 +119,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. setEnvironment {environment: {wind: ' +
-      '{direction: [x, z], strength, gust, gustFrequency, turbulence}}} (the foliage shader bends by COLOR_0.r). setLighting {sceneId, ' +
+      '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +
+      'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}, quality?}} ' +
+      '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. setLighting {sceneId, ' +
       'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Animation: setAnimator {controller: ' +
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
       '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
@@ -139,7 +141,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'health, chase? m (walks toward a player in range)}; a defeated enemy squashes, then vanishes; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
-      'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
+      'spawnId, music?: musicAssetId, environment?: {sky?, fog?, post?, wind?} (the level\'s look: each part given replaces the project environment\'s part while the level plays; post merges per effect)}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
       'volumes?: {music, sfx}, score?: {points?: {counterName: points per unit, e.g. coins, gems, keys, lives, defeated or a custom pickup counter}, ' +
       'timeBonus?: {targetSeconds, perSecond} (points per second under the target)}} | null} (score: shown on the HUD and the level complete/end screens, best per level kept in the player\'s save; ' +

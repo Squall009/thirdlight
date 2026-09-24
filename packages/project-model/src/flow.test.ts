@@ -46,6 +46,15 @@ describe('game flow', () => {
     expect(codes({ levels: [{ id: 'l1', name: 'One', scenes: ['s', 's'], spawnId: 'sp' }] })).toEqual(['field_value /flow/levels/0/scenes']);
   });
 
+  it('phase 14.4: a level look — shape checked, canonical, its images counted as flow textures', () => {
+    const withLook = { ...FLOW, levels: [FLOW.levels[0]!, { ...FLOW.levels[1]!, environment: { sky: { mode: 'texture', texture: 'sky-tex' }, post: { grading: { lut: 'lut-tex', gamma: 1.2 } } } }] } as GameFlow;
+    expect(errorsOf(withLook)).toEqual([]);
+    expect(canonicalFlow(JSON.parse(JSON.stringify(withLook)) as GameFlow)).toEqual(withLook);
+    expect(flowAssetRefs(withLook).textures).toEqual(['logo-tex', 'sky-tex', 'lut-tex']);
+    const bad = { ...FLOW, levels: [{ ...FLOW.levels[0]!, environment: { sky: { mode: 'color', color: 'red' }, quality: 'low' } }] };
+    expect(errorsOf(bad).map((e) => e.path)).toEqual(['/flow/levels/0/environment/quality', '/flow/levels/0/environment/sky/color']);
+  });
+
   it('phase 14.3: score rules — shape, bounds, counters in name order in the canonical form', () => {
     const score = { points: { gems: 50, coins: 10, defeated: 100, hits: -5 }, timeBonus: { targetSeconds: 90, perSecond: 2.5 } };
     expect(errorsOf({ ...FLOW, score })).toEqual([]);

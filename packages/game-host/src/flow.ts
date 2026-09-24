@@ -17,7 +17,7 @@ import { counterPoints, levelScore, type ScoreRulesLike } from './score';
 
 /** The flow block as the host reads it (structurally; validated by the model). */
 export interface FlowConfigLike {
-  readonly levels: readonly { readonly id: string; readonly name: string; readonly scenes: readonly string[]; readonly spawnId: string; readonly music?: string }[];
+  readonly levels: readonly { readonly id: string; readonly name: string; readonly scenes: readonly string[]; readonly spawnId: string; readonly music?: string; readonly environment?: LevelEnvironmentLike }[];
   readonly lives?: { readonly start: number; readonly max: number };
   readonly title?: { readonly subtitle?: string; readonly music?: string };
   readonly hud?: { readonly preset: 'classic' | 'minimal' | 'corners'; readonly timer?: boolean };
@@ -27,6 +27,9 @@ export interface FlowConfigLike {
   /** Phase 14.3: score rules (absent: no score shown or kept). */
   readonly score?: ScoreRulesLike;
 }
+
+/** Phase 14.4: a level's look (sky, fog, post, wind; passed through to the renderer as it is). */
+export type LevelEnvironmentLike = Readonly<Record<string, unknown>>;
 
 export type FlowScreen = 'title' | 'playing' | 'paused' | 'settings' | 'levelComplete' | 'gameOver' | 'finished' | 'load' | 'save';
 
@@ -86,6 +89,8 @@ export interface FlowDeps {
     config?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
   };
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Phase 14.4: the playing level's look over the project environment (null: none). */
+  readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
   /** Phase 9.11: the player's saves (absent: no saving). */
   readonly save?: SaveStore;
 }
@@ -406,6 +411,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     levelStartSim = null;
     levelResult = null;
     deps.audio.playMusic?.(l.music ?? null, 1);
+    deps.setLevelEnvironment?.(l.environment ?? null);
     show('playing');
     return true;
   };
@@ -576,6 +582,8 @@ export function createFlowController(deps: FlowDeps): FlowController {
 
   render();
   deps.audio.playMusic?.(flow.title?.music ?? null, 0);
+  // The title shows the first level's start scenes: with its look.
+  deps.setLevelEnvironment?.(flow.levels[0]?.environment ?? null);
 
   return {
     get screen() {

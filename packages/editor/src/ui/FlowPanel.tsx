@@ -28,6 +28,8 @@ interface Props {
   counters?: readonly string[];
   /** Phase 9.11: forget the running Play's saves (null: no Play running). */
   onClearPlaySave?: (() => void) | null;
+  /** Phase 14.4: open the Environment window on this level's look. */
+  onEditLook?: (levelId: string) => void;
   note?: string | null;
 }
 
@@ -214,6 +216,17 @@ export function FlowPanel(p: Props): JSX.Element {
                   ))}
                 </select>
               </label>
+              {p.onEditLook !== undefined && (
+                <button
+                  type="button"
+                  className={l.environment !== undefined ? 'tl-button is-active' : 'tl-button'}
+                  aria-label={`level ${i + 1} look`}
+                  title={l.environment !== undefined ? `this level has its own ${Object.keys(l.environment).join(', ')}` : 'this level uses the project environment'}
+                  onClick={() => p.onEditLook!(l.id)}
+                >
+                  Level look…{l.environment !== undefined ? ' (own)' : ''}
+                </button>
+              )}
               <button type="button" className="tl-button" aria-label={`move level ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>

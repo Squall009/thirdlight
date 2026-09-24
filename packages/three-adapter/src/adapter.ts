@@ -29,7 +29,7 @@
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
+import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -158,6 +158,13 @@ export interface SceneAdapter {
   modelsSettled?(): Promise<ModelsSettledResult>;
   /** Phase 9.10: a player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
+  /**
+   * Phase 14.4: the playing level's look (sky, fog, post, wind) laid over the
+   * project environment; null = the project environment. Needs the
+   * `environment` option for sky/fog/post (the wrapper passes it whenever a
+   * level has a look) and the `materials` option for wind.
+   */
+  setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -269,6 +276,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** Phase 9.5: the environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
+  /** Phase 14.4: the playing level's look (null: the project environment). */
+  let environmentLayer: EnvironmentLayerLike | null = null;
+  /** What the renderer draws: the project environment with the level's look over it (null when nothing is drawn, as without an environment). */
+  const effectiveEnvironment = (): EnvironmentLike | null => {
+    const v = layerEnvironment(opts.environment?.value ?? null, environmentLayer);
+    return environmentHasLook(v) ? v : null;
+  };
   const fogVolumeIds = new Set<string>();
   const tmpWorld = new THREE.Vector3();
   /** The fog volumes of the loaded scenes, in world space (entities may move). */
@@ -276,11 +290,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const out: FogVolumeLike[] = [];
     for (const id of fogVolumeIds) {
       const obj = objects.get(id);
-      const doc = entityDocs.get(id) as { components: { fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number } } } | undefined;
+      const doc = entityDocs.get(id) as { components: { fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number } } } | undefined;
       const fv = doc?.components.fogVolume;
       if (obj === undefined || fv === undefined || !obj.visible) continue;
       obj.getWorldPosition(tmpWorld);
-      out.push({ center: [tmpWorld.x, tmpWorld.y, tmpWorld.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}) });
+      out.push({ center: [tmpWorld.x, tmpWorld.y, tmpWorld.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
     }
     return out;
   };
@@ -898,7 +912,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (opts.environment !== undefined) {
         if (environmentRenderer === null) {
           environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment.loadTexture });
-          environmentRenderer.set(opts.environment.value);
+          environmentRenderer.set(effectiveEnvironment());
           if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
         }
         const key = keyLight;
@@ -1059,6 +1073,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     setQuality(level: QualityLevel): void {
       playerQuality = level;
       environmentRenderer?.setQuality(level);
+    },
+    setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
+      if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;
+      environmentLayer = layer;
+      environmentRenderer?.set(effectiveEnvironment());
+      if (materialLibrary !== null) materialLibrary.setWind(((layer?.wind as WindLike | undefined) ?? opts.materials?.wind ?? null) as WindLike | null);
     },
   };
   // M4 (C64-4): the settle surface — present iff the `models` option was

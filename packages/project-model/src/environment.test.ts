@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { canonicalEnvironment, validateEnvironment, type EnvironmentConfig } from './materials';
+import { canonicalEnvironment, canonicalLevelEnvironment, environmentTextureRefs, validateEnvironment, validateLevelEnvironment, type EnvironmentConfig } from './materials';
 import { validateSceneV4 } from './scene-v3';
 
 const check = (value: unknown): string[] => {
@@ -73,5 +73,38 @@ describe('fog volumes (v4)', () => {
       expect(validateSceneV4(scene(bad)).ok, JSON.stringify(bad)).toBe(false);
     }
     expect(validateSceneV4(scene({ size: [1, 1, 1], density: 0.2, color: '#ffffff' }, 17)).ok).toBe(false);
+  });
+});
+
+describe('phase 14.4: grading lift/gamma/gain, fog volume height falloff, level looks', () => {
+  it('accepts lift/gamma/gain in range and refuses them out of range', () => {
+    expect(check({ post: { grading: { lift: 0.1, gamma: 1.4, gain: 0.9 } } })).toEqual([]);
+    expect(check({ post: { grading: { lift: 0.6 } } })).toEqual(['/environment/post/grading/lift']);
+    expect(check({ post: { grading: { gamma: 0.1 } } })).toEqual(['/environment/post/grading/gamma']);
+    expect(check({ post: { grading: { gain: -1 } } })).toEqual(['/environment/post/grading/gain']);
+  });
+
+  it('a level look takes sky, fog, post and wind (not quality) and keeps them in canonical form', () => {
+    const lv = (v: unknown): string[] => {
+      const errors: { path: string }[] = [];
+      validateLevelEnvironment(v, '/flow/levels/1/environment', errors as never);
+      return errors.map((e) => e.path);
+    };
+    expect(lv({ sky: { mode: 'color', color: '#FF0000' }, fog: { mode: 'exp2', color: '#ffffff', density: 0.02 }, post: { bloom: { enabled: true } }, wind: { direction: [0, 1], strength: 2, gust: 0, gustFrequency: 0, turbulence: 0 } })).toEqual([]);
+    expect(lv({ quality: 'low' })).toEqual(['/flow/levels/1/environment/quality']);
+    expect(lv({ wind: { direction: [0, 0], strength: 1, gust: 0, gustFrequency: 0, turbulence: 0 } })).toEqual(['/flow/levels/1/environment/wind/direction']);
+    expect(lv({ sky: { mode: 'texture' } })).toEqual(['/flow/levels/1/environment/sky/texture']);
+    expect(lv([])).toEqual(['/flow/levels/1/environment']);
+    expect(JSON.stringify(canonicalLevelEnvironment({ post: { exposure: 2 }, sky: { mode: 'color', color: '#AABBCC' } }))).toBe('{"sky":{"color":"#aabbcc","mode":"color"},"post":{"exposure":2}}');
+    expect(environmentTextureRefs({ sky: { mode: 'texture', texture: 'asset-0001' }, post: { grading: { lut: 'asset-0002' } } })).toEqual(['asset-0001', 'asset-0002']);
+  });
+
+  it('a fog volume keeps heightFalloff (0–10 per metre)', () => {
+    const T = { position: [0, 1, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+    const scene = (fogVolume: unknown) => ({ schemaVersion: 4, sceneId: 'scene-a', revision: 1, entities: [{ id: 'fog-0001', components: { transform: T, fogVolume } }] });
+    const r = validateSceneV4(scene({ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', heightFalloff: 1.5 }));
+    expect(r.ok, JSON.stringify(r.ok ? null : r.errors)).toBe(true);
+    if (r.ok) expect((r.normalized.entities[0]!.components as { fogVolume?: unknown }).fogVolume).toEqual({ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', heightFalloff: 1.5 });
+    expect(validateSceneV4(scene({ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', heightFalloff: 11 })).ok).toBe(false);
   });
 });

@@ -82,8 +82,8 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type WindLike } from '@thirdlight/three-adapter';
+import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -333,6 +333,15 @@ function EditorApp(): JSX.Element {
   const [flow, setFlow] = useState<GameFlow | null>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
   const [flowNote, setFlowNote] = useState<string | null>(null);
+  // Phase 14.4: level looks. The Scene view shows the look of the level the
+  // active scene belongs to (or of the level being edited in the Environment
+  // window) while "level look" is on; the toolbar offers the toggle only when
+  // that level has a look of its own.
+  const [levelLookOn, setLevelLookOn] = useState(true);
+  const levelLookOnRef = useRef(true);
+  const [envLevelId, setEnvLevelId] = useState<string | null>(null);
+  const envLevelIdRef = useRef<string | null>(null);
+  const [lookLevel, setLookLevel] = useState<{ id: string; name: string } | null>(null);
   // Phase 9.12: the Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
@@ -437,6 +446,33 @@ function EditorApp(): JSX.Element {
     setCaptureError(null);
   }, [selectedId]);
 
+  /** Phase 14.4: the environment the Scene view shows — the project's, with the look level's own parts over it. */
+  const applyEnvironmentView = useCallback(() => {
+    const c = clientRef.current;
+    if (!c) return;
+    const env = c.getEnvironment();
+    const flowNow = c.getFlow();
+    const active = c.projection.scenes.length > 0 ? c.getSceneView().active : null;
+    const level =
+      (envLevelIdRef.current !== null ? flowNow?.levels.find((l) => l.id === envLevelIdRef.current) : undefined) ??
+      (active !== null ? flowNow?.levels.find((l) => l.scenes.includes(active)) : undefined);
+    const withLook = level?.environment !== undefined ? { id: level.id, name: level.name } : null;
+    setLookLevel((prev) => (prev?.id === withLook?.id && prev?.name === withLook?.name ? prev : withLook));
+    const layer = levelLookOnRef.current && level?.environment !== undefined ? (level.environment as unknown as EnvironmentLayerLike) : null;
+    const shown = layerEnvironment(env as unknown as (EnvironmentLike & { wind?: unknown }) | null, layer);
+    materialLibraryRef.current?.setWind(((shown as { wind?: WindLike } | null)?.wind ?? null) as WindLike | null);
+    const envKey = JSON.stringify(shown);
+    if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
+      environmentKeyRef.current = envKey;
+      viewportRef.current?.setEnvironment(shown === null ? null : (shown as EnvironmentLike), loadTextureRef.current);
+    }
+  }, []);
+  useEffect(() => {
+    levelLookOnRef.current = levelLookOn;
+    envLevelIdRef.current = envLevelId;
+    applyEnvironmentView();
+  }, [levelLookOn, envLevelId, applyEnvironmentView]);
+
   const refreshEntities = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
@@ -476,12 +512,8 @@ function EditorApp(): JSX.Element {
       materialsKeyRef.current = matsKey;
       materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[]);
     }
-    materialLibraryRef.current?.setWind(env?.wind ?? null);
-    const envKey = JSON.stringify(env);
-    if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
-      environmentKeyRef.current = envKey;
-      viewportRef.current?.setEnvironment(env === null ? null : (env as unknown as EnvironmentLike), loadTextureRef.current);
-    }
+    // Phase 14.4: the project environment with the look level's own parts (wind included).
+    applyEnvironmentView();
     setAnimators(c.getAnimators());
     setInputConfig(c.getInput());
     setInputDefaults(c.getInputDefaults());
@@ -495,7 +527,7 @@ function EditorApp(): JSX.Element {
       viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
     setUi((s) => ({ ...s, revision: c.projection.revision }));
-  }, []);
+  }, [applyEnvironmentView]);
 
   // ---- mount: create the client + viewport, connect -----------------------
   useEffect(() => {
@@ -2249,6 +2281,22 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setFlowError(refusal(await c.command('setFlow', { flow: next === null ? null : (JSON.parse(JSON.stringify(next)) as GameFlow) }, c.projection.revision)));
   }, []);
+  /** Phase 14.4: set or clear one level's look (one `setFlow`, one undo). */
+  const saveLevelLook = useCallback(async (levelId: string, look: LevelEnvironment | null) => {
+    const c = clientRef.current;
+    const current = c?.getFlow() ?? null;
+    if (!c || current === null) return;
+    const levels = current.levels.map((l) => {
+      if (l.id !== levelId) return l;
+      const { environment: _e, ...rest } = l;
+      return look === null ? rest : { ...rest, environment: look };
+    });
+    setMaterialError(refusal(await c.command('setFlow', { flow: JSON.parse(JSON.stringify({ ...current, levels })) as GameFlow }, c.projection.revision)));
+  }, []);
+  // The Environment window edits the project environment again once another window is chosen.
+  useEffect(() => {
+    if (bottomTab !== 'environment') setEnvLevelId(null);
+  }, [bottomTab]);
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2801,6 +2849,8 @@ function EditorApp(): JSX.Element {
           viewportRef.current?.setLighting(next);
           setLightingMode(next);
         }}
+        {...(lookLevel !== null ? { levelLook: { on: levelLookOn, levelName: lookLevel.name } } : {})}
+        onToggleLevelLook={() => setLevelLookOn((v) => !v)}
         onPlay={() => void play()}
         onStop={() => void stop()}
       />
@@ -3076,6 +3126,12 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               onSave={(env) => void saveEnvironment(env)}
               error={materialError}
+              {...(() => {
+                const l = envLevelId !== null ? flow?.levels.find((x) => x.id === envLevelId) : undefined;
+                return l !== undefined
+                  ? { level: { id: l.id, name: l.name, environment: l.environment ?? null, onSave: (look: LevelEnvironment | null) => void saveLevelLook(l.id, look), onBack: () => setEnvLevelId(null) } }
+                  : {};
+              })()}
             />
           )}
           {bottomTab === 'game' && (
@@ -3088,6 +3144,11 @@ function EditorApp(): JSX.Element {
               gameSpawnId={gameConfig?.spawnId ?? null}
               counters={scoreCounterNames(entities)}
               onSave={(next) => void saveFlow(next)}
+              onEditLook={(levelId) => {
+                setEnvLevelId(levelId);
+                setLevelLookOn(true);
+                setBottomTab('environment');
+              }}
               error={flowError}
               note={flowNote}
               onClearPlaySave={

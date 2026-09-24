@@ -43,7 +43,7 @@ export {
 } from './audio';
 export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveRecords, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
 export { counterPoints, levelScore, timeBonus, type ScoreRulesLike } from './score';
-export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges } from './flow';
+export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 export {
   GAME_HOST_API_VERSION,
   GAME_CONTROL_ACTIONS,

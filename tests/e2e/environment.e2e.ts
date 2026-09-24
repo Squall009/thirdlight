@@ -1,7 +1,8 @@
 /**
  * Phase 9.5: the Environment window. A solid sky colour fills the Scene view's
  * background, the physical sky draws a sky, a vignette darkens the corners,
- * bloom brightens the view, a fog volume fills its box with fog — and Play and
+ * bloom brightens the view, a fog volume fills its box with fog (14.4: and thins
+ * with height) — and Play and
  * the export render the same environment.
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -112,6 +113,19 @@ test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in th
   await page.keyboard.press('End');
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(middle + 40);
+  // Phase 14.4: the fog thins with height — at the fastest falloff almost none is left above the box bottom.
+  const foggy = bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7));
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Fog volume' }).click();
+  await page.getByRole('slider', { name: 'fog height falloff' }).focus();
+  await page.keyboard.press('End');
+  await expect.poll(async () => ((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { components: { fogVolume?: { heightFalloff?: number } } }[]).find((e) => e.components.fogVolume !== undefined)?.components.fogVolume?.heightFalloff).toBe(10);
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeLessThan(foggy - 30);
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Fog volume' }).click();
+  await page.getByRole('slider', { name: 'fog height falloff' }).focus();
+  await page.keyboard.press('Home');
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(foggy - 10);
   const env = (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'] as Record<string, unknown>;
   expect(env).toMatchObject({ sky: { mode: 'color' }, post: { vignette: { enabled: true } } });
 

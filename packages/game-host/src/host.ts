@@ -64,7 +64,7 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges } from './flow';
+import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, type SaveStorage } from './save';
 
 /** delivery.md §3.1. */
@@ -209,6 +209,8 @@ export interface GameHostConfig {
   readonly saveNamespace?: string;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Phase 14.4: apply the playing level's look (the wrapper forwards it to the renderer; null = the project environment). */
+  readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -770,6 +772,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
           ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
         },
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
+        ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).

@@ -688,6 +688,33 @@ stay as they were). MCP: `setFlow` with `flow.score: { points?: { counter:
 points }, timeBonus?: { targetSeconds, perSecond } }`; `tl_game_observe`
 reports `flow.score` (game, level, best per level id).
 
+## Level look (per-level environment)
+
+**Game flow → Level look…** on a level opens the **Environment** window for
+that level's look. Tick *this level has its own sky / fog /
+post-processing / wind* for each part the level changes: the part starts as
+a copy of the project's and is edited with the usual controls; everything
+not ticked stays the project's. While the level plays (Play and the
+exported game) its own sky, fog and wind replace the project's, and its
+post-processing settings replace the project's effect by effect (e.g. only
+the grading). The title screen shows level 1's look. Levels without a look
+(and projects from before) look exactly as before. *project environment*
+(or choosing another window) goes back to editing the project environment.
+
+The Scene view shows the look of the level being edited, otherwise of the
+level the active scene belongs to (the first level that loads it), with game
+lighting; the toolbar's **level look: on/off** (beside *light: game*,
+present when that level has a look) switches between it and the project
+environment. MCP: `setFlow` with `flow.levels[].environment: { sky?, fog?,
+post?, wind? }` (quality stays project-wide).
+
+Also in the Environment window, post-processing grading has **lift**
+(raises the blacks, −0.5–0.5), **gamma** (mid-tones, 0.2–5; above 1
+brightens) and **gain** (scales the whites, 0–4); the defaults (0, 1, 1)
+leave the image unchanged. A **fog volume** (Inspector) has *thins with
+height*: its density fades by e^(−k·height) above the box bottom (k per
+metre, 0–10; 0 = even fog, as before).
+
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type
