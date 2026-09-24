@@ -35,6 +35,7 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import type { ActionFrame } from './actions';
+import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { LiveTagIndex } from './scene-set';
 import { InstanceTimers, TimerCallError } from './timers';
@@ -51,8 +52,17 @@ import {
   type IntentSet,
 } from './intents';
 import type {
+  AnimatorEventRecord,
+  BehaviorAnimatorHandle,
+  BehaviorAudio,
+  BehaviorGameState,
+  BehaviorSave,
+  BehaviorSceneControl,
+  BehaviorSignals,
   BehaviorTagQuery,
+  BehaviorTimers,
   BehaviorWorldView,
+  GameplaySettings,
   ModuleConfig,
   RuntimeSnapshot,
   SimulationModuleSpec,
@@ -64,6 +74,90 @@ import type {
 
 /** The declared-property value map fed to one behavior instance (§14.3). */
 export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
+
+// Phase 16.3: the public behavior API. The host builds exactly this object
+// each step (`stepBehavior` below is typed by it); the script editor's typings
+// (tools/gen-behavior-api.mjs → editor `behavior-api.generated.ts`) are
+// generated from these declarations, so their doc comments are what a script
+// author reads in completion — keep them author-facing.
+
+/** What a behavior's `step(state, ctx)` receives each fixed step (once per phase it runs in). */
+export interface BehaviorContext {
+  /** The behavior's id. */
+  readonly behaviorId: string;
+  /** The entity carrying this script instance. */
+  readonly entityId: string;
+  /** The fixed step counter of the run. */
+  readonly stepIndex: number;
+  /** The phase being stepped: `'intent'`, then `'transform'` (only with owned transforms). */
+  readonly phase: SimulationPhase;
+  /** The instance's property values (declaration defaults with the object's overrides). */
+  readonly properties: BehaviorProperties;
+  /** The step's sampled input frame (the same for every phase of the step). */
+  readonly action: ActionFrame;
+  /** The intents committed so far in this step. */
+  readonly intents: IntentSet;
+  /** The game's gameplay settings. */
+  readonly settings: Readonly<GameplaySettings>;
+  /** Physics queries for this step. */
+  readonly physics: PhysicsStepClient;
+  /** Find entities by tag. */
+  readonly tags: BehaviorTagQuery;
+  /** Read-only positions of the loaded entities. */
+  readonly world: BehaviorWorldView;
+  /** Load and switch scenes (projects with a scene catalog). */
+  readonly scenes?: BehaviorSceneControl;
+  /** The step's input actions by name. */
+  readonly input: BehaviorInputView;
+  /** An entity's animator (`ctx.animator(id)?.set('speed', 1)`), or null when it has none. */
+  readonly animator?: (entityId: string) => BehaviorAnimatorHandle | null;
+  /** Last step's clip events and the enter/exit events of the triggers this instance owns. */
+  readonly events?: readonly (AnimatorEventRecord | TriggerEventRecord)[];
+  /** Named timers of this instance, counted in fixed steps. */
+  readonly timers: BehaviorTimers;
+  /** Signals (seen one step after they are emitted). */
+  readonly signals?: BehaviorSignals;
+  /** The run's counters, the player's health and object visibility. */
+  readonly game?: BehaviorGameState;
+  /** Play sounds (presentation only, never part of the simulation). */
+  readonly audio?: BehaviorAudio;
+  /** Values kept in the player's save. */
+  readonly save?: BehaviorSave;
+  /** Copy a project prefab into the running game; returns the new root id (or null at an engine limit). */
+  readonly spawn?: (prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }) => string | null;
+  /** Remove a spawned entity at the next step boundary. */
+  readonly destroy?: (entityId: string) => boolean;
+  /** Commit one intent (a transform/pose of an owned entity, or a gameplay intent). */
+  emit(intent: BehaviorIntent): void;
+  /** Write to the play log (`'info' | 'warn' | 'error'`). */
+  log(level: BehaviorLogLevel, message: string): void;
+}
+
+/** What `prepare(cfg)` receives (once per run, before any instance). */
+export interface BehaviorPrepareConfig {
+  readonly behaviorId: string;
+  readonly sourceDigest: string;
+  readonly declaration: PropertyDeclaration;
+  readonly enginePins: readonly BehaviorEnginePin[];
+}
+
+/** What `instantiate(prepared, inst)` receives (once per entity carrying the behavior). */
+export interface BehaviorInstanceInfo {
+  readonly entityId: string;
+  readonly properties: BehaviorProperties;
+  readonly tags: BehaviorTagQuery;
+}
+
+/**
+ * A behavior module's `export default`: only `step` is required; it must be
+ * synchronous and return nothing. State is per entity (from `instantiate`).
+ */
+export interface BehaviorSpec<State = unknown, Prepared = unknown> {
+  prepare?(cfg: BehaviorPrepareConfig): Prepared;
+  instantiate?(prepared: Prepared, inst: BehaviorInstanceInfo): State;
+  step(state: State, ctx: BehaviorContext): void;
+  dispose?(prepared: Prepared, state: State): void;
+}
 
 /**
  * Phase 15.4: the property values one running behavior instance reads
@@ -358,7 +452,7 @@ interface BehaviorInstance {
   /** Phase 14.2: `ctx.timers` of this instance. */
   timers: InstanceTimers;
   /** Phase 14.2: this step's `ctx.events` (built once per step, shared by its phases). */
-  events: { step: number; list: readonly unknown[] } | null;
+  events: { step: number; list: readonly (AnimatorEventRecord | TriggerEventRecord)[] } | null;
 }
 
 /**
@@ -518,7 +612,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         return entityRefKeys.some((k) => instance.properties[k] === triggerId);
       };
       /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers. */
-      const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly unknown[] => {
+      const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly (AnimatorEventRecord | TriggerEventRecord)[] => {
         if (instance.events !== null && instance.events.step === ctx.stepIndex) return instance.events.list;
         const clips = ctx.animatorEvents ?? [];
         const owned = (ctx.triggerEvents ?? []).filter((t: TriggerEventRecord) => ownsTrigger(instance, t.trigger));
@@ -586,7 +680,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
 
       const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext, world: BehaviorWorldView): void => {
         beginInstanceStep(instance, ctx.stepIndex);
-        const behaviorCtx = Object.freeze({
+        const behaviorCtx: BehaviorContext = Object.freeze({
           behaviorId,
           entityId: instance.entityId,
           stepIndex: ctx.stepIndex,
@@ -791,7 +885,7 @@ export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery & Li
   );
 }
 
-function behaviorSpecOf(namespace: unknown): BehaviorSpec {
+function behaviorSpecOf(namespace: unknown): LoadedBehaviorSpec {
   const ns = namespace as { default?: unknown } | null;
   const candidate = isPlainObject(ns) && 'default' in ns ? ns.default : ns;
   if (!isPlainObject(candidate) || typeof candidate['step'] !== 'function') {
@@ -801,11 +895,11 @@ function behaviorSpecOf(namespace: unknown): BehaviorSpec {
       'the compiled artifact namespace must export a spec with a step() function',
     );
   }
-  return candidate as unknown as BehaviorSpec;
+  return candidate as unknown as LoadedBehaviorSpec;
 }
 
-/** The authored `export default` program (runtime.md §14.3). */
-interface BehaviorSpec {
+/** The authored `export default` program as loaded (unchecked; runtime.md §14.3). */
+interface LoadedBehaviorSpec {
   prepare?(cfg: unknown): unknown;
   instantiate?(prepared: unknown, inst: unknown): unknown;
   step(state: unknown, ctx: unknown): unknown;

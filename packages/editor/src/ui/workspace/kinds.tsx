@@ -15,7 +15,8 @@ import type { ReactNode } from 'react';
 
 import type { DocRef } from '../../session/workspace-tabs';
 import { AnimatorPanel, type AnimatorPanelProps } from '../AnimatorPanel';
-import { BehaviorPanel, type BehaviorPanelProps } from '../BehaviorPanel';
+import type { BehaviorPanelProps } from '../BehaviorPanel';
+import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -23,6 +24,8 @@ export interface WorkspaceHost {
   animator: AnimatorPanelProps;
   /** The Behaviors panel's props (the bottom-dock panel uses the same). */
   behavior: BehaviorPanelProps;
+  /** Phase 16.3: the script editor's data and actions (all behaviors share them). */
+  script: Omit<ScriptDocumentProps, 'behaviorId' | 'behavior'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -62,9 +65,12 @@ const scriptKind: DocumentKind = {
   label: 'Script',
   icon: './icons/script.png',
   name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
-  // The panel's publication flow acts on the app's selected behavior: the app
-  // selects this behavior while its tab is active.
-  render: (id, host) => <BehaviorPanel {...host.behavior} document selectedBehaviorId={id} />,
+  // Phase 16.3: the code editor (files, compile diagnostics, publish) with
+  // the declaration editor docked beside it. Keyed by the behavior so a
+  // different behavior never inherits another's view state.
+  render: (id, host) => (
+    <ScriptDocument key={id} {...host.script} behaviorId={id} behavior={host.behavior.behaviors.find((b) => b.behaviorId === id) ?? null} />
+  ),
 };
 
 /** Every document kind the centre workspace can open, in no particular order. */

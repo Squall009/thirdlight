@@ -139,6 +139,19 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       'playwright-core': '1.62.1',
       '@types/node': '22.20.4',
       '@types/ws': '8.18.1',
+      // Phase 16.3: the script editor (CodeMirror 6).
+      '@codemirror/state': '6.7.6',
+      '@codemirror/view': '6.43.13',
+      '@codemirror/language': '6.12.4',
+      '@codemirror/commands': '6.11.1',
+      '@codemirror/autocomplete': '6.20.3',
+      '@codemirror/lint': '6.9.7',
+      '@codemirror/search': '6.7.2',
+      '@codemirror/lang-javascript': '6.2.5',
+      '@lezer/common': '1.5.3',
+      '@lezer/highlight': '1.2.4',
+      '@lezer/lr': '1.4.10',
+      '@lezer/javascript': '1.5.5',
     });
   });
 });
