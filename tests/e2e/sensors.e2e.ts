@@ -172,6 +172,8 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await view.hover();
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await triggerValue())['radius']).toBe(1);
+  // The Inspector redraws after the undo: wait for it before typing, or the fill lands mid-redraw.
+  await expect(page.locator('.tl-inspector').getByLabel('trigger radius', { exact: true })).toHaveValue('1');
   // A small circle on the start: the player stands inside it when the run begins.
   await field(page, 'trigger radius', '0.5');
   await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'circle', radius: 0.5, mode: 'stay' });
