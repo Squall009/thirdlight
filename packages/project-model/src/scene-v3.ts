@@ -94,6 +94,8 @@ import {
   isFolderEntity,
   GAME_ZONE_ROLES_V4,
   MAX_INSTANCES,
+  PLAYER_SPAWN_FACINGS,
+  type PlayerSpawnFacing,
 } from './types-v3';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 
@@ -362,13 +364,19 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   }
 }
 
-export function validatePlayerSpawnComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
+export function validatePlayerSpawnComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
   }
   for (const k of Object.keys(c)) {
-    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, '{} (no fields)'));
+    // Phase 15.2: v4 spawns may say which way the player faces.
+    if (k === 'facing' && version === 4) {
+      const v = c[k];
+      if (typeof v !== 'string' || !(PLAYER_SPAWN_FACINGS as readonly string[]).includes(v)) errors.push(fieldValue(`${path}/facing`, v, '"none", "left" or "right"', 'facing is none, left or right'));
+      continue;
+    }
+    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'facing' : '{} (no fields)'));
   }
 }
 
@@ -823,7 +831,7 @@ function validateEntityComponentsV3(
   // v3 components (field values, §23.3.1–§23.3.6)
   let zoneRole: GameZoneRole | null = null;
   if (comps['gameZone'] !== undefined) zoneRole = validateGameZoneComponent(comps['gameZone'], `${path}/gameZone`, errors, version);
-  if (comps['playerSpawn'] !== undefined) validatePlayerSpawnComponent(comps['playerSpawn'], `${path}/playerSpawn`, errors);
+  if (comps['playerSpawn'] !== undefined) validatePlayerSpawnComponent(comps['playerSpawn'], `${path}/playerSpawn`, errors, version);
   if (comps['cameraFollow'] !== undefined) validateCameraFollowComponent(comps['cameraFollow'], `${path}/cameraFollow`, errors, version);
   if (comps['instances'] !== undefined) {
     validateInstancesComponent(comps['instances'], `${path}/instances`, errors);
@@ -1091,7 +1099,10 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
-  if (comps['playerSpawn'] !== undefined) components.playerSpawn = {};
+  if (comps['playerSpawn'] !== undefined) {
+    const facing = (comps['playerSpawn'] as { facing?: PlayerSpawnFacing }).facing;
+    components.playerSpawn = facing !== undefined ? { facing } : {};
+  }
   if (comps['cameraFollow'] !== undefined) components.cameraFollow = canonicalCameraFollow(comps['cameraFollow']);
   if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);

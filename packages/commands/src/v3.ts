@@ -43,7 +43,8 @@ import type {
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
-  playerSpawn: [],
+  // Phase 15.2: a v4 spawn's facing (optional).
+  playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
@@ -181,7 +182,7 @@ export function validateV3ComponentValue(
       validateGameZoneComponent(value, path, errors, version);
       break;
     case 'playerSpawn':
-      validatePlayerSpawnComponent(value, path, errors);
+      validatePlayerSpawnComponent(value, path, errors, version);
       break;
     case 'cameraFollow':
       validateCameraFollowComponent(value, path, errors, version);

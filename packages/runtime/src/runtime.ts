@@ -722,7 +722,7 @@ export function instantiateRuntime(
   // content projection (collected in document order; the projection sorts by
   // entityId codepoint order — document order is explicitly not used).
   const zoneSpecs: { entityId: string; role: GameZoneRole; center: Vec2; half: Vec2; safeSpawnId?: string; activation?: Readonly<CheckpointActivationAppearance> }[] = [];
-  const spawnSpecs: { entityId: string; center: Vec2 }[] = [];
+  const spawnSpecs: { entityId: string; center: Vec2; facing?: 'left' | 'right' }[] = [];
   let cameraFollowData: { deadZone: Vec2; smoothing: number; bounds: GameCameraBounds } | undefined;
   for (const e of scene.entities) {
     const t = e.components.transform;
@@ -762,7 +762,9 @@ export function instantiateRuntime(
       });
     }
     if (v3.playerSpawn !== undefined) {
-      spawnSpecs.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] } });
+      // Phase 15.2: a spawn's facing (only when set, so older snapshots project exactly as before).
+      const facing = (v3.playerSpawn as { facing?: string }).facing;
+      spawnSpecs.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}) });
     }
     if (cam && v3.cameraFollow !== undefined) {
       const f = v3.cameraFollow;
@@ -2382,6 +2384,10 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+
+    // Phase 15.2: the player's facing models turn to the spawn's facing (before
+    // the prev := curr promotion, so the first frame shows it).
+    if (spawn.facing !== undefined) this.blocks?.faceSpawn(player, spawn.facing);
 
     // R7: apply + rebase. The staged pose is already in `curr` (R5) and the
     // camera hook wrote the camera pose (R6); the standard `prev := curr`

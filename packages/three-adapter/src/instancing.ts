@@ -20,6 +20,8 @@ export interface BuiltInstanceSet {
   /** Holds the instanced meshes; attach it under the entity's node. */
   readonly group: THREE.Group;
   readonly meshes: readonly THREE.InstancedMesh[];
+  /** Phase 15.2 (editor preview): redraw copy `index` at a transform (position xyz, quaternion xyzw, scale xyz). */
+  setCopy(index: number, transform: readonly number[]): void;
   /** Release the instance matrices and detach (the model resource is untouched). */
   dispose(): void;
 }
@@ -35,6 +37,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   const group = new THREE.Group();
   group.name = name;
   const meshes: THREE.InstancedMesh[] = [];
+  const locals: THREE.Matrix4[] = [];
   const n = Math.max(0, Math.min(count, Math.floor(floats.length / INSTANCE_BUFFER_FLOATS)));
   const place = new THREE.Matrix4();
   const pos = new THREE.Vector3();
@@ -44,6 +47,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     const mesh = node as THREE.Mesh;
     if (mesh.isMesh !== true) return;
     const local = new THREE.Matrix4().multiplyMatrices(rootInverse, mesh.matrixWorld);
+    locals.push(local);
     const inst = new THREE.InstancedMesh(mesh.geometry, mesh.material, n);
     inst.castShadow = true;
     inst.receiveShadow = true;
@@ -63,6 +67,18 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
   return {
     group,
     meshes,
+    setCopy(index: number, t: readonly number[]): void {
+      if (index < 0 || index >= n || t.length < INSTANCE_BUFFER_FLOATS) return;
+      pos.set(t[0]!, t[1]!, t[2]!);
+      rot.set(t[3]!, t[4]!, t[5]!, t[6]!).normalize();
+      scl.set(t[7]!, t[8]!, t[9]!);
+      meshes.forEach((m, k) => {
+        place.compose(pos, rot, scl).multiply(locals[k]!);
+        m.setMatrixAt(index, place);
+        m.instanceMatrix.needsUpdate = true;
+        m.computeBoundingSphere();
+      });
+    },
     dispose(): void {
       for (const m of meshes) {
         try {

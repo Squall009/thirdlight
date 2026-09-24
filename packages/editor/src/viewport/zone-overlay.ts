@@ -19,13 +19,16 @@ import * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import type { ZonePose } from '../session/zone-gesture';
 import type { ZoneRole } from '../session/gameplay';
-import { capsuleDistance, handlePoint, handlesOf, outlinePoints, resizeShape, sizeShapesOf, type SizeHandle, type SizeShape } from '../session/size-handles';
+import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { capsuleDistance, capsuleShapeOf, outlinePoints, type SizeShape } from '../session/size-handles';
+import { deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, linesOf, type Grip, type HandleShape, type P3 } from '../session/handles';
 
-/** Phase 14.0: a size handle under the pointer (which shape of which entity, which handle). */
-export interface SizeHandleRef {
+/** Phase 15.2: a grip under the pointer (which handle shape of which entity, which grip). */
+export interface HandleRef {
   entityId: string;
   shapeIndex: number;
-  handle: SizeHandle;
+  grip: string;
+  role: Grip['role'];
 }
 
 /** The collider outline colour (phase 9.12); the player's capsule uses it too. */
@@ -93,17 +96,20 @@ export class ZoneOverlay {
   private readonly blocks = new THREE.Group();
   /** Phase 9.12: every collider's 2D outline (the Gizmos menu toggles them). */
   private readonly colliders = new THREE.Group();
-  /** Phase 9.12: each mover's path for the waypoint drag preview. */
-  private readonly moverPaths = new Map<string, { origin: THREE.Vector3; waypoints: number[][]; loop: boolean; line: THREE.Line; dots: THREE.Mesh[] }>();
-  /** Phase 14.0: the entities of the last sync (the size handles read the selected one). */
+  /** Phase 14.0: the entities of the last sync (the handles read the selected one). */
   private entities: readonly ProjectedEntity[] = [];
   /** Phase 14.0: each player's capsule (drawn with the collider outlines, clickable). */
   private readonly capsules = new Map<string, { shape: SizeShape; z: number }>();
-  /** Phase 14.0: the selected entity's size handles and the drag preview outline. */
+  /** Phase 15.2: the selected entity's handle grips, its handle outlines and the drag preview. */
   private readonly sizeHandles = new THREE.Group();
-  private sizeShapes: SizeShape[] = [];
-  private sizeZ = 0;
-  private sizePreview: THREE.Line | null = null;
+  private readonly handleOutlines = new THREE.Group();
+  private handleShapes: HandleShape[] = [];
+  private handleFrames: THREE.Matrix4[] = [];
+  private handleDrag: { shapeIndex: number; grip: string; shape: HandleShape; moved: boolean } | null = null;
+  private handlePreview: THREE.Group | null = null;
+  /** Phase 15.2: the descriptors (the handles come from them) and each entity's scene node (its frame). */
+  private registry: DescriptorRegistry | null = null;
+  private nodeFor: (entityId: string) => THREE.Object3D | null = () => null;
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.scene = scene;
@@ -117,6 +123,8 @@ export class ZoneOverlay {
     this.root.add(this.colliders);
     this.sizeHandles.name = 'size-handles';
     this.root.add(this.sizeHandles);
+    this.handleOutlines.name = 'handle-outlines';
+    this.root.add(this.handleOutlines);
     scene.add(this.root);
   }
 
@@ -277,7 +285,6 @@ export class ZoneOverlay {
       this.colliders.remove(c);
       this.disposeGroup(c as THREE.Group);
     }
-    this.moverPaths.clear();
     // Phase 9.12: every collider's outline on the game plane (box or polygon, turned about Z).
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
@@ -299,8 +306,8 @@ export class ZoneOverlay {
     this.capsules.clear();
     for (const e of entities) {
       if (e.controller !== true) continue;
-      const shape = sizeShapesOf(e).find((s) => s.kind === 'capsule');
-      if (shape === undefined) continue;
+      const shape = capsuleShapeOf(e);
+      if (shape === null) continue;
       const z = N(e.position[2]) + 0.03;
       const outline = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints(outlinePoints(shape, 16).map((p) => new THREE.Vector3(p.x, p.y, z))),
@@ -329,18 +336,14 @@ export class ZoneOverlay {
         line.name = `mover-path:${e.id}`;
         line.renderOrder = 10;
         this.blocks.add(line);
-        const dots: THREE.Mesh[] = [];
+        // A dot per stop (phase 15.2: the selected mover's stops get grips from its path handle).
         const count = mover.waypoints.length + 1;
         for (let i = 0; i < count; i++) {
-          // The stops after the first are handles: drag one to move that waypoint.
-          const dot = new THREE.Mesh(new THREE.SphereGeometry(i === 0 ? 0.08 : 0.14, 10, 8), new THREE.MeshBasicMaterial({ color: i === 0 ? BLOCK_COLORS.mover : 0xffffff, depthTest: false }));
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), new THREE.MeshBasicMaterial({ color: BLOCK_COLORS.mover, depthTest: false }));
           dot.position.copy(stops[i]!);
           dot.renderOrder = 11;
-          dot.userData = { moverId: e.id, index: i };
           this.blocks.add(dot);
-          dots.push(dot);
         }
-        this.moverPaths.set(e.id, { origin: new THREE.Vector3(x, y, z), waypoints: mover.waypoints.map((w) => [N(w[0]), N(w[1]), N(w[2])]), loop: mover.mode === 'loop', line, dots });
       }
       // Phase 14.2: a circle trigger's outline (dashed, in the trigger colour).
       const trig = b.trigger as { shape?: string; radius?: number } | undefined;
@@ -361,6 +364,17 @@ export class ZoneOverlay {
         this.blocks.add(rect(x, y, sound.range * 2, 0.4, BLOCK_COLORS.audioSource));
         this.blocks.add(rect(x, y, sound.range / 2, 0.4, BLOCK_COLORS.audioSource));
       }
+      // Phase 15.2: an enemy's chase distance — the band it notices the player in (x ± chase, feet ± chase height).
+      const enemy = b.enemy as { chase?: number; chaseHeight?: number } | undefined;
+      if (enemy !== undefined && typeof enemy.chase === 'number' && enemy.chase > 0) {
+        const hh = typeof enemy.chaseHeight === 'number' ? enemy.chaseHeight : 2;
+        const band = rect(x, y, enemy.chase * 2, hh * 2, BLOCK_COLORS.enemy);
+        band.name = `enemy-chase:${e.id}`;
+        const mat = band.material as THREE.LineDashedMaterial;
+        mat.transparent = true;
+        mat.opacity = 0.5;
+        this.blocks.add(band);
+      }
       const range = (b.enemy as { range?: number[] } | undefined)?.range;
       if (range !== undefined) {
         const line = new THREE.Line(
@@ -373,8 +387,15 @@ export class ZoneOverlay {
   }
 
   /** Phase 9.9: the drawn gameplay helpers (names of the mover paths), for tests. */
-  blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number } {
-    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length, colliders: this.colliders.children.length, capsules: this.capsules.size, sizeHandles: this.sizeHandles.children.length };
+  blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number; chaseBands: number } {
+    return {
+      moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)),
+      count: this.blocks.children.length,
+      colliders: this.colliders.children.length,
+      capsules: this.capsules.size,
+      sizeHandles: this.sizeHandles.children.length,
+      chaseBands: this.blocks.children.filter((c) => c.name.startsWith('enemy-chase:')).length,
+    };
   }
 
   /** Phase 9.12: the Gizmos menu's collider outlines and gameplay helpers. */
@@ -383,38 +404,14 @@ export class ZoneOverlay {
     this.blocks.visible = g.gameplay;
   }
 
-  /** Phase 9.12: the mover waypoint handle under the pointer (not the mover's own position), or null. */
-  pickWaypoint(clientX: number, clientY: number): { entityId: string; index: number } | null {
-    if (!this.blocks.visible) return null;
-    const rect = this.canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(ndc, this.camera);
-    this.root.updateMatrixWorld(true);
-    const handles = [...this.moverPaths.values()].flatMap((m) => m.dots.slice(1));
-    const hit = this.raycaster.intersectObjects(handles, false)[0];
-    if (hit === undefined) return null;
-    return { entityId: String(hit.object.userData['moverId']), index: Number(hit.object.userData['index']) };
-  }
+  // ---- Phase 15.2: descriptor-driven handles ---------------------------------
 
-  /**
-   * Phase 9.12: move a waypoint handle to a game-plane point (the drag
-   * preview); returns the waypoint's new offset from the mover (its depth kept).
-   */
-  previewWaypoint(entityId: string, index: number, at: GamePlaneHit): [number, number, number] | null {
-    const m = this.moverPaths.get(entityId);
-    const w = m?.waypoints[index - 1];
-    if (m === undefined || w === undefined) return null;
-    const offset: [number, number, number] = [at.x - m.origin.x, at.y - m.origin.y, N(w[2])];
-    m.dots[index]!.position.set(m.origin.x + offset[0], m.origin.y + offset[1], m.origin.z + offset[2]);
-    const pts = m.dots.map((d) => d.position.clone());
-    if (m.loop) pts.push(pts[0]!.clone());
-    m.line.geometry.dispose();
-    m.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-    return offset;
+  /** The descriptors (handles come from them) and how to find an entity's scene node (its frame). */
+  setHandleSources(registry: DescriptorRegistry | null, nodeFor: (entityId: string) => THREE.Object3D | null): void {
+    this.registry = registry;
+    this.nodeFor = nodeFor;
+    this.updateSizeHandles();
   }
-
-  // ---- Phase 14.0: size handles and the player's capsule ---------------------
 
   /** The pointer ray for a client position (false when the canvas has no size). */
   private aim(clientX: number, clientY: number): boolean {
@@ -425,72 +422,191 @@ export class ZoneOverlay {
     return true;
   }
 
-  /** Rebuild the selected entity's size handles (top and side; a circle only its radius handle). */
+  /** A handle's frame → world matrix: world, the object's position, + rotation about Z, + rotation, or its whole transform. */
+  private frameMatrix(s: HandleShape): THREE.Matrix4 {
+    const m = new THREE.Matrix4();
+    if (s.frame === 'world') return m;
+    const node = this.nodeFor(s.entityId);
+    const e = this.entities.find((x) => x.id === s.entityId);
+    const pos = new THREE.Vector3(N(e?.position[0]), N(e?.position[1]), N(e?.position[2]));
+    const quat = new THREE.Quaternion(N(e?.rotation[0]), N(e?.rotation[1]), N(e?.rotation[2]), e?.rotation[3] ?? 1);
+    const scale = new THREE.Vector3(1, 1, 1);
+    if (node !== null) {
+      node.updateWorldMatrix(true, false);
+      node.matrixWorld.decompose(pos, quat, scale);
+      if (s.frame === 'transform') return m.copy(node.matrixWorld);
+    }
+    if (s.frame === 'position') return m.makeTranslation(pos.x, pos.y, pos.z);
+    if (s.frame === 'rotationZ') return m.makeRotationZ(new THREE.Euler().setFromQuaternion(quat, 'ZYX').z).setPosition(pos);
+    return m.compose(pos, quat, new THREE.Vector3(1, 1, 1));
+  }
+
+  private toWorld(i: number, p: P3): THREE.Vector3 {
+    return new THREE.Vector3(p.x, p.y, p.z).applyMatrix4(this.handleFrames[i] ?? new THREE.Matrix4());
+  }
+
+  private linesObject(shape: HandleShape, frame: THREE.Matrix4, color: number, opacity: number): THREE.Group {
+    const g = new THREE.Group();
+    for (const line of linesOf(shape)) {
+      const pts = line.map((p) => new THREE.Vector3(p.x, p.y, p.z).applyMatrix4(frame));
+      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity }));
+      l.renderOrder = 12;
+      g.add(l);
+    }
+    return g;
+  }
+
+  /** Rebuild the selected entity's handles: a grip per draggable point, and each handle's outline. */
   private updateSizeHandles(): void {
-    for (const c of [...this.sizeHandles.children]) {
-      this.sizeHandles.remove(c);
+    // A drag in flight keeps its shapes (their indices) until it ends.
+    if (this.handleDrag !== null) return;
+    for (const c of [...this.sizeHandles.children, ...this.handleOutlines.children]) {
+      c.removeFromParent();
       this.disposeGroup(c as THREE.Group);
     }
-    this.sizeShapes = [];
+    this.handleShapes = [];
+    this.handleFrames = [];
     const e = this.selectedId === null ? undefined : this.entities.find((x) => x.id === this.selectedId);
     if (e === undefined || !e.active || e.locked) return;
-    this.sizeShapes = sizeShapesOf(e);
-    this.sizeZ = N(e.position[2]) + 0.04;
-    this.sizeShapes.forEach((shape, shapeIndex) => {
-      for (const handle of handlesOf(shape)) {
-        const p = handlePoint(shape, handle);
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: SIZE_HANDLE_COLOR, depthTest: false }));
-        mesh.position.set(p.x, p.y, this.sizeZ);
-        mesh.renderOrder = 12;
-        mesh.name = `size-handle:${shape.component}:${handle}`;
-        mesh.userData = { entityId: e.id, shapeIndex, handle };
-        this.sizeHandles.add(mesh);
-      }
+    this.handleShapes = handleShapesOf(e, this.registry);
+    this.handleFrames = this.handleShapes.map((s) => this.frameMatrix(s));
+    this.handleShapes.forEach((shape, shapeIndex) => {
+      this.handleOutlines.add(this.linesObject(shape, this.handleFrames[shapeIndex]!, SIZE_HANDLE_COLOR, 0.35));
+      this.addGrips(shape, shapeIndex);
     });
+    this.scaleGrips();
   }
 
-  /** The size handle under the pointer, or null. */
-  pickSizeHandle(clientX: number, clientY: number): SizeHandleRef | null {
-    if (this.sizeHandles.children.length === 0 || !this.aim(clientX, clientY)) return null;
-    this.root.updateMatrixWorld(true);
-    const hit = this.raycaster.intersectObjects(this.sizeHandles.children, false)[0];
-    if (hit === undefined) return null;
-    const d = hit.object.userData as { entityId: string; shapeIndex: number; handle: SizeHandle };
-    return { entityId: d.entityId, shapeIndex: d.shapeIndex, handle: d.handle };
-  }
-
-  /** The drag preview: the resized shape for a game-plane point (the outline and the handle follow). */
-  previewSize(ref: SizeHandleRef, at: GamePlaneHit, snap: boolean): SizeShape | null {
-    const shape = this.sizeShapes[ref.shapeIndex];
-    if (shape === undefined || shape.entityId !== ref.entityId) return null;
-    const next = resizeShape(shape, ref.handle, at, snap);
-    const pts = outlinePoints(next, 16).map((p) => new THREE.Vector3(p.x, p.y, this.sizeZ));
-    if (this.sizePreview === null) {
-      this.sizePreview = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: SIZE_HANDLE_COLOR, depthTest: false }));
-      this.sizePreview.renderOrder = 12;
-      this.root.add(this.sizePreview);
-    } else {
-      this.sizePreview.geometry.dispose();
-      this.sizePreview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  private addGrips(shape: HandleShape, shapeIndex: number): void {
+    for (const g of gripsOf(shape)) {
+      const insert = g.role === 'insert';
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: insert ? 0x9aa4b8 : SIZE_HANDLE_COLOR, depthTest: false, transparent: insert, opacity: insert ? 0.8 : 1 }));
+      mesh.position.copy(this.toWorld(shapeIndex, g.at));
+      mesh.renderOrder = 13;
+      mesh.name = `handle:${shape.component}:${shape.kind}:${g.id}`;
+      mesh.userData = { entityId: shape.entityId, shapeIndex, grip: g.id, role: g.role, size: insert ? 0.65 : 1 };
+      this.sizeHandles.add(mesh);
     }
+  }
+
+  /** Grips keep about the same size on screen (roughly 1/50 of the view height across). */
+  scaleGrips(): void {
+    const cam = this.camera.position;
+    const k = Math.tan((this.camera.fov * Math.PI) / 360) * 0.02;
     for (const m of this.sizeHandles.children) {
-      const d = m.userData as { shapeIndex: number; handle: SizeHandle };
-      if (d.shapeIndex !== ref.shapeIndex) continue;
-      const p = handlePoint(next, d.handle);
-      m.position.set(p.x, p.y, this.sizeZ);
+      const r = Math.max(0.02, m.position.distanceTo(cam) * k) * N(m.userData['size'] as number | undefined);
+      m.scale.setScalar(r);
     }
-    return next;
   }
 
-  /** End a size drag's preview (the committed value comes back through the next sync). */
-  endSizePreview(): void {
-    if (this.sizePreview !== null) {
-      this.root.remove(this.sizePreview);
-      this.sizePreview.geometry.dispose();
-      (this.sizePreview.material as THREE.Material).dispose();
-      this.sizePreview = null;
+  /** The grip under the pointer, or null. */
+  pickHandle(clientX: number, clientY: number): HandleRef | null {
+    if (this.sizeHandles.children.length === 0 || !this.aim(clientX, clientY)) return null;
+    this.scaleGrips();
+    this.root.updateMatrixWorld(true);
+    const hits = this.raycaster.intersectObjects(this.sizeHandles.children, false);
+    // A corner or size grip wins over an "insert" grip behind it.
+    const hit = hits.find((h) => h.object.userData['role'] !== 'insert') ?? hits[0];
+    if (hit === undefined) return null;
+    const d = hit.object.userData as { entityId: string; shapeIndex: number; grip: string; role: Grip['role'] };
+    return { entityId: d.entityId, shapeIndex: d.shapeIndex, grip: d.grip, role: d.role };
+  }
+
+  /** Start dragging a grip (an "insert" grip first adds its new corner). */
+  beginHandleDrag(ref: HandleRef): boolean {
+    const shape = this.handleShapes[ref.shapeIndex];
+    if (shape === undefined || shape.entityId !== ref.entityId) return false;
+    if (ref.role === 'insert') {
+      const made = insertPoint(shape, ref.grip);
+      if (made === null) return false;
+      this.handleDrag = { shapeIndex: ref.shapeIndex, grip: made.grip, shape: made.shape, moved: true };
+      this.previewHandle();
+      return true;
     }
+    this.handleDrag = { shapeIndex: ref.shapeIndex, grip: ref.grip, shape, moved: false };
+    return true;
+  }
+
+  /** The frame point for a pointer while dragging a grip of shape `i` (its plane, its axis or a camera-facing plane). */
+  private framePoint(i: number, grip: Grip, clientX: number, clientY: number): P3 | null {
+    if (!this.aim(clientX, clientY)) return null;
+    const frame = this.handleFrames[i] ?? new THREE.Matrix4();
+    const at = new THREE.Vector3(grip.at.x, grip.at.y, grip.at.z).applyMatrix4(frame);
+    const ray = this.raycaster.ray;
+    const out = new THREE.Vector3();
+    if (grip.drag === 'axis' && grip.axis !== undefined) {
+      const tip = new THREE.Vector3(grip.at.x + grip.axis.x, grip.at.y + grip.axis.y, grip.at.z + grip.axis.z).applyMatrix4(frame);
+      const dir = tip.sub(at).normalize();
+      ray.distanceSqToSegment(at.clone().addScaledVector(dir, -1e4), at.clone().addScaledVector(dir, 1e4), undefined, out);
+    } else {
+      const normal = grip.drag === 'plane' ? new THREE.Vector3(0, 0, 1).transformDirection(frame) : this.camera.getWorldDirection(new THREE.Vector3());
+      if (ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, at), out) === null) return null;
+    }
+    out.applyMatrix4(frame.clone().invert());
+    return { x: out.x, y: out.y, z: out.z };
+  }
+
+  /** A pointer move during a handle drag: the previewed shape follows (snapped when `snap`). */
+  moveHandleDrag(clientX: number, clientY: number, snap: boolean): void {
+    const d = this.handleDrag;
+    if (d === null) return;
+    const grip = gripsOf(d.shape).find((g) => g.id === d.grip);
+    if (grip === undefined) return;
+    const p = this.framePoint(d.shapeIndex, grip, clientX, clientY);
+    if (p === null) return;
+    d.shape = dragGrip(d.shape, d.grip, p, snap);
+    d.moved = true;
+    this.previewHandle();
+  }
+
+  private previewHandle(): void {
+    const d = this.handleDrag;
+    this.clearHandlePreview();
+    if (d === null) return;
+    const frame = this.handleFrames[d.shapeIndex] ?? new THREE.Matrix4();
+    this.handlePreview = this.linesObject(d.shape, frame, d.shape.error !== undefined ? 0xff4a4a : SIZE_HANDLE_COLOR, 1);
+    this.root.add(this.handlePreview);
+    // The dragged shape's grips follow.
+    for (const c of [...this.sizeHandles.children]) {
+      if ((c.userData as { shapeIndex: number }).shapeIndex !== d.shapeIndex) continue;
+      c.removeFromParent();
+      this.disposeGroup(c as THREE.Group);
+    }
+    this.addGrips(d.shape, d.shapeIndex);
+    this.scaleGrips();
+  }
+
+  private clearHandlePreview(): void {
+    if (this.handlePreview !== null) {
+      this.handlePreview.removeFromParent();
+      this.disposeGroup(this.handlePreview);
+      this.handlePreview = null;
+    }
+  }
+
+  /** End a handle drag: the shape to store (null: never moved). The stored value comes back through the next sync. */
+  endHandleDrag(): HandleShape | null {
+    const d = this.handleDrag;
+    this.handleDrag = null;
+    this.clearHandlePreview();
     this.updateSizeHandles();
+    return d !== null && d.moved ? d.shape : null;
+  }
+
+  /** Cancel a handle drag (Esc): nothing is stored. */
+  cancelHandleDrag(): boolean {
+    if (this.handleDrag === null) return false;
+    this.handleDrag = null;
+    this.clearHandlePreview();
+    this.updateSizeHandles();
+    return true;
+  }
+
+  /** Delete the corner/point under a grip (Alt+click): the shape to store, or why not. */
+  deleteHandlePoint(ref: HandleRef): { ok: true; shape: HandleShape } | { ok: false; message: string } {
+    const shape = this.handleShapes[ref.shapeIndex];
+    if (shape === undefined || shape.entityId !== ref.entityId) return { ok: false, message: 'nothing to delete here' };
+    return deletePoint(shape, ref.grip);
   }
 
   /**
@@ -516,14 +632,15 @@ export class ZoneOverlay {
   }
 
   /** The size handles' client positions (the Scene view stamps them for tests). */
-  sizeHandleClientPoints(): { component: string; handle: SizeHandle; x: number; y: number }[] {
+  sizeHandleClientPoints(): { component: string; kind: string; handle: string; role: string; x: number; y: number }[] {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return [];
     this.camera.updateMatrixWorld();
     return this.sizeHandles.children.map((m) => {
       const v = m.position.clone().project(this.camera);
-      const d = m.userData as { shapeIndex: number; handle: SizeHandle };
-      return { component: this.sizeShapes[d.shapeIndex]?.component ?? '', handle: d.handle, x: Math.round(rect.left + ((v.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - v.y) / 2) * rect.height) };
+      const d = m.userData as { shapeIndex: number; grip: string; role: string };
+      const shape = this.handleShapes[d.shapeIndex];
+      return { component: shape?.component ?? '', kind: shape?.kind ?? '', handle: d.grip, role: d.role, x: Math.round(rect.left + ((v.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - v.y) / 2) * rect.height) };
     });
   }
 
@@ -675,11 +792,8 @@ export class ZoneOverlay {
     this.disposeGroup(this.blocks);
     this.disposeGroup(this.colliders);
     this.disposeGroup(this.sizeHandles);
-    if (this.sizePreview !== null) {
-      this.sizePreview.geometry.dispose();
-      (this.sizePreview.material as THREE.Material).dispose();
-      this.sizePreview = null;
-    }
+    this.disposeGroup(this.handleOutlines);
+    this.clearHandlePreview();
     this.objects.clear();
     if (this.resizeHandle) {
       this.resizeHandle.geometry.dispose();

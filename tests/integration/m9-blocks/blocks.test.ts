@@ -34,11 +34,11 @@ class FakeNode {
 type Drive = (step: number) => { moveX: number; jump: 'none' | 'pressed' | 'held' | 'released' };
 
 /** One level: the player at `spawn`, a long floor, a goal far away, plus `extra` entities. */
-async function level(spawn: [number, number], extra: Any[], drive: Drive, playerExtra: Record<string, unknown> = {}) {
+async function level(spawn: [number, number], extra: Any[], drive: Drive, playerExtra: Record<string, unknown> = {}, spawnComponent: Record<string, unknown> = {}) {
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 }, cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } } },
     { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller: {}, ...playerExtra } },
-    { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
+    { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: spawnComponent } },
     { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
     { id: 'goal-0001', components: { transform: at(38, 1), gameZone: { role: 'goal', size: [1, 2] } } },
     ...extra,
@@ -255,6 +255,31 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
       seen.add(Math.round(yawOf(L, 'snout-0001')));
     }
     expect(seen.has(90) && seen.has(-90)).toBe(true);
+  });
+});
+
+describe('phase 15.2: a spawn says which way the player faces', () => {
+  const yawOf = (L: Any, id: string): number => {
+    const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
+    return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
+  };
+  const look = { id: 'look-0001', parentId: 'player-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } };
+  const still = () => ({ moveX: 0, jump: 'none' as const });
+
+  it('left or right: the face-movement model starts turned that way (the player stands still)', async () => {
+    const left = await level([0, 0.91], [look], still, {}, { facing: 'left' });
+    expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
+    left.tick(30);
+    expect(yawOf(left, 'look-0001')).toBeCloseTo(-90, 3);
+    const right = await level([0, 0.91], [look], still, {}, { facing: 'right' });
+    expect(yawOf(right, 'look-0001')).toBeCloseTo(90, 3);
+  });
+
+  it('none (or absent): the model keeps its placed turn', async () => {
+    const none = await level([0, 0.91], [look], still, {}, { facing: 'none' });
+    expect(yawOf(none, 'look-0001')).toBeCloseTo(0, 3);
+    const absent = await level([0, 0.91], [look], still);
+    expect(yawOf(absent, 'look-0001')).toBeCloseTo(0, 3);
   });
 });
 

@@ -16,6 +16,9 @@
     "./placement": "./src/session/placement.ts",
     "./property-controls": "./src/session/property-controls.ts",
     "./descriptor-fields": "./src/session/descriptor-fields.ts",
+    "./handles": "./src/session/handles.ts",
+    "./outline": "./src/session/outline.ts",
+    "./instance-copies": "./src/session/instance-copies.ts",
     "./prefab-authoring": "./src/session/prefab-authoring.ts",
     "./prefab-projection": "./src/session/prefab-projection.ts"
   },

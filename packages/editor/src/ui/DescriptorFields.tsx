@@ -40,6 +40,8 @@ import {
 export interface FieldContext extends PickerData {
   /** Signal names already in use (suggestions). */
   readonly signals: readonly string[];
+  /** Phase 15.2: each animator controller's parameters (an object's starting values are edited from this list). */
+  readonly animatorParameters?: Readonly<Record<string, readonly { name: string; type: string; default?: number | boolean }[]>>;
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -416,10 +418,86 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
   );
 }
 
+/**
+ * Phase 15.2: an object's starting animator parameter values — one row per
+ * parameter of its controller (triggers start unset, so they have none),
+ * showing the controller's default until the object sets its own.
+ */
+function AnimatorParametersWidget(p: RowProps & { aria: string; params: readonly { name: string; type: string; default?: number | boolean }[] }): JSX.Element {
+  const stored = p.value !== null && typeof p.value === 'object' && !Array.isArray(p.value) ? (p.value as Record<string, unknown>) : {};
+  const known = new Set(p.params.map((x) => x.name));
+  const settable = p.params.filter((x) => x.type !== 'trigger');
+  return (
+    <div className="tl-desc__list" aria-label={p.aria} title={p.f.tooltip} data-field={p.f.key}>
+      <div className="tl-field__label">{fieldLabel(p.f)}</div>
+      {settable.length === 0 && <span className="tl-inspector__hint">the controller has no parameters with a starting value</span>}
+      {settable.map((param) => {
+        const v = stored[param.name];
+        const isDefault = v === undefined;
+        const aria = `${p.aria} ${param.name}`;
+        const reset = !isDefault && (
+          <button type="button" className="tl-btn tl-btn--small" aria-label={`reset ${aria}`} title="Back to the controller's default" onClick={() => p.onEdit([...p.path, param.name], undefined)}>
+            ×
+          </button>
+        );
+        if (param.type === 'bool') {
+          const shown = typeof v === 'boolean' ? v : param.default === true;
+          return (
+            <div className={`tl-desc__item${isDefault ? ' is-default' : ''}`} key={param.name}>
+              <label className="tl-flag">
+                <input type="checkbox" aria-label={aria} checked={shown} onChange={(e) => p.onEdit([...p.path, param.name], e.target.checked)} />
+                <span>{param.name}</span>
+              </label>
+              {reset}
+            </div>
+          );
+        }
+        const shown = typeof v === 'number' ? v : typeof param.default === 'number' ? param.default : 0;
+        return (
+          <div className={`tl-desc__row${isDefault ? ' is-default' : ''}`} key={param.name} data-field={param.name}>
+            <span className="tl-field__label">
+              {param.name} <span className="tl-inspector__hint">({param.type})</span>
+            </span>
+            <div className="tl-desc__control">
+              <CommitInput
+                value={formatNumber(shown)}
+                aria={aria}
+                onCommit={(raw) => {
+                  const n = Number(raw.trim());
+                  if (raw.trim() === '' || !Number.isFinite(n) || Math.abs(n) > 1e6) return p.onFail(`${param.name}: a number within ±1000000`);
+                  if (param.type === 'int' && !Number.isInteger(n)) return p.onFail(`${param.name}: a whole number`);
+                  p.onEdit([...p.path, param.name], n);
+                }}
+              />
+              {reset}
+            </div>
+          </div>
+        );
+      })}
+      {Object.keys(stored)
+        .filter((k) => !known.has(k))
+        .map((k) => (
+          <div className="tl-desc__item" key={k}>
+            <span className="tl-inspector__hint">{k}: not a parameter of the controller</span>
+            <button type="button" className="tl-btn tl-btn--small" aria-label={`remove ${p.aria} ${k}`} onClick={() => p.onEdit([...p.path, k], undefined)}>
+              ×
+            </button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 function MapWidget(p: RowProps & { aria: string }): JSX.Element {
   const f = p.f;
   const [key, setKey] = useState('');
   if (f.type !== 'map') return <></>;
+  // Phase 15.2: an animator's starting values come from its controller's parameter list.
+  if (f.keyRef === 'animatorParameter') {
+    const controller = p.level?.value['controller'];
+    const params = typeof controller === 'string' ? p.ctx.animatorParameters?.[controller] : undefined;
+    if (params !== undefined) return <AnimatorParametersWidget {...p} params={params} />;
+  }
   const entries = p.value !== null && typeof p.value === 'object' ? Object.entries(p.value as Record<string, unknown>) : [];
   const editable = widgetFor(f.value) !== 'readonly';
   return (
@@ -571,11 +649,22 @@ export function ComponentSection(p: {
  * whose add needs a choice (a model's asset, a script, a controller…) opens
  * a small form with those fields first.
  */
+/** Phase 15.2: an extra "+ Add component" action (listed after its category's entries). */
+export interface AddExtra {
+  readonly id: string;
+  readonly label: string;
+  readonly category: ComponentDescriptor['category'];
+  readonly enabled: boolean;
+  readonly reason: string | null;
+  readonly run: () => void;
+}
+
 export function AddComponent(p: {
   entries: readonly AddEntry[];
   components: readonly ComponentDescriptor[];
   ctx: FieldContext;
   onAdd: (component: string, value: Record<string, unknown>) => void;
+  extras?: readonly AddExtra[];
 }): JSX.Element {
   const [picking, setPicking] = useState<{ component: string; draft: Record<string, unknown> } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -588,6 +677,11 @@ export function AddComponent(p: {
         aria-label="add component"
         value=""
         onChange={(e) => {
+          const extra = p.extras?.find((x) => `extra:${x.id}` === e.target.value);
+          if (extra !== undefined) {
+            if (extra.enabled) extra.run();
+            return;
+          }
           const entry = p.entries.find((x) => x.id === e.target.value);
           if (entry === undefined || !entry.enabled) return;
           setError(null);
@@ -607,6 +701,13 @@ export function AddComponent(p: {
               .map((e) => (
                 <option key={e.id} value={e.id} disabled={!e.enabled} title={e.reason ?? undefined}>
                   {e.enabled ? e.label : `${e.label} — ${e.reason}`}
+                </option>
+              ))}
+            {(p.extras ?? [])
+              .filter((x) => x.category === cat)
+              .map((x) => (
+                <option key={`extra:${x.id}`} value={`extra:${x.id}`} disabled={!x.enabled} title={x.reason ?? undefined}>
+                  {x.enabled ? x.label : `${x.label} — ${x.reason}`}
                 </option>
               ))}
           </optgroup>

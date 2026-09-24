@@ -25,7 +25,7 @@ import { addEntries, componentOp, componentPatch, firstReference, removable, see
 import { CAPSULE_LIMITS } from '@thirdlight/runtime';
 import type { GizmoMode } from '../viewport/viewport';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
-import { AddComponent, ComponentSection, type FieldContext } from './DescriptorFields';
+import { AddComponent, ComponentSection, type AddExtra, type FieldContext } from './DescriptorFields';
 
 interface Props {
   entity: ProjectedEntity | null;
@@ -71,6 +71,8 @@ interface Props {
   extensions?: Partial<Record<string, ReactNode>>;
   /** Phase 15.1: sections shown even while the component is absent (their body adds it). */
   alwaysShow?: readonly string[];
+  /** Phase 15.2: extra "+ Add component" actions (a collider from the model's outline). */
+  addExtras?: readonly AddExtra[];
 }
 
 /**
@@ -198,7 +200,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   );
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, bodies, extensions, alwaysShow }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -335,9 +337,12 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
                   key={c.name}
                   {...common}
                   extension={
-                    <p className="tl-inspector__hint" data-instances={entity.instances?.count ?? 0}>
-                      Instance set: {entity.instances?.count ?? 0} copies of one model, drawn with instancing. The transform moves, turns and scales the whole set.
-                    </p>
+                    <>
+                      <p className="tl-inspector__hint" data-instances={entity.instances?.count ?? 0}>
+                        Instance set: {entity.instances?.count ?? 0} copies of one model, drawn with instancing. The transform moves, turns and scales the whole set; click a copy in the Scene view to edit just that one.
+                      </p>
+                      {extensions?.['instances']}
+                    </>
                   }
                 />
               );
@@ -361,7 +366,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
           )}
 
           {registry !== null && !isFolder && (
-            <AddComponent entries={addEntries(registry, present)} components={registry.components} ctx={fieldContext} onAdd={(component, value) => onAddComponent(entity.id, component, value)} />
+            <AddComponent entries={addEntries(registry, present)} components={registry.components} ctx={fieldContext} onAdd={(component, value) => onAddComponent(entity.id, component, value)} {...(addExtras !== undefined ? { extras: addExtras } : {})} />
           )}
 
           <p className="tl-inspector__hint">

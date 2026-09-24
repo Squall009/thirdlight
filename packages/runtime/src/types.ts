@@ -354,7 +354,8 @@ export interface GameContent {
   readonly game: Readonly<GameConfig>;
   /** Ascending `entityId` codepoint order. */
   readonly zones: readonly GameZoneSpec[];
-  readonly spawns: readonly { entityId: string; center: Vec2 }[];
+  /** Phase 15.2: `facing` only when the spawn sets left or right. */
+  readonly spawns: readonly { entityId: string; center: Vec2; facing?: 'left' | 'right' }[];
   /** Phase 14.0: the player entity and its collision capsule (from its `controller`). */
   readonly player: { entityId: string; capsule: PlayerCapsule };
   readonly camera: {

@@ -408,6 +408,35 @@ export class GameplayBlocks {
     this.carry = { x: 0, y: 0 };
   }
 
+  /**
+   * Phase 15.2: a spawn's facing — the face-movement models under `rootId`
+   * (the player's) turn to it at once, as if the player had just moved that
+   * way (a spawn without a facing leaves them as they are).
+   */
+  faceSpawn(rootId: string, facing: 'left' | 'right'): void {
+    for (const [id, f] of this.facers) {
+      let p = this.parents.get(id);
+      let under = false;
+      for (let guard = 0; p !== undefined && guard < 64; guard++) {
+        if (p === rootId) {
+          under = true;
+          break;
+        }
+        p = this.parents.get(p);
+      }
+      if (!under) continue;
+      f.yaw = facing === 'right' ? f.right : f.left;
+      f.lastX = null;
+      const t = this.host.curr.get(id);
+      if (t !== undefined) {
+        t.rotation[0] = 0;
+        t.rotation[1] = Math.sin(f.yaw / 2);
+        t.rotation[2] = 0;
+        t.rotation[3] = Math.cos(f.yaw / 2);
+      }
+    }
+  }
+
   /** The player respawned after a death: health back to full, some pickups back. */
   onRespawn(): void {
     if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });

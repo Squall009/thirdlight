@@ -460,7 +460,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
-  playerSpawn: [],
+  // Phase 15.2: which way the player faces at this spawn (v4).
+  playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
@@ -687,8 +688,10 @@ export function validateSetComponentArgs(
       return { ok: false, error: fieldType('/args/value/capsule', capsule, 'object { radius, height, offset? } or null') };
     }
   } else if (component === 'playerSpawn') {
-    for (const key of keys) {
-      return { ok: false, error: fieldUnexpected(`/args/value/${key}`, key, `(none — the ${component} marker has no fields)`) };
+    // Phase 15.2: `facing` (a string, or null for none); its values are the model's.
+    const facing = value['facing'];
+    if (facing !== undefined && facing !== null && typeof facing !== 'string') {
+      return { ok: false, error: fieldType('/args/value/facing', facing, 'string ("none", "left", "right") or null') };
     }
   } else if (
     component === 'gameZone' ||

@@ -267,6 +267,22 @@ export interface HandleDescriptor {
   readonly space: 'local' | 'world';
   /** Conditions on the component's fields (pointers relative to the component, e.g. `shape/type`). */
   readonly when?: FieldCondition | readonly FieldCondition[];
+  /**
+   * Phase 15.2: how a `local` handle's frame follows the object, as the engine
+   * reads the data: its position only (absent — areas, paths, ranges), its
+   * rotation about Z too (`rotationZ`: a collider), its whole rotation
+   * (`rotation`: a spot light's direction) or its whole transform, scale
+   * included (`transform`: a box mesh's size).
+   */
+  readonly follows?: 'rotationZ' | 'rotation' | 'transform';
+  /** Phase 15.2 (`box2`/`box3` sizes): the point a height drag keeps — the centre (absent) or the bottom (a body standing on its feet). */
+  readonly anchor?: 'bottom';
+  /** Phase 15.2 (`radius`): measured along X only (the engine compares horizontal distance) instead of in the X/Y plane. */
+  readonly along?: 'x';
+  /** Phase 15.2 (`radius` along X): a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
+  readonly band?: string;
+  /** Phase 15.2 (`path`): the path closes back to its start while this holds. */
+  readonly loop?: FieldCondition;
 }
 
 /**
@@ -417,7 +433,7 @@ const box: ComponentDescriptor = {
     obj('material', 'Material', 'The box colour (a project material overrides it).', [color('color', 'Colour', 'The box colour.', { default: '#b0b0b0' })], { default: { color: '#b0b0b0' } }),
   ]),
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
-  handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
+  handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [
     { component: 'model', reason: 'an object shows one model, box or camera' },
     { component: 'camera', reason: 'an object shows one model, box or camera' },
@@ -504,8 +520,8 @@ const collider: ComponentDescriptor = {
     { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } } },
   ],
   handles: [
-    { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy' }, space: 'local', when: when('shape/type', 'box') },
-    { kind: 'polygon', label: 'Polygon', bind: { vertices: 'shape/vertices' }, space: 'local', when: when('shape/type', 'polygon') },
+    { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },
+    { kind: 'polygon', label: 'Polygon', bind: { vertices: 'shape/vertices' }, space: 'local', when: when('shape/type', 'polygon'), follows: 'rotationZ' },
   ],
   excludes: [
     { component: 'controller', reason: 'the player controller has its own capsule' },
@@ -602,7 +618,10 @@ const playerSpawn: ComponentDescriptor = {
   label: 'Player spawn',
   tooltip: 'Where the player starts (a level names its spawn).',
   category: 'Gameplay',
-  value: obj('playerSpawn', 'Player spawn', 'A spawn marker (no fields).', []),
+  value: obj('playerSpawn', 'Player spawn', 'A spawn marker.', [
+    // Phase 15.2: which way the player faces when it starts or respawns here.
+    enm('facing', 'Facing', 'The way the player faces when it starts or respawns here (its face-movement models turn to it at once; none: as placed).', ['none', 'left', 'right'], { default: 'none', omitDefault: true }),
+  ]),
   add: { kind: 'menu', value: {} },
   handles: [],
   excludes: [
@@ -687,7 +706,7 @@ const light: ComponentDescriptor = {
   ],
   handles: [
     { kind: 'direction', label: 'Direction', bind: { direction: 'direction' }, space: 'world', when: when('type', 'directional') },
-    { kind: 'cone', label: 'Cone', bind: { direction: 'direction', angle: 'angle', range: 'range' }, space: 'world', when: when('type', 'spot') },
+    { kind: 'cone', label: 'Cone', bind: { direction: 'direction', angle: 'angle', range: 'range' }, space: 'local', when: when('type', 'spot'), follows: 'rotation' },
     { kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local', when: when('type', 'point') },
   ],
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
@@ -834,7 +853,7 @@ const mover: ComponentDescriptor = {
   ]),
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
-  handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local' }],
+  handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
   excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }],
   prefab: true,
 };
@@ -948,9 +967,9 @@ const enemy: ComponentDescriptor = {
   // 1.5 m/s (slower than the 4 m/s run, so it can be escaped), one hit of damage, one stomp.
   add: { kind: 'menu', value: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 } },
   handles: [
-    { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' },
+    { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', anchor: 'bottom' },
     { kind: 'segment1d', label: 'Patrol range', bind: { range: 'range' }, space: 'local', when: when('patrol', 'points') },
-    { kind: 'radius', label: 'Chase distance', bind: { radius: 'chase' }, space: 'local' },
+    { kind: 'radius', label: 'Chase distance', bind: { radius: 'chase' }, space: 'local', along: 'x', band: 'chaseHeight' },
   ],
   excludes: [
     { component: 'controller', reason: 'the player is not an enemy' },
@@ -971,7 +990,7 @@ const audioSource: ComponentDescriptor = {
   ]),
   // Phase 15.5: 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
   add: { kind: 'pick', value: { volume: 0.8, range: 12 }, pick: ['assetId'] },
-  handles: [{ kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local' }],
+  handles: [{ kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local', along: 'x' }],
   excludes: [],
   prefab: true,
 };

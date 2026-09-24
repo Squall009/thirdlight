@@ -347,6 +347,16 @@ detail. Copies have no ids, colliders or scripts.
 - MCP: `tl_instance_buffer {transforms}` returns `{digest, count}`. Then
   `createEntity {kind: "group", components: {instances: {asset: {assetId},
   buffer, count}}}`.
+- Single copies (phase 15.2): with the set selected, click one of its copies
+  in the Scene view. The gizmo then moves, turns or scales just that copy
+  (W/E/R), **Del** (or **Delete copy**) removes it, **Whole set** goes back
+  to the set. **Brush: add copies** paints new copies where you click or drag
+  in the Scene view (upright, scale 1, at least 1 m apart). Every edit
+  publishes a new buffer and stores it with one `setComponent instances
+  {buffer, count}` — one undo step; the old buffer stays, so undo points back
+  to it. MCP does the same: `tl_instance_buffer {digest}` reads a set's
+  copies (`{digest, count, transforms}`, sets of up to 4096 copies), edit the
+  list, publish it, `setComponent`.
 
 ## MCP (coding harness)
 
@@ -966,9 +976,11 @@ source, a gameplay piece (mover or door, switch, trigger, pickup, enemy) or
 a player spawn. The **Gizmos** menu turns the helpers on and off: icons,
 light ranges (point spheres, spot cones), **collider outlines** (every box
 and polygon collider on the game plane — a kit piece's `_COL` shape too;
-one-way platforms in a softer green), and gameplay paths and areas. A mover's
-waypoints are white handles: drag one to move that stop (one undo step;
-snapping applies).
+one-way platforms in a softer green), and gameplay paths and areas (an
+enemy's chase distance is drawn as the band it notices the player in). A
+selected camera shows its real frustum (its field of view, near and far, at
+the game view's aspect — the Game preview while it plays, else the window).
+Handles for sizes, ranges, directions and paths: see **Scene handles**.
 
 Inspector → "+ Add component" → **Face movement** on a model under the player or an
 enemy turns it to face where its parent goes (a yaw for moving right and for
@@ -992,9 +1004,7 @@ outlines); clicking its outline selects the player. While the player is
 selected, white handles on the capsule's top and side drag its height (the
 feet stay where they are, so the offset follows) and its radius — one undo
 step per drag, sizes snap to 5 cm with snapping on (hold Shift for exact
-sizes). The same top/side handles resize an enemy's box (it keeps standing
-on its feet), a pickup, trigger or switch area, a game zone, a box collider
-and a fog volume while their object is selected.
+sizes). Every other sized object has handles too — see **Scene handles**.
 
 Everything uses the capsule: physics (walls, ceilings, slopes, one-way
 platforms), spawn and respawn placement (the object's origin goes to the
@@ -1003,6 +1013,57 @@ a spawn on the ground puts the feet on the ground), hazard, checkpoint, goal
 and exit zones, pickups, triggers, switches, stomps, enemies' chase height
 and moving platforms' push-out. MCP: `setComponent` `controller`
 `{capsule: {radius, height, offset?} | null}`; `tl_inspect` shows it.
+
+## Scene handles
+
+While an object is selected, the Scene view shows white grips for every
+field of its components that has a size, range, direction or path (the
+component descriptors say which; the same list the Inspector is built
+from). Drag a grip: the object's outline follows while you drag, and the
+release stores it in one command — one undo step, the Inspector updates.
+Esc cancels a drag. Snapping (the toolbar's snap toggle; hold Shift for one
+drag to turn it off): sizes, radii, ranges and polygon corners land on 5 cm,
+path points and world-space bounds on the 0.25 m grid, a spot cone's
+half-angle on 5°, directions on 0.05 per axis. Values stay inside the
+field's range.
+
+- **Box sizes** (`box2`/`box3`): top and side grips (and a depth grip for a
+  box mesh and a fog volume); areas stay centred, an enemy's body keeps
+  standing on its feet. A box collider's half extents turn with the object;
+  a box mesh's size is in the object's own (scaled) space.
+- **World bounds** (camera follow): a grip on each edge.
+- **Capsule** (the player): see above.
+- **Radius**: a circle trigger, a point light's range; along X only for an
+  enemy's chase distance and an audio source's range (the engine compares
+  horizontal distance).
+- **X range** (`segment1d`): an enemy's patrol range, a grip at each end
+  (the left end stays left of the right one).
+- **Cone** (spot light): the tip grip points it (and sets its range when it
+  has one); the rim grip sets its half-angle. **Direction** (directional
+  light): the tip grip points it. These grips move on a plane facing you.
+- **Path** (mover waypoints) and **polygon** (collider corners): drag a
+  point; drag a small grey point on a segment to add one there; Alt+click a
+  point to delete it. A polygon collider must stay convex and
+  counter-clockwise: a drag that breaks that is shown red and not stored
+  (a notice says why).
+- **Collider from the model**: "+ Add component" (and the Component menu's
+  Collider submenu, and buttons in the Collider section) offer **Box from
+  model** and **Polygon from model outline**: the model's vertices (its own
+  and its children's models) projected on the play plane; the polygon is
+  their convex hull reduced to 8 corners, the box their bounds (a box
+  collider is always centred, so an off-centre model gets the same rectangle
+  as a 4-corner polygon).
+- **Spawn facing**: a player spawn's **Facing** (none / left / right; an
+  arrow in the Scene view) turns the player's face-movement models that way
+  at once when the player starts or respawns there. MCP: `setComponent`
+  `playerSpawn {facing}` (`null` = none).
+- **Animator starting values**: the Animator section lists the controller's
+  parameters (float, int, bool; triggers start unset) with its defaults;
+  setting one stores this object's own starting value, × goes back to the
+  controller's default.
+
+The v4 game block has no level bounds or kill height (games state those
+rules in scripts), so there is nothing of that kind to draw.
 
 ## Tuning values
 

@@ -81,7 +81,7 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   collider: ['shape'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
-  playerSpawn: [],
+  playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
