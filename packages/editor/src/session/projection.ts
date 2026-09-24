@@ -513,6 +513,7 @@ export class Projection {
       case 'setLighting':
       case 'setAnimators':
       case 'setInput':
+      case 'setFlow':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

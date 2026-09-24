@@ -29,6 +29,17 @@ export {
   type ImageRecipe,
   type TextureFormat,
 } from './inspect-image';
+export {
+  inspectMusic,
+  MUSIC_DURATION_MS_MAX,
+  MUSIC_SOURCE_BYTES_MAX,
+  MUSIC_TOOLCHAIN,
+  type MusicFormat,
+  type MusicImportOptions,
+  type MusicImportProposal,
+  type MusicMetrics,
+  type MusicRecipe,
+} from './inspect-music';
 
 export {
   ANIMATION_PROFILE_MAX_CLIPS,

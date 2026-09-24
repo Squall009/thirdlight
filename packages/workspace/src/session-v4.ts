@@ -416,6 +416,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
         inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
+        flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
       } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;

@@ -77,6 +77,7 @@ import {
   type GameHostConfig,
   type GameHost,
   type HostDomNode,
+  type FlowConfigLike,
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -340,7 +341,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -410,6 +411,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     sampleMenu: () => browserInput.sampleMenu(),
     markConfirmConsumed: () => browserInput.markConfirmConsumed(),
     dispose: () => browserInput.dispose(),
+    // Phase 9.10: the game flow's menus and rebinding.
+    sampleUi: () => browserInput.sampleUi(),
+    captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
+    configure: (c: InputConfigLike) => browserInput.configure(c),
   };
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
   const assetPathsById: Record<string, string> = {};
@@ -450,8 +455,19 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     container: cfg.container as unknown as HostDomNode,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
+    // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
+    ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
+    inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+    setQuality: (level) => adapterRef.current?.setQuality?.(level),
   };
   const host = createGameHost(config);
+  // Play has no page gesture wiring of its own: the first key or click in the
+  // game frame unlocks sound (music and cues).
+  const unlockOnce = (): void => {
+    void audio.unlock().catch(() => undefined);
+  };
+  globalThis.addEventListener?.('pointerdown', unlockOnce, { once: true });
+  globalThis.addEventListener?.('keydown', unlockOnce, { once: true });
   const mount = host.mount();
   if (!mount.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
 
@@ -696,6 +712,8 @@ export function bootstrapPreviewM3(): void {
       ...animatorStates(h.host.runtime),
       // Phase 9.9: the run's counters and the player's health.
       ...gameCounters(h.host.runtime),
+      // Phase 9.10: the game flow (screen, level, lives, music, volumes).
+      ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
     };
   };
 

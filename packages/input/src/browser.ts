@@ -29,7 +29,7 @@ import {
   createMenuController,
   type MenuSample,
 } from './menu';
-import { actionKeys, createActionEvaluator, platformerKeys } from './actions';
+import { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputConfigLike } from './actions';
 import {
   DEFAULT_KEYBOARD_MAP,
   GAMEPAD_DEAD_ZONE,
@@ -100,6 +100,40 @@ export function focusGameSurface(el: HTMLElement): void {
  * `dispose()`, `unavailable()` and `attached`. Attaching never throws, even
  * with no DOM at all.
  */
+/** Phase 9.10: one frame's menu edges. */
+export interface UiSample {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  submit: boolean;
+  cancel: boolean;
+  pause: boolean;
+}
+
+/** Phase 9.10: the keys of the `ui` actions (navigate's composites give the directions). */
+function uiKeys(cfg: InputConfigLike): { up: Set<string>; down: Set<string>; left: Set<string>; right: Set<string>; submit: Set<string>; cancel: Set<string>; pause: Set<string> } {
+  const out = { up: new Set<string>(), down: new Set<string>(), left: new Set<string>(), right: new Set<string>(), submit: new Set<string>(), cancel: new Set<string>(), pause: new Set<string>() };
+  for (const a of cfg.actions) {
+    for (const b of a.bindings as readonly { kind: string; code?: string; up?: string; down?: string; left?: string; right?: string; negative?: string; positive?: string }[]) {
+      if (a.name === 'navigate') {
+        if (b.kind === 'keys2d') {
+          out.up.add(b.up!);
+          out.down.add(b.down!);
+          out.left.add(b.left!);
+          out.right.add(b.right!);
+        } else if (b.kind === 'keys1d') {
+          out.left.add(b.negative!);
+          out.right.add(b.positive!);
+        }
+      } else if ((a.name === 'submit' || a.name === 'cancel' || a.name === 'pause') && b.kind === 'key') {
+        out[a.name as 'submit' | 'cancel' | 'pause'].add(b.code!);
+      }
+    }
+  }
+  return out;
+}
+
 export function attachBrowserInput(
   target: EventTarget | null,
   options: InputBindingOptions = {},
@@ -120,6 +154,12 @@ export function attachBrowserInput(
   sampleMenu(): MenuSample;
   /** The host consumed a confirm sample: the held press now needs a release (delivery.md §4.2). */
   markConfirmConsumed(): void;
+  /** Phase 9.10: the next menu edge (the `ui` actions' keys, pad D-pad/stick/A/B/Start), one per call in arrival order. */
+  sampleUi(): UiSample;
+  /** Phase 9.10: rebind at runtime (a player's settings); held state is cleared. */
+  configure(inputConfig: InputConfigLike): void;
+  /** Phase 9.10: hand the next key press to `onKey` (Escape gives null); returns a cancel function. */
+  captureKey(onKey: (code: string | null) => void): () => void;
 } {
   const globalWindow =
     typeof globalThis === 'object'
@@ -138,14 +178,33 @@ export function attachBrowserInput(
     return () => candidate.call(nav);
   })();
 
-  // Phase 9.8: the platformer keys come from the project's move/jump actions.
-  const keyMap = options.inputConfig !== undefined ? platformerKeys(options.inputConfig) : DEFAULT_KEYBOARD_MAP;
-  const LEFT_CODES = new Set(keyMap.left);
-  const RIGHT_CODES = new Set(keyMap.right);
-  const JUMP_CODES = new Set(keyMap.jump);
-  const evaluator = options.inputConfig !== undefined ? createActionEvaluator(options.inputConfig) : null;
+  // Phase 9.8: the platformer keys come from the project's move/jump actions
+  // (phase 9.10: `configure` rebinds them at runtime).
+  let LEFT_CODES = new Set<string>();
+  let RIGHT_CODES = new Set<string>();
+  let JUMP_CODES = new Set<string>();
+  let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
   /** Every key an action uses (held keys and taps between samples feed the evaluator). */
-  const ACTION_CODES = new Set(options.inputConfig?.actions.flatMap(actionKeys) ?? []);
+  let ACTION_CODES = new Set<string>();
+  /** Phase 9.10: the ui actions' keys (menus). */
+  let UI_KEYS: { up: Set<string>; down: Set<string>; left: Set<string>; right: Set<string>; submit: Set<string>; cancel: Set<string>; pause: Set<string> } = uiKeys(DEFAULT_INPUT_CONFIG);
+  const applyConfig = (cfg: InputConfigLike | undefined): void => {
+    const keyMap = cfg !== undefined ? platformerKeys(cfg) : DEFAULT_KEYBOARD_MAP;
+    LEFT_CODES = new Set(keyMap.left);
+    RIGHT_CODES = new Set(keyMap.right);
+    JUMP_CODES = new Set(keyMap.jump);
+    evaluator = cfg !== undefined ? createActionEvaluator(cfg) : null;
+    ACTION_CODES = new Set(cfg?.actions.flatMap(actionKeys) ?? []);
+    UI_KEYS = uiKeys(cfg ?? DEFAULT_INPUT_CONFIG);
+  };
+  applyConfig(options.inputConfig);
+  /** Menu edges in arrival order; `sampleUi` hands out one per call (fast key bursts keep their order). */
+  const uiQueue: (keyof UiSample)[] = [];
+  const pushUi = (k: keyof UiSample): void => {
+    if (uiQueue.length < 16) uiQueue.push(k);
+  };
+  let prevUiPad: boolean[] = [];
+  let capture: ((code: string | null) => void) | null = null;
   const actionHeld = new Set<string>();
   const actionPressed = new Set<string>();
   const isMappedCode = (code: unknown): code is string =>
@@ -353,8 +412,28 @@ export function attachBrowserInput(
   const onKeyDown = (event: Event): void => {
     if (detached) return;
     const e = event as unknown as KeyboardEventLike;
-    if (e.repeat === true) return; // auto-repeat never creates a latch (runtime.md §12.5.2)
     if (isEditableTarget(e.target)) return; // typing in the inspector must not move the character
+    const code = String(e.code ?? '');
+    if (capture !== null && e.repeat !== true) {
+      // Phase 9.10: a rebinding screen takes this key (nothing else sees it).
+      const cb = capture;
+      capture = null;
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      cb(code === 'Escape' ? null : code);
+      return;
+    }
+    // Phase 9.10: menu edges (navigation repeats while held).
+    if (UI_KEYS.up.has(code)) pushUi('up');
+    if (UI_KEYS.down.has(code)) pushUi('down');
+    if (UI_KEYS.left.has(code)) pushUi('left');
+    if (UI_KEYS.right.has(code)) pushUi('right');
+    if (e.repeat === true) return; // auto-repeat never creates a latch (runtime.md §12.5.2)
+    if (UI_KEYS.submit.has(code)) pushUi('submit');
+    if (UI_KEYS.cancel.has(code)) pushUi('cancel');
+    if (UI_KEYS.pause.has(code)) {
+      pushUi('pause');
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+    }
     // The menu channel sees the fresh press BEFORE the gameplay mapping gate
     // (Enter/KeyM are not gameplay bindings — packet-38); the editable-target
     // and repeat gates above still apply (menu keys in a text field are inert).
@@ -569,6 +648,41 @@ export function attachBrowserInput(
     /** The host consumed a confirm sample: the held press now needs a release. */
     markConfirmConsumed(): void {
       menu.consumeConfirm();
+    },
+    sampleUi(): UiSample {
+      if (gamepadEnabled && pollGamepads && !detached) {
+        try {
+          const pad = Array.from(pollGamepads()).find((g) => g !== null && g.mapping === 'standard') ?? null;
+          const now = pad === null ? [] : Array.from(pad.buttons, (b) => b?.pressed === true);
+          const ax = pad === null ? [0, 0] : [pad.axes[0] ?? 0, pad.axes[1] ?? 0];
+          const dirs = [ax[1]! < -0.6, ax[1]! > 0.6, ax[0]! < -0.6, ax[0]! > 0.6];
+          const cur = [now[12] === true || dirs[0]!, now[13] === true || dirs[1]!, now[14] === true || dirs[2]!, now[15] === true || dirs[3]!, now[0] === true, now[1] === true, now[9] === true];
+          const edge = (i: number): boolean => cur[i] === true && prevUiPad[i] !== true;
+          (['up', 'down', 'left', 'right', 'submit', 'cancel', 'pause'] as const).forEach((k, i) => {
+            if (edge(i)) pushUi(k);
+          });
+          prevUiPad = cur;
+        } catch {
+          // a failed poll reads as no pad
+        }
+      }
+      const out: UiSample = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const next = uiQueue.shift();
+      if (next !== undefined) out[next] = true;
+      return out;
+    },
+    configure(inputConfig: InputConfigLike): void {
+      applyConfig(inputConfig);
+      held.clear();
+      actionHeld.clear();
+      actionPressed.clear();
+      freshActivation();
+    },
+    captureKey(onKey: (code: string | null) => void): () => void {
+      capture = onKey;
+      return () => {
+        if (capture === onKey) capture = null;
+      };
     },
     detach,
     dispose: detach,

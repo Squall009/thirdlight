@@ -17,6 +17,7 @@
 
 import type { AnimatorComponent, AnimatorController } from './animator';
 import type { InputConfig } from './input';
+import type { GameFlow } from './flow';
 import type { EnemyComponent, HealthComponent, MoverComponent, PickupComponent, SwitchComponent, TriggerComponent } from './blocks';
 import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
@@ -302,7 +303,7 @@ export interface ResolvedSceneV3 {
 
 /** §23.3.7 the v3 asset-kind discriminator. */
 /** Phase 9.4 adds `texture` (a standalone PNG/JPEG/WebP image). */
-export type AssetKind = 'model' | 'audio' | 'texture';
+export type AssetKind = 'model' | 'audio' | 'texture' | 'music';
 
 /**
  * presentation.md §41.4.3: the `gltf-glb` recipe member (the accepted M2
@@ -439,6 +440,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   animators?: AnimatorController[];
   /** Phase 9.8: input actions and bindings (absent = the defaults). */
   input?: InputConfig;
+  /** Phase 9.10: levels, lives, title screen, HUD, menus (absent = one level, as before). */
+  flow?: GameFlow;
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

@@ -37,6 +37,7 @@ export {
   assertRelativeClosure,
   scanGlbContainer,
   scanImageContainer,
+  scanMusicContainer,
   scanWavContainer,
   scanWasmContainer,
   textPatternCounts,

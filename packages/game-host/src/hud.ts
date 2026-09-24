@@ -51,6 +51,8 @@ export interface HudState {
   readonly sound: 'ready' | 'muted' | 'blocked' | 'unavailable';
   /** Phase 9.9: the run's counters and health, formatted ("Coins 3 · Health 2/3"), or ''. */
   readonly counters?: string;
+  /** Phase 9.10: with a game flow, the one HUD line (level, lives, counters, health, timer); the menus show the rest. */
+  readonly flowLine?: string;
 }
 
 export interface Hud {
@@ -74,6 +76,8 @@ export const HUD_PROMPTS: Readonly<Record<HudState['state'], string>> = Object.f
 export function createHud(dom: HostDom, config: {
   readonly onStart: () => void;
   readonly onMuteToggle: () => void;
+  /** Phase 9.10: a game flow's HUD layout (absent: the classic HUD with its Start button). */
+  readonly preset?: 'classic' | 'minimal' | 'corners';
 }): Hud {
   const disposers: Array<() => void> = [];
   const text = (node: HostDomNode, value: string): void => {
@@ -81,7 +85,7 @@ export function createHud(dom: HostDom, config: {
   };
 
   const root = dom.createElement('div');
-  root.setAttribute?.('class', 'tl-game-host-hud');
+  root.setAttribute?.('class', config.preset !== undefined ? `tl-game-host-hud tl-flow-hud tl-hud--${config.preset}` : 'tl-game-host-hud');
 
   const titleNode = dom.createElement('h1');
   text(titleNode, '');
@@ -112,7 +116,7 @@ export function createHud(dom: HostDom, config: {
   root.appendChild(instructionsNode);
   root.appendChild(promptNode);
   root.appendChild(statusNode);
-  root.appendChild(startButton);
+  if (config.preset === undefined) root.appendChild(startButton);
   root.appendChild(muteButton);
 
   let lastTitle = '';
@@ -122,6 +126,23 @@ export function createHud(dom: HostDom, config: {
   return {
     root,
     update(state: HudState): void {
+      if (state.flowLine !== undefined) {
+        // Phase 9.10: title, objective and prompts live in the menus.
+        if (lastTitle !== '') {
+          text(titleNode, '');
+          text(instructionsNode, '');
+          text(promptNode, '');
+          lastTitle = '';
+          lastInstructions = '';
+        }
+        objectiveNode.setAttribute?.('class', 'tl-flow-hud__line');
+        if (state.flowLine !== lastObjective) {
+          text(objectiveNode, state.flowLine);
+          lastObjective = state.flowLine;
+        }
+        text(statusNode, `sound: ${state.sound}`);
+        return;
+      }
       if (state.title !== lastTitle) {
         text(titleNode, state.title);
         lastTitle = state.title;

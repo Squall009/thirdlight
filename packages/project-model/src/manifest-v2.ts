@@ -32,6 +32,7 @@
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalInput, validateInput, type InputConfig } from './input';
+import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
@@ -74,7 +75,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -97,6 +98,7 @@ export const MANIFEST_KEYS_V2 = [
   'lighting',
   'animators',
   'input',
+  'flow',
   'scenes',
   'buffers',
   'assets',
@@ -532,6 +534,8 @@ export interface CaptureManifestV2Input {
   animators?: readonly AnimatorController[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
   input?: InputConfig;
+  /** Phase 9.10: the game flow (only when the project has one). */
+  flow?: GameFlow;
   /**
    * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
    * (`start`) or on demand by the game; present only for a v4 project.
@@ -643,6 +647,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
+    ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -702,7 +707,7 @@ export type ValidateManifestV2Result =
   | { ok: true; manifest: RuntimeContentManifestV2 }
   | { ok: false; error: ManifestErrorV2 };
 
-const ASSET_KINDS = ['model', 'audio', 'texture'] as const;
+const ASSET_KINDS = ['model', 'audio', 'texture', 'music'] as const;
 
 function isDigest(v: unknown): v is string {
   return typeof v === 'string' && DIGEST_RE.test(v);
@@ -742,13 +747,14 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['input'] !== undefined) {
+  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors);
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
     if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
     if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
+    if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
   }
 

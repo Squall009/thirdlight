@@ -23,8 +23,8 @@
  * (§9.4, defensive).
  */
 
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
-import { withAnimators, withEnvironment, withInput, withLighting, withMaterials } from './material-ops';
+import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
 import type {
   BehaviorComponent,
   BehaviorRecord,
@@ -505,6 +505,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setFlow') {
+    const before = (content as { flow?: GameFlow }).flow ?? null;
+    const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withFlow(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setInput') {
     const before = (content as { input?: InputConfig }).input ?? null;
     const change: ChangeData = { type: 'setInput', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -883,6 +889,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setFlow') {
+    const before = (content as { flow?: GameFlow }).flow ?? null;
+    const change: ChangeData = { type: 'setFlow', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withFlow(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setInput') {

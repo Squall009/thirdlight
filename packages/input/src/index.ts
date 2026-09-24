@@ -36,7 +36,7 @@
  * channel — `createMenuController` (pure) and the owner's additive
  * `sampleMenu()`/`markConfirmConsumed()` methods. No new dependency.
  */
-export { attachBrowserInput, focusGameSurface } from './browser';
+export { attachBrowserInput, focusGameSurface, type UiSample } from './browser';
 export {
   createMenuController,
   MENU_CONFIRM_CODES,

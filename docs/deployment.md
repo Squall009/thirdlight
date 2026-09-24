@@ -591,6 +591,44 @@ The HUD shows the counters and health ("Coins 2 · Health 3/3").
 `ctx.game.counter(name)` / `.add(name, n)` / `.health()`, and
 `ctx.physics.raycast(origin, direction, maxDistance)` (32 per step).
 
+## Game flow, menus and music
+
+Bottom dock → **Game flow** turns a scene into a game with levels (v4
+projects). "Set up levels and menus" makes level 1 from the start scenes;
+then:
+
+- **Levels** play in the listed order. Each level loads the scenes ticked
+  for it (every level must also load the scene holding the player and the
+  camera — usually the start scene) and starts at the chosen player spawn. A
+  closed scene's spawns appear once the scene is opened in the Hierarchy.
+  Each level can loop a music track.
+- **Lives**: a death costs one, an extra-life pickup gives one (up to the
+  maximum); at 0 the game shows *Game over* (retry the level or quit to the
+  title). Without limited lives a death only respawns.
+- **Title screen** (always shown with a flow): the game title, a subtitle,
+  the instructions and title music; *New game*, *Settings*.
+- **HUD and menus**: layout (classic, minimal, corners), a level timer, the
+  menu font, colours and an optional logo (a texture asset), the *Level
+  complete* / *Game over* texts and credits for the end screen, default
+  music and sound volumes.
+
+In the game: Esc (or the pad's Start) pauses — *Resume*, *Restart level*,
+*Settings*, *Quit to title*. Arrow keys / W-S / D-pad move through a menu,
+Enter or pad A chooses, left/right change a volume. **Settings** has music
+and sound volume, quality (low/medium/high) and the jump/attack/interact
+keys (choose one, press the new key). Reaching a goal shows *Level
+complete* (time, counters, deaths) and goes on to the next level; after the
+last one the end screen shows the totals and credits.
+
+**Music** assets are Ogg (Vorbis or Opus) or MP3 files, up to 10 minutes and
+16 MB (import them like other assets; a long WAV can be imported with kind
+`music` through MCP). Music starts with the first key press or click (the
+browser's sound rule), loops, and crossfades between the title and the
+levels. `tl_game_observe` reports `flow` (screen, level, lives, music, its
+volume). MCP: `setFlow {flow}` through `tl_command`; with a flow,
+`tl_game_control` *start* begins a new game and *replay* restarts the
+level. Settings last until the page is reloaded (saving them is phase 9.11).
+
 ## Upgrade
 
 ```sh

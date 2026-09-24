@@ -55,6 +55,7 @@ import {
   type ManifestBehaviorRow,
   type ManifestBufferRow,
   type ManifestSceneRow,
+  type FlowConfigLike,
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -120,7 +121,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -358,6 +359,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     container,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
+    // Phase 9.10: the game flow (levels, lives, menus, music) and the settings it changes.
+    ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
+    inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+    setQuality: (level) => adapterRef.current?.setQuality?.(level),
   };
   const host = createGameHost(config);
   const mount = host.mount();

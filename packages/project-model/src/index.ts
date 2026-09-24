@@ -325,6 +325,17 @@ export {
   type SwitchComponent,
   type TriggerComponent,
 } from './blocks';
+// Phase 9.10: game flow.
+export {
+  canonicalFlow,
+  flowAssetRefs,
+  HUD_PRESETS,
+  MAX_FLOW_LEVELS,
+  UI_FONTS,
+  validateFlow,
+  type FlowLevel,
+  type GameFlow,
+} from './flow';
 // Phase 9.8: input actions.
 export {
   canonicalInput,

@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -100,11 +100,13 @@ function fromCommandError(e: {
 // ---------------------------------------------------------------------------
 
 /** The MIME type of one declared asset artifact by kind (export.md §6.3). */
-const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture', string> = {
+const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music', string> = {
   model: 'model/gltf-binary',
   audio: 'audio/wav',
   // Phase 9.4: PNG/JPEG/WebP; the runtime decodes by magic bytes.
   texture: 'image/x-texture',
+  // Phase 9.10: Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
+  music: 'audio/x-music',
 };
 
 export interface ContentClosureM3Input {
@@ -434,6 +436,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
     // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
+    // Phase 9.10: the game flow (the game host runs levels, lives and menus from it).
+    ...((input.content as { flow?: GameFlow } | null)?.flow !== undefined ? { flow: (input.content as { flow: GameFlow }).flow } : {}),
     // Phase 9.8: the input actions (the game's input binding reads them).
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them).

@@ -562,7 +562,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.7 rigs + Animator + Sprout clips | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.7"; Sprout 33e92d9 (clips, not pushed) |
 | 9.8 input actions + Input window | done 2026-09-24 (owner look pending) | see git log "9.7/9.8" |
 | 9.9 physics + gameplay building blocks | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.9" |
-| 9.10 game flow, menus, HUD, audio | todo | |
+| 9.10 game flow, menus, HUD, audio | in progress (flow, menus, music done; audio sources + ctx.audio next) | see git log "9.10" |
 | 9.11 save system | todo | |
 | 9.12 placeholders, icons, gizmos | todo | |
 | 9.13 Sprout demo levels | todo | |
@@ -676,3 +676,14 @@ Add one dated line per decision taken during the run (what, why).
   script intents (rotation/scale, set active, spawn/destroy, timers) —
   left for 9.10/9.13/9.14 as needed. Known limit: a player spawn inside a
   one-way platform counts as blocked. Blocks need v4 projects.
+- 2026-09-24 (9.10): the game flow is a new optional content block
+  `content.flow` (not a `content.game` field: game fields are all required
+  and versioned). Levels switch inside one runtime (`runtime.startLevel`:
+  the level's scenes become the loaded and start set, then a fresh run at
+  its spawn), so a replay restarts the current level; every level must load
+  the player's and the camera's scene. Lives, menus and music live in the
+  game host (the simulation stays unaware of them); pause stops the steps
+  while frames keep rendering. Menus are DOM built with textContent only;
+  their styles use a constructed stylesheet because the Play page's CSP
+  refuses inline <style>. Music is its own asset kind (the ≤ 2 s mono WAV
+  cue rules stay). Player settings are in memory until 9.11 saves them.

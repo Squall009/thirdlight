@@ -294,6 +294,21 @@ export function scanWavContainer(bytes: Uint8Array): ContainerResult {
 }
 
 /**
+ * Music validation (phase 9.10): an Ogg page, an MP3 (ID3v2 tag or an MPEG
+ * frame sync) or a RIFF/WAVE whose RIFF length matches the file. No decoding.
+ */
+export function scanMusicContainer(bytes: Uint8Array): ContainerResult {
+  const tag = (at: number, n: number): string => (bytes.length >= at + n ? String.fromCharCode(...bytes.subarray(at, at + n)) : '');
+  if (tag(0, 4) === 'OggS') return bytes.length >= 27 && bytes[4] === 0 ? { ok: true } : { ok: false, code: 'music_ogg_page', message: 'the Ogg page header is invalid', offset: 4 };
+  if (tag(0, 3) === 'ID3' || (bytes.length >= 4 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)) return { ok: true };
+  if (tag(0, 4) === 'RIFF' && tag(8, 4) === 'WAVE') {
+    const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
+    return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'music_wav_length', message: 'the WAV RIFF length does not match the file', offset: 4 };
+  }
+  return { ok: false, code: 'music_format', message: 'not an Ogg, MP3 or WAV file', offset: 0 };
+}
+
+/**
  * Texture image validation (phase 9.4): PNG (signature + IHDR), JPEG (SOI) or
  * WebP (RIFF/WEBP with the RIFF length matching the file). No decoding.
  */

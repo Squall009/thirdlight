@@ -72,4 +72,40 @@ describe('input actions', () => {
     expect(source.sample(2).actions?.['attack']).toEqual({ v: 1, p: 'pressed' });
     source.dispose();
   });
+
+  it('phase 9.10: menu edges from the ui keys, runtime rebinding, and a one-shot key capture', () => {
+    const listeners = new Map<string, ((e: Event) => void)[]>();
+    const target = {
+      addEventListener: (t: string, h: (e: Event) => void) => listeners.set(t, [...(listeners.get(t) ?? []), h]),
+      removeEventListener: () => undefined,
+    };
+    const fire = (type: string, code: string, repeat = false): void => {
+      for (const h of listeners.get(type) ?? []) h({ type, code, repeat, target, preventDefault: () => undefined } as unknown as Event);
+    };
+    const source = attachBrowserInput(target as unknown as EventTarget, { window: null, document: null, navigator: null, getGamepads: null, inputConfig: DEFAULT_INPUT_CONFIG });
+    fire('keydown', 'ArrowDown');
+    fire('keydown', 'ArrowDown', true); // held: navigation repeats
+    fire('keydown', 'Escape');
+    // One edge per sample, in arrival order: down, down (the repeat), pause.
+    expect(source.sampleUi()).toEqual({ up: false, down: true, left: false, right: false, submit: false, cancel: false, pause: false });
+    expect(source.sampleUi().down).toBe(true);
+    expect(source.sampleUi().pause).toBe(true);
+    expect(source.sampleUi()).toEqual({ up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false });
+    fire('keydown', 'Enter', true);
+    expect(source.sampleUi().submit).toBe(false); // a repeat is not a new submit
+    // Rebind jump to KeyK: Space stops jumping.
+    source.configure({ actions: DEFAULT_INPUT_CONFIG.actions.map((a) => (a.name === 'jump' ? { ...a, bindings: [{ kind: 'key', code: 'KeyK' }] } : a)) });
+    fire('keydown', 'Space');
+    expect(source.sample(0).jump).toBe('none');
+    fire('keydown', 'KeyK');
+    expect(source.sample(1).jump).toBe('pressed');
+    // Capture: the next key goes to the callback only.
+    const got: (string | null)[] = [];
+    source.captureKey((c) => got.push(c));
+    fire('keydown', 'KeyQ');
+    fire('keydown', 'Escape');
+    expect(got).toEqual(['KeyQ']);
+    expect(source.sampleUi().pause).toBe(true); // the second Escape was not captured
+    source.dispose();
+  });
 });

@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -137,7 +137,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'health {max, invulnerableSeconds?} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
       'respawn?: never|death}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
       'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life). ' +
-      'Scripts use ctx.signals.emit/on(name) and ctx.game.counter/add/health(). Returns the new revision on success, ' +
+      'Scripts use ctx.signals.emit/on(name) and ctx.game.counter/add/health(). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
+      'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
+      'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
+      'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
+      'replay = restart the level). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {
@@ -201,7 +205,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
-        kind: { type: 'string', enum: ['model', 'audio', 'texture'] },
+        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music'] },
         animation: {
           type: 'object',
           description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
@@ -315,7 +319,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -746,7 +750,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
   // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture') return toolError('kind must be "model", "audio" or "texture"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
@@ -770,7 +774,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.displayName = a.displayName;
   }
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture') return toolError('kind must be "model", "audio" or "texture"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music') return toolError('kind must be "model", "audio", "texture" or "music"');
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {

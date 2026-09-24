@@ -62,6 +62,8 @@ export type LimitName =
   | 'audio_versions'
   | 'texture_assets'
   | 'texture_versions'
+  | 'music_assets'
+  | 'music_versions'
   | 'game_bytes'
   | 'animation_profile_bytes'
   // presentation.md §41.7.1 (packet 47, CC-44-5): the animation/audio media

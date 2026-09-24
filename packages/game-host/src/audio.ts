@@ -124,7 +124,8 @@ export interface AudioNodeLike {
 }
 
 export interface GainNodeLike extends AudioNodeLike {
-  readonly gain: { value: number };
+  readonly gain: { value: number; setValueAtTime?(v: number, t: number): void; linearRampToValueAtTime?(v: number, t: number): void; cancelScheduledValues?(t: number): void };
+  disconnect?(): void;
 }
 
 export interface BufferSourceLike {
@@ -133,6 +134,8 @@ export interface BufferSourceLike {
   connect(target: AudioNodeLike): void;
   start(): void;
   stop(): void;
+  /** Phase 9.10: music loops. */
+  loop?: boolean;
 }
 
 export interface AudioContextLike {
@@ -144,7 +147,13 @@ export interface AudioContextLike {
   createBufferSource(): BufferSourceLike;
   createGain(): GainNodeLike;
   readonly destination: AudioNodeLike;
+  /** Phase 9.10: the clock the music crossfades on (absent: gains jump). */
+  readonly currentTime?: number;
 }
+
+/** Phase 9.10: the mixer buses. */
+export type AudioBus = 'master' | 'music' | 'sfx';
+export const MUSIC_MAX_REGISTERED = 64;
 
 export interface GameAudioOwnerConfig {
   /**
@@ -195,6 +204,15 @@ export interface GameAudioOwner {
   /** Additive observation surface (packet 55, delivery.md §3.1
    * `sound.voices`): the live concurrent voice count (0..8). */
   liveVoices(): number;
+  /** Phase 9.10: register a music track (decoded when it first plays). */
+  registerMusic?(assetId: string, bytes: Uint8Array): { ok: true } | { ok: false; error: GameAudioError };
+  /** Phase 9.10: loop a track (null: silence), crossfading from the current one. */
+  playMusic?(assetId: string | null, fadeSeconds?: number): void;
+  /** Phase 9.10: a bus volume, 0–1. */
+  setVolume?(bus: AudioBus, value: number): void;
+  volumes?(): Readonly<Record<AudioBus, number>>;
+  /** Phase 9.10: the wanted track, whether it sounds, and the music bus gain node's value. */
+  musicStatus?(): { readonly assetId: string | null; readonly playing: boolean; readonly gain: number };
 }
 
 export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAudioOwner {
@@ -217,6 +235,108 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   const assets = new Map<string, AssetState>();
   const voices = new Set<Voice>();
   const diagnostics: GameAudioDiagnostic[] = [];
+  // Phase 9.10: buses (created with the context) and music.
+  const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1 };
+  let buses: Record<AudioBus, GainNodeLike> | null = null;
+  const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
+  let wantedMusic: string | null = null;
+  let wantedFade = 1;
+  let track: { assetId: string; source: BufferSourceLike; gain: GainNodeLike } | null = null;
+
+  function ensureBuses(ctx: AudioContextLike): Record<AudioBus, GainNodeLike> {
+    if (buses !== null) return buses;
+    const master = ctx.createGain();
+    const musicBus = ctx.createGain();
+    const sfx = ctx.createGain();
+    master.gain.value = muted ? 0 : volumes.master;
+    musicBus.gain.value = volumes.music;
+    sfx.gain.value = volumes.sfx;
+    musicBus.connect(master);
+    sfx.connect(master);
+    master.connect(ctx.destination);
+    buses = { master, music: musicBus, sfx };
+    return buses;
+  }
+
+  function ramp(g: GainNodeLike, to: number, seconds: number, ctx: AudioContextLike): void {
+    const now = ctx.currentTime;
+    if (now === undefined || g.gain.linearRampToValueAtTime === undefined || seconds <= 0) {
+      g.gain.value = to;
+      return;
+    }
+    g.gain.cancelScheduledValues?.(now);
+    g.gain.setValueAtTime?.(g.gain.value, now);
+    g.gain.linearRampToValueAtTime(to, now + seconds);
+  }
+
+  function stopTrack(fadeSeconds: number): void {
+    const t = track;
+    track = null;
+    if (t === null || context === null) return;
+    ramp(t.gain, 0, fadeSeconds, context);
+    const stop = (): void => {
+      try {
+        t.source.stop();
+      } catch {
+        // already stopped
+      }
+      t.gain.disconnect?.();
+    };
+    if (fadeSeconds > 0 && context.currentTime !== undefined) setTimeout(stop, fadeSeconds * 1000 + 50);
+    else stop();
+  }
+
+  /** Start the wanted track once the context is unlocked and its bytes decoded. */
+  function syncMusic(): void {
+    if (disposed || context === null || !unlocked) return;
+    const ctx = context;
+    if (track !== null && track.assetId === wantedMusic) return;
+    if (wantedMusic === null) {
+      stopTrack(wantedFade);
+      return;
+    }
+    const entry = music.get(wantedMusic);
+    if (entry === undefined || entry.failed) {
+      stopTrack(wantedFade);
+      return;
+    }
+    if (entry.buffer === null) {
+      if (entry.decoding) return;
+      entry.decoding = true;
+      const id = wantedMusic;
+      let p: Promise<AudioBufferLike>;
+      try {
+        p = ctx.decodeAudioData(entry.bytes.slice().buffer);
+      } catch (err) {
+        p = Promise.reject(err);
+      }
+      p.then(
+        (buffer) => {
+          entry.buffer = buffer;
+          entry.decoding = false;
+          if (!disposed && wantedMusic === id) syncMusic();
+        },
+        () => {
+          entry.decoding = false;
+          entry.failed = true;
+          diag('audio_decode_failed', id, 'music decode failed; the level plays without it');
+        },
+      );
+      return;
+    }
+    stopTrack(wantedFade);
+    const bus = ensureBuses(ctx);
+    const source = ctx.createBufferSource();
+    source.buffer = entry.buffer;
+    source.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(gain);
+    gain.connect(bus.music);
+    ramp(gain, 1, wantedFade, ctx);
+    source.start();
+    track = { assetId: wantedMusic, source, gain };
+  }
 
   function diag(
     code: GameAudioDiagnosticCode,
@@ -421,7 +541,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         const gain = ctx.createGain();
         gain.gain.value = 1;
         source.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(ensureBuses(ctx).sfx);
         const voice: Voice = { source, assetId: event.assetId, ended: false, released: false };
         source.onended = () => {
           voice.ended = true;
@@ -471,9 +591,11 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       }
       unlocked = true;
       blockedReason = null;
+      ensureBuses(ctx);
       // Eagerly decode everything registered before the gesture (the host
       // registers at load; the first cue must not wait).
       decodeAllPending();
+      syncMusic();
       if (hidden && ctx.state === 'running') {
         try {
           await ctx.suspend();
@@ -488,6 +610,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       if (disposed) return currentStatus();
       if (muted === next) return currentStatus();
       muted = next;
+      if (buses !== null) buses.master.gain.value = muted ? 0 : volumes.master;
       if (muted) {
         // §41.4.6: nothing is decoded or played while muted — current
         // voices stop now; pending decodes are deferred (startDecode is a
@@ -538,6 +661,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       disposed = true;
       epoch += 1; // every in-flight decode is stale (rule 5)
       stopAllVoices();
+      stopTrack(0);
+      music.clear();
       if (context) {
         // Rule 8: close exactly the contexts THIS owner created, once.
         context.close().catch(() => {
@@ -555,6 +680,39 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     liveVoices() {
       return voices.size;
+    },
+
+    registerMusic(assetId, bytes) {
+      if (disposed) return error('audio_disposed', 'registerMusic after dispose');
+      if (!assetId || !(bytes instanceof Uint8Array) || bytes.length === 0) return error('audio_invalid_bytes', 'music needs an assetId and non-empty bytes');
+      if (!music.has(assetId) && music.size >= MUSIC_MAX_REGISTERED) return error('audio_invalid_bytes', `music store full (cap ${MUSIC_MAX_REGISTERED})`);
+      music.set(assetId, { bytes, buffer: null, decoding: false, failed: false });
+      if (wantedMusic === assetId) syncMusic();
+      return { ok: true };
+    },
+
+    playMusic(assetId, fadeSeconds = 1) {
+      if (disposed) return;
+      wantedMusic = assetId;
+      wantedFade = Math.max(0, Math.min(10, fadeSeconds));
+      syncMusic();
+    },
+
+    setVolume(bus, value) {
+      if (disposed) return;
+      const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
+      volumes[bus] = v;
+      if (buses === null) return;
+      if (bus === 'master') buses.master.gain.value = muted ? 0 : v;
+      else buses[bus].gain.value = v;
+    },
+
+    volumes() {
+      return { ...volumes };
+    },
+
+    musicStatus() {
+      return { assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, gain: buses !== null ? buses.music.gain.value : volumes.music };
     },
   };
 }

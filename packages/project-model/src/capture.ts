@@ -18,6 +18,7 @@ import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2, validateSceneV2 } from './scene-v2';
 import { validateContent, validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
+import { flowAssetRefs, type GameFlow } from './flow';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
   CapturedAsset,
@@ -134,6 +135,12 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   // Phase 9.4: every texture a project material uses travels with the game.
   for (const m of (content as { materials?: { textures: Record<string, string> }[] }).materials ?? []) {
     for (const id of Object.values(m.textures)) setRef(id);
+  }
+  // Phase 9.10: the flow's music and menu logo.
+  const flow = (content as { flow?: GameFlow }).flow;
+  if (flow !== undefined) {
+    const refs = flowAssetRefs(flow);
+    for (const id of [...refs.music, ...refs.textures]) setRef(id);
   }
   // Phase 9.5: the sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;

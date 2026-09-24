@@ -16,7 +16,7 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -96,7 +96,7 @@ export interface ClientUiState {
 /** One folder of the game folder, as the import-from-project-folder picker shows it. */
 export interface ProjectFileListing {
   dir: string;
-  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture'; byteLength?: number }>;
+  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture' | 'music'; byteLength?: number }>;
   truncated: boolean;
 }
 
@@ -295,6 +295,8 @@ export class SessionClient {
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   private inputDefaults: InputConfig = { actions: [] };
+  /** Phase 9.10: the game flow (null = none). */
+  private flow: GameFlow | null = null;
   /**
    * Phase 12 (c): the scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
@@ -507,6 +509,8 @@ export class SessionClient {
         this.input = input !== undefined && input !== null ? structuredClone(input) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
+        const flow = (g as { flow?: GameFlow | null }).flow;
+        this.flow = flow !== undefined && flow !== null ? structuredClone(flow) : null;
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -687,6 +691,8 @@ export class SessionClient {
         this.materials = structuredClone(change.next);
       } else if (change.type === 'setEnvironment') {
         this.environment = change.next === null ? null : structuredClone(change.next);
+      } else if (change.type === 'setFlow') {
+        this.flow = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setInput') {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setAnimators') {
@@ -1025,6 +1031,11 @@ export class SessionClient {
   /** Phase 9.8: the project's input actions (null = the defaults). */
   getInput(): InputConfig | null {
     return this.input === null ? null : structuredClone(this.input);
+  }
+
+  /** Phase 9.10: the game flow (null = none). */
+  getFlow(): GameFlow | null {
+    return this.flow === null ? null : structuredClone(this.flow);
   }
 
   /** Phase 9.8: the default input actions (what a project without its own uses). */
@@ -1463,7 +1474,7 @@ export class SessionClient {
     options: {
       target?: ImportTarget;
       displayName?: string | null;
-      kind?: 'model' | 'audio' | 'texture';
+      kind?: 'model' | 'audio' | 'texture' | 'music';
       animation?: { entityId: string; roles: unknown };
       onState?: (s: AssetImportState) => void;
     } = {},
@@ -1545,7 +1556,7 @@ export class SessionClient {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture'; displayName?: string; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music'; displayName?: string; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);

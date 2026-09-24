@@ -64,6 +64,7 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
+import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges } from './flow';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -93,6 +94,10 @@ export interface HostInputOwner {
   sampleMenu(): MenuSample;
   markConfirmConsumed(): void;
   dispose(): void;
+  /** Phase 9.10: menu edges, key capture and rebinding (the browser owner has them). */
+  sampleUi?(): FlowUiEdges;
+  captureKey?(onKey: (code: string | null) => void): () => void;
+  configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -126,6 +131,8 @@ export interface GameHostObservation {
   readonly inputMode: 'physical' | 'test';
   /** Phase 12 (c), additive: the loaded scenes and the ones being loaded (v4 games). */
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
+  /** Phase 9.10, additive: the game flow (screen, level, lives, music, volumes). */
+  readonly flow?: FlowObservation;
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -186,6 +193,12 @@ export interface GameHostConfig {
    * fail with a diagnostic and the game keeps its start scenes.
    */
   readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
+  /** Phase 9.10: the manifest's game flow (levels, lives, menus, music). v4 games only. */
+  readonly flow?: FlowConfigLike;
+  /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
+  readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
+  /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
+  readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -388,6 +401,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let mounted = false;
   let runtime: Runtime | null = null;
   let hud: Hud | null = null;
+  let flowCtl: FlowController | null = null;
   let adapter: HostRenderAdapter | null = null;
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
@@ -460,7 +474,23 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // apply at the next step boundary; at awaitingStart/won that boundary
     // performs no motion steps (C4/C5: `movementSteps: 0`).
     const menu: MenuSample = config.input.sampleMenu();
-    if (menu.confirm || menu.mute) {
+    if (flowCtl !== null) {
+      // Phase 9.10: the flow's menus take the confirm and the ui edges.
+      const ui = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
+      const res = runtime.getGameView();
+      if (res.ok) {
+        // The ui queue carries submit (Enter, pad A) in order with the
+        // navigation; an owner without it falls back to the menu confirm.
+        const onMenu = flowCtl.screen !== 'playing';
+        const submit = config.input.sampleUi !== undefined ? ui.submit : ui.submit || (onMenu && menu.confirm);
+        const used = flowCtl.frame(res.view, { ...ui, submit });
+        if (used) config.input.markConfirmConsumed();
+      }
+      if (menu.mute) {
+        const st = config.audio.status();
+        void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
+      }
+    } else if (menu.confirm || menu.mute) {
       const res = runtime.getGameView();
       const state: RunState | null = res.ok ? res.view.state : null;
       if (menu.confirm) {
@@ -515,7 +545,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     previousGrounded = view.playerMotion.grounded;
     if (hud !== null) {
-      hud.update(buildHudState(view.state, view.deathCount, view.checkpointActive, lastCheckpointStep));
+      const state = buildHudState(view.state, view.deathCount, view.checkpointActive, lastCheckpointStep);
+      hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
     }
     adapter?.renderFrame();
   };
@@ -528,6 +559,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     switch (action) {
       case 'start':
       case 'replay': {
+        if (flowCtl !== null) {
+          // Phase 9.10: start = a new game (level 1), replay = restart the level.
+          const okFlow = action === 'start' ? flowCtl.newGame() : flowCtl.restartLevel();
+          const v = runtime.getGameView();
+          if (!okFlow) return { ok: false, error: { code: 'game_command_invalid', reason: 'level', message: 'the level could not start' } };
+          return { ok: true, state: v.ok ? v.view.state : 'awaitingStart', acceptedAtStep: v.ok ? v.view.stepIndex : 0 };
+        }
         const res = runtime.gameCommand(action);
         if (res.ok === false) return { ok: false, error: toControlError(res.error) };
         const viewRes = runtime.getGameView();
@@ -628,7 +666,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
 
     const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };
+    const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
     hud = createHud(dom, {
+      ...(flow !== undefined ? { preset: flow.hud?.preset ?? 'classic' } : {}),
       onStart: () => {
         const c = control('start');
         if (c.ok === false) console.warn('[game-host] Start button rejected', c.error.code);
@@ -639,6 +679,56 @@ export function createGameHost(config: GameHostConfig): GameHost {
       },
     });
     config.container.appendChild(hud.root);
+    if (flow !== undefined) {
+      const rt = res.runtime;
+      flowCtl = createFlowController({
+        flow,
+        gameTitle: typeof authored?.title === 'string' ? authored.title : '',
+        objective: typeof authored?.objective === 'string' ? authored.objective : '',
+        instructions: typeof authored?.instructions === 'string' ? authored.instructions : '',
+        dom,
+        container: config.container,
+        runtime: {
+          startLevel: (l) => rt.startLevel!(l),
+          setPaused: (p) => rt.setPaused?.(p),
+          gameCounters: () => rt.gameCounters?.() ?? { counters: {}, health: null },
+        },
+        audio: config.audio,
+        input: {
+          ...(config.input.captureKey !== undefined ? { captureKey: (cb: (code: string | null) => void) => config.input.captureKey!(cb) } : {}),
+          ...(config.input.configure !== undefined ? { configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => config.input.configure!(c) } : {}),
+          ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
+        },
+        ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
+      });
+      // The menu logo: the texture's own bytes as an object URL (no fetch).
+      const logo = flow.ui?.logo;
+      const logoPath = logo !== undefined ? config.assetPaths?.[logo] : undefined;
+      const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+      if (typeof logoPath === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
+        void config.readArtifact(logoPath)
+          .then((buffer) => {
+            if (!disposed && flowCtl !== null) flowCtl.setLogo(urls.createObjectURL!(new Blob([buffer])));
+          })
+          .catch(() => undefined);
+      }
+      // Music bytes: every track the flow names (decoded when first played).
+      if (config.assetPaths !== undefined && config.audio.registerMusic !== undefined) {
+        const tracks = new Set<string>();
+        for (const l of flow.levels) if (l.music !== undefined) tracks.add(l.music);
+        if (flow.title?.music !== undefined) tracks.add(flow.title.music);
+        for (const id of tracks) {
+          const path = config.assetPaths[id];
+          if (typeof path !== 'string' || path.length === 0) continue;
+          void config.readArtifact(path).then(
+            (buffer) => {
+              if (!disposed) config.audio.registerMusic?.(id, new Uint8Array(buffer));
+            },
+            (error: unknown) => console.warn('[game-host] music artifact read failed', error instanceof Error ? error.message : String(error)),
+          );
+        }
+      }
+    }
     mounted = true;
 
     // The authored content is static: the HUD shows it immediately at mount
@@ -704,6 +794,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         sound: mapSoundStatus(config.audio),
         inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
         ...scenesObservation(runtime),
+        ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
       },
     };
   };
@@ -742,6 +833,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       runtime = null;
     }
     if (hud !== null) {
+      flowCtl?.dispose();
+      flowCtl = null;
       hud.dispose(); // the host-owned HUD DOM + listeners
       hud = null;
     }

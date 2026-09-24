@@ -298,8 +298,8 @@ export function assetsOf(content: ContentDocument): CommandAssetRecord[] {
 }
 
 /** §23.3.7: the record's kind, defaulting a v2 record to `model`. */
-export function assetKindOf(record: { kind?: unknown }): 'model' | 'audio' | 'texture' {
-  return record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : 'model';
+export function assetKindOf(record: { kind?: unknown }): 'model' | 'audio' | 'texture' | 'music' {
+  return record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : record.kind === 'music' ? 'music' : 'model';
 }
 
 /** The asset record's immutable version for `modelAnimation.version`, if resolvable. */

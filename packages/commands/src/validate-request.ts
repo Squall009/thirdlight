@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -135,6 +135,7 @@ const OPS: readonly MutationOp[] = [
   'setAnimator',
   'deleteAnimator',
   'setInput',
+  'setFlow',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -178,7 +179,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1159,6 +1160,7 @@ export type ValidatedOpArgs =
   | { op: 'setAnimator'; args: { controller: AnimatorController } }
   | { op: 'deleteAnimator'; args: { controllerId: string } }
   | { op: 'setInput'; args: { input: InputConfig | null } }
+  | { op: 'setFlow'; args: { flow: GameFlow | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1224,6 +1226,12 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'input') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'input') };
       if (args['input'] === undefined) return { ok: false, error: fieldMissing('/args/input', 'input') };
       if (args['input'] !== null && !isPlainObject(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setFlow': {
+      for (const k of Object.keys(args)) if (k !== 'flow') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'flow') };
+      if (args['flow'] === undefined) return { ok: false, error: fieldMissing('/args/flow', 'flow') };
+      if (args['flow'] !== null && !isPlainObject(args['flow'])) return { ok: false, error: fieldType('/args/flow', args['flow'], 'object ({ levels, lives?, title?, hud?, ui?, texts?, volumes? }) or null (no flow)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setAnimator':

@@ -23,8 +23,10 @@ export const FBX_DROP_EXTENSION = '.fbx';
 export const AUDIO_DROP_EXTENSION = '.wav';
 /** Phase 9.4: standalone textures (the magic bytes are checked again at import). */
 export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const;
+/** Phase 9.10: music (Ogg Vorbis/Opus, MP3; a long WAV imports with kind "music" through MCP). */
+export const MUSIC_DROP_EXTENSIONS = ['.ogg', '.opus', '.mp3'] as const;
 
-export type AssetKind = 'model' | 'audio' | 'texture';
+export type AssetKind = 'model' | 'audio' | 'texture' | 'music';
 
 export interface MediaDropVerdict {
   ok: true;
@@ -53,15 +55,19 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
     ext = AUDIO_DROP_EXTENSION;
   } else {
     const t = TEXTURE_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
+    const m = MUSIC_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
     if (t !== undefined) {
       kind = 'texture';
       ext = t;
+    } else if (m !== undefined) {
+      kind = 'music';
+      ext = m;
     }
   }
   if (kind === null) {
     return {
       ok: false,
-      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF), ${AUDIO_DROP_EXTENSION} (PCM WAV) and .png/.jpg/.webp (texture) files can be imported` },
+      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF), ${AUDIO_DROP_EXTENSION} (PCM WAV) and .png/.jpg/.webp (texture) and .ogg/.mp3 (music) files can be imported` },
     };
   }
   if (!Number.isInteger(byteLength) || byteLength < 1) {

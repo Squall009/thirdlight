@@ -12,15 +12,15 @@
  * after.
  */
 
-import { canonicalAnimators, canonicalInput, validateAnimatorController, validateInput, type AnimatorController, type InputConfig } from '@thirdlight/project-model';
+import { canonicalAnimators, canonicalFlow, canonicalInput, validateAnimatorController, validateFlow, validateInput, type AnimatorController, type GameFlow, type InputConfig } from '@thirdlight/project-model';
 import { canonicalEnvironment, canonicalLighting, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetAnimatorsChange, SetEnvironmentChange, SetInputChange, SetLightingChange, SetMaterialsChange } from './types';
+import type { ContentDocument, SetAnimatorsChange, SetEnvironmentChange, SetFlowChange, SetInputChange, SetLightingChange, SetMaterialsChange } from './types';
 
-type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake>; animators?: AnimatorController[]; input?: InputConfig };
+type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake>; animators?: AnimatorController[]; input?: InputConfig; flow?: GameFlow };
 
 function modelError(e: ModelErrorV2, prefix: string): CommandError {
   return { code: e.code, cls: 'validation', path: `${prefix}${e.path ?? ''}`, message: e.message, ...(e.found !== undefined ? { found: e.found } : {}), ...(e.expected !== undefined ? { expected: e.expected } : {}) } as unknown as CommandError;
@@ -29,13 +29,14 @@ function modelError(e: ModelErrorV2, prefix: string): CommandError {
 function commit(
   input: OpInput,
   next: WithMaterials,
-  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange | SetAnimatorsChange | SetInputChange,
+  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange | SetAnimatorsChange | SetInputChange | SetFlowChange,
   inverse:
     | { kind: 'setMaterials'; restore: MaterialDef[] }
     | { kind: 'setEnvironment'; restore: EnvironmentConfig | null }
     | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null }
     | { kind: 'setAnimators'; restore: AnimatorController[] }
-    | { kind: 'setInput'; restore: InputConfig | null },
+    | { kind: 'setInput'; restore: InputConfig | null }
+    | { kind: 'setFlow'; restore: GameFlow | null },
 ): OpOutcome {
   const catalog = contentOf(input.content);
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
@@ -131,6 +132,27 @@ export function applySetInput(input: OpInput, args: { input: InputConfig | null 
   }
   const previous = catalog.input !== undefined ? deepClone(catalog.input) : null;
   return commit(input, withInput(catalog, next) as WithMaterials, { type: 'setInput', previous, next }, { kind: 'setInput', restore: previous });
+}
+
+/** Phase 9.10: replace the game flow (null = one level, as before). */
+export function applySetFlow(input: OpInput, args: { flow: GameFlow | null }): OpOutcome {
+  const catalog = contentOf(input.content) as WithMaterials;
+  let next: GameFlow | null = null;
+  if (args.flow !== null) {
+    const errors: ModelErrorV2[] = [];
+    validateFlow(args.flow, '', errors);
+    if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/flow') };
+    next = canonicalFlow(args.flow);
+  }
+  const previous = catalog.flow !== undefined ? deepClone(catalog.flow) : null;
+  return commit(input, withFlow(catalog, next) as WithMaterials, { type: 'setFlow', previous, next }, { kind: 'setFlow', restore: previous });
+}
+
+export function withFlow(content: ContentDocument, value: GameFlow | null): ContentDocument {
+  const c = { ...(content as WithMaterials) };
+  if (value !== null) c.flow = deepClone(value);
+  else delete c.flow;
+  return c;
 }
 
 export function withInput(content: ContentDocument, value: InputConfig | null): ContentDocument {

@@ -39,7 +39,7 @@ import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
 import { buildM3Bundle, PINNED_OPTIONS } from './export-bundle';
-import { assertRelativeClosure, scanGlbContainer, scanImageContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
+import { assertRelativeClosure, scanGlbContainer, scanImageContainer, scanMusicContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { publishTree, resolveExportTarget, type TreeFile } from './export-io';
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
@@ -256,7 +256,7 @@ export async function exportProjectM3(
   };
   for (const asset of closure.assetArtifacts) {
     const container =
-      asset.contentType === 'model/gltf-binary' ? scanGlbContainer(asset.bytes) : asset.contentType === 'image/x-texture' ? scanImageContainer(asset.bytes) : scanWavContainer(asset.bytes);
+      asset.contentType === 'model/gltf-binary' ? scanGlbContainer(asset.bytes) : asset.contentType === 'image/x-texture' ? scanImageContainer(asset.bytes) : asset.contentType === 'audio/x-music' ? scanMusicContainer(asset.bytes) : scanWavContainer(asset.bytes);
     if (!container.ok) {
       return fail('scan_forbidden_content', 'internal', `a declared asset artifact fails container validation (${container.code})`, {
         hits: [{ pattern: container.code, byteOffset: container.offset ?? -1, context: `content/sha256/${asset.digest}` }],
@@ -422,7 +422,7 @@ function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<stri
   const without: Record<string, unknown> = {};
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];

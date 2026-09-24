@@ -52,6 +52,7 @@ import type {
   EnvironmentConfig,
   LightingBake,
   AnimatorController,
+  GameFlow,
   InputConfig,
   MaterialDef,
 } from '@thirdlight/project-model';
@@ -105,6 +106,7 @@ export type V3MutationOp =
   | 'setAnimator'
   | 'deleteAnimator'
   | 'setInput'
+  | 'setFlow'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -354,6 +356,13 @@ export interface SetAnimatorsChange {
   type: 'setAnimators';
   previous: AnimatorController[];
   next: AnimatorController[];
+}
+
+/** Phase 9.10: `setFlow` change data (null = no flow). */
+export interface SetFlowChange {
+  type: 'setFlow';
+  previous: GameFlow | null;
+  next: GameFlow | null;
 }
 
 /** Phase 9.8: `setInput` change data (null = the defaults). */
@@ -634,6 +643,7 @@ export type ChangeData =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetFlowChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -661,6 +671,7 @@ export type ForwardChange =
   | SetLightingChange
   | SetAnimatorsChange
   | SetInputChange
+  | SetFlowChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -782,6 +793,12 @@ export interface SetAnimatorsInverse {
   restore: AnimatorController[];
 }
 
+/** Undo of `setFlow`: restore the previous flow (null = none). */
+export interface SetFlowInverse {
+  kind: 'setFlow';
+  restore: GameFlow | null;
+}
+
 /** Undo of `setInput`: restore the previous actions (null = the defaults). */
 export interface SetInputInverse {
   kind: 'setInput';
@@ -826,6 +843,7 @@ export type InverseSpec =
   | SetLightingInverse
   | SetAnimatorsInverse
   | SetInputInverse
+  | SetFlowInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse

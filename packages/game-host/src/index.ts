@@ -38,7 +38,10 @@ export {
   type GainNodeLike,
   type BufferSourceLike,
   type AudioContextLike,
+  type AudioBus,
+  MUSIC_MAX_REGISTERED,
 } from './audio';
+export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges } from './flow';
 export {
   GAME_HOST_API_VERSION,
   GAME_CONTROL_ACTIONS,

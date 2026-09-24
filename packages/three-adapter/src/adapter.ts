@@ -156,6 +156,8 @@ export interface SceneAdapter {
    *  adapter disposed (§2.6). The wrapper posts `tl.ready` on `ok: true`
    *  and `tl.error` (phase `"assets"`) on `ok: false`. */
   modelsSettled?(): Promise<ModelsSettledResult>;
+  /** Phase 9.10: a player's quality setting (low/medium/high) over the environment's. */
+  setQuality?(level: QualityLevel): void;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -266,6 +268,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
   /** Phase 9.5: the environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
+  let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
   const fogVolumeIds = new Set<string>();
   const tmpWorld = new THREE.Vector3();
   /** The fog volumes of the loaded scenes, in world space (entities may move). */
@@ -896,7 +899,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         if (environmentRenderer === null) {
           environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment.loadTexture });
           environmentRenderer.set(opts.environment.value);
-          if (opts.environment.quality !== undefined) environmentRenderer.setQuality(opts.environment.quality);
+          if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
         }
         const key = keyLight;
         environmentRenderer.setKeyLightDirection(key?.direction !== undefined ? [key.direction[0], key.direction[1], key.direction[2]] : null);
@@ -1048,7 +1051,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { ok: true };
   }
 
-  const api: SceneAdapter = { renderFrame, captureScreenshot, diagnostics, dispose };
+  const api: SceneAdapter = {
+    renderFrame,
+    captureScreenshot,
+    diagnostics,
+    dispose,
+    setQuality(level: QualityLevel): void {
+      playerQuality = level;
+      environmentRenderer?.setQuality(level);
+    },
+  };
   // M4 (C64-4): the settle surface — present iff the `models` option was
   // given. A config-invalid block resolves the structured failure (the
   // wrapper posts `tl.error`); a realized block resolves when every

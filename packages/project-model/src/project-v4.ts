@@ -33,6 +33,7 @@ import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
 import type { ContentCatalogV3, ContentCatalogV4, GameConfig, SceneEntityV3, SceneV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
+import type { GameFlow } from './flow';
 
 /** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
 export interface ProjectManifestV2 {
@@ -189,6 +190,30 @@ export function composeV4(
     ref('spawnId', (e) => e.components.playerSpawn !== undefined, 'an entity carrying playerSpawn');
     const goals = scenes.reduce((n, s) => n + s.entities.filter((e) => e.components.gameZone?.role === 'goal').length, 0);
     if (goals < 1) errors.push(projectError('/game', 'zone_goal_missing', 'content.game requires at least one goal zone in the project', '>= 1 goal zone', { document: 'content' } as never));
+  }
+
+  // Phase 9.10: every level loads known scenes, starts at a spawn among them,
+  // and keeps the player and the camera loaded.
+  const flow = (content as { flow?: GameFlow }).flow;
+  if (flow !== undefined) {
+    const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
+    const holder = (id: string | undefined): string | undefined => (id === undefined ? undefined : entityById.get(id)?.sceneId);
+    flow.levels.forEach((level, i) => {
+      const p = `/flow/levels/${i}`;
+      for (const id of level.scenes) {
+        if (!sceneIds.has(id)) errors.push(projectError(`${p}/scenes`, 'reference_missing', `level "${level.name}" names an unknown scene`, 'a sceneId of this project', { document: 'content' } as never, id));
+      }
+      const spawn = entityById.get(level.spawnId);
+      if (spawn === undefined || spawn.entity.components.playerSpawn === undefined || !level.scenes.includes(spawn.sceneId)) {
+        errors.push(projectError(`${p}/spawnId`, 'reference_missing', `level "${level.name}" must start at a player spawn in one of its scenes`, 'a playerSpawn entity in the level', { document: 'content' } as never, level.spawnId));
+      }
+      if (game !== null) {
+        for (const [what, id] of [['player', game.playerId], ['camera', game.cameraId]] as const) {
+          const sc = holder(id);
+          if (sc !== undefined && !level.scenes.includes(sc)) errors.push(projectError(`${p}/scenes`, 'reference_missing', `level "${level.name}" must load the ${what}'s scene "${sc}"`, `the scene holding the ${what}`, { document: 'content' } as never, sc));
+        }
+      }
+    });
   }
 
   // Phase 9.7: an animator names a controller of this project.

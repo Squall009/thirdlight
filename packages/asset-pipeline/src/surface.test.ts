@@ -70,6 +70,11 @@ describe('public surface (dependencies.md §3)', () => {
         'TEXTURE_EDGE_MAX',
         'TEXTURE_SOURCE_BYTES_MAX',
         'inspectImage',
+        // phase 9.10: music
+        'inspectMusic',
+        'MUSIC_DURATION_MS_MAX',
+        'MUSIC_SOURCE_BYTES_MAX',
+        'MUSIC_TOOLCHAIN',
         'M2_GLTF_EXTENSION_ALLOWLIST',
         'M2_GLTF_IMAGE_BYTES',
         'M2_GLTF_INSPECTION_ENTRIES',

@@ -45,6 +45,7 @@ export type V3MutationOp =
   | 'setAnimator'
   | 'deleteAnimator'
   | 'setInput'
+  | 'setFlow'
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
@@ -93,7 +94,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -123,6 +124,7 @@ export const CHANGE_TYPES = [
   'setLighting',
   'setAnimators',
   'setInput',
+  'setFlow',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------
@@ -730,6 +732,10 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
       return fieldError('field_type', '/animators', 'animators maps entity ids to state names (at most 64)');
     }
   }
+  // Phase 9.10: the optional game-flow block.
+  if (value.flow !== undefined && (!isPlainObject(value.flow) || typeof value.flow['screen'] !== 'string' || typeof value.flow['levelIndex'] !== 'number')) {
+    return fieldError('field_type', '/flow', 'flow is { screen, levelIndex, levelId, lives, totals, music, volumes, quality }');
+  }
   const n = utf8Bytes(value);
   if (n === null || n > GAME_OBSERVATION_MAX_BYTES) {
     return fieldError('limits_exceeded', '', `the observation exceeds the ${GAME_OBSERVATION_MAX_BYTES}-byte bound`, {
@@ -758,12 +764,12 @@ export interface AnimationRolesValue {
 }
 
 export interface StageInspectRequest {
-  kind?: 'model' | 'audio' | 'texture';
+  kind?: 'model' | 'audio' | 'texture' | 'music';
   animation?: { entityId?: string; roles: AnimationRolesValue };
 }
 
 const INSPECT_REQUEST_FIELDS = new Map([
-  ['kind', '"model" | "audio" | "texture" (default "model")'],
+  ['kind', '"model" | "audio" | "texture" | "music" (default "model")'],
   ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
@@ -785,8 +791,8 @@ export function parseStageInspectRequest(
   if (!shape.ok) return { ok: false, error: shape.error };
   let kind: StageInspectRequest['kind'];
   if (shape.value.kind !== undefined) {
-    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio' && shape.value.kind !== 'texture') {
-      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model", "audio" or "texture"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio" | "texture"' }) };
+    if (shape.value.kind !== 'model' && shape.value.kind !== 'audio' && shape.value.kind !== 'texture' && shape.value.kind !== 'music') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'kind must be "model", "audio", "texture" or "music"', { path: '/kind', found: String(shape.value.kind).slice(0, 64), expected: '"model" | "audio" | "texture" | "music"' }) };
     }
     kind = shape.value.kind;
   }

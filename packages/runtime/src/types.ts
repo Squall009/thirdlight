@@ -629,6 +629,15 @@ export type RuntimeStateName = 'instantiated' | 'running' | 'stopped' | 'failed'
 export interface Runtime {
   start(): { ok: true } | { ok: false; error: RuntimeError };
   stop(): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 9.10: switch to a level (its scenes become the loaded and start set; a fresh run at its spawn). */
+  startLevel?(level: { scenes: readonly string[]; spawnId: string }): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 9.10: pause or resume the simulation (frames still render). */
+  setPaused?(paused: boolean): void;
+  readonly isPaused?: boolean;
+  /** Phase 9.9: entities collected or defeated (the renderer hides them). */
+  hiddenEntities?(): ReadonlySet<string>;
+  /** Phase 9.9: the run's counters and the player's health. */
+  gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError };
   getDiagnostics(): { ok: true; diagnostics: RuntimeDiagnostics } | { ok: false; error: RuntimeError };

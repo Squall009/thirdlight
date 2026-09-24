@@ -14,6 +14,7 @@
 import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, validateInput } from './input';
+import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
 import { utf8Encode } from './sha256';
 import {
@@ -91,7 +92,12 @@ export const MAX_TEXTURE_ASSETS = 256;
 export const MAX_TEXTURE_VERSIONS = 8;
 /** The largest texture edge (pixels). */
 export const MAX_TEXTURE_EDGE = 4096;
-type AssetKindV3 = 'model' | 'audio' | 'texture';
+/** Phase 9.10: music asset records (Ogg Vorbis/Opus, MP3, WAV) and their versions. */
+export const MAX_MUSIC_ASSETS = 64;
+export const MAX_MUSIC_VERSIONS = 8;
+/** The longest music (ms) and its largest file (bytes). */
+export const MAX_MUSIC_DURATION_MS = 600_000;
+type AssetKindV3 = 'model' | 'audio' | 'texture' | 'music';
 export const MAX_GAME_BYTES = 16_384;
 export const MAX_BEHAVIOR_SOURCE_BYTES = 262_144;
 export const MAX_BEHAVIOR_FILES = 16;
@@ -316,6 +322,18 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
     errors.push(fieldType(path, r, 'object'));
     return;
   }
+  if (kind === 'music') {
+    if (r['profile'] !== 'music') bad('a music import recipe profile must be "music"', r['profile']);
+    if (r['recipeVersion'] !== 1) bad('a music import recipe version must be exactly 1', r['recipeVersion']);
+    const toolchain = r['toolchain'];
+    if (!isPlainObject(toolchain) || Object.keys(toolchain).length !== 1 || toolchain[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
+      bad(`the music toolchain must name exactly "${AUDIO_PIPELINE_NAME}" at '${AUDIO_PIPELINE_VERSION}'`, toolchain);
+    }
+    for (const k of Object.keys(r)) {
+      if (!AUDIO_RECIPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...AUDIO_RECIPE_FIELDS].join(', ')));
+    }
+    return;
+  }
   if (kind === 'texture') {
     if (r['profile'] !== 'image') bad('a texture import recipe profile must be "image"', r['profile']);
     if (r['recipeVersion'] !== 1) bad('a texture import recipe version must be exactly 1', r['recipeVersion']);
@@ -423,6 +441,10 @@ function validateMetrics(
     validateTextureMetrics(m, path, errors);
     return;
   }
+  if (kind === 'music') {
+    validateMusicMetrics(m, path, errors);
+    return;
+  }
   for (const key of METRIC_ORDER) {
     const value = m[key];
     if (value === undefined) {
@@ -461,6 +483,21 @@ function validateMetrics(
  * `sourceByteLength` on every load. A disagreeing record is invalid
  * (`limits_exceeded`/`field_value`) and is **never normalized**.
  */
+/** Phase 9.10: `{format, channels, sampleRate, durationMs}` of a music version. */
+function validateMusicMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
+  if (!['ogg-vorbis', 'ogg-opus', 'mp3', 'wav'].includes(m['format'] as string)) {
+    errors.push(fieldValue(`${path}/format`, m['format'], '"ogg-vorbis" | "ogg-opus" | "mp3" | "wav"', 'music is Ogg Vorbis/Opus, MP3 or WAV'));
+  }
+  if (m['channels'] !== 1 && m['channels'] !== 2) errors.push(fieldValue(`${path}/channels`, m['channels'], '1 | 2', 'music is mono or stereo'));
+  const rate = m['sampleRate'];
+  if (typeof rate !== 'number' || !Number.isInteger(rate) || rate < 8000 || rate > 48000) errors.push(fieldValue(`${path}/sampleRate`, rate, 'integer 8000..48000', 'the sample rate is 8-48 kHz'));
+  const ms = m['durationMs'];
+  if (typeof ms !== 'number' || !Number.isInteger(ms) || ms < 1 || ms > MAX_MUSIC_DURATION_MS) errors.push(fieldValue(`${path}/durationMs`, ms, `integer 1..${MAX_MUSIC_DURATION_MS}`, 'music lasts at most 10 minutes'));
+  for (const k of Object.keys(m)) {
+    if (!['format', 'channels', 'sampleRate', 'durationMs'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'format, channels, sampleRate, durationMs'));
+  }
+}
+
 /** Phase 9.4: `{format, width, height, decodedBytes}` of a texture version. */
 function validateTextureMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   if (m['format'] !== 'png' && m['format'] !== 'jpeg' && m['format'] !== 'webp') {
@@ -710,8 +747,8 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
   const rawKind = a['kind'];
   let kind: AssetKindV3 = 'model';
   if (v3) {
-    if (rawKind !== 'model' && rawKind !== 'audio' && rawKind !== 'texture') {
-      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio" | "texture"', 'the v3 asset kind must be model, audio or texture'));
+    if (rawKind !== 'model' && rawKind !== 'audio' && rawKind !== 'texture' && rawKind !== 'music') {
+      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio" | "texture" | "music"', 'the v3 asset kind must be model, audio, texture or music'));
     } else {
       kind = rawKind;
     }
@@ -733,7 +770,7 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
     errors.push(fieldType(`${path}/versions`, versions, 'array'));
   } else {
     count = versions.length;
-    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : v3 && kind === 'texture' ? MAX_TEXTURE_VERSIONS : MAX_ASSET_VERSIONS;
+    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : v3 && kind === 'texture' ? MAX_TEXTURE_VERSIONS : v3 && kind === 'music' ? MAX_MUSIC_VERSIONS : MAX_ASSET_VERSIONS;
     if (versions.length < 1 || versions.length > maxVersions) {
       errors.push(
         limitsError(`${path}/versions`, kind === 'audio' ? 'audio_versions' : 'asset_versions', versions.length, maxVersions, `an asset record must have 1-${maxVersions} versions`),
@@ -1461,6 +1498,16 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
     ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
+  if (kind === 'music') {
+    const r = v.importRecipe as unknown as { toolchain: Record<string, string> };
+    const m = v.metrics as unknown as { format: string; channels: number; sampleRate: number; durationMs: number };
+    return {
+      ...head,
+      importRecipe: { profile: 'music', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
+      metrics: { format: m.format, channels: m.channels, sampleRate: m.sampleRate, durationMs: m.durationMs } as unknown as AssetVersionV3['metrics'],
+      ...tail,
+    };
+  }
   if (kind === 'texture') {
     const r = v.importRecipe as unknown as { toolchain: Record<string, string> };
     const m = v.metrics as unknown as { format: string; width: number; height: number; decodedBytes: number };
@@ -1490,7 +1537,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
 
 /** §23.7: the kind-aware v3 asset canonicalizer (record order is untouched). */
 function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
-  const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : 'model';
+  const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : a.kind === 'music' ? 'music' : 'model';
   return {
     assetId: a.assetId,
     kind,
@@ -1874,8 +1921,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -1926,12 +1973,13 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (assets !== undefined) {
     if (!Array.isArray(assets)) errors.push(fieldType('/assets', assets, 'array'));
     else {
-      const modelAssets = assets.filter((a) => isPlainObject(a) && a['kind'] !== 'audio' && a['kind'] !== 'texture').length;
+      const modelAssets = assets.filter((a) => isPlainObject(a) && a['kind'] !== 'audio' && a['kind'] !== 'texture' && a['kind'] !== 'music').length;
       if (modelAssets > MAX_ASSETS) {
         errors.push(limitsError('/assets', 'assets', modelAssets, MAX_ASSETS, `the catalog may hold at most ${MAX_ASSETS} model assets`));
       }
       let audioAssets = 0;
       let textureAssets = 0;
+      let musicAssets = 0;
       const seen = new Set<string>();
       for (let i = 0; i < assets.length; i++) {
         versionRecords += validateAsset(assets[i], `/assets/${i}`, errors, true);
@@ -1939,12 +1987,16 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
         if (isPlainObject(a)) {
           if (a['kind'] === 'audio') audioAssets += 1;
           if (a['kind'] === 'texture') textureAssets += 1;
+          if (a['kind'] === 'music') musicAssets += 1;
           if (typeof a['assetId'] === 'string') {
             if (seen.has(a['assetId'])) {
               errors.push(withFound({ code: 'id_duplicate', path: `/assets/${i}/assetId`, message: 'assetId is already used by an earlier record (first occurrence wins)', expected: 'a unique assetId' }, a['assetId']));
             } else seen.add(a['assetId']);
           }
         }
+      }
+      if (musicAssets > MAX_MUSIC_ASSETS) {
+        errors.push(limitsError('/assets', 'assets', musicAssets, MAX_MUSIC_ASSETS, `the catalog may hold at most ${MAX_MUSIC_ASSETS} music asset records`));
       }
       if (textureAssets > MAX_TEXTURE_ASSETS) {
         errors.push(limitsError('/assets', 'assets', textureAssets, MAX_TEXTURE_ASSETS, `the catalog may hold at most ${MAX_TEXTURE_ASSETS} texture asset records`));
@@ -2011,6 +2063,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
+  if (doc['flow'] !== undefined) validateFlow(doc['flow'], '/flow', errors);
   if (version === 4) validateMaterialReferences(doc, errors);
 
   if (errors.length > 0) return { errors };
@@ -2128,6 +2181,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).animators !== undefined && (c as ContentCatalogV4).animators!.length > 0 ? { animators: canonicalAnimators((c as ContentCatalogV4).animators!) } : {}),
     // Phase 9.8: present only when the project has its own input actions.
     ...((c as ContentCatalogV4).input !== undefined ? { input: canonicalInput((c as ContentCatalogV4).input!) } : {}),
+    // Phase 9.10: present only when the project has a game flow.
+    ...((c as ContentCatalogV4).flow !== undefined ? { flow: canonicalFlow((c as ContentCatalogV4).flow!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
@@ -2165,6 +2220,17 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
     for (const [p, id] of refs) {
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  }
+  // Phase 9.10: the flow's music and logo.
+  const flow = doc['flow'];
+  if (isPlainObject(flow) && Array.isArray(flow['levels'])) {
+    const refs = flowAssetRefs(flow as unknown as GameFlow);
+    for (const id of refs.music) {
+      if (kindOf.get(id) !== 'music') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow', message: 'flow music must name a music asset of this project', expected: 'a music assetId' }, id));
+    }
+    for (const id of refs.textures) {
+      if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: '/flow/ui/logo', message: 'the menu logo must name a texture asset of this project', expected: 'a texture assetId' }, id));
     }
   }
   // Phase 9.7: a controller's clips come from model assets of this project.

@@ -1187,7 +1187,12 @@ class RuntimeInstance implements Runtime {
   // ---- Phase 12 (c) scene set ---------------------------------------------
   /** Every scene of the project (null: one fixed scene, no scene API). */
   private readonly sceneRows: readonly RuntimeSceneRow[] | null;
-  private readonly startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
+  private startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
+  /** Phase 9.10: the level being switched to (scenes loading), and the current level's spawn. */
+  private pendingLevel: { scenes: readonly string[]; spawnId: string; begun: boolean } | null = null;
+  private levelSpawnId: string | null = null;
+  /** Phase 9.10: paused — frames render and call onFrame, no steps run. */
+  private paused = false;
   /** Loaded scenes, in load order. */
   private batches = new Map<string, SceneBatchState>();
   private sceneStatus = new Map<string, SceneStatus>();
@@ -1423,6 +1428,77 @@ class RuntimeInstance implements Runtime {
       for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex: this.stepIndex }));
     }
     this.animatorEvents = Object.freeze(fired);
+  }
+
+  /**
+   * Phase 9.10: switch to a level — its scenes become the loaded set and the
+   * start set (a replay restarts this level), and the run starts again at its
+   * spawn (a fresh run: counters, checkpoint and deaths reset). Scenes not in
+   * the level are unloaded, missing ones are loaded; the switch completes at
+   * the first boundary after they have all loaded.
+   */
+  startLevel(level: { scenes: readonly string[]; spawnId: string }): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sceneRows === null || this.session === null) return { ok: false, error: fail('scene_invalid', 'levels need a v4 game with a game block', { reason: 'level' }) };
+    if (!Array.isArray(level.scenes) || level.scenes.length === 0) return { ok: false, error: fail('scene_invalid', 'a level loads at least one scene', { reason: 'level' }) };
+    for (const id of level.scenes) if (!this.sceneStatus.has(id)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(id))}`, { reason: 'level' }) };
+    const keep = new Set(level.scenes);
+    for (const b of this.batches.values()) {
+      if (keep.has(b.sceneId)) continue;
+      if (b.ids.has(this.playerEntityId) || b.ids.has(this.cameraInfo.id)) {
+        return { ok: false, error: fail('scene_invalid', `the level does not load scene "${b.sceneId}", which holds the player or the camera`, { reason: 'level' }) };
+      }
+    }
+    this.pendingLevel = { scenes: [...level.scenes], spawnId: String(level.spawnId), begun: false };
+    return { ok: true };
+  }
+
+  /** Phase 9.10: the level switch at the boundary (unload/load, then the fresh run). */
+  private runLevelSwitch(): boolean {
+    const level = this.pendingLevel;
+    const session = this.session;
+    if (level === null || session === null) return true;
+    const keep = new Set(level.scenes);
+    if (!level.begun) {
+      level.begun = true;
+      for (const b of [...this.batches.values()]) if (!keep.has(b.sceneId)) this.removeBatch(b.sceneId);
+      for (const id of level.scenes) {
+        this.pendingUnloads.delete(id);
+        if (!this.batches.has(id)) this.enqueueSceneOp({ op: 'load', sceneId: id });
+      }
+      this.pendingTransfer = null;
+      this.exitsInside.clear();
+    }
+    if (level.scenes.some((id) => !this.batches.has(id))) {
+      // Still loading; a load that failed abandons the switch.
+      if (level.scenes.some((id) => this.sceneStatus.get(id) === 'unloaded')) {
+        this.pendingLevel = null;
+        this.recordError({ code: 'scene_load_failed', message: clipMessage('a level scene could not be loaded; the level did not start'), stepIndex: this.stepIndex, reason: 'level' });
+      }
+      return true;
+    }
+    this.pendingLevel = null;
+    const source = new Map<string, readonly EntityV3[]>();
+    for (const id of level.scenes) {
+      const b = this.batches.get(id)!;
+      b.start = true;
+      source.set(id, b.entities);
+    }
+    for (const b of this.batches.values()) if (!keep.has(b.sceneId)) b.start = false;
+    this.startBatchSource = source;
+    this.levelSpawnId = level.spawnId;
+    this.sceneSetCache = null;
+    session.submit(session.runState === 'awaitingStart' ? 'start' : 'replay');
+    return true;
+  }
+
+  /** Phase 9.10: pause or resume the simulation (frames still render and reach onFrame). */
+  setPaused(paused: boolean): void {
+    this.paused = paused === true;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
   }
 
   /** Phase 9.9: entities collected or defeated (the renderer hides them). */
@@ -1798,6 +1874,13 @@ class RuntimeInstance implements Runtime {
       this.onFrame?.();
       return;
     }
+    if (this.paused) {
+      // Phase 9.10: no steps while paused; the clock resumes from here.
+      this.anchor = { wall: t, simTime: this.simTime };
+      this.lastAlpha = 0;
+      this.onFrame?.();
+      return;
+    }
     const targetSim = this.anchor.simTime + elapsed;
     const rawN = Math.floor((targetSim - this.simTime) / this.dt + STEP_COUNT_EPS);
     const n = Math.min(rawN, MAX_CATCHUP_STEPS);
@@ -1892,6 +1975,7 @@ class RuntimeInstance implements Runtime {
     // the run bookkeeping (a respawn may land in a scene that just loaded).
     if (!this.applySceneOps()) return false;
     if (this.isM3 && this.executedSteps >= SETTLE_PREROLL_STEPS) {
+      if (!this.runLevelSwitch()) return false;
       if (!this.runResetBarrier(ordinal)) return false;
       if (!this.runTransfer(ordinal)) return false;
     }
@@ -2086,10 +2170,10 @@ class RuntimeInstance implements Runtime {
         }
         spawnEntityId = cpZone.safeSpawnId;
       } else {
-        spawnEntityId = content.game.spawnId;
+        spawnEntityId = this.levelSpawnId ?? content.game.spawnId;
       }
     } else {
-      spawnEntityId = content.game.spawnId;
+      spawnEntityId = this.levelSpawnId ?? content.game.spawnId;
     }
     const spawn = content.spawns.find((s) => s.entityId === spawnEntityId);
     if (spawn === undefined) {

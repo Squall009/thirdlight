@@ -82,7 +82,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -95,6 +95,7 @@ import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
 import { AnimatorPanel } from './AnimatorPanel';
 import { InputPanel } from './InputPanel';
+import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { FogVolumeEditor, LightEditor } from './LightEditor';
 import { BLOCK_DEFAULTS, BlocksEditor } from './BlocksEditor';
@@ -313,6 +314,9 @@ function EditorApp(): JSX.Element {
   const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
   const [inputDefaults, setInputDefaults] = useState<InputConfig>({ actions: [] });
   const [inputError, setInputError] = useState<string | null>(null);
+  // Phase 9.10: the game flow (null = one level, as before).
+  const [flow, setFlow] = useState<GameFlow | null>(null);
+  const [flowError, setFlowError] = useState<string | null>(null);
   // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
   const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
   const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
@@ -351,7 +355,7 @@ function EditorApp(): JSX.Element {
   // M3 (packet 57): the media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
   // names (a model proposal) and the §8.5.1 animated-reimport obligation.
-  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
+  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'music'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
   const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
   const [reimportEntity, setReimportEntity] = useState('');
   const importStateRef = useRef<AssetImportState>(initialImportState);
@@ -461,6 +465,7 @@ function EditorApp(): JSX.Element {
     setAnimators(c.getAnimators());
     setInputConfig(c.getInput());
     setInputDefaults(c.getInputDefaults());
+    setFlow(c.getFlow());
     // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
     const lighting = c.getLighting();
     setLighting(lighting);
@@ -1734,7 +1739,7 @@ function EditorApp(): JSX.Element {
 
   /** After an inspect: remember the proposal and the §8.5.1 role-mapping obligation.
    * Returns whether the publish needs no role mapping. */
-  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture'): boolean => {
+  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'music'): boolean => {
     const c = clientRef.current;
     if (!c) return false;
     pendingProposalRef.current = { proposal, target };
@@ -2158,6 +2163,11 @@ function EditorApp(): JSX.Element {
     const c = clientRef.current;
     if (!c) return;
     setInputError(refusal(await c.command('setInput', { input }, c.projection.revision)));
+  }, []);
+  const saveFlow = useCallback(async (next: GameFlow | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setFlowError(refusal(await c.command('setFlow', { flow: next === null ? null : (JSON.parse(JSON.stringify(next)) as GameFlow) }, c.projection.revision)));
   }, []);
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
@@ -2979,6 +2989,18 @@ function EditorApp(): JSX.Element {
               error={materialError}
             />
           )}
+          {bottomTab === 'game' && (
+            <FlowPanel
+              flow={flow}
+              scenes={[...(sceneHeaders ?? []).map((h) => ({ sceneId: h.sceneId, name: h.name, start: h.start, open: true })), ...closedScenes.map((cs) => ({ ...cs, start: false, open: false }))]}
+              spawns={entities.filter((e) => e.playerSpawn === true).map((e) => ({ id: e.id, name: e.name, sceneId: e.sceneId ?? null }))}
+              music={assets.filter((a) => a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              gameSpawnId={gameConfig?.spawnId ?? null}
+              onSave={(next) => void saveFlow(next)}
+              error={flowError}
+            />
+          )}
           {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
           {bottomTab === 'animator' && (
             <AnimatorPanel
@@ -3276,7 +3298,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -3285,6 +3307,7 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'lighting', label: 'Lighting' },
   { id: 'animator', label: 'Animator' },
   { id: 'input', label: 'Input' },
+  { id: 'game', label: 'Game flow' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },
