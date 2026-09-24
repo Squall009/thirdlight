@@ -16,6 +16,9 @@ import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, validateInput } from './input';
 import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
+import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
+import { BLOCK_COMPONENTS } from './blocks';
+import { canonicalSurface, validateSurfaceComponent } from './scene-v3';
 import { utf8Encode } from './sha256';
 import {
   canonicalBox,
@@ -49,10 +52,13 @@ import type {
   SettingsMap,
 } from './types-v2';
 import {
+  canonicalCollider,
   ID_RE_V2,
   PROPERTY_KEY_RE,
   validateBehaviorComponent,
+  validateColliderComponent,
   validateModelComponent,
+  validatePhysicsTransform,
 } from './components';
 import type {
   AssetRecordV3,
@@ -240,6 +246,7 @@ const KNOWN_SOURCE_FIELDS = new Set([
   'outputDigest',
   'outputByteLength',
   'requiredModules',
+  'ownedTransforms',
   'publishedRevision',
 ]);
 const KNOWN_TRUST_FIELDS = new Set(['entries']);
@@ -853,7 +860,47 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
   return max;
 }
 
-function validatePrefabEntity(e: unknown, idx: number, path: string, errors: ModelErrorV2[], localIndex: Map<string, number>): void {
+/**
+ * Phase 14.1: the components a v4 prefab entity may carry besides transform,
+ * model, box and behavior — what a spawned (`ctx.spawn`) or placed copy needs
+ * to collide, look right and take part in the game (a crate, a coin, an
+ * enemy, a moving projectile). Scene-only components (camera, controller,
+ * lights, zones, spawn markers, instance sets, fog volumes, the player's
+ * health) stay out: a copy is never the player, the camera or level wiring.
+ */
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
+const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
+
+function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
+  const col = comps['collider'];
+  if (col !== undefined) {
+    const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
+    if (oneWay !== undefined && oneWay !== true) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true', 'oneWay is true or absent'));
+    validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
+    // A collider sits on the definition root at unit scale, rotated about Z only (as on a scene entity).
+    validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors);
+    if (comps['enemy'] !== undefined) {
+      errors.push(withFound({ code: 'component_conflict', path, message: 'an enemy has no collider (its size is its body)', expected: 'enemy or collider' }, ['enemy', 'collider']));
+    }
+  }
+  if (comps['surface'] !== undefined) {
+    validateSurfaceComponent(comps['surface'], `${path}/surface`, errors as never);
+    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/surface`, message: 'a surface component sits only on an entity carrying box or model', expected: 'box|model' });
+  }
+  if (comps['materials'] !== undefined) {
+    validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
+    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/materials`, message: 'a materials component sits only on an entity with a model or a box', expected: 'model|box' });
+  }
+  if (comps['animator'] !== undefined) {
+    validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
+    if (comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/animator`, message: 'an animator sits only on an entity with a model', expected: 'model' });
+  }
+  for (const name of PREFAB_BLOCKS) {
+    if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
+  }
+}
+
+function validatePrefabEntity(e: unknown, idx: number, path: string, errors: ModelErrorV2[], localIndex: Map<string, number>, version: 3 | 4 = 3): void {
   if (!isPlainObject(e)) {
     errors.push(fieldType(path, e, 'object'));
     return;
@@ -907,7 +954,8 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
   } else if (!isPlainObject(comps)) {
     errors.push(fieldType(`${path}/components`, comps, 'object'));
   } else {
-    const allowed = new Set(['transform', 'model', 'box', 'behavior']);
+    const allowed = new Set<string>(['transform', 'model', 'box', 'behavior', ...(version === 4 ? PREFAB_V4_COMPONENTS : [])]);
+    const allowedText = version === 4 ? `transform, model, box, behavior, ${PREFAB_V4_COMPONENTS.join(', ')}` : 'transform, model, box, behavior';
     for (const k of Object.keys(comps)) {
       if (!allowed.has(k)) {
         if (k === 'camera' || k === 'prefab') {
@@ -917,13 +965,13 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
                 code: 'prefab_component_forbidden',
                 path: `${path}/components/${pointerSegment(k)}`,
                 message: `a prefab definition entity must not carry ${k}`,
-                expected: 'transform, model, box, behavior',
+                expected: allowedText,
               },
               k,
             ),
           );
         } else {
-          errors.push(withFound({ code: 'component_unknown', path: `${path}/components/${pointerSegment(k)}`, message: 'component is not permitted in a prefab definition', expected: 'transform, model, box, behavior' }, k));
+          errors.push(withFound({ code: 'component_unknown', path: `${path}/components/${pointerSegment(k)}`, message: 'component is not permitted in a prefab definition', expected: allowedText }, k));
         }
       }
     }
@@ -936,13 +984,14 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
       void canonicalBox;
     }
     if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/components/behavior`, errors);
+    if (version === 4) validatePrefabExtras(comps, parent, `${path}/components`, errors);
   }
   for (const k of Object.keys(e)) {
     if (!KNOWN_PREFAB_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'localId, name, parentLocalId, components'));
   }
 }
 
-function validatePrefabDefinition(d: unknown, path: string, errors: ModelErrorV2[]): void {
+function validatePrefabDefinition(d: unknown, path: string, errors: ModelErrorV2[], version: 3 | 4 = 3): void {
   if (!isPlainObject(d)) {
     errors.push(fieldType(path, d, 'object'));
     return;
@@ -972,7 +1021,7 @@ function validatePrefabDefinition(d: unknown, path: string, errors: ModelErrorV2
     }
     const localIndex = new Map<string, number>();
     for (let i = 0; i < entities.length; i++) {
-      validatePrefabEntity(entities[i], i, `${path}/entities/${i}`, errors, localIndex);
+      validatePrefabEntity(entities[i], i, `${path}/entities/${i}`, errors, localIndex, version);
     }
     if (d['entityCount'] !== entities.length) {
       errors.push(fieldValue(`${path}/entityCount`, d['entityCount'], `entities.length (${entities.length})`, 'entityCount is derived and must equal entities.length'));
@@ -990,6 +1039,33 @@ function validatePrefabDefinition(d: unknown, path: string, errors: ModelErrorV2
   for (const k of Object.keys(d)) {
     if (!KNOWN_PREFAB_DEF_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_PREFAB_DEF_FIELDS].join(', ')));
   }
+}
+
+/**
+ * Phase 14.1: validate a list of prefab definitions on their own (the runtime
+ * snapshot's `prefabs`, the manifest's): each definition by the content rules
+ * (`version` 4 allows `PREFAB_V4_COMPONENTS`), ids unique, at most `MAX_PREFABS`.
+ */
+export function validatePrefabDefinitions(value: unknown, path: string, errors: ModelErrorV2[], version: 3 | 4 = 4): void {
+  if (!Array.isArray(value)) {
+    errors.push(fieldType(path, value, 'array'));
+    return;
+  }
+  if (value.length > MAX_PREFABS) errors.push(limitsError(path, 'prefabs', value.length, MAX_PREFABS, `at most ${MAX_PREFABS} prefab definitions`));
+  const seen = new Set<string>();
+  value.forEach((d, i) => {
+    validatePrefabDefinition(d, `${path}/${i}`, errors, version);
+    const id = isPlainObject(d) ? d['prefabId'] : undefined;
+    if (typeof id === 'string') {
+      if (seen.has(id)) errors.push(withFound({ code: 'id_duplicate', path: `${path}/${i}/prefabId`, message: 'prefabId is already used (first occurrence wins)', expected: 'a unique prefabId' }, id));
+      seen.add(id);
+    }
+  });
+}
+
+/** Phase 14.1: the canonical form of a prefab definition list (sorted by id). */
+export function canonicalPrefabs(defs: readonly PrefabDefinition[]): PrefabDefinition[] {
+  return sortedRecord([...defs], (d) => d.prefabId).map(canonicalPrefab);
 }
 
 // ---- declared properties and behaviors (§20.5/§20.8/§22.2) ---------------------
@@ -1185,6 +1261,17 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
       else if (i > 0 && typeof modules[i - 1] === 'string' && (modules[i - 1] as string) >= m) {
         errors.push(fieldValue(`${path}/requiredModules/${i}`, m, 'ascending unique module ids', 'requiredModules must be ascending and unique'));
       }
+    }
+  }
+  const owned = s['ownedTransforms'];
+  if (owned !== undefined) {
+    // Phase 14.1: entity ids or "@self", ascending, unique, 1..16 (the container's rules).
+    if (!Array.isArray(owned) || owned.length < 1 || owned.length > 16) errors.push(fieldValue(`${path}/ownedTransforms`, owned, '1-16 entity ids or "@self"', 'ownedTransforms is absent or lists 1-16 entries'));
+    else {
+      owned.forEach((id, i) => {
+        if (typeof id !== 'string' || (id !== '@self' && !ID_RE_V2.test(id))) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'an entity id or "@self"', 'an owned transform names an entity id or "@self"'));
+        else if (i > 0 && typeof owned[i - 1] === 'string' && (owned[i - 1] as string) >= id) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'ascending unique entries', 'ownedTransforms must be ascending and unique'));
+      });
     }
   }
   const published = s['publishedRevision'];
@@ -1550,6 +1637,7 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
             outputDigest: b.source.outputDigest,
             outputByteLength: b.source.outputByteLength,
             requiredModules: [...b.source.requiredModules],
+            ...(b.source.ownedTransforms !== undefined && b.source.ownedTransforms.length > 0 ? { ownedTransforms: [...b.source.ownedTransforms] } : {}),
             publishedRevision: b.source.publishedRevision,
           },
     publishedRevision: b.publishedRevision,
@@ -1570,6 +1658,15 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
       values[k] = Array.isArray(v) ? [v[0], v[1], v[2]] : v;
     }
     components.behavior = { behaviorId: e.components.behavior.behaviorId, values };
+  }
+  // Phase 14.1 (v4): the gameplay components, canonical as on a scene entity.
+  const x = e.components;
+  if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}) };
+  if (x.surface !== undefined) components.surface = canonicalSurface(x.surface);
+  if (x.materials !== undefined) components.materials = canonicalMaterialMapping(x.materials);
+  if (x.animator !== undefined) components.animator = canonicalAnimatorComponent(x.animator);
+  for (const name of PREFAB_BLOCKS) {
+    if (x[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(x[name]);
   }
   return {
     localId: e.localId,
@@ -1877,7 +1974,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       if (prefabs.length > MAX_PREFABS) errors.push(limitsError('/prefabs', 'prefabs', prefabs.length, MAX_PREFABS, `the catalog may hold at most ${MAX_PREFABS} prefab definitions`));
       const seen = new Set<string>();
       for (let i = 0; i < prefabs.length; i++) {
-        validatePrefabDefinition(prefabs[i], `/prefabs/${i}`, errors);
+        validatePrefabDefinition(prefabs[i], `/prefabs/${i}`, errors, version);
         const d = prefabs[i];
         if (isPlainObject(d) && typeof d['prefabId'] === 'string') {
           if (seen.has(d['prefabId'])) errors.push(withFound({ code: 'id_duplicate', path: `/prefabs/${i}/prefabId`, message: 'prefabId is already used (first occurrence wins)', expected: 'a unique prefabId' }, d['prefabId']));

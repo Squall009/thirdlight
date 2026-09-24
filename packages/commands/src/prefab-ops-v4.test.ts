@@ -604,6 +604,31 @@ describe('fixtures/m2/prefabs/independence.messages.json replay', () => {
   });
 });
 
+// ---- phase 14.1: gameplay components in v4 prefabs -----------------------------------
+
+describe('phase 14.1: a v4 prefab keeps its gameplay components', () => {
+  it('createPrefab captures a collider and a pickup; instantiatePrefab copies them; a controller is still refused', () => {
+    const T = { position: [4, 0.5, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+    const crate = { id: 'box-0101', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true } } };
+    const coin = { id: 'box-0102', components: { transform: { ...T, position: [6, 1, 0] }, box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, pickup: { kind: 'coin', value: 5, size: [0.6, 0.6] } } };
+    const player = { id: 'player-0101', components: { transform: T, controller: {} } };
+    const state = createCommandState({ ...BEFORE.scene, entities: [...BEFORE.scene.entities, crate, coin, player] } as unknown as SceneV4, BEFORE.content);
+    const a = ok(mutation(state, 'createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: 'box-0101' }));
+    const b = ok(mutation(a.state, 'createPrefab', { prefabId: 'coin', displayName: 'Coin', sourceEntityId: 'box-0102' }));
+    const defs = (b.state.content as unknown as { prefabs: PrefabDefinition[] }).prefabs;
+    expect(defs.find((d) => d.prefabId === 'crate')!.entities[0]!.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
+    expect(defs.find((d) => d.prefabId === 'coin')!.entities[0]!.components.pickup).toMatchObject({ kind: 'coin', value: 5, size: [0.6, 0.6] });
+    expect(failCode(mutation(b.state, 'createPrefab', { prefabId: 'hero', displayName: 'Hero', sourceEntityId: 'player-0101' }))).toBe('prefab_component_forbidden');
+    const placed = ok(mutation(b.state, 'instantiatePrefab', { prefabId: 'coin', transform: { position: [9, 2, 0] } }));
+    const copy = placed.state.scene.entities.find((e) => e.id === instantiateChange(placed.result).rootId)!;
+    expect((copy.components as unknown as { pickup?: unknown }).pickup).toMatchObject({ kind: 'coin', value: 5 });
+    expect(copy.components.transform?.position).toEqual([9, 2, 0]);
+    const crateCopy = ok(mutation(placed.state, 'instantiatePrefab', { prefabId: 'crate', transform: { position: [12, 0.5, 0] } }));
+    const crateEntity = crateCopy.state.scene.entities.find((e) => e.id === instantiateChange(crateCopy.result).rootId)!;
+    expect(crateEntity.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
+  });
+});
+
 // ---- queryPrefabs ------------------------------------------------------------------
 
 describe('queryPrefabs (commands.md §5.6)', () => {

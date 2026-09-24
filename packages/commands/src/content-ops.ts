@@ -529,6 +529,8 @@ function applyPublishBehaviorSource(
       outputDigest: prepared.outputDigest,
       outputByteLength: prepared.outputByteLength,
       requiredModules: [...prepared.requiredModules],
+      // Phase 14.1: the owners travel with the record (Play and the export read them).
+      ...(prepared.ownedTransforms.length > 0 ? { ownedTransforms: [...prepared.ownedTransforms] } : {}),
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,

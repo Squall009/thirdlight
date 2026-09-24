@@ -8,7 +8,7 @@
  * `validateSceneV3`/`validateMergedSceneV4` re-check (project-model §23) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, type AnimatorController, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -17,7 +17,7 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs']);
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
 const MAX_SNAPSHOT_SCENES = 64;
 
@@ -61,6 +61,7 @@ export function validateRuntimeSnapshot(
       tags: readonly TagDefinition[];
       scenes: readonly RuntimeSceneRow[] | null;
       animators: readonly AnimatorController[];
+      prefabs: readonly PrefabDefinition[];
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -247,6 +248,17 @@ export function validateRuntimeSnapshot(
     }
     animators = snap.animators as AnimatorController[];
   }
+  // Phase 14.1: the optional v4 prefab definitions (`ctx.spawn`).
+  let prefabs: readonly PrefabDefinition[] = [];
+  if (snap.prefabs !== undefined) {
+    if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/prefabs', message: 'snapshot field "prefabs" is v4-only' } };
+    const prefabErrors: ModelErrorV2[] = [];
+    validatePrefabDefinitions(snap.prefabs, '/prefabs', prefabErrors, 4);
+    if (prefabErrors.length > 0) {
+      return { error: { code: 'snapshot_invalid', reason: 'scene_validation', message: clipSceneMessage(prefabErrors), errors: prefabErrors.slice(0, 10), errorTotal: prefabErrors.length } };
+    }
+    prefabs = snap.prefabs as PrefabDefinition[];
+  }
   // Phase 12 (c): the optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
@@ -280,7 +292,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

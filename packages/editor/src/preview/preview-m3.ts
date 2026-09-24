@@ -110,6 +110,8 @@ export interface PreviewManifestV2 {
   lighting?: Record<string, LightingBakeLike>;
   /** Phase 9.7: the animator controllers. */
   animators?: unknown[];
+  /** Phase 14.1: the prefab definitions scripts spawn. */
+  prefabs?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
@@ -347,7 +349,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -383,7 +385,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   // Phase 9.7: the animator controllers come from the verified manifest.
-  const withAnimators = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
+  const withAnimators0 = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
+  // Phase 14.1: the prefabs scripts spawn (from the verified manifest).
+  const withAnimators = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withAnimators, scenes: catalog.rows } : withAnimators);
 
   // 3. The wrapper's read phase (L2): every declared asset read ONCE and
@@ -721,6 +725,8 @@ export function bootstrapPreviewM3(): void {
       ...animatorStates(h.host.runtime),
       // Phase 9.9: the run's counters and the player's health.
       ...gameCounters(h.host.runtime),
+      // Phase 14.1: the live spawned entities (ctx.spawn): how many, the first 64 ids.
+      ...spawnedObservation(h.host.runtime),
       // Phase 9.10: the game flow (screen, level, lives, music, volumes).
       ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
@@ -797,6 +803,13 @@ function gameCounters(runtime: unknown): { counters?: Record<string, number>; he
 }
 
 /** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */
+/** Phase 14.1: the spawned-entity block of an observation (absent without a scene set). */
+function spawnedObservation(runtime: unknown): { spawned?: { count: number; ids: string[] } } {
+  const set = (runtime as { sceneSet?: () => { spawned?: readonly { id: string }[] } }).sceneSet?.();
+  if (set?.spawned === undefined) return {};
+  return { spawned: { count: set.spawned.length, ids: set.spawned.slice(0, 64).map((e) => e.id) } };
+}
+
 function animatorStates(runtime: unknown): { animators?: Record<string, string> } {
   const poses = (runtime as { animatorPoses?: () => ReadonlyMap<string, { state: string }> }).animatorPoses?.();
   if (poses === undefined || poses.size === 0) return {};

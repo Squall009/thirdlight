@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -323,8 +323,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       requiredModules: (((row['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? []),
     }));
   // A v4 project: the modules every scene needs (a scene loaded later too).
+  // Phase 14.1: and every prefab a script may spawn (a spawned model needs the loader).
+  const prefabDefs = input.scenes !== undefined ? ((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []) : [];
   const moduleScene = input.scenes !== undefined
-    ? { entities: input.scenes.flatMap((sc) => ((sc as { entities?: Record<string, unknown>[] }).entities ?? [])) }
+    ? { entities: [...input.scenes.flatMap((sc) => ((sc as { entities?: Record<string, unknown>[] }).entities ?? [])), ...prefabDefs.flatMap((d) => d.entities as unknown as Record<string, unknown>[])] }
     : (input.scene as { entities?: Record<string, unknown>[] });
   const modulesRes = resolveRequiredModules({ scene: moduleScene, game: view.game, behaviors: behaviorDeps });
   if (!modulesRes.ok) {
@@ -442,6 +444,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
     // Phase 9.7: the animator controllers (the game's runtime steps them).
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: (input.content as { animators: AnimatorController[] }).animators } : {}),
+    // Phase 14.1: a v4 game's prefabs (scripts spawn them at run time).
+    ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,

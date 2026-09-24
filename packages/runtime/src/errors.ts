@@ -33,6 +33,9 @@ export const ERROR_CODES = [
   // not be loaded (a diagnostic entry; the run continues without it).
   'scene_invalid',
   'scene_load_failed',
+  // Phase 14.1: a spawn an engine limit refused, or one that could not be added
+  // (a diagnostic entry; the script got null and the run continues).
+  'spawn_refused',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

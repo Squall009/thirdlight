@@ -110,6 +110,14 @@ describe('packet 33 — source-graph container + static rules (project-model.md 
     expect(derived).toMatchObject({ ok: false, code: 'behavior_source_invalid', reason: 'container' });
   });
 
+  it('phase 14.1: accepts "@self" in ownedTransforms (each carrier owns itself); other non-ids stay refused', () => {
+    const value = JSON.parse(containerText('valid/sample.json')) as Record<string, unknown>;
+    value['ownedTransforms'] = ['@self', 'box-0001'];
+    expect(analyzeContainer(new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`))).toMatchObject({ ok: true, ownedTransforms: ['@self', 'box-0001'] });
+    value['ownedTransforms'] = ['@other'];
+    expect(analyzeContainer(new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`))).toMatchObject({ ok: false, code: 'behavior_source_invalid', reason: 'container' });
+  });
+
   it('rejects an unknown top-level field instead of stripping it', () => {
     const value = JSON.parse(containerText('valid/sample.json')) as Record<string, unknown>;
     value['author'] = 'x';

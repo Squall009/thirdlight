@@ -103,7 +103,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'name gets the lowest free bit, a tag still carried by an entity cannot be removed); the registry is in ' +
       'tl_inspect target="project" (tags) and each entity shows its own and effective tag names. Content ops: publishAsset, publishBehavior, ' +
       'setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
-      'instantiatePrefab. Game ops: applySurfacePreset, setGameConfig. Scenes: createScene {name, sceneId?}, ' +
+      'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
+      'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig. Scenes: createScene {name, sceneId?}, ' +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
       'scenes the game starts with; the camera, player, lights and start spawn live only in start scenes). ' +
       'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
@@ -138,7 +139,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'respawn?: never|death, cue?: audioAssetId (collect sound)}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
       'health, chase? m (walks toward a player in range)}; a defeated enemy squashes, then vanishes; collider {oneWay: true} (jump up through, Down+Jump drops); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] m from the entity origin} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps); gameZone hazard {damage?} (health instead of a life); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
-      'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
+      'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
+      '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — colliders, pickups, enemies, movers and its scripts work; it appears at the next step; ' +
+      'at most 64 spawns per step and 1024 spawned entities alive; a new run removes them all; saves never keep them) and ctx.destroy(spawnedId) (removes it and its children; ' +
+      'an authored entity throws: hide it with setVisible); a script whose source container lists "@self" in ownedTransforms may move its own entity (each carrier, spawned copies included) with transform/pose intents in the transform phase. Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
       'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
@@ -320,7 +324,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
