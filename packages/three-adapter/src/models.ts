@@ -88,6 +88,8 @@ export interface SceneAdapterModelAsset {
   readonly vertexColors?: 'tint';
   /** Phase 9.4: the asset's default material mapping. */
   readonly materials?: Readonly<Record<string, string>>;
+  /** Phase 14.6: an animation-only file whose clips play on this model asset's rig. */
+  readonly clipsFor?: string;
 }
 
 /** One committed `modelAnimation` entity mapping (delivery.md (M4) §2.2). */
@@ -242,6 +244,13 @@ export interface ModelsRealization {
   removeEntities(entityIds: ReadonlySet<string>): void;
   /** Phase 9.7: the entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
+  /**
+   * Phase 14.6: the clips of `clipAssetId` for a model of `rigAssetId`: its
+   * own clips, or an animation-only asset's marked "clips for" that rig
+   * (loaded on first ask; null until it is ready, or when the asset is
+   * neither).
+   */
+  clipsOf(clipAssetId: string, rigAssetId: string): readonly THREE.AnimationClip[] | null;
   /** Dispose: cancel in-flight prepares, dispose the attached instances
    * (cloned materials + controllers + instances) and the store.
    *  Idempotent. */
@@ -507,8 +516,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const rowsByAsset = new Map<string, SceneAdapterModelAsset>();
   for (const row of ctx.models.assets) rowsByAsset.set(row.assetId, row);
 
+  /** Phase 14.6: animation-only assets asked for by an animator (kept while the realization lives). */
+  const clipAssets = new Set<string>();
   /** Whether any live entity still uses the asset. */
   function assetInUse(assetId: string): boolean {
+    if (clipAssets.has(assetId)) return true;
     for (const a of modelEntities.values()) if (a === assetId) return true;
     for (const r of instanceEntities.values()) if (r.assetId === assetId) return true;
     return false;
@@ -774,6 +786,25 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       if (rec === undefined || rec.disposed) return null;
       const assetId = modelEntities.get(entityId);
       return assetId === undefined ? null : { assetId, instance: rec.instance };
+    },
+    clipsOf(clipAssetId: string, rigAssetId: string) {
+      if (disposed) return null;
+      if (clipAssetId === rigAssetId) {
+        const own = resources.get(rigAssetId);
+        return own === undefined ? null : own.animationClips();
+      }
+      if (rowsByAsset.get(clipAssetId)?.clipsFor !== rigAssetId) return null;
+      const ready = resources.get(clipAssetId);
+      if (ready !== undefined) return ready.animationClips();
+      if (!clipAssets.has(clipAssetId)) {
+        clipAssets.add(clipAssetId);
+        // Not a settle gate: the animator plays the base pose until it arrives.
+        const wasInitial = initial;
+        initial = false;
+        ensureAsset(clipAssetId);
+        initial = wasInitial;
+      }
+      return null;
     },
     update(deltaSeconds: number): boolean {
       if (disposed) return false;

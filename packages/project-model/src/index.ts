@@ -338,14 +338,19 @@ export {
   type InputBinding,
   type InputConfig,
 } from './input';
+// Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
+export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
 // Phase 9.7: animator controllers.
 export {
   ANIMATOR_CONDITION_OPS,
   ANIMATOR_PARAMETER_TYPES,
   animatorAssetIds,
+  animatorStates,
   canonicalAnimatorController,
   canonicalAnimators,
   MAX_ANIMATORS,
+  MAX_ANIMATOR_LAYERS,
+  MAX_LAYER_MASK,
   validateAnimatorComponent,
   validateAnimatorController,
   validateAnimators,
@@ -355,6 +360,7 @@ export {
   type AnimatorConditionOp,
   type AnimatorController,
   type AnimatorEvent,
+  type AnimatorLayer,
   type AnimatorMotion,
   type AnimatorParameter,
   type AnimatorParameterType,

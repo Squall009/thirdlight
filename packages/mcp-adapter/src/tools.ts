@@ -127,9 +127,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
       '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
       '[{from: stateId|"*", to, conditions: [{parameter, op: greater|less|equals|notEquals|true|false|trigger, value?}], duration, exitTime?, ' +
-      'interruption?: none|source}], entry, events: [{assetId, clip, time, name}]}}; deleteAnimator {controllerId}; a model entity plays one ' +
-      'with setComponent "animator" {controller, parameters?}. The player\'s animators get speed, grounded, velocityY and a landed trigger ' +
-      'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(). Input: setInput {input: {actions: [{name, type: ' +
+      'interruption?: none|source}], entry, events: [{assetId, clip, time, name}], layers?: [{name, mask: [bone names] (empty = every ' +
+      'bone), weight 0-1, weightParameter? (a float param it is multiplied by), states (motion may also be {kind: "empty"}: the layers ' +
+      'under show through), transitions, entry}] (up to 3 override layers over the base layer, e.g. an upper-body attack while running; ' +
+      'state ids are unique across layers)}}; deleteAnimator {controllerId}; a model entity plays one ' +
+      'with setComponent "animator" {controller, parameters?}. An animation-only GLB (clips, no mesh needed) is marked with ' +
+      'setAssetOptions {assetId, clipsFor: rigModelAssetId | null}; its clips then play on that model (matched by bone names) and ' +
+      'controllers may name them. The old modelAnimation idle/run/airborne component becomes an animator controller when the project ' +
+      'is opened. The player\'s animators get speed, grounded, velocityY and a landed trigger ' +
+      'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(layer?). Input: setInput {input: {actions: [{name, type: ' +
       'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
       '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
       '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y}], deadZone?, invert?, scale?}]} | null} (null = defaults: ' +

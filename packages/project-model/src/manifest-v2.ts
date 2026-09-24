@@ -165,6 +165,8 @@ export interface CapturedAssetV3 {
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping. */
   materials?: Record<string, string>;
+  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  clipsFor?: string;
 }
 
 /** The captured v3 content view (delivery.md §2.3 `contentDigest` preimage). */
@@ -221,6 +223,8 @@ export interface ManifestAssetInputV2 {
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping. */
   materials?: Record<string, string>;
+  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  clipsFor?: string;
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -489,6 +493,7 @@ export function captureContentViewV3(
       metricsDigest: blockDigest(version.metrics),
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
+      ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
     });
   }
   if (errors.length > 0) return fail(errors);
@@ -600,6 +605,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       path: `content/sha256/${a.sourceDigest}`,
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
+      ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]

@@ -19,6 +19,7 @@ import { ID_RE_V2 } from './components';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
 import { flowAssetRefs, type GameFlow } from './flow';
+import { animatorAssetIds, type AnimatorController } from './animator';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
@@ -126,12 +127,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const id of env?.sky?.cube ?? []) setRef(id);
   if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
   // Phase 9.7: the models an animator controller takes clips from.
-  for (const c of (content as { animators?: { states: { motion: { kind: string; clip?: { assetId: string }; children?: { clip: { assetId: string } }[] } }[] }[] }).animators ?? []) {
-    for (const s of c.states) {
-      if (s.motion.clip !== undefined) setRef(s.motion.clip.assetId);
-      for (const k of s.motion.children ?? []) setRef(k.clip.assetId);
-    }
-  }
+  // Phase 14.6: the override layers' clips too.
+  for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);
   // Phase 9.6: the lightmap atlases of every scene's bake.
   for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[] }> }).lighting ?? {})) for (const id of bake.atlases) setRef(id);
   const game = content.game;

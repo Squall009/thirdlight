@@ -381,6 +381,12 @@ export interface AssetRecordV3 {
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping of every placement (source material name or "*" → materialId). */
   materials?: Record<string, string>;
+  /**
+   * Model only (phase 14.6, v4): an animation-only file — its clips play on
+   * the model asset named here (matched by bone names). Absent = the file's
+   * clips are for its own nodes.
+   */
+  clipsFor?: string;
 }
 
 /** §23.4 a cue reference: an audio `assetId` or `null`. */

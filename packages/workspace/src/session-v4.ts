@@ -7,9 +7,9 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { DEFAULT_INPUT, effectiveEntityFlags, type ContentCatalogV3, type Manifest, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, DEFAULT_INPUT, effectiveEntityFlags, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
-import { loadPreparedSources } from './content-store';
+import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
 import type { RetryRecord } from './envelope';
 import {
@@ -174,7 +174,69 @@ export function openV4(
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
   const l = loadV4(core.ops, dir, projectId);
   if (l.kind === 'blocked') return l;
-  return { kind: 'open', session: makeSessionV4(core, dir, projectId, l.state, ownership, sceneDir, thirdlightDir, notes) };
+  const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, l.state);
+  return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...migrated.notes]) };
+}
+
+/**
+ * Phase 14.6: the old `modelAnimation` idle/run/airborne profile becomes an
+ * animator controller when the project opens (the clip lengths are read from
+ * the model files). Written as one new revision; if anything fails the
+ * project opens as it was (the old component keeps playing) and the reason
+ * goes to the upgrade notes.
+ */
+function migrateModelAnimationsOnOpen(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State): { state: V4State; notes: string[] } {
+  const scenes = [...state.scenes.values()];
+  const hasOld = scenes.some((sc) => sc.entities.some((e) => (e.components as Record<string, unknown>)['modelAnimation'] !== undefined)) ||
+    state.content.prefabs.some((p) => (p.entities as unknown as { components: Record<string, unknown> }[]).some((e) => e.components['modelAnimation'] !== undefined));
+  if (!hasOld) return { state, notes: [] };
+  const ctx: ContentContext = {
+    projectId,
+    dir,
+    thirdlightDir,
+    storageVersion: 4,
+    revision: state.revision,
+    scene: primaryScene(state),
+    content: state.content,
+    scenes,
+    gameFolder: core.registry.get(projectId)?.folder ?? null,
+  };
+  const lengths = new Map<string, { name: string; duration: number }[] | null>();
+  const durationOf = (assetId: string, version: number, clipIndex: number, clipName: string): number | null => {
+    const key = `${assetId}@${version}`;
+    if (!lengths.has(key)) {
+      const r = readBlob(core, ctx, { assetId, version });
+      lengths.set(key, r.ok ? glbClipDurations(r.bytes) : null);
+    }
+    const list = lengths.get(key);
+    if (list === null || list === undefined) return null;
+    const clip = list[clipIndex]?.name === clipName ? list[clipIndex] : list.find((c) => c.name === clipName);
+    return clip === undefined ? null : clip.duration;
+  };
+  const m = migrateModelAnimations(scenes, state.content, durationOf);
+  if (m === null) return { state, notes: [] };
+  if (m.migrated === 0) return { state, notes: m.notes };
+  const kept = (why: string): { state: V4State; notes: string[] } => ({ state, notes: [`the idle/run/airborne animations were not moved to animators (${why}); they keep playing as before`] });
+  // The migrated project must validate like any command result.
+  const revision = state.revision + 1;
+  const content = validateContentV4(m.content);
+  if (!content.ok) return kept(content.errors[0]?.message ?? 'the content does not validate');
+  const nextScenes = new Map<string, SceneV4>();
+  for (const sc of m.scenes) {
+    const v = validateSceneV4(sc);
+    if (!v.ok) return kept(v.errors[0]?.message ?? 'a scene does not validate');
+    nextScenes.set(sc.sceneId, sc);
+  }
+  const errors: ModelErrorV3[] = [];
+  composeV4([...nextScenes.values()], content.normalized, errors, revision);
+  if (errors.length > 0) return kept(errors[0]!.message);
+  const plan = changedFiles(projectId, state, { content: content.normalized, scenes: nextScenes, revision }, null);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, state.files, plan.writes);
+  if (!res.ok) return kept('the project files could not be written');
+  return {
+    state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.files, fileRecords: plan.fileRecords },
+    notes: m.notes,
+  };
 }
 
 /** Wrap an open-v4 outcome as the session layer's open outcome (blocked → caller builds the blocked session). */

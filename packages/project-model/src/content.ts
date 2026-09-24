@@ -218,7 +218,7 @@ const GAME_STRING_BOUNDS: Readonly<Record<'title' | 'objective' | 'instructions'
   objective: 160,
   instructions: 320,
 };
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -823,6 +823,12 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
     else if (vertexColors !== 'tint') {
       errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" (absent = data)', 'vertexColors is stored only as "tint"; the default treats COLOR_0 as shader data'));
     }
+  }
+  // Phase 14.6: an animation-only model whose clips play on another model's rig (checked against the catalog in v4).
+  const clipsFor = a['clipsFor'];
+  if (clipsFor !== undefined) {
+    if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/clipsFor`, 'clipsFor', 'only a v4 model asset has clipsFor'));
+    else if (typeof clipsFor !== 'string' || !ID_RE_V2.test(clipsFor)) errors.push(fieldValue(`${path}/clipsFor`, clipsFor, 'a model assetId', 'clipsFor names the model asset whose rig these clips are for'));
   }
   for (const k of Object.keys(a)) {
     if (!KNOWN_ASSET_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_ASSET_FIELDS].join(', ')));
@@ -1601,6 +1607,7 @@ function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     versions: a.versions.map((v) => canonicalVersionV3(v, kind)),
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
+    ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
   };
 }
 
@@ -2023,6 +2030,12 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
   if (doc['flow'] !== undefined) validateFlow(doc['flow'], '/flow', errors);
   if (version === 4) validateMaterialReferences(doc, errors);
+  else if (Array.isArray(doc['assets'])) {
+    // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
+    (doc['assets'] as unknown[]).forEach((a, i) => {
+      if (isPlainObject(a) && a['clipsFor'] !== undefined) errors.push(unexpectedField(`/assets/${i}/clipsFor`, 'clipsFor', 'clipsFor is v4 data'));
+    });
+  }
 
   if (errors.length > 0) return { errors };
   const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3);
@@ -2229,6 +2242,15 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     }
   }
+  // Phase 14.6: "clips for rig of <asset>" names another model of this project that is not itself a clips-only asset.
+  assets.forEach((a, i) => {
+    const rig = a['clipsFor'];
+    if (typeof rig !== 'string') return;
+    const target = assets.find((x) => x['assetId'] === rig);
+    if (rig === a['assetId']) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/clipsFor`, message: 'an asset cannot hold clips for its own rig (absent = its clips are its own)', expected: 'another model assetId' }, rig));
+    else if (target === undefined || target['kind'] !== 'model') errors.push(withFound({ code: 'asset_reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model asset of this project', expected: 'a model assetId' }, rig));
+    else if (target['clipsFor'] !== undefined) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model with its own rig, not another clips-only asset', expected: 'a model assetId without clipsFor' }, rig));
+  });
   assets.forEach((a, i) => {
     const mapping = a['materials'];
     if (mapping === undefined) return;

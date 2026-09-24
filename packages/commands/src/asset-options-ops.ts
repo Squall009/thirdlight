@@ -4,6 +4,11 @@
  * `vertexColors` (model only): `data` (the default, stored as absence) keeps
  * COLOR_0 as shader data that never multiplies the albedo; `tint` restores the
  * glTF behaviour.
+ *
+ * Phase 14.6: `clipsFor` (model only, v4): marks an animation-only file whose
+ * clips play on another model asset's rig (matched by bone names); null
+ * clears it. The resulting-state check refuses a missing or non-model rig,
+ * the asset itself and a rig that is itself clips-only.
  */
 
 import { assetKindMismatch, assetNotFound } from './errors';
@@ -27,6 +32,10 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   if (args.materials !== undefined) {
     const { materials: _m, ...rest } = next as CommandAssetRecord & { materials?: Record<string, string> };
     next = (args.materials === null ? rest : { ...rest, materials: deepClone(args.materials) }) as CommandAssetRecord;
+  }
+  if (args.clipsFor !== undefined) {
+    const { clipsFor: _c, ...rest } = next as CommandAssetRecord & { clipsFor?: string };
+    next = (args.clipsFor === null ? rest : { ...rest, clipsFor: args.clipsFor }) as CommandAssetRecord;
   }
   const assets = (catalog.assets as unknown as CommandAssetRecord[]).map((a) => (a.assetId === args.assetId ? next : a));
   const nextContent = { ...catalog, assets } as unknown as ContentDocument;

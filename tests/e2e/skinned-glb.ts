@@ -115,3 +115,46 @@ export function skinnedGlb(): Buffer {
   bh.writeUInt32LE(0x004e4942, 4);
   return Buffer.concat([header, jh, jsonBuf, bh, bin]);
 }
+
+/**
+ * Phase 14.6: an animation-only GLB for the rig above — the same two bones
+ * (`root`, `upper` at 1 m), no mesh, one clip `wave`: the upper half bent
+ * 80° the other way (to the right, seen from the front).
+ */
+export function clipsOnlyGlb(): Buffer {
+  const times = Buffer.from(new Float32Array([0, 1]).buffer);
+  const wave = Buffer.from(new Float32Array([...quatZ(-80), ...quatZ(-80)]).buffer);
+  const bin = Buffer.concat([times, wave]);
+  const json = {
+    asset: { version: '2.0', generator: 'thirdlight e2e clips-only fixture' },
+    scene: 0,
+    scenes: [{ name: 'Scene', nodes: [0] }],
+    nodes: [
+      { name: 'root', children: [1] },
+      { name: 'upper', translation: [0, 1, 0] },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 2, type: 'SCALAR', min: [0], max: [1] },
+      { bufferView: 1, componentType: 5126, count: 2, type: 'VEC4' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: times.length },
+      { buffer: 0, byteOffset: times.length, byteLength: wave.length },
+    ],
+    buffers: [{ byteLength: bin.length }],
+    animations: [{ name: 'wave', samplers: [{ input: 0, output: 1, interpolation: 'LINEAR' }], channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }] }],
+  };
+  let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
+  jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc((4 - (jsonBuf.length % 4)) % 4, 0x20)]);
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(12 + 8 + jsonBuf.length + 8 + bin.length, 8);
+  const jh = Buffer.alloc(8);
+  jh.writeUInt32LE(jsonBuf.length, 0);
+  jh.writeUInt32LE(0x4e4f534a, 4);
+  const bh = Buffer.alloc(8);
+  bh.writeUInt32LE(bin.length, 0);
+  bh.writeUInt32LE(0x004e4942, 4);
+  return Buffer.concat([header, jh, jsonBuf, bh, bin]);
+}

@@ -170,6 +170,8 @@ export function queryAssets(
     if ((a as { vertexColors?: string }).vertexColors === 'tint') summary.vertexColors = 'tint';
     const defaultMaterials = (a as { materials?: Record<string, string> }).materials;
     if (defaultMaterials !== undefined) summary.materials = { ...defaultMaterials };
+    const clipsFor = (a as { clipsFor?: string }).clipsFor;
+    if (clipsFor !== undefined) summary.clipsFor = clipsFor;
     if (current?.convertedFrom !== undefined) {
       summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}) };
     }
