@@ -339,6 +339,8 @@ describe('packet 25 — content transport security', () => {
       origin: { kind: 'mcp', clientId: 'restart-test' },
       args: {
         mode: 'create',
+        // Storage v3+ publishAsset requires the asset kind.
+        kind: 'model',
         assetId,
         displayName: 'Restart Probe',
         sourceDigest: String(prop.sourceDigest),

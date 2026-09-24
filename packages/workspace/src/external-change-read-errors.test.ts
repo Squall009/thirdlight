@@ -44,6 +44,14 @@
  *     close error never masks an earlier write/fsync errno; a retry uses
  *     a NEW temp file + nonce).
  *
+ * Ported to storage v4 (phase 9.3 step B): the session-level cases run on
+ * a v4 project's `scenes/scene-main.json` (a createEntity writes only that
+ * file, with one W). The legacy §7.3 re-read-and-proceed of case 2 is not
+ * what v4 does (acceptExternalV4/discardExternalV4 refuse any non-"ok"
+ * pending state with external_change_evidence_missing, without a re-read);
+ * the legacy case is archived in
+ * archive/removed-v1-v2/workspace/external-change-read-errors.test.ts.
+ *
  * Real filesystem, unprivileged (chmod 000 is a REAL EACCES — the
  * review's repro ran exactly this way). Data roots are disposable
  * `mkdtemp` directories, cleaned in finally (afterAll backstop). Fault
@@ -98,7 +106,7 @@ const BACKEND_ID = 'tb-11112222333344445555666677778888';
 /** Pinned UTC stamp (config seam): snapshot names are deterministic. */
 const PINNED_STAMP = '20260918T000000Z';
 const PROJECT = 'demo';
-const SCENE_REL = join('projects', PROJECT, 'scenes', 'main.json');
+const SCENE_REL = join('projects', PROJECT, 'scenes', 'scene-main.json');
 const SCENE_DIR_REL = join('projects', PROJECT, 'scenes');
 
 let sequence = 0;
@@ -243,15 +251,15 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
     }
   });
 
-  it('2. R1 no resolution over unreadable bytes; the §7.3 re-read then re-establishes from the real bytes and proceeds in the same call', () => {
+  it('2. R1 no resolution over unreadable bytes: accept and discard are refused while the pending state is unreadable; nothing is written, the pause persists', () => {
     const root = makeRoot('r1b');
     try {
       const s = openProject(root);
       expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
       const scene = join(root, SCENE_REL);
-      const lkgBytes = readFileSync(scene);
       writeFileSync(scene, FOREIGN);
       chmodSync(scene, 0o000);
+      const before = recoverySnaps(root);
       const m = s.runCommand(request(1));
       expect(m.ok).toBe(false);
       expect((m as { error: { code: string } }).error.code).toBe(
@@ -259,51 +267,36 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       );
 
       // Refused while unreadable: NOTHING is written — the file is still
-      // 000 (unreadable), the bytes are untouched, still paused + pending.
+      // 000 (unreadable), no snapshot was taken, still paused + pending.
+      // v4 (session-v4.ts acceptExternalV4/discardExternalV4): any pending
+      // state other than "ok" is answered external_change_evidence_missing
+      // without re-reading the file (the legacy path answered
+      // external_change_unreadable and re-read; see the phase 9.3 report).
       const d1 = s.discardExternalState(PROJECT);
       expect(d1.ok).toBe(false);
       expect((d1 as { ok: false; error: { code: string } }).error.code).toBe(
-        'external_change_unreadable',
+        'external_change_evidence_missing',
       );
       const a1 = s.acceptExternalState(PROJECT);
       expect(a1.ok).toBe(false);
       expect((a1 as { ok: false; error: { code: string } }).error.code).toBe(
-        'external_change_unreadable',
+        'external_change_evidence_missing',
       );
       expect(isReadable(scene)).toBe(false); // still 000
+      expect(recoverySnaps(root)).toEqual(before); // no snapshot of unknown bytes
       pausedQuery(s); // still paused + pending
       expect(
         (s.query({ op: 'queryProject', projectId: PROJECT }) as { workspace: {
           pendingChange: { snapshotState: string; externalHash: string | null };
         } }).workspace.pendingChange.snapshotState,
       ).toBe('unreadable');
+      // A further mutation keeps failing external_change_unreadable.
+      const m2 = s.runCommand(request(1));
+      expect((m2 as { error: { code: string } }).error.code).toBe('external_change_unreadable');
 
-      // The same foreign bytes now readable (644): the §7.3 re-read
-      // re-establishes the pending change from the REAL bytes (durable
-      // snapshot) and proceeds with the discard in the SAME call.
+      // The foreign bytes are byte-identical (never overwritten).
       chmodSync(scene, 0o644);
-      const d2 = s.discardExternalState(PROJECT);
-      expect(d2).toEqual({ ok: true, revision: 1, historyReset: true });
-
-      // The envelope is the LKG bytes EXACTLY; the project is unpaused.
-      expect(bytesEqual(readFileSync(scene), lkgBytes)).toBe(true);
-      expect(
-        (s.query({ op: 'queryProject', projectId: PROJECT }) as {
-          workspace: { writePaused: boolean };
-        }).workspace.writePaused,
-      ).toBe(false);
-
-      // The recovery dir holds EXACTLY ONE snapshot: the real foreign
-      // bytes, named with their sha8.
-      const snaps = recoverySnaps(root);
-      expect(snaps).toEqual([`scene-${PINNED_STAMP}-${FOREIGN_HASH.slice(0, 8)}.json`]);
-      const recDir = join(root, 'projects', PROJECT, '.thirdlight', 'recovery');
-      expect(bytesEqual(readFileSync(join(recDir, snaps[0]!)), FOREIGN)).toBe(true);
-
-      // A subsequent mutation succeeds (the project is fully unblocked).
-      const m3 = s.runCommand(request(1));
-      expect(m3.ok).toBe(true);
-      expect((m3 as { revision: number }).revision).toBe(2);
+      expect(bytesEqual(readFileSync(scene), FOREIGN)).toBe(true);
     } finally {
       dropRoot(root);
     }

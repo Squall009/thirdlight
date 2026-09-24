@@ -132,6 +132,9 @@ function reasonHint(reason: UnavailableReason): string {
       return 'the project is released for external maintenance; finish the external edit — the next open re-claims it (workspace.md §9)';
     case 'external_change_unresolved':
       return 'an operator must resolve the pending external change (acceptExternalState or discardExternalState)';
+    case 'storage_version_unsupported':
+      // Phase 9.3: storage v1/v2 (M1/M2) projects are no longer opened; the bytes are left untouched.
+      return 'the project files use a storage version this version does not open (storage v1/v2, removed in phase 9.3, or a newer one); the files are left untouched — convert a v1/v2 project to storage v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3), then open it here (v3 is upgraded to v4 on open)';
     default:
       return 'the authoring state on disk is invalid or unreadable; the bytes are retained untouched — repair the file by hand (a recovery snapshot or backup, if available) and re-open';
   }
@@ -886,90 +889,5 @@ export function contentInvalid(
   e['message'] = 'the envelope content block fails validation';
   e['hint'] =
     'the bytes are retained untouched; repair the content block by hand or restore it from a backup, then re-open';
-  return e as unknown as CommandError;
-}
-
-/** `migration_source_invalid` (workspace.md §11/§14.1). */
-export function migrationSourceInvalid(sourceProjectId: string, details: readonly LoadDetail[]): CommandError {
-  const e: Record<string, unknown> = {
-    code: 'migration_source_invalid',
-    cls: 'validation',
-    projectId: sourceProjectId,
-  };
-  if (details.length > 0) {
-    e['details'] = details.slice(0, 10);
-    e['detailCount'] = details.length;
-  }
-  e['message'] = `the migration source '${sourceProjectId}' is missing or does not load under the M1 pipeline`;
-  e['hint'] =
-    'migration requires an M1 project (storageVersion 1, scene schemaVersion 1, manifest v1) that is not owned by a live backend';
-  return e as unknown as CommandError;
-}
-
-/** `migration_destination_exists` (workspace.md §11/§14.3). */
-export function migrationDestinationExists(newProjectId: string): CommandError {
-  return {
-    code: 'migration_destination_exists',
-    cls: 'conflict',
-    projectId: newProjectId,
-    message: `the migration destination '${newProjectId}' already contains a loadable project`,
-    hint: 'choose a new destination project ID; migration never overwrites an existing project',
-  };
-}
-
-/** `migration_marker_conflict` (workspace.md §11/§14.3): a marker exists for
- * different source/new IDs. Nothing is overwritten. */
-export function migrationMarkerConflict(
-  newProjectId: string,
-  markerSource: unknown,
-  markerNew: unknown,
-): CommandError {
-  const e: Record<string, unknown> = {
-    code: 'migration_marker_conflict',
-    cls: 'conflict',
-    projectId: newProjectId,
-    found: { sourceProjectId: markerSource, newProjectId: markerNew },
-    message: `the migration marker in '${newProjectId}' names a different source/new project`,
-    hint: 'inspect the destination by hand; nothing is overwritten (workspace.md §14.3)',
-  };
-  return e as unknown as CommandError;
-}
-
-/** `migration_resume_required` (workspace.md §11/§10): an interrupted
- * migration destination must be resumed (informational). */
-export function migrationResumeRequired(newProjectId: string, phase: string): CommandError {
-  const e: Record<string, unknown> = {
-    code: 'migration_resume_required',
-    cls: 'unavailable',
-    projectId: newProjectId,
-    phase,
-    message: `the migration destination '${newProjectId}' is interrupted at phase '${phase}' and must be resumed or deleted`,
-    hint: 're-run migrateProjectCopy(sourceProjectId, newProjectId) to resume, or delete the destination directory (it was never authoritative)',
-  };
-  return e as unknown as CommandError;
-}
-
-/**
- * `migration_version_unsupported` (workspace.md §11/§16.5.1): the source is
- * not a loadable `storageVersion` 2 / scene `schemaVersion` 2 project (a v1
- * source must use the accepted v1→v2 copy first; a v3 source is already the
- * destination version), or the requested destination would write a
- * combination outside §16.2. Single error; carries `sourceProjectId`,
- * `foundVersion`, `expectedVersion`. Nothing is written.
- */
-export function migrationVersionUnsupported(
-  sourceProjectId: string,
-  foundVersion: unknown,
-  expectedVersion: string,
-): CommandError {
-  const e: Record<string, unknown> = {
-    code: 'migration_version_unsupported',
-    cls: 'validation',
-    sourceProjectId,
-    foundVersion,
-    expectedVersion,
-    message: `the migration source '${sourceProjectId}' is not a v2 project (found version ${String(foundVersion)}); the v2→v3 copy requires a v2 source`,
-    hint: 'a v1 project uses migrateProjectCopy (v1→v2) first, then this operator on the resulting v2 project; there is no in-place upgrade and no direct v1→v3 route',
-  };
   return e as unknown as CommandError;
 }

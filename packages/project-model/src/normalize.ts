@@ -20,34 +20,24 @@
  */
 
 import type { ModelErrorV2, SerializeResult } from './errors';
-import type { Manifest, Scene } from './types';
-import type { ContentCatalog, SceneV2 } from './types-v2';
+import type { Manifest } from './types';
 import type { ContentCatalogV3, ContentCatalogV4, SceneV3, SceneV4 } from './types-v3';
-import { normalizeManifest, normalizeScene } from './validate';
-import { normalizeSceneV2 } from './scene-v2';
+import { normalizeManifest } from './validate';
 import { normalizeSceneV3, validateSceneV4 } from './scene-v3';
-import { normalizeContent, normalizeContentV3, validateContentV4 } from './content';
+import { normalizeContentV3, validateContentV4 } from './content';
 
 /**
- * Emit the §12.2 canonical byte form of a validated manifest or scene
- * document.
+ * Emit the §12.2 canonical byte form of a validated manifest (schemaVersion
+ * 1, the v3 project manifest), scene (schemaVersion 3 or 4) or content block
+ * (v3, or v4 with `startScenes`). The v4 project manifest (schemaVersion 2)
+ * has its own writer in the workspace.
  *
  * Document kind is dispatched on the document's own top-level fields: a
- * value carrying `sceneId`/`entities` is a scene, anything else is
- * validated as a manifest. Every VALID document dispatches correctly (a
- * valid scene always has `sceneId`+`entities`; a valid manifest has
- * neither); invalid documents get a meaningful error either way.
- */
-/**
- * Emit the §12.2 canonical byte form of a validated manifest, scene
- * (schemaVersion 1–4) or content block (v2, v3, or v4 with `startScenes`).
- *
- * Document kind is dispatched on the document's own top-level fields: a
- * value carrying `sceneId`/`entities` is a scene (validated as v2 when its
- * `schemaVersion` is 2, else as the v1 interchange scene); a value carrying
- * content keys is the content block; anything else is validated as a
- * manifest. Every VALID document dispatches correctly; invalid documents
- * get a meaningful error either way.
+ * value carrying `sceneId`/`entities` is a scene (validated as v4 when its
+ * `schemaVersion` is 4, else as v3); a value carrying content keys is the
+ * content block; anything else is validated as a manifest. Every VALID
+ * document dispatches correctly; invalid documents get a meaningful error
+ * either way.
  */
 export function serializeCanonical(doc: unknown): SerializeResult {
   const obj = typeof doc === 'object' && doc !== null && !Array.isArray(doc) ? (doc as Record<string, unknown>) : null;
@@ -61,28 +51,22 @@ export function serializeCanonical(doc: unknown): SerializeResult {
       Object.prototype.hasOwnProperty.call(obj, k),
     );
   const res:
-    | { ok: true; normalized: Manifest | Scene | SceneV2 | SceneV3 | SceneV4 | ContentCatalog | ContentCatalogV3 | ContentCatalogV4 }
+    | { ok: true; normalized: Manifest | SceneV3 | SceneV4 | ContentCatalogV3 | ContentCatalogV4 }
     | { ok: false; errors: readonly ModelErrorV2[] } = isScene
     ? obj['schemaVersion'] === 4
       ? validateSceneV4(doc)
-      : obj['schemaVersion'] === 3
-      ? normalizeSceneV3(doc)
-      : obj['schemaVersion'] === 2
-        ? normalizeSceneV2(doc)
-        : normalizeScene(doc)
+      : normalizeSceneV3(doc)
     : isContent
       ? obj !== null && Object.prototype.hasOwnProperty.call(obj, 'startScenes')
         ? validateContentV4(doc)
-        : obj !== null && Object.prototype.hasOwnProperty.call(obj, 'game')
-        ? normalizeContentV3(doc)
-        : normalizeContent(doc)
+        : normalizeContentV3(doc)
       : normalizeManifest(doc);
   if (!res.ok) return { ok: false, errors: res.errors };
   return { ok: true, bytes: canonicalBytes(res.normalized) };
 }
 
 /** Canonical bytes (§12.2 rule 6) of a canonical document value. */
-function canonicalBytes(doc: Manifest | Scene | SceneV2 | SceneV3 | SceneV4 | ContentCatalog | ContentCatalogV3 | ContentCatalogV4): Uint8Array {
+function canonicalBytes(doc: Manifest | SceneV3 | SceneV4 | ContentCatalogV3 | ContentCatalogV4): Uint8Array {
   // The normalized document is a fresh plain-object graph with fixed key
   // order and only finite numbers, so JSON.stringify is total here.
   return new TextEncoder().encode(JSON.stringify(doc, null, 2) + '\n');

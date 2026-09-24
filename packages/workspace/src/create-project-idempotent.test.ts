@@ -14,8 +14,9 @@
  * and NOTHING written.
  *
  * The acceptance here is the on-disk bytes: the ownership record
- * (`projects/<id>/.thirdlight/ownership.json`) and the envelope
- * (`projects/<id>/scenes/main.json`) are captured before the second
+ * (`projects/<id>/.thirdlight/ownership.json`) and the project files
+ * (storage v4: `projects/<id>/scenes/scene-main.json` and
+ * `projects/<id>/content.json`) are captured before the second
  * `createProject` and must be byte-identical (or still absent) after it.
  *
  *   1. valid + owned by another live identity ⇒ `{ ok, created: false }`
@@ -27,7 +28,7 @@
  *   3. valid + owned by self (session already open) ⇒ `{ ok, created:
  *      false }` + ownership and envelope bytes identical (same-service
  *      guard).
- *   4. corrupt envelope, no ownership ⇒ `project_exists_invalid` with the
+ *   4. corrupt scene file, no ownership ⇒ `project_exists_invalid` with the
  *      load details + ownership file ABSENT afterwards (pre-fix: a new
  *      claim written before the failure).
  *   5. garbage manifest, no ownership ⇒ `project_exists_invalid` +
@@ -85,7 +86,11 @@ function projectDir(root: string, id: string): string {
 }
 
 function scenePath(root: string, id: string): string {
-  return join(root, 'projects', id, 'scenes', 'main.json');
+  return join(root, 'projects', id, 'scenes', 'scene-main.json');
+}
+
+function contentPath(root: string, id: string): string {
+  return join(root, 'projects', id, 'content.json');
 }
 
 /**
@@ -142,6 +147,7 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
 
       const ownBefore = ownBytes(dir);
       const envBefore = readFileSync(scenePath(r, 'demo'));
+      const contentBefore = readFileSync(contentPath(r, 'demo'));
       expect(ownBefore, 'the record must exist and still be owned').not.toBeNull();
       const rec = ownIdentity(ownBefore);
       expect(rec, 'record parse').not.toBeNull();
@@ -161,7 +167,8 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
           bytesEqual(ownBytes(dir), ownBefore),
           'ownership record must be byte-identical',
         ).toBe(true);
-        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'envelope must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'scene file must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(contentPath(r, 'demo')), contentBefore), 'content.json must be byte-identical').toBe(true);
       } finally {
         s1.dispose();
       }
@@ -185,6 +192,7 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
 
       const ownBefore = ownBytes(dir);
       const envBefore = readFileSync(scenePath(r, 'demo'));
+      const contentBefore = readFileSync(contentPath(r, 'demo'));
       expect(ownBefore).not.toBeNull();
       const recBefore = ownIdentity(ownBefore);
       expect(recBefore?.state).toBe('released');
@@ -201,7 +209,8 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
         const recAfter = ownIdentity(ownBytes(dir));
         expect(recAfter?.backendId).toBe(recBefore?.backendId);
         expect(recAfter?.state).toBe('released');
-        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'envelope must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'scene file must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(contentPath(r, 'demo')), contentBefore), 'content.json must be byte-identical').toBe(true);
       } finally {
         s1.dispose();
       }
@@ -223,13 +232,15 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
 
         const ownBefore = ownBytes(dir);
         const envBefore = readFileSync(scenePath(r, 'demo'));
+        const contentBefore = readFileSync(contentPath(r, 'demo'));
         expect(ownBefore).not.toBeNull();
         expect(ownIdentity(ownBefore)?.backendId).toBe(BACKEND_ID);
 
         const res = s1.createProject('demo', 'Demo');
         expect(res, JSON.stringify(res)).toEqual({ ok: true, created: false, revision: 0 });
         expect(bytesEqual(ownBytes(dir), ownBefore), 'ownership record must be byte-identical').toBe(true);
-        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'envelope must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), envBefore), 'scene file must be byte-identical').toBe(true);
+        expect(bytesEqual(readFileSync(contentPath(r, 'demo')), contentBefore), 'content.json must be byte-identical').toBe(true);
       } finally {
         s1.dispose();
       }
@@ -238,17 +249,18 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
     }
   });
 
-  it('4. corrupt envelope, no ownership: project_exists_invalid, NOTHING written', () => {
+  it('4. corrupt scene file, no ownership: project_exists_invalid, NOTHING written', () => {
     const r = makeRoot();
     const dir = projectDir(r, 'demo');
     try {
-      // Build a complete project, then hand-corrupt the envelope and
+      // Build a complete project, then hand-corrupt its scene file and
       // remove the ownership record.
       const s = openWorkspaceService({ root: r, backendId: BACKEND_ID });
       const c = s.createProject('demo', 'Demo');
       expect(c, JSON.stringify(c)).toEqual({ ok: true, created: true, revision: 0 });
       s.dispose();
       writeFileSync(scenePath(r, 'demo'), GARBAGE);
+      const contentBefore = readFileSync(contentPath(r, 'demo'));
       unlinkSync(join(dir, '.thirdlight', 'ownership.json'));
       expect(ownBytes(dir)).toBeNull();
 
@@ -266,10 +278,13 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
         const details = res.error.details;
         expect(details?.length ?? 0, 'the load details must be reported').toBeGreaterThan(0);
         expect(details?.[0]?.code).toBe('encoding_invalid');
-        // Nothing written: the ownership file is still ABSENT and the
-        // garbage envelope is byte-identical.
+        // The v4 loader blocks with envelope_invalid; the detail names the file.
+        expect(details?.[0]?.path).toBe('/scenes/scene-main.json');
+        // Nothing written: the ownership file is still ABSENT, the garbage
+        // scene file and content.json are byte-identical.
         expect(ownBytes(dir), 'no ownership record may be written').toBeNull();
-        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), GARBAGE), 'envelope bytes must be untouched').toBe(true);
+        expect(bytesEqual(readFileSync(scenePath(r, 'demo')), GARBAGE), 'scene bytes must be untouched').toBe(true);
+        expect(bytesEqual(readFileSync(contentPath(r, 'demo')), contentBefore), 'content.json must be untouched').toBe(true);
       } finally {
         s2.dispose();
       }

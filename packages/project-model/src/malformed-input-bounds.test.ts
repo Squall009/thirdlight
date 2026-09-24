@@ -21,15 +21,21 @@
  *   guard the re-review §5.1 item 5 noted); it pins that behavior.
  * - T7 pre-fix: the error path was `/entities/0/components/transform/a/b`
  *   (unescaped — invalid RFC 6901).
+ *
+ * Phase 9.3: the M1 `validateScene` was removed; the scene cases now drive
+ * the live `validateSceneV3` (schemaVersion 3), and T10–T12 add the same
+ * shapes through `validateSceneV4` and `validateContentV3`.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
+  validateContentV3,
   validateManifest,
-  validateScene,
-  type ModelError,
-  type ModelResult,
-  type Scene,
+  validateSceneV3,
+  validateSceneV4,
+  type ModelErrorV3,
+  type ModelResultV3,
+  type SceneV3,
 } from '@thirdlight/project-model';
 
 // The marker the fix emits where the traversal bound is hit (the commands
@@ -43,7 +49,7 @@ function deepChain(levels: number): unknown {
   return v;
 }
 
-function firstError(r: { ok: false; errors: readonly ModelError[] }): ModelError {
+function firstError(r: { ok: false; errors: readonly ModelErrorV3[] }): ModelErrorV3 {
   expect(r.errors.length).toBeGreaterThan(0);
   return r.errors[0]!;
 }
@@ -79,8 +85,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   // RangeError pre-fix through the public entry points) + the 12,000-level
   // construction the acceptance requires.
   it('T1: a 4000-level chain at entities[0] ⇒ structured error, bounded found, no throw', () => {
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: deepChain(4000),
@@ -96,8 +102,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   });
 
   it('T2: a 4000-level chain at parentId ⇒ structured error, bounded found, no throw', () => {
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -120,8 +126,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
 
   it('T3: position = [deep, deep, deep] ⇒ per-element errors with bounded found, no throw', () => {
     const deep = () => deepChain(4000);
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -176,8 +182,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   });
 
   it('T6: a 12,000-level in-memory chain ⇒ no throw, structured error (the §12.1 totality bound)', () => {
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: deepChain(12000),
@@ -190,8 +196,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   });
 
   it('T6b: a 4000-level chain at a string field site ⇒ field_type with bounded found', () => {
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -213,8 +219,8 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   });
 
   it('T6c: a 4000-level chain as a whole array field ⇒ field_value with the length (05-N3), no throw', () => {
-    const r = validateScene({
-      schemaVersion: 1,
+    const r = validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -236,9 +242,9 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
 });
 
 describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3, project-model.md §12.5)', () => {
-  function sceneWithTransformKey(key: string): ModelResult<Scene> {
-    return validateScene({
-      schemaVersion: 1,
+  function sceneWithTransformKey(key: string): ModelResultV3<SceneV3> {
+    return validateSceneV3({
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -287,9 +293,9 @@ describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3, project-mode
     const KEY = '~/a/b~c'; // worst case: both escapes needed, both characters present
     const esc = KEY.replace(/~/g, '~0').replace(/\//g, '~1'); // ~0~1a~1b~0c
 
-    const scene = validateScene({
+    const scene = validateSceneV3({
       [`${KEY}-root`]: 1,
-      schemaVersion: 1,
+      schemaVersion: 3,
       sceneId: 'scene-main',
       revision: 0,
       entities: [
@@ -349,5 +355,75 @@ describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3, project-mode
       const man = manifest.errors.find((x) => x.path === `/${esc}-man`);
       expect(man?.code).toBe('field_unexpected');
     }
+  });
+});
+describe('the same bounds through validateSceneV4 and validateContentV3 (phase 9.3)', () => {
+  it('T10: v4 scene — a 12,000-level chain at entities[0] and at parentId ⇒ bounded found, no throw', () => {
+    const r = validateSceneV4({ schemaVersion: 4, sceneId: 'scene-main', revision: 0, entities: deepChain(12000) });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const e = firstError(r);
+    expect(e.code).toBe('field_type');
+    expect(e.path).toBe('/entities/0');
+    expect(e.found).toBe(MARKER);
+    expect(() => JSON.stringify(r)).not.toThrow();
+
+    const r2 = validateSceneV4({
+      schemaVersion: 4,
+      sceneId: 'scene-main',
+      revision: 0,
+      entities: [{ id: 'e1', parentId: deepChain(4000), components: { transform: {} } }],
+    });
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) {
+      const p = r2.errors.find((x) => x.path === '/entities/0/parentId');
+      expect(p?.code).toBe('field_type');
+      expect(p?.found).toBe(MARKER);
+    }
+  });
+
+  it('T11: v4 scene — dynamic keys are RFC 6901-escaped', () => {
+    const KEY = '~/a/b~c';
+    const esc = KEY.replace(/~/g, '~0').replace(/\//g, '~1');
+    const r = validateSceneV4({
+      schemaVersion: 4,
+      sceneId: 'scene-main',
+      revision: 0,
+      [KEY]: 1,
+      entities: [{ id: 'e1', components: { transform: { [KEY]: 1 }, [KEY]: {} } }],
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    for (const e of r.errors) expect(tokenizePointer(e.path), `pointer must be valid RFC 6901: ${e.path}`).not.toBeNull();
+    expect(r.errors.find((x) => x.path === `/${esc}`)?.code).toBe('field_unexpected');
+    expect(r.errors.find((x) => x.path === `/entities/0/components/transform/${esc}`)?.code).toBe('field_unexpected');
+    expect(r.errors.find((x) => x.path === `/entities/0/components/${esc}`)?.code).toBe('component_unknown');
+  });
+
+  it('T12: content — a deep chain as an asset record and an escaped unknown key ⇒ bounded, valid pointers, no throw', () => {
+    const KEY = '~/a/b~c';
+    const esc = KEY.replace(/~/g, '~0').replace(/\//g, '~1');
+    const content = {
+      assets: deepChain(12000),
+      prefabs: [],
+      behaviors: [],
+      settings: {},
+      behaviorTrust: { entries: [] },
+      game: null,
+      [KEY]: 1,
+    };
+    let r: ReturnType<typeof validateContentV3> | undefined;
+    expect(() => {
+      r = validateContentV3(content);
+    }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    if (r!.ok) return;
+    const errors = (r as { ok: false; errors: readonly ModelErrorV3[] }).errors;
+    expect(() => JSON.stringify(errors)).not.toThrow();
+    for (const e of errors) expect(tokenizePointer(e.path), `pointer must be valid RFC 6901: ${e.path}`).not.toBeNull();
+    const asset = errors.find((x) => x.path === '/assets/0');
+    expect(asset?.code).toBe('field_type');
+    expect(asset?.found).toBe(MARKER);
+    expect(errors.find((x) => x.path === `/${esc}`)?.code).toBe('field_unexpected');
   });
 });

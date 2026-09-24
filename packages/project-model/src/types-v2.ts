@@ -1,12 +1,13 @@
 /**
- * Explicitly versioned M2 logical types — project-model.md §§18–22
- * (schemaVersion 2 scene, content catalog, prefabs, declared properties,
- * physics components, behavior records and trust, captured content view).
+ * Logical types introduced by the M2 model — project-model.md §§18–22
+ * (components, content catalog, prefabs, declared properties, physics
+ * components, behavior records and trust, captured content view). The v3/v4
+ * types (`types-v3.ts`) are built from these; the schemaVersion 2 scene and
+ * entity types themselves were removed in phase 9.3.
  *
- * The M1 types in `types.ts` are unchanged. These describe the STRICT
- * canonical output of the v2 normalizers (§12.2): defaults filled, fixed key
- * order, only present fields emitted. Inputs to the entry points are
- * `unknown`; the boundary re-checks every rule.
+ * These describe the STRICT canonical output of the normalizers (§12.2):
+ * defaults filled, fixed key order, only present fields emitted. Inputs to
+ * the entry points are `unknown`; the boundary re-checks every rule.
  */
 
 import type {
@@ -17,7 +18,7 @@ import type {
   Vec3,
 } from './types';
 
-// ---- scene schemaVersion 2 (§10.5–§10.8, §21) --------------------------------
+// ---- components (§10.5–§10.8, §21) ------------------------------------------
 
 /** `components.model` (§18.1): a whole-GLB reference by stable opaque id. */
 export interface ModelAssetRef {
@@ -87,20 +88,6 @@ export interface EntityComponentsV2 {
   prefab?: PrefabProvenanceComponent;
   collider?: ColliderComponent;
   controller?: ControllerComponent;
-}
-
-export interface EntityV2 {
-  id: string;
-  name?: string;
-  parentId?: string;
-  components: EntityComponentsV2;
-}
-
-export interface SceneV2 {
-  schemaVersion: 2;
-  sceneId: string;
-  revision: number;
-  entities: EntityV2[];
 }
 
 // ---- content catalog (§18) ----------------------------------------------------

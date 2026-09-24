@@ -33,6 +33,12 @@
  *                              against the current scene). Malformed records
  *                              block the project per §7.5 without rewriting
  *                              disk; a healthy sibling stays usable.
+ *
+ * Ported to storage v4 (phase 9.3 step B): a createEntity edits only the
+ * scene, so its retry record lives in `scenes/scene-main.json` (store-v4.ts
+ * `changedFiles`); the R11 "nothing written" oracle covers the scene file
+ * AND content.json, and the R12/R13 corruptions are applied to the record in
+ * the scene file (loadV4 validates each file's retry block).
  */
 
 import {
@@ -120,7 +126,11 @@ function createEntityRequest(
 }
 
 function scenePath(root: string, projectId: string): string {
-  return join(root, 'projects', projectId, 'scenes', 'main.json');
+  return join(root, 'projects', projectId, 'scenes', 'scene-main.json');
+}
+
+function contentPath(root: string, projectId: string): string {
+  return join(root, 'projects', projectId, 'content.json');
 }
 
 /** Byte comparison (the ES2022 lib has no `Uint8Array.prototype.equals`). */
@@ -135,11 +145,11 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 /** A JSON value (the shape persisted records have after a strict parse). */
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
+/** A v4 project file (scene file or content.json): the retry block is what the tests read. */
 interface EnvelopeShape {
   storageVersion: number;
   type: string;
   projectId: string;
-  scene: Json;
   retry: { retention: number; records: Json[] };
 }
 
@@ -162,6 +172,7 @@ function assertRejectedClean(
     const s = openWorkspaceService({ root, backendId: BACKEND_ID });
     expect(s.createProject('demo', 'Demo').ok).toBe(true);
     const before = readFileSync(scenePath(root, 'demo'));
+    const contentBefore = readFileSync(contentPath(root, 'demo'));
     const bad = makeBad();
     const r1 = s.runCommand(bad);
     expect(r1.ok).toBe(false);
@@ -173,12 +184,15 @@ function assertRejectedClean(
     expect(r1.error.path).toBe(expectedPath);
     // The error is JSON-serializable (the A1 bounded `found` conversion).
     expect(() => JSON.stringify(r1)).not.toThrow();
-    // (a)+(b): nothing written — the envelope is byte-identical; the retry
-    // block holds no record (no record appended, no null digest).
+    // (a)+(b): nothing written — both project files are byte-identical;
+    // their retry blocks hold no record (no record appended, no null digest).
     const after = readFileSync(scenePath(root, 'demo'));
     expect(bytesEqual(after, before)).toBe(true);
+    expect(bytesEqual(readFileSync(contentPath(root, 'demo')), contentBefore)).toBe(true);
     const env = JSON.parse(readFileSync(scenePath(root, 'demo'), 'utf8')) as EnvelopeShape;
     expect(env.retry.records).toEqual([]);
+    const contentEnv = JSON.parse(readFileSync(contentPath(root, 'demo'), 'utf8')) as EnvelopeShape;
+    expect(contentEnv.retry.records).toEqual([]);
     // (c): re-issuing the SAME requestId (same object ⇒ same requestId and
     // same non-canonicalizable content) is a fresh rejection, not
     // `request_id_reused` — no record was ever recorded for it.
@@ -389,9 +403,12 @@ describe('2026-09-18 review group A2 (R11, R12, R13) regressions', () => {
         expect(q.ok).toBe(true);
         if (q.ok !== true) throw new Error(`query failed: ${JSON.stringify(q.error)}`);
         expect(q.revision).toBe(1);
-        // The envelope's record has a real 64-hex digest (never null).
+        // The scene file's record has a real 64-hex digest (never null);
+        // the createEntity wrote only the scene file (content.json keeps none).
         const env = JSON.parse(readFileSync(scenePath(root, 'demo'), 'utf8')) as EnvelopeShape;
         expect(env.retry.records).toHaveLength(1);
+        const contentEnv = JSON.parse(readFileSync(contentPath(root, 'demo'), 'utf8')) as EnvelopeShape;
+        expect(contentEnv.retry.records).toEqual([]);
         expect((env.retry.records[0] as Record<string, Json>)['digest']).toMatch(/^[0-9a-f]{64}$/);
         s.dispose();
       } finally {

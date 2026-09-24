@@ -6,12 +6,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { serializeCanonical, validateScene } from '@thirdlight/project-model';
-import type { Scene } from '@thirdlight/project-model';
+import { serializeCanonical, validateSceneV4 } from '@thirdlight/project-model';
+import type { SceneV4 } from '@thirdlight/project-model';
 
 import {
   applyMutation,
-  createCommandState,
   type ApplyOutcome,
   type CommandState,
   type DeleteEntityChange,
@@ -26,10 +25,11 @@ import {
   req,
   scene,
   snapshot,
+  v4State,
 } from './test-scene';
 import { bytesEqual } from './test-fixtures';
 
-function sceneBytes(s: Scene): Uint8Array {
+function sceneBytes(s: unknown): Uint8Array {
   const r = serializeCanonical(s);
   if (!r.ok) throw new Error('canonical serialization failed');
   return r.bytes;
@@ -52,7 +52,7 @@ function step(st: CommandState, op: string, args: object): CommandState {
 }
 
 /** A scene with a nested subtree: cam, A, B(root of subtree), B1, B2, C. */
-const NESTED: Scene = scene(0, [
+const NESTED: SceneV4 = scene(0, [
   cameraEntity(),
   boxEntity('box-0001', { name: 'A' }),
   groupEntity('group-0001', { name: 'B' }),
@@ -63,7 +63,7 @@ const NESTED: Scene = scene(0, [
 
 describe('deleteEntity — subtree closure (§8.3)', () => {
   it('removes the entity and its entire subtree; deletedIds in pre-deletion array order', () => {
-    const st = createCommandState(NESTED);
+    const st = v4State(NESTED);
     const r = applyMutation(st, req('deleteEntity', { entityId: 'group-0001' }));
     const s = ok(r);
     const ch = s.change as DeleteEntityChange;
@@ -80,19 +80,19 @@ describe('deleteEntity — subtree closure (§8.3)', () => {
   });
 
   it('a leaf deletion deletes exactly itself', () => {
-    const s = ok(applyMutation(createCommandState(NESTED), req('deleteEntity', { entityId: 'box-0004' })));
+    const s = ok(applyMutation(v4State(NESTED), req('deleteEntity', { entityId: 'box-0004' })));
     const ch = s.change as DeleteEntityChange;
     expect(ch.deletedIds).toEqual(['box-0004']);
   });
 
   it('deep descendants are all removed (three-level subtree)', () => {
-    const s3: Scene = scene(0, [
+    const s3: SceneV4 = scene(0, [
       cameraEntity(),
       groupEntity('group-0001'),
       groupEntity('group-0002', { parentId: 'group-0001' }),
       boxEntity('box-0001', { parentId: 'group-0002' }),
     ]);
-    const s = ok(applyMutation(createCommandState(s3), req('deleteEntity', { entityId: 'group-0001' })));
+    const s = ok(applyMutation(v4State(s3), req('deleteEntity', { entityId: 'group-0001' })));
     const ch = s.change as DeleteEntityChange;
     expect(ch.deletedIds).toEqual(['group-0001', 'group-0002', 'box-0001']);
   });
@@ -100,7 +100,7 @@ describe('deleteEntity — subtree closure (§8.3)', () => {
 
 describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
   it('deleting the only camera ⇒ camera_count_invalid carrying cameraId', () => {
-    const st = createCommandState(NESTED);
+    const st = v4State(NESTED);
     const before = sceneBytes(st.scene);
     const r = applyMutation(st, req('deleteEntity', { entityId: 'cam-main' }));
     if (r.ok) throw new Error('should have failed');
@@ -112,11 +112,11 @@ describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
   });
 
   it('deleting an ANCESTOR of the camera ⇒ camera_count_invalid', () => {
-    const withCameraChild: Scene = scene(0, [
+    const withCameraChild: SceneV4 = scene(0, [
       groupEntity('group-0001'),
       cameraEntity('cam-main', { parentId: 'group-0001' }),
     ]);
-    const r = applyMutation(createCommandState(withCameraChild), req('deleteEntity', { entityId: 'group-0001' }));
+    const r = applyMutation(v4State(withCameraChild), req('deleteEntity', { entityId: 'group-0001' }));
     if (r.ok) throw new Error('should have failed');
     const e = r.result.ok === false ? r.result.error : ({} as never);
     expect(e.code).toBe('camera_count_invalid');
@@ -124,20 +124,37 @@ describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
   });
 
   it('deleting a DESCENDANT of the camera is allowed (the camera survives)', () => {
-    const camParent: Scene = scene(0, [
+    const camParent: SceneV4 = scene(0, [
       cameraEntity(),
       groupEntity('group-0001', { parentId: 'cam-main' }),
       boxEntity('box-0001', { parentId: 'group-0001' }),
     ]);
-    const s = ok(applyMutation(createCommandState(camParent), req('deleteEntity', { entityId: 'group-0001' })));
+    const s = ok(applyMutation(v4State(camParent), req('deleteEntity', { entityId: 'group-0001' })));
     const ch = s.change as DeleteEntityChange;
     expect(ch.deletedIds).toEqual(['group-0001', 'box-0001']);
+  });
+
+  it('a v4 scene holds at most one camera: a camera-less scene is edited freely', () => {
+    // v4 (unlike v3) allows a scene without a camera (a non-start scene);
+    // the start scenes' "exactly one camera" rule is the workspace's.
+    const noCam: SceneV4 = scene(0, [groupEntity('group-0001'), boxEntity('box-0001', { parentId: 'group-0001' })]);
+    const st = v4State(noCam);
+    const s = ok(applyMutation(st, req('deleteEntity', { entityId: 'group-0001' })));
+    expect((s.change as DeleteEntityChange).deletedIds).toEqual(['group-0001', 'box-0001']);
+    // A second camera in one v4 scene is refused by the result gate.
+    const twoCams = scene(0, [cameraEntity(), cameraEntity('cam-0002'), boxEntity('box-0001')]);
+    const r = applyMutation(v4State(twoCams), req('deleteEntity', { entityId: 'box-0001' }));
+    if (r.ok) throw new Error('two cameras should fail the v4 scene rules');
+    const e = r.result.ok === false ? r.result.error : ({} as never);
+    expect(e.code).toBe('camera_count_invalid');
+    expect(e.detailDocument).toBe('result-scene');
+    expect(e.details?.[0]).toMatchObject({ code: 'camera_count_invalid', expected: 'at most 1 camera', found: 2 });
   });
 
   it('nonexistent entity ⇒ entity_not_found (pinned shape)', () => {
     const requestId = 'req-cccccccccccccccccccccccccccccccc';
     const r = applyMutation(
-      createCommandState(NESTED),
+      v4State(NESTED),
       req('deleteEntity', { entityId: 'ghost-0001' }, { requestId }),
     );
     if (r.ok) throw new Error('should have failed');
@@ -159,7 +176,7 @@ describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
 
 describe('deleteEntity — the inverse restores the exact pre-deletion array (§9.1)', () => {
   it('delete → undo reconstructs the byte-identical scene (masked revision)', () => {
-    const st0 = createCommandState(NESTED);
+    const st0 = v4State(NESTED);
     const r1 = applyMutation(st0, at(st0, 'deleteEntity', { entityId: 'group-0001' }));
     if (!r1.ok) throw new Error('delete should have succeeded');
     // The inverse stores entries at pre-deletion indices, root first.
@@ -184,7 +201,7 @@ describe('deleteEntity — the inverse restores the exact pre-deletion array (§
 
     // Hierarchy integrity after deletion/undo: the restored scene is a
     // valid scene (parent-before-child, unique IDs, exactly one camera).
-    const v = validateScene(r2.state.scene);
+    const v = validateSceneV4(r2.state.scene);
     expect(v.ok).toBe(true);
 
     // appliedOf / originOfApplied trace to the original command.
@@ -195,7 +212,7 @@ describe('deleteEntity — the inverse restores the exact pre-deletion array (§
   });
 
   it('undo of a delete with siblings around the subtree lands at the exact slots', () => {
-    const st0 = createCommandState(NESTED);
+    const st0 = v4State(NESTED);
     const r1 = applyMutation(st0, at(st0, 'deleteEntity', { entityId: 'group-0001' }));
     const r2 = applyMutation(stateOf(r1), at(stateOf(r1), 'undo', {}));
     if (!r1.ok || !r2.ok) throw new Error('delete/undo should have succeeded');
@@ -210,7 +227,7 @@ describe('deleteEntity — the inverse restores the exact pre-deletion array (§
   });
 
   it('redo re-applies the recorded deletion (deletedIds removed again)', () => {
-    const st0 = createCommandState(NESTED);
+    const st0 = v4State(NESTED);
     const r1 = applyMutation(st0, at(st0, 'deleteEntity', { entityId: 'group-0001' }));
     const r2 = applyMutation(stateOf(r1), at(stateOf(r1), 'undo', {}));
     const r3 = applyMutation(stateOf(r2), at(stateOf(r2), 'redo', {}));
@@ -226,7 +243,7 @@ describe('deleteEntity — the inverse restores the exact pre-deletion array (§
   });
 
   it('invalid edits leave the input unmutated (purity on camera_count_invalid)', () => {
-    const st = createCommandState(NESTED);
+    const st = v4State(NESTED);
     const snap = snapshot(st);
     const r = applyMutation(st, req('deleteEntity', { entityId: 'cam-main' }));
     if (r.ok) throw new Error('should have failed');

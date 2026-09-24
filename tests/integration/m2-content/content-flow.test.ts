@@ -68,6 +68,8 @@ function publishArgs(
 ): Record<string, unknown> {
   return {
     mode,
+    // Storage v3+ publishAsset requires the asset kind (the GLB proposals are models).
+    kind: 'model',
     assetId,
     displayName,
     sourceDigest: String(proposal.sourceDigest),
@@ -328,7 +330,15 @@ describe('packet 25 — content flow (real process + real fs + real stdio MCP)',
     expect(first.body.ok).toBe(true);
     const retry = await command(envelope);
     expect(retry.body.duplicated).toBe(true);
-    expect({ ...retry.body, duplicated: false }).toEqual(first.body);
+    // Storage v4: the fresh ack names the scene the edit touched. The replay
+    // is served from the durable retry record, which does not carry
+    // `sceneId` (workspace service.ts adds it to the fresh ack only), so the
+    // comparison excludes it; when present on the replay it must match.
+    expect(first.body.sceneId).toBe('scene-main');
+    if (retry.body.sceneId !== undefined) expect(retry.body.sceneId).toBe(first.body.sceneId);
+    const { sceneId: _firstScene, ...firstRest } = first.body;
+    const { sceneId: _retryScene, ...retryRest } = retry.body;
+    expect({ ...retryRest, duplicated: false }).toEqual(firstRest);
     revision = Number(first.body.revision);
   });
 

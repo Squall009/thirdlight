@@ -42,7 +42,9 @@ describe('projects in their own folders', () => {
     const marker = JSON.parse(readFileSync(join(game, 'thirdlight.json'), 'utf8'));
     expect(marker).toEqual({ thirdlightProject: 1, projectId: 'sprout', name: 'Sprout', projectDir: 'thirdlight', engine: PIN });
     expect(existsSync(join(game, 'thirdlight', 'project.json'))).toBe(true);
-    expect(existsSync(join(game, 'thirdlight', 'scenes', 'main.json'))).toBe(true);
+    expect(existsSync(join(game, 'thirdlight', 'content.json'))).toBe(true);
+    expect(existsSync(join(game, 'thirdlight', 'scenes', 'scene-main.json'))).toBe(true);
+    expect(JSON.parse(readFileSync(join(game, 'thirdlight', 'project.json'), 'utf8')).schemaVersion).toBe(2);
     expect(readFileSync(join(game, 'thirdlight', '.gitignore'), 'utf8')).toContain('.thirdlight/');
     expect(existsSync(join(root, 'projects', 'sprout'))).toBe(false);
     expect(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8'))).toEqual({ registryVersion: 1, projects: { sprout: { folder: game } } });

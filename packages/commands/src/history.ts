@@ -28,7 +28,7 @@ import { withAnimators, withEnvironment, withFlow, withInput, withLighting, with
 import type {
   BehaviorComponent,
   BehaviorRecord,
-  EntityV2,
+  EntityV3,
   GameConfig,
   PrefabDefinition,
   TransformComponent,
@@ -307,7 +307,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const cloned = deepClone(current);
     const newEntity = { ...cloned, components: { ...cloned.components, transform: restore } };
     const nextEntities = [...scene.entities];
-    nextEntities[index] = newEntity as unknown as EntityV2;
+    nextEntities[index] = newEntity as unknown as EntityV3;
     const change: SetTransformChange = {
       type: 'setTransform',
       id: inv.id,
@@ -375,7 +375,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       // rolled-back record (an invalid binding).
       components['modelAnimation'] = deepClone(anim.previous);
       const nextEntities = [...scene.entities];
-      nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV2;
+      nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV3;
       nextScene = { ...nextScene, entities: nextEntities } as SceneDocument;
     }
     const change: ChangeData = {
@@ -451,7 +451,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (after === null) delete components['behavior'];
     else components['behavior'] = after;
     const nextEntities = [...scene.entities];
-    nextEntities[index] = { ...cloned, components } as unknown as EntityV2;
+    nextEntities[index] = { ...cloned, components } as unknown as EntityV3;
     const change: ChangeData = {
       type: 'setBehaviorProperties',
       id: inv.id,
@@ -634,7 +634,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (scene.entities.some((e) => created.some((c) => c.id === e.id))) {
       return { ok: false, error: historyInvalid(entry.requestId) };
     }
-    const nextEntities = [...scene.entities, ...created.map((c) => deepClone(c) as unknown as EntityV2)];
+    const nextEntities = [...scene.entities, ...created.map((c) => deepClone(c) as unknown as EntityV3)];
     const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
     const change: ChangeData = {
       type: 'createEntity',
@@ -657,7 +657,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const cloned = deepClone(current);
     const newEntity = { ...cloned, components: { ...cloned.components, transform: next } };
     const nextEntities = [...scene.entities];
-    nextEntities[index] = newEntity as unknown as EntityV2;
+    nextEntities[index] = newEntity as unknown as EntityV3;
     const change: SetTransformChange = {
       type: 'setTransform',
       id: f.id,
@@ -750,7 +750,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       // roles-only re-point against whatever version the record now holds.
       components['modelAnimation'] = deepClone(f.animation.next);
       const nextEntities = [...scene.entities];
-      nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV2;
+      nextEntities[index] = { ...deepClone(current), components } as unknown as EntityV3;
       nextScene = { ...nextScene, entities: nextEntities } as SceneDocument;
     }
     const change: ChangeData = {
@@ -837,7 +837,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (after === null) delete components['behavior'];
     else components['behavior'] = after;
     const nextEntities = [...scene.entities];
-    nextEntities[index] = { ...cloned, components } as unknown as EntityV2;
+    nextEntities[index] = { ...cloned, components } as unknown as EntityV3;
     const change: ChangeData = {
       type: 'setBehaviorProperties',
       id: f.id,
@@ -917,7 +917,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 
   if (f.type === 'pasteEntities') {
     if (scene.entities.some((e) => f.entities.some((c) => c.id === e.id))) return { ok: false, error: historyInvalid(entry.requestId) };
-    const nextEntities = [...scene.entities, ...f.entities.map((c) => deepClone(c) as unknown as EntityV2)];
+    const nextEntities = [...scene.entities, ...f.entities.map((c) => deepClone(c) as unknown as EntityV3)];
     const change: ChangeData = { type: 'pasteEntities', entities: f.entities.map((c) => deepClone(c)) };
     return finish(state, { ...scene, revision: scene.revision + 1, entities: nextEntities }, state.content, change, entry.requestId);
   }

@@ -8,12 +8,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyMutation,
-  createCommandState,
   type CommandError,
 } from './index';
-import { cameraEntity, freshRequestId, req, scene } from './test-scene';
+import { cameraEntity, freshRequestId, req, scene, v4State } from './test-scene';
 
-const ST = createCommandState(scene(0, [cameraEntity()]));
+const ST = v4State(scene(0, [cameraEntity()]));
 
 /** Apply a malformed request; return the structured error (never throws). */
 function err(request: unknown): CommandError {
@@ -333,7 +332,7 @@ describe('failure payload echo rules (§5.2)', () => {
 // the unescaped pointer shape.
 
 /** Fresh, never-mutated state (the O1/O2 requests all fail validation). */
-const ST_O = createCommandState(scene(0, [cameraEntity()]));
+const ST_O = v4State(scene(0, [cameraEntity()]));
 
 /** Apply a malformed request to ST_O; return the structured error. */
 function errO(request: unknown): CommandError {

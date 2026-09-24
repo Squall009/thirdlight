@@ -15,7 +15,6 @@ import { createBehaviorCompiler, type BehaviorCompiler } from '@thirdlight/behav
 import { openWorkspaceService, type WorkspaceService } from '@thirdlight/workspace';
 
 export const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
-export const MIGRATION_SOURCE = join(REPO_ROOT, 'fixtures', 'm2', 'contracts', 'migration', 'v1-source');
 export const BUILD_FIXTURES = join(REPO_ROOT, 'fixtures', 'm2', 'behaviors');
 
 const roots: string[] = [];
@@ -93,18 +92,19 @@ export interface BuildEnv {
 }
 
 /**
- * A disposable M2 project: the accepted M1 migration source is copied and
- * migrated into a fresh `storageVersion 2` project with an empty content block,
- * then the real compiler is injected into the workspace service.
+ * A disposable project with an empty content block, created through the real
+ * workspace service (storage v4: project.json, content.json,
+ * scenes/scene-main.json), with the real compiler injected into the service.
+ * (Before phase 9.3 step B this migrated the M1 source into a storage v2
+ * project; the migration operator is gone.)
  */
 export function makeBuildEnv(tag = 'm2build'): BuildEnv {
   const root = makeRoot(tag);
   const project = 'demo-build-01';
-  seedProject(root, MIGRATION_SOURCE, 'demo-m1');
   const compiler = createBehaviorCompiler({ now: () => Date.now() });
   const svc = openWorkspaceService({ root, behaviorCompiler: compiler });
-  const migrated = svc.migrateProjectCopy('demo-m1', project);
-  if (!migrated.ok) throw new Error(`migration failed: ${JSON.stringify(migrated)}`);
+  const created = svc.createProject(project, 'Build Demo');
+  if (!created.ok) throw new Error(`createProject failed: ${JSON.stringify(created)}`);
   return { root, project, svc, compiler };
 }
 
@@ -114,14 +114,34 @@ export function requestId(n: number): string {
 
 export const ORIGIN = { kind: 'mcp' as const, clientId: 'pi-harness' };
 
-/** Read the on-disk authoring envelope bytes (the durable state). */
+/** The v4 authoritative files (store-v4.ts): the content file and the one scene file. */
+const CONTENT_REL = 'content.json';
+const SCENE_REL = join('scenes', 'scene-main.json');
+
+/**
+ * The on-disk authoring state bytes (the durable state): the v4 project's
+ * content.json followed by its scene file, so "unchanged" means neither
+ * authoritative file changed.
+ */
 export function envelopeBytes(env: BuildEnv): Uint8Array {
-  return new Uint8Array(readFileSync(join(env.root, 'projects', env.project, 'scenes', 'main.json')));
+  const dir = join(env.root, 'projects', env.project);
+  return new Uint8Array(Buffer.concat([readFileSync(join(dir, CONTENT_REL)), readFileSync(join(dir, SCENE_REL))]));
 }
 
+/**
+ * The durable state in the old envelope's shape: `scene.revision` is the
+ * project revision (the highest file revision, store-v4.ts) and `content` is
+ * content.json's content block.
+ */
 export function envelopeJson(env: BuildEnv): {
   scene: { revision: number };
   content: { behaviors: { behaviorId: string; source: unknown }[]; behaviorTrust: { entries: { sourceDigest: string }[] } };
 } {
-  return JSON.parse(new TextDecoder().decode(envelopeBytes(env)));
+  const dir = join(env.root, 'projects', env.project);
+  const content = JSON.parse(readFileSync(join(dir, CONTENT_REL), 'utf8')) as {
+    revision: number;
+    content: { behaviors: { behaviorId: string; source: unknown }[]; behaviorTrust: { entries: { sourceDigest: string }[] } };
+  };
+  const scene = JSON.parse(readFileSync(join(dir, SCENE_REL), 'utf8')) as { scene: { revision: number } };
+  return { scene: { revision: Math.max(content.revision, scene.scene.revision) }, content: content.content };
 }

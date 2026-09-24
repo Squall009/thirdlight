@@ -1,64 +1,41 @@
 /**
  * Per-project sessions — the on-demand open pipeline (workspace.md §6.2),
- * the §4.3 load, external-change detection and the operator resolutions
- * (§7), and the maintenance release (§9).
+ * ownership (claim, takeover, release §9) and the dispatch to the storage v4
+ * session (`session-v4.ts`: load, external changes and their resolutions,
+ * queries).
+ *
+ * Only storage v4 projects are opened. A storage v3 project (one envelope,
+ * `scenes/main.json`) is upgraded to v4 on open; a storage v1/v2 (M1/M2)
+ * project is refused with `project_unavailable { reason:
+ * "storage_version_unsupported" }` and left untouched (phase 9.3).
  *
  * A session holds the last acknowledged in-memory state (commands.md §10:
- * queries read exactly this), the durable retry records, the last known
- * good envelope bytes + hash (`lastWrittenHash`, workspace.md §5.2), and
- * the pending external change (when writes are paused).
+ * queries read exactly this), the durable retry records and the pending
+ * external change (when writes are paused).
  */
 
 import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
-import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
-import type { CommandError, ContentDocument, HistoryState } from '@thirdlight/commands';
+import type { CommandError, HistoryState } from '@thirdlight/commands';
 import type {
-  ContentCatalog,
   ContentCatalogV3,
-  Entity,
   Manifest,
-  Scene,
-  SceneV2,
   SceneV3,
   SceneV4,
   ContentCatalogV4,
 } from '@thirdlight/project-model';
 import {
-  effectiveEntityFlags,
-  normalizeScene,
   parseDocumentBytes,
   validateManifest,
-  validateProjectV2,
   validateProjectV3,
 } from '@thirdlight/project-model';
 
+import { ID_RE, validateEnvelope, type RetryRecord } from './envelope';
+import { cleanBlobTemps, cleanupStages, type ContentConfig } from './content-store';
 import {
-  buildEnvelopeBytes,
-  buildEnvelopeBytesV2,
-  buildEnvelopeBytesV3,
-  ID_RE,
-  validateEnvelope,
-  type RetryRecord,
-} from './envelope';
-import { cleanBlobTemps, cleanupStages, loadPreparedSources, type ContentConfig } from './content-store';
-import {
-  entityNotFound,
-  externalChangeEvidenceMissing,
-  externalChangeInvalid,
-  externalChangeUnreadable,
-  externalChangeUnresolved,
-  fieldMissing,
-  fieldTypeError,
-  fieldUnexpected,
-  fieldValueType,
   invalidRequest,
-  isPlainObject,
-  isSafeInt,
-  pointerSegment,
-  noPendingChange,
   projectNotFound,
   projectUnavailable,
   staleOwnership,
@@ -71,10 +48,7 @@ import {
 } from './errors';
 import {
   EMPTY_BYTES,
-  EMPTY_HASH,
   cleanLeftoverTemps,
-  errnoOf,
-  writeAtomic,
   type WriteOps,
 } from './write';
 import {
@@ -84,7 +58,6 @@ import {
   parseOwnershipRecord,
   readOwnershipRecord,
   releaseOwnership,
-  reReadOwnershipHolder,
   stillHoldsOwnership,
   utcSecond,
   type ClaimInconsistentInfo,
@@ -94,8 +67,6 @@ import {
   type OwnershipRecord,
   type SelfIdentity,
 } from './ownership';
-import { sha256Hex } from './digest';
-import { snapshotForeignBytes } from './recovery';
 import type { PendingChangeInfo, QueryResult } from './types';
 import { cleanLeftoverTempsV4, type V4State } from './store-v4';
 import {
@@ -106,6 +77,7 @@ import {
   legacyManifestOf,
   openV4,
   serveQueryV4,
+  type OpenV4Outcome,
 } from './session-v4';
 import { validateManifestV2Project } from '@thirdlight/project-model';
 
@@ -125,29 +97,17 @@ export interface PendingChange {
   externalValid: boolean | null;
   /** All validation errors (the public shape reports ≤ 10 + the count); null while unreadable. */
   externalErrors: readonly LoadDetail[] | null;
-  /** The parsed external scene (canonical) when the bytes are valid. */
-  externalScene: Scene | SceneV2 | SceneV3 | null;
-  /** The parsed external content block (v2/v3 only; null for a v1 envelope). */
-  externalContent: ContentCatalog | ContentCatalogV3 | null;
-  /** The external envelope's storageVersion (null while unreadable). */
-  externalStorageVersion: 1 | 2 | 3 | 4 | null;
+  /** The external project's first start scene (canonical) when the files are valid. */
+  externalScene: SceneV4 | null;
+  /** The external project's content block when the files are valid. */
+  externalContent: ContentCatalogV4 | null;
+  /** The external project's storageVersion (null while unreadable). */
+  externalStorageVersion: 4 | null;
   /** Phase 12 (c), v4: the whole external project when it validates. */
   externalV4?: V4State | null;
   /** Phase 12 (c), v4: the project file found changed. */
   externalFile?: string;
 }
-
-/**
- * A pending change established over READABLE bytes (§7.2 steps 2–4):
- * the step-2 snapshot is either durable ("ok") or failed
- * ("snapshot_failed") — never "unreadable" (that state is
- * `setPendingUnreadable`, step 1). The §11 `external_change_unresolved`
- * payload carries this narrower `snapshotState` (the bytes were read —
- * the real `externalHash` is always present).
- */
-type ReadablePendingChange = PendingChange & {
-  snapshotState: 'ok' | 'snapshot_failed';
-};
 
 export interface ProjectSession {
   projectId: string;
@@ -164,14 +124,15 @@ export interface ProjectSession {
   thirdlightDir: string;
   /** The game folder (holding `thirdlight.json`) of a folder project; null in the data root. */
   gameFolder?: string | null;
+  /** The v1-shaped manifest view (id, name, engine, createdAt, first start scene); the real v2 manifest is `v4.manifest`. */
   manifest: Manifest;
-  /** Published (last acknowledged) scene; null while blocked. For v4, the first start scene (the whole project is `v4`). */
-  scene: Scene | SceneV2 | SceneV3 | SceneV4 | null;
-  /** The envelope's storageVersion (1 for M1, 2 for M2, 3 for v3, 4: one file per scene). */
-  storageVersion: 1 | 2 | 3 | 4;
-  /** The published v2/v3/v4 content catalog; null for a storageVersion 1 project. */
-  content: ContentCatalog | ContentCatalogV3 | ContentCatalogV4 | null;
-  /** Phase 12 (c): the whole v4 project (scenes, files, per-file records); null for v1–v3. */
+  /** Published (last acknowledged) first start scene; null while blocked (the whole project is `v4`). */
+  scene: SceneV4 | null;
+  /** Always 4: storage v4, one file per scene (v3 projects are upgraded on open). */
+  storageVersion: 4;
+  /** The published content catalog; null while blocked. */
+  content: ContentCatalogV4 | null;
+  /** The whole v4 project (scenes, files, per-file records); null while blocked. */
   v4?: V4State | null;
   /** Phase 12 (c): what the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
@@ -180,9 +141,9 @@ export interface ProjectSession {
   /** Published retry records (ascending appliedRevision). */
   records: RetryRecord[];
   recordMap: Map<string, RetryRecord>;
-  /** SHA-256 of the last known good envelope bytes (workspace.md §5.2). */
+  /** One digest over the last known good project files (workspace.md §5.2). */
   lastWrittenHash: string;
-  /** The last known good envelope bytes. */
+  /** Unused since storage v4 (the files are in `v4.files`); always empty. */
   envelopeBytes: Uint8Array;
   history: HistoryState;
   /** The ownership record this backend holds (owned) — or null while blocked. */
@@ -232,8 +193,6 @@ export interface Core {
   /** Content-storage configuration (workspace.md §13.9): quota, device-space
    * reserve and the clock/TTL seam. */
   content: ContentConfig;
-  /** Phase 12 (c): create new projects as v4 and upgrade v3 projects on open. */
-  storageV4: boolean;
 }
 
 export type OpenOutcome =
@@ -257,31 +216,6 @@ function livenessFn(core: Core): (pid: number, openedAt: string) => Liveness {
 
 /** The configured engine version (M1 baseline, workspace.md §8.2). */
 export const ENGINE_VERSION = '0.1.0';
-
-/** The project-model §15 default scene (the project-creation template). */
-export function defaultScene(): Scene {
-  const res = normalizeScene({
-    schemaVersion: 1,
-    sceneId: 'scene-main',
-    revision: 0,
-    entities: [
-      {
-        id: 'cam-main',
-        name: 'Main Camera',
-        components: {
-          transform: {
-            position: [0, 0.5, 4],
-            rotation: [0, 0, 0, 1],
-            scale: [1, 1, 1],
-          },
-          camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 },
-        },
-      },
-    ],
-  });
-  if (!res.ok) throw new Error('default scene template failed model validation');
-  return res.normalized;
-}
 
 /**
  * The ONE containment policy (R7, 2026-09-18 review): `projectsRoot` +
@@ -392,9 +326,9 @@ export function resolveProjectDir(
 
 // ---- manifest + envelope loading -----------------------------------------------
 
-/** Read + strictly validate the manifest (project-model pass 1 + validator).
- * Exported for the read-only migration loader (workspace.md §14.1 reads the
- * source without claiming it). */
+/** Read + strictly validate the manifest (project-model pass 1 + validator):
+ * the v2 manifest of a v4 project (as its v1-shaped view) or the v1
+ * manifest of a v3 project (read for the upgrade). */
 export function loadManifest(
   core: Core,
   dir: string,
@@ -431,13 +365,23 @@ export function loadManifest(
   }
   const parsed = parseDocumentBytes(bytes);
   if (!parsed.ok) return { ok: false, errors: [parsed.error] };
-  // Phase 12 (c): a v4 project's manifest is schemaVersion 2 (no scene list).
-  if ((parsed.value as { schemaVersion?: unknown } | null)?.schemaVersion === 2) {
-    const v2 = validateManifestV2Project(parsed.value);
+  return validateAnyManifest(parsed.value);
+}
+
+/**
+ * Validate a parsed manifest value: a v4 project's manifest (schemaVersion
+ * 2, no scene list — returned as its v1-shaped view) or a v3 project's
+ * manifest (schemaVersion 1, read for the upgrade). At most 10 errors.
+ */
+export function validateAnyManifest(
+  value: unknown,
+): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
+  if ((value as { schemaVersion?: unknown } | null)?.schemaVersion === 2) {
+    const v2 = validateManifestV2Project(value);
     if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
     return { ok: true, manifest: legacyManifestOf(v2.normalized, 'scene-main') };
   }
-  const v = validateManifest(parsed.value);
+  const v = validateManifest(value);
   if (!v.ok) return { ok: false, errors: v.errors.slice(0, 10) };
   return { ok: true, manifest: v.normalized };
 }
@@ -445,24 +389,24 @@ export function loadManifest(
 type LoadOutcome =
   | {
       kind: 'loaded';
-      scene: Scene | SceneV2 | SceneV3;
-      storageVersion: 1 | 2 | 3;
-      content: ContentCatalog | ContentCatalogV3 | null;
+      scene: SceneV3;
+      content: ContentCatalogV3;
       records: RetryRecord[];
       bytes: Uint8Array;
-      hash: string;
     }
   | { kind: 'envelope-missing' }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 /**
- * The §4.3 load pipeline over the on-disk envelope (steps 1–7), then the
+ * The §4.3/§16.4 load pipeline over a storage v3 project's envelope
+ * (`scenes/main.json`), then the v3 cross-block composition and the
  * manifest cross-document checks (step 8, against the manifest already
- * loaded at resolution). First failure wins. READ-ONLY: no session,
- * no ownership, no writes — usable outside the on-demand open pipeline
- * (the §8.1 idempotent createProject probe, R15).
+ * loaded at resolution). First failure wins; a storage v1/v2 envelope is
+ * `storage_version_unsupported`. READ-ONLY: no session, no ownership, no
+ * writes — the open pipeline upgrades a loaded v3 project to v4; the §8.1
+ * idempotent createProject probe (R15) only reads.
  */
-export function loadProjectDir(
+export function loadEnvelopeV3(
   core: Core,
   sceneDir: string,
   projectId: string,
@@ -482,29 +426,11 @@ export function loadProjectDir(
   if (!env.ok) {
     return { kind: 'blocked', reason: env.reason, errors: env.errors, count: env.count };
   }
-  // Step 6e — the v2 cross-block composition (workspace.md §4.3 step 6e,
-  // project-model §13.1): only when scene and content both passed. The
-  // manifest supplies the manifest/scene identity that all three blocks are
-  // composed against; any failure is reported with its model code
-  // (e.g. `asset_reference_missing`).
-  if (env.storageVersion === 2) {
-    const cross = validateProjectV2(manifest, env.scene, env.content);
-    if (!cross.ok) {
-      const first = cross.errors[0];
-      return {
-        kind: 'blocked',
-        reason: (first === undefined ? 'scene_invalid' : (first.code as UnavailableReason)),
-        errors: cross.errors.slice(0, 10),
-        count: cross.errors.length,
-      };
-    }
-  }
-  // §16.4 step 5 — the v3 cross-block composition: the accepted v2
-  // cross-block check plus the §23.5/§23.8-step-6 game/cue/animation
-  // reference checks (`validateProjectV3`). Runs only when the scene and
-  // content blocks both passed; a failure is reported with its model code
+  // §16.4 step 5 — the v3 cross-block composition: the §13.1 cross-block
+  // check plus the §23.5/§23.8-step-6 game/cue/animation reference checks
+  // (`validateProjectV3`). A failure is reported with its model code
   // (`game_reference_missing`, `asset_kind_mismatch`, `zone_goal_missing`, …).
-  if (env.storageVersion === 3) {
+  {
     const cross = validateProjectV3(manifest, env.scene, env.content);
     if (!cross.ok) {
       const first = cross.errors[0];
@@ -553,59 +479,13 @@ export function loadProjectDir(
   return {
     kind: 'loaded',
     scene: env.scene,
-    storageVersion: env.storageVersion,
     content: env.content,
     records: env.records,
     bytes,
-    hash: sha256Hex(bytes),
   };
 }
 
 // ---- session construction --------------------------------------------------------
-
-function makeSession(
-  core: Core,
-  dir: string,
-  projectId: string,
-  loaded: Extract<LoadOutcome, { kind: 'loaded' }>,
-  manifest: Manifest,
-  ownership: OwnershipRecord,
-  sceneDir: string,
-  thirdlightDir: string,
-): ProjectSession {
-  const recordMap = new Map<string, RetryRecord>();
-  for (const r of loaded.records) recordMap.set(r.requestId, r);
-  return {
-    projectId,
-    dir,
-    sceneDir,
-    thirdlightDir,
-    gameFolder: core.registry.get(projectId)?.folder ?? null,
-    manifest,
-    scene: loaded.scene,
-    storageVersion: loaded.storageVersion,
-    content: loaded.content,
-    revision: loaded.scene.revision,
-    records: [...loaded.records],
-    recordMap,
-    lastWrittenHash: loaded.hash,
-    envelopeBytes: loaded.bytes,
-    history:
-      loaded.content === null
-        ? createCommandState(loaded.scene).history
-        : createCommandState(
-            loaded.scene,
-            loaded.content as unknown as ContentDocument,
-            manifest,
-          ).history,
-    ownership,
-    mode: 'open',
-    ownershipReverify: false,
-    blocked: null,
-    pendingChange: null,
-    preparedSources: loadPreparedSources(thirdlightDir),
-  };
-}
 
 function blockSession(
   core: Core,
@@ -625,14 +505,16 @@ function blockSession(
     gameFolder: core.registry.get(projectId)?.folder ?? null,
     manifest,
     scene: null,
-    storageVersion: 1,
+    storageVersion: 4,
     content: null,
+    v4: null,
     revision: 0,
     records: [],
     recordMap: new Map(),
     lastWrittenHash: '',
     envelopeBytes: EMPTY_BYTES,
-    history: createCommandState(defaultScene()).history,
+    // A blocked session never runs a command: its history stays empty.
+    history: { entries: [], cursor: 0, seq: 1 },
     ownership,
     mode: 'blocked',
     ownershipReverify: false,
@@ -640,53 +522,6 @@ function blockSession(
     pendingChange: null,
     preparedSources: new Map(),
   };
-}
-
-/**
- * A fresh history for the session's published state (workspace.md §9.2
- * boundaries): a v2/v3 session builds the command state with its content
- * block and manifest so the M2/M3 ops keep their three-block validation
- * inputs (commands.md §6.1 step 5; C21-1).
- */
-function freshHistory(s: ProjectSession): HistoryState {
-  if (s.content === null) return createCommandState(s.scene!).history;
-  return createCommandState(
-    s.scene!,
-    s.content as unknown as ContentDocument,
-    s.manifest,
-  ).history;
-}
-
-/**
- * Build the session's canonical envelope bytes at the session's
- * storageVersion: a `storageVersion` 3 project writes the v3 envelope (scene
- * + six-key content + retry, workspace.md §16.3); a `storageVersion` 2
- * project writes the v2 envelope (scene + content + retry, §4.4/§4.5); an M1
- * project writes the accepted v1 bytes unchanged. This is the ONE envelope
- * construction used by the mutation write, the release rewrite and the
- * migration copy — no second mutation path.
- */
-export function envelopeBytesFor(
-  storageVersion: 1 | 2 | 3,
-  projectId: string,
-  scene: Scene | SceneV2 | SceneV3,
-  content: ContentCatalog | ContentCatalogV3 | null,
-  records: readonly RetryRecord[],
-): Uint8Array {
-  if (storageVersion === 3 && content !== null) {
-    return buildEnvelopeBytesV3(projectId, scene as SceneV3, content as ContentCatalogV3, records);
-  }
-  if (storageVersion === 2 && content !== null) {
-    return buildEnvelopeBytesV2(projectId, scene as SceneV2, content as ContentCatalog, records);
-  }
-  return buildEnvelopeBytes(projectId, scene as Scene, records);
-}
-
-export function envelopeBytesForSession(
-  s: ProjectSession,
-  records: readonly RetryRecord[],
-): Uint8Array {
-  return envelopeBytesFor(s.storageVersion as 1 | 2 | 3, s.projectId, s.scene as Scene | SceneV2 | SceneV3, s.content as ContentCatalog | ContentCatalogV3 | null, records);
 }
 
 /** Open-time artifact hygiene (workspace.md §5.4/§7.6.2): the owner removes
@@ -777,57 +612,14 @@ function ensureSessionOnce(
       // longer a loadable project.
       return { kind: 'not-found' };
     }
-    // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
-    const v4Open = openV4OrUpgrade(core, existing.dir, projectId, man.manifest, existing.sceneDir, existing.thirdlightDir, existing.ownership ?? releasedRecord(core));
-    if (v4Open !== null) {
-      if (v4Open.kind === 'open') {
-        core.sessions.set(projectId, v4Open.session);
-        return { kind: 'open', session: v4Open.session };
-      }
-      existing.blocked = { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count };
-      return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
+    // A v4 project (or a v3 one, upgraded on the spot).
+    const v4Open = openProject(core, existing.dir, projectId, man.manifest, existing.sceneDir, existing.thirdlightDir, existing.ownership ?? releasedRecord(core));
+    if (v4Open.kind === 'open') {
+      core.sessions.set(projectId, v4Open.session);
+      return { kind: 'open', session: v4Open.session };
     }
-    const l = loadProjectDir(core, existing.sceneDir, projectId, man.manifest);
-    if (l.kind === 'loaded') {
-      const s = makeSession(
-        core,
-        existing.dir,
-        projectId,
-        l,
-        man.manifest,
-        existing.ownership ?? releasedRecord(core),
-        existing.sceneDir,
-        existing.thirdlightDir,
-      );
-      s.mode = 'open';
-      s.blocked = null;
-      s.pendingChange = null;
-      core.sessions.set(projectId, s);
-      return { kind: 'open', session: s };
-    }
-    if (l.kind === 'envelope-missing') {
-      existing.blocked = {
-        reason: 'envelope_invalid',
-        errors: [
-          {
-            code: 'envelope_invalid',
-            path: '',
-            message: 'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-            expected: 'a loadable authoring-state envelope',
-          },
-        ],
-        count: 1,
-      };
-    } else {
-      existing.blocked = { reason: l.reason, errors: l.errors, count: l.count };
-    }
-    return {
-      kind: 'unavailable',
-      reason: existing.blocked.reason,
-      holder: null,
-      errors: existing.blocked.errors,
-      count: existing.blocked.count,
-    };
+    existing.blocked = { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count };
+    return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
     }
   }
 
@@ -930,89 +722,26 @@ function ensureSessionOnce(
   // §5.4: the owner cleans leftover temps on open, before any command.
   cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
 
-  // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
-  const v4Open = openV4OrUpgrade(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
-  if (v4Open !== null) {
-    if (v4Open.kind === 'open') {
-      core.sessions.set(projectId, v4Open.session);
-      return { kind: 'open', session: v4Open.session };
-    }
-    const bs = blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir);
-    core.sessions.set(projectId, bs);
-    return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
+  // A v4 project (or a v3 one, upgraded on the spot).
+  const v4Open = openProject(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
+  if (v4Open.kind === 'open') {
+    core.sessions.set(projectId, v4Open.session);
+    return { kind: 'open', session: v4Open.session };
   }
-
-  // The §4.3 load (through the VERIFIED scenes directory).
-  const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
-  if (l.kind === 'envelope-missing') {
-    // An interrupted creation is completed by the startup scan (§8.3/§10).
-    // At on-demand open the project is blocked until that completion has
-    // happened (no destructive auto-write at open outside the scan).
-    const s = blockSession(
-      core,
-      dir,
-      projectId,
-      man.manifest,
-      claim.record,
-      {
-        reason: 'envelope_invalid',
-        errors: [
-          {
-            code: 'envelope_invalid',
-            path: '',
-            message: 'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-            expected: 'a loadable authoring-state envelope',
-          },
-        ],
-        count: 1,
-      },
-      sceneDir,
-      thirdlightDir,
-    );
-    core.sessions.set(projectId, s);
-    return {
-      kind: 'unavailable',
-      reason: 'envelope_invalid',
-      holder: null,
-      errors: s.blocked?.errors,
-      count: 1,
-    };
-  }
-  if (l.kind === 'blocked') {
-    const s = blockSession(
-      core,
-      dir,
-      projectId,
-      man.manifest,
-      claim.record,
-      {
-        reason: l.reason,
-        errors: l.errors,
-        count: l.count,
-      },
-      sceneDir,
-      thirdlightDir,
-    );
-    core.sessions.set(projectId, s);
-    return {
-      kind: 'unavailable',
-      reason: l.reason,
-      holder: null,
-      errors: l.errors,
-      count: l.count,
-    };
-  }
-  const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
-  core.sessions.set(projectId, s);
-  return { kind: 'open', session: s };
+  const bs = blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir);
+  core.sessions.set(projectId, bs);
+  return { kind: 'unavailable', reason: v4Open.reason, holder: null, errors: v4Open.errors, count: v4Open.count };
 }
 
 /**
- * Phase 12 (c): open a v4 project, or upgrade a valid v3 project to v4 and
- * open that. Null: neither (a v1/v2 project, or a v3 one that does not load —
- * the legacy path reports it).
+ * Open a project directory: a v4 project, or a valid v3 project upgraded to
+ * v4 on the spot (storage v3 → v4, phase 12 c). A v3 project that does not
+ * load, a storage v1/v2 project (`storage_version_unsupported`) or a
+ * directory with neither `content.json` nor `scenes/main.json` (an
+ * interrupted creation, completed by the startup scan) is blocked; nothing is
+ * written for them.
  */
-function openV4OrUpgrade(
+function openProject(
   core: Core,
   dir: string,
   projectId: string,
@@ -1020,17 +749,29 @@ function openV4OrUpgrade(
   sceneDir: string,
   thirdlightDir: string,
   ownership: OwnershipRecord,
-): ReturnType<typeof openV4> | null {
+): OpenV4Outcome {
   if (isV4Layout(core.ops, dir)) return openV4(core, dir, projectId, sceneDir, thirdlightDir, ownership);
-  if (!core.storageV4) return null;
-  const l = loadProjectDir(core, sceneDir, projectId, manifest);
-  if (l.kind !== 'loaded' || l.storageVersion !== 3 || l.content === null) return null;
+  const l = loadEnvelopeV3(core, sceneDir, projectId, manifest);
+  if (l.kind === 'envelope-missing') {
+    return { kind: 'blocked', reason: 'envelope_invalid', errors: [envelopeMissingDetail()], count: 1 };
+  }
+  if (l.kind === 'blocked') return l;
   return openV4(core, dir, projectId, sceneDir, thirdlightDir, ownership, {
     manifest,
-    scene: l.scene as SceneV3,
-    content: l.content as ContentCatalogV3,
+    scene: l.scene,
+    content: l.content,
     envelopeBytes: l.bytes,
   });
+}
+
+/** Neither `content.json` (v4) nor `scenes/main.json` (v3): an interrupted creation. */
+function envelopeMissingDetail(): LoadDetail {
+  return {
+    code: 'envelope_invalid',
+    path: '',
+    message: 'the project has no content.json (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
+    expected: 'a loadable project (content.json and its scene files)',
+  };
 }
 
 function evalToUnavailable(ev: OwnershipEval): OpenOutcome {
@@ -1093,86 +834,6 @@ function releasedRecord(core: Core): OwnershipRecord {
 // ---- external change protocol (workspace.md §7) ----------------------------------
 
 /**
- * §7.2 detection and pause: snapshot the foreign bytes (byte-for-byte,
- * before the project pauses), run the FULL §4.3 validation pipeline over
- * them (externalValid + errors), and set the pending change. The
- * triggering command fails `external_change_unresolved`; no state, no
- * record, no revision change.
- */
-export function detectExternalChange(
-  core: Core,
-  s: ProjectSession,
-  foreign: { bytes: Uint8Array; hash: string },
-): ReadablePendingChange {
-  // Step 2 — snapshot BEFORE the pause (the original file stays in
-  // place). A FAILED snapshot write is the §7.2 step-2 normative state
-  // (R3): the pending change records `snapshotState: "snapshot_failed"`
-  // — the pause stays fail-closed and the §7.3 resolutions are refused
-  // with `external_change_evidence_missing` until a durable snapshot
-  // exists. The failure is reported, never swallowed.
-  const snapshotName = snapshotForeignBytes(s.thirdlightDir, foreign.bytes, core.ops, core.stamp);
-  // Step 3 — the full §4.3 pipeline over the foreign bytes.
-  const envRes = validateEnvelope(foreign.bytes, s.projectId);
-  let externalValid = false;
-  let externalErrors: readonly LoadDetail[] = [];
-  let externalScene: Scene | SceneV2 | SceneV3 | null = null;
-  let externalContent: ContentCatalog | ContentCatalogV3 | null = null;
-  let externalStorageVersion: 1 | 2 | 3 | null = null;
-  if (envRes.ok) {
-    // v2/v3 envelopes additionally require the three-block composition (the
-    // cross-block reference checks the envelope loader defers to the manifest
-    // holder): `validateProjectV2` for v2, `validateProjectV3` for v3.
-    let crossOk = s.manifest.scenes[0].id === envRes.scene.sceneId && s.manifest.id === s.projectId;
-    if (crossOk && envRes.storageVersion === 2) {
-      const cross = validateProjectV2(s.manifest, envRes.scene, envRes.content);
-      if (!cross.ok) {
-        crossOk = false;
-        externalErrors = cross.errors.slice(0, 10);
-      }
-    } else if (crossOk && envRes.storageVersion === 3) {
-      const cross = validateProjectV3(s.manifest, envRes.scene, envRes.content);
-      if (!cross.ok) {
-        crossOk = false;
-        externalErrors = cross.errors.slice(0, 10) as readonly LoadDetail[];
-      }
-    }
-    if (crossOk) {
-      externalValid = true;
-      externalScene = envRes.scene;
-      externalContent = envRes.content;
-      externalStorageVersion = envRes.storageVersion;
-    } else if (externalErrors.length === 0) {
-      externalErrors = [
-        {
-          code: 'manifest_scene_mismatch',
-          path: '/scenes/0/id',
-          document: 'manifest',
-          message: 'the external envelope does not cross-check against the manifest',
-          expected: 'scene document sceneId',
-        },
-      ];
-    }
-  } else {
-    externalErrors = envRes.errors;
-  }
-  // Step 4 — pending change + pause (queries serve the last known good).
-  // `snapshotState` records the step-2 outcome truthfully (R3): "ok" when
-  // the snapshot is durable, "snapshot_failed" when it could not be
-  // written (the §7.3 refusal clause below handles both states).
-  const pending: ReadablePendingChange = {
-    snapshotState: snapshotName === null ? 'snapshot_failed' : 'ok',
-    externalHash: foreign.hash,
-    externalValid,
-    externalErrors,
-    externalScene,
-    externalContent,
-    externalStorageVersion,
-  };
-  s.pendingChange = pending;
-  return pending;
-}
-
-/**
  * §7.2 step 1 (a non-ENOENT read failure): the on-disk bytes are UNKNOWN,
  * never absent. No snapshot is taken (nothing was read); the pending
  * change records the unknown state (`paused-unreadable`) and writes stay
@@ -1228,381 +889,20 @@ export function workspaceBlock(s: ProjectSession):
   };
 }
 
-/** The outcome of the §7.3 refusal-clause re-read (before answering). */
-type RereadOutcome =
-  | { kind: 'proceed' | 'refired'; pc: ReadablePendingChange }
-  | { kind: 'absent' }
-  | { kind: 'unreadable' };
-
-/**
- * The §7.3 refusal-clause re-read: while `snapshotState` is not "ok",
- * the resolution is refused — but BEFORE answering, the command re-reads
- * the scene file (the answer is never based on a stale read; the blind
- * `allowAbsent` W is gone). Outcomes:
- * - `unreadable` — a non-ENOENT read error: the bytes are still unknown
- *   (`paused-unreadable`; the pending change is the unreadable shape);
- * - `absent` — ENOENT: the foreign state is gone (the caller durably
- *   restores the LKG envelope via W);
- * - `refired` — readable bytes with a hash DIFFERENT from the pending
- *   `externalHash` (a new foreign state while paused): the §7.2 protocol
- *   re-fires on the real bytes (a fresh detection cycle — snapshot,
- *   validate, pause); the caller fails the resolution with
- *   `external_change_unresolved` and the operator re-resolves;
- * - `proceed` — readable bytes establishing the (real) pending change via
- *   the §7.2 detection path (steps 2–4: snapshot byte-for-byte, validate):
- *   the same foreign bytes for a `snapshot_failed` pending change (the
- *   snapshot is re-attempted) or any readable bytes for an `unreadable`
- *   pending change (the hash was unknown). The caller proceeds with the
- *   resolution in the same call once the snapshot is durable.
- */
-function rereadSceneForResolution(core: Core, s: ProjectSession): RereadOutcome {
-  const target = join(s.sceneDir, 'main.json');
-  let bytes: Uint8Array;
-  try {
-    bytes = core.ops.readFile(target);
-  } catch (e) {
-    if (errnoOf(e) === 'ENOENT') return { kind: 'absent' };
-    // Bytes still unreadable (non-ENOENT): the unreadable pending state
-    // stands (the pending state and the pause persist across the refusal).
-    setPendingUnreadable(s);
-    return { kind: 'unreadable' };
-  }
-  const hash = sha256Hex(bytes);
-  const pending = s.pendingChange!;
-  if (pending.externalHash !== null && pending.externalHash !== hash) {
-    // Other foreign bytes (readable, different hash): a fresh detection
-    // cycle on the real bytes (the step-2 snapshot is RETRIED here — the
-    // detection is the same call the triggering mutation used); the
-    // resolution fails with external_change_unresolved and the operator
-    // re-resolves.
-    const pc = detectExternalChange(core, s, { bytes, hash });
-    return { kind: 'refired', pc };
-  }
-  // (Re)establish the pending change from the REAL bytes (§7.2 steps 2–4:
-  // snapshot byte-for-byte — RETRIED for a `snapshot_failed` pending
-  // change — validate, pause).
-  const pc = detectExternalChange(core, s, { bytes, hash });
-  return { kind: 'proceed', pc };
-}
-
-/** The LKG restore W of the §7.3 ENOENT re-read branch. */
-function restoreLkg(core: Core, s: ProjectSession) {
-  return writeAtomic({
-    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
-    target: join(s.sceneDir, 'main.json'),
-    bytes: s.envelopeBytes,
-    // Creation-style check: the target must stay absent (it was just
-    // re-read as absent); a readable appearance racing in re-fires §5.2.
-    allowedPreHashes: null,
-    // The target did not exist before THIS write: a failed sequence
-    // classifies `previous` (nothing on disk changed; the in-memory LKG
-    // is unchanged and retrying re-executes fresh).
-    previousHash: null,
-    ops: core.ops,
-  });
-}
-
-/**
- * The §7.3 ENOENT re-read branch (shared by accept and discard): the file
- * is absent at re-read — the foreign state is gone. The last known good
- * envelope is durably restored via W (creation-style check), the pending
- * change is cleared and the project unpaused, and history is cleared
- * (new boundary — the file was replaced externally, M1 performs no
- * reconciliation). The in-memory records are kept: they match the restored
- * LKG bytes (the running system stays self-consistent with disk). Nothing
- * is cleared on a `previous`-classified failure (nothing was written —
- * the pending state and the pause persist across the refusal).
- */
-function restoreLkgAfterAbsentReread(
-  core: Core,
-  s: ProjectSession,
-):
-  | { kind: 'restored' }
-  | { kind: 'writeFailed'; onDiskState: 'previous' | 'new-undurable'; errno?: string }
-  | { kind: 'refired'; pc: ReadablePendingChange }
-  | { kind: 'unreadable' } {
-  const res = restoreLkg(core, s);
-  if (res.ok) {
-    s.pendingChange = null;
-    s.history = freshHistory(s);
-    return { kind: 'restored' };
-  }
-  if (res.failed && res.failed.onDiskState === 'new-undurable') {
-    // The LKG bytes are on disk (the rename took effect); durability is
-    // unproven. The foreign state is gone either way: clear the pending
-    // change and un-pause (memory already equals the restored bytes).
-    s.pendingChange = null;
-    s.history = freshHistory(s);
-  }
-  if (res.external) {
-    // A readable appearance raced in between the re-read and the W
-    // pre-check: the §7.2 protocol re-fires on the real bytes.
-    const pc = detectExternalChange(core, s, res.external);
-    return { kind: 'refired', pc };
-  }
-  if (res.unreadable) {
-    // An unreadable appearance raced in: the bytes are unknown, never
-    // absent — the unreadable pending state is recorded.
-    setPendingUnreadable(s);
-    return { kind: 'unreadable' };
-  }
-  if (res.failed) {
-    // Nothing was written (`previous`): the pending state and the pause
-    // persist; the write failure is reported (a re-issue re-reads and
-    // re-attempts the restore).
-    return { kind: 'writeFailed', onDiskState: res.failed.onDiskState, errno: res.failed.errno };
-  }
-  // Unreachable: exactly one of ok/failed/external/unreadable is set.
-  return { kind: 'writeFailed', onDiskState: 'previous' };
-}
-
-// ---- operator resolutions (workspace.md §7.3/§6.4/§9) ----------------------------
-
-/** `acceptExternalState` (§7.3). */
+/** `acceptExternalState` (§7.3): the files on disk become the project (`session-v4.ts`). */
 export function acceptExternal(
   core: Core,
   s: ProjectSession,
 ): { ok: true; revision: number; historyReset: true; retryCleared: true } | { ok: false; error: CommandError } {
-  if (s.storageVersion === 4) return acceptExternalV4(core, s);
-  if (s.mode !== 'open' || s.pendingChange === null) {
-    return { ok: false, error: noPendingChange() };
-  }
-  // The pending change is readable on every path that reaches the publish
-  // below: an `unreadable` pending state is either refused or (re)established
-  // from the real bytes by `rereadSceneForResolution` (which yields a
-  // ReadablePendingChange). The cast records that invariant.
-  let pc: ReadablePendingChange = s.pendingChange as ReadablePendingChange;
-  if (pc.snapshotState !== 'ok') {
-    // §7.3 refusal: while evidence is missing or unreadable, the
-    // resolution is refused — but before answering, the command re-reads
-    // the file (nothing is answered from a stale read).
-    const rr = rereadSceneForResolution(core, s);
-    if (rr.kind === 'unreadable') {
-      return { ok: false, error: externalChangeUnreadable(s.projectId) };
-    }
-    if (rr.kind === 'absent') {
-      const out = restoreLkgAfterAbsentReread(core, s);
-      if (out.kind === 'restored') {
-        return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
-      }
-      if (out.kind === 'refired') {
-        return { ok: false, error: externalChangeUnresolved(pendingInfo(out.pc)) };
-      }
-      if (out.kind === 'unreadable') {
-        return { ok: false, error: externalChangeUnreadable(s.projectId) };
-      }
-      return { ok: false, error: writeFailed(out.onDiskState, out.errno) };
-    }
-    if (rr.kind === 'refired') {
-      // A new foreign state while paused: the §7.2 protocol re-fired on
-      // the fresh bytes — the resolution fails; the operator re-resolves.
-      return { ok: false, error: externalChangeUnresolved(pendingInfo(rr.pc)) };
-    }
-    // 'proceed': the pending change is (re)established from the real
-    // bytes. Proceed with the resolution in the SAME call only once the
-    // snapshot is durable — otherwise the refusal stands (nothing
-    // written; the pending state and the pause persist).
-    if (rr.pc.snapshotState !== 'ok') {
-      return { ok: false, error: externalChangeEvidenceMissing(s.projectId, pendingInfo(rr.pc)) };
-    }
-    pc = rr.pc;
-  }
-  if (!pc.externalValid || pc.externalScene === null) {
-    return { ok: false, error: externalChangeInvalid() };
-  }
-  // The external scene becomes authoritative: canonical re-serialization
-  // with retry.records = [] (new retry boundary), ownership unchanged. The
-  // storageVersion dispatch follows the parsed external envelope (a v2/v3
-  // envelope carries its content block verbatim into the rewrite).
-  const newBytes = envelopeBytesFor(
-    (pc.externalStorageVersion ?? s.storageVersion) as 1 | 2 | 3,
-    s.projectId,
-    pc.externalScene as Scene | SceneV2 | SceneV3,
-    pc.externalContent as ContentCatalog | ContentCatalogV3 | null,
-    [],
-  );
-  const res = writeAtomic({
-    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
-    target: join(s.sceneDir, 'main.json'),
-    bytes: newBytes,
-    allowedPreHashes: [s.lastWrittenHash, pc.externalHash!],
-    allowAbsent: pc.externalHash === EMPTY_HASH,
-    previousHash: s.lastWrittenHash,
-    ops: core.ops,
-  });
-  if (res.unreadable) {
-    // A non-ENOENT read failure during the resolution W: the on-disk
-    // bytes are unknown, never absent — the unreadable pending state
-    // stands; the operator retries once the bytes are readable.
-    setPendingUnreadable(s);
-    return { ok: false, error: externalChangeUnreadable(s.projectId) };
-  }
-  if (res.external) {
-    // A new foreign value appeared during the resolution: the protocol
-    // fires again on the new bytes (the step-2 snapshot is taken/retried
-    // by the same detection call); the operator re-resolves.
-    const pc = detectExternalChange(core, s, res.external);
-    return {
-      ok: false,
-      error: externalChangeUnresolved(pendingInfo(pc)),
-    };
-  }
-  if (res.failed) {
-    if (res.failed.onDiskState === 'new-undurable') {
-      // R5/§5.1: the rename took effect — the accepted envelope is ON
-      // DISK (durability unproven). The intended state becomes the
-      // RUNNING state so the running system is self-consistent (the
-      // accepted revision/records/hash/history are published exactly as
-      // on the success path; `lastWrittenHash` is set to the intended
-      // hash on `new-undurable`, workspace.md §5.2) while the operation
-      // still reports the FAILURE for unproven durability (`write_failed
-      // { onDiskState: "new-undurable" }`, §5.1 — never a success ack).
-      // The foreign bytes are gone from disk (retained only in the
-      // recovery snapshot): the resolution is applied, so the pending
-      // change is cleared and writes unpaused (§7.3: "Resolving clears
-      // the pending state and unpauses writes").
-      publishAcceptedExternal(s, pc, newBytes);
-      return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
-    }
-    // `previous`: nothing was written — the pending state and the pause
-    // persist across the refusal (the re-issue re-reads and re-attempts).
-    return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
-  }
-  // Publish (the accepted revision is whatever the external document
-  // carries — an operator accept is a declared re-base, §7.3).
-  publishAcceptedExternal(s, pc, newBytes);
-  return { ok: true, revision: s.revision, historyReset: true, retryCleared: true };
+  return acceptExternalV4(core, s);
 }
 
-/** Publish an accepted external envelope into the session (both the success
- * path and the `new-undurable` path share exactly this state transition). */
-function publishAcceptedExternal(
-  s: ProjectSession,
-  pc: ReadablePendingChange,
-  newBytes: Uint8Array,
-): void {
-  const scene = pc.externalScene!;
-  const content = pc.externalContent;
-  s.scene = scene;
-  s.storageVersion = pc.externalStorageVersion ?? s.storageVersion;
-  s.content = content;
-  s.revision = scene.revision;
-  s.records = [];
-  s.recordMap = new Map();
-  s.envelopeBytes = newBytes;
-  s.lastWrittenHash = sha256Hex(newBytes);
-  s.history =
-    content === null
-      ? createCommandState(scene).history
-      : createCommandState(scene, content as unknown as ContentDocument, s.manifest).history;
-  s.pendingChange = null;
-}
-
-/** `discardExternalState` (§7.3). */
+/** `discardExternalState` (§7.3): this backend's last known files go back on disk (`session-v4.ts`). */
 export function discardExternal(
   core: Core,
   s: ProjectSession,
 ): { ok: true; revision: number; historyReset: true } | { ok: false; error: CommandError } {
-  if (s.storageVersion === 4) return discardExternalV4(core, s);
-  if (s.mode !== 'open' || s.pendingChange === null) {
-    return { ok: false, error: noPendingChange() };
-  }
-  // The pending change is readable on every path that reaches the publish
-  // below: an `unreadable` pending state is either refused or (re)established
-  // from the real bytes by `rereadSceneForResolution` (which yields a
-  // ReadablePendingChange). The cast records that invariant.
-  let pc: ReadablePendingChange = s.pendingChange as ReadablePendingChange;
-  if (pc.snapshotState !== 'ok') {
-    // §7.3 refusal: while evidence is missing or unreadable, the
-    // resolution is refused — but before answering, the command re-reads
-    // the file (nothing is answered from a stale read).
-    const rr = rereadSceneForResolution(core, s);
-    if (rr.kind === 'unreadable') {
-      return { ok: false, error: externalChangeUnreadable(s.projectId) };
-    }
-    if (rr.kind === 'absent') {
-      const out = restoreLkgAfterAbsentReread(core, s);
-      if (out.kind === 'restored') {
-        return { ok: true, revision: s.revision, historyReset: true };
-      }
-      if (out.kind === 'refired') {
-        return { ok: false, error: externalChangeUnresolved(pendingInfo(out.pc)) };
-      }
-      if (out.kind === 'unreadable') {
-        return { ok: false, error: externalChangeUnreadable(s.projectId) };
-      }
-      return { ok: false, error: writeFailed(out.onDiskState, out.errno) };
-    }
-    if (rr.kind === 'refired') {
-      // A new foreign state while paused: the §7.2 protocol re-fired on
-      // the fresh bytes — the resolution fails; the operator re-resolves.
-      return { ok: false, error: externalChangeUnresolved(pendingInfo(rr.pc)) };
-    }
-    // 'proceed': the pending change is (re)established from the real
-    // bytes. Proceed with the resolution in the SAME call only once the
-    // snapshot is durable — otherwise the refusal stands (nothing
-    // written; the pending state and the pause persist). (Discard has no
-    // validity gate: the last known good state is restored regardless.)
-    if (rr.pc.snapshotState !== 'ok') {
-      return { ok: false, error: externalChangeEvidenceMissing(s.projectId, pendingInfo(rr.pc)) };
-    }
-    pc = rr.pc;
-  }
-  // Re-write the last known good envelope bytes exactly (they are verified
-  // against lastWrittenHash — the resolution pre-write check accepts LKG
-  // or the pending externalHash; any other value re-fires the protocol).
-  const res = writeAtomic({
-    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
-    target: join(s.sceneDir, 'main.json'),
-    bytes: s.envelopeBytes,
-    allowedPreHashes: [s.lastWrittenHash, pc.externalHash!],
-    allowAbsent: pc.externalHash === EMPTY_HASH,
-    previousHash: s.lastWrittenHash,
-    ops: core.ops,
-  });
-  if (res.unreadable) {
-    // A non-ENOENT read failure during the resolution W: the on-disk
-    // bytes are unknown, never absent — the unreadable pending state
-    // stands; the operator retries once the bytes are readable.
-    setPendingUnreadable(s);
-    return { ok: false, error: externalChangeUnreadable(s.projectId) };
-  }
-  if (res.external) {
-    // A new foreign value appeared during the resolution: the protocol
-    // fires again on the new bytes (the step-2 snapshot is taken/retried
-    // by the same detection call); the operator re-resolves.
-    const pc = detectExternalChange(core, s, res.external);
-    return {
-      ok: false,
-      error: externalChangeUnresolved(pendingInfo(pc)),
-    };
-  }
-  if (res.failed) {
-    if (res.failed.onDiskState === 'new-undurable') {
-      // R5/§5.1: the rename took effect — the LKG bytes are back ON DISK
-      // (durability unproven). The running state was already the LKG (the
-      // discard re-wrote exactly the last known good bytes; the
-      // `lastWrittenHash` is unchanged, workspace.md §5.2), so the only
-      // in-memory reconciliation is the boundary the successful discard
-      // publishes: history cleared (new boundary — the file was replaced
-      // externally, §7.3) and the pending change resolved (the foreign
-      // bytes are gone from disk — retained only in the recovery
-      // snapshot; unpaused, §7.3) — while the operation still reports the
-      // FAILURE for unproven durability (`write_failed { onDiskState:
-      // "new-undurable" }`, §5.1 — never a success ack).
-      s.history = freshHistory(s);
-      s.pendingChange = null;
-      return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
-    }
-    // `previous`: nothing was written — the pending state and the pause
-    // persist across the refusal (the re-issue re-reads and re-attempts).
-    return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
-  }
-  // lastWrittenHash is unchanged (the same LKG bytes were re-written);
-  // history is cleared (new boundary — no reconciliation, charter §6).
-  s.history = freshHistory(s);
-  s.pendingChange = null;
-  return { ok: true, revision: s.revision, historyReset: true };
+  return discardExternalV4(core, s);
 }
 
 /**
@@ -1754,68 +1054,15 @@ export function takeover(
     }
     // (4) load the project (§4.3) — plus the owner temp cleanup (§5.4).
     cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
-    // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot) — the
-    // same branch as the fresh open and `performClaimAndLoad`.
-    const v4Open = openV4OrUpgrade(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
-    if (v4Open !== null) {
-      if (v4Open.kind === 'open') {
-        core.sessions.set(projectId, v4Open.session);
-        return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
-      }
-      core.sessions.set(projectId, blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
-      return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
+    // A v4 project (or a v3 one, upgraded on the spot) — the same branch as
+    // the fresh open and `performClaimAndLoad`.
+    const v4Open = openProject(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
+    if (v4Open.kind === 'open') {
+      core.sessions.set(projectId, v4Open.session);
+      return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
     }
-    const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
-    if (l.kind === 'loaded') {
-      const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);
-      core.sessions.set(projectId, s);
-      return {
-        ok: true,
-        lockEpoch: claim.record.lockEpoch,
-        backendId: core.self.backendId,
-        pid: core.self.pid,
-      };
-    }
-    if (l.kind === 'envelope-missing') {
-      core.sessions.set(
-        projectId,
-        blockSession(core, dir, projectId, man.manifest, claim.record, {
-          reason: 'envelope_invalid',
-          errors: [
-            {
-              code: 'envelope_invalid',
-              path: '',
-              message: 'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-              expected: 'a loadable authoring-state envelope',
-            },
-          ],
-          count: 1,
-        }, sceneDir, thirdlightDir),
-      );
-      return {
-        ok: false,
-        error: projectUnavailable('envelope_invalid', null, [
-          {
-            code: 'envelope_invalid',
-            path: '',
-            message: 'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-            expected: 'a loadable authoring-state envelope',
-          },
-        ]),
-      };
-    }
-    core.sessions.set(
-      projectId,
-      blockSession(core, dir, projectId, man.manifest, claim.record, {
-        reason: l.reason,
-        errors: l.errors,
-        count: l.count,
-      }, sceneDir, thirdlightDir),
-    );
-    return {
-      ok: false,
-      error: projectUnavailable(l.reason, null, l.errors),
-    };
+    core.sessions.set(projectId, blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
+    return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
   }
   // The bounded re-evaluation loop did not converge (oscillating external
   // writer): report the current evaluation.
@@ -1884,41 +1131,14 @@ function performClaimAndLoad(
     return { ok: false, error: ownershipConflict(null) };
   }
   cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
-  // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot).
-  const v4Open = openV4OrUpgrade(core, dir, projectId, manifest, sceneDir, thirdlightDir, claim.record);
-  if (v4Open !== null) {
-    if (v4Open.kind === 'open') {
-      core.sessions.set(projectId, v4Open.session);
-      return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
-    }
-    core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
-    return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
+  // A v4 project (or a v3 one, upgraded on the spot).
+  const v4Open = openProject(core, dir, projectId, manifest, sceneDir, thirdlightDir, claim.record);
+  if (v4Open.kind === 'open') {
+    core.sessions.set(projectId, v4Open.session);
+    return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
   }
-  const l = loadProjectDir(core, sceneDir, projectId, manifest);
-  if (l.kind === 'loaded') {
-    const s = makeSession(core, dir, projectId, l, manifest, claim.record, sceneDir, thirdlightDir);
-    core.sessions.set(projectId, s);
-    return {
-      ok: true,
-      lockEpoch: claim.record.lockEpoch,
-      backendId: core.self.backendId,
-      pid: core.self.pid,
-    };
-  }
-  if (l.kind === 'envelope-missing') {
-    const errors: readonly LoadDetail[] = [
-      {
-        code: 'envelope_invalid',
-        path: '',
-        message: 'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-        expected: 'a loadable authoring-state envelope',
-      },
-    ];
-    core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: 'envelope_invalid', errors, count: 1 }, sceneDir, thirdlightDir));
-    return { ok: false, error: projectUnavailable('envelope_invalid', null, errors) };
-  }
-  core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: l.reason, errors: l.errors, count: l.count }, sceneDir, thirdlightDir));
-  return { ok: false, error: projectUnavailable(l.reason, null, l.errors) };
+  core.sessions.set(projectId, blockSession(core, dir, projectId, manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
+  return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
 }
 
 function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
@@ -1986,135 +1206,22 @@ export function releaseProject(
       ),
     };
   }
-  // Phase 12 (c): a v4 project clears the records in each of its files.
-  if (s.storageVersion === 4) {
-    const cleared = clearRecordsV4(core, s);
-    if (!cleared.ok) {
-      s.ownershipReverify = true;
-      return cleared;
-    }
-    if (s.ownership === null) return { ok: false, error: ownershipConflict(null) };
-    const relV4 = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
-    if (relV4.ok) {
-      s.ownership = { ...s.ownership, state: 'released' };
-      s.mode = 'released';
-      return { ok: true, revision: s.revision, retryCleared: true };
-    }
+  // A v4 project clears the records in each of its files, then marks the
+  // ownership record released.
+  const cleared = clearRecordsV4(core, s);
+  if (!cleared.ok) {
     s.ownershipReverify = true;
-    return { ok: false, error: relV4.failed !== undefined ? writeFailed(relV4.failed.onDiskState ?? 'previous', relV4.failed.errno) : ownershipConflict(null) };
+    return cleared;
   }
-  // (a) Rewrite the envelope (records cleared) via W.
-  const newBytes = envelopeBytesForSession(s, []);
-  const newHash = sha256Hex(newBytes);
-  const res = writeAtomic({
-    dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
-    target: join(s.sceneDir, 'main.json'),
-    bytes: newBytes,
-    allowedPreHashes: [s.lastWrittenHash],
-    previousHash: s.lastWrittenHash,
-    ops: core.ops,
-  });
-  if (res.unreadable) {
-    // §7.2 step 1: a non-ENOENT read failure — the on-disk bytes are
-    // unknown, never absent: record the unreadable pending change and
-    // fail closed (no release; no state changes). The pending pause gates
-    // every later operation until the bytes are readable again.
-    setPendingUnreadable(s);
-    return {
-      ok: false,
-      error: projectUnavailable('external_change_unreadable', null, []),
-    };
-  }
-  if (res.external) {
-    detectExternalChange(core, s, res.external);
-    return {
-      ok: false,
-      error: projectUnavailable('external_change_unresolved', null, []),
-    };
-  }
-  if (res.failed) {
-    if (res.failed.onDiskState === 'new-undurable') {
-      // R5/§5.1: the records-cleared envelope is ON DISK (the rename took
-      // effect) — the in-memory state advances so the running system is
-      // self-consistent (the retry records are gone from memory exactly
-      // as from disk; a lost-ack retry of a pre-release command re-
-      // executes and fails revision_conflict, which is safe, §9) while the
-      // release still reports the failure for unproven durability.
-      s.records = [];
-      s.recordMap = new Map();
-      s.envelopeBytes = newBytes;
-      s.lastWrittenHash = newHash;
-    }
-    // R4: the release did not reach the record write — the project is
-    // still owned and this session is still the writer (workspace.md §9:
-    // no partial release), but the next operation re-verifies ownership
-    // from disk first (the old session must not act on cached ownership).
-    s.ownershipReverify = true;
-    return { ok: false, error: writeFailed(res.failed.onDiskState, res.failed.errno) };
-  }
-  // The durable envelope is now the records-cleared one: keep the in-
-  // memory state consistent with disk even if (b) fails (a retried release
-  // is idempotent — the pre-write check passes against the new LKG).
-  s.records = [];
-  s.recordMap = new Map();
-  s.envelopeBytes = newBytes;
-  s.lastWrittenHash = newHash;
-  // (b) Rewrite the ownership record with state "released".
-  if (s.ownership === null) {
-    return { ok: false, error: ownershipConflict(null) };
-  }
-  const rel = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
-  if (rel.ok) {
-    // (c) The released record is DURABLE: the release tail ran (the
-    // own-claim-file unlink with its by-path holder verification —
-    // workspace.md §9 step 1). Discard the in-memory state (history and
-    // record map): the session is a non-writer — any later command is a
-    // fresh open (workspace.md §9 step 3: "not a continuation of the
-    // released session"), and while released queries fail
-    // project_unavailable { reason: "workspace_closed" } (§9.1).
-    s.history = freshHistory(s);
+  if (s.ownership === null) return { ok: false, error: ownershipConflict(null) };
+  const relV4 = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
+  if (relV4.ok) {
     s.ownership = { ...s.ownership, state: 'released' };
     s.mode = 'released';
     return { ok: true, revision: s.revision, retryCleared: true };
   }
-  if (rel.failed?.onDiskState === 'new-undurable') {
-    // R4: the released record IS on disk (the rename took effect; the
-    // directory flush failed — durability unproven). The moment the
-    // released record is on disk the old session must not remain an
-    // active writer: the release tail completed (the own-claim-file
-    // unlink ran inside releaseOwnership) and the in-memory state is
-    // discarded — while the operation still reports the FAILURE for
-    // unproven durability (workspace.md §5.1: `write_failed
-    // { onDiskState: "new-undurable" }`; the R4 acceptance: "while still
-    // returning failure for unproven durability").
-    s.history = freshHistory(s);
-    s.ownership = { ...s.ownership, state: 'released' };
-    s.mode = 'released';
-    return { ok: false, error: writeFailed('new-undurable', rel.failed?.errno) };
-  }
-  if (rel.failed?.external !== undefined || rel.failed?.unreadable !== undefined) {
-    // R4: FOREIGN OWNERSHIP OBSERVED (the record W's `external` outcome —
-    // the record is no longer ours) or the record bytes are UNKNOWN
-    // (`unreadable` — a non-ENOENT read failure: fail closed). The old
-    // session becomes a non-writer immediately: its in-memory state is
-    // discarded and the session is dropped, so every later operation is
-    // a fresh open that re-evaluates ownership from disk (the old backend
-    // never acts on cached ownership; no further writes from this
-    // session). The release itself reports ownership_conflict (a
-    // releaseWorkspace failure code, workspace.md §11) carrying the
-    // foreign holder when the re-read finds a parseable owned record.
-    core.sessions.delete(s.projectId);
-    return {
-      ok: false,
-      error: ownershipConflict(reReadOwnershipHolder(s.thirdlightDir, core.ops)),
-    };
-  }
-  // res.failed 'previous': the record write did not take effect — the
-  // project is still owned and the old session is still the writer
-  // (workspace.md §9: no partial release). The next operation re-verifies
-  // ownership from disk first (R4 — no acting on cached ownership).
   s.ownershipReverify = true;
-  return { ok: false, error: writeFailed('previous', rel.failed?.errno) };
+  return { ok: false, error: relV4.failed !== undefined ? writeFailed(relV4.failed.onDiskState ?? 'previous', relV4.failed.errno) : ownershipConflict(null) };
 }
 
 /**
@@ -2156,57 +1263,6 @@ const QUERY_OPS = [
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 
-/** Strict query envelope validation (request-level: `invalid_request`). */
-function validateQueryEnvelope(req: unknown):
-  | { ok: true; op: QueryOp; projectId: string; args: Record<string, unknown> | undefined }
-  | { ok: false; error: import('@thirdlight/commands').CommandError } {
-  if (!isPlainObject(req)) {
-    return {
-      ok: false,
-      error: invalidRequest('', jsonTypeName(req), 'object (query request)', 'a query request must be an object'),
-    };
-  }
-  for (const k of Object.keys(req)) {
-    if (!['op', 'projectId', 'args'].includes(k)) {
-      return {
-        ok: false,
-        error: invalidRequest(`/${pointerSegment(k)}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
-      };
-    }
-  }
-  const op = req['op'];
-  if (typeof op !== 'string' || !(QUERY_OPS as readonly string[]).includes(op)) {
-    return {
-      ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the known query ops'),
-    };
-  }
-  const projectId = req['projectId'];
-  if (typeof projectId !== 'string' || projectId.length === 0) {
-    return {
-      ok: false,
-      error: invalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must be a non-empty string'),
-    };
-  }
-  let args: Record<string, unknown> | undefined;
-  if (req['args'] !== undefined) {
-    if (!isPlainObject(req['args'])) {
-      return {
-        ok: false,
-        error: invalidRequest('/args', jsonTypeName(req['args']), 'object', 'args must be an object'),
-      };
-    }
-    args = req['args'];
-  }
-  return { ok: true, op: op as QueryOp, projectId, args };
-}
-
-function jsonTypeName(v: unknown): string {
-  if (v === null) return 'null';
-  if (Array.isArray(v)) return 'array';
-  return typeof v;
-}
-
 function queryFailure(
   op: unknown,
   projectId: unknown,
@@ -2217,111 +1273,6 @@ function queryFailure(
   if (o !== undefined) out.op = o;
   if (typeof projectId === 'string') out.projectId = projectId;
   return out;
-}
-
-/** Per-op args validation for queries (strict; `field_*` inside args). */
-function validateQueryArgs(
-  op: QueryOp,
-  args: Record<string, unknown> | undefined,
-):
-  | {
-      ok: true;
-      entityId?: string;
-      includeSubtree?: boolean;
-      limit?: number;
-      offset?: number;
-      component?: string;
-    }
-  | { ok: false; error: import('@thirdlight/commands').CommandError } {
-  if (op === 'queryProject') {
-    if (args !== undefined) {
-      for (const k of Object.keys(args)) {
-        return {
-          ok: false,
-          error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'queryProject takes no args (field absent or {})'),
-        };
-      }
-    }
-    return { ok: true };
-  }
-  if (args === undefined) {
-    if (op === 'queryEntity') {
-      return { ok: false, error: fieldMissing('/args', 'entityId') };
-    }
-    // queryEntities: args are entirely optional (defaults: offset 0, limit 100).
-    return { ok: true };
-  }
-  if (op === 'queryEntity') {
-    for (const k of Object.keys(args)) {
-      if (k !== 'entityId' && k !== 'includeSubtree') {
-        return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entityId, includeSubtree') };
-      }
-    }
-    if (args['entityId'] === undefined) {
-      return { ok: false, error: fieldMissing('/args/entityId', 'entityId') };
-    }
-    if (typeof args['entityId'] !== 'string' || args['entityId'].length === 0) {
-      return { ok: false, error: fieldTypeError('/args/entityId', args['entityId'], 'string') };
-    }
-    let includeSubtree = false;
-    if (args['includeSubtree'] !== undefined) {
-      if (typeof args['includeSubtree'] !== 'boolean') {
-        return { ok: false, error: fieldTypeError('/args/includeSubtree', args['includeSubtree'], 'boolean') };
-      }
-      includeSubtree = args['includeSubtree'];
-    }
-    return { ok: true, entityId: args['entityId'], includeSubtree };
-  }
-  // queryEntities
-  for (const k of Object.keys(args)) {
-    if (k !== 'limit' && k !== 'offset' && k !== 'component') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset, component') };
-    }
-  }
-  // packet 45/48: the optional `component` filter (commands.md §4). Validated
-  // through the pure commands helper so the accepted names live in one place.
-  let component: string | undefined;
-  if (args['component'] !== undefined) {
-    const f = filterEntitiesByComponent([], args['component']);
-    if (!f.ok) return { ok: false, error: f.error };
-    component = args['component'] as string;
-  }
-  let limit = 100;
-  if (args['limit'] !== undefined) {
-    const l = args['limit'];
-    if (!isSafeInt(l)) {
-      return { ok: false, error: fieldTypeError('/args/limit', l, 'integer') };
-    }
-    if (l < 1 || l > 1024) {
-      // The §5.6 code list: `limits_exceeded` "only limit > 1024, via
-      // field_value" — an argument-level rejection.
-      return {
-        ok: false,
-        error: fieldValueType(
-          '/args/limit',
-          l,
-          'integer 1-1024',
-          'limit must be between 1 and 1024 (the M1 entity limit)',
-        ),
-      };
-    }
-    limit = l;
-  }
-  let offset = 0;
-  if (args['offset'] !== undefined) {
-    const o = args['offset'];
-    if (!isSafeInt(o)) {
-      return { ok: false, error: fieldTypeError('/args/offset', o, 'integer') };
-    }
-    if (o < 0) {
-      return {
-        ok: false,
-        error: fieldValueType('/args/offset', o, 'integer >= 0', 'offset must be >= 0'),
-      };
-    }
-    offset = o;
-  }
-  return { ok: true, limit, offset, ...(component !== undefined ? { component } : {}) };
 }
 
 /**
@@ -2357,141 +1308,9 @@ export function serveQuery(
     const b = s.blocked;
     return queryFailure(op, projectId, projectUnavailable(b?.reason ?? 'envelope_invalid', null, b?.errors ?? []));
   }
-  // Phase 12 (c): a v4 project (several scenes) is served by the v4 queries.
-  if (s.storageVersion === 4 && s.v4 !== null && s.v4 !== undefined) return serveQueryV4(s, op, projectId, args, workspaceBlock(s));
-  const scene = s.scene;
-  // ---- packet 25: the bounded M2 content queries (commands.md §4/§5.6) -------
-  // Served from exactly the same last-acknowledged in-memory state as the M1
-  // queries (never a mutation, no lock, no revision advance). The pure query
-  // functions live in `commands` (the single implementation); the workspace
-  // only supplies the current state.
-  if (op === 'queryAssets' || op === 'queryPrefabs' || op === 'queryBehaviors' || op === 'queryGameConfig') {
-    const state =
-      s.content !== null
-        ? createCommandState(scene, s.content as unknown as ContentDocument, s.manifest)
-        : createCommandState(scene);
-    const request: Record<string, unknown> = { op, projectId };
-    if (args !== undefined) request['args'] = args;
-    const result =
-      op === 'queryAssets'
-        ? queryAssets(state, request)
-        : op === 'queryPrefabs'
-          ? queryPrefabs(state, request)
-          : op === 'queryBehaviors'
-            ? queryBehaviors(state, request)
-            : queryGameConfig(state, request);
-    return result as unknown as QueryResult;
+  // A v4 project (several scenes) is served by the v4 queries.
+  if (s.v4 === null || s.v4 === undefined) {
+    return queryFailure(op, projectId, projectUnavailable('envelope_invalid', null, []));
   }
-  const ov = validateQueryArgs(op, args);
-  if (!ov.ok) return queryFailure(op, projectId, ov.error);
-  if (op === 'queryProject') {
-    return {
-      ok: true,
-      projectId,
-      revision: s.revision,
-      manifest: s.manifest,
-      scene: {
-        sceneId: scene.sceneId,
-        // C35-5 / sessions.md §19.x: the SCENE document's version (1/2/3),
-        // never the manifest's (always 1).
-        schemaVersion: scene.schemaVersion,
-        entityCount: scene.entities.length,
-        cameraId: cameraIdOf(scene),
-      },
-      history: depths(s.history),
-      workspace: workspaceBlock(s),
-      // Phase 12 (b): the project tag registry (ascending bit; v3 projects).
-      ...(scene.schemaVersion === 3 ? { tags: tagRegistryOf(s.content) } : {}),
-    };
-  }
-  if (op === 'queryEntity') {
-    const entityId = ov.entityId!;
-    const idx = scene.entities.findIndex((e) => e.id === entityId);
-    if (idx === -1) return queryFailure(op, projectId, entityNotFound(entityId));
-    const entity = scene.entities[idx]!;
-    const parentChain: string[] = [];
-    let cur = entity.parentId;
-    const byId = new Map<string, SceneEntity>();
-    for (const e of scene.entities) byId.set(e.id, e);
-    while (cur !== undefined && byId.has(cur)) {
-      parentChain.unshift(cur);
-      cur = byId.get(cur)!.parentId;
-    }
-    const childIds = scene.entities.filter((e) => e.parentId === entityId).map((e) => e.id);
-    // Phase 12 (b): the entity's tags by name — its own, and effective
-    // (own + every folder above), so a reader never decodes masks.
-    const registry = tagRegistryOf(s.content);
-    const effective = scene.schemaVersion === 3 ? (effectiveEntityFlags(scene.entities as SceneV3['entities']).get(entityId)?.tags ?? 0) : 0;
-    const namesOf = (mask: number): string[] => registry.filter((t) => (mask & (1 << t.bit)) !== 0).map((t) => t.name);
-    const out: {
-      ok: true;
-      projectId: string;
-      revision: number;
-      entity: SceneEntity;
-      parentChain: readonly string[];
-      childIds: readonly string[];
-      tagNames: { own: string[]; effective: string[] };
-      subtree?: { count: number; entities: readonly SceneEntity[] };
-    } = {
-      ok: true,
-      projectId,
-      revision: s.revision,
-      entity,
-      parentChain,
-      childIds,
-      tagNames: { own: namesOf(((entity as { tags?: number }).tags ?? 0) >>> 0), effective: namesOf(effective) },
-    };
-    if (ov.includeSubtree === true) {
-      const descendants = new Set<string>([entityId]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const e of scene.entities) {
-          if (e.parentId !== undefined && descendants.has(e.parentId) && !descendants.has(e.id)) {
-            descendants.add(e.id);
-            grew = true;
-          }
-        }
-      }
-      const entities = scene.entities.filter((e) => descendants.has(e.id));
-      out.subtree = { count: entities.length, entities };
-    }
-    return out as unknown as QueryResult;
-  }
-  // queryEntities — paged in document order; offset > total ⇒ empty page.
-  // packet 45/48: the optional `component` filter is applied first and `total`
-  // counts the filtered set (commands.md §4).
-  const filtered: { ok: true; entities: readonly SceneEntity[] } | { ok: false; error: CommandError } =
-    ov.component === undefined
-      ? { ok: true, entities: scene.entities }
-      : (filterEntitiesByComponent(
-          scene.entities as unknown as readonly { components: Record<string, unknown> }[],
-          ov.component,
-        ) as { ok: true; entities: readonly SceneEntity[] } | { ok: false; error: CommandError });
-  if (!filtered.ok) return queryFailure(op, projectId, filtered.error);
-  const total = filtered.entities.length;
-  const offset = ov.offset ?? 0;
-  const limit = ov.limit ?? 100;
-  const entities = offset >= total ? [] : filtered.entities.slice(offset, offset + limit);
-  return { ok: true, projectId, revision: s.revision, total, offset, limit, entities } as unknown as QueryResult;
-}
-
-/** The tag registry of a content block (empty when none). */
-function tagRegistryOf(content: unknown): { bit: number; name: string }[] {
-  const tags = (content as { tags?: { bit: number; name: string }[] } | null)?.tags;
-  return Array.isArray(tags) ? tags.map((t) => ({ bit: t.bit, name: t.name })) : [];
-}
-
-/** Any scene entity a query returns (objects of every version, v3 folders). */
-type SceneEntity = (Scene | SceneV2 | SceneV3)['entities'][number];
-
-function cameraIdOf(scene: Scene | SceneV2 | SceneV3 | SceneV4): string {
-  for (const e of scene.entities) {
-    if (e.components.camera !== undefined) return e.id;
-  }
-  return '';
-}
-
-function depths(h: HistoryState): { undoDepth: number; redoDepth: number } {
-  return { undoDepth: h.cursor, redoDepth: h.entries.length - h.cursor };
+  return serveQueryV4(s, op, projectId, args, workspaceBlock(s));
 }

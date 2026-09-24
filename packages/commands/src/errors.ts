@@ -398,20 +398,10 @@ export function revisionExhausted(currentRevision: number): CommandError {
   };
 }
 
-/** §5.4/§6.5: the mutation would leave the scene byte-identical. */
-export function noChange(): CommandError {
-  return {
-    code: 'no_change',
-    cls: 'validation',
-    message: 'request would not change the scene',
-    hint: 'the scene already matches the requested values; nothing was recorded',
-  };
-}
-
 /**
- * §6.5 extension (packet 16): an M2 content/property mutation whose resulting
- * scene **and** content canonical bytes are identical to the current state.
- * (The M1 constructor above keeps its fixture-pinned wording for M1 states.)
+ * §5.4/§6.5 (packet 16): a mutation whose resulting scene **and** content
+ * canonical bytes are identical to the current state (the M1 scene-only
+ * `noChange` was removed with the M1 scene model in phase 9.3).
  */
 export function noChangeContent(): CommandError {
   return {

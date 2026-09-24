@@ -555,7 +555,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
-| 9.3 one schema version (phase 8 rest) | runtime part done 2026-09-24; corpus regenerated in v4 (step A) 2026-09-24; the v1/v2 model code in commands/workspace/project-model remains (step B, see §6) | see git log "9.3" |
+| 9.3 one schema version (phase 8 rest) | done 2026-09-24: runtime part; corpus in v4 (step A); v1/v2 model code removed from project-model/commands/workspace, only v4 loads, v3 upgrades on open (step B; v4 gaps found in §6) | see git log "9.3" |
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
 | 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
@@ -771,3 +771,29 @@ Add one dated line per decision taken during the run (what, why).
   has no `sceneId` (records keep the §5.1 payload). The two v1-only tests
   left (op gate, M1 captureContentView) seed a v1 project from the
   package's own builders until step B removes the v1/v2 code.
+- 2026-09-24 (9.3 step B): the v1/v2 (M1/M2) scene and storage code is gone
+  from project-model (M1 scene validators, the v2 scene validator —
+  `scene-v2.ts` is now `components.ts` with the component rules v3/v4 reuse —,
+  `validateProjectV2` (its cross-block checks moved into `project-v3.ts`),
+  `migrate.ts`, `migrateSceneV3`, the v2 content validator and capture
+  branch), commands (only v3/v4 scenes; `gateResultScene` and the v1/v2
+  gate arms removed) and workspace (v1/v2 envelopes, the migration copy
+  operators, `captureContentView`, the `storageV4` flag and the whole legacy
+  single-envelope session path). The v3 envelope is only read, for the
+  upgrade on open. New projects (plain, template, folder) are written as v4
+  directly, byte-identical to the old create-then-upgrade result (no
+  `migrated-v3` copy); the scan completes an interrupted v4 creation. A v1/v2
+  project on disk is refused with `project_unavailable { reason:
+  "storage_version_unsupported" }` and a hint, files untouched (it still
+  gets an ownership claim, like any blocked project). Removed code and the
+  tests that only covered it are under `archive/removed-v1-v2/`; the rest of
+  the tests were ported to v4. Porting the legacy regression tests to v4
+  found v4 gaps, left as they are (v4 behaviour kept exactly): an
+  `unreadable`/`snapshot_failed` pause is never re-read, so accept/discard
+  stay refused until a restart (and report `external_change_evidence_missing`
+  for an unreadable file); a `new-undurable` discard reports success; a
+  `new-undurable` records-clearing write still releases; a foreign owner seen
+  while releasing is reported `write_failed` instead of `ownership_conflict`;
+  `store-v4.ts` `checkFileKeys` does not escape JSON-pointer segments; a
+  replayed v4 ack has no `sceneId`; `instantiatePrefab` keeps the 1024-entity
+  cap in v4 scenes (create/paste allow 16384).

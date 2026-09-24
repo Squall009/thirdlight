@@ -15,9 +15,6 @@ import { createHash } from 'node:crypto';
 
 import { openWorkspaceService, type WorkspaceService, type WriteOps } from '@thirdlight/workspace';
 
-import { buildEnvelopeBytes } from '../src/envelope';
-import { defaultScene } from '../src/session';
-
 export const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
 export const FIXTURES = join(REPO_ROOT, 'fixtures', 'commands');
 /** The one scene file of the corpus projects (storage v4). */
@@ -76,13 +73,8 @@ export function makeRoot(tag: string): string {
   return base;
 }
 
-/**
- * A storage-v1 (M1) project at revision 0, built from the workspace's own v1
- * builders — for the few tests of v1-only behavior (the storage-version op
- * gate, M1 content refusal) until the v1/v2 code is removed (phase 9.3 step
- * B). The command corpus (`FIXTURES`) is storage v4.
- */
-export function seedV1Project(root: string, projectId: string): string {
+/** A storage v1–v3 project layout: the v1 manifest + `scenes/main.json`. */
+function writeSingleEnvelopeProject(root: string, projectId: string, envelope: Uint8Array | string): string {
   const dir = join(root, 'projects', projectId);
   mkdirSync(join(dir, 'scenes'), { recursive: true });
   const manifest = {
@@ -94,8 +86,54 @@ export function seedV1Project(root: string, projectId: string): string {
     scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
   };
   writeFileSync(join(dir, 'project.json'), JSON.stringify(manifest, null, 2) + '\n');
-  writeFileSync(join(dir, 'scenes', 'main.json'), buildEnvelopeBytes(projectId, defaultScene(), []));
+  writeFileSync(join(dir, 'scenes', 'main.json'), envelope);
   return dir;
+}
+
+/**
+ * A storage v1 (M1) or v2 (M2) project at revision 0, written by hand in the
+ * canonical single-envelope layout of those versions (the default M1 scene;
+ * v2 adds the scene schemaVersion 2 and the five-key content block). The
+ * workspace no longer opens these (phase 9.3): they are refused with
+ * `project_unavailable { reason: "storage_version_unsupported" }`.
+ */
+export function seedLegacyProject(root: string, projectId: string, storageVersion: 1 | 2): string {
+  const scene = {
+    schemaVersion: storageVersion,
+    sceneId: 'scene-main',
+    revision: 0,
+    entities: [
+      {
+        id: 'cam-main',
+        name: 'Main Camera',
+        components: {
+          transform: { position: [0, 0.5, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+          camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 },
+        },
+      },
+    ],
+  };
+  const doc =
+    storageVersion === 1
+      ? { storageVersion, type: 'authoring-state', projectId, scene, retry: { retention: 128, records: [] } }
+      : {
+          storageVersion,
+          type: 'authoring-state',
+          projectId,
+          scene,
+          content: { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] } },
+          retry: { retention: 128, records: [] },
+        };
+  return writeSingleEnvelopeProject(root, projectId, JSON.stringify(doc, null, 2) + '\n');
+}
+
+/**
+ * A storage v3 project (the v1 manifest + a v3 `scenes/main.json` envelope,
+ * e.g. a committed fixture's bytes); the workspace upgrades it to storage v4
+ * in place when it is opened.
+ */
+export function seedV3Project(root: string, projectId: string, envelope: Uint8Array): string {
+  return writeSingleEnvelopeProject(root, projectId, envelope);
 }
 
 /** Copy a fixture disk state into `<root>/projects/<projectId>`. */

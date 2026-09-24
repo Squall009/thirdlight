@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     console.error(JSON.stringify({ ok: false, error: { code: 'usage', message: 'argv: mode root projectId backendId [requestId] [expectedRevision]' } }));
     process.exit(2);
   }
-  const cfg = { root, backendId, storageV4: true };
+  const cfg = { root, backendId };
   let svc: ReturnType<typeof openWorkspaceService>;
   try {
     if (mode === 'crash-before') svc = openWorkspaceService({ ...cfg, ops: crashBeforeOps() });

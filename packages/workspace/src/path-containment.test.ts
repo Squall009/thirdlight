@@ -18,14 +18,19 @@
  *
  *   1. R7 scan: a project-directory symlink under the root, pointing at
  *      an outside directory with a valid manifest + empty scenes/, must
- *      NOT be completed by the startup scan (no main.json outside), the
+ *      NOT be completed by the startup scan (no scene file or
+ *      content.json outside), the
  *      report entry must be an orphan with the escape note (NOT
  *      completed), and a query must reject the project.
  *   2. R7 scenes/.thirdlight: a real project whose scenes (resp.
  *      .thirdlight) is replaced by a symlink to an outside directory —
  *      a mutation on a FRESH open must fail with the
  *      `project_not_found` class and must leave the outside bytes
- *      UNCHANGED (no envelope write, no ownership claim, no recovery).
+ *      UNCHANGED (no scene-file write, no ownership claim, no recovery).
+ *
+ * Ported to storage v4 (phase 9.3 step B): the scene file is
+ * `scenes/scene-main.json`, the interrupted creation a v2 manifest without
+ * content.json.
  *   3. R7 create: a projects name symlinked at an outside directory —
  *      `createProject` must return `project_exists_invalid` (a loadable
  *      outside project) with NO new files inside or outside.
@@ -122,15 +127,18 @@ function nextRequestId(): string {
   return `req-${seq.toString(16).padStart(32, '0')}`;
 }
 
-/** A valid project manifest matching the directory name `id`. */
+/**
+ * A valid storage v4 project manifest (schemaVersion 2) matching the
+ * directory name `id` — with no content.json it is the interrupted-creation
+ * shape the scan completes (scene file + content.json) when contained.
+ */
 function manifestBytes(id: string): string {
   return JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     engineVersion: '0.1.0',
     id,
     name: 'Demo',
     createdAt: '2026-09-17T00:00:00Z',
-    scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
   });
 }
 
@@ -163,11 +171,12 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
       // Opening the service runs the startup scan.
       const s = openWorkspaceService({ root: r });
       try {
-        // (a) The outside tree is UNCHANGED — no main.json was created
-        //     outside the data root (pre-fix: the scan completed the
-        //     creation through the symlink).
+        // (a) The outside tree is UNCHANGED — no scene file or
+        //     content.json was created outside the data root (pre-fix: the
+        //     scan completed the creation through the symlink).
         expect(listing(join(od, 'scenes')), 'outside scenes must stay empty').toEqual([]);
-        expect(existsSync(join(od, 'scenes', 'main.json'))).toBe(false);
+        expect(existsSync(join(od, 'scenes', 'scene-main.json'))).toBe(false);
+        expect(existsSync(join(od, 'content.json'))).toBe(false);
         expect(tree(od)).toEqual(outsideBefore);
 
         // (b) The report entry is an ORPHAN with the escape note — NOT
@@ -191,7 +200,7 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
     }
   });
 
-  it('2a. R7 scenes: scenes replaced by an outside symlink — fresh-open mutation fails project_not_found, outside envelope unchanged', () => {
+  it('2a. R7 scenes: scenes replaced by an outside symlink — fresh-open mutation fails project_not_found, outside scene file unchanged', () => {
     const r = mkdtemp('tl07-b3-root-');
     const out = mkdtemp('tl07-b3-out-');
     const d = join(r, 'projects', 'demo');
@@ -207,15 +216,16 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
       s1.dispose();
 
       // The escape: move the real scenes OUTSIDE, symlink it back in.
-      renameSync(join(d, 'scenes'), scenesOut); // carries the valid envelope
+      renameSync(join(d, 'scenes'), scenesOut); // carries the valid scene file
       symlinkSync(scenesOut, join(d, 'scenes'), 'dir');
-      const envBefore = readFileSync(join(scenesOut, 'main.json'));
+      const envBefore = readFileSync(join(scenesOut, 'scene-main.json'));
+      const contentBefore = readFileSync(join(d, 'content.json'));
+      const scenesOutListBefore = listing(scenesOut);
       const ownBefore = readFileSync(join(d, '.thirdlight', 'ownership.json'));
 
       // A FRESH service: the mutation must fail with the project_not_
       // found class — and write NOTHING (pre-fix: the claim landed
-      // locally and the envelope write went through the symlink
-      // OUTSIDE).
+      // locally and the scene write went through the symlink OUTSIDE).
       const s2 = openWorkspaceService({ root: r });
       try {
         const m = s2.runCommand({
@@ -228,8 +238,13 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
         expect(m.ok, JSON.stringify(m)).toBe(false);
         if (!m.ok) expect(m.error.code).toBe('project_not_found');
         expect(
-          bytesEqual(readFileSync(join(scenesOut, 'main.json')), envBefore),
-          'the outside envelope must be byte-identical',
+          bytesEqual(readFileSync(join(scenesOut, 'scene-main.json')), envBefore),
+          'the outside scene file must be byte-identical',
+        ).toBe(true);
+        expect(listing(scenesOut), 'no new file may appear outside').toEqual(scenesOutListBefore);
+        expect(
+          bytesEqual(readFileSync(join(d, 'content.json')), contentBefore),
+          'content.json must be byte-identical',
         ).toBe(true);
         expect(
           bytesEqual(readFileSync(join(d, '.thirdlight', 'ownership.json')), ownBefore),
@@ -298,7 +313,7 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
     const out = mkdtemp('tl07-b3-out-');
     const od = join(out, 'projects', 'demo');
     try {
-      // Outside: a FULLY LOADABLE project (manifest + envelope +
+      // Outside: a FULLY LOADABLE project (manifest + content + scene +
       // .thirdlight) — created for real by a service on the outside
       // root.
       const so = openWorkspaceService({ root: out });

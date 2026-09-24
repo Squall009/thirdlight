@@ -27,7 +27,7 @@ import { composeV3 } from './project-v3';
 import { validateContentV4, MAX_SCENES } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
-import { ID_RE_V2 } from './scene-v2';
+import { ID_RE_V2 } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';

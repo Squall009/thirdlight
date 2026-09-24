@@ -11,7 +11,6 @@
 
 import {
   serializeCanonical,
-  validateContent,
   validateContentV3,
   validateEnvelopeV3,
   validateSceneV4,
@@ -19,20 +18,13 @@ import {
   composeSceneV4,
   type SceneV4,
   type ContentCatalogV4,
-  validateProjectV2,
   validateProjectV3,
-  validateScene,
-  validateSceneV2,
   SURFACE_PRESETS,
   type BehaviorComponent,
-  type ContentCatalog,
-  type Entity,
-  type EntityV2,
+  type EntityV3,
   type FolderEntityV3,
   type Manifest,
   type ModelErrorV3,
-  type Scene,
-  type SceneV2,
   type SceneV3,
   type TransformComponent,
   type TagDefinition,
@@ -45,7 +37,6 @@ import {
   gameReferenceInUse,
   idExhaustion,
   limitsExceeded,
-  noChange,
   noChangeContent,
   referenceInUse,
   referenceMissing,
@@ -89,25 +80,23 @@ import {
 } from './v3';
 import { worldKeepingLocal, type HierarchyNode } from './world-transform';
 
-/** Either scene shape (M1 interchange or embedded v2). */
-export type AnyEntity = Entity | EntityV2 | FolderEntityV3;
+/** A scene entity: an object entity or a v3/v4 folder. */
+export type AnyEntity = EntityV3 | FolderEntityV3;
 
 /**
- * The entity's component bag as a plain record. The M1 (schemaVersion 1) and
- * v2 component registries overlap; commands that must address a component that
- * exists only in one of them (for example `behavior`) go through this helper
- * so the union stays explicit and the value is still re-validated by the gate.
+ * The entity's component bag as a plain record, for commands that address a
+ * component by name (the value is still re-validated by the gate).
  */
 export function componentsRecord(e: AnyEntity): Record<string, unknown> {
   return e.components as unknown as Record<string, unknown>;
 }
 
-/** The v1 entity components are a subset of v2; `behavior` is v2-only. */
+/** The entity's behavior component, if any (folders have none). */
 export function behaviorOf(e: AnyEntity): BehaviorComponent | undefined {
   return (e.components as { behavior?: BehaviorComponent }).behavior;
 }
 
-/** M1 limits (project-model §10.4, restated in commands.md §5.4/§8.1). */
+/** Scene limits (project-model §10.4, restated in commands.md §5.4/§8.1): a v3 scene. */
 const MAX_ENTITIES = 1024;
 /** Phase 12 (c): a v4 scene holds up to 16384 entities. */
 const MAX_ENTITIES_SCENE_V4 = 16_384;
@@ -254,24 +243,6 @@ export type OpOutcome =
   | { ok: true; op: OpSuccess }
   | { ok: false; error: CommandError };
 
-/**
- * Pipeline steps 5–6 on the applied result: re-validate the resulting
- * scene with the project-model (any failure ⇒ structured error, no state
- * change), then run the uniform no-change check (§6.5). `result` is the
- * CANDIDATE document (typed `unknown`: its value rules — vector lengths,
- * finiteness, ranges, quaternion norm — are exactly what this validation
- * checks); on success the canonical (normalized) scene is returned.
- */
-export function gateResultScene(
-  current: Scene,
-  result: unknown,
-): { ok: true; normalized: Scene } | { ok: false; error: CommandError } {
-  const v = validateScene(result);
-  if (!v.ok) return { ok: false, error: resultSceneError(v.errors) };
-  if (isNoChange(current, v.normalized)) return { ok: false, error: noChange() };
-  return { ok: true, normalized: v.normalized };
-}
-
 /** Canonical bytes of the content block (project-model §12.2), or null. */
 function contentBytes(content: ContentDocument | undefined): Uint8Array | null {
   if (content === undefined) return null;
@@ -365,17 +336,12 @@ function envelopeErrorToModel(e: { path: string; code: string; message: string; 
 }
 
 /**
- * Pipeline steps 5–6 for the M2/M3 state (commands.md §6.1 step 5/§6.5):
- * validate the resulting **scene and content** — v3 via the model-owned v3
- * envelope branch when `resultScene.schemaVersion === 3`, otherwise
- * three-block via `validateProjectV2` when the manifest is available
- * (project-model §13.1) or the v2 scene and content separately (each op
- * additionally runs its own explicit reference checks; see handoff 21) — then
- * compare the whole durable state (canonical scene bytes with `revision`
- * masked **and** canonical content bytes).
- *
- * A schemaVersion 1 result keeps the accepted M1 path (`validateScene`, scene
- * bytes only); no M1 behaviour changes.
+ * Pipeline steps 5–6 (commands.md §6.1 step 5/§6.5): validate the resulting
+ * **scene and content** — a v4 scene by the v4 rules (`gateResultV4`), a v3
+ * scene by the model-owned v3 envelope branch (`gateResultV3`) — then compare
+ * the whole durable state (canonical scene bytes with `revision` masked
+ * **and** canonical content bytes). Any other scene version is refused (the
+ * v1/v2 scene models were removed in phase 9.3).
  */
 export function gateResultState(
   current: { scene: SceneDocument; content?: ContentDocument; manifest?: Manifest },
@@ -390,48 +356,19 @@ export function gateResultState(
       : undefined;
   if (schema === 3) return gateResultV3(current, resultScene, resultContent);
   if (schema === 4) return gateResultV4(current, resultScene, resultContent);
-  const isV2 = schema === 2;
-  if (isV2) {
-    if (current.manifest !== undefined && resultContent !== undefined) {
-      const v = validateProjectV2(current.manifest, resultScene, resultContent);
-      if (!v.ok) return { ok: false, error: resultSceneError(v.errors) };
-      const nextScene = v.normalized.scene as SceneV2;
-      const nextContent = v.normalized.content as ContentCatalog;
-      if (stateIsNoChange(current, nextScene, nextContent)) {
-        return { ok: false, error: noChangeContent() };
-      }
-      return { ok: true, scene: nextScene, content: nextContent };
-    }
-    const sv = validateSceneV2(resultScene);
-    if (!sv.ok) return { ok: false, error: resultSceneError(sv.errors) };
-    if (resultContent !== undefined) {
-      const cv = validateContent(resultContent);
-      if (!cv.ok) return { ok: false, error: resultSceneError(cv.errors) };
-      const nextContent = cv.normalized as ContentCatalog;
-      if (stateIsNoChange(current, sv.normalized as SceneV2, nextContent)) {
-        return { ok: false, error: noChangeContent() };
-      }
-      return { ok: true, scene: sv.normalized as SceneV2, content: nextContent };
-    }
-    if (stateIsNoChange(current, sv.normalized as SceneV2, current.content)) {
-      return { ok: false, error: noChangeContent() };
-    }
-    return { ok: true, scene: sv.normalized as SceneV2, content: current.content };
-  }
-  // M1 interchange scene: unchanged accepted path (scene bytes only).
-  const v = validateScene(resultScene);
-  if (!v.ok) return { ok: false, error: resultSceneError(v.errors) };
-  if (resultContent !== undefined) {
-    const cv = validateContent(resultContent);
-    if (!cv.ok) return { ok: false, error: resultSceneError(cv.errors) };
-  }
-  const sceneSame = isNoChange(current.scene, v.normalized);
-  if (resultContent === undefined) {
-    if (sceneSame) return { ok: false, error: noChange() };
-  } else if (sceneSame && contentIsNoChange(current.content, resultContent)) {
-    return { ok: false, error: noChange() };
-  }
-  return { ok: true, scene: v.normalized, content: resultContent };
+  return {
+    ok: false,
+    error: resultSceneError([
+      {
+        code: 'schema_version_unsupported',
+        path: '/schemaVersion',
+        message: 'the command layer edits schemaVersion 3 and 4 scenes only',
+        expected: 'schemaVersion 3 or 4',
+        knownVersions: [3, 4],
+        ...(schema === undefined ? {} : { found: schema }),
+      },
+    ]),
+  };
 }
 
 /** §6.5: canonical scene bytes (revision masked) AND canonical content bytes. */
@@ -456,9 +393,12 @@ export function contentIsNoChange(
   return bytesEqual(a, b);
 }
 
-/** The canonical empty content block (project-model §18). */
+/**
+ * The canonical empty v3 content block (project-model §18/§23.4): what a
+ * command state without a content block is compared and edited against.
+ */
 export function emptyContentCatalog(): ContentDocument {
-  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] } };
+  return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null };
 }
 
 // ---- createEntity (§8.1) ----------------------------------------------------------
@@ -523,12 +463,12 @@ export function applyCreateEntity(
     const folderResult = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, folder] };
     const folderGate = gateResultState({ scene, content }, folderResult, content);
     if (!folderGate.ok) return folderGate;
-    const created = folderGate.scene.entities.find((e) => e.id === id) as unknown as Entity;
+    const created = folderGate.scene.entities.find((e) => e.id === id) as unknown as EntityV3;
     // A folder created with children (a multi-piece model drop): each child
     // goes through the same create path inside the new folder; the whole set
     // is one transaction whose undo deletes the folder subtree.
     let sceneNow = folderGate.scene;
-    const children: Entity[] = [];
+    const children: EntityV3[] = [];
     for (const child of args.children ?? []) {
       const r = applyCreateEntity({ ...sceneNow, revision: scene.revision }, { ...child, parentId: id }, content, reservedIds);
       if (!r.ok) return r;
@@ -598,7 +538,7 @@ export function applyCreateEntity(
 
   // Canonical entity value (defaults filled, -0 normalized) from the
   // validated result document.
-  const canonicalEntity = gate.scene.entities.find((e) => e.id === id) as Entity;
+  const canonicalEntity = gate.scene.entities.find((e) => e.id === id) as EntityV3;
   const change: CreateEntityChange = { type: 'createEntity', id, entity: deepClone(canonicalEntity) };
   return {
     ok: true,
@@ -773,14 +713,11 @@ export function applyDeleteEntity(
     };
   }
 
-  // §23.6 rule 1 (authoring §A4.2): a v3 `content.game`/checkpoint reference
+  // §23.6 rule 1 (authoring §A4.2): a `content.game`/checkpoint reference
   // inside the closure is refused before application; nothing is cleared.
-  const isV3 = (scene as { schemaVersion?: unknown }).schemaVersion === 3 || (scene as { schemaVersion?: unknown }).schemaVersion === 4;
-  if (isV3) {
-    const refs = danglingGameReferences(scene as SceneV3, gameOf(content), closureSet0);
-    if (refs.length > 0) {
-      return { ok: false, error: gameReferenceInUse(closureInArrayOrder(scene, closure), refs) };
-    }
+  const refs = danglingGameReferences(scene as SceneV3, gameOf(content), closureSet0);
+  if (refs.length > 0) {
+    return { ok: false, error: gameReferenceInUse(closureInArrayOrder(scene, closure), refs) };
   }
 
   const deletedIds = closureInArrayOrder(scene, closure);
@@ -788,18 +725,15 @@ export function applyDeleteEntity(
   // §9.1 inverse: entries in pre-deletion array order with indices.
   const entries = deletedIds.map((id) => ({
     index: indexOf.get(id) as number,
-    entity: deepClone(byId.get(id) as Entity),
+    entity: deepClone(byId.get(id) as EntityV3),
   }));
 
   const closureSet = new Set(closure);
   const nextEntities = scene.entities.filter((e) => !closureSet.has(e.id));
   const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
-  // A v3 result is validated together with the (unchanged) content block so
-  // the §23.5 game composition rules run; M2 keeps the accepted scene-only
-  // gate with the op's own explicit reference checks (handoff 21).
-  const gate = isV3
-    ? gateResultState({ scene, content }, result, content)
-    : gateResultState({ scene }, result);
+  // The result is validated together with the (unchanged) content block so
+  // the §23.5 game composition rules run.
+  const gate = gateResultState({ scene, content }, result, content);
   if (!gate.ok) return gate;
 
   const change: DeleteEntityChange = {

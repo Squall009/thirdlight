@@ -1,6 +1,9 @@
 /**
- * Canonical (normalized) document types — project-model.md §7–§10,
- * schemaVersion 1. These describe the STRICT output of the normalizer
+ * Canonical (normalized) document types — project-model.md §7–§10: the
+ * shared vector/transform/box/camera value types and the schemaVersion 1
+ * manifest (the manifest of a storage-v3 project, read by the automatic
+ * v3 → v4 upgrade). The M1 scene/entity types were removed in phase 9.3.
+ * These describe the STRICT output of the normalizer
  * (§12.2): every defaulted optional field present, fixed key order,
  * `parentId` only when non-null, `name` only when present.
  *
@@ -39,33 +42,6 @@ export interface CameraComponent {
   fovY: number;
   near: number;
   far: number;
-}
-
-/**
- * Entity components (§9): `transform` always; `box` and `camera` mutually
- * exclusive. Canonical key order: `transform`, `box`, `camera` (§10).
- */
-export interface EntityComponents {
-  transform: TransformComponent;
-  box?: BoxComponent;
-  camera?: CameraComponent;
-}
-
-/** Entity (§9.1). Canonical field order: `id`, `name`?, `parentId`?, `components`. */
-export interface Entity {
-  id: string;
-  name?: string;
-  /** Parent entity id, emitted only when non-null; `null`/absent = root. */
-  parentId?: string;
-  components: EntityComponents;
-}
-
-/** Scene document (§8). Canonical field order: `schemaVersion`, `sceneId`, `revision`, `entities`. */
-export interface Scene {
-  schemaVersion: 1;
-  sceneId: string;
-  revision: number;
-  entities: Entity[];
 }
 
 /** Manifest scene reference (§7.1). M1: `path` is exactly `"scenes/main.json"`. */

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { serializeCanonical } from '@thirdlight/project-model';
 
 import * as pkg from './index';
-import { applyMutation, createCommandState, ERROR_CODES, MAX_REVISION } from './index';
+import { applyMutation, ERROR_CODES, MAX_REVISION } from './index';
 import type {
   ApplyOutcome,
   CommandError,
@@ -23,9 +23,9 @@ import type {
   MutationResult,
   SetTransformArgs,
 } from './index';
-import { at, boxEntity, cameraEntity, req, scene } from './test-scene';
+import { at, boxEntity, cameraEntity, req, scene, v4State } from './test-scene';
 
-const ST = () => createCommandState(scene(0, [cameraEntity(), boxEntity('box-0001')]));
+const ST = () => v4State(scene(0, [cameraEntity(), boxEntity('box-0001')]));
 
 describe('public surface (dependencies.md §3)', () => {
   it('exports the entry points and constants', () => {
@@ -140,7 +140,7 @@ describe('public surface (dependencies.md §3)', () => {
     const err: CommandError = {
       code: 'no_change',
       cls: 'validation',
-      message: 'request would not change the scene',
+      message: 'the resulting scene and content are byte-identical to the current state',
     };
     const res: MutationResult = { ok: false, error: err };
     const out: ApplyOutcome = { ok: false, result: res };
@@ -277,7 +277,9 @@ describe('success payload invariants (§5.1)', () => {
     }));
     if (r2.ok) throw new Error('second identical setTransform ⇒ no_change');
     expect(Object.keys(r2.result)).toEqual(['ok', 'op', 'projectId', 'requestId', 'error']);
-    expect(Object.keys(r2.result.error)).toEqual(['code', 'cls', 'message', 'hint']);
+    // v3/v4 states report the whole-state no_change (scene AND content
+    // byte-identical): code, cls, message.
+    expect(Object.keys(r2.result.error)).toEqual(['code', 'cls', 'message']);
 
     // result-scene failure key order (scenario 04 pin): code, cls,
     // detailDocument, details, detailCount, message, hint.

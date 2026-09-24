@@ -25,7 +25,6 @@ function seedT7(root: string): string {
 function svcOn(root: string) {
   return openWorkspaceService({
     root,
-    storageV4: true,
     backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     pid: 5000,
     stamp: () => '20260917T101500Z',

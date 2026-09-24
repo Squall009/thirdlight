@@ -21,7 +21,7 @@
  * Pure: no DOM, no I/O, no Node builtins.
  */
 
-import type { Entity, GameZoneComponent, CameraFollowComponent, LightComponent, SurfaceComponent, ModelAnimationComponent } from '@thirdlight/project-model';
+import type { EntityV3, GameZoneComponent, CameraFollowComponent, LightComponent, SurfaceComponent, ModelAnimationComponent } from '@thirdlight/project-model';
 import type { ChangeData, SetBehaviorPropertiesChange } from '@thirdlight/commands';
 
 /** One projected entity (the display projection of a backend Entity). */
@@ -105,7 +105,7 @@ export interface ApplyMutationResult {
 /** A full-state hydration input (from establish / queryEntities / resync). */
 export interface FullState {
   revision: number;
-  entities: readonly Entity[];
+  entities: readonly EntityV3[];
   /** Phase 12 (c), v4: each entity's scene (aligned with `entities`), the scenes and the start set. */
   entitySceneIds?: readonly string[];
   scenes?: readonly SceneRowView[];
@@ -154,7 +154,7 @@ function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName
 
 const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 
-function toProjected(e: Entity): ProjectedEntity {
+function toProjected(e: EntityV3): ProjectedEntity {
   const flags = e as { active?: boolean; locked?: boolean; static?: boolean; tags?: number };
   const c = e.components as {
     folder?: unknown;
@@ -402,7 +402,7 @@ export class Projection {
         // projection update — never a local mutation path of its own.
         const entries = [...change.entries].sort((a, b) => a.index - b.index);
         for (const entry of entries) {
-          const p = toProjected(entry.entity as unknown as Entity);
+          const p = toProjected(entry.entity as unknown as EntityV3);
           if (this.entities.has(p.id)) continue; // idempotent
           const at = Math.max(0, Math.min(this.order.length, entry.index));
           this.order.splice(at, 0, p.id);

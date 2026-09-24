@@ -16,7 +16,7 @@ const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'd'.repeat(32), pid: 6301 };
 
 function open(root: string): WorkspaceService {
-  return openWorkspaceService({ root, utcNow: () => '2026-09-24T10:00:00Z', storageV4: true, ...SELF });
+  return openWorkspaceService({ root, utcNow: () => '2026-09-24T10:00:00Z', ...SELF });
 }
 let n = 0;
 function send(svc: WorkspaceService, op: string, args: Record<string, unknown>): MutationResult {

@@ -9,7 +9,9 @@
  * pointer `/args/a/b` instead of the RFC 6901-correct `/args/a~1b`
  * (commands.md §3: `path` is "a JSON Pointer into the request").
  *
- * One test per fixed site (12 reachable sites):
+ * One test per fixed site (11 reachable sites; the 12th, the M1 setTransform
+ * record's `fullTransformError`, went with the storage v1 record validator —
+ * its test is archived in archive/removed-v1-v2/workspace/):
  *
  *   service.ts   canonicalIssue object-key walk      args `x/y`   ⇒ /args/x~1y
  *   service.ts   query envelope unknown top-level    `a/b~c`      ⇒ /a~1b~0c
@@ -22,7 +24,13 @@
  *   envelope.ts  recorded result unknown key         `q/w`        ⇒ /result/q~1w
  *   envelope.ts  originOfApplied unknown key         `m/n`        ⇒ /result/originOfApplied/m~1n
  *   envelope.ts  recorded history unknown key        `h/i`        ⇒ /result/history/h~1i
- *   envelope.ts  fullTransformError unknown key      `t/u`        ⇒ /result/change/previous/t~1u
+ *
+ * Ported to storage v4 (phase 9.3 step B): the envelope-level sites run
+ * against the storage v3 envelope reader (`validateEnvelope` reads only
+ * storageVersion 3 now; a v3 project is upgraded to v4 on open), and the
+ * retry-block sites are pinned a second time through the v4 file loader
+ * (`loadV4`, store-v4.ts) on a real v4 project's content.json, where the
+ * loader prefixes the file (`/content.json/retry/...`).
  *
  * (session.ts's `validateQueryEnvelope` carries the same pattern but has no
  * callers at HEAD — unreachable; its site is fixed for consistency and is
@@ -32,7 +40,7 @@
  * detail at `/args/x/y` instead of `/args/x~1y`).
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -43,6 +51,8 @@ import {
   type WorkspaceService,
 } from '@thirdlight/workspace';
 import { validateEnvelope, type EnvelopeLoad } from './envelope';
+import { loadV4, type LoadV4Outcome } from './store-v4';
+import { defaultOps } from './write';
 
 // ---- disposable roots (mkdtemp data roots; cleaned up in finally) ----------
 
@@ -153,14 +163,14 @@ describe('O2 workspace audit — request-level sites (public service API)', () =
   });
 });
 
-describe('O2 workspace audit — envelope-level sites (validateEnvelope)', () => {
+describe('O2 workspace audit — envelope-level sites (validateEnvelope, storage v3)', () => {
   const RID = `req-${'a'.repeat(32)}`;
   const RID2 = `req-${'b'.repeat(32)}`;
   const DIGEST = `c`.repeat(64);
 
-  /** A minimal valid M1 scene: exactly one camera (project-model §10.3). */
+  /** A minimal valid v3 scene: exactly one camera (project-model §10.3). */
   const BASE_SCENE = {
-    schemaVersion: 1,
+    schemaVersion: 3,
     sceneId: 'scene-main',
     revision: 0,
     entities: [
@@ -177,10 +187,11 @@ describe('O2 workspace audit — envelope-level sites (validateEnvelope)', () =>
   /** A valid envelope document (fresh JSON copy) with one injected mutation. */
   function envelopeBytes(mutate: (doc: Record<string, unknown>) => void): Uint8Array {
     const doc: Record<string, unknown> = {
-      storageVersion: 1,
+      storageVersion: 3,
       type: 'authoring-state',
       projectId: 'p000',
       scene: JSON.parse(JSON.stringify(BASE_SCENE)),
+      content: { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null },
       retry: { retention: 128, records: [] },
     };
     mutate(doc);
@@ -303,16 +314,69 @@ describe('O2 workspace audit — envelope-level sites (validateEnvelope)', () =>
     );
     expectDetail(res, 'retry_records_invalid', '/result/history/h~1i');
   });
+});
+describe('O2 workspace audit — retry-block sites through the v4 file loader (loadV4)', () => {
+  const RID = `req-${'a'.repeat(32)}`;
+  const DIGEST = `c`.repeat(64);
+  let root: string;
+  let dir: string;
+  let service: WorkspaceService;
+  let contentBytes: Uint8Array;
 
-  it('envelope.ts fullTransformError: unknown transform key "t/u" ⇒ at /result/change/previous/t~1u', () => {
-    const change = stChange();
-    (change.previous as Record<string, unknown>)['t/u'] = 1;
-    const res = validateEnvelope(
-      envelopeBytes((doc) => {
-        doc.retry = { retention: 128, records: [record(stResult({ change }))] };
-      }),
-      'p000',
-    );
-    expectDetail(res, 'retry_records_invalid', '/result/change/previous/t~1u');
+  beforeEach(() => {
+    root = makeRoot();
+    service = openWorkspaceService({ root, backendId: BACKEND_ID });
+    expect(service.createProject('p000', 'P000').ok).toBe(true);
+    service.dispose();
+    dir = join(root, 'projects', 'p000');
+    contentBytes = readFileSync(join(dir, 'content.json'));
+  });
+
+  /** Rewrite content.json with a mutated retry block, then load the project. */
+  function loadWithRetry(retry: unknown): LoadV4Outcome {
+    const doc = JSON.parse(new TextDecoder().decode(contentBytes)) as Record<string, unknown>;
+    doc['retry'] = retry;
+    writeFileSync(join(dir, 'content.json'), JSON.stringify(doc));
+    return loadV4(defaultOps, dir, 'p000');
+  }
+
+  function expectDetail(res: LoadV4Outcome, path: string): void {
+    expect(res.kind).toBe('blocked');
+    if (res.kind !== 'blocked') throw new Error('the v4 load should have failed');
+    expect(res.reason).toBe('retry_records_invalid');
+    const d = res.errors.find((x) => x.path === path);
+    expect(d, `expected a detail at ${path}; got: ${JSON.stringify(res.errors)}`).toBeDefined();
+  }
+
+  it('sanity: the unmodified project loads', () => {
+    expect(loadWithRetry({ retention: 128, records: [] }).kind).toBe('loaded');
+  });
+
+  it('store-v4.ts content.json retry block: unknown key "x/y" ⇒ at /content.json/retry/x~1y', () => {
+    expectDetail(loadWithRetry({ retention: 128, records: [], 'x/y': 1 }), '/content.json/retry/x~1y');
+  });
+
+  it('store-v4.ts content.json retry record: unknown key "z/w" ⇒ at /content.json/retry/records/0/z~1w', () => {
+    expectDetail(loadWithRetry({ retention: 128, records: [{ 'z/w': 1 }] }), '/content.json/retry/records/0/z~1w');
+  });
+
+  it('store-v4.ts content.json recorded history: unknown key "h/i" ⇒ at /result/history/h~1i', () => {
+    const result = {
+      ok: true,
+      op: 'setSettings',
+      projectId: 'p000',
+      requestId: RID,
+      revision: 0,
+      duplicated: false,
+      change: { type: 'setSettings', previous: {}, next: {}, changedKeys: [] },
+      history: { undoDepth: 1, redoDepth: 0, 'h/i': 1 },
+    };
+    const res = loadWithRetry({ retention: 128, records: [{ requestId: RID, digest: DIGEST, appliedRevision: 0, result }] });
+    expect(res.kind).toBe('blocked');
+    if (res.kind !== 'blocked') throw new Error('the v4 load should have failed');
+    expect(res.reason).toBe('retry_records_invalid');
+    // The detail path ends in the escaped segment (whatever the record-level prefix).
+    expect(res.errors.some((x) => x.path.endsWith('/history/h~1i')), JSON.stringify(res.errors)).toBe(true);
+    expect(res.errors.some((x) => x.path.endsWith('/history/h/i'))).toBe(false);
   });
 });

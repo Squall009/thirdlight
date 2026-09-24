@@ -18,10 +18,10 @@ export { ERROR_CODES } from './errors';
 export type { CommandError, MutationResult, MutationSuccess } from '@thirdlight/commands';
 export type { WriteOps } from './write';
 export { defaultOps as defaultWriteOps } from './write';
-export type { Entity, Scene, Manifest, ModelError } from '@thirdlight/project-model';
+export type { EntityV3, SceneV4, Manifest, ModelError } from '@thirdlight/project-model';
 // Packet-23 content storage (workspace.md §11/§13): the public result/request
-// types of the stage/blob/integrity/capture operations and the operator
-// migration copy. The operations themselves are methods on `WorkspaceService`.
+// types of the stage/blob/integrity/capture operations. The operations
+// themselves are methods on `WorkspaceService`.
 export type {
   BlobPublishRequest,
   BlobPublishResult,
@@ -31,7 +31,6 @@ export type {
   PreparedMediaFacts,
   SourceBlobReadRequest,
   SourceBlobReadResult,
-  CaptureViewResult,
   CapturedV3Read,
   CapturedV3ReadResult,
   ContentIntegrityEntry,
@@ -51,19 +50,11 @@ export type {
   StageResult,
 } from './content-store';
 export type {
-  AnyMigrationMarker,
-  MigrationMarker,
-  MigrationMarkerV3,
-  MigrationPhase,
-  MigrationResult,
-  MigrationResultV3,
-} from './migration';
-export type {
   PrepareBehaviorSourceOk,
   PrepareBehaviorSourceRequest,
   PrepareBehaviorSourceResult,
 } from './behavior';
-export type { AssetRecord, AssetVersion, CapturedContent, ContentCatalog, ImportRecipe } from '@thirdlight/project-model';
+export type { AssetRecord, AssetVersion, ContentCatalog, ImportRecipe } from '@thirdlight/project-model';
 // Packet 25: the injected inspector's proposal type is asset-pipeline's
 // (dependencies.md §3/§4.1 — the workspace's edge is types-only).
 export type { ImportProposal, AudioImportProposal, ImportJobPort } from '@thirdlight/asset-pipeline';

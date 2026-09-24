@@ -20,13 +20,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { applyMutation, createCommandState, MAX_REVISION } from './index';
+import { applyMutation, MAX_REVISION } from './index';
 import type { CommandError, CommandState } from './index';
-import { boxEntity, cameraEntity, req, scene } from './test-scene';
+import { boxEntity, cameraEntity, req, scene, v4State } from './test-scene';
 
 /** A valid scene at the given revision (one camera + one box). */
 function stateAt(revision: number): CommandState {
-  return createCommandState(scene(revision, [cameraEntity(), boxEntity('box-0001')]));
+  return v4State(scene(revision, [cameraEntity(), boxEntity('box-0001')]));
 }
 
 /** Apply and return the structured error (these requests must all fail). */

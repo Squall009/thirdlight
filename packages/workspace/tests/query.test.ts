@@ -25,7 +25,7 @@ describe('queries (§5.6)', () => {
   it('queryProject serves the published state (manifest, scene, workspace block)', () => {
     const root = makeRoot('q-1');
     seedRev5(root);
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const r = q(svc, { op: 'queryProject', projectId: 'demo-0001' });
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error('query failed');
@@ -49,7 +49,7 @@ describe('queries (§5.6)', () => {
   it('queryEntity / queryEntities return the entity values', () => {
     const root = makeRoot('q-2');
     seedRev5(root);
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const one = q(svc, { op: 'queryEntity', projectId: 'demo-0001', args: { entityId: 'box-0001' } });
     expect(one.ok).toBe(true);
     if (!one.ok) throw new Error('queryEntity failed');
@@ -81,7 +81,7 @@ describe('queries (§5.6)', () => {
   it('request-level failures: invalid envelope and args', () => {
     const root = makeRoot('q-3');
     seedRev5(root);
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const badOp = q(svc, { op: 'queryEverything', projectId: 'demo-0001' });
     expect(badOp.ok).toBe(false);
     if (!badOp.ok) expect((badOp.error as { code: string }).code).toBe('invalid_request');
@@ -112,7 +112,7 @@ describe('queries (§5.6)', () => {
     const root = makeRoot('q-4');
     const dir = seedRev5(root);
     writeFileSync(join(dir, SCENE_FILE), 'not json');
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const r = q(svc, { op: 'queryProject', projectId: 'demo-0001' });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -138,7 +138,7 @@ describe('queries (§5.6)', () => {
     mkdirSync(outside, { recursive: true });
     symlinkSync(outside, join(root, 'projects', 'linked'));
 
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     // Syntactically invalid IDs are rejected at the request layer
     // (traversal cannot reach the filesystem at all).
     for (const bad of ['../outside', '..', './x', 'a/b', '/etc', 'demo-0001/..', 'UPPER', 'x'.repeat(65)]) {

@@ -33,16 +33,8 @@ import {
 import { basename, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { type SceneV4, type ContentCatalogV4, captureContent, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES, validateContent } from '@thirdlight/project-model';
-import type {
-  CapturedContent,
-  ContentCatalog,
-  ContentCatalogV3,
-  ImportRecipe as ModelImportRecipe,
-  Scene,
-  SceneV2,
-  SceneV3,
-} from '@thirdlight/project-model';
+import { type SceneV4, type ContentCatalogV4, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES } from '@thirdlight/project-model';
+import type { ImportRecipe as ModelImportRecipe } from '@thirdlight/project-model';
 import type {
   AnimationProfileRequest,
   AudioImportProposal,
@@ -154,11 +146,13 @@ export interface ContentContext {
   dir: string;
   /** The verified `.thirdlight` directory (session `thirdlightDir`). */
   thirdlightDir: string;
-  storageVersion: 1 | 2 | 3 | 4;
+  /** Always 4 (storage v4). */
+  storageVersion: 4;
   revision: number;
-  scene: Scene | SceneV2 | SceneV3 | SceneV4 | null;
-  content: ContentCatalog | ContentCatalogV3 | ContentCatalogV4 | null;
-  /** Phase 12 (c): every scene of a v4 project (the capture covers them all). */
+  /** The first start scene (null only for a project still being created). */
+  scene: SceneV4 | null;
+  content: ContentCatalogV4 | null;
+  /** Every scene of the project (the capture covers them all). */
   scenes?: readonly SceneV4[];
   /**
    * The game folder of a folder project (the folder holding `thirdlight.json`);
@@ -1484,76 +1478,24 @@ export function verifyReferencedBlob(
   return { ok: true };
 }
 
-// ---- captured content view (project-model §19) ------------------------------
-
-export type CaptureViewResult = { ok: true; view: CapturedContent } | { ok: false; error: CommandError };
+// ---- captured project read (workspace.md §16, packet 58) ---------------------
 
 /**
- * `captureContentView(projectId)` — the pure captured immutable content view
- * (`captureContent`, project-model §19/§16.6 item 4). A `storageVersion` 1
- * project has no content block: the operation is unavailable for it
- * (`version_combination_unsupported`), which the contract's failure list
- * expresses as `project_unavailable`. A v3 project uses the same view
- * (`contentVersion` stays 1); the capture resolves `modelAnimation` bindings
- * and `content.game` cues (CC-44-6 precedence: an explicit binding version
- * wins over the asset's `currentVersion`, first binding wins on a tie).
- */
-export function captureContentView(ctx: ContentContext): CaptureViewResult {
-  if (ctx.storageVersion === 1 || ctx.content === null || ctx.scene === null) {
-    return {
-      ok: false,
-      error: {
-        code: 'project_unavailable',
-        cls: 'unavailable',
-        reason: 'version_combination_unsupported',
-        message: 'the captured content view requires the v2 envelope combination (storageVersion 2 with a content block)',
-        hint: 'migrate the M1 project with migrateProjectCopy to obtain an M2 project',
-      },
-    };
-  }
-  const res = captureContent(ctx.scene, ctx.content, { projectId: ctx.projectId, revision: ctx.revision });
-  if (!res.ok) {
-    const e: Record<string, unknown> = {
-      code: 'content_invalid',
-      cls: 'unavailable',
-      details: res.errors.slice(0, 10),
-      detailCount: res.errors.length,
-      message: 'the captured content view could not be derived',
-      hint: 'the envelope would not have loaded with a dangling reference; repair the content block by hand',
-    };
-    return { ok: false, error: e as unknown as CommandError };
-  }
-  return { ok: true, view: res.normalized };
-}
-
-// ---- M3 captured envelope read (workspace.md §16, packet 58) -----------------
-
-/**
- * The captured v3 envelope read (packet 58, delivery.md §2.6 "one capture, one
- * read"): the single acknowledged envelope state's v3 `scene` + `content`
- * halves, for the M3 shared closure builder. A pure read — no lock, no
- * mutation, served from the last acknowledged in-memory state (never a
- * partial state). The caller (the exporter's closure builder) derives the v2
- * manifest from these; the workspace does NOT duplicate the derivation
- * (delivery.md §1: the workspace owns the single acknowledged read, the
- * project-model owns the pure manifest v2 derivation).
- *
- * A `storageVersion` 1/2 project has no v3 envelope
- * (`version_combination_unsupported`). This is the "workspace captured-view
- * seam" the packet-58 may-edit names (delivery.md §1/§2.6); it is purely
- * additive (the v1 `captureContentView` view is unchanged).
+ * The captured project read (packet 58, delivery.md §2.6 "one capture, one
+ * read"): the single acknowledged state's scenes + content, for the shared
+ * closure builder. A pure read — no lock, no mutation, served from the last
+ * acknowledged in-memory state (never a partial state). The caller (the
+ * exporter's closure builder) derives the runtime-content manifest from
+ * these; the workspace does NOT duplicate the derivation (delivery.md §1).
  */
 export interface CapturedV3Read {
   projectId: string;
   revision: number;
-  /** The captured v3 scene document (the acknowledged state's scene half). */
+  /** The start scenes merged into one runtime scene (schemaVersion 4). */
   scene: unknown;
-  /** The captured v3 content block (the acknowledged state's content half). */
+  /** The content block. */
   content: unknown;
-  /**
-   * Phase 12 (c), a v4 project: every scene (index order); `scene` is then
-   * the start scenes merged into one runtime scene (schemaVersion 4).
-   */
+  /** Every scene (index order). */
   scenes?: readonly unknown[];
   startScenes?: readonly string[];
 }
@@ -1561,9 +1503,9 @@ export interface CapturedV3Read {
 export type CapturedV3ReadResult = { ok: true; read: CapturedV3Read } | { ok: false; error: CommandError };
 
 export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
-  // Phase 12 (c): a v4 project — the start scenes merged (what the game starts
-  // with) and every scene (loaded at start or on demand).
-  if (ctx.storageVersion === 4 && ctx.content !== null && ctx.scenes !== undefined) {
+  // The start scenes merged (what the game starts with) and every scene
+  // (loaded at start or on demand).
+  if (ctx.content !== null && ctx.scenes !== undefined) {
     const content = ctx.content as ContentCatalogV4;
     const byId = new Map(ctx.scenes.map((sc) => [sc.sceneId, sc]));
     const entities = content.startScenes.flatMap((id) => byId.get(id)?.entities ?? []);
@@ -1580,25 +1522,13 @@ export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
       },
     };
   }
-  if (ctx.storageVersion !== 3 || ctx.content === null || ctx.scene === null) {
-    return {
-      ok: false,
-      error: {
-        code: 'project_unavailable',
-        cls: 'unavailable',
-        reason: 'version_combination_unsupported',
-        message: 'the captured v3 read requires a storageVersion 3 envelope',
-        hint: 'migrate the project with migrateProjectCopyV3 to obtain a v3 project',
-      },
-    };
-  }
   return {
-    ok: true,
-    read: {
-      projectId: ctx.projectId,
-      revision: ctx.revision,
-      scene: ctx.scene,
-      content: ctx.content,
+    ok: false,
+    error: {
+      code: 'project_unavailable',
+      cls: 'unavailable',
+      reason: 'envelope_invalid',
+      message: 'the project has no loaded scenes to capture',
     },
   };
 }
@@ -1655,13 +1585,6 @@ export function writeDerivedImport(
   const wr = writeAtomic({ dir: dirRes.dir, target, bytes: importJson, allowedPreHashes: [], previousHash: null, ops: core.ops });
   if (!wr.ok) return { ok: false, error: contentPublishFailed('write', wr.failed?.onDiskState, wr.failed?.errno) };
   return { ok: true, path: target };
-}
-
-/** Re-export the model's content validator so callers can build an empty
- * catalog without reaching into another package (used by migration). */export function emptyContent(): ContentCatalog {
-  const res = validateContent({ assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] } });
-  if (!res.ok) throw new Error('the canonical empty content block failed model validation');
-  return res.normalized;
 }
 
 // ---- prepared behavior sources (packet 33; derived cache) ---------------------

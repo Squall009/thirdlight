@@ -83,9 +83,11 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
-// ---- packet 21: M2 command fixtures (fixtures/m2/**) ------------------------------
+// ---- packet 21: M2 command fixtures (fixtures/m2/{commands,contracts/commands,prefabs}) --
+// Only the command scenarios the v4 ports replay (content-ops-v4,
+// prefab-ops-v4, model-authoring-v4) are loaded.
 
-const M2_RAW = import.meta.glob('../../../fixtures/m2/**', {
+const M2_RAW = import.meta.glob('../../../fixtures/m2/{commands,contracts/commands,prefabs}/**', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -108,6 +110,32 @@ export function m2FixtureText(rel: string): string {
 /** Parsed JSON value of `fixtures/m2/<rel>`. */
 export function m2FixtureJson<T = unknown>(rel: string): T {
   return JSON.parse(m2FixtureText(rel)) as T;
+}
+
+/**
+ * The state of an M2 command envelope under `fixtures/m2/<rel>` lifted to
+ * one v4 project scene (phase 9.3 removed the v2 scene model): the scene is
+ * re-labelled `schemaVersion 4` and the content block gains the v4 keys
+ * (`game: null`, the one scene `scene-main` as the index and start set).
+ * Both are validated by the v4 model rules, so a fixture that is no longer a
+ * valid v4 state fails loudly here instead of inside a test.
+ */
+export function m2EnvelopeV4(rel: string): { projectId: string; scene: SceneV4; content: ContentDocument } {
+  const env = m2FixtureJson<{ projectId: string; scene: Record<string, unknown>; content: Record<string, unknown> }>(rel);
+  const scene = validateSceneV4({ ...env.scene, schemaVersion: 4 });
+  if (!scene.ok) throw new Error(`${rel}: scene is not a valid v4 scene: ${JSON.stringify(scene.errors)}`);
+  const content = validateContentV4({
+    ...env.content,
+    game: null,
+    scenes: [{ sceneId: 'scene-main', name: 'Main' }],
+    startScenes: ['scene-main'],
+  });
+  if (!content.ok) throw new Error(`${rel}: content is not a valid v4 block: ${JSON.stringify(content.errors)}`);
+  return {
+    projectId: env.projectId,
+    scene: scene.normalized,
+    content: content.normalized as ContentCatalogV4 as unknown as ContentDocument,
+  };
 }
 
 // ---- packet 45: M3 v3 contract fixtures (fixtures/m3/contracts/**) ---------------

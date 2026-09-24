@@ -335,9 +335,8 @@ export function contentCounts(state: CommandState<SceneDocument>): ContentCounts
     behaviors: content.behaviors.length,
     settingsKeys: Object.keys(content.settings).length,
   };
-  // The v3 additions are emitted only for a v3 state so the accepted M2
-  // `queryProject` content summary stays byte-identical (handoff 45 CC-45-6).
-  if ((state.scene as { schemaVersion?: unknown }).schemaVersion === 3 || (state.scene as { schemaVersion?: unknown }).schemaVersion === 4) {
+  // The v3 additions (every state is v3 or v4 since phase 9.3).
+  {
     const entities = state.scene.entities as unknown as readonly {
       components: Record<string, unknown>;
     }[];

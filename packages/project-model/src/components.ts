@@ -1,66 +1,39 @@
 /**
- * schemaVersion 2 logical scene validation — project-model.md §10.5–§10.8,
- * §12.2/§12.3, §21 (physics components and transform rules).
+ * Component-level validators shared by the v3/v4 scene and content models —
+ * project-model.md §10.5–§10.8, §12.2/§12.3, §21 (model, behavior, prefab
+ * provenance, collider/controller and their physics transform rules; the
+ * transform/box/camera field rules).
  *
- * `validateSceneV2` is the explicitly versioned M2 scene validator used by
- * `validateProjectV2` (the v2 active-workspace composition). The M1
- * standalone interchange entry points (`validateScene`/`parseScene`) stay
- * pinned to schemaVersion 1 (§8); see errors.ts for the recorded
- * contract/packet tension (handoff 20, C20-1).
+ * These were the schemaVersion 2 scene's component rules; the v2 scene
+ * validator itself was removed in phase 9.3 (only v4 projects load, v3 ones
+ * upgrade on open), and what the v3/v4 validators reuse lives here.
  *
  * Pure and total: same input → same result, never throws, never reads files.
  */
 
 import {
   checkFiniteNumber,
-  checkHierarchyCycles,
-  checkDepthLimit,
   checkQuaternion,
   checkVector,
-  canonicalBox,
-  canonicalCamera,
   canonicalTransform,
-  fail,
   fieldMissing,
   fieldType,
   fieldValue,
   idInvalid,
-  isKnownVersion,
   isPlainObject,
   isValidName,
   MAX_LEN,
-  MAX_REVISION,
-  NAME_MAX,
-  NAME_MIN,
   pointerSegment,
-  schemaVersionUnsupported,
   unexpectedField,
   withFound,
 } from './validate';
-import {
-  SCHEMA_VERSIONS_BY_DOCUMENT,
-  type ModelError,
-  type ModelErrorV2,
-  type ModelResultV2,
-} from './errors';
-import type {
-  BoxComponent,
-  CameraComponent,
-  ColliderShape,
-  EntityComponentsV2,
-  EntityV2,
-  ModelComponent,
-  PrefabProvenanceComponent,
-  PropertyValue,
-  SceneV2,
-  TransformComponent,
-} from './types-v2';
+import type { ModelErrorV2 } from './errors';
+import type { ColliderShape, TransformComponent } from './types-v2';
 
 export const ID_RE_V2 = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/; // §20.5
 
 export const MAX_ENTITIES_V2 = 1024; // §10.4
-export const MAX_DEPTH_V2 = 32; // §10.4
 export const MAX_COLLIDERS = 256; // §10.7
 export const MAX_POLYGON_VERTICES = 8; // §10.7
 export const MAX_POLYGON_VERTICES_TOTAL = 1024; // §10.7
@@ -68,21 +41,6 @@ export const MAX_COLLIDER_EXTENT = 64; // §10.7
 export const MIN_POLYGON_AREA = 1e-6; // §10.7
 export const CONVEX_TOL = 1e-9; // §10.7
 
-/** The v2 component registry in canonical order (§21.1). */
-export const V2_REGISTRY = [
-  'transform',
-  'model',
-  'box',
-  'camera',
-  'behavior',
-  'prefab',
-  'collider',
-  'controller',
-] as const;
-export type ComponentV2 = (typeof V2_REGISTRY)[number];
-
-const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'components']);
 const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
@@ -96,26 +54,6 @@ const KNOWN_MATERIAL_FIELDS = new Set(['color']);
 const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
 // ---- small helpers -----------------------------------------------------------
-
-function v2ComponentUnknown(path: string, key: string): ModelErrorV2 {
-  return withFound(
-    {
-      code: 'component_unknown',
-      path,
-      message: 'component is not in the schemaVersion 2 registry',
-      expected: `known component types: ${V2_REGISTRY.join(', ')}`,
-      hint: 'adding a component type requires a new schemaVersion (project-model.md §10)',
-    },
-    key,
-  );
-}
-
-function collisionConflict(path: string, message: string, found: unknown): ModelErrorV2 {
-  return withFound(
-    { code: 'component_conflict', path, message, expected: 'at most one of the conflicting components' },
-    found,
-  );
-}
 
 function limitsError(
   path: string,
@@ -482,76 +420,6 @@ export function validatePhysicsTransform(
   }
 }
 
-export function validateComponentsV2(
-  comps: Record<string, unknown>,
-  parentId: unknown,
-  path: string,
-  errors: ModelErrorV2[],
-): { colliders: number; polygonVertices: number } {
-  for (const k of Object.keys(comps)) {
-    if (!(V2_REGISTRY as readonly string[]).includes(k)) {
-      errors.push(v2ComponentUnknown(`${path}/${pointerSegment(k)}`, k));
-    }
-  }
-  if (comps['transform'] === undefined) {
-    errors.push({
-      code: 'component_missing',
-      path: `${path}/transform`,
-      message: 'every entity requires the transform component',
-      expected: 'transform present',
-    });
-  }
-  const structural = (['model', 'box', 'camera'] as const).filter((k) => comps[k] !== undefined);
-  for (let i = 0; i < structural.length; i++) {
-    for (let j = i + 1; j < structural.length; j++) {
-      errors.push(
-        collisionConflict(
-          path,
-          `${structural[i]} and ${structural[j]} are mutually exclusive on one entity`,
-          [structural[i], structural[j]],
-        ),
-      );
-    }
-  }
-  if (comps['collider'] !== undefined && comps['controller'] !== undefined) {
-    errors.push(
-      collisionConflict(path, 'collider and controller are mutually exclusive on one entity', [
-        'collider',
-        'controller',
-      ]),
-    );
-  }
-
-  if (comps['transform'] !== undefined) validateTransformV2(comps['transform'], `${path}/transform`, errors);
-  if (comps['model'] !== undefined) validateModelComponent(comps['model'], `${path}/model`, errors);
-  if (comps['box'] !== undefined) validateBoxV2(comps['box'], `${path}/box`, errors);
-  if (comps['camera'] !== undefined) validateCameraV2(comps['camera'], `${path}/camera`, errors);
-  if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/behavior`, errors);
-  if (comps['prefab'] !== undefined) {
-    validatePrefabProvenance(comps['prefab'], `${path}/prefab`, errors);
-  }
-  if (comps['collider'] !== undefined) {
-    validateColliderComponent(comps['collider'], `${path}/collider`, errors);
-  }
-  if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors);
-
-  const physicsBearing = comps['collider'] !== undefined || comps['controller'] !== undefined;
-  if (physicsBearing) {
-    validatePhysicsTransform(comps, parentId, path, comps['controller'] !== undefined, errors);
-  }
-
-  let colliders = 0;
-  let polygonVertices = 0;
-  if (comps['collider'] !== undefined) {
-    colliders = 1;
-    const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
-    if (isPlainObject(shape) && shape['type'] === 'polygon' && Array.isArray(shape['vertices'])) {
-      polygonVertices = shape['vertices'].length;
-    }
-  }
-  return { colliders, polygonVertices };
-}
-
 /** `transform` field validation for the v2 registry (identical rules to §10.1). */
 export function validateTransformV2(t: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) {
@@ -616,253 +484,11 @@ export function validateCameraV2(c: unknown, path: string, errors: ModelErrorV2[
   }
 }
 
-// ---- entities and scene -------------------------------------------------------
-
-function validateEntityV2(
-  e: unknown,
-  idx: number,
-  errors: ModelErrorV2[],
-  idFirstIndex: Map<string, number>,
-): { colliders: number; polygonVertices: number; isController: boolean; isCamera: boolean } {
-  const base = `/entities/${idx}`;
-  const none = { colliders: 0, polygonVertices: 0, isController: false, isCamera: false };
-  if (!isPlainObject(e)) {
-    errors.push(fieldType(base, e, 'object'));
-    return none;
-  }
-  const id = e['id'];
-  if (id === undefined) {
-    errors.push(fieldMissing(`${base}/id`, 'id'));
-  } else if (typeof id !== 'string') {
-    errors.push(fieldType(`${base}/id`, id, 'string'));
-  } else {
-    if (!ID_RE_V2.test(id)) errors.push(idInvalid(`${base}/id`, id));
-    const first = idFirstIndex.get(id);
-    if (first === undefined) idFirstIndex.set(id, idx);
-    else {
-      errors.push(
-        withFound(
-          {
-            code: 'id_duplicate',
-            path: `${base}/id`,
-            message: 'entity id is already used by an earlier entity (first occurrence wins)',
-            expected: 'a unique entity id within the scene',
-          },
-          id,
-        ),
-      );
-    }
-  }
-  const name = e['name'];
-  if (name !== undefined) {
-    if (typeof name !== 'string') errors.push(fieldType(`${base}/name`, name, 'string'));
-    else if (!isValidName(name)) {
-      errors.push(
-        fieldValue(`${base}/name`, name, `string, ${NAME_MIN}-${NAME_MAX} chars, no control characters`, 'entity name must be 1-128 characters without control characters'),
-      );
-    }
-  }
-  const pid = e['parentId'];
-  if (pid !== undefined && pid !== null && typeof pid !== 'string') {
-    errors.push(fieldType(`${base}/parentId`, pid, 'string or null'));
-  }
-  const comps = e['components'];
-  let counts = none;
-  if (comps === undefined) {
-    errors.push(fieldMissing(`${base}/components`, 'components'));
-  } else if (!isPlainObject(comps)) {
-    errors.push(fieldType(`${base}/components`, comps, 'object'));
-  } else {
-    const r = validateComponentsV2(comps, pid, `${base}/components`, errors);
-    counts = {
-      colliders: r.colliders,
-      polygonVertices: r.polygonVertices,
-      isController: comps['controller'] !== undefined,
-      isCamera: comps['camera'] !== undefined,
-    };
-  }
-  for (const k of Object.keys(e)) {
-    if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, components'));
-  }
-  return counts;
-}
-
-function validateSceneV2Value(doc: Record<string, unknown>): { errors: ModelErrorV2[]; doc?: SceneV2 } {
-  const errors: ModelErrorV2[] = [];
-  const sceneId = doc['sceneId'];
-  if (sceneId === undefined) errors.push(fieldMissing('/sceneId', 'sceneId'));
-  else if (typeof sceneId !== 'string') errors.push(fieldType('/sceneId', sceneId, 'string'));
-  else if (!ID_RE_V2.test(sceneId)) errors.push(idInvalid('/sceneId', sceneId));
-
-  const revision = doc['revision'];
-  if (revision === undefined) errors.push(fieldMissing('/revision', 'revision'));
-  else if (typeof revision !== 'number') errors.push(fieldType('/revision', revision, 'integer'));
-  else if (!Number.isSafeInteger(revision) || revision < 0 || revision > MAX_REVISION) {
-    errors.push(
-      withFound(
-        {
-          code: 'revision_invalid',
-          path: '/revision',
-          message: 'revision must be an integer in [0, 2^53-1]',
-          expected: `integer in [0, ${MAX_REVISION}]`,
-        },
-        revision,
-      ),
-    );
-  }
-
-  const ents = doc['entities'];
-  let entities: unknown[] | null = null;
-  if (ents === undefined) errors.push(fieldMissing('/entities', 'entities'));
-  else if (!Array.isArray(ents)) errors.push(fieldType('/entities', ents, 'array'));
-  else {
-    entities = ents;
-    if (ents.length > MAX_ENTITIES_V2) {
-      errors.push(limitsError('/entities', 'entities', ents.length, MAX_ENTITIES_V2, `scene exceeds the entity limit of ${MAX_ENTITIES_V2}`));
-    }
-  }
-
-  if (entities !== null) {
-    const idFirstIndex = new Map<string, number>();
-    let colliders = 0;
-    let polygonVerticesTotal = 0;
-    let cameras = 0;
-    let controllers = 0;
-    for (let idx = 0; idx < entities.length; idx++) {
-      const r = validateEntityV2(entities[idx], idx, errors, idFirstIndex);
-      colliders += r.colliders;
-      polygonVerticesTotal += r.polygonVertices;
-      if (r.isCamera) cameras += 1;
-      if (r.isController) controllers += 1;
-    }
-    for (let idx = 0; idx < entities.length; idx++) {
-      const e = entities[idx];
-      if (!isPlainObject(e)) continue;
-      const pid = e['parentId'];
-      if (typeof pid === 'string' && !idFirstIndex.has(pid)) {
-        errors.push(
-          withFound(
-            {
-              code: 'reference_missing',
-              path: `/entities/${idx}/parentId`,
-              message: 'parentId does not reference an existing entity in this scene',
-              expected: 'an existing entity id, or null/absent (root)',
-            },
-            pid,
-          ),
-        );
-      }
-    }
-    checkHierarchyCycles(entities, idFirstIndex, errors);
-    for (let idx = 0; idx < entities.length; idx++) {
-      const e = entities[idx];
-      if (!isPlainObject(e)) continue;
-      const pid = e['parentId'];
-      if (typeof pid !== 'string') continue;
-      const pidx = idFirstIndex.get(pid);
-      if (pidx === undefined) continue;
-      if (pidx >= idx) {
-        errors.push(
-          withFound(
-            {
-              code: 'order_parent_before_child',
-              path: `/entities/${idx}/parentId`,
-              message: 'an entity must appear before its parent in the entities array',
-              expected: 'parent index < child index (parent-before-child order)',
-            },
-            pid,
-          ),
-        );
-      }
-    }
-    if (cameras !== 1) {
-      errors.push(
-        withFound(
-          {
-            code: 'camera_count_invalid',
-            path: '',
-            message: 'the scene must contain exactly one entity carrying the camera component',
-            expected: 'exactly 1 camera',
-          },
-          cameras,
-        ),
-      );
-    }
-    // §10.8/§21.1: at most one entity carries `controller`. Zero controllers is
-    // a document-valid scene (the packet-15/16 v2 scene has none — §17); the
-    // runtime config layer reports `config_invalid`/`controller_target` when a
-    // character is instantiated without one (physics fixture V19).
-    if (controllers > 1) {
-      errors.push(
-        withFound(
-          {
-            code: 'controller_count_invalid',
-            path: '',
-            message: 'a scene must not contain more than one entity carrying the controller component',
-            expected: 'at most 1 controller',
-          },
-          controllers,
-        ),
-      );
-    }
-    if (colliders > MAX_COLLIDERS) {
-      errors.push(limitsError('/entities', 'colliders', colliders, MAX_COLLIDERS, `scene exceeds the collider limit of ${MAX_COLLIDERS}`));
-    }
-    if (polygonVerticesTotal > MAX_POLYGON_VERTICES_TOTAL) {
-      errors.push(
-        limitsError(
-          '/entities',
-          'collider_vertices_total',
-          polygonVerticesTotal,
-          MAX_POLYGON_VERTICES_TOTAL,
-          `scene exceeds the total polygon-vertex limit of ${MAX_POLYGON_VERTICES_TOTAL}`,
-        ),
-      );
-    }
-    checkDepthLimit(entities, idFirstIndex, errors);
-  }
-
-  for (const k of Object.keys(doc)) {
-    if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, sceneId, revision, entities'));
-  }
-  if (errors.length > 0) return { errors };
-  return { errors, doc: canonicalSceneV2(doc, entities as unknown[]) };
-}
-
 // ---- canonicalization (§12.2) -------------------------------------------------
 
 function canonNum(v: unknown): number {
   const n = v as number;
   return n === 0 ? 0 : n;
-}
-
-function canonicalModel(c: unknown): ModelComponent {
-  const o = c as Record<string, unknown>;
-  const asset = o['asset'] as Record<string, unknown>;
-  const piece = (c as Record<string, unknown>)['piece'];
-  return { asset: { assetId: asset['assetId'] as string }, ...(typeof piece === 'string' ? { piece } : {}) };
-}
-
-function canonicalBehaviorComponent(c: unknown): { behaviorId: string; values: Record<string, PropertyValue> } {
-  const o = c as Record<string, unknown>;
-  const values = o['values'] as Record<string, unknown>;
-  const out: Record<string, PropertyValue> = {};
-  for (const k of Object.keys(values)) {
-    const v = values[k];
-    out[k] = (Array.isArray(v)
-      ? [canonNum(v[0]), canonNum(v[1]), canonNum(v[2])]
-      : canonNumIfNumber(v)) as PropertyValue;
-  }
-  return { behaviorId: o['behaviorId'] as string, values: out };
-}
-
-function canonNumIfNumber(v: unknown): unknown {
-  return typeof v === 'number' ? canonNum(v) : v;
-}
-
-function canonicalPrefabProvenance(c: unknown): PrefabProvenanceComponent {
-  const o = c as Record<string, unknown>;
-  return { prefabId: o['prefabId'] as string, localId: o['localId'] as string };
 }
 
 export function canonicalCollider(c: unknown): ColliderShape {
@@ -879,64 +505,4 @@ export function canonicalCollider(c: unknown): ColliderShape {
       return [canonNum(pair[0]), canonNum(pair[1])] as [number, number];
     }),
   };
-}
-
-// Keep the M1 canonical helpers imported (transform/box/camera) referenced.
-
-function canonicalEntityV2(e: Record<string, unknown>): EntityV2 {
-  const comps = e['components'] as Record<string, unknown>;
-  const components: EntityComponentsV2 = {
-    transform: canonicalTransform(comps['transform']),
-  };
-  if (comps['model'] !== undefined) components.model = canonicalModel(comps['model']);
-  if (comps['box'] !== undefined) components.box = canonicalBox(comps['box']) as BoxComponent;
-  if (comps['camera'] !== undefined) components.camera = canonicalCamera(comps['camera']) as CameraComponent;
-  if (comps['behavior'] !== undefined) {
-    const b = canonicalBehaviorComponent(comps['behavior']);
-    components.behavior = { behaviorId: b.behaviorId, values: b.values };
-  }
-  if (comps['prefab'] !== undefined) components.prefab = canonicalPrefabProvenance(comps['prefab']);
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']) };
-  if (comps['controller'] !== undefined) components.controller = {};
-  const name = e['name'];
-  const pid = e['parentId'];
-  return {
-    id: e['id'] as string,
-    ...(typeof name === 'string' ? { name } : {}),
-    ...(typeof pid === 'string' ? { parentId: pid } : {}),
-    components,
-  };
-}
-
-function canonicalSceneV2(doc: Record<string, unknown>, ents: unknown[]): SceneV2 {
-  return {
-    schemaVersion: 2,
-    sceneId: doc['sceneId'] as string,
-    revision: canonNum(doc['revision']),
-    entities: (ents as Record<string, unknown>[]).map(canonicalEntityV2),
-  };
-}
-
-// ---- public entry points ------------------------------------------------------
-
-export function validateSceneV2(doc: unknown): ModelResultV2<SceneV2> {
-  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  if (!isKnownVersion(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.scene)) {
-    return fail([schemaVersionUnsupported(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.scene)]);
-  }
-  if (doc['schemaVersion'] !== 2) {
-    // validateSceneV2 is the embedded v2 validator; a schemaVersion-1 value is
-    // not a valid v2 document for this entry point.
-    return fail([
-      fieldValue('/schemaVersion', doc['schemaVersion'], '2', 'validateSceneV2 accepts an embedded schemaVersion 2 scene'),
-    ]);
-  }
-  const { errors, doc: canonical } = validateSceneV2Value(doc);
-  if (errors.length > 0) return fail(errors);
-  return { ok: true, normalized: canonical as SceneV2 };
-}
-
-/** §12.1: validate, then return the new canonical v2 document (§12.2). */
-export function normalizeSceneV2(doc: unknown): ModelResultV2<SceneV2> {
-  return validateSceneV2(doc);
 }

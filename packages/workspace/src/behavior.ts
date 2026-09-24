@@ -80,23 +80,11 @@ export async function prepareBehaviorSource(
   }
   if (o.kind === 'released') return { ok: false, kind: 'error', error: workspaceClosed() };
   const s = o.session;
-  if (s.mode !== 'open' || s.scene === null) {
+  if (s.mode !== 'open' || s.scene === null || s.content === null) {
     return {
       ok: false,
       kind: 'error',
       error: projectUnavailable(s.blocked?.reason ?? 'envelope_invalid', null, s.blocked?.errors ?? []),
-    };
-  }
-  if (s.content === null) {
-    return {
-      ok: false,
-      kind: 'error',
-      error: fieldValueType(
-        '/projectId',
-        projectId,
-        'a storageVersion 2 project',
-        'behavior source publication requires an M2 (storageVersion 2) project',
-      ),
     };
   }
   if (!ID_RE.test(request.behaviorId)) {
