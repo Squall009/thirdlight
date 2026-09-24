@@ -65,6 +65,15 @@ import type {
 /** The declared-property value map fed to one behavior instance (§14.3). */
 export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
 
+/**
+ * Phase 15.4: the property values one running behavior instance reads
+ * (public and private, declaration order) — the Play debug view's data.
+ */
+export interface BehaviorPropertyView {
+  behaviorId: string;
+  properties: { key: string; label: string; type: PropertyType; visibility: 'public' | 'private'; value: PropertyValue }[];
+}
+
 /** One compiled engine pin the manifest carries (read-only here). */
 export interface BehaviorEnginePin {
   id: string;
@@ -264,8 +273,9 @@ function checkValue(prop: DeclaredProperty, value: unknown): string | null {
 
 /**
  * Materialize one entity's whole values map from its stored values and the
- * declaration (defaults filled for absent keys, declaration order preserved).
- * An undeclared stored key is never dropped (§20.8.4).
+ * declaration (defaults filled for absent keys and — phase 15.4 — for private
+ * properties, declaration order preserved). An undeclared stored key is never
+ * dropped (§20.8.4).
  */
 export function materializeBehaviorValues(
   declaration: PropertyDeclaration,
@@ -273,7 +283,9 @@ export function materializeBehaviorValues(
 ): { ok: true; values: Record<string, PropertyValue> } | { ok: false; error: BehaviorHostError } {
   const out: Record<string, PropertyValue> = {};
   for (const prop of declaration.properties) {
-    const has = Object.prototype.hasOwnProperty.call(stored, prop.key);
+    // Phase 15.4: a private property always reads its declared default (a
+    // stored value left from when it was public is inert).
+    const has = prop.visibility !== 'private' && Object.prototype.hasOwnProperty.call(stored, prop.key);
     const raw = has ? stored[prop.key] : prop.default;
     const detail = checkValue(prop, raw);
     if (detail !== null) {
@@ -632,6 +644,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
 
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
+        behaviorProperties(entityId: string): BehaviorPropertyView | null;
       } = {
         get transformOwners(): readonly string[] {
           return owners;
@@ -710,6 +723,20 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         },
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number } {
           return { logCount, logDropped, instanceCount: instances.length };
+        },
+        behaviorProperties(entityId: string): BehaviorPropertyView | null {
+          const instance = instances.find((i) => i.entityId === entityId);
+          if (instance === undefined) return null;
+          return {
+            behaviorId,
+            properties: declaration.properties.map((p) => ({
+              key: p.key,
+              label: p.label,
+              type: p.type,
+              visibility: p.visibility === 'private' ? 'private' : 'public',
+              value: instance.properties[p.key] ?? null,
+            })),
+          };
         },
       };
       return module;

@@ -77,6 +77,15 @@ export interface PropertyControl {
   constraintText: string;
   /** `current` violates the declaration (a bounded error), else `null`. */
   error: ControlError | null;
+  /** Phase 15.4: the Inspector section, heading and hover help the declaration names. */
+  group?: string;
+  header?: string;
+  tooltip?: string;
+}
+
+/** Phase 15.4: a private property is not shown or set per object (absent visibility = public). */
+export function isPrivateProperty(p: { visibility?: string }): boolean {
+  return p.visibility === 'private';
 }
 
 /** An entity's stored values as the projection carries them (never trusted). */
@@ -237,9 +246,9 @@ export function formatPropertyValue(value: PropertyValue | unknown): string {
 }
 
 /**
- * Derive one control per declared property, in declaration order. A stored
- * value map always contains every declared key (project-model §20.5); when a
- * key is absent the declaration default is used — that is the same default the
+ * Derive one control per public declared property, in declaration order
+ * (phase 15.4: private properties are not shown per object). When a key is
+ * absent the declaration default is used — that is the same default the
  * backend materializes.
  */
 export function derivePropertyControls(
@@ -249,6 +258,7 @@ export function derivePropertyControls(
   if (declaration === null || declaration === undefined) return [];
   const controls: PropertyControl[] = [];
   for (const prop of declaration.properties) {
+    if (isPrivateProperty(prop)) continue;
     const stored = own(values, prop.key);
     const current = (stored.present && stored.value !== undefined ? stored.value : prop.default) as PropertyValue;
     controls.push({
@@ -261,6 +271,9 @@ export function derivePropertyControls(
       constraints: constraintsOf(prop),
       constraintText: constraintTextFor(prop),
       error: validatePropertyValue(prop, current),
+      ...(prop.group !== undefined ? { group: prop.group } : {}),
+      ...(prop.header !== undefined ? { header: prop.header } : {}),
+      ...(prop.tooltip !== undefined ? { tooltip: prop.tooltip } : {}),
     });
   }
   return controls;
@@ -412,10 +425,18 @@ export function planSetBehaviorProperties(
       },
     };
   }
+  if (isPrivateProperty(prop)) {
+    return {
+      ok: false,
+      error: { code: 'property_private', message: `"${key}" is private: objects cannot set it (the script reads its default)`, path: `/args/values/${key}`, found: key },
+    };
+  }
   const invalid = validatePropertyValue(prop, value);
   if (invalid) return { ok: false, error: { path: `/args/values/${key}`, ...invalid } };
   const values: Record<string, PropertyValue> = {};
   for (const p of declaration.properties) {
+    // Phase 15.4: private properties are never sent (the backend refuses them).
+    if (isPrivateProperty(p)) continue;
     const stored = own(current, p.key);
     const kept = stored.present && stored.value !== undefined ? (stored.value as PropertyValue) : p.default;
     values[p.key] = p.key === key ? (value as PropertyValue) : kept;

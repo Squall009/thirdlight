@@ -35,6 +35,7 @@ import {
 import { canonicalJsonText, sha256Hex, sha256HexOfText, utf8Encode } from './canonical';
 import { containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph, posixResolve, withLimits } from './scan';
+import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
 import type {
   BehaviorCompileInput,
   BehaviorCompileOptions,
@@ -199,8 +200,22 @@ export async function compileBehavior(
       message: `the installed esbuild is not the pinned ${ESBUILD_PIN}`,
     });
   }
+  // Phase 15.4: properties declared in code (`export const properties` in
+  // src/index.ts) are the declaration; the supplied JSON declaration is then
+  // ignored (code wins, so the two cannot drift).
+  const early = parseSourceGraphContainer(input.containerBytes, limits);
+  const entryText = early.ok ? early.container.files.find((f) => f.path === early.container.entryPath)?.text : undefined;
+  const code = entryText !== undefined ? readCodeDeclaration(entryText) : ({ found: false } as const);
+  if (code.found && !code.ok) {
+    return fail('behavior_source_invalid', 'properties', {
+      detail: `src/index.ts:${code.line}:${code.column}`,
+      path: ENTRY_PATH,
+      message: code.message.slice(0, 256),
+    });
+  }
+  const declaredInCode = code.found && code.ok;
   // Declaration bounds (project-model.md §22.4: re-checked here).
-  const declaration = input.declaration;
+  const declaration = declaredInCode ? { properties: code.properties } : input.declaration;
   const properties = declaration.properties;
   if (!Array.isArray(properties) || properties.length < 1) {
     return fail('behavior_source_limits_exceeded', 'properties', {
@@ -243,6 +258,9 @@ export async function compileBehavior(
     return fail('behavior_compile_timeout', 'timeout', { message: 'the compile wall-clock bound is exceeded before the build call' });
   }
   const files = new Map<string, string>(container.files.map((f) => [f.path, f.text] as const));
+  if (declaredInCode && entryText !== undefined) {
+    files.set(container.entryPath, rewriteCodeDeclaration(entryText, code.start, code.end, code.properties));
+  }
   const entryFile = files.get(container.entryPath) as string;
   let outputBytes: Uint8Array | null = null;
   let buildError: unknown = null;
@@ -328,6 +346,8 @@ export async function compileBehavior(
     ownedTransforms: [...container.ownedTransforms],
     enginePins: input.pinnedModules.map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion })),
     declaration: { properties: properties.map((p) => ({ ...p })) },
+    // Phase 15.4: present only when the declaration was derived from the code.
+    ...(declaredInCode ? { declaredInCode: true as const } : {}),
     apiVersion: BEHAVIOR_API_VERSION,
     compiler: { id: toolchain.id, version: toolchain.version, esbuild: toolchain.esbuild, typescript: toolchain.typescript },
     outputDigest,

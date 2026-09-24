@@ -38,6 +38,9 @@ export {
   scanOutput,
 } from './compile';
 export { prepareBehavior, preparedSourceFrom } from './prepare';
+// Phase 15.4: properties declared in code (`export const properties = { … }`).
+export { labelOfKey, readCodeDeclaration } from './declare';
+export type { CodeDeclarationResult } from './declare';
 export type { BehaviorPrepareResult } from './prepare';
 export { canonicalJsonText, sha256Hex, sha256HexOfText } from './canonical';
 export type {

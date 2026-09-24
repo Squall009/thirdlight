@@ -111,7 +111,8 @@ test('every component kind: added, edited (one undo) and removed through the Ins
     const section = inspector(page).locator(`[data-component="${c.name}"]`);
     await expect(section).toBeVisible();
     if (c.edit !== undefined) {
-      await c.edit(page);      await expect.poll(comp(id, c.name), { message: `edit ${c.name}` }).toMatchObject(c.after!);
+      await c.edit(page);
+      await expect.poll(comp(id, c.name), { message: `edit ${c.name}` }).toMatchObject(c.after!);
       await undo(page);
       await expect.poll(comp(id, c.name), { message: `undo ${c.name}` }).toEqual(added);
     }

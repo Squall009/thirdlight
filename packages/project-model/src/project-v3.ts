@@ -394,15 +394,13 @@ function checkBehaviorValues(
     }
   }
   for (const prop of declaration) {
-    if (!Object.prototype.hasOwnProperty.call(component.values, prop.key)) {
-      errors.push(
-        withFound(
-          { code: 'property_value', path: `${path}/values/${prop.key}`, message: 'every declared property key must have a stored value (defaults are filled)', expected: 'a stored value for every declared key', document },
-          undefined,
-        ),
-      );
-      continue;
-    }
+    // Phase 15.4: an absent key reads its declared default (a private
+    // property is never stored by the commands; a key added to — or made
+    // public in — a declaration already in use has no stored value yet). A
+    // stored value of a private property (left from when it was public) is
+    // inert: the runtime reads the default; it is still checked so that
+    // making the property public again is always valid.
+    if (!Object.prototype.hasOwnProperty.call(component.values, prop.key)) continue;
     checkDeclaredValue(
       prop,
       component.values[prop.key],

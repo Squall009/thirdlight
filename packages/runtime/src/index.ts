@@ -146,6 +146,7 @@ export {
   type BehaviorHostInput,
   type BehaviorLogEntry,
   type BehaviorProperties,
+  type BehaviorPropertyView,
 } from './behavior';
 export {
   BEHAVIOR_LOG_CODE,

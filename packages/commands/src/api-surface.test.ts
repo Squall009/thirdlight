@@ -68,6 +68,7 @@ describe('public surface (dependencies.md §3)', () => {
       'property_type',
       'property_value',
       'property_declaration_incompatible',
+      'property_private',
       'setting_unknown',
       'reference_in_use',
       'asset_not_found',

@@ -78,6 +78,7 @@ export type {
   PropertyDeclaration,
   PropertyType,
   PropertyValue,
+  PropertyVisibility,
   SettingsMap,
   SettingsValue,
   TrustEntry,

@@ -1282,6 +1282,11 @@ const DECLARED_PROPERTY = obj('*', 'Property', 'A property the script declares (
     vec3('min', 'Min', 'Smallest per axis.', { required: true, min: -1e6, max: 1e6 }),
     vec3('max', 'Max', 'Largest per axis.', { required: true, min: -1e6, max: 1e6 }),
   ], { when: when('type', 'vec3'), rules: ['min ≤ max per axis'] }),
+  // Phase 15.4: public (shown and set per object) or private (the script reads the default).
+  enm('visibility', 'Visibility', 'Public: shown in the Inspector of every object with this script and set per object. Private: not shown, not settable; the script reads the default.', ['public', 'private'], { default: 'public' }),
+  str('group', 'Group', 'The Inspector section the property is listed in.', { minLength: 1, maxLength: 64 }),
+  str('header', 'Header', 'A heading shown above the property in the Inspector.', { minLength: 1, maxLength: 64 }),
+  str('tooltip', 'Tooltip', 'The help shown when hovering the property.', { minLength: 1, maxLength: 256 }),
 ], { rules: ['min ≤ max; the default fits the type and its limits.'] });
 
 const settingsUnit = (u: string): DescriptorUnit => (u === 'm/s^2' ? 'm/s²' : u === 'degrees' ? 'deg' : (u as DescriptorUnit));
