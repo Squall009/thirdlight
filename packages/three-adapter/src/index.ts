@@ -108,3 +108,19 @@ export {
   type VisualResourceStoreOptions,
 } from './visual';
 export { buildInstanceSet, INSTANCE_BUFFER_FLOATS, type BuiltInstanceSet } from './instancing';
+// 2026-09-24: multi-piece GLBs (pieces, LOD groups, `_COL` colliders) and
+// vertex colours as shader data.
+export {
+  applyLodGroups,
+  applyVertexColorMode,
+  COLLIDER_POLYGON_MAX,
+  convexHull,
+  LOD_SCREEN_FRACTIONS,
+  modelPieces,
+  pieceBaseName,
+  pieceBounds,
+  pieceCollider2D,
+  type ModelPiece,
+  type VertexColorMode,
+} from './pieces';
+export type { CreateInstanceOptions } from './visual';

@@ -167,6 +167,7 @@ export function queryAssets(
     };
     const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string; convertedFrom?: { format: 'fbx'; sourcePath?: string } } | undefined;
     if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
+    if ((a as { vertexColors?: string }).vertexColors === 'tint') summary.vertexColors = 'tint';
     if (current?.convertedFrom !== undefined) {
       summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}) };
     }

@@ -40,6 +40,7 @@ export const ERROR_CODES = [
   'job_not_found',
   'job_expired',
   'stage_not_found',
+  'thumbnail_not_found',
   'stage_expired',
   'stage_limits_exceeded',
   'import_rejected',

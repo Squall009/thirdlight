@@ -91,6 +91,7 @@ export type V3MutationOp =
   | 'updateEntity'
   | 'moveEntities'
   | 'setTags'
+  | 'setAssetOptions'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -271,6 +272,8 @@ export type CommandAssetVersion = Omit<AssetVersion, 'importRecipe'> & {
 export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
   kind: AssetKind;
   versions: CommandAssetVersion[];
+  /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
+  vertexColors?: 'tint';
 };
 
 /**
@@ -305,6 +308,14 @@ export type SceneIndexArgs =
   | { op: 'renameScene'; sceneId: string; name: string }
   | { op: 'deleteScene'; sceneId: string }
   | { op: 'setStartScenes'; sceneIds: string[] };
+
+/** `setAssetOptions` change data: the whole asset record before and after. */
+export interface SetAssetOptionsChange {
+  type: 'setAssetOptions';
+  assetId: string;
+  previous: CommandAssetRecord;
+  next: CommandAssetRecord;
+}
 
 /** `setTags` change data: the whole registry before and after. */
 export interface SetTagsChange {
@@ -444,6 +455,8 @@ export interface CreateEntityChange {
   id: string;
   /** The full created entity value (canonical, defaults filled). */
   entity: Entity;
+  /** A folder created with children: the children, in insertion order after `entity`. */
+  children?: Entity[];
 }
 
 export interface SetTransformChange {
@@ -546,6 +559,7 @@ export type ChangeData =
   | UpdateEntityChange
   | MoveEntitiesChange
   | SetTagsChange
+  | SetAssetOptionsChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -566,6 +580,7 @@ export type ForwardChange =
   | UpdateEntityChange
   | MoveEntitiesChange
   | SetTagsChange
+  | SetAssetOptionsChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -669,6 +684,13 @@ export interface MoveEntitiesInverse {
   restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
+/** Undo of a `setAssetOptions`: restore the whole previous record. */
+export interface SetAssetOptionsInverse {
+  kind: 'setAssetOptions';
+  assetId: string;
+  restore: CommandAssetRecord;
+}
+
 /** Undo of a `setTags`: restore the whole previous registry. */
 export interface SetTagsInverse {
   kind: 'setTags';
@@ -682,6 +704,7 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | SetAssetOptionsInverse
   | SetSceneIndexInverse
   | SetTagsInverse
   | UpdateEntityInverse
@@ -840,6 +863,8 @@ export interface BoxArgs {
 /** Model args for createEntity (§3.1/§5.1): only when `kind` is `"model"`. */
 export interface ModelArgs {
   asset: { assetId: string };
+  /** One named piece of a multi-piece GLB (absent = the whole file). */
+  piece?: string;
 }
 
 export interface CreateEntityArgs {
@@ -860,6 +885,22 @@ export interface CreateEntityArgs {
   components?: Record<string, unknown>;
   /** Copies a built-in preset row onto `components.surface` (authoring §A3.1). */
   surfacePreset?: SurfacePresetName;
+  /**
+   * `folder` only: objects created inside the new folder in the same
+   * transaction (one undo), e.g. every piece of a multi-piece model. Each is
+   * a `box`/`model`/`group` create without `parentId` or `children`.
+   */
+  children?: CreateEntityArgs[];
+}
+
+/**
+ * `setAssetOptions`: per-asset render options. `vertexColors` (model only):
+ * `data` (default: COLOR_0 is shader data, never multiplied into the albedo)
+ * or `tint` (the glTF default).
+ */
+export interface SetAssetOptionsArgs {
+  assetId: string;
+  vertexColors: 'data' | 'tint';
 }
 
 export interface SetTransformArgs {
@@ -1141,6 +1182,8 @@ export interface AssetSummary {
   sourcePath?: string;
   /** The current version's original when it was converted at import (FBX). */
   convertedFrom?: { format: 'fbx'; sourcePath?: string };
+  /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
+  vertexColors?: 'tint';
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }

@@ -35,6 +35,7 @@ import {
   type EffectiveEntityFlags,
 } from '../session/hierarchy';
 import type { ProjectedEntity } from '../session/projection';
+import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../session/placement';
 
 interface Props {
   entities: ProjectedEntity[];
@@ -52,6 +53,12 @@ interface Props {
   /** Phase 12 (c): the scenes that are not open in this browser. */
   closedScenes?: readonly { sceneId: string; name: string }[];
   onSceneAction?: (action: SceneAction) => void;
+  /**
+   * A model asset (or one piece) dropped from the asset tiles: onto a folder
+   * files it inside, onto a scene header at that scene's root, elsewhere at
+   * the root (of the row's scene).
+   */
+  onAssetDrop?: (asset: AssetDragPayload, parentId: string | null, sceneId: string | null) => void;
 }
 
 /** Phase 12 (c): one open scene's header. */
@@ -89,7 +96,7 @@ function loadCollapsed(projectId: string): Set<string> {
   }
 }
 
-export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction }: Props): JSX.Element {
+export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [renamingScene, setRenamingScene] = useState<{ sceneId: string; draft: string } | null>(null);
@@ -147,7 +154,15 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
     setHint(null);
   };
   /** Phase 12 (c): a drop on a scene header files the dragged objects at that scene's root. */
+  const isAssetDrag = (ev: DragEvent): boolean => onAssetDrop !== undefined && ev.dataTransfer.types.includes(ASSET_DRAG_TYPE);
   const overScene = (ev: DragEvent<HTMLLIElement>, sceneId: string): void => {
+    if (isAssetDrag(ev)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.dataTransfer.dropEffect = 'copy';
+      setDrop({ targetId: `scene:${sceneId}`, target: { parentId: null, beforeId: null, zone: 'into' } });
+      return;
+    }
     if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
     ev.stopPropagation();
     if (!sceneDropAllowed(entities, dragging.current, sceneId)) {
@@ -162,6 +177,16 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
     setDrop({ targetId: `scene:${sceneId}`, target: { parentId: null, beforeId: null, zone: 'after' } });
   };
   const overRow = (ev: DragEvent<HTMLLIElement>, id: string): void => {
+    if (isAssetDrag(ev)) {
+      // A model lands in the folder under the pointer, or next to the row it is over.
+      const row = byId.get(id);
+      const folder = row?.kind === 'folder' ? id : row?.parentId !== null && row?.parentId !== undefined && byId.get(row.parentId)?.kind === 'folder' ? row.parentId : null;
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.dataTransfer.dropEffect = 'copy';
+      setDrop({ targetId: folder ?? id, target: { parentId: folder, beforeId: null, zone: folder === null ? 'after' : 'into' } });
+      return;
+    }
     if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
     const rect = ev.currentTarget.getBoundingClientRect();
     const target = dropTarget(entities, dragging.current, id, dropZoneAt(ev.clientY - rect.top, rect.height));
@@ -181,6 +206,21 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
   const dropOn = (ev: DragEvent): void => {
     ev.preventDefault();
     ev.stopPropagation();
+    if (isAssetDrag(ev)) {
+      const asset = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
+      const targetId = drop?.targetId ?? null;
+      const parentId = drop?.target.parentId ?? null;
+      endDrag();
+      if (asset === null) return;
+      const sceneId =
+        targetId !== null && targetId.startsWith('scene:')
+          ? targetId.slice('scene:'.length)
+          : targetId !== null
+            ? (byId.get(targetId)?.sceneId ?? null)
+            : null;
+      onAssetDrop?.(asset, parentId, sceneId);
+      return;
+    }
     const ids = dragging.current;
     const target = drop?.target ?? null;
     endDrag();
@@ -323,6 +363,12 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
         className={drop !== null && drop.targetId === null ? 'tl-hierarchy__list is-drop-root' : 'tl-hierarchy__list'}
         aria-label="Hierarchy"
         onDragOver={(ev) => {
+          if (isAssetDrag(ev)) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'copy';
+            setDrop({ targetId: null, target: { parentId: null, beforeId: null, zone: 'after' } });
+            return;
+          }
           if (!ev.dataTransfer.types.includes(DRAG_TYPE) || dragging.current === null) return;
           // With several scenes the empty area files at the root of the scene
           // the dragged objects live in (they must share one).

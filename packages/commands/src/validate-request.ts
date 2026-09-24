@@ -88,6 +88,7 @@ import type {
   UpdateEntityArgs,
   MoveEntitiesArgs,
   SetTagsArgs,
+  SetAssetOptionsArgs,
   SceneIndexArgs,
 } from './types';
 
@@ -123,6 +124,7 @@ const OPS: readonly MutationOp[] = [
   // phase 12 hierarchy + tags:
   'moveEntities',
   'setTags',
+  'setAssetOptions',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -153,7 +155,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -555,7 +557,7 @@ function validateCreateArgs(args: Record<string, unknown>):
   | { ok: true; args: CreateEntityArgs }
   | { ok: false; error: CommandError } {
   const KNOWN =
-    'kind, parentId (optional), name (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional)';
+    'kind, parentId (optional), name (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
   for (const key of Object.keys(args)) {
     if (
       key !== 'kind' &&
@@ -565,7 +567,8 @@ function validateCreateArgs(args: Record<string, unknown>):
       key !== 'box' &&
       key !== 'model' &&
       key !== 'components' &&
-      key !== 'surfacePreset'
+      key !== 'surfacePreset' &&
+      key !== 'children'
     ) {
       return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN) };
     }
@@ -681,9 +684,16 @@ function validateCreateArgs(args: Record<string, unknown>):
       return { ok: false, error: fieldType('/args/model', m, 'object { asset: { assetId } }') };
     }
     for (const key of Object.keys(m)) {
-      if (key !== 'asset') {
-        return { ok: false, error: fieldUnexpected(`/args/model/${pointerSegment(key)}`, key, 'asset') };
+      if (key !== 'asset' && key !== 'piece') {
+        return { ok: false, error: fieldUnexpected(`/args/model/${pointerSegment(key)}`, key, 'asset, piece') };
       }
+    }
+    const piece = m['piece'];
+    if (piece !== undefined && (typeof piece !== 'string' || !isValidName(piece))) {
+      return {
+        ok: false,
+        error: fieldValue('/args/model/piece', piece, 'string, 1-128 chars, no control characters', 'piece names one piece of the model file'),
+      };
     }
     const asset = m['asset'];
     if (!isPlainObject(asset)) {
@@ -697,7 +707,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     if (typeof asset['assetId'] !== 'string') {
       return { ok: false, error: fieldType('/args/model/asset/assetId', asset['assetId'], 'string (asset ID)') };
     }
-    out.model = { asset: { assetId: asset['assetId'] } };
+    out.model = { asset: { assetId: asset['assetId'] }, ...(typeof piece === 'string' ? { piece } : {}) };
   } else if (args['model'] !== undefined) {
     return {
       ok: false,
@@ -774,7 +784,58 @@ function validateCreateArgs(args: Record<string, unknown>):
     }
     out.surfacePreset = preset as CreateEntityArgs['surfacePreset'];
   }
+  if (args['children'] !== undefined) {
+    const children = args['children'];
+    if (out.kind !== 'folder') {
+      return { ok: false, error: fieldUnexpected('/args/children', 'children', KNOWN, 'children are permitted only when kind is "folder"') };
+    }
+    if (!Array.isArray(children) || children.length < 1 || children.length > CREATE_CHILDREN_MAX) {
+      return {
+        ok: false,
+        error: fieldValue('/args/children', Array.isArray(children) ? children.length : children, `array of 1-${CREATE_CHILDREN_MAX} createEntity args`, `a folder is created with 1 to ${CREATE_CHILDREN_MAX} children`),
+      };
+    }
+    const checked: CreateEntityArgs[] = [];
+    for (let i = 0; i < children.length; i += 1) {
+      const c = children[i];
+      const path = `/args/children/${i}`;
+      if (!isPlainObject(c)) return { ok: false, error: fieldType(path, c, 'object (createEntity args)') };
+      for (const key of ['parentId', 'children'] as const) {
+        if (c[key] !== undefined) return { ok: false, error: fieldUnexpected(`${path}/${key}`, key, 'kind, name, transform, box, model, components, surfacePreset', 'a child is created inside the new folder') };
+      }
+      if (c['kind'] === 'folder') {
+        return { ok: false, error: fieldValue(`${path}/kind`, 'folder', '"group", "box" or "model"', 'a child of a new folder is an object, not a folder') };
+      }
+      const r = validateCreateArgs(c);
+      if (!r.ok) return { ok: false, error: { ...r.error, path: `${path}${(r.error.path ?? '').replace(/^\/args/, '')}` } };
+      checked.push(r.args);
+    }
+    out.children = checked;
+  }
   return { ok: true, args: out };
+}
+
+/** The most children one folder `createEntity` may create. */
+export const CREATE_CHILDREN_MAX = 256;
+
+function validateSetAssetOptionsArgs(args: Record<string, unknown>):
+  | { ok: true; args: SetAssetOptionsArgs }
+  | { ok: false; error: CommandError } {
+  for (const key of Object.keys(args)) {
+    if (key !== 'assetId' && key !== 'vertexColors') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors') };
+    }
+  }
+  if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
+  if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
+  if (args['vertexColors'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors') };
+  if (args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint') {
+    return {
+      ok: false,
+      error: fieldValue('/args/vertexColors', args['vertexColors'], '"data" or "tint"', 'vertexColors is "data" (COLOR_0 is shader data) or "tint" (it multiplies the base colour)'),
+    };
+  }
+  return { ok: true, args: { assetId: args['assetId'], vertexColors: args['vertexColors'] } };
 }
 
 function validateSetTransformArgs(args: Record<string, unknown>):
@@ -1055,6 +1116,7 @@ export type ValidatedOpArgs =
   | { op: 'updateEntity'; args: UpdateEntityArgs }
   | { op: 'moveEntities'; args: MoveEntitiesArgs }
   | { op: 'setTags'; args: SetTagsArgs }
+  | { op: 'setAssetOptions'; args: SetAssetOptionsArgs }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1104,6 +1166,11 @@ export function validateOpArgs(
       const r = validateSetTagsArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'setTags', args: r.args } };
+    }
+    case 'setAssetOptions': {
+      const r = validateSetAssetOptionsArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setAssetOptions', args: r.args } };
     }
     case 'moveEntities': {
       const r = validateMoveEntitiesArgs(args);

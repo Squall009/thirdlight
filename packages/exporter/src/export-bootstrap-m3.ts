@@ -235,7 +235,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       throw new Error(`the scene references model asset(s) absent from the manifest: ${missing.join(', ')}`);
     }
     models = {
-      assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest })),
+      assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}) })),
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
       resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
         const buf = assetBytesByKey.get(`${assetId}@${version}`);

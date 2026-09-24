@@ -35,7 +35,7 @@ import {
   type AssetQueryState,
   type ImportTarget,
 } from '../session/asset-browser';
-import { assetPlacementAvailable, planAssetPlacement } from '../session/placement';
+import { ASSET_DRAG_TYPE, assetPlacementAvailable, parseAssetDrag, planAssetPlacement, planModelDrop, type AssetDragPayload, type PieceFacts } from '../session/placement';
 import {
   collectOverrides,
   newPrefabDraft,
@@ -79,13 +79,14 @@ import type { ZonePose } from '../session/zone-gesture';
 import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
+import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
-import { AssetBrowser, type AssetPreviewView } from './AssetBrowser';
+import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -281,6 +282,11 @@ function EditorApp(): JSX.Element {
 
   // ---- packet 27: content browser + local snapping -------------------------
   const [assets, setAssets] = useState<AssetView[]>([]);
+  /** Tile previews (`${assetId}|${piece}` → object URL) and each model file's pieces. */
+  const [assetThumbs, setAssetThumbs] = useState<ReadonlyMap<string, string>>(new Map());
+  const [assetPieces, setAssetPieces] = useState<ReadonlyMap<string, readonly { name: string }[]>>(new Map());
+  const thumbnailsRef = useRef<ThumbnailRenderer | null>(null);
+  const [assetDropActive, setAssetDropActive] = useState(false);
   const [assetQuery, setAssetQuery] = useState<AssetQueryState>({ total: 0, offset: 0, limit: 50, hasMore: false });
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -579,11 +585,19 @@ function EditorApp(): JSX.Element {
       onChanged: () => viewport.requestRender(),
       parentFor: (entityId) => viewport.objectFor(entityId),
       resolveBuffer: (digest) => client.instanceBufferBytes(digest),
+      vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
       onFailuresChanged: (failures) =>
         setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
     viewport.setModelInstances(models);
     modelInstancesRef.current = models;
+    const thumbnails = new ThumbnailRenderer({
+      read: (digest, piece) => client.thumbnail(digest, piece),
+      store: (digest, piece, png) => client.storeThumbnail(digest, piece, png),
+      prepared: (assetId) => models.prepared(assetId),
+      vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
+    });
+    thumbnailsRef.current = thumbnails;
     viewport.resize();
     void client.connect();
     refreshEntities();
@@ -593,6 +607,8 @@ function EditorApp(): JSX.Element {
     return () => {
       window.removeEventListener('resize', onResize);
       client.dispose();
+      thumbnails.dispose();
+      thumbnailsRef.current = null;
       models.dispose();
       viewport.dispose();
       modelInstancesRef.current = null;
@@ -622,6 +638,39 @@ function EditorApp(): JSX.Element {
   // Push the projection into the viewport (packet 27: placements must be
   // visible; the viewport renders the projection, never the reverse). The
   // first non-empty scene is framed so a large level is in view on open.
+  // Model assets: load each file once to learn its pieces, and fetch (or
+  // render and cache) a tile preview for the file and each of its pieces. A
+  // changed asset option (vertex colours) rebuilds the placed instances.
+  useEffect(() => {
+    const c = clientRef.current;
+    const models = modelInstancesRef.current;
+    const thumbs = thumbnailsRef.current;
+    if (!c || !models || !thumbs) return;
+    viewportRef.current?.syncEntities(c.visibleEntities());
+    let cancelled = false;
+    for (const a of assets) {
+      if (a.kind !== 'model') continue;
+      const digest = c.content.resolveVersion(a.assetId)?.sourceDigest ?? '';
+      if (!/^[0-9a-f]{64}$/.test(digest)) continue;
+      const show = (piece: string | null): void => {
+        void thumbs.url(a.assetId, digest, piece).then((url) => {
+          if (cancelled || url === null) return;
+          setAssetThumbs((prev) => (prev.get(thumbnailKey(a.assetId, piece)) === url ? prev : new Map(prev).set(thumbnailKey(a.assetId, piece), url)));
+        });
+      };
+      show(null);
+      void models.prepared(a.assetId).then((resource) => {
+        if (cancelled || resource === null) return;
+        const pieces = resource.pieces().map((pc) => ({ name: pc.name }));
+        setAssetPieces((prev) => new Map(prev).set(a.assetId, pieces));
+        if (pieces.length >= 2) for (const pc of pieces) show(pc.name);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [assets]);
+
   const framedRef = useRef(false);
   useEffect(() => {
     viewportRef.current?.syncEntities(entities);
@@ -1812,6 +1861,56 @@ function EditorApp(): JSX.Element {
     await runTypedCommand('createEntity', command.args, setPlacementError);
   }, [runTypedCommand]);
 
+  /**
+   * Drop a model (or one piece) from the asset tiles: one createEntity — a
+   * piece, a whole single-piece file, or a folder holding every piece of a
+   * multi-piece file laid out in a row. `_COL` nodes become 2D colliders.
+   */
+  const dropAsset = useCallback(
+    async (payload: AssetDragPayload, position: [number, number, number], parentId: string | null) => {
+      const c = clientRef.current;
+      const models = modelInstancesRef.current;
+      if (!c || !models) return;
+      const asset = c.content.getAsset(payload.assetId);
+      if (asset === undefined || asset.kind !== 'model') return;
+      setSelectedAssetId(payload.assetId);
+      const resource = await models.prepared(payload.assetId);
+      if (resource === null) {
+        setPlacementError({ code: 'asset_unavailable', message: `${asset.displayName} could not be loaded` });
+        return;
+      }
+      const box = (piece: string | null): PieceFacts['bounds'] => {
+        const b = resource.bounds(piece);
+        return b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] };
+      };
+      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? resource.collider2D(pc.name) : null, skinned: pc.skinned }));
+      const { args } = planModelDrop({
+        assetId: payload.assetId,
+        displayName: asset.displayName,
+        ...(payload.piece !== undefined ? { piece: payload.piece } : {}),
+        pieces,
+        wholeCollider: pieces.length === 1 ? resource.collider2D(null) : null,
+        position,
+        parentId,
+      });
+      setPlacementError(null);
+      const res = await c.command('createEntity', args, c.projection.revision);
+      if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+      else if (!res.ok) setPlacementError({ code: (res.response as { code?: string }).code ?? 'command_failed', message: (res.response as { message?: string }).message ?? 'the model could not be placed' });
+      reportFailure(`Place ${asset.displayName}`, res);
+    },
+    [reportFailure],
+  );
+
+  const setVertexColors = useCallback(
+    async (assetId: string, mode: 'data' | 'tint') => {
+      const c = clientRef.current;
+      if (!c) return;
+      reportFailure('Vertex colours', await c.command('setAssetOptions', { assetId, vertexColors: mode }, c.projection.revision));
+    },
+    [reportFailure],
+  );
+
   const capturePrefab = useCallback(async () => {
     const c = clientRef.current;
     const sourceEntityId = selectedIdRef.current;
@@ -2270,6 +2369,11 @@ function EditorApp(): JSX.Element {
           onSelect={(ids, primary) => setSelection({ ids, primary })}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId) => void move(ids, parentId, beforeId)}
+          onAssetDrop={(asset, parentId, sceneId) => {
+            if (sceneId !== null) clientRef.current?.setActiveScene(sceneId);
+            const focus = viewportRef.current?.focusPoint() ?? [0, 0, 0];
+            void dropAsset(asset, [Math.round(focus[0] * 4) / 4, Math.round(focus[1] * 4) / 4, Math.round(focus[2] * 4) / 4], parentId);
+          }}
           {...(sceneHeaders !== null ? { scenes: sceneHeaders, closedScenes, onSceneAction: (a: SceneAction) => void sceneAction(a) } : {})}
         />
             </div>
@@ -2283,7 +2387,27 @@ function EditorApp(): JSX.Element {
                   Game
                 </button>
               </div>
-        <div className="tl-app__stage" ref={stageRef}>
+        <div
+          className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
+          ref={stageRef}
+          onDragOver={(ev) => {
+            if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'copy';
+            if (!assetDropActive) setAssetDropActive(true);
+          }}
+          onDragLeave={(ev) => {
+            if (ev.currentTarget === ev.target || !ev.currentTarget.contains(ev.relatedTarget as Node | null)) setAssetDropActive(false);
+          }}
+          onDrop={(ev) => {
+            setAssetDropActive(false);
+            if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
+            ev.preventDefault();
+            const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
+            const at = viewportRef.current?.dropPoint(ev.clientX, ev.clientY);
+            if (payload !== null && at !== undefined) void dropAsset(payload, at, null);
+          }}
+        >
           <canvas ref={canvasRef} className="tl-viewport" />
           {centerTab === 'game' && !playing && (
             <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
@@ -2386,6 +2510,9 @@ function EditorApp(): JSX.Element {
               roleDraft={reimportRoles}
               onRoleEntityChange={setReimportEntity}
               onRoleDraftChange={setReimportRoles}
+              thumbnails={assetThumbs}
+              pieces={assetPieces}
+              onVertexColors={(id, mode) => void setVertexColors(id, mode)}
             />
           )}
           {bottomTab === 'prefabs' && (

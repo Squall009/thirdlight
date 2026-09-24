@@ -373,6 +373,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       sourceByteLength: a.sourceByteLength,
       recipe: a.recipe,
       metricsDigest: a.metricsDigest,
+      ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     });
   }
 

@@ -60,6 +60,7 @@ import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
+import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 
 // ---- error surfacing (workspace/command codes → session-layer shape) ----------
 
@@ -526,6 +527,8 @@ export interface ContentRouteDeps {
   onJobFailed?: (projectId: string, kind: string, code: string, message: string) => void;
   /** FBX → GLB conversion (headless Blender); without it an FBX import is `converter_unavailable`. */
   fbx?: FbxConverter;
+  /** The asset thumbnail cache (absent: thumbnail routes answer 404). */
+  thumbnails?: ThumbnailCache;
 }
 
 /** Where an FBX to convert comes from: a game-folder file or an upload stage. */
@@ -635,6 +638,13 @@ export class ContentRoutes {
     if (n === 7 && parts[5] === 'buffers') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.bufferBytes(req, res, projectId, parts[6] ?? '');
+      return true;
+    }
+    // GET|PUT /api/v1/projects/:projectId/content/thumbnails/:digest?piece= (the tile preview cache)
+    if (n === 7 && parts[5] === 'thumbnails') {
+      if (method === 'GET') this.thumbnailRead(req, res, projectId, parts[6] ?? '', query);
+      else if (method === 'PUT') await this.thumbnailWrite(req, res, projectId, parts[6] ?? '', query);
+      else return this.methodNotAllowed(res, 'GET, PUT');
       return true;
     }
     // GET /api/v1/projects/:projectId/content/jobs/:jobId
@@ -1134,6 +1144,53 @@ export class ContentRoutes {
     res.setHeader('cache-control', CONTENT_ASSET_BYTES_CACHE);
     res.statusCode = 200;
     res.end(read.bytes);
+  }
+
+  // ---- asset thumbnails (a cache in the data root) ----------------------------
+
+  private thumbnailPiece(res: ServerResponse, query: Map<string, string>): string | null | undefined {
+    const piece = query.get('piece');
+    if (piece === undefined || piece === '') return null;
+    if (piece.length > 128 || /[\u0000-\u001f\u007f]/.test(piece)) {
+      this.deps.sendError(res, sessionError('field_value', 'validation', 'piece must be 1-128 characters without control characters', { path: '/piece' }));
+      return undefined;
+    }
+    return piece;
+  }
+
+  private thumbnailRead(req: IncomingMessage, res: ServerResponse, projectId: string, digest: string, query: Map<string, string>): void {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const piece = this.thumbnailPiece(res, query);
+    if (piece === undefined) return;
+    const png = this.deps.thumbnails?.read(projectId, digest, piece) ?? null;
+    if (png === null) {
+      // Not cached yet: an expected miss (the editor renders one), not an error.
+      res.statusCode = 204;
+      res.setHeader('cache-control', 'no-store');
+      res.end();
+      return;
+    }
+    res.setHeader('content-type', 'image/png');
+    res.setHeader('content-length', String(png.byteLength));
+    res.setHeader('cache-control', 'private, no-cache');
+    res.statusCode = 200;
+    res.end(png);
+  }
+
+  private async thumbnailWrite(req: IncomingMessage, res: ServerResponse, projectId: string, digest: string, query: Map<string, string>): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const piece = this.thumbnailPiece(res, query);
+    if (piece === undefined) return;
+    if (this.deps.thumbnails === undefined) {
+      return this.deps.sendError(res, sessionError('thumbnail_not_found', 'not_found', 'this backend keeps no thumbnail cache'), 404);
+    }
+    const bytes = await this.readBounded(req, res, THUMBNAIL_BYTES_MAX, 'invalid_request');
+    if (bytes === null) return;
+    const refused = this.deps.thumbnails.write(projectId, digest, piece, bytes);
+    if (refused !== null) return this.deps.sendError(res, sessionError('field_value', 'validation', refused, { path: '/body' }));
+    this.deps.sendJson(res, 200, { ok: true, digest, piece });
   }
 
   // ---- authenticated committed asset bytes (sessions.md §16.1) ---------------

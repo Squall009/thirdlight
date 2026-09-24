@@ -139,6 +139,9 @@ export const NODE_SIDE_ALLOWED = {
         'examples/jsm/loaders/DRACOLoader.js',
         'examples/jsm/loaders/KTX2Loader.js',
         'examples/jsm/libs/meshopt_decoder.module.js',
+        // 2026-09-24: skinned meshes need SkeletonUtils.clone so each
+        // instance gets its own skeleton (gltf-loader port only).
+        'examples/jsm/utils/SkeletonUtils.js',
       ],
     },
     node: [],

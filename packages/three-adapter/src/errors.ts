@@ -67,6 +67,9 @@ export const ERROR_CODES = [
    *  validation class, bounded diagnostic — the entity is realized as a
    *  plain group and the run proceeds). */
   'models_asset_unresolved',
+  /** A placement names a piece the model file does not have (e.g. renamed in
+   *  a reimport); the entity is drawn empty and the failure is reported. */
+  'model_piece_missing',
 ] as const;
 
 export type AdapterErrorCode = (typeof ERROR_CODES)[number];

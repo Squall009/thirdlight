@@ -200,7 +200,7 @@ const GAME_STRING_BOUNDS: Readonly<Record<'title' | 'objective' | 'instructions'
   objective: 160,
   instructions: 320,
 };
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -731,6 +731,13 @@ function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], v3 = fa
     errors.push(fieldType(`${path}/currentVersion`, a['currentVersion'], 'integer'));
   } else if (a['currentVersion'] === undefined) {
     errors.push(fieldMissing(`${path}/currentVersion`, 'currentVersion'));
+  }
+  const vertexColors = a['vertexColors'];
+  if (vertexColors !== undefined) {
+    if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/vertexColors`, 'vertexColors', 'only a v3/v4 model asset has vertexColors'));
+    else if (vertexColors !== 'tint') {
+      errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" (absent = data)', 'vertexColors is stored only as "tint"; the default treats COLOR_0 as shader data'));
+    }
   }
   for (const k of Object.keys(a)) {
     if (!KNOWN_ASSET_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_ASSET_FIELDS].join(', ')));
@@ -1435,6 +1442,7 @@ function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     displayName: a.displayName,
     currentVersion: a.currentVersion,
     versions: a.versions.map((v) => canonicalVersionV3(v, kind)),
+    ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
   };
 }
 
@@ -1479,7 +1487,10 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
 
 function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   const components: PrefabEntity['components'] = { transform: canonicalTransform(e.components.transform) };
-  if (e.components.model !== undefined) components.model = { asset: { assetId: e.components.model.asset.assetId } };
+  if (e.components.model !== undefined) {
+    const piece = e.components.model.piece;
+    components.model = { asset: { assetId: e.components.model.asset.assetId }, ...(piece !== undefined ? { piece } : {}) };
+  }
   if (e.components.box !== undefined) components.box = canonicalBox(e.components.box);
   if (e.components.behavior !== undefined) {
     const values: Record<string, PropertyValue> = {};

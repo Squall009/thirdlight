@@ -1318,6 +1318,28 @@ export class SessionClient {
     return new Float32Array(await res.arrayBuffer());
   }
 
+  /** The cached tile thumbnail of one asset version (and piece), or null when none is cached yet. */
+  async thumbnail(digest: string, piece: string | null): Promise<Blob | null> {
+    const q = piece === null ? '' : `?piece=${encodeURIComponent(piece)}`;
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/thumbnails/${digest}${q}`, {
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+    });
+    if (res.status === 204 || res.status === 404) return null;
+    if (!res.ok) throw new Error(`thumbnail read failed (HTTP ${res.status})`);
+    return res.blob();
+  }
+
+  /** Store a rendered tile thumbnail (PNG) in the backend's cache. */
+  async storeThumbnail(digest: string, piece: string | null, png: Blob): Promise<void> {
+    const q = piece === null ? '' : `?piece=${encodeURIComponent(piece)}`;
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/thumbnails/${digest}${q}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'image/png' },
+      body: png,
+    });
+    if (!res.ok) throw new Error(`thumbnail write failed (HTTP ${res.status})`);
+  }
+
   async uploadAsset(
     bytes: Uint8Array,
     options: {

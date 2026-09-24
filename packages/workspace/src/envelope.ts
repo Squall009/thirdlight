@@ -653,7 +653,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -966,7 +966,11 @@ function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 
     if (!isPlainObject(ent)) {
       return rerr('createEntity change entity must be the full entity value', undefined, '/result/change/entity');
     }
-    const entErr = validateHistoricalEntities([ent], '/result/change/entity', storageVersion);
+    const children = change['children'];
+    if (children !== undefined && (!Array.isArray(children) || children.length === 0)) {
+      return rerr('createEntity change children must be a non-empty array of entities', undefined, '/result/change/children');
+    }
+    const entErr = validateHistoricalEntities([ent, ...((children as unknown[] | undefined) ?? [])], '/result/change/entity', storageVersion);
     if (entErr !== null) return entErr;
     if (ent['id'] !== change['id']) return rerr('createEntity change entity id must equal change id', ent['id'], '/result/change/entity/id');
   }
@@ -995,6 +999,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'moveEntities',
   'setTags',
   'setSceneIndex',
+  'setAssetOptions',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1018,11 +1023,14 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   moveEntities: ['type', 'parentId', 'beforeId', 'entities', 'order'],
   setTags: ['type', 'previous', 'next'],
   setSceneIndex: ['type', 'previous', 'next'],
+  setAssetOptions: ['type', 'assetId', 'previous', 'next'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
 const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
   updateEntity: ['transform'],
+  // A folder created with its children in one transaction (a multi-piece model drop).
+  createEntity: ['children'],
 };
 
 /** Forward-op → change-type correspondence for the M2 ops. */
@@ -1040,6 +1048,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   updateEntity: 'updateEntity',
   moveEntities: 'moveEntities',
   setTags: 'setTags',
+  setAssetOptions: 'setAssetOptions',
   createScene: 'setSceneIndex',
   renameScene: 'setSceneIndex',
   deleteScene: 'setSceneIndex',

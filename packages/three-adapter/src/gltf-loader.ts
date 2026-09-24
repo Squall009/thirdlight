@@ -40,6 +40,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   visualLoadFailure,
   type AssetVersionDescriptor,
@@ -274,7 +275,9 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
       return {
         root: gltf.scene,
         animations,
-        createInstance: () => gltf.scene.clone(true),
+        // SkeletonUtils.clone rebinds skinned meshes to the clone's own bones
+        // (Object3D.clone would leave them driven by the original skeleton).
+        createInstance: () => cloneSkinned(gltf.scene),
         dispose: release,
         ownership: {
           geometries: owned.geometries.size,

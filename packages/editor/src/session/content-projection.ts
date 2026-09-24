@@ -25,7 +25,7 @@
  * module never holds bytes.
  */
 
-import type { AssetSummary, ChangeData, PublishAssetChange } from '@thirdlight/commands';
+import type { AssetSummary, ChangeData, CommandAssetRecord, PublishAssetChange } from '@thirdlight/commands';
 import type { ProjectedEntity } from './projection';
 
 /** One catalog asset summary exactly as `queryAssets`/full state returns it. */
@@ -80,6 +80,14 @@ export class ContentProjection {
     switch (change.type) {
       case 'publishAsset':
         return this.applyPublishAsset(change);
+      case 'setAssetOptions': {
+        const a = this.assets.get(change.assetId);
+        if (a === undefined) return false;
+        const tint = (change.next as CommandAssetRecord).vertexColors === 'tint';
+        const { vertexColors: _old, ...rest } = a;
+        this.assets.set(change.assetId, tint ? { ...rest, vertexColors: 'tint' } : rest);
+        return true;
+      }
       default:
         return false;
     }
@@ -103,6 +111,7 @@ export class ContentProjection {
       displayName: next.displayName,
       currentVersion: next.currentVersion,
       versionCount: next.versions.length,
+      ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}) } } : {}),
       // `change.next` carries the full record, so the version facts (never
@@ -156,6 +165,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     displayName: a.displayName,
     currentVersion: a.currentVersion,
     versionCount: a.versionCount,
+    ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),

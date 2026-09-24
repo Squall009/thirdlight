@@ -36,6 +36,7 @@ import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
+import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D, stripCollisionNodes, type VertexColorMode } from './pieces';
 
 /**
  * The approved visual descriptor: the immutable, path-free per-version facts a
@@ -220,14 +221,28 @@ export interface PreparedVisualResource {
    * internal). Instances are independent in transform and animation state and
    * share this resource's geometry/material/texture ownership.
    */
-  createInstance():
+  createInstance(options?: CreateInstanceOptions):
     | { readonly ok: true; readonly instance: ModelInstance }
     | { readonly ok: false; readonly error: AdapterError };
+  /** The file's pieces (top-level nodes grouped by `<piece>_LOD<n>`/`<piece>_COL`). */
+  pieces(): readonly { readonly name: string; readonly lods: number; readonly hasCollider: boolean; readonly skinned: boolean }[];
+  /** The 2D collider polygon from a piece's `_COL` node (null piece = the file's single `_COL`). */
+  collider2D(piece: string | null): [number, number][] | null;
+  /** A piece's (or the whole file's) LOD0 bounds in the file's root space. */
+  bounds(piece: string | null): THREE.Box3;
   diagnostics(): VisualResourceDiagnostics;
   ownership(): ResourceOwnership;
   /** Retire the resource: no new instances; shared resources are released when
    *  the last live instance is gone. Idempotent. */
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true } | { readonly ok: false; readonly error: AdapterError };
+}
+
+/** How an instance is built from the file. */
+export interface CreateInstanceOptions {
+  /** Keep only this piece (absent: the whole file). */
+  readonly piece?: string;
+  /** COLOR_0 as shader data (default) or as a base-colour tint. */
+  readonly vertexColors?: VertexColorMode;
 }
 
 /** Preview-only material modes (local to one instance; never authored state). */
@@ -762,7 +777,27 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
   return {
     descriptor,
     clips: clipInfo,
-    createInstance() {
+    pieces() {
+      return modelPieces(loaded.root).map((p) => ({
+        name: p.name,
+        lods: p.lods,
+        hasCollider: p.collider !== null,
+        skinned: p.nodes.some((n) => {
+          let found = false;
+          n.traverse((o) => {
+            if ((o as THREE.SkinnedMesh).isSkinnedMesh === true) found = true;
+          });
+          return found;
+        }),
+      }));
+    },
+    collider2D(piece: string | null) {
+      return pieceCollider2D(loaded.root, piece);
+    },
+    bounds(piece: string | null) {
+      return pieceBounds(loaded.root, piece);
+    },
+    createInstance(options: CreateInstanceOptions = {}) {
       if (disposed) {
         return {
           ok: false as const,
@@ -778,6 +813,15 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
       if (typeof glbRoot !== 'object' || glbRoot === null || (glbRoot as { isObject3D?: boolean }).isObject3D !== true) {
         return { ok: false as const, error: adapterError('asset_corrupt', 'the loader returned a non-Object3D instance') };
       }
+      if (options.piece !== undefined && !keepOnlyPiece(glbRoot, options.piece)) {
+        return {
+          ok: false as const,
+          error: adapterError('model_piece_missing', `asset ${descriptor.assetId} v${descriptor.version} has no piece '${options.piece}'`),
+        };
+      }
+      stripCollisionNodes(glbRoot);
+      applyLodGroups(glbRoot);
+      applyVertexColorMode(glbRoot, options.vertexColors ?? 'data');
       const holder = new THREE.Group();
       holder.name = `asset:${descriptor.assetId}@v${descriptor.version}`;
       holder.add(glbRoot);

@@ -83,7 +83,7 @@ export type ComponentV2 = (typeof V2_REGISTRY)[number];
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'components']);
-const KNOWN_MODEL_FIELDS = new Set(['asset']);
+const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
@@ -175,8 +175,22 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
       }
     }
   }
+  validateModelPiece(c['piece'], `${path}/piece`, errors);
   for (const k of Object.keys(c)) {
-    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset'));
+    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece'));
+  }
+}
+
+/**
+ * Optional `piece`: one named piece of a multi-piece GLB (the base name of its
+ * `<piece>_LOD<n>`/`<piece>_COL` nodes, or a top-level node name). Absent =
+ * the whole file.
+ */
+export function validateModelPiece(piece: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (piece === undefined) return;
+  if (typeof piece !== 'string') errors.push(fieldType(path, piece, 'string'));
+  else if (!isValidName(piece)) {
+    errors.push(fieldValue(path, piece, 'string, 1-128 chars, no control characters', 'piece must be 1-128 characters without control characters'));
   }
 }
 
@@ -825,7 +839,8 @@ function canonNum(v: unknown): number {
 function canonicalModel(c: unknown): ModelComponent {
   const o = c as Record<string, unknown>;
   const asset = o['asset'] as Record<string, unknown>;
-  return { asset: { assetId: asset['assetId'] as string } };
+  const piece = (c as Record<string, unknown>)['piece'];
+  return { asset: { assetId: asset['assetId'] as string }, ...(typeof piece === 'string' ? { piece } : {}) };
 }
 
 function canonicalBehaviorComponent(c: unknown): { behaviorId: string; values: Record<string, PropertyValue> } {

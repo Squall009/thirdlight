@@ -25,6 +25,7 @@ import {
   createVisualResourceStore,
   injectedResolver,
   type BuiltInstanceSet,
+  type CreateInstanceOptions,
   type PreparedVisualResource,
   type AssetPreviewController,
   type AssetVersionDescriptor,
@@ -32,6 +33,7 @@ import {
   type VisualClipInfo,
   type VisualResourceHandle,
   type VisualResourceStore,
+  type VertexColorMode,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { ProjectedEntity } from '../session/projection';
@@ -55,11 +57,15 @@ export interface ModelInstancesOptions {
   onFailuresChanged?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
   /** Phase 12 (c): read an instance-set buffer by digest (absent: instance sets stay empty). */
   resolveBuffer?: (digest: string) => Promise<Float32Array>;
+  /** How an asset's COLOR_0 is used (default: shader data). */
+  vertexColorsFor?: (assetId: string) => VertexColorMode;
 }
 
 interface LiveInstance {
   instance: ModelInstance;
   holder: THREE.Object3D;
+  /** What the instance was built from (`assetId@version:piece:vertexColors`). */
+  key: string;
 }
 
 /** Bounded failed-load guard: attempts per `(assetId, version)` before backing off (GG-8). */
@@ -146,6 +152,12 @@ export class ModelInstances {
       if (!upToDate && !this.loading.has(assetId) && !exhausted) {
         this.loadAsset(assetId, descriptor);
       }
+      // A changed piece or vertex-colour mode rebuilds the instance from the loaded resource.
+      const res = this.resources.get(assetId);
+      const wantKey = res !== undefined ? this.keyFor(e, res.version) : '';
+      if (e.instances === undefined && res !== undefined && res.version === descriptor.version && live?.key !== wantKey && this.failedKeys.get(e.id) !== wantKey) {
+        this.attach(e.id, res.resource.createInstance(this.instanceOptions(e)), this.keyFor(e, res.version));
+      }
       if (live && this.options.parentFor === undefined) this.applyTransform(live.holder, e);
     }
     for (const [entityId, live] of [...this.live]) {
@@ -153,6 +165,45 @@ export class ModelInstances {
       this.detach(entityId);
     }
     this.syncSets();
+  }
+
+  private instanceOptions(e: ProjectedEntity): CreateInstanceOptions {
+    const assetId = e.assetId ?? e.instances?.assetId ?? '';
+    const piece = e.instances?.piece ?? e.piece;
+    return { ...(piece !== undefined ? { piece } : {}), vertexColors: this.options.vertexColorsFor?.(assetId) ?? 'data' };
+  }
+
+  private keyFor(e: ProjectedEntity, version: number): string {
+    const o = this.instanceOptions(e);
+    return `${e.assetId ?? e.instances?.assetId ?? ''}@${version}:${o.piece ?? ''}:${o.vertexColors ?? 'data'}`;
+  }
+
+  /**
+   * The loaded resource of an asset's current version (loading it if needed):
+   * its pieces, bounds and `_COL` colliders, and instances for thumbnails.
+   */
+  async prepared(assetId: string): Promise<PreparedVisualResource | null> {
+    const descriptor = this.options.descriptorFor(assetId);
+    if (descriptor === null || this.disposed) return null;
+    const have = this.resources.get(assetId);
+    if (have !== undefined && have.version === descriptor.version) return have.resource;
+    if (!this.loading.has(assetId)) this.loadAsset(assetId, descriptor);
+    return new Promise((resolve) => {
+      const list = this.waiters.get(assetId) ?? [];
+      list.push(resolve);
+      this.waiters.set(assetId, list);
+    });
+  }
+
+  private readonly waiters = new Map<string, ((r: PreparedVisualResource | null) => void)[]>();
+  /** The instance key an entity last failed to build with (not retried until it changes). */
+  private readonly failedKeys = new Map<string, string>();
+
+  private settleWaiters(assetId: string, resource: PreparedVisualResource | null): void {
+    const list = this.waiters.get(assetId);
+    if (list === undefined) return;
+    this.waiters.delete(assetId);
+    for (const w of list) w(resource);
   }
 
   /** Phase 12 (c): fetch an instance buffer once (then draw the sets that use it). */
@@ -184,12 +235,12 @@ export class ModelInstances {
       wanted.add(e.id);
       const res = this.resources.get(ref.assetId);
       const floats = this.buffers.get(ref.buffer);
-      const key = `${ref.assetId}@${res?.version ?? 0}:${ref.buffer}:${ref.count}`;
+      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}`;
       const current = this.sets.get(e.id);
       if (current !== undefined && current.key === key) continue;
       if (res === undefined || floats === undefined) continue;
       this.detachSet(e.id);
-      const created = res.resource.createInstance();
+      const created = res.resource.createInstance(this.instanceOptions(e));
       if (!created.ok) continue;
       const built = buildInstanceSet(created.instance, floats, ref.count, `instances:${e.id}`);
       (built.group as { entityId?: string }).entityId = e.id;
@@ -228,6 +279,7 @@ export class ModelInstances {
         const prior = this.failed.get(assetId);
         const attempts = prior !== undefined && prior.version === descriptor.version ? prior.attempts + 1 : 1;
         this.failed.set(assetId, { version: descriptor.version, attempts });
+        this.settleWaiters(assetId, null);
         return;
       }
       if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
@@ -235,25 +287,30 @@ export class ModelInstances {
       this.resources.set(assetId, { version: descriptor.version, resource: result.resource });
       for (const e of this.entities) {
         if (e.assetId !== assetId) continue;
-        this.attach(e.id, result.resource.createInstance());
+        this.attach(e.id, result.resource.createInstance(this.instanceOptions(e)), this.keyFor(e, descriptor.version));
       }
       this.syncSets();
+      this.settleWaiters(assetId, result.resource);
     });
   }
 
-  private attach(entityId: string, created: CreateInstanceResult): void {
+  private attach(entityId: string, created: CreateInstanceResult, key: string): void {
     if (!created.ok) {
+      this.detach(entityId);
+      this.failedKeys.set(entityId, key);
       this.failures.set(entityId, { code: created.error.code, message: created.error.message });
       this.options.onFailuresChanged?.(this.failures);
       return;
     }
+    this.failedKeys.delete(entityId);
+    if (this.failures.delete(entityId)) this.options.onFailuresChanged?.(this.failures);
     this.detach(entityId);
     const holder = created.instance.root;
     holder.name = entityId;
     (holder as { entityId?: string }).entityId = entityId;
     const parent = this.options.parentFor?.(entityId) ?? null;
     (parent ?? this.scene).add(holder);
-    this.live.set(entityId, { instance: created.instance, holder });
+    this.live.set(entityId, { instance: created.instance, holder, key });
     const e = this.entities.find((x) => x.id === entityId);
     if (e && parent === null) this.applyTransform(holder, e);
     this.options.onChanged?.();
@@ -367,6 +424,7 @@ export class ModelInstances {
 
   dispose(): void {
     this.disposed = true;
+    for (const id of [...this.waiters.keys()]) this.settleWaiters(id, null);
     this.clearPreview();
     for (const entityId of [...this.live.keys()]) this.detach(entityId);
     for (const entityId of [...this.sets.keys()]) this.detachSet(entityId);

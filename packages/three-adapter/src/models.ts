@@ -53,6 +53,7 @@ import {
   trackRoleController,
   untrackRoleController,
   type AssetVersionDescriptor,
+  type CreateInstanceOptions,
   type GlbLoaderPort,
   type ModelInstance,
   type PreparedVisualResource,
@@ -82,6 +83,8 @@ export interface SceneAdapterModelAsset {
   readonly version: number;
   /** 64 lowercase hex (the manifest row's digest). */
   readonly sourceDigest: string;
+  /** COLOR_0 multiplies the albedo (absent = shader data). */
+  readonly vertexColors?: 'tint';
 }
 
 /** One committed `modelAnimation` entity mapping (delivery.md (M4) §2.2). */
@@ -187,6 +190,8 @@ export interface ModelsRealizationContext {
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
   /** Phase 12 (c): the snapshot's instance-set entities (`components.instances`). */
   readonly instanceEntities?: ReadonlyMap<string, InstanceSetRef>;
+  /** `model` entities that show one piece of their file: `entityId` → piece name. */
+  readonly modelPieces?: ReadonlyMap<string, string>;
   /** Phase 12 (c): more entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
   /** The entity holders (the adapter's `objects` map entries); `null` when
@@ -216,6 +221,7 @@ export interface ModelsRealization {
    */
   addEntities(entities: {
     readonly models: ReadonlyMap<string, string>;
+    readonly pieces?: ReadonlyMap<string, string>;
     readonly animations: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
     readonly instances: ReadonlyMap<string, InstanceSetRef>;
   }): void;
@@ -233,6 +239,8 @@ export interface ModelsRealization {
 /** Phase 12 (c): one instance-set entity (`components.instances`). */
 export interface InstanceSetRef {
   readonly assetId: string;
+  /** One piece of the model file (absent: the whole file). */
+  readonly piece?: string;
   /** SHA-256 of the transform buffer. */
   readonly buffer: string;
   readonly count: number;
@@ -396,6 +404,12 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const modelEntities = new Map(ctx.modelEntities);
   const modelAnimationEntities = new Map(ctx.modelAnimationEntities);
   const instanceEntities = new Map(ctx.instanceEntities ?? []);
+  const modelPieces = new Map(ctx.modelPieces ?? []);
+  /** The instance options for an entity: its piece and the asset's vertex-colour mode. */
+  const instanceOptions = (assetId: string, piece: string | undefined): CreateInstanceOptions => ({
+    ...(piece !== undefined ? { piece } : {}),
+    vertexColors: rowsByAsset.get(assetId)?.vertexColors === 'tint' ? 'tint' : 'data',
+  });
   const attached = new Map<string, AttachedModel>(); // entityId → attached model
   const attachedSets = new Map<string, AttachedInstanceSet>(); // entityId → instanced meshes
   const liveControllers = new Set<AnimationRoleController>();
@@ -497,7 +511,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       if (entityAssetId !== assetId || attached.has(entityId)) continue;
       const holder = ctx.holderFor(entityId);
       if (holder === null) continue; // defensive: no holder — skip (bounded)
-      const created = resource.createInstance();
+      const created = resource.createInstance(instanceOptions(assetId, modelPieces.get(entityId)));
       if (created.ok === false) {
         // Defensive residual (the loader already validated the hierarchy):
         // count as a hard failure of this entity's realization, keep going.
@@ -569,7 +583,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const floats = buffers.get(ref.buffer);
     const holder = ctx.holderFor(entityId);
     if (resource === undefined || floats === undefined || holder === null) return;
-    const created = resource.createInstance();
+    const created = resource.createInstance(instanceOptions(ref.assetId, ref.piece));
     if (created.ok === false) return;
     const template = created.instance;
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`);
@@ -763,6 +777,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     addEntities(entities): void {
       if (disposed) return;
       for (const [id, assetId] of entities.models) modelEntities.set(id, assetId);
+      for (const [id, piece] of entities.pieces ?? []) modelPieces.set(id, piece);
       for (const [id, anim] of entities.animations) modelAnimationEntities.set(id, anim);
       for (const [id, ref] of entities.instances) instanceEntities.set(id, ref);
       const assets = new Set([...entities.models.values(), ...[...entities.instances.values()].map((r) => r.assetId)]);

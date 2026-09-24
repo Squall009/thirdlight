@@ -523,6 +523,15 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 
 /* Icon artwork (packages/editor/public/icons, generated set). */
 .tl-tile__img { width: 34px; height: 34px; display: block; }
+.tl-tile__img--thumb { width: 52px; height: 52px; object-fit: contain; }
+.tl-tile[draggable="true"] { cursor: grab; }
+.tl-tile--piece { background: var(--surface-1, transparent); border-style: dashed; border-color: var(--surface-3); }
+.tl-tile--piece .tl-tile__icon { width: 44px; height: 44px; }
+.tl-tile--piece .tl-tile__img--thumb { width: 44px; height: 44px; }
+.tl-tile__pieces { margin-left: 4px; padding: 0 4px; font: inherit; font-size: 10px; color: var(--text-dim); background: var(--surface-3);
+  border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+.tl-tile__pieces:hover { color: var(--text); border-color: var(--select-line); }
+.tl-app__stage.is-asset-drop { outline: 2px dashed var(--select-line); outline-offset: -2px; }
 .tl-row__icon { width: 14px; height: 14px; flex: none; opacity: .9; }
 .tl-btn__icon { width: 16px; height: 16px; display: block; }
 .tl-btn--tool { padding: 5px 8px; }

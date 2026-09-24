@@ -149,6 +149,8 @@ export interface CapturedAssetV3 {
   /** The recipe identity `{id, version}` (the deprecated `recipeDigest` derives from it). */
   recipe: { id: string; version: number };
   metricsDigest: string;
+  /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
+  vertexColors?: 'tint';
 }
 
 /** The captured v3 content view (delivery.md §2.3 `contentDigest` preimage). */
@@ -201,6 +203,8 @@ export interface ManifestAssetInputV2 {
   recipe?: { id: string; version: number };
   recipeDigest?: string;
   metricsDigest: string;
+  /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
+  vertexColors?: 'tint';
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -465,6 +469,7 @@ export function captureContentViewV3(
       sourceByteLength: version.sourceByteLength,
       recipe: { id: importRecipe.profile, version: importRecipe.recipeVersion },
       metricsDigest: blockDigest(version.metrics),
+      ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     });
   }
   if (errors.length > 0) return fail(errors);
@@ -561,6 +566,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       recipeDigest: a.recipeDigest ?? blockDigest(a.recipe ?? { id: 'unknown', version: 0 }),
       metricsDigest: a.metricsDigest,
       path: `content/sha256/${a.sourceDigest}`,
+      ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]

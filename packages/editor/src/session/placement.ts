@@ -91,6 +91,116 @@ export function planPrefabPlacement(prefabId: string, options: PlacementOptions 
   };
 }
 
+// ---- drag and drop of model assets (2026-09-24) ------------------------------
+
+/** The DataTransfer type an asset tile drags. */
+export const ASSET_DRAG_TYPE = 'application/x-thirdlight-asset';
+
+/** What an asset tile drags: a whole model file or one piece of it. */
+export interface AssetDragPayload {
+  assetId: string;
+  piece?: string;
+}
+
+export function parseAssetDrag(text: string): AssetDragPayload | null {
+  try {
+    const v = JSON.parse(text) as { assetId?: unknown; piece?: unknown };
+    if (typeof v.assetId !== 'string' || v.assetId === '') return null;
+    return typeof v.piece === 'string' ? { assetId: v.assetId, piece: v.piece } : { assetId: v.assetId };
+  } catch {
+    return null;
+  }
+}
+
+/** What the loaded file says about one piece. */
+export interface PieceFacts {
+  name: string;
+  /** LOD0 bounds in the file's root space (null when empty). */
+  bounds: { min: [number, number, number]; max: [number, number, number] } | null;
+  /** The 2D collider from the piece's `_COL` node (null: none). */
+  collider: [number, number][] | null;
+  skinned: boolean;
+}
+
+/** Gap between pieces laid out in a row (meters). */
+export const PIECE_ROW_GAP = 0.5;
+
+export interface ModelDropInput {
+  assetId: string;
+  displayName: string;
+  /** The dragged piece (absent: the whole file). */
+  piece?: string;
+  /** The file's pieces (from the loaded GLB). */
+  pieces: readonly PieceFacts[];
+  /** The whole file's collider (its single `_COL`), for a single-piece file. */
+  wholeCollider: [number, number][] | null;
+  position: [number, number, number];
+  /** A folder to file into (null: the scene root). */
+  parentId: string | null;
+}
+
+const colliderComponents = (c: [number, number][] | null, skinned: boolean): { components?: Record<string, unknown> } =>
+  c !== null && !skinned ? { components: { collider: { shape: { type: 'polygon', vertices: c.map(([x, y]) => [x, y]) } } } } : {};
+
+/**
+ * Plan the one `createEntity` a model drop issues:
+ *  - one piece → a model entity showing that piece (with its `_COL` collider);
+ *  - a multi-piece file → a folder named after the file holding one entity per
+ *    piece, laid out left to right with a gap so nothing overlaps (one undo);
+ *  - a single-piece file → one whole-file model entity (a skinned character
+ *    gets no static collider).
+ */
+export function planModelDrop(input: ModelDropInput): { args: Record<string, unknown> } {
+  const name = (s: string): string => s.slice(0, 128);
+  const parent = input.parentId !== null ? { parentId: input.parentId } : {};
+  if (input.piece !== undefined) {
+    const facts = input.pieces.find((p) => p.name === input.piece);
+    return {
+      args: {
+        kind: 'model',
+        name: name(input.piece),
+        model: { asset: { assetId: input.assetId }, piece: input.piece },
+        ...parent,
+        transform: { position: [...input.position] },
+        ...colliderComponents(facts?.collider ?? null, facts?.skinned ?? false),
+      },
+    };
+  }
+  if (input.pieces.length >= 2) {
+    let cursor = 0;
+    const children = input.pieces.map((p) => {
+      const minX = p.bounds?.min[0] ?? 0;
+      const width = p.bounds !== null ? Math.max(0.1, p.bounds.max[0] - p.bounds.min[0]) : 1;
+      const x = round3(input.position[0] + cursor - minX);
+      cursor += width + PIECE_ROW_GAP;
+      return {
+        kind: 'model',
+        name: name(p.name),
+        model: { asset: { assetId: input.assetId }, piece: p.name },
+        transform: { position: [x, input.position[1], input.position[2]] },
+        ...colliderComponents(p.collider, p.skinned),
+      };
+    });
+    return { args: { kind: 'folder', name: name(input.displayName), ...parent, children } };
+  }
+  const skinned = input.pieces.some((p) => p.skinned);
+  return {
+    args: {
+      kind: 'model',
+      name: name(input.displayName),
+      model: { asset: { assetId: input.assetId } },
+      ...parent,
+      transform: { position: [...input.position] },
+      ...colliderComponents(input.wholeCollider, skinned),
+    },
+  };
+}
+
+function round3(v: number): number {
+  const r = Math.round(v * 1000) / 1000;
+  return r === 0 ? 0 : r;
+}
+
 /** Whether an asset can be placed directly (the `model` kind exists — C27-1 closed). */
 export function assetPlacementAvailable(): boolean {
   return true;

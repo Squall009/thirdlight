@@ -59,6 +59,7 @@ import {
   validateColliderComponent,
   validateControllerComponent,
   validateModelComponent,
+  validateModelPiece,
   validatePhysicsTransform,
   validatePrefabProvenance,
   validateTransformV2,
@@ -315,7 +316,8 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
     const id = asset['assetId'];
     if (typeof id !== 'string') errors.push(fieldType(`${path}/asset/assetId`, id, 'string'));
     else if (!ID_RE_V2.test(id)) errors.push(idInvalid(`${path}/asset/assetId`, id));
-    for (const k of Object.keys(asset)) if (k !== 'assetId') errors.push(unexpectedField(`${path}/asset/${pointerSegment(k)}`, k, 'assetId'));
+    validateModelPiece(asset['piece'], `${path}/asset/piece`, errors);
+    for (const k of Object.keys(asset)) if (k !== 'assetId' && k !== 'piece') errors.push(unexpectedField(`${path}/asset/${pointerSegment(k)}`, k, 'assetId, piece'));
   }
   const buffer = c['buffer'];
   if (buffer === undefined) errors.push(fieldMissing(`${path}/buffer`, 'buffer'));
@@ -969,8 +971,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string }; buffer: string; count: number };
-    components.instances = { asset: { assetId: i.asset.assetId }, buffer: i.buffer, count: i.count };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
+    components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };
   }
   const name = e['name'];
   const pid = e['parentId'];

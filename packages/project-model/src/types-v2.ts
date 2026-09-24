@@ -26,6 +26,12 @@ export interface ModelAssetRef {
 
 export interface ModelComponent {
   asset: ModelAssetRef;
+  /**
+   * One named piece of a multi-piece GLB (the base name of its
+   * `<piece>_LOD<n>`/`<piece>_COL` nodes, or a top-level node name); absent =
+   * the whole file.
+   */
+  piece?: string;
 }
 
 /** Seven-type property value vocabulary (§20.5). */

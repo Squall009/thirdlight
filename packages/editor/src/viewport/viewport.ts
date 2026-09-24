@@ -186,6 +186,38 @@ export class Viewport {
     return [t.x, t.y, t.z];
   }
 
+  /**
+   * Where something dropped at a pointer position lands: the first visible
+   * surface under the pointer, else the ground plane (y = 0), else the focus
+   * point. Snapped to the translate step when snapping is on.
+   */
+  dropPoint(clientX: number, clientY: number): [number, number, number] {
+    const rect = this.root.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const targets: THREE.Object3D[] = [];
+    for (const [id, m] of this.meshes) {
+      if (m.visible) targets.push(m);
+      const holder = this.models?.instanceFor(id);
+      if (holder) targets.push(holder);
+    }
+    let point: THREE.Vector3 | null = null;
+    for (const h of this.raycaster.intersectObjects(targets, true)) {
+      if (h.object.visible && (h.object as THREE.Mesh).isMesh) {
+        point = h.point.clone();
+        break;
+      }
+    }
+    if (point === null) point = this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+    const p = point ?? this.orbit.target.clone();
+    const step = this.snapping() ? SNAP_TRANSLATE_M : 0.001;
+    const snap = (v: number): number => {
+      const r = Math.round(v / step) * step;
+      return Math.abs(r) < 1e-9 ? 0 : Number(r.toFixed(3));
+    };
+    return [snap(p.x), snap(p.y), snap(p.z)];
+  }
+
   /** Orbit around the entity's world position, keeping the view direction. */
   focus(id: string): void {
     const obj = this.meshes.get(id);

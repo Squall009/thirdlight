@@ -491,6 +491,16 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
+  if (inv.kind === 'setAssetOptions') {
+    const before = content.assets.find((a) => a.assetId === inv.assetId);
+    if (before === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
+    const after = deepClone(inv.restore);
+    const assets = sortedAssets([...content.assets.filter((a) => a.assetId !== inv.assetId), after]);
+    const nextContent: ContentDocument = { ...content, assets: assets as unknown as ContentDocument['assets'] };
+    const change: ChangeData = { type: 'setAssetOptions', assetId: inv.assetId, previous: deepClone(before), next: deepClone(after) };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
   if (inv.kind === 'setTags') {
     const before = deepClone(content.tags ?? []);
     const after = deepClone(inv.restore);
@@ -574,12 +584,18 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (f.type === 'createEntity') {
-    if (scene.entities.some((e) => e.id === f.id)) {
+    const created = [f.entity, ...(f.children ?? [])];
+    if (scene.entities.some((e) => created.some((c) => c.id === e.id))) {
       return { ok: false, error: historyInvalid(entry.requestId) };
     }
-    const nextEntities = [...scene.entities, deepClone(f.entity) as unknown as EntityV2];
+    const nextEntities = [...scene.entities, ...created.map((c) => deepClone(c) as unknown as EntityV2)];
     const result = { ...scene, revision: scene.revision + 1, entities: nextEntities };
-    const change: ChangeData = { type: 'createEntity', id: f.id, entity: deepClone(f.entity) };
+    const change: ChangeData = {
+      type: 'createEntity',
+      id: f.id,
+      entity: deepClone(f.entity),
+      ...(f.children !== undefined ? { children: f.children.map((c) => deepClone(c)) } : {}),
+    };
     return finish(state, result, state.content, change, entry.requestId);
   }
 
@@ -815,6 +831,16 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const after = deepClone(f.next);
     const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
+  }
+
+  if (f.type === 'setAssetOptions') {
+    const before = content.assets.find((a) => a.assetId === f.assetId);
+    if (before === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
+    const after = deepClone(f.next);
+    const assets = sortedAssets([...content.assets.filter((a) => a.assetId !== f.assetId), after]);
+    const nextContent: ContentDocument = { ...content, assets: assets as unknown as ContentDocument['assets'] };
+    const change: ChangeData = { type: 'setAssetOptions', assetId: f.assetId, previous: deepClone(before), next: deepClone(after) };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
   if (f.type === 'setTags') {

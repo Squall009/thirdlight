@@ -157,28 +157,34 @@ const SHADOW_FOLLOW_HALF = 24;
 /** The model, animation and instance-set references of some entities (structural reads). */
 function modelRefsOf(entities: readonly { id: string; components: unknown }[]): {
   models: Map<string, string>;
+  pieces: Map<string, string>;
   animations: Map<string, { readonly assetId: string; readonly version: number }>;
   instances: Map<string, InstanceSetRef>;
 } {
   const models = new Map<string, string>();
+  const pieces = new Map<string, string>();
   const animations = new Map<string, { readonly assetId: string; readonly version: number }>();
   const instances = new Map<string, InstanceSetRef>();
   for (const e of entities) {
     const comps = e.components as {
-      model?: { asset?: { assetId?: unknown } };
+      model?: { asset?: { assetId?: unknown }; piece?: unknown };
       modelAnimation?: { assetId?: unknown; version?: unknown };
-      instances?: { asset?: { assetId?: unknown }; buffer?: unknown; count?: unknown };
+      instances?: { asset?: { assetId?: unknown; piece?: unknown }; buffer?: unknown; count?: unknown };
     };
-    if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') models.set(e.id, comps.model.asset.assetId);
+    if (comps.model !== undefined && typeof comps.model.asset?.assetId === 'string') {
+      models.set(e.id, comps.model.asset.assetId);
+      if (typeof comps.model.piece === 'string') pieces.set(e.id, comps.model.piece);
+    }
     if (comps.modelAnimation !== undefined && typeof comps.modelAnimation.assetId === 'string' && Number.isInteger(comps.modelAnimation.version)) {
       animations.set(e.id, { assetId: comps.modelAnimation.assetId, version: comps.modelAnimation.version as number });
     }
     const inst = comps.instances;
     if (inst !== undefined && typeof inst.asset?.assetId === 'string' && typeof inst.buffer === 'string' && Number.isInteger(inst.count)) {
-      instances.set(e.id, { assetId: inst.asset.assetId, buffer: inst.buffer, count: inst.count as number });
+      const piece = typeof inst.asset.piece === 'string' ? inst.asset.piece : undefined;
+      instances.set(e.id, { assetId: inst.asset.assetId, ...(piece !== undefined ? { piece } : {}), buffer: inst.buffer, count: inst.count as number });
     }
   }
-  return { models, animations, instances };
+  return { models, pieces, animations, instances };
 }
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
@@ -366,7 +372,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (opts.models !== undefined) {
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
     // the adapter never re-validates (the runtime already did).
-    const { models: modelEntities, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
+    const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
     const playerId = isV3 && opts.snapshot.game !== null && opts.snapshot.game !== undefined
       ? (opts.snapshot.game as { playerId?: unknown }).playerId
       : undefined;
@@ -409,6 +415,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       modelEntities,
       modelAnimationEntities,
       instanceEntities,
+      modelPieces,
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,

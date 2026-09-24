@@ -47,6 +47,8 @@ export interface ProjectedEntity {
    * transform and reference (project-model §18.1).
    */
   assetId?: string;
+  /** One named piece of the model file (`components.model.piece`; absent: the whole file). */
+  piece?: string;
   /**
    * M2 (packet 28): the informational prefab provenance a materialized copy
    * carries (`components.prefab`, project-model §20.4). It is what lets the
@@ -77,7 +79,7 @@ export interface ProjectedEntity {
   /** M3 (packet 57): the model-animation profile, when present (project-model §23.3.6). */
   modelAnimation?: ModelAnimationComponent;
   /** Phase 12 (c): the instance set (one model, many placements from a buffer). */
-  instances?: { assetId: string; buffer: string; count: number };
+  instances?: { assetId: string; piece?: string; buffer: string; count: number };
   /** Phase 12 (c): the scene the entity lives in (v4 projects; absent for older ones). */
   sceneId?: string;
 }
@@ -140,7 +142,7 @@ function toProjected(e: Entity): ProjectedEntity {
     folder?: unknown;
     box?: { size?: number[]; material?: { color?: string } };
     camera?: unknown;
-    model?: { asset?: { assetId?: string } };
+    model?: { asset?: { assetId?: string }; piece?: string };
     behavior?: { behaviorId?: string; values?: Record<string, unknown> };
     prefab?: { prefabId?: string; localId?: string };
     collider?: unknown;
@@ -151,7 +153,7 @@ function toProjected(e: Entity): ProjectedEntity {
     light?: LightComponent;
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
-    instances?: { asset?: { assetId?: string }; buffer?: string; count?: number };
+    instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number };
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
@@ -169,6 +171,7 @@ function toProjected(e: Entity): ProjectedEntity {
     scale: [...t.scale],
     ...(c.box ? { box: boxOf(c.box) } : {}),
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
+    ...(typeof c.model?.piece === 'string' ? { piece: c.model.piece } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
     ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
     ...(c.behavior?.values ? { behaviorValues: { ...c.behavior.values } } : {}),
@@ -180,7 +183,7 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(c.light !== undefined ? { light: { ...c.light, ...(c.light.direction ? { direction: [...c.light.direction] as [number, number, number] } : {}) } } : {}),
     ...(c.surface !== undefined ? { surface: { ...c.surface } } : {}),
     ...(c.instances?.asset?.assetId !== undefined && typeof c.instances.buffer === 'string' && typeof c.instances.count === 'number'
-      ? { instances: { assetId: c.instances.asset.assetId, buffer: c.instances.buffer, count: c.instances.count } }
+      ? { instances: { assetId: c.instances.asset.assetId, ...(typeof c.instances.asset.piece === 'string' ? { piece: c.instances.asset.piece } : {}), buffer: c.instances.buffer, count: c.instances.count } }
       : {}),
     ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
   };
@@ -296,9 +299,11 @@ export class Projection {
   private applyChange(change: ChangeData): boolean {
     switch (change.type) {
       case 'createEntity': {
-        if (this.entities.has(change.id)) return true; // idempotent
-        this.entities.set(change.id, toProjected(change.entity));
-        this.order.push(change.id);
+        for (const entity of [change.entity, ...(change.children ?? [])]) {
+          if (this.entities.has(entity.id)) continue; // idempotent
+          this.entities.set(entity.id, toProjected(entity));
+          this.order.push(entity.id);
+        }
         return true;
       }
       case 'setTransform': {
@@ -377,9 +382,11 @@ export class Projection {
         if (change.component === 'box') {
           if (change.next !== null) p.box = boxOf(change.next as { size?: number[]; material?: { color?: string } });
         } else if (change.component === 'model') {
-          const next = change.next as { asset?: { assetId?: string } } | null;
+          const next = change.next as { asset?: { assetId?: string }; piece?: string } | null;
           if (next?.asset?.assetId) {
             p.assetId = next.asset.assetId;
+            if (typeof next.piece === 'string') p.piece = next.piece;
+            else delete p.piece;
             p.kind = 'model';
           }
         } else if (change.component === 'collider') {
@@ -418,9 +425,9 @@ export class Projection {
           if (change.next === null) delete p.surface;
           else p.surface = { ...(change.next as SurfaceComponent) };
         } else if (change.component === 'instances') {
-          const next = change.next as { asset: { assetId: string }; buffer: string; count: number } | null;
+          const next = change.next as { asset: { assetId: string; piece?: string }; buffer: string; count: number } | null;
           if (next === null) delete p.instances;
-          else p.instances = { assetId: next.asset.assetId, buffer: next.buffer, count: next.count };
+          else p.instances = { assetId: next.asset.assetId, ...(next.asset.piece !== undefined ? { piece: next.asset.piece } : {}), buffer: next.buffer, count: next.count };
         } else if (change.component === 'modelAnimation') {
           if (change.next === null) delete p.modelAnimation;
           else {
@@ -451,6 +458,7 @@ export class Projection {
       // / `queryEntity` carry the value.
       case 'setGameConfig':
       case 'setTags':
+      case 'setAssetOptions':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

@@ -9,8 +9,9 @@
  *
  * Browser-only (React).
  */
-import { useRef, type JSX } from 'react';
+import { Fragment, useRef, useState, type DragEvent, type JSX } from 'react';
 import type { AssetView } from '../session/content-projection';
+import { ASSET_DRAG_TYPE } from '../session/placement';
 import type { AssetImportState, AssetQueryState } from '../session/asset-browser';
 import type { AnimationRoleKey } from '../session/media';
 
@@ -56,6 +57,16 @@ interface Props {
   roleDraft: Record<AnimationRoleKey, string>;
   onRoleEntityChange: (id: string) => void;
   onRoleDraftChange: (roles: Record<AnimationRoleKey, string>) => void;
+  /** Rendered tile previews: key `${assetId}|${piece ?? ''}` → image URL. */
+  thumbnails: ReadonlyMap<string, string>;
+  /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
+  pieces: ReadonlyMap<string, readonly { name: string }[]>;
+  onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
+}
+
+/** The tile-preview key of an asset (or one of its pieces). */
+export function thumbnailKey(assetId: string, piece: string | null): string {
+  return `${assetId}|${piece ?? ''}`;
 }
 
 const BUSY = new Set(['staging', 'uploading', 'inspecting', 'publishing']);
@@ -64,6 +75,11 @@ export function AssetBrowser(p: Props): JSX.Element {
   const importInput = useRef<HTMLInputElement | null>(null);
   const reimportInput = useRef<HTMLInputElement | null>(null);
   const selected = p.assets.find((a) => a.assetId === p.selectedAssetId) ?? null;
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, piece: string | null): void => {
+    ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId } : { assetId, piece }));
+    ev.dataTransfer.effectAllowed = 'copy';
+  };
   // M3 (packet 57): the publish is disabled until the §8.5.1 role mapping is
   // complete (every role bound + the entity chosen) — the command would be
   // `field_missing` / stage-3 refused otherwise.
@@ -85,20 +101,73 @@ export function AssetBrowser(p: Props): JSX.Element {
       <div className="tl-assets__body">
       <div className="tl-assets__main">
       <ul className="tl-assets__list tl-tiles">
-        {p.assets.map((a) => (
-          <li
-            key={a.assetId}
-            className={a.assetId === p.selectedAssetId ? 'tl-tile is-selected' : 'tl-tile'}
-            onClick={() => p.onSelect(a.assetId)}
-            title={a.assetId}
-          >
-            <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true"><img className="tl-tile__img" src={`./icons/${a.kind === 'audio' ? 'audio' : 'model'}.png`} alt="" /></span>
-            <span className="tl-tile__name">{a.displayName}</span>
-            <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
-              {a.kind} · v{a.currentVersion}
-            </span>
-          </li>
-        ))}
+        {p.assets.map((a) => {
+          const pieces = p.pieces.get(a.assetId) ?? [];
+          const multi = a.kind === 'model' && pieces.length >= 2;
+          const open = multi && expanded.has(a.assetId);
+          const thumb = p.thumbnails.get(thumbnailKey(a.assetId, null));
+          return (
+            <Fragment key={a.assetId}>
+              <li
+                className={a.assetId === p.selectedAssetId ? 'tl-tile is-selected' : 'tl-tile'}
+                onClick={() => p.onSelect(a.assetId)}
+                title={a.kind === 'model' ? `${a.displayName} — drag into the scene or hierarchy` : a.assetId}
+                data-asset-id={a.assetId}
+                draggable={a.kind === 'model'}
+                onDragStart={a.kind === 'model' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
+              >
+                <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
+                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : 'model'}.png`} alt="" draggable={false} />
+                </span>
+                <span className="tl-tile__name">{a.displayName}</span>
+                <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
+                  {a.kind} · v{a.currentVersion}
+                  {multi && (
+                    <button
+                      className="tl-tile__pieces"
+                      aria-expanded={open}
+                      aria-label={`${open ? 'hide' : 'show'} the ${pieces.length} pieces of ${a.displayName}`}
+                      title={`${pieces.length} pieces — each can be dragged on its own`}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setExpanded((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(a.assetId)) next.delete(a.assetId);
+                          else next.add(a.assetId);
+                          return next;
+                        });
+                      }}
+                    >
+                      {open ? '▾' : '▸'} {pieces.length}
+                    </button>
+                  )}
+                </span>
+              </li>
+              {open &&
+                pieces.map((pc) => {
+                  const pt = p.thumbnails.get(thumbnailKey(a.assetId, pc.name));
+                  return (
+                    <li
+                      key={`${a.assetId}|${pc.name}`}
+                      className="tl-tile tl-tile--piece"
+                      title={`${pc.name} (piece of ${a.displayName}) — drag into the scene or hierarchy`}
+                      data-asset-id={a.assetId}
+                      data-piece={pc.name}
+                      draggable
+                      onClick={() => p.onSelect(a.assetId)}
+                      onDragStart={(ev) => dragStart(ev, a.assetId, pc.name)}
+                    >
+                      <span className="tl-tile__icon tl-tile__icon--model" aria-hidden="true">
+                        <img className={pt !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={pt ?? './icons/model.png'} alt="" draggable={false} />
+                      </span>
+                      <span className="tl-tile__name">{pc.name}</span>
+                      <span className="tl-tile__meta">piece</span>
+                    </li>
+                  );
+                })}
+            </Fragment>
+          );
+        })}
         {p.assets.length === 0 && <li className="tl-row tl-row--empty">no assets</li>}
       </ul>
       <div className="tl-assets__paging">
@@ -232,6 +301,20 @@ export function AssetBrowser(p: Props): JSX.Element {
             <div className="tl-assets__source" title="Converted to glTF by Blender at import; the game loads the converted GLB">
               from FBX{selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
             </div>
+          )}
+          {selected.kind === 'model' && (
+            <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights and the like) or as a tint multiplied into the base colour">
+              <span className="tl-field__label">vertex colour</span>
+              <select
+                className="tl-input"
+                aria-label="vertex colour"
+                value={selected.vertexColors === 'tint' ? 'tint' : 'data'}
+                onChange={(e) => p.onVertexColors(selected.assetId, e.target.value === 'tint' ? 'tint' : 'data')}
+              >
+                <option value="data">data (not colour)</option>
+                <option value="tint">tint the albedo</option>
+              </select>
+            </label>
           )}
           <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onPreview(selected.assetId)} title="Realize the current version locally (play/pause/scrub)">

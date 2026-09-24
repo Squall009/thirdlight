@@ -524,11 +524,23 @@ export function applyCreateEntity(
     const folderGate = gateResultState({ scene, content }, folderResult, content);
     if (!folderGate.ok) return folderGate;
     const created = folderGate.scene.entities.find((e) => e.id === id) as unknown as Entity;
+    // A folder created with children (a multi-piece model drop): each child
+    // goes through the same create path inside the new folder; the whole set
+    // is one transaction whose undo deletes the folder subtree.
+    let sceneNow = folderGate.scene;
+    const children: Entity[] = [];
+    for (const child of args.children ?? []) {
+      const r = applyCreateEntity({ ...sceneNow, revision: scene.revision }, { ...child, parentId: id }, content, reservedIds);
+      if (!r.ok) return r;
+      sceneNow = r.op.scene;
+      const change = r.op.change as CreateEntityChange;
+      children.push(deepClone(change.entity));
+    }
     return {
       ok: true,
       op: {
-        scene: folderGate.scene,
-        change: { type: 'createEntity', id, entity: deepClone(created) },
+        scene: sceneNow,
+        change: { type: 'createEntity', id, entity: deepClone(created), ...(children.length > 0 ? { children } : {}) },
         inverse: { kind: 'delete', rootId: id },
         createdId: id,
       },
@@ -554,7 +566,7 @@ export function applyCreateEntity(
         }
       : {}),
     ...(args.kind === 'model'
-      ? { model: { asset: { assetId: args.model!.asset.assetId } } }
+      ? { model: { asset: { assetId: args.model!.asset.assetId }, ...(args.model!.piece !== undefined ? { piece: args.model!.piece } : {}) } }
       : {}),
   };
   for (const [component, value] of Object.entries(provided)) {

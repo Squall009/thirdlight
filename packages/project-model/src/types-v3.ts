@@ -90,7 +90,8 @@ export interface GameZoneComponent {
  * an asset source. Rendered as instanced meshes; the copies have no ids.
  */
 export interface InstancesComponent {
-  asset: { assetId: string };
+  /** `piece`: one named piece of a multi-piece GLB (absent = the whole file). */
+  asset: { assetId: string; piece?: string };
   /** SHA-256 (64 lowercase hex) of the buffer bytes; byte length = count × 40. */
   buffer: string;
   count: number;
@@ -337,6 +338,12 @@ export interface AssetRecordV3 {
   displayName: string;
   currentVersion: number;
   versions: AssetVersionV3[];
+  /**
+   * Model only: how COLOR_0 is used. Absent = `data` (the attribute is shader
+   * data such as foliage bend weights, never multiplied into the albedo);
+   * `tint` = the glTF default (vertex colour multiplies the base colour).
+   */
+  vertexColors?: 'tint';
 }
 
 /** §23.4 a cue reference: an audio `assetId` or `null`. */
