@@ -132,7 +132,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
     );
   const sky: SkyConfig = env.sky ?? { mode: 'procedural' };
   const setSky = (patch: Partial<SkyConfig>): void => save({ sky: { ...sky, ...patch } });
-  const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d8e8' };
+  const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d2dc' }; // phase 15.5: the descriptor's default (it was a second, near-equal value)
   const setFog = (patch: Partial<FogConfig>): void => save({ fog: { ...fog, ...patch } });
   const post: PostConfig = env.post ?? {};
   const setPost = (patch: Partial<PostConfig>): void => save({ post: { ...post, ...patch } });
@@ -188,7 +188,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
             <>
               <Colour label="top" name="sky top colour" value={sky.topColor ?? '#3d7cd6'} onCommit={(v) => setSky({ topColor: v })} />
               <Colour label="horizon" name="sky horizon colour" value={sky.horizonColor ?? '#bfe3ff'} onCommit={(v) => setSky({ horizonColor: v })} />
-              <Colour label="below" name="sky bottom colour" value={sky.bottomColor ?? '#6b7b5a'} onCommit={(v) => setSky({ bottomColor: v })} />
+              <Colour label="below" name="sky bottom colour" value={sky.bottomColor ?? '#757575'} onCommit={(v) => setSky({ bottomColor: v })} />
             </>
           )}
           {own('sky') && env.sky !== undefined && sky.mode === 'color' && <Colour label="colour" name="sky colour" value={sky.color ?? '#7ec8ff'} onCommit={(v) => setSky({ color: v })} />}
@@ -205,7 +205,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
 
         <section className="tl-inspector__section" aria-label="fog">
           <div className="tl-subhead">Fog (fog volumes: GameObject → Fog volume)</div>
-          {ownToggle('fog', () => ({ mode: 'none', color: '#c8d8e8' }))}
+          {ownToggle('fog', () => ({ mode: 'none', color: '#c8d2dc' }))}
           {own('fog') && <Choice label="fog" name="fog mode" value={fog.mode} options={[['none', 'none'], ['linear', 'linear (near → far)'], ['exp2', 'exponential']]} onCommit={(mode) => setFog({ mode })} />}
           {own('fog') && fog.mode !== 'none' && <Colour label="colour" name="fog colour" value={fog.color} onCommit={(v) => setFog({ color: v })} />}
           {own('fog') && fog.mode === 'linear' && (

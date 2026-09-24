@@ -415,7 +415,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
         uniforms: {
           top: { value: new THREE.Color(sky.topColor ?? '#3d7cd6') },
           horizon: { value: new THREE.Color(sky.horizonColor ?? '#bfe3ff') },
-          bottom: { value: new THREE.Color(sky.bottomColor ?? '#6b7b5a') },
+          bottom: { value: new THREE.Color(sky.bottomColor ?? '#757575') }, // phase 15.5: neutral grey below the horizon (was a grass olive)
         },
         vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; varying vec3 vDir; void main() { float h = vDir.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, bottom, pow(-h, 0.5)); gl_FragColor = vec4(c, 1.0); }',

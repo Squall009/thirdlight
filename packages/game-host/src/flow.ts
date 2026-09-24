@@ -16,6 +16,7 @@ import type { GameView, RunRestore, RunSaveState } from '@thirdlight/runtime';
 import { SAVE_SLOTS, SAVE_VERSION, type SaveDocument, type SaveSlot, type SaveStore, type SlotState } from './save';
 import type { HostDom, HostDomNode } from './hud';
 import { counterPoints, levelScore, type ScoreRulesLike } from './score';
+import { PAD_STANDARD, withKeyBinding, withPadBinding } from './bindings';
 
 /** The flow block as the host reads it (structurally; validated by the model). */
 export interface FlowConfigLike {
@@ -167,12 +168,10 @@ function styleText(flow: FlowConfigLike): string {
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
 const time = (s: number): string => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
-const REBINDABLE = ['jump', 'attack', 'interact'] as const;
+export const REBINDABLE = ['jump', 'attack', 'interact'] as const;
 /** Phase 14.5: pad rebinding — the button actions and the move buttons (`left`/`right`: the move action's negative/positive). */
-const PAD_REBINDABLE = ['jump', 'attack', 'interact', 'left', 'right'] as const;
+export const PAD_REBINDABLE = ['jump', 'attack', 'interact', 'left', 'right'] as const;
 const PAD_LABEL: Record<(typeof PAD_REBINDABLE)[number], string> = { jump: 'Jump', attack: 'Attack', interact: 'Interact', left: 'Move left', right: 'Move right' };
-/** The standard layout's button for a pad action with no pad binding (what the platformer reads then). */
-const PAD_STANDARD: Partial<Record<string, number>> = { jump: 0, left: 14, right: 15 };
 
 export interface FlowController {
   /** The frame's work; returns true when a menu used the confirm press (the host marks it consumed). */
@@ -559,12 +558,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
 
   /** Bind a key to a button action (the first key binding; pad bindings stay). */
   const applyKey = (name: string, code: string): void => {
-    if (deps.input?.config === undefined) return;
-    const next = {
-      actions: deps.input.config.actions.map((a) => (a.name === name ? { ...a, bindings: [{ kind: 'key', code }, ...a.bindings.filter((b) => (b as { kind?: string }).kind !== 'key')] } : a)),
-    };
-    deps.input.config = next;
-    deps.input.configure?.(next);
+    const inp = deps.input;
+    if (inp?.config === undefined) return;
+    const next = withKeyBinding(inp.config, name, code) as NonNullable<typeof inp.config>;
+    inp.config = next;
+    inp.configure?.(next);
     boundKeys[name] = code;
   };
   for (const [name, code] of Object.entries(stored?.keys ?? {})) if ((REBINDABLE as readonly string[]).includes(name)) applyKey(name, code);
@@ -575,23 +573,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
    * pair (the D-pad's 14/15 until rebound).
    */
   const applyPad = (name: string, button: number): void => {
-    if (deps.input?.config === undefined) return;
-    const kind = (b: unknown): string | undefined => (b as { kind?: string }).kind;
-    const next = {
-      actions: deps.input.config.actions.map((a) => {
-        if ((name === 'left' || name === 'right') && a.name === 'move') {
-          const pair = a.bindings.find((b) => kind(b) === 'gamepadButtons1d') as { negative?: number; positive?: number } | undefined;
-          const negative = name === 'left' ? button : (pair?.negative ?? PAD_STANDARD['left']!);
-          const positive = name === 'right' ? button : (pair?.positive ?? PAD_STANDARD['right']!);
-          const rest = a.bindings.filter((b) => kind(b) !== 'gamepadButtons1d');
-          return { ...a, bindings: [...rest, { kind: 'gamepadButtons1d', negative, positive }] };
-        }
-        if (a.name === name) return { ...a, bindings: [...a.bindings.filter((b) => kind(b) !== 'gamepadButton'), { kind: 'gamepadButton', button }] };
-        return a;
-      }),
-    };
-    deps.input.config = next;
-    deps.input.configure?.(next);
+    const inp = deps.input;
+    if (inp?.config === undefined) return;
+    const next = withPadBinding(inp.config, name, button) as NonNullable<typeof inp.config>;
+    inp.config = next;
+    inp.configure?.(next);
     boundPad[name] = button;
   };
   for (const [name, button] of Object.entries(stored?.pad ?? {})) if ((PAD_REBINDABLE as readonly string[]).includes(name)) applyPad(name, button);

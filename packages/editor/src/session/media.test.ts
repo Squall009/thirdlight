@@ -341,6 +341,14 @@ describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', 
       expect(Number.isFinite(p.roughness)).toBe(true);
     }
   });
+
+  it('equals the authoritative project-model rows (phase 15.5: the mirror had drifted)', () => {
+    expect(SURFACE_PRESETS).toEqual({
+      'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
+      hazard: { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
+      beacon: { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

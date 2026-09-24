@@ -497,3 +497,22 @@ describe('attachment cleanup (packet 30 acceptance: cleanup removes listeners an
     expect(h.source.sample(12)).toEqual(neutralFrame(12));
   });
 });
+
+describe('phase 15.5: the device in use (the HUD names its bindings)', () => {
+  it('is the keyboard until a pad button or stick moves, and the keyboard again after a key press', () => {
+    let current: Gamepad[] = [pad()];
+    const h = harness({ gamepads: () => current });
+    expect(h.source.activeDevice()).toBe('keyboard');
+    h.source.sample(0); // a pad at rest does not count
+    expect(h.source.activeDevice()).toBe('keyboard');
+    current = [pad({ pressed: [0] })];
+    h.source.sample(1);
+    expect(h.source.activeDevice()).toBe('gamepad');
+    h.target.dispatch('keydown', h.keyEvent('KeyD'));
+    expect(h.source.activeDevice()).toBe('keyboard');
+    current = [pad({ axis0: 0.9 })];
+    h.source.sample(2);
+    expect(h.source.activeDevice()).toBe('gamepad');
+    h.source.detach();
+  });
+});

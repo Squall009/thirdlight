@@ -237,6 +237,11 @@ attribute vec4 color;
 #endif
 varying float vTlThin;`,
         )
+        // Phase 15.5: the sway is in absolute metres (about 0.1 m at the tip in the
+        // default breeze) — plant-sized for grass and shrubs; taller foliage raises
+        // its material's windBend / windFlutter (0–4×). Kept (changing it would move
+        // every existing project's foliage); a size-relative sway is a material-graph
+        // (phase 18) candidate.
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>

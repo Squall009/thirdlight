@@ -222,7 +222,7 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
         <label>
           Template
           <select name="template" value={template} onChange={(e) => setTemplate(e.target.value)}>
-            <option value="">Empty scene (camera, lights, ground)</option>
+            <option value="">Empty scene (camera and lights)</option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}

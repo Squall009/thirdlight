@@ -50,7 +50,8 @@ const SURFACE_PARAMS: Readonly<Record<string, MaterialParamType>> = {
 /** The parameter schema of every shader type (absent in a material = keep the file's value / the default). */
 export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<string, MaterialParamType>>>> = {
   standard: SURFACE_PARAMS,
-  // COLOR_0 drives the wind (Sprout's rule): R bend weight root→tip, G phase,
+  // COLOR_0 drives the wind (the engine's vertex-colour convention for any
+  // swaying mesh — grass, trees, cloth, banners): R bend weight root→tip, G phase,
   // B flutter, A thinness (a cheap subsurface term).
   foliage: {
     ...SURFACE_PARAMS,
@@ -308,6 +309,7 @@ export interface EnvironmentConfig {
   quality?: 'low' | 'medium' | 'high';
 }
 
+/** Phase 15.5: the wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
 
 export function validateEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {

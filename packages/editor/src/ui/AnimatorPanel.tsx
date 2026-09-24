@@ -98,7 +98,15 @@ function rigOf(c: AnimatorController | null, models: Props['models']): string | 
   return undefined;
 }
 
-/** A controller for a platformer character from clips named like idle/run/jump/fall/land. */
+/**
+ * A controller for a platformer character from clips named like idle/run/jump/fall/land.
+ * An opt-in preset for the built-in player controller (it sets speed, grounded,
+ * velocityY and landed), not a default. Thresholds (phase 15.5, genre-neutral
+ * reasons): run above 0.2 m/s — 5 % of the default 4 m/s run speed, clearly moving
+ * rather than drifting at any character scale; jump/fall beyond ±0.5 m/s vertical —
+ * above the small vertical motion of ground snap and slopes, far below a 7 m/s jump;
+ * crossfades 0.05–0.15 s — quick enough to follow input, long enough to hide the cut.
+ */
 export function platformerController(controllerId: string, assetId: string, clips: readonly ClipInfo[]): AnimatorController | string {
   const find = (...names: string[]): ClipInfo | undefined => clips.find((c) => names.some((n) => c.name.toLowerCase() === n)) ?? clips.find((c) => names.some((n) => c.name.toLowerCase().includes(n)));
   const idle = find('idle');

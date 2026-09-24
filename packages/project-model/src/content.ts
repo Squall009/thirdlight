@@ -1432,6 +1432,12 @@ export interface SettingsKeySpec {
 
 /** The six-key M2 gameplay settings registry (§21.4; the fixed M2 table). */
 export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
+  // Phase 15.5 reasons (these six are always resolved into the manifest, so they
+  // stay the recorded contract values): gravity 2 g — the snappy fall most action
+  // games use (1 g feels floaty); a 4 m/s run — an adult's jog; a 7 m/s jump —
+  // 1.25 m high at 2 g, clearing obstacles up to chest height of the default
+  // 1.8 m character; falls capped at 30 m/s (keeps landings catchable); climbs
+  // slopes up to 45° (a steep ramp or hillside), slides on slopes from 30°.
   { key: 'gravity_y', type: 'number', default: -19.62, min: -100, max: -1, unit: 'm/s^2' },
   { key: 'run_speed', type: 'number', default: 4, min: 0, minExclusive: true, max: 50, unit: 'm/s' },
   { key: 'jump_velocity', type: 'number', default: 7, min: 0, max: 50, unit: 'm/s' },

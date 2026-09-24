@@ -338,7 +338,14 @@ export interface GameConfigLike {
 export const ZONE_ROLES = ['hazard', 'checkpoint', 'goal', 'exit'] as const;
 export type ZoneRole = (typeof ZONE_ROLES)[number];
 
-/** UI placement defaults (not contract values; the sizes are within §23.3.1). */
+/**
+ * UI placement defaults (not contract values; the sizes are within §23.3.1).
+ * Phase 15.5 reasons, against the engine's default 1.8 m character and 1.25 m
+ * jump: a hazard is a 1.5 × 0.5 m strip (a stride wide, low enough to jump
+ * over); a checkpoint 1.5 m square and a goal 2 m square (easy to walk into);
+ * an exit 1.5 × 2.5 m (a doorway the character fits through standing; the
+ * exit dialog uses it too — it had its own 2 × 3).
+ */
 export const DEFAULT_ZONE_SIZE: Record<ZoneRole, [number, number]> = {
   hazard: [1.5, 0.5],
   checkpoint: [1.5, 1.5],
@@ -355,8 +362,10 @@ export const MIN_ZONE_SPAN_UI = 0.1;
  * (authoring.md §A3.2), so the UI supplies these defaults.
  */
 export const DEFAULT_CHECKPOINT_ACTIVATION = Object.freeze({
-  emissive: '#1bc8ff',
-  emissiveIntensity: 1.2,
+  // Phase 15.5: a plain white glow at 1 — reads as "lit" in any palette. It was
+  // Beacon Reach's cyan beacon (#1bc8ff at 1.2); that sample keeps it in its own data.
+  emissive: '#ffffff',
+  emissiveIntensity: 1,
   cueAssetId: null,
 }) as { readonly emissive: string; readonly emissiveIntensity: number; readonly cueAssetId: string | null };
 

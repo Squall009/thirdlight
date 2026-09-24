@@ -1,8 +1,8 @@
 /**
  * Multi-piece GLBs: pieces, LOD groups and collision nodes by node name.
  *
- * Game art exported from Blender follows one naming rule (e.g. Sprout's
- * kits and foliage): `<piece>_LOD0..n` are the render levels of one piece
+ * Game art exported from Blender follows one naming rule (any kit pieces,
+ * props or foliage): `<piece>_LOD0..n` are the render levels of one piece
  * and `<piece>_COL` its collision mesh (never drawn). A file's pieces are its
  * top-level nodes grouped by that base name; a group holding only a `_COL`
  * node is not a piece. Editor, Play and export all use these helpers, so a

@@ -20,6 +20,7 @@ import {
   normalize,
   parseNumberInput,
   pickedValue,
+  presetValue,
   removable,
   setAt,
   sliderRange,
@@ -231,6 +232,17 @@ describe('+ Add component', () => {
     expect(empty['surface']!.reason).toContain('needs Box or Model');
     expect(empty['model']).toMatchObject({ enabled: true, pick: ['asset/assetId'] });
     expect(addEntries(reg, new Set(), { folder: true }).every((x) => !x.enabled)).toBe(true);
+  });
+
+  it('phase 15.5: the GameObject menu takes a preset or the add value from the registry (a copy)', () => {
+    const spot = presetValue(reg, 'light', 'Spot');
+    expect(spot).toEqual({ type: 'spot' });
+    spot!['type'] = 'changed';
+    expect(presetValue(reg, 'light', 'Spot')).toEqual({ type: 'spot' });
+    expect(presetValue(reg, 'trigger')).toEqual({ size: [2, 2], signal: 'trigger' });
+    expect(presetValue(reg, 'light', 'Nope')).toBeNull();
+    expect(presetValue(reg, 'prefab')).toBeNull();
+    expect(presetValue(null, 'light', 'Spot')).toBeNull();
   });
 
   it('a pick entry adds once its fields are chosen', () => {

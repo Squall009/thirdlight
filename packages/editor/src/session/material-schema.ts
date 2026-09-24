@@ -33,7 +33,8 @@ const SURFACE_PARAMS: Readonly<Record<string, MaterialParamType>> = {
 /** The parameter schema of every shader type (absent in a material = keep the file's value / the default). */
 export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<string, MaterialParamType>>>> = {
   standard: SURFACE_PARAMS,
-  // COLOR_0 drives the wind (Sprout's rule): R bend weight root→tip, G phase,
+  // COLOR_0 drives the wind (the engine's vertex-colour convention for any
+  // swaying mesh — grass, trees, cloth, banners): R bend weight root→tip, G phase,
   // B flutter, A thinness (a cheap subsurface term).
   foliage: {
     ...SURFACE_PARAMS,
