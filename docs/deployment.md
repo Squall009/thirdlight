@@ -146,6 +146,54 @@ height becomes a "Fall zone" hazard zone below the old level. Falls are game
 rules now: a hazard zone, or a script (see "Scenes"). Take a backup first if
 you want the old files outside `.thirdlight/`.
 
+## The Inspector
+
+The Inspector shows the selected object's name, flags and tags, then one
+section per component, built from the engine's component descriptions (the
+same ones MCP reads with `tl_content_query {target: "game",
+includeDescriptors: true}`): every stored field has a control, with its unit
+in the label and what it does in the tooltip. Numbers have a text box (Enter
+or leaving the box commits, Escape reverts) and, when bounded, a slider
+(commits on release); whole numbers, switches, choices, colours, vectors
+(one box per axis), rotations (degrees), asset pickers (only assets of the
+right kind — models, sounds, music, textures), object pickers (only objects
+with the right component, e.g. a spawn), scene pickers, material, animator,
+script and prefab pickers, signal names (with the names already in use as
+suggestions), texts, nested groups (a **+ add** / **×** pair for optional
+ones, such as camera bounds), and lists (waypoints, scenes: **+ add** and
+**×** per item). A field left at its engine default shows its label in
+italics; an optional field set back to its default is removed from the data.
+Fields that only apply to one variant appear when it is chosen (a circle
+trigger's radius, a spot light's cone): switching fills the new variant's
+fields from its preset or default and drops the old ones, in the same edit.
+
+Every edit is one command and one undo step (Edit → Undo, Ctrl+Z); a
+refused edit says why under the section (e.g. "the start scenes together
+hold exactly one active camera") and changes nothing.
+
+**+ Add component** (and the Component menu, the same list) offers every
+component by category, with its presets (Light: directional, ambient, point,
+spot, hemisphere; Zone: hazard, goal; Collider: box, polygon). A component
+that needs a choice first — a model's asset, a script, an animator's
+controller, an audio source's sound, a material mapping — opens a small form
+with just that choice and **Add**. Components that cannot be added are
+listed greyed with the reason: already on the object, excluded by another
+one ("an object shows one model, box or camera"), needing another one (a
+surface needs a box or a model; camera follow needs the camera), or made by
+a tool (instance sets, prefab copies, folders). Each section has **remove**;
+box, camera and model are added and removed like any other component
+(`setComponent` with a complete value / `null`).
+
+Some sections have extra tools next to the generic fields: the player
+controller's capsule (**Fit to model**, **Default**), an exit zone
+(**Edit exit…**), a surface (presets), an object's materials (the mapping
+editor, which knows the model's own material names) and a script (its
+declared properties). The game block (Gameplay → Game: texts, the player,
+camera and start spawn, and the sound cues as sound pickers) is built the
+same way; the Gameplay tab's Camera page points to the camera object, whose
+lens and follow settings are Inspector sections. The Media tab is for
+listening to the project's sounds.
+
 ## Hierarchy: folders and flags
 
 - **Folders** (GameObject → Folder, or `createEntity {kind: "folder"}`)
@@ -545,7 +593,7 @@ conditions, crossfade and exit time, an entry state, and clip events. Right
 click the graph to add states, right click a state to start a transition or
 make it the entry state; drag states to arrange them. "New from clips:
 Platformer" builds idle/run/jump/fall/land states from a model's clips. The
-Inspector's **animator** field puts a controller on a model object.
+Inspector's "+ Add component" → **Animator** puts a controller on a model object.
 
 The game steps animators with the simulation (deterministic; a replay looks
 the same). An animator on the player (or on a model under the player) gets
@@ -612,9 +660,9 @@ frames may carry `actions: {name: {v, p}}`.
 GameObject → Gameplay places ready-made pieces (v4 projects): a moving
 platform, a one-way platform, a switch, a door (opens on the signal `open`),
 a coin, an enemy and a trigger. Any object can get these in the Inspector
-under Gameplay ("+ Add gameplay component"):
+("+ Add component", Gameplay):
 
-- **Mover** — a path of offsets from where the object stands (`x y z; x y z`),
+- **Mover** — a path of offsets from where the object stands (waypoints, x/y/z each),
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box collider it carries the player standing on it and
@@ -625,7 +673,7 @@ under Gameplay ("+ Add gameplay component"):
   (and, if set, another one when the player leaves it). Its shape is a box
   (width, height) or a circle (radius; tested against the player's capsule
   itself, not its bounding box); switching the shape in the Inspector
-  converts the size to a radius and back. "sends: stay" sends the signal
+  replaces the size with a radius (1 m) and back. Mode "stay" sends the signal
   every step while the player is inside instead of once per entry. The
   Scene view draws a circle trigger as a circle with one handle that drags
   its radius (5 cm snapping, Shift for exact, one undo per drag).
@@ -783,7 +831,7 @@ buttons), `loops` (each audio source's current gain; a level's ambience as
 `ambience:<n>`) and, while the title shows, `titleView` (its scene and the
 camera's offset).
 
-Inspector → Gameplay → **Audio source** loops an audio or music asset where
+Inspector → "+ Add component" → **Audio source** loops an audio or music asset where
 the object is: full volume within a quarter of its range, fading to silent
 at the range (measured along X from the player); the Scene view draws both
 distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
@@ -868,7 +916,7 @@ one-way platforms in a softer green), and gameplay paths and areas. A mover's
 waypoints are white handles: drag one to move that stop (one undo step;
 snapping applies).
 
-Inspector → Gameplay → **Face movement** on a model under the player or an
+Inspector → "+ Add component" → **Face movement** on a model under the player or an
 enemy turns it to face where its parent goes (a yaw for moving right and for
 moving left, reached over a short turn time); it keeps its facing while the
 parent stands still.
@@ -876,7 +924,7 @@ parent stands still.
 ## The player's collision capsule
 
 The player (the object with the controller) collides as an upright capsule.
-Select it: the Inspector's **Collision** section shows the capsule's radius,
+Select it: the Player controller section's **Collision** group shows the capsule's radius,
 height (end caps included, at least twice the radius) and offset (where the
 capsule's centre sits relative to the object's origin). Without an own
 capsule it uses the default — radius 0.3 m, height 1.8 m, centred — so older

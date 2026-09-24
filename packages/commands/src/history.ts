@@ -77,7 +77,7 @@ import type {
 const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   box: ['size', 'material'],
   camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset'],
+  model: ['asset', 'piece'],
   collider: ['shape'],
   controller: ['capsule'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],

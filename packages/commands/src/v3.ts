@@ -121,8 +121,11 @@ export const ALL_OWNED_COMPONENTS = [
   ...V3_COMPONENTS,
 ] as const;
 
-/** §8.10: components that support `add`/`remove` (never `box`/`camera`/`model`). */
+/** §8.10: components that support `add`/`remove` (phase 15.1: `box`/`camera`/`model` too). */
 export const REMOVABLE_COMPONENTS: readonly string[] = [
+  'box',
+  'camera',
+  'model',
   'collider',
   'controller',
   ...V3_COMPONENTS,

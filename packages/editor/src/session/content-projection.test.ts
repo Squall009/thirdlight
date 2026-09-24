@@ -150,8 +150,8 @@ describe('packet 27 — content projection (sessions.md §8/§19.4)', () => {
     const c = new ContentProjection();
     c.hydrate({ assets: [summary(record(1, DIGEST_V1))] });
     const entities: ProjectedEntity[] = [
-      { id: 'model-0001', name: 'a', parentId: null, kind: 'model', active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], assetId: 'asset-0001' },
-      { id: 'model-0002', name: 'b', parentId: null, kind: 'model', active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], assetId: 'asset-gone' },
+      { id: 'model-0001', name: 'a', parentId: null, kind: 'model', active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], assetId: 'asset-0001', components: {} },
+      { id: 'model-0002', name: 'b', parentId: null, kind: 'model', active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], assetId: 'asset-gone', components: {} },
     ];
     expect(c.referencedAssetIds(entities)).toEqual(['asset-0001', 'asset-gone']);
     expect(c.unresolvedReferences(entities)).toEqual(['asset-gone']);

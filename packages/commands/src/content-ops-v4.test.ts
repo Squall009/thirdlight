@@ -520,9 +520,9 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(
       failCode(mutation(state, 'setComponent', { entityId: 'box-0001', component: 'box', value: { colour: '#fff000' } })),
     ).toBe('field_unexpected');
-    expect(
-      failCode(mutation(state, 'setComponent', { entityId: 'group-0001', component: 'box', value: { size: [1, 1, 1] } })),
-    ).toBe('component_missing');
+    // Phase 15.1: a box is added to an empty object like any component (a complete value).
+    const added = mutation(state, 'setComponent', { entityId: 'group-0001', component: 'box', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } });
+    expect(added.ok, JSON.stringify(added)).toBe(true);
     // A present field replaces the whole field; the same canonical value is a
     // no-change (uppercase hex canonicalizes to the same lowercase value).
     expect(

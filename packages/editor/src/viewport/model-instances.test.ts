@@ -54,6 +54,7 @@ function entity(id: string, assetId: string): ProjectedEntity {
     rotation: [0, 0, 0, 1],
     scale: [1, 1, 1],
     assetId,
+    components: {},
   };
 }
 

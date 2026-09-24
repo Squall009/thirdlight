@@ -2,7 +2,9 @@
  * Gameplay authoring panel (packet 56; authoring.md §A8 rows 1–4/6–10/12/19).
  *
  * Four tabs over the projected backend state:
- *  - **Game** — the `content.game` block: title/objective/instructions, the
+ *  - **Game** — the `content.game` block (phase 15.1, v4: built from its
+ *    descriptor like an Inspector section, cues included, one `setGameConfig`
+ *    per edit; the form below stays for v3 blocks): title/objective/instructions, the
  *    typed player/camera/spawn reference pickers, the level bounds + `killY`
  *    (one `setGameConfig` per save — create is the complete block, edit is
  *    the changed top-level fields only, removal is `null`);
@@ -11,8 +13,8 @@
  *    markers (add at origin, place in the viewport with the zone tool,
  *    edit, remove — one command each; a checkpoint role switch is the
  *    two-step remove-then-re-add the merge semantics require);
- *  - **Camera** — the `cameraFollow` data on the camera entity (add/edit/
- *    remove — one `setComponent`);
+ *  - **Camera** — phase 15.1: points at the camera object, whose lens and
+ *    follow settings are Inspector sections (built from their descriptors);
  *  - **Settings** — the bounded six-key gameplay settings (seeded from the
  *    tracked map, or the registry defaults when the session has not observed
  *    a `setSettings` change — no accepted query returns settings values;
@@ -39,14 +41,14 @@ import {
   parseSettingsDraft,
   planSetSettings,
   planEditZone,
-  parseCameraFollowForm,
-  planSetCameraFollow,
   type GameConfigLike,
   type GameConfigForm,
-  type CameraFollowView,
   type ZoneRole,
 } from '../session/gameplay';
 import type { ZoneTool } from '../viewport/zone-overlay';
+import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { componentPatch, firstReference, normalize } from '../session/descriptor-fields';
+import { ObjectFields, type FieldContext } from './DescriptorFields';
 
 /** The app's single backend error (the last failed command, explained). */
 export interface GameplayBackendError {
@@ -67,7 +69,11 @@ interface Props {
   onDeleteZone: (entityId: string) => void;
   onAddSpawn: () => void;
   onDeleteSpawn: (entityId: string) => void;
-  onSaveCameraFollow: (entityId: string, value: Record<string, unknown> | null) => void;
+  /** Phase 15.1: select an object (the Camera tab points at the camera's Inspector sections). */
+  onSelectEntity: (entityId: string) => void;
+  /** Phase 15.1: the descriptors (the v4 game block form is built from its descriptor). */
+  registry: DescriptorRegistry | null;
+  fieldContext: FieldContext;
   onSaveSettings: (settings: Record<string, number>) => void;
   backendError: GameplayBackendError | null;
   /**
@@ -567,133 +573,111 @@ function ZonesTab({
 }
 
 // ---------------------------------------------------------------------------
-// Camera tab
+// Camera tab (phase 15.1: the camera and its follow settings are Inspector
+// sections of the camera object; this tab points there)
 // ---------------------------------------------------------------------------
 
-function CameraTab({
-  entities,
-  backendError,
-  onSaveCameraFollow,
-  v4,
-}: {
-  entities: readonly ProjectedEntity[];
-  backendError: GameplayBackendError | null;
-  onSaveCameraFollow: (entityId: string, value: Record<string, unknown> | null) => void;
-  v4: boolean;
-}): JSX.Element {
+function CameraTab({ entities, onSelectEntity }: { entities: readonly ProjectedEntity[]; onSelectEntity: (id: string) => void }): JSX.Element {
   const cameras = entities.filter((e) => e.kind === 'camera');
-  const [cameraId, setCameraId] = useState<string>(cameras[0]?.id ?? '');
-  const [errors, setErrors] = useState<string[]>([]);
-  const [form, setForm] = useState({ deadZoneX: '0.3', deadZoneY: '0.3', smoothing: '0.5', minX: '-10', maxX: '10', minY: '-4', maxY: '8' });
-  const camera = cameras.find((c) => c.id === cameraId) ?? cameras[0] ?? null;
-  const cf = camera?.cameraFollow ?? null;
-  // Phase 12 (c): v4 bounds are optional (unbounded: the camera follows anywhere).
-  const [bounded, setBounded] = useState<boolean>(cf !== null ? cf.bounds !== undefined : !v4);
-  useEffect(() => {
-    setBounded(cf !== null ? cf.bounds !== undefined : !v4);
-  }, [cameraId, cf, v4]);
-  useEffect(() => {
-    if (cameras.length > 0 && !cameras.some((c) => c.id === cameraId)) setCameraId(cameras[0]!.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entities]);
-  useEffect(() => {
-    setForm({
-      deadZoneX: cf ? String(cf.deadZone.x) : '0.3',
-      deadZoneY: cf ? String(cf.deadZone.y) : '0.3',
-      smoothing: cf ? String(cf.smoothing) : '0.5',
-      minX: cf?.bounds ? String(cf.bounds.minX) : '-10',
-      maxX: cf?.bounds ? String(cf.bounds.maxX) : '10',
-      minY: cf?.bounds ? String(cf.bounds.minY) : '-4',
-      maxY: cf?.bounds ? String(cf.bounds.maxY) : '8',
-    });
-  }, [cameraId, cf]);
-
-  const save = (): void => {
-    if (!camera) return;
-    const parsed = parseCameraFollowForm(form, { bounded: bounded || !v4 });
-    if (!parsed.ok) {
-      setErrors(parsed.errors.map((e) => `${e.field}: ${e.message}`));
-      return;
-    }
-    const plan = planSetCameraFollow(camera.id, cf as CameraFollowView | null, parsed.draft);
-    if (plan.kind === 'noop') {
-      setErrors([]);
-      return;
-    }
-    setErrors([]);
-    onSaveCameraFollow(camera.id, plan.args.value);
-  };
-
-  if (cameras.length === 0) {
-    return (
-      <div className="tl-gameplay__tab">
-        <p className="tl-note">No camera entity in the scene (the scene's camera is fixed by the project template).</p>
-      </div>
-    );
-  }
   return (
     <div className="tl-gameplay__tab">
+      <p className="tl-note">A camera's lens (field of view, near, far) and how it follows the player (dead zone, smoothing, bounds) are sections of the camera object in the Inspector.</p>
+      {cameras.length === 0 && <p className="tl-note">No camera in the open scenes (GameObject → Camera).</p>}
+      {cameras.map((c) => (
+        <div className="tl-gameplay__actions" key={c.id}>
+          <span>{c.name}{c.cameraFollow === undefined ? ' (no camera follow)' : ''}</span>
+          <button className="tl-btn" onClick={() => onSelectEntity(c.id)}>
+            Select
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Game tab, v4 (phase 15.1): the `game` block built from its descriptor
+// ---------------------------------------------------------------------------
+
+function GameBlockTab({
+  entities,
+  gameConfig,
+  gameConfigLoaded,
+  backendError,
+  onSaveGameConfig,
+  registry,
+  fieldContext,
+}: {
+  entities: readonly ProjectedEntity[];
+  gameConfig: GameConfigLike | null;
+  gameConfigLoaded: boolean;
+  backendError: GameplayBackendError | null;
+  onSaveGameConfig: (game: Record<string, unknown> | null) => void;
+  registry: DescriptorRegistry;
+  fieldContext: FieldContext;
+}): JSX.Element {
+  const [error, setError] = useState<string | null>(null);
+  const desc = registry.content.find((b) => b.key === 'game')?.value;
+  if (desc === undefined || desc.type !== 'object') return <p className="tl-note">The game block has no description.</p>;
+  const current = gameConfig as unknown as Record<string, unknown> | null;
+  const create = (): void => {
+    // A complete block: the descriptor's starting values and the first player, camera and spawn.
+    const first = (component: string): string | undefined => entities.find((e) => e.components[component] !== undefined)?.id;
+    // The game camera is the one that follows the player (the game rules want camera follow on it).
+    const picks = { playerId: first('controller'), cameraId: first('cameraFollow') ?? first('camera'), spawnId: first('playerSpawn') };
+    const missing = Object.entries(picks).filter(([, v]) => v === undefined).map(([k]) => k.replace(/Id$/, ''));
+    if (missing.length > 0) return setError(`the game needs a ${missing.join(', a ')} first (GameObject menu)`);
+    setError(null);
+    onSaveGameConfig(normalize(desc, { ...picks }));
+  };
+  return (
+    <div className="tl-gameplay__tab" aria-label="game block">
       {backendError !== null && (
         <div className="tl-gameplay__errors" role="alert">
-          <div className="tl-gameplay__errors-title">
-            {backendError.code}
-          </div>
+          <div className="tl-gameplay__errors-title">{backendError.code}</div>
           <ul>
             <li>{backendError.message}</li>
           </ul>
         </div>
       )}
-      <ErrorList errors={errors} onDismiss={() => setErrors([])} />
-      <label className="tl-field">
-        <span className="tl-field__label">Camera entity</span>
-        <select className="tl-input" value={camera?.id ?? ''} onChange={(e) => setCameraId(e.target.value)}>
-          {cameras.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.id}
-              {c.cameraFollow === undefined ? ' (no cameraFollow)' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      {cf === null && <p className="tl-note">No cameraFollow yet — saving adds the complete component (required while the game config is present).</p>}
-      <div className="tl-gameplay__grid">
-        <NumField label="Dead zone x" value={form.deadZoneX} onChange={(v) => setForm((f) => ({ ...f, deadZoneX: v }))} />
-        <NumField label="Dead zone y" value={form.deadZoneY} onChange={(v) => setForm((f) => ({ ...f, deadZoneY: v }))} />
-        <NumField label="Smoothing (0–1)" value={form.smoothing} step={0.05} onChange={(v) => setForm((f) => ({ ...f, smoothing: v }))} />
-      </div>
-      {v4 && (
-        <label className="tl-field tl-field--inline">
-          <input type="checkbox" checked={bounded} onChange={(e) => setBounded(e.target.checked)} />
-          <span className="tl-field__label">Keep the camera inside bounds</span>
-        </label>
-      )}
-      {(bounded || !v4) && (
-        <div className="tl-gameplay__grid">
-          <NumField label="Bounds minX" value={form.minX} onChange={(v) => setForm((f) => ({ ...f, minX: v }))} />
-          <NumField label="Bounds maxX" value={form.maxX} onChange={(v) => setForm((f) => ({ ...f, maxX: v }))} />
-          <NumField label="Bounds minY" value={form.minY} onChange={(v) => setForm((f) => ({ ...f, minY: v }))} />
-          <NumField label="Bounds maxY" value={form.maxY} onChange={(v) => setForm((f) => ({ ...f, maxY: v }))} />
+      {error !== null && (
+        <div className="tl-prop__error" role="alert">
+          {error}
         </div>
       )}
-      <div className="tl-gameplay__actions">
-        <button className="tl-btn" onClick={save}>
-          Save cameraFollow
-        </button>
-        {cf !== null && camera !== null && (
-          <button
-            className="tl-btn tl-btn--danger"
-            onClick={() => {
-              setErrors([]);
-              onSaveCameraFollow(camera.id, null);
-            }}
-          >
-            Remove cameraFollow
+      {gameConfigLoaded && current === null ? (
+        <>
+          <p className="tl-note">{desc.tooltip} This project has none yet.</p>
+          <button className="tl-btn" onClick={create}>
+            Create game block
           </button>
-        )}
-      </div>
+        </>
+      ) : current !== null ? (
+        <>
+          <ObjectFields
+            desc={desc}
+            value={current}
+            path={[]}
+            component="game"
+            ctx={fieldContext}
+            onFail={setError}
+            onEdit={(path, next) => {
+              setError(null);
+              const patch = componentPatch(desc, current, path, next, { pick: (f) => firstReference(f, fieldContext) });
+              if (patch !== null) onSaveGameConfig(patch);
+            }}
+          />
+          <div className="tl-gameplay__actions">
+            <button className="tl-btn tl-btn--danger" onClick={() => onSaveGameConfig(null)}>
+              Remove game block
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Settings tab
@@ -794,7 +778,18 @@ export function GameplayPanel(props: Props): JSX.Element {
           </button>
         ))}
       </div>
-      {tab === 'game' && (
+      {tab === 'game' && props.v4 === true && props.registry !== null && (
+        <GameBlockTab
+          entities={props.entities}
+          gameConfig={props.gameConfig}
+          gameConfigLoaded={props.gameConfigLoaded}
+          backendError={props.backendError}
+          onSaveGameConfig={props.onSaveGameConfig}
+          registry={props.registry}
+          fieldContext={props.fieldContext}
+        />
+      )}
+      {tab === 'game' && !(props.v4 === true && props.registry !== null) && (
         <GameTab
           entities={props.entities}
           gameConfig={props.gameConfig}
@@ -817,7 +812,7 @@ export function GameplayPanel(props: Props): JSX.Element {
           onDeleteSpawn={props.onDeleteSpawn}
         />
       )}
-      {tab === 'camera' && <CameraTab entities={props.entities} backendError={props.backendError} onSaveCameraFollow={props.onSaveCameraFollow} v4={props.v4 === true} />}
+      {tab === 'camera' && <CameraTab entities={props.entities} onSelectEntity={props.onSelectEntity} />}
       {tab === 'settings' && <SettingsTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} />}
     </div>
   );

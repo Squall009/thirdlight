@@ -454,10 +454,12 @@ export function validateSetBehaviorPropertiesArgs(
 const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   box: ['size', 'material'],
   camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset'],
+  // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
+  model: ['asset', 'piece'],
   collider: ['shape', 'oneWay'],
   controller: ['capsule'],
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
+  // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
@@ -502,7 +504,12 @@ const OWNED: readonly OwnedComponent[] = [
   'audioSource',
   'faceMovement',
 ];
+// Phase 15.1: box, camera and model are added (a complete value) and removed
+// like every other component (the Inspector's "+ Add component").
 const REMOVABLE: readonly OwnedComponent[] = [
+  'box',
+  'camera',
+  'model',
   'collider',
   'controller',
   'gameZone',
@@ -575,8 +582,8 @@ export function validateSetComponentArgs(
     return { ok: false, error: fieldMissing('/args/value', 'value') };
   }
   const value = args['value'];
-  // `null` removes an add-capable component (the M2 physics pair and the six
-  // v3 components); never box/camera/model.
+  // `null` removes an add-capable component (every owned component since
+  // phase 15.1, box/camera/model included).
   if (value === null) {
     if (!(REMOVABLE as readonly string[]).includes(component)) {
       return {
@@ -654,6 +661,8 @@ export function validateSetComponentArgs(
     }
   } else if (component === 'collider') {
     const shape = value['shape'];
+    // Phase 15.1: `oneWay` alone edits the flag (the shape stays).
+    if (shape === undefined && value['oneWay'] !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon", ... })') };
     }
@@ -704,7 +713,13 @@ export function validateSetComponentArgs(
     // stages) are the model's and the §41.3.2 helper's; nothing structural is
     // re-implemented here.
   } else {
+    // Phase 15.1: `piece` alone (a string, or null for the whole file) edits the piece.
+    const piece = value['piece'];
+    if (piece !== undefined && piece !== null && typeof piece !== 'string') {
+      return { ok: false, error: fieldType('/args/value/piece', piece, 'string (piece name) or null') };
+    }
     const asset = value['asset'];
+    if (asset === undefined && piece !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(asset)) {
       return { ok: false, error: fieldType('/args/value/asset', asset, 'object { assetId }') };
     }

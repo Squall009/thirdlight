@@ -638,3 +638,26 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-input-action__listen { color: #f2b544; }
 .tl-animator__preview { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 200px; border: 1px solid var(--border);
   border-radius: 4px; margin: 6px 0; }
+
+/* Phase 15.1: the descriptor-built Inspector sections. */
+.tl-desc__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tl-desc__row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; }
+.tl-desc__row.tl-flag { display: flex; }
+.tl-desc__row.is-default .tl-field__label { font-style: italic; }
+.tl-desc__control { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tl-desc__control > .tl-input, .tl-desc__control > select { flex: 1; min-width: 0; }
+.tl-desc__control .tl-param__number { flex: 1; }
+.tl-desc__control .tl-input--num { width: 70px; flex: none; }
+.tl-desc__control .tl-vec__nums { flex: 1; }
+.tl-desc__object { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px 6px; margin: 4px 0 8px; }
+.tl-desc__object.is-default { opacity: .85; }
+.tl-desc__legend { font-size: 11px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.tl-desc__absent { display: flex; align-items: center; gap: 8px; }
+.tl-desc__group-title { font-size: 11px; color: var(--accent); margin: 8px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+.tl-desc__list { margin-bottom: 8px; }
+.tl-desc__item { display: flex; align-items: flex-start; gap: 4px; }
+.tl-desc__item > :first-child { flex: 1; min-width: 0; }
+.tl-desc__readonly { font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
+.tl-desc__pick { margin-top: 6px; }
+.tl-desc__add { padding-top: 8px; }
+.tl-desc__add > select { width: 100%; box-sizing: border-box; }

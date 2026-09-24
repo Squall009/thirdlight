@@ -57,19 +57,19 @@ test('Edit → Duplicate copies the selection with its components; Component men
   await menu(page, 'GameObject', 'Box');
   await expect(rows(page)).toHaveCount(base + 1);
   // Component → Collider on the new (selected) box, then Duplicate: the copy carries the collider.
-  await menu(page, 'Component', 'Collider (box)');
-  await expect(page.locator('.tl-inspector')).toContainText('hx');
-  const collider = await menuItem(page, 'Component', 'Collider (box)');
+  await menu(page, 'Component', 'Collider', 'Box');
+  await expect(page.locator('.tl-inspector')).toContainText('Half width');
+  const collider = await menuItem(page, 'Component', 'Collider');
   await expect(collider).toBeDisabled();
   await closeMenu(page);
   await menu(page, 'Edit', 'Duplicate');
   await expect(rows(page)).toHaveCount(base + 2);
   await expect(rows(page).filter({ hasText: 'copy' })).toHaveCount(1);
-  const copyCollider = await menuItem(page, 'Component', 'Collider (box)');
+  const copyCollider = await menuItem(page, 'Component', 'Collider');
   await expect(copyCollider).toBeDisabled(); // the copy has it too
   await closeMenu(page);
-  await menu(page, 'Component', 'Remove', 'collider');
-  await expect(await menuItem(page, 'Component', 'Collider (box)')).toBeEnabled();
+  await menu(page, 'Component', 'Remove', 'Collider');
+  await expect(await menuItem(page, 'Component', 'Collider')).toBeEnabled();
   await closeMenu(page);
   await menu(page, 'Edit', 'Delete');
   await expect(rows(page)).toHaveCount(base + 1);

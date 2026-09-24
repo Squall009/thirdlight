@@ -1,9 +1,9 @@
 /**
- * Declared-property and component controls (React; packet 28).
+ * Declared-property controls (React; packet 28; phase 15.1: component fields
+ * are the descriptor-built Inspector sections, `DescriptorFields`).
  *
  * Display + intent only. Every control is derived from published declaration
- * data (`PropertyControl`) or the contract component shapes
- * (`ComponentControl`); a value edit is parsed and issued by the app as an
+ * data (`PropertyControl`); a value edit is parsed and issued by the app as an
  * ordinary typed command — this file never touches scene state, never
  * evaluates behavior code and never offers apply/revert/variant/link
  * affordances (project-model §20.1.2/§20.1.5).
@@ -11,7 +11,7 @@
  * Browser-only (React).
  */
 import { useState, type JSX } from 'react';
-import type { ComponentControl, PropertyControl } from '../session/property-controls';
+import type { PropertyControl } from '../session/property-controls';
 import { formatPropertyValue } from '../session/property-controls';
 
 export interface ControlErrorView {
@@ -114,65 +114,6 @@ export function PropertyControlList({
         // authoritative value (the row keeps local draft state while typing).
         <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} />
       ))}
-    </div>
-  );
-}
-
-/** Editable contract component controls (collider/controller add/edit/remove). */
-export function ComponentControlList({
-  controls,
-  onEditColliderBox,
-  onAdd,
-  onRemove,
-}: {
-  controls: readonly ComponentControl[];
-  onEditColliderBox: (hx: string, hy: string) => void;
-  onAdd: (component: 'collider' | 'controller') => void;
-  onRemove: (component: 'collider' | 'controller') => void;
-}): JSX.Element | null {
-  const [hx, setHx] = useState('');
-  const [hy, setHy] = useState('');
-  if (controls.length === 0) return null;
-  return (
-    <div className="tl-props">
-      {controls.map((c) => {
-        const shapeType = c.fields.find((f) => f.path === 'collider.shape.type')?.value;
-        return (
-          <div className="tl-comp" key={c.component}>
-            <div className="tl-prop__head">
-              <span className="tl-prop__label">{c.label}</span>
-              <span className="tl-prop__type">{c.present ? c.component : 'absent'}</span>
-            </div>
-            {c.fields.map((f) => (
-              <div className="tl-comp__field" key={f.path} title={f.path}>
-                <span className="tl-comp__name">{f.label}</span>
-                <span className="tl-comp__value">{f.value}</span>
-                <span className="tl-comp__type">{f.type}</span>
-              </div>
-            ))}
-            {c.component === 'collider' && c.present && shapeType === 'box' && (
-              <div className="tl-comp__field">
-                <span className="tl-comp__name">hx/hy</span>
-                <input className="tl-prop__input" type="number" value={hx} placeholder={c.fields.find((f) => f.path === 'collider.shape.hx')?.value} onChange={(e) => setHx(e.target.value)} />
-                <input className="tl-prop__input" type="number" value={hy} placeholder={c.fields.find((f) => f.path === 'collider.shape.hy')?.value} onChange={(e) => setHy(e.target.value)} />
-                <button className="tl-btn tl-btn--small" onClick={() => onEditColliderBox(hx, hy)}>
-                  set
-                </button>
-              </div>
-            )}
-            {!c.present && (
-              <button className="tl-btn tl-btn--small" onClick={() => onAdd(c.component)} title="Add this component">
-                add
-              </button>
-            )}
-            {c.present && (
-              <button className="tl-btn tl-btn--small" onClick={() => onRemove(c.component)} title="Remove this component">
-                remove
-              </button>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

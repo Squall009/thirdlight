@@ -38,8 +38,8 @@ test('a red point light tints a box in the Scene view and in Play; lights are ed
   await expect(lightRow).toContainText('Point light');
   const lightId = (await lightRow.getAttribute('data-entity-id'))!;
   // Red, strong, close to the box (the box sits at the view focus; the light 1 m above it).
-  await expect(page.locator('[aria-label="light"]')).toBeVisible();
-  const colour = page.getByLabel('light colour');
+  await expect(page.locator('[aria-label="light component"]')).toBeVisible();
+  const colour = page.getByLabel('light color', { exact: true });
   await colour.focus();
   await colour.evaluate((el: HTMLInputElement) => {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;

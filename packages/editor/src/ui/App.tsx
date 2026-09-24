@@ -49,13 +49,11 @@ import {
 import {
   deriveOverrideTargets,
   derivePropertyControls,
-  parseColliderBox,
   parseControlInput,
-  planAddController,
-  planRemovePhysicsComponent,
   planSetBehaviorProperties,
-  planSetCollider,
 } from '../session/property-controls';
+import { addEntries, collectSignals } from '../session/descriptor-fields';
+import type { FieldContext } from './DescriptorFields';
 import type { PrefabSummaryView } from '../session/prefab-projection';
 import type { BehaviorDeclarationView } from '../session/prefab-projection';
 import {
@@ -84,7 +82,7 @@ import { ModelInstances, type AssetPreviewSession } from '../viewport/model-inst
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type WindLike } from '@thirdlight/three-adapter';
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -100,8 +98,6 @@ import { ClipsForField } from './ClipsForField';
 import { InputPanel } from './InputPanel';
 import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
-import { FogVolumeEditor, LightEditor } from './LightEditor';
-import { BLOCK_DEFAULTS, BlocksEditor } from './BlocksEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -110,7 +106,7 @@ import { ProblemsPanel } from './ProblemsPanel';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
-import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
+import { SURFACE_PRESET_NAMES, validateMediaDrop, type AnimationRoleKey, type SurfacePresetName } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 
@@ -326,6 +322,8 @@ function EditorApp(): JSX.Element {
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
   // Phase 9.7: the animator controllers.
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
+  // Phase 15.1: the component and content descriptors the Inspector is built from.
+  const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
   const [animatorError, setAnimatorError] = useState<string | null>(null);
   // Phase 9.8: the input actions (null = the defaults).
   const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
@@ -503,6 +501,7 @@ function EditorApp(): JSX.Element {
     // the sole authority).
     setGameConfig(c.getGameConfig());
     setGameConfigLoaded(c.getGameConfigLoaded());
+    setRegistry(c.getDescriptors());
     setSettings(c.getSettings());
     setTags(c.getTags());
     const mats = c.getMaterials();
@@ -1182,24 +1181,6 @@ function EditorApp(): JSX.Element {
       ),
     [createEntityAt],
   );
-  /** Phase 9.5: a fog volume edit (a partial value). */
-  const saveFogVolume = useCallback(async (entityId: string, patch: Record<string, unknown>) => {
-    const c = clientRef.current;
-    if (!c) return;
-    reportFailure('Fog volume', await c.setComponent(entityId, 'fogVolume', patch, c.projection.revision));
-  }, [reportFailure]);
-  /** Phase 9.5: a light edit (a partial value; null removes an optional field). */
-  const saveLightPatch = useCallback(async (entityId: string, patch: Record<string, unknown>) => {
-    const c = clientRef.current;
-    if (!c) return;
-    reportFailure('Light', await c.setComponent(entityId, 'light', patch, c.projection.revision));
-  }, [reportFailure]);
-  /** Phase 9.9: a gameplay component edit (a partial value; null removes the component). */
-  const saveBlock = useCallback(async (entityId: string, component: string, value: Record<string, unknown> | null) => {
-    const c = clientRef.current;
-    if (!c) return;
-    reportFailure(component, await c.setComponent(entityId, component, value, c.projection.revision));
-  }, [reportFailure]);
   const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
   /** The full values of the selection's subtrees (parents first), read from the backend. */
@@ -1254,19 +1235,6 @@ function EditorApp(): JSX.Element {
   }, [reportFailure]);
   const editRef = useRef({ duplicate, copySelection, paste });
   editRef.current = { duplicate, copySelection, paste };
-
-  /** Component menu: set (or remove with null) one component on the selection. */
-  const setComponentOnSelection = useCallback(
-    async (component: string, value: unknown) => {
-      const c = clientRef.current;
-      const id = selectedIdRef.current;
-      if (!c || !id) return;
-      const res = await c.setComponent(id, component, value, c.projection.revision);
-      if (!res.ok) reportFailure(value === null ? `Remove ${component}` : `Add ${component}`, res);
-      else refreshEntities();
-    },
-    [reportFailure, refreshEntities],
-  );
 
   /** File → Export game…: the admin export route, then a zip download. */
   const exportGame = useCallback(async () => {
@@ -1584,21 +1552,6 @@ function EditorApp(): JSX.Element {
 
   const deleteSpawn = useCallback(deleteZone, [deleteZone]);
 
-  const saveCameraFollow = useCallback(
-    async (entityId: string, value: Record<string, unknown> | null) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setGameplayError(null);
-      const res = await c.setComponent(entityId, 'cameraFollow', value, c.projection.revision);
-      if (res.ok) {
-        refreshEntities();
-        return;
-      }
-      setGameplayError(commandError(res));
-    },
-    [refreshEntities],
-  );
-
   const saveSettings = useCallback(
     async (settings: Record<string, number>) => {
       const c = clientRef.current;
@@ -1615,7 +1568,6 @@ function EditorApp(): JSX.Element {
   );
 
   // ---- packet 57: M3 media / lighting / animation authoring -----------------
-  const [mediaError, setMediaError] = useState<GameplayBackendError | null>(null);
   // The cue PREVIEW owner (the packet's "injected owner"): one per session,
   // disposed on teardown; the panel renders its status + bounded diagnostics.
   const previewOwnerRef = useRef<PreviewAudioOwner | null>(null);
@@ -1654,117 +1606,17 @@ function EditorApp(): JSX.Element {
     [bumpPreview],
   );
 
-  const mediaCommandResult = useCallback((res: { ok: boolean; response?: { ok?: boolean; code?: string; message?: string } }, onOk: () => void): void => {
-    if (res.ok) {
-      onOk();
-      return;
+  /** A surface preset (the Inspector's surface section) — one `applySurfacePreset`. */
+  const applyPreset = useCallback(async (entityId: string, preset: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setComponentError(null);
+    const res = await c.command('applySurfacePreset', { entityId, preset }, c.projection.revision);
+    if (!res.ok) {
+      const r = res.response as { code?: string; message?: string };
+      setComponentError({ code: r.code ?? 'network', message: r.message ?? 'the preset was not applied' });
     }
-    const r = res.response as { ok?: boolean; code?: string; message?: string } | undefined;
-    setMediaError({ code: r?.code ?? 'network', message: r?.message ?? r?.code ?? 'the media command was rejected' });
   }, []);
-
-  const saveCues = useCallback(
-    async (args: { cues: Record<string, string | null> }) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.setGameConfig(args as Record<string, unknown>, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const addLight = useCallback(
-    async (type: 'directional' | 'ambient') => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const light =
-        type === 'directional'
-          ? { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.35, -1, 0.55], castShadow: false }
-          : { type: 'ambient', color: '#ffffff', intensity: 0.5 };
-      const res = await c.createGameEntity(
-        {
-          kind: 'group',
-          name: type === 'directional' ? 'key-light' : 'fill-light',
-          transform: { position: [0, 4, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
-          components: { light },
-        },
-        c.projection.revision,
-      );
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const saveLight = useCallback(
-    async (entityId: string, value: Record<string, unknown>) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.setComponent(entityId, 'light', value, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const saveSurface = useCallback(
-    async (entityId: string, value: Record<string, unknown>) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.setComponent(entityId, 'surface', value, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const applyPreset = useCallback(
-    async (entityId: string, preset: string) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.command('applySurfacePreset', { entityId, preset }, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const saveAnimation = useCallback(
-    async (entityId: string, value: Record<string, unknown>) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.setComponent(entityId, 'modelAnimation', value, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
-
-  const saveActivation = useCallback(
-    async (entityId: string, value: Record<string, unknown>) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setMediaError(null);
-      const res = await c.setComponent(entityId, 'gameZone', value, c.projection.revision);
-      mediaCommandResult(res, () => {
-        refreshEntities();
-      });
-    },
-    [refreshEntities, mediaCommandResult],
-  );
 
   // ---- phase 10: assets referenced in place in the game folder -------------
   // A folder project can import files where they are; Problems shows the ones
@@ -2131,7 +1983,7 @@ function EditorApp(): JSX.Element {
    * swallowed).
    */
   const runTypedCommand = useCallback(
-    async (op: string, args: unknown, onError: (e: UiError) => void): Promise<boolean> => {
+    async (op: string, args: unknown, onError: (e: UiError) => void, withDetail = false): Promise<boolean> => {
       const c = clientRef.current;
       if (!c) return false;
       let reissues = 0;
@@ -2153,7 +2005,9 @@ function EditorApp(): JSX.Element {
           refreshEntities();
           continue;
         }
-        onError({ code: r.code, message: recovery.message });
+        // Phase 15.1: the Inspector says which rule refused the edit (the first detail).
+        const detail = withDetail ? (r as { details?: { message?: string }[] }).details?.[0]?.message : undefined;
+        onError({ code: r.code, message: detail !== undefined ? `${recovery.message} — ${detail}` : recovery.message });
         return false;
       }
     },
@@ -2369,11 +2223,6 @@ function EditorApp(): JSX.Element {
     }
     return [...wanted].filter((n) => n !== '' && !have.has(n)).sort();
   }, []);
-  const setEntityAnimator = useCallback(async (entityId: string, controller: string | null) => {
-    const c = clientRef.current;
-    if (!c) return;
-    reportFailure('Animator', await c.setComponent(entityId, 'animator', controller === null ? null : { controller }, c.projection.revision));
-  }, [reportFailure]);
   const saveEnvironment = useCallback(async (env: EnvironmentConfig) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2514,39 +2363,37 @@ function EditorApp(): JSX.Element {
     [runTypedCommand],
   );
 
-  /** Collider/controller authoring: one typed `setComponent` per action. */
-  const addComponent = useCallback(
-    async (entityId: string, component: 'collider' | 'controller') => {
-      const c = clientRef.current;
-      if (!c) return;
-      const args =
-        component === 'controller'
-          ? planAddController(entityId)
-          : planSetCollider(entityId, { type: 'box', hx: 1, hy: 1 });
+  /**
+   * Phase 15.1: one Inspector component edit — a partial top-level value, or
+   * null to remove the component — as one typed command (one undo step): the
+   * script through `setBehaviorProperties`, everything else `setComponent`.
+   */
+  const editComponent = useCallback(
+    async (entityId: string, component: string, patch: Record<string, unknown> | null) => {
       setComponentError(null);
-      await runTypedCommand('setComponent', args, setComponentError);
+      if (component === 'behavior') {
+        if (patch !== null) return; // the script's values are edited property by property (editProperty)
+        await runTypedCommand('setBehaviorProperties', { entityId, behaviorId: null }, setComponentError, true);
+        return;
+      }
+      await runTypedCommand('setComponent', { entityId, component, value: patch }, setComponentError, true);
+    },
+    [runTypedCommand],
+  );
+  /** Phase 15.1: "+ Add component" (the descriptor's value, a preset, or the picked value) — one command. */
+  const addComponentTo = useCallback(
+    async (entityId: string, component: string, value: Record<string, unknown>) => {
+      setComponentError(null);
+      if (component === 'behavior') {
+        await runTypedCommand('setBehaviorProperties', { entityId, behaviorId: value['behaviorId'], values: value['values'] ?? {} }, setComponentError, true);
+        return;
+      }
+      await runTypedCommand('setComponent', { entityId, component, value }, setComponentError, true);
     },
     [runTypedCommand],
   );
 
-  const removeComponent = useCallback(
-    async (entityId: string, component: 'collider' | 'controller') => {
-      const c = clientRef.current;
-      if (!c) return;
-      setComponentError(null);
-      await runTypedCommand('setComponent', planRemovePhysicsComponent(entityId, component), setComponentError);
-    },
-    [runTypedCommand],
-  );
-
-  // Phase 14.0: the player's collision capsule (Inspector fields, "Fit to model").
-  const setCapsule = useCallback(
-    async (entityId: string, capsule: { radius: number; height: number; offset?: [number, number] } | null) => {
-      setComponentError(null);
-      await runTypedCommand('setComponent', { entityId, component: 'controller', value: { capsule } }, setComponentError);
-    },
-    [runTypedCommand],
-  );
+  // Phase 14.0: "Fit to model" sizes the player's capsule to its models (one setComponent).
   const fitCapsuleToModel = useCallback(
     async (entityId: string) => {
       const bounds = viewportRef.current?.modelBounds(entityId) ?? null;
@@ -2555,24 +2402,9 @@ function EditorApp(): JSX.Element {
         setComponentError({ code: 'no_model', message: 'Fit to model needs a loaded model on this object or on its children.' });
         return;
       }
-      await setCapsule(entityId, fit);
+      await editComponent(entityId, 'controller', { capsule: fit });
     },
-    [setCapsule],
-  );
-
-  const editColliderBox = useCallback(
-    async (entityId: string, hxRaw: string, hyRaw: string) => {
-      const c = clientRef.current;
-      if (!c) return;
-      const parsed = parseColliderBox(hxRaw, hyRaw);
-      if (!parsed.ok) {
-        setComponentError({ code: parsed.error.code, message: parsed.error.message });
-        return;
-      }
-      setComponentError(null);
-      await runTypedCommand('setComponent', planSetCollider(entityId, parsed.shape), setComponentError);
-    },
-    [runTypedCommand],
+    [editComponent],
   );
 
   const refreshAssets = useCallback(async () => {
@@ -2757,23 +2589,30 @@ function EditorApp(): JSX.Element {
   for (const e of entities) {
     for (let bit = 0; bit < 32; bit++) if ((e.tags & (1 << bit)) !== 0) tagUsage.set(bit, (tagUsage.get(bit) ?? 0) + 1);
   }
-  /** The optional components the selection carries (the Component menu's add/remove state). */
-  const selectedComponents = new Set<string>(
-    selected === null
-      ? []
-      : ([
-          ['collider', selected.collider !== undefined],
-          ['controller', selected.controller === true],
-          ['gameZone', selected.gameZone !== undefined],
-          ['playerSpawn', selected.playerSpawn === true],
-          ['cameraFollow', selected.cameraFollow !== undefined],
-          ['light', selected.light !== undefined],
-          ['surface', selected.surface !== undefined],
-          ['modelAnimation', selected.modelAnimation !== undefined],
-        ] as Array<[string, boolean]>)
-          .filter(([, present]) => present)
-          .map(([k]) => k),
-  );
+  /** Phase 15.1: the components the selection carries (the Component menu's add/remove state). */
+  const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
+  /** Phase 15.1: what the Inspector's pickers offer. */
+  const allEntities = clientRef.current?.projection.listEntities() ?? entities;
+  const fieldContext: FieldContext = {
+    assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, displayName: a.displayName })),
+    entities: allEntities.map((e) => ({ id: e.id, name: e.name, ...(e.sceneId !== undefined ? { sceneId: e.sceneId } : {}), components: Object.keys(e.components) })),
+    scenes: clientRef.current?.projection.scenes ?? [],
+    refs: {
+      material: materials.map((m) => ({ id: m.materialId, name: m.name })),
+      animator: animators.map((a) => ({ id: a.controllerId, name: a.name })),
+      behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
+      prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
+    },
+    signals: registry === null ? [] : collectSignals(registry, allEntities.map((e) => e.components)),
+    ...(selected?.sceneId !== undefined ? { sceneId: selected.sceneId } : {}),
+  };
+  // The game block's pickers name objects in any scene.
+  const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
+  /** Phase 15.1: a component's "+ Add component" value (the descriptor's; the GameObject presets use it too). */
+  const addValueOf = (name: string): Record<string, unknown> => {
+    const add = registry?.components.find((c) => c.name === name)?.add;
+    return add !== undefined && (add.kind === 'menu' || add.kind === 'pick') ? (JSON.parse(JSON.stringify(add.value)) as Record<string, unknown>) : {};
+  };
   // The play loads from its own content locator on the preview origin.
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
@@ -2847,13 +2686,13 @@ function EditorApp(): JSX.Element {
           } },
         ] },
         { label: 'Gameplay', items: [
-          { label: 'Moving platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create moving platform', { kind: 'box', name: 'Moving platform', box: { size: [2, 0.4, 2], material: { color: '#c9a36a' } }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: BLOCK_DEFAULTS.mover } }) },
+          { label: 'Moving platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create moving platform', { kind: 'box', name: 'Moving platform', box: { size: [2, 0.4, 2], material: { color: '#c9a36a' } }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: addValueOf('mover') } }) },
           { label: 'One-way platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create one-way platform', { kind: 'box', name: 'One-way platform', box: { size: [3, 0.2, 2], material: { color: '#8fb573' } }, components: { collider: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true } } }) },
-          { label: 'Switch', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create switch', { kind: 'box', name: 'Switch', box: { size: [0.6, 0.2, 0.6], material: { color: '#d9534f' } }, components: { switch: BLOCK_DEFAULTS.switch } }) },
+          { label: 'Switch', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create switch', { kind: 'box', name: 'Switch', box: { size: [0.6, 0.2, 0.6], material: { color: '#d9534f' } }, components: { switch: addValueOf('switch') } }) },
           { label: 'Door (opens on "open")', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create door', { kind: 'box', name: 'Door', box: { size: [0.6, 3, 2], material: { color: '#7a5230' } }, components: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5 } }, mover: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' } } }) },
-          { label: 'Coin', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create coin', { kind: 'box', name: 'Coin', box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { pickup: BLOCK_DEFAULTS.pickup } }) },
-          { label: 'Enemy', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create enemy', { kind: 'box', name: 'Enemy', box: { size: [0.8, 0.8, 0.8], material: { color: '#8e3fb0' } }, components: { enemy: BLOCK_DEFAULTS.enemy } }) },
-          { label: 'Trigger', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create trigger', { kind: 'group', name: 'Trigger', components: { trigger: BLOCK_DEFAULTS.trigger } }) },
+          { label: 'Coin', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create coin', { kind: 'box', name: 'Coin', box: { size: [0.4, 0.4, 0.1], material: { color: '#f2c230' } }, components: { pickup: addValueOf('pickup') } }) },
+          { label: 'Enemy', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create enemy', { kind: 'box', name: 'Enemy', box: { size: [0.8, 0.8, 0.8], material: { color: '#8e3fb0' } }, components: { enemy: addValueOf('enemy') } }) },
+          { label: 'Trigger', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create trigger', { kind: 'group', name: 'Trigger', components: { trigger: addValueOf('trigger') } }) },
         ] },
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
@@ -2863,23 +2702,35 @@ function EditorApp(): JSX.Element {
     },
     {
       label: 'Component',
-      items: [
-        { label: 'Collider (box)', disabled: noComponentTarget || selComponents.has('collider'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'collider') },
-        { label: 'Player controller', disabled: noComponentTarget || selComponents.has('controller'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => selectedId && void addComponent(selectedId, 'controller') },
-        { label: 'Player spawn', disabled: noComponentTarget || selComponents.has('playerSpawn'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => void setComponentOnSelection('playerSpawn', {}) },
-        { label: 'Camera follow', disabled: noComponentTarget || selComponents.has('cameraFollow'), reason: noComponentTarget ? needObject : 'already present', onSelect: () => void setComponentOnSelection('cameraFollow', { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } }) },
-        { label: 'Light', disabled: noComponentTarget || selComponents.has('light'), reason: noComponentTarget ? needObject : 'already present', items: [
-          { label: 'Directional', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void setComponentOnSelection('light', { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true }) },
-          { label: 'Ambient', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void setComponentOnSelection('light', { type: 'ambient', color: '#8a94b0', intensity: 0.9 }) },
-        ] },
-        { label: 'Game zone', disabled: noComponentTarget || selComponents.has('gameZone'), reason: noComponentTarget ? needObject : 'already present', items: [
-          { label: 'Hazard', onSelect: () => void setComponentOnSelection('gameZone', { role: 'hazard', size: [1, 1] }) },
-          { label: 'Checkpoint', onSelect: () => void setComponentOnSelection('gameZone', { role: 'checkpoint', size: [1, 1] }) },
-          { label: 'Goal', onSelect: () => void setComponentOnSelection('gameZone', { role: 'goal', size: [1, 1] }) },
-        ] },
-        'separator',
-        { label: 'Remove', disabled: noSelection || selComponents.size === 0, reason: noSelection ? need : 'no removable components', items: [...selComponents].map((k) => ({ label: k, onSelect: () => void setComponentOnSelection(k, null) })) },
-      ],
+      // Phase 15.1: the same list as the Inspector's "+ Add component" (the descriptors):
+      // one item per component, presets as a submenu, and why an item cannot be added.
+      items: (() => {
+        if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
+        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder' });
+        const out: MenuEntry[] = [];
+        let category: string | null = null;
+        for (const c of registry.components) {
+          const mine = entries.filter((e) => e.component === c.name);
+          if (mine.length === 0) continue;
+          if (category !== null && category !== c.category) out.push('separator');
+          category = c.category;
+          const first = mine[0]!;
+          const blocked = noComponentTarget ? needObject : first.reason;
+          const pickReason = first.pick.length > 0 ? `choose its ${first.pick.map((p) => p.split('/').pop()).join(', ')} in the Inspector (+ Add component)` : null;
+          const add = (value: unknown): void => {
+            if (selectedId !== null) void addComponentTo(selectedId, c.name, value as Record<string, unknown>);
+          };
+          if (mine.length > 1) {
+            out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items: mine.map((e) => ({ label: e.label.slice(c.label.length + 2), onSelect: () => add(e.value) })) });
+          } else {
+            out.push({ label: c.label, disabled: blocked !== null || pickReason !== null, reason: blocked ?? pickReason ?? '', onSelect: () => add(first.value) });
+          }
+        }
+        const removable = registry.components.filter((c) => selComponents.has(c.name) && c.name !== 'transform' && c.name !== 'prefab' && c.name !== 'folder');
+        out.push('separator');
+        out.push({ label: 'Remove', disabled: noSelection || removable.length === 0, reason: noSelection ? need : 'no removable components', items: removable.map((c) => ({ label: c.label, onSelect: () => selectedId !== null && void editComponent(selectedId, c.name, null) })) });
+        return out;
+      })(),
     },
     {
       label: 'Gizmos',
@@ -3192,7 +3043,9 @@ function EditorApp(): JSX.Element {
               onDeleteZone={(id) => void deleteZone(id)}
               onAddSpawn={() => void addSpawn()}
               onDeleteSpawn={(id) => void deleteSpawn(id)}
-              onSaveCameraFollow={(id, v) => void saveCameraFollow(id, v)}
+              onSelectEntity={(id) => setSelection({ ids: [id], primary: id })}
+              registry={registry}
+              fieldContext={gameFieldContext}
               onSaveSettings={(s) => void saveSettings(s)}
               backendError={gameplayError}
             />
@@ -3296,29 +3149,7 @@ function EditorApp(): JSX.Element {
           )}
           {bottomTab === 'media' && (
             <MediaPanel
-              entities={entities}
-              selected={selected}
-              gameConfig={gameConfig}
-              gameConfigLoaded={gameConfigLoaded}
               assets={assets}
-              clipNames={
-                selected !== null && selected.kind === 'model' && selected.assetId !== undefined
-                  ? (assetPreview !== null && assetPreview.assetId === selected.assetId
-                      ? assetPreview.clips.map((c) => c.name)
-                      : mediaPendingRef.current !== null && pendingProposalRef.current?.target.assetId === selected.assetId
-                        ? mediaPendingRef.current.clipNames
-                        : null)
-                  : null
-              }
-              backendError={mediaError}
-              onDismissError={() => setMediaError(null)}
-              onSaveCues={(args) => void saveCues(args as { cues: Record<string, string | null> })}
-              onAddLight={(t) => void addLight(t)}
-              onSaveLight={(id, v) => void saveLight(id, v as Record<string, unknown>)}
-              onSaveSurface={(id, v) => void saveSurface(id, v as Record<string, unknown>)}
-              onApplyPreset={(id, p) => void applyPreset(id, p)}
-              onSaveAnimation={(id, v) => void saveAnimation(id, v as Record<string, unknown>)}
-              onSaveActivation={(id, v) => void saveActivation(id, { activation: v })}
               previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
               previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
               onUnlockPreview={unlockPreview}
@@ -3347,10 +3178,10 @@ function EditorApp(): JSX.Element {
           propertyError={propertyError}
           componentError={componentError}
           onEditProperty={(entityId, key, raw) => void editProperty(entityId, key, raw)}
-          onAddComponent={(entityId, component) => void addComponent(entityId, component)}
-          onRemoveComponent={(entityId, component) => void removeComponent(entityId, component)}
-          onEditColliderBox={(entityId, hx, hy) => void editColliderBox(entityId, hx, hy)}
-          onSetCapsule={(entityId, capsule) => void setCapsule(entityId, capsule)}
+          registry={registry}
+          fieldContext={fieldContext}
+          onComponentEdit={(entityId, component, patch) => void editComponent(entityId, component, patch)}
+          onAddComponent={(entityId, component, value) => void addComponentTo(entityId, component, value)}
           onFitCapsule={(entityId) => void fitCapsuleToModel(entityId)}
           capsuleOwner={(() => {
             // Phase 14.0: a child of the player collides with the player's capsule.
@@ -3371,47 +3202,42 @@ function EditorApp(): JSX.Element {
           onSetFlag={(entityId, flag, value) => void setFlag(entityId, flag, value)}
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
-          extra={
-            <>
-            {selected !== null && selected.fogVolume !== undefined ? (
-              <FogVolumeEditor volume={selected.fogVolume} onSave={(patch) => void saveFogVolume(selected.id, patch)} />
-            ) : selected !== null && selected.light !== undefined ? (
-              <LightEditor light={selected.light} onSave={(patch) => void saveLightPatch(selected.id, patch)} />
-            ) : selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
-              <>
-                <MaterialMappingEditor
-                  label="Materials"
-                  sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}
-                  mapping={selected.materials ?? null}
-                  materials={materials}
-                  onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
-                />
-                {selected.kind === 'model' && (
-                  <label className="tl-field">
-                    <span className="tl-field__label">animator</span>
-                    <select className="tl-input" aria-label="animator controller of the object" value={selected.animator?.controller ?? ''} onChange={(e) => void setEntityAnimator(selected.id, e.target.value === '' ? null : e.target.value)}>
-                      <option value="">— none —</option>
-                      {animators.map((a) => (
-                        <option key={a.controllerId} value={a.controllerId}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </>
-            ) : null}
-            {selected !== null && selected.kind !== 'folder' && selected.kind !== 'camera' && selected.light === undefined && selected.fogVolume === undefined && sceneHeaders !== null && (
-              <BlocksEditor
-                blocks={selected.blocks ?? {}}
-                collider={selected.collider}
-                hazard={selected.gameZone?.role === 'hazard' ? selected.gameZone : null}
-                onSave={(component, value) => void saveBlock(selected.id, component, value)}
-                sounds={assets.filter((a) => a.kind === 'audio' || a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-                cues={assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-              />
-            )}
-            </>
+          // Phase 15.1: descriptor-keyed custom widgets — the material mapping knows the
+          // model's own material names; a surface offers the built-in presets.
+          alwaysShow={selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? ['materials'] : []}
+          bodies={
+            selected === null
+              ? {}
+              : {
+                  materials: (
+                    <MaterialMappingEditor
+                      label="Materials"
+                      sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}
+                      mapping={selected.materials ?? null}
+                      materials={materials}
+                      onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
+                    />
+                  ),
+                }
+          }
+          extensions={
+            selected === null
+              ? {}
+              : {
+                  surface: (
+                    <label className="tl-field">
+                      <span className="tl-field__label">Preset</span>
+                      <select className="tl-input" aria-label="surface preset" value="" onChange={(e) => e.target.value !== '' && void applyPreset(selected.id, e.target.value as SurfacePresetName)}>
+                        <option value="">apply a preset…</option>
+                        {SURFACE_PRESET_NAMES.map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ),
+                }
           }
         />
         </div>

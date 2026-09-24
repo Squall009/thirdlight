@@ -80,7 +80,8 @@ export function MenuBar(p: { menus: Menu[] }): JSX.Element {
       {items.map((it, i) => {
         if (it === 'separator') return <div key={`${path}-sep-${i}`} className="tl-menu__sep" role="separator" />;
         const key = `${path}/${it.label}`;
-        if (it.items) {
+        // A disabled submenu is a disabled item that says why (phase 15.1: the Component menu).
+        if (it.items && it.disabled !== true) {
           return (
             <div key={key} className="tl-menu__item tl-menu__item--sub" role="menuitem" aria-label={it.label} aria-haspopup="menu" aria-expanded={sub === key} onMouseEnter={() => setSub(key)} onClick={(e) => { e.stopPropagation(); setSub(key); }}>
               <span>{it.label}</span>

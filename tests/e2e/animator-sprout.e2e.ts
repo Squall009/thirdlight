@@ -69,7 +69,15 @@ test("Sprout's clips play on Beacon Reach's player: idle, run, airborne", async 
   const graph = page.getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('button', { name: `state ${s}` })).toBeVisible();
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${model}"]`).click();
-  await page.getByLabel('animator controller of the object').selectOption({ label: 'Platformer' });
+  // Phase 15.1: the Inspector's animator section (added from "+ Add component" when absent).
+  const inspector = page.locator('.tl-inspector');
+  if ((await inspector.locator('[data-component="animator"]').count()) === 0) {
+    await inspector.getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });
+    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Platformer' });
+    await inspector.getByRole('button', { name: 'Add', exact: true }).click();
+  } else {
+    await inspector.getByLabel('animator controller', { exact: true }).selectOption({ label: 'Platformer' });
+  }
   await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: model } }))['entity'] as { components: { animator?: unknown } }).components.animator).toBeTruthy();
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));

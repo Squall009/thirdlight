@@ -108,21 +108,21 @@ test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in th
   // A fog volume in front of the camera: the middle of the view gets foggy (#dfe7ef).
   const middle = bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7));
   await menu(page, 'GameObject', 'Light', 'Fog volume');
-  await expect(page.locator('[aria-label="fog volume"]')).toBeVisible();
-  await page.getByRole('slider', { name: 'fog density' }).focus();
+  await expect(page.locator('[aria-label="fogVolume component"]')).toBeVisible();
+  await page.getByRole('slider', { name: 'fogVolume density slider' }).focus();
   await page.keyboard.press('End');
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(middle + 40);
   // Phase 14.4: the fog thins with height — at the fastest falloff almost none is left above the box bottom.
   const foggy = bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7));
   await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Fog volume' }).click();
-  await page.getByRole('slider', { name: 'fog height falloff' }).focus();
+  await page.getByRole('slider', { name: 'fogVolume heightFalloff slider' }).focus();
   await page.keyboard.press('End');
   await expect.poll(async () => ((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { components: { fogVolume?: { heightFalloff?: number } } }[]).find((e) => e.components.fogVolume !== undefined)?.components.fogVolume?.heightFalloff).toBe(10);
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeLessThan(foggy - 30);
   await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Fog volume' }).click();
-  await page.getByRole('slider', { name: 'fog height falloff' }).focus();
+  await page.getByRole('slider', { name: 'fogVolume heightFalloff slider' }).focus();
   await page.keyboard.press('Home');
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(foggy - 10);
