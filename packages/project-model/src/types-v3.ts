@@ -16,6 +16,7 @@
  */
 
 import type { AnimatorComponent, AnimatorController } from './animator';
+import type { InputConfig } from './input';
 import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
 import type {
@@ -426,6 +427,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   lighting?: LightingMap;
   /** Phase 9.7: animator controllers (absent = none). */
   animators?: AnimatorController[];
+  /** Phase 9.8: input actions and bindings (absent = the defaults). */
+  input?: InputConfig;
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

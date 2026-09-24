@@ -466,6 +466,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 12 (c) / 9.4 (v4 scenes).
   instances: ['asset', 'buffer', 'count'],
   fogVolume: ['size', 'density', 'color', 'falloff'],
+  animator: ['controller', 'parameters'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -483,6 +484,7 @@ const OWNED: readonly OwnedComponent[] = [
   'instances',
   'materials',
   'fogVolume',
+  'animator',
 ];
 const REMOVABLE: readonly OwnedComponent[] = [
   'collider',
@@ -496,6 +498,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'instances',
   'materials',
   'fogVolume',
+  'animator',
 ];
 /** The two field-less markers whose ADD value is exactly `{}`. */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -655,7 +658,8 @@ export function validateSetComponentArgs(
     component === 'modelAnimation' ||
     component === 'instances' ||
     component === 'materials' ||
-    component === 'fogVolume'
+    component === 'fogVolume' ||
+    component === 'animator'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

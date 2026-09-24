@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { EnvironmentConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -434,6 +434,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
     // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
+    // Phase 9.8: the input actions (the game's input binding reads them).
+    ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
+    // Phase 9.7: the animator controllers (the game's runtime steps them).
+    ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: (input.content as { animators: AnimatorController[] }).animators } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,

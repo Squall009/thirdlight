@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -132,6 +132,9 @@ const OPS: readonly MutationOp[] = [
   'deleteMaterial',
   'setEnvironment',
   'setLighting',
+  'setAnimator',
+  'deleteAnimator',
+  'setInput',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -162,11 +165,13 @@ const CREATE_COMPONENTS: readonly string[] = [
   'materials',
   // Phase 9.5: v4 scenes only.
   'fogVolume',
+  // Phase 9.7: v4 scenes only.
+  'animator',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1144,6 +1149,9 @@ export type ValidatedOpArgs =
   | { op: 'deleteMaterial'; args: { materialId: string } }
   | { op: 'setEnvironment'; args: { environment: EnvironmentConfig } }
   | { op: 'setLighting'; args: { sceneId: string; lighting: LightingBake | null } }
+  | { op: 'setAnimator'; args: { controller: AnimatorController } }
+  | { op: 'deleteAnimator'; args: { controllerId: string } }
+  | { op: 'setInput'; args: { input: InputConfig | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1202,6 +1210,22 @@ export function validateOpArgs(
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteMaterial' ? 'string (materialId)' : 'object') };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setInput': {
+      for (const k of Object.keys(args)) if (k !== 'input') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'input') };
+      if (args['input'] === undefined) return { ok: false, error: fieldMissing('/args/input', 'input') };
+      if (args['input'] !== null && !isPlainObject(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setAnimator':
+    case 'deleteAnimator': {
+      const key = op === 'setAnimator' ? 'controller' : 'controllerId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'deleteAnimator' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteAnimator' ? 'string (controllerId)' : 'object (a controller)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

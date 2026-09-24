@@ -309,6 +309,18 @@ export {
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
+// Phase 9.8: input actions.
+export {
+  canonicalInput,
+  DEFAULT_INPUT,
+  INPUT_ACTION_TYPES,
+  MAX_INPUT_ACTIONS,
+  validateInput,
+  type InputAction,
+  type InputActionType,
+  type InputBinding,
+  type InputConfig,
+} from './input';
 // Phase 9.7: animator controllers.
 export {
   ANIMATOR_CONDITION_OPS,

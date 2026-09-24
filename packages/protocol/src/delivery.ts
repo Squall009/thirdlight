@@ -196,6 +196,8 @@ export interface RelayFrame {
   stepOffset: number;
   moveX: number;
   jump: RelayJumpPhase;
+  /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each). */
+  actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
 }
 export interface InputRelayRequest {
   mode: 'exclusive-test';
@@ -206,6 +208,7 @@ const RELAY_FRAME_FIELDS = new Map<string, string>([
   ['stepOffset', 'integer 0..2^53-1'],
   ['moveX', 'finite number -1..1 (quantized to 1e-4)'],
   ['jump', 'none | pressed | held | released'],
+  ['actions', 'optional: { <action name>: { v, x?, y?, p } } (phase 9.8 named actions)'],
 ]);
 const RELAY_BODY_FIELDS = new Map<string, string>([
   ['mode', '"exclusive-test"'],
@@ -292,7 +295,24 @@ export function parseInputRelayRequest(
       typeof v === 'string' && JUMP_SET.includes(v) ? null : { problem: 'jump must be one of none | pressed | held | released', kind: 'value' },
     );
     if (!jump.ok) return { ok: false, error: jump.error };
-    frames.push({ stepOffset, moveX: quantize(moveX.value as number), jump: jump.value as RelayJumpPhase });
+    const rawActions = (frameShape.value as Record<string, unknown>)['actions'];
+    let actions: RelayFrame['actions'];
+    if (rawActions !== undefined) {
+      const bad = {
+        ok: false as const,
+        error: { code: 'field_value' as const, cls: 'validation' as const, message: 'actions maps up to 32 action names to { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }', path: `/frames/${i}/actions` },
+      };
+      if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions) || Object.keys(rawActions).length > 32) return bad;
+      actions = {};
+      for (const [name, a] of Object.entries(rawActions as Record<string, unknown>)) {
+        const v = a as Record<string, unknown> | null;
+        const num = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x) && x >= -10 && x <= 10;
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name) || typeof v !== 'object' || v === null || !num(v['v']) || typeof v['p'] !== 'string' || !JUMP_SET.includes(v['p'] as string)) return bad;
+        if ((v['x'] !== undefined && !num(v['x'])) || (v['y'] !== undefined && !num(v['y'])) || Object.keys(v).some((k) => !['v', 'x', 'y', 'p'].includes(k))) return bad;
+        actions[name] = { v: v['v'] as number, ...(v['x'] !== undefined ? { x: v['x'] as number } : {}), ...(v['y'] !== undefined ? { y: v['y'] as number } : {}), p: v['p'] as RelayJumpPhase };
+      }
+    }
+    frames.push({ stepOffset, moveX: quantize(moveX.value as number), jump: jump.value as RelayJumpPhase, ...(actions !== undefined ? { actions } : {}) });
   }
   const bodyBytes = new TextEncoder().encode(JSON.stringify({ mode: INPUT_RELAY_MODE, frames })).length;
   if (bodyBytes > INPUT_RELAY_MAX_BODY_BYTES) {

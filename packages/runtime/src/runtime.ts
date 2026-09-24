@@ -1811,6 +1811,7 @@ class RuntimeInstance implements Runtime {
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
+    this.stepAnimators();
   }
 
   /**

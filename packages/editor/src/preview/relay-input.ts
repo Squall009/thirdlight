@@ -16,13 +16,13 @@ export class RelayActionSource implements ActionSource {
     this.browser = browser;
   }
 
-  beginTest(frames: readonly { stepOffset: number; moveX: number; jump: string }[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
+  beginTest(frames: readonly { stepOffset: number; moveX: number; jump: string; actions?: ActionFrame['actions'] }[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
     if (this.test !== null) return false;
     const map = new Map<number, ActionFrame>();
     let lastOffset = -1;
     for (const f of frames) {
       const jump = f.jump as ActionFrame['jump'];
-      map.set(f.stepOffset, { stepIndex: firstStep + f.stepOffset, moveX: f.moveX, jump });
+      map.set(f.stepOffset, { stepIndex: firstStep + f.stepOffset, moveX: f.moveX, jump, ...(f.actions !== undefined ? { actions: f.actions } : {}) });
       if (f.stepOffset > lastOffset) lastOffset = f.stepOffset;
     }
     this.browser.reset?.('exclusive-test');
@@ -44,7 +44,7 @@ export class RelayActionSource implements ActionSource {
       if (test.first < 0) test.first = stepIndex;
       test.last = stepIndex;
       const done = offset >= test.lastOffset;
-      const out: ActionFrame = { stepIndex, moveX: frame.moveX, jump: frame.jump };
+      const out: ActionFrame = { stepIndex, moveX: frame.moveX, jump: frame.jump, ...(frame.actions !== undefined ? { actions: frame.actions } : {}) };
       if (done) this.finish();
       return out;
     }

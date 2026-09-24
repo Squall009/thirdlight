@@ -559,8 +559,8 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
 | 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
-| 9.7 rigs + Animator + Sprout clips | todo | |
-| 9.8 input actions + Input window | todo | |
+| 9.7 rigs + Animator + Sprout clips | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.7"; Sprout 33e92d9 (clips, not pushed) |
+| 9.8 input actions + Input window | done 2026-09-24 (owner look pending) | see git log "9.7/9.8" |
 | 9.9 physics + gameplay building blocks | todo | |
 | 9.10 game flow, menus, HUD, audio | todo | |
 | 9.11 save system | todo | |
@@ -634,3 +634,30 @@ Add one dated line per decision taken during the run (what, why).
   A stale bake is shown in the Lighting window (not as a Problems entry).
   Found on the way: the editor dropped tags/materials/environment after a
   reload (`queryGameConfig` returned only the game block) — fixed.
+- 2026-09-24 (9.7): the animator runs in the runtime's fixed step (pure
+  state machine, `runtime/src/animator.ts`) and the renderer only poses
+  (action time + weight per clip, no mixer time), so Play and replays match
+  and clip events reach scripts (`ctx.events`). Poses are read with a
+  separate `runtime.animatorPoses()` (the frozen GameView shape is untouched).
+  Clip durations live in the controller (the editor fills them from the
+  file) because the runtime never loads GLBs. Not built (left for the
+  wrap-up if time allows): the second override layer with a bone mask,
+  animation-only GLBs (clips for another rig), a live preview with
+  parameter sliders in the Animator window, the migration of the old
+  `modelAnimation` idle/run/airborne profile into a built-in controller
+  (the old component keeps working), and new import caps for skins (joints
+  ≤ 128, ≤ 4 skins, ≤ 32 morph targets). Only clips of the entity's own model
+  play (a controller naming another asset's clip is skipped at runtime).
+  A skinned character exported as one rig node (Sprout) is one piece named
+  after that node; place it as a whole file. Characters do not turn to face
+  their movement yet (9.9/9.13). The Sprout clips were authored by a
+  helper agent in Sprout (IK legs; feet match the ground at ~1 m/s run).
+- 2026-09-24 (9.8): named actions ride in the `ActionFrame` as an optional
+  `actions` map (values + phases per step, so replays match); `moveX`/`jump`
+  stay for the platformer and come from the `move`/`jump` keyboard bindings
+  (the platformer's gamepad controls stay the M2 standard ones — rebinding a
+  pad button changes `ctx.input`, not the platformer). The editor and the
+  Play preview may not import project-model values, so the input package
+  keeps a copy of the defaults (a parity test pins it) and `queryGameConfig`
+  returns `inputDefaults`. Runtime rebinding for players (a settings screen)
+  and storing it in saves move to 9.10/9.11.

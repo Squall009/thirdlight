@@ -23,8 +23,8 @@
  * (§9.4, defensive).
  */
 
-import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
-import { withEnvironment, withLighting, withMaterials } from './material-ops';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { withAnimators, withEnvironment, withInput, withLighting, withMaterials } from './material-ops';
 import type {
   BehaviorComponent,
   BehaviorRecord,
@@ -505,6 +505,18 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setInput') {
+    const before = (content as { input?: InputConfig }).input ?? null;
+    const change: ChangeData = { type: 'setInput', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withInput(content, inv.restore), change, entry.requestId);
+  }
+
+  if (inv.kind === 'setAnimators') {
+    const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
+    const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(inv.restore) };
+    return finish(state, bumped(scene), withAnimators(content, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setLighting') {
     const before = ((content as { lighting?: Record<string, LightingBake> }).lighting ?? {})[inv.sceneId] ?? null;
     const change: ChangeData = { type: 'setLighting', sceneId: inv.sceneId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -871,6 +883,18 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setInput') {
+    const before = (content as { input?: InputConfig }).input ?? null;
+    const change: ChangeData = { type: 'setInput', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withInput(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setAnimators') {
+    const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
+    const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(f.next) };
+    return finish(state, bumped(scene), withAnimators(content, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setLighting') {

@@ -82,7 +82,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
-import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -93,6 +93,8 @@ import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowse
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
+import { AnimatorPanel } from './AnimatorPanel';
+import { InputPanel } from './InputPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { FogVolumeEditor, LightEditor } from './LightEditor';
 import { PrefabPanel } from './PrefabPanel';
@@ -303,6 +305,13 @@ function EditorApp(): JSX.Element {
   const [materials, setMaterials] = useState<MaterialDef[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
+  // Phase 9.7: the animator controllers.
+  const [animators, setAnimators] = useState<AnimatorController[]>([]);
+  const [animatorError, setAnimatorError] = useState<string | null>(null);
+  // Phase 9.8: the input actions (null = the defaults).
+  const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
+  const [inputDefaults, setInputDefaults] = useState<InputConfig>({ actions: [] });
+  const [inputError, setInputError] = useState<string | null>(null);
   // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
   const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
   const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
@@ -448,6 +457,9 @@ function EditorApp(): JSX.Element {
       environmentKeyRef.current = envKey;
       viewportRef.current?.setEnvironment(env === null ? null : (env as unknown as EnvironmentLike), loadTextureRef.current);
     }
+    setAnimators(c.getAnimators());
+    setInputConfig(c.getInput());
+    setInputDefaults(c.getInputDefaults());
     // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
     const lighting = c.getLighting();
     setLighting(lighting);
@@ -2135,6 +2147,30 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     void c.bakeHostStatus().then((st) => setBakeHost(st.ok ? null : st.message));
   }, [bottomTab]);
+  const saveInput = useCallback(async (input: InputConfig | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setInputError(refusal(await c.command('setInput', { input }, c.projection.revision)));
+  }, []);
+  const saveAnimator = useCallback(async (controller: AnimatorController) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setAnimatorError(refusal(await c.command('setAnimator', { controller }, c.projection.revision)));
+  }, []);
+  const deleteAnimator = useCallback(async (controllerId: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setAnimatorError(refusal(await c.command('deleteAnimator', { controllerId }, c.projection.revision)));
+  }, []);
+  const clipsOf = useCallback(async (assetId: string) => {
+    const r = await modelInstancesRef.current?.prepared(assetId);
+    return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
+  }, []);
+  const setEntityAnimator = useCallback(async (entityId: string, controller: string | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Animator', await c.setComponent(entityId, 'animator', controller === null ? null : { controller }, c.projection.revision));
+  }, [reportFailure]);
   const saveEnvironment = useCallback(async (env: EnvironmentConfig) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2926,6 +2962,17 @@ function EditorApp(): JSX.Element {
               error={materialError}
             />
           )}
+          {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
+          {bottomTab === 'animator' && (
+            <AnimatorPanel
+              controllers={animators}
+              models={assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              clipsOf={clipsOf}
+              onSave={(controller) => void saveAnimator(controller)}
+              onDelete={(id) => void deleteAnimator(id)}
+              error={animatorError}
+            />
+          )}
           {bottomTab === 'lighting' && (
             activeScene === null ? (
               <p className="tl-hint">Lighting bakes need a project with scenes (storage v4).</p>
@@ -3024,13 +3071,28 @@ function EditorApp(): JSX.Element {
             ) : selected !== null && selected.light !== undefined ? (
               <LightEditor light={selected.light} onSave={(patch) => void saveLightPatch(selected.id, patch)} />
             ) : selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
-              <MaterialMappingEditor
-                label="Materials"
-                sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}
-                mapping={selected.materials ?? null}
-                materials={materials}
-                onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
-              />
+              <>
+                <MaterialMappingEditor
+                  label="Materials"
+                  sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}
+                  mapping={selected.materials ?? null}
+                  materials={materials}
+                  onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
+                />
+                {selected.kind === 'model' && (
+                  <label className="tl-field">
+                    <span className="tl-field__label">animator</span>
+                    <select className="tl-input" aria-label="animator controller of the object" value={selected.animator?.controller ?? ''} onChange={(e) => void setEntityAnimator(selected.id, e.target.value === '' ? null : e.target.value)}>
+                      <option value="">— none —</option>
+                      {animators.map((a) => (
+                        <option key={a.controllerId} value={a.controllerId}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </>
             ) : null
           }
         />
@@ -3187,13 +3249,15 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
   { id: 'materials', label: 'Materials' },
   { id: 'environment', label: 'Environment' },
   { id: 'lighting', label: 'Lighting' },
+  { id: 'animator', label: 'Animator' },
+  { id: 'input', label: 'Input' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },

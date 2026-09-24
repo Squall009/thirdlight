@@ -159,7 +159,15 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
 
   // Everything survives a backend restart (the recorded changes reload).
   await be.restart();
-  const after = await entities();
+  // The reopened editor reclaims the project while the backend loads it: wait until it answers.
+  let last: Record<string, unknown> = {};
+  await expect
+    .poll(async () => {
+      last = await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 200, offset: 0 } });
+      return Array.isArray(last['entities']);
+    }, { timeout: 15_000, message: 'queryEntities after the restart' })
+    .toBe(true);
+  const after = last['entities'] as Ent[];
   expect(after.filter((e) => e.parentId === folder.id).map((e) => e.components.model?.piece)).toEqual(['rock', 'bush', 'flower', 'bush']);
   expect(JSON.stringify(await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } }))).toContain('"vertexColors":"tint"');
 });

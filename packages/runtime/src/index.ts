@@ -44,6 +44,8 @@ export {
   quantizeMove,
   validateActionFrame,
   type ActionFrame,
+  type ActionValue,
+  MAX_FRAME_ACTIONS,
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
@@ -168,3 +170,7 @@ export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
 export { sceneEntitiesFromDocument } from './scene-set';
+// Phase 9.7/9.8: animators and ctx.input.
+export { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+export { inputView, type BehaviorInputView } from './behavior';
+export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle } from './types';

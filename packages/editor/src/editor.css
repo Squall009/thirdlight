@@ -609,3 +609,27 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-lighting__progress span { position: relative; padding-left: 6px; }
 .tl-lighting__bar { position: absolute; inset: 0 auto 0 0; background: #2f5ea8; }
 .tl-lighting__message { font-size: 12px; margin: 6px 0; }
+
+/* Phase 9.7: the Animator window. */
+.tl-animator__bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.tl-animator__body { display: flex; gap: 10px; position: relative; }
+.tl-animator__graph { flex: 1; min-width: 0; height: 300px; background: #141821; border: 1px solid #262d3b; border-radius: 4px; }
+.tl-animator__node { fill: #253049; stroke: #3b4a68; stroke-width: 1.5; cursor: grab; }
+.tl-animator__node.is-selected { stroke: #f2b544; stroke-width: 2.5; }
+.tl-animator__node.is-entry { fill: #3a4a2a; }
+.tl-animator__node--any { fill: #34294a; }
+.tl-animator__label { fill: #e3e8f2; font-size: 12px; pointer-events: none; user-select: none; }
+.tl-animator__side { width: 320px; flex: none; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.tl-animator__row { display: flex; gap: 4px; align-items: center; margin: 2px 0; }
+.tl-animator__param { flex: 1; }
+.tl-animator__menu { position: absolute; z-index: 20; display: flex; flex-direction: column; min-width: 160px; }
+
+/* Phase 9.8: the Input window. */
+.tl-input__maps { display: flex; gap: 16px; flex-wrap: wrap; }
+.tl-input-map { flex: 1; min-width: 360px; }
+.tl-input-action { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid #232a37; font-size: 12px; }
+.tl-input-action__name { width: 120px; flex: none; }
+.tl-input-action__bindings { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.tl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 10px; background: #253049; border: 1px solid #3b4a68; }
+.tl-chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; }
+.tl-input-action__listen { color: #f2b544; }

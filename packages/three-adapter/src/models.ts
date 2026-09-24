@@ -240,6 +240,8 @@ export interface ModelsRealization {
    * entity uses any more is disposed (its GPU data freed).
    */
   removeEntities(entityIds: ReadonlySet<string>): void;
+  /** Phase 9.7: the entity's attached model instance (its asset id and root), or null. */
+  instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /** Dispose: cancel in-flight prepares, dispose the attached instances
    * (cloned materials + controllers + instances) and the store.
    *  Idempotent. */
@@ -767,6 +769,12 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   initial = false;
 
   const realization: ModelsRealization = {
+    instanceOf(entityId: string) {
+      const rec = attached.get(entityId);
+      if (rec === undefined || rec.disposed) return null;
+      const assetId = modelEntities.get(entityId);
+      return assetId === undefined ? null : { assetId, instance: rec.instance };
+    },
     update(deltaSeconds: number): boolean {
       if (disposed) return false;
       for (const controller of [...liveControllers]) {

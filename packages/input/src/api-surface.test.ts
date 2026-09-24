@@ -26,17 +26,22 @@ describe('public exports (dependencies.md §3 input row)', () => {
     // Packet 55 (delivery.md §4.1/§4.2) adds the menu-control channel
     // constants + the pure controller (additive — the contracted names above
     // are unchanged).
+    // Phase 9.8 adds the named input actions (additive).
     expect(Object.keys(input).sort()).toEqual([
+      'DEFAULT_INPUT_CONFIG',
       'DEFAULT_KEYBOARD_MAP',
       'GAMEPAD_DEAD_ZONE',
       'MENU_CONFIRM_CODES',
       'MENU_GAMEPAD_CONFIRM_BUTTON',
       'MENU_MUTE_CODE',
+      'actionKeys',
       'attachBrowserInput',
+      'createActionEvaluator',
       'createMenuController',
       'createStepInputSource',
       'focusGameSurface',
       'mapRawInput',
+      'platformerKeys',
     ]);
   });
 

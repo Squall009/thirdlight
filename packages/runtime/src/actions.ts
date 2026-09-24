@@ -27,7 +27,25 @@ export interface ActionFrame {
   /** Finite, `−1 ≤ v ≤ 1`, quantized to 1e-4 (`round(v·1e4)/1e4`). */
   moveX: number;
   jump: JumpPhase;
+  /**
+   * Phase 9.8, optional: every named input action this step — `v` its value
+   * (a button 0/1, an axis −1..1 after its processors), `x`/`y` for a 2D
+   * axis, `p` the button phase. Absent: only move and jump exist.
+   */
+  actions?: Readonly<Record<string, ActionValue>>;
 }
+
+/** Phase 9.8: one input action's value in a step. */
+export interface ActionValue {
+  readonly v: number;
+  readonly x?: number;
+  readonly y?: number;
+  readonly p: JumpPhase;
+}
+
+/** Most named actions in a frame (project-model MAX_INPUT_ACTIONS). */
+export const MAX_FRAME_ACTIONS = 32;
+const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /** Movement quantization (input.md §3.3). */
 export const MOVE_QUANTUM = 1e-4;
@@ -101,6 +119,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key of Object.keys(value)) {
+    if (key === 'actions') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -137,7 +156,21 @@ export function validateActionFrame(
   if (typeof jump !== 'string' || !JUMP_PHASES.includes(jump as JumpPhase)) {
     return { ok: false, field: 'jump', message: 'jump must be one of none | pressed | held | released' };
   }
-  return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase } };
+  const rawActions = value['actions'];
+  if (rawActions === undefined) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase } };
+  if (!isPlainObject(rawActions) || Object.keys(rawActions).length > MAX_FRAME_ACTIONS) {
+    return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
+  }
+  const actions: Record<string, ActionValue> = {};
+  for (const [name, a] of Object.entries(rawActions)) {
+    const num = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x) && x >= -10 && x <= 10;
+    if (!ACTION_NAME_RE.test(name) || !isPlainObject(a) || !num(a['v']) || !JUMP_PHASES.includes(a['p'] as JumpPhase) || (a['x'] !== undefined && !num(a['x'])) || (a['y'] !== undefined && !num(a['y']))) {
+      return { ok: false, field: `actions/${name}`, message: 'an action value is { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }' };
+    }
+    for (const k of Object.keys(a)) if (k !== 'v' && k !== 'x' && k !== 'y' && k !== 'p') return { ok: false, field: `actions/${name}/${k}`, message: `unknown action value field "${k}"` };
+    actions[name] = Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
+  }
+  return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: Object.freeze(actions) } };
 }
 
 /**

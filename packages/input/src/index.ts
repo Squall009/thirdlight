@@ -48,3 +48,5 @@ export { mapRawInput } from './mapping';
 export { createStepInputSource, type StepInputStep } from './step-source';
 export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';
+// Phase 9.8: named input actions.
+export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, platformerKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';

@@ -40,7 +40,7 @@
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
 import { sha256HexAsync } from '@thirdlight/project-model';
-import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -82,6 +82,10 @@ interface ExportManifestV2 {
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
+  /** Phase 9.7: the animator controllers. */
+  animators?: unknown[];
+  /** Phase 9.8: the input actions. */
+  input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -116,7 +120,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -217,6 +221,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     game: manifest.game ?? null,
     ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
     ...(catalog !== null ? { scenes: catalog.rows } : {}),
+    // Phase 9.7: the animator controllers (bound by the buildId).
+    ...(manifest.animators !== undefined ? { animators: manifest.animators } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -264,7 +270,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   }
   // (no game block and no controller: scene mode — the scene plays as authored)
 
-  const input = attachBrowserInput(canvas, {});
+  // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
+  const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
   focusGameSurface(canvas);
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
   const assetPathsById: Record<string, string> = {};

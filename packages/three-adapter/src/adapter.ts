@@ -27,6 +27,7 @@
  * backend), never a throw.
  */
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
+import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
@@ -235,6 +236,29 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           }),
         )
       : null;
+  /** Phase 9.7: the animator poses the runtime committed, played on the models. */
+  const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
+  const applyAnimatorPoses = (): void => {
+    const poses = (opts.runtime as { animatorPoses?: () => ReadonlyMap<string, AnimatorPoseLike> }).animatorPoses?.();
+    if (poses === undefined || realization === null) return;
+    for (const [id, rec] of [...animatorPlayers]) {
+      const now = realization.instanceOf(id);
+      if (!poses.has(id) || now === null || now.instance !== rec.instance) {
+        rec.player.dispose();
+        animatorPlayers.delete(id);
+      }
+    }
+    for (const [id, pose] of poses) {
+      let rec = animatorPlayers.get(id);
+      if (rec === undefined) {
+        const found = realization.instanceOf(id);
+        if (found === null) continue;
+        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), found.assetId) };
+        animatorPlayers.set(id, rec);
+      }
+      rec.player.apply(pose);
+    }
+  };
   /** A light that stays out of realtime rendering: held by a bake (ambient/hemisphere always stay). */
   const bakedAway = (id: string | undefined, l: { type: string; mode?: string }): boolean =>
     l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
@@ -808,6 +832,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (!Number.isFinite(delta) || delta < 0) delta = 0;
       if (delta > ANIMATION_MAX_DELTA_SECONDS) delta = ANIMATION_MAX_DELTA_SECONDS;
       realization.update(delta);
+      applyAnimatorPoses();
     }
     const renderer = owned.renderer;
     if (!renderer) return { ok: false, error: adapterError('render_failed', 'renderer unavailable') };
@@ -950,6 +975,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    for (const rec of animatorPlayers.values()) rec.player.dispose();
+    animatorPlayers.clear();
     lightmaps?.dispose();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();

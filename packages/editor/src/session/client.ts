@@ -16,7 +16,7 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
-import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -290,6 +290,11 @@ export class SessionClient {
   private environment: EnvironmentConfig | null = null;
   /** Phase 9.6: each scene's bake (from queryGameConfig, then setLighting changes). */
   private lighting: Record<string, LightingBake> = {};
+  /** Phase 9.7: the animator controllers. */
+  private animators: AnimatorController[] = [];
+  /** Phase 9.8: the project's input actions (null = the defaults). */
+  private input: InputConfig | null = null;
+  private inputDefaults: InputConfig = { actions: [] };
   /**
    * Phase 12 (c): the scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
@@ -496,6 +501,12 @@ export class SessionClient {
         this.environment = env !== undefined && env !== null ? structuredClone(env) : null;
         const lighting = (g as { lighting?: Record<string, LightingBake> | null }).lighting;
         this.lighting = lighting !== undefined && lighting !== null ? structuredClone(lighting) : {};
+        const animators = (g as { animators?: AnimatorController[] | null }).animators;
+        this.animators = Array.isArray(animators) ? structuredClone(animators) : [];
+        const input = (g as { input?: InputConfig | null }).input;
+        this.input = input !== undefined && input !== null ? structuredClone(input) : null;
+        const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
+        if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -676,6 +687,10 @@ export class SessionClient {
         this.materials = structuredClone(change.next);
       } else if (change.type === 'setEnvironment') {
         this.environment = change.next === null ? null : structuredClone(change.next);
+      } else if (change.type === 'setInput') {
+        this.input = change.next === null ? null : structuredClone(change.next);
+      } else if (change.type === 'setAnimators') {
+        this.animators = structuredClone(change.next);
       } else if (change.type === 'setLighting') {
         if (change.next === null) delete this.lighting[change.sceneId];
         else this.lighting[change.sceneId] = structuredClone(change.next);
@@ -1005,6 +1020,21 @@ export class SessionClient {
   /** Phase 9.4: the environment (null = defaults). */
   getEnvironment(): EnvironmentConfig | null {
     return this.environment === null ? null : structuredClone(this.environment);
+  }
+
+  /** Phase 9.8: the project's input actions (null = the defaults). */
+  getInput(): InputConfig | null {
+    return this.input === null ? null : structuredClone(this.input);
+  }
+
+  /** Phase 9.8: the default input actions (what a project without its own uses). */
+  getInputDefaults(): InputConfig {
+    return structuredClone(this.inputDefaults);
+  }
+
+  /** Phase 9.7: the animator controllers. */
+  getAnimators(): AnimatorController[] {
+    return structuredClone(this.animators);
   }
 
   /** Phase 9.6: each scene's bake. */

@@ -12,14 +12,15 @@
  * after.
  */
 
+import { canonicalAnimators, canonicalInput, validateAnimatorController, validateInput, type AnimatorController, type InputConfig } from '@thirdlight/project-model';
 import { canonicalEnvironment, canonicalLighting, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetEnvironmentChange, SetLightingChange, SetMaterialsChange } from './types';
+import type { ContentDocument, SetAnimatorsChange, SetEnvironmentChange, SetInputChange, SetLightingChange, SetMaterialsChange } from './types';
 
-type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake> };
+type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake>; animators?: AnimatorController[]; input?: InputConfig };
 
 function modelError(e: ModelErrorV2, prefix: string): CommandError {
   return { code: e.code, cls: 'validation', path: `${prefix}${e.path ?? ''}`, message: e.message, ...(e.found !== undefined ? { found: e.found } : {}), ...(e.expected !== undefined ? { expected: e.expected } : {}) } as unknown as CommandError;
@@ -28,8 +29,13 @@ function modelError(e: ModelErrorV2, prefix: string): CommandError {
 function commit(
   input: OpInput,
   next: WithMaterials,
-  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange,
-  inverse: { kind: 'setMaterials'; restore: MaterialDef[] } | { kind: 'setEnvironment'; restore: EnvironmentConfig | null } | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null },
+  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange | SetAnimatorsChange | SetInputChange,
+  inverse:
+    | { kind: 'setMaterials'; restore: MaterialDef[] }
+    | { kind: 'setEnvironment'; restore: EnvironmentConfig | null }
+    | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null }
+    | { kind: 'setAnimators'; restore: AnimatorController[] }
+    | { kind: 'setInput'; restore: InputConfig | null },
 ): OpOutcome {
   const catalog = contentOf(input.content);
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
@@ -89,6 +95,56 @@ export function applySetLighting(input: OpInput, args: { sceneId: string; lighti
   }
   // Unknown scenes and non-texture atlases are refused by the resulting-state check.
   return commit(input, withLighting(catalog, args.sceneId, next) as WithMaterials, { type: 'setLighting', sceneId: args.sceneId, previous, next }, { kind: 'setLighting', sceneId: args.sceneId, restore: previous });
+}
+
+/** Phase 9.7: create or replace one animator controller (by controllerId). */
+export function applySetAnimator(input: OpInput, args: { controller: AnimatorController }): OpOutcome {
+  const catalog = contentOf(input.content) as WithMaterials;
+  const errors: ModelErrorV2[] = [];
+  validateAnimatorController(args.controller, '', errors);
+  if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/controller') };
+  const previous = deepClone(catalog.animators ?? []);
+  const next = canonicalAnimators([...previous.filter((c) => c.controllerId !== args.controller.controllerId), deepClone(args.controller)]);
+  return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
+}
+
+/** Phase 9.7: remove a controller (refused while an animator still uses it — the resulting-state check reports it). */
+export function applyDeleteAnimator(input: OpInput, args: { controllerId: string }): OpOutcome {
+  const catalog = contentOf(input.content) as WithMaterials;
+  const previous = deepClone(catalog.animators ?? []);
+  if (!previous.some((c) => c.controllerId === args.controllerId)) {
+    return { ok: false, error: fieldValue('/args/controllerId', args.controllerId, 'an existing controllerId', 'no animator controller with this id') };
+  }
+  const next = previous.filter((c) => c.controllerId !== args.controllerId);
+  return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
+}
+
+/** Phase 9.8: replace the input actions (null = back to the defaults). */
+export function applySetInput(input: OpInput, args: { input: InputConfig | null }): OpOutcome {
+  const catalog = contentOf(input.content) as WithMaterials;
+  let next: InputConfig | null = null;
+  if (args.input !== null) {
+    const errors: ModelErrorV2[] = [];
+    validateInput(args.input, '', errors);
+    if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/input') };
+    next = canonicalInput(args.input);
+  }
+  const previous = catalog.input !== undefined ? deepClone(catalog.input) : null;
+  return commit(input, withInput(catalog, next) as WithMaterials, { type: 'setInput', previous, next }, { kind: 'setInput', restore: previous });
+}
+
+export function withInput(content: ContentDocument, value: InputConfig | null): ContentDocument {
+  const c = { ...(content as WithMaterials) };
+  if (value !== null) c.input = deepClone(value);
+  else delete c.input;
+  return c;
+}
+
+export function withAnimators(content: ContentDocument, list: AnimatorController[]): ContentDocument {
+  const c = { ...(content as WithMaterials) };
+  if (list.length > 0) c.animators = deepClone(list);
+  else delete c.animators;
+  return c;
 }
 
 /** Restore a materials list or an environment block (undo/redo of the ops above). */

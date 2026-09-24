@@ -30,6 +30,8 @@
  * helpers and the `./sha256` digest primitives.
  */
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
+import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
+import { canonicalInput, validateInput, type InputConfig } from './input';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
@@ -72,7 +74,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -93,6 +95,8 @@ export const MANIFEST_KEYS_V2 = [
   'materials',
   'environment',
   'lighting',
+  'animators',
+  'input',
   'scenes',
   'buffers',
   'assets',
@@ -524,6 +528,10 @@ export interface CaptureManifestV2Input {
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
+  /** Phase 9.7: the animator controllers (only when there are some). */
+  animators?: readonly AnimatorController[];
+  /** Phase 9.8: the project's input actions (only when it has its own). */
+  input?: InputConfig;
   /**
    * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
    * (`start`) or on demand by the game; present only for a v4 project.
@@ -633,6 +641,8 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
+    ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
+    ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -732,11 +742,13 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined) {
+  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['input'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors);
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
     if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
+    if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
+    if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };
   }
 

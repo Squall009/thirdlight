@@ -524,6 +524,42 @@ scene with a bake cannot be deleted until the bake is cleared. MCP can clear
 a bake (`setLighting {sceneId, lighting: null}`); bakes are made in an
 editor (the headless one works too).
 
+## Animation (Animator)
+
+Models with clips (skinned or not) play them through **animator
+controllers** (bottom dock → Animator): parameters (float, int, bool,
+trigger), states that play a clip or a 1D blend tree, transitions with
+conditions, crossfade and exit time, an entry state, and clip events. Right
+click the graph to add states, right click a state to start a transition or
+make it the entry state; drag states to arrange them. "New from clips:
+Platformer" builds idle/run/jump/fall/land states from a model's clips. The
+Inspector's **animator** field puts a controller on a model object.
+
+The game steps animators with the simulation (deterministic; a replay looks
+the same). An animator on the player (or on a model under the player) gets
+`speed` (horizontal m/s), `grounded`, `velocityY` and a `landed` trigger
+automatically, when its controller defines them. Scripts use
+`ctx.animator(entityId)?.set(name, value)`, `.trigger(name)`, `.state()`;
+clip events of the previous step are in `ctx.events`. MCP: `setAnimator` /
+`deleteAnimator` through `tl_command`; `tl_game_observe` reports each
+animator's current state.
+
+## Input actions
+
+The game reads named **actions**, not keys (bottom dock → Input): `move`
+(A/D, ←/→, D-pad, left stick), `jump` (Space, pad A), `attack` (J, pad X),
+`interact` (E, pad Y), and for menus `pause` (Esc, Start), `submit` (Enter,
+pad A), `cancel` (Backspace, pad B), `navigate` (arrows/WASD, stick). "+ key"
+listens for the next key (an axis asks for two or four keys), "+ pad" for
+the next gamepad button; × removes a binding; new actions can be added. The
+first edit makes the controls the project's own; "Reset to defaults" goes
+back. The platformer moves and jumps with the `move` and `jump` keys (its
+gamepad controls stay the standard ones). Scripts read
+`ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
+`.released(name)`; the actions are part of the recorded input, so replays
+match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
+frames may carry `actions: {name: {v, p}}`.
+
 ## Upgrade
 
 ```sh

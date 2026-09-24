@@ -7,7 +7,7 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { effectiveEntityFlags, type ContentCatalogV3, type Manifest, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { DEFAULT_INPUT, effectiveEntityFlags, type ContentCatalogV3, type Manifest, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { loadPreparedSources } from './content-store';
 import { sha256Hex } from './digest';
@@ -413,6 +413,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         materials: JSON.parse(JSON.stringify(state.content.materials ?? [])) as unknown,
         environment: state.content.environment !== undefined ? (JSON.parse(JSON.stringify(state.content.environment)) as unknown) : null,
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
+        animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
+        input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
+        inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
       } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;

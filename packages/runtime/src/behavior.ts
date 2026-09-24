@@ -35,6 +35,7 @@ import type {
   PropertyValue,
   SceneV2,
 } from '@thirdlight/project-model';
+import type { ActionFrame } from './actions';
 import { clipMessage } from './errors';
 import { LiveTagIndex } from './scene-set';
 import {
@@ -522,6 +523,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           tags,
           world,
           ...(ctx.scenes !== undefined ? { scenes: ctx.scenes } : {}),
+          // Phase 9.8: the step's input actions by name.
+          input: inputView(ctx.action),
           // Phase 9.7: animators (`ctx.animator(id)?.set(...)`) and last step's clip events.
           ...(ctx.animators !== undefined ? { animator: ctx.animators.of, events: ctx.animatorEvents ?? [] } : {}),
           emit: emitFor(instance, ctx, phase),
@@ -719,3 +722,41 @@ export interface BehaviorLogEntry {
 export type BehaviorScene = SceneV2;
 
 export type { BehaviorIntent, IntentSet };
+
+/**
+ * Phase 9.8: `ctx.input` — the step's input actions by name. Without named
+ * actions in the frame, `move` and `jump` still answer from the frame.
+ */
+export interface BehaviorInputView {
+  /** A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name. */
+  value(name: string): number;
+  /** A 2D axis as [x, y] ([value, 0] for others). */
+  vector(name: string): [number, number];
+  pressed(name: string): boolean;
+  released(name: string): boolean;
+  /** Down this step (pressed or held). */
+  held(name: string): boolean;
+}
+
+export function inputView(frame: ActionFrame): BehaviorInputView {
+  const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => {
+    const a = frame.actions?.[name];
+    if (a !== undefined) return a;
+    if (name === 'move') return { v: frame.moveX, p: 'none' };
+    if (name === 'jump') return { v: frame.jump === 'pressed' || frame.jump === 'held' ? 1 : 0, p: frame.jump };
+    return undefined;
+  };
+  return Object.freeze({
+    value: (name: string) => get(String(name))?.v ?? 0,
+    vector: (name: string): [number, number] => {
+      const a = get(String(name));
+      return a === undefined ? [0, 0] : [a.x ?? a.v, a.y ?? 0];
+    },
+    pressed: (name: string) => get(String(name))?.p === 'pressed',
+    released: (name: string) => get(String(name))?.p === 'released',
+    held: (name: string) => {
+      const p = get(String(name))?.p;
+      return p === 'pressed' || p === 'held';
+    },
+  });
+}

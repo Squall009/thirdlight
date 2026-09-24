@@ -81,7 +81,7 @@ import {
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
-import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
+import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { RelayActionSource } from './relay-input';
 
@@ -106,6 +106,10 @@ export interface PreviewManifestV2 {
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
+  /** Phase 9.7: the animator controllers. */
+  animators?: unknown[];
+  /** Phase 9.8: the input actions. */
+  input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -333,7 +337,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -368,7 +372,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     : null;
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
-  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...authored, scenes: catalog.rows } : authored);
+  // Phase 9.7: the animator controllers come from the verified manifest.
+  const withAnimators = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
+  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withAnimators, scenes: catalog.rows } : withAnimators);
 
   // 3. The wrapper's read phase (L2): every declared asset read ONCE and
   //    re-hashed to its manifest sourceDigest (the adapter never receives
@@ -392,7 +398,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     physics = init.port;
   }
 
-  const browserInput = attachBrowserInput(cfg.canvas, {});
+  // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
+  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
   focusGameSurface(cfg.canvas);
   const relay = new RelayActionSource(browserInput);
   const input = {
@@ -682,6 +689,8 @@ export function bootstrapPreviewM3(): void {
       ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1] } } : {}),
       // Phase 12 (c): the loaded scenes and the ones on their way.
       ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
+      // Phase 9.7: each animator's current state (entity id → state name).
+      ...animatorStates(h.host.runtime),
     };
   };
 
@@ -745,6 +754,13 @@ export function bootstrapPreviewM3(): void {
 // `game.js` for a v3 play is this bundle — the same role as the M2
 // `preview.js`/`preview-bootstrap.ts`).
 bootstrapPreviewM3();
+
+/** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */
+function animatorStates(runtime: unknown): { animators?: Record<string, string> } {
+  const poses = (runtime as { animatorPoses?: () => ReadonlyMap<string, { state: string }> }).animatorPoses?.();
+  if (poses === undefined || poses.size === 0) return {};
+  return { animators: Object.fromEntries([...poses].slice(0, 64).map(([id, p]) => [id, p.state])) };
+}
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
 function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {

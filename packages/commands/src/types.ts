@@ -51,6 +51,8 @@ import type {
   SceneV4,
   EnvironmentConfig,
   LightingBake,
+  AnimatorController,
+  InputConfig,
   MaterialDef,
 } from '@thirdlight/project-model';
 
@@ -100,6 +102,9 @@ export type V3MutationOp =
   | 'deleteMaterial'
   | 'setEnvironment'
   | 'setLighting'
+  | 'setAnimator'
+  | 'deleteAnimator'
+  | 'setInput'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -253,7 +258,9 @@ export type V3OwnedComponent =
   /** Phase 9.4, v4 scenes only: the object's material mapping. */
   | 'materials'
   /** Phase 9.5, v4 scenes only: a fog volume. */
-  | 'fogVolume';
+  | 'fogVolume'
+  /** Phase 9.7, v4 scenes only: an animator controller on a model. */
+  | 'animator';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -333,6 +340,20 @@ export interface SetEnvironmentChange {
   type: 'setEnvironment';
   previous: EnvironmentConfig | null;
   next: EnvironmentConfig | null;
+}
+
+/** Phase 9.7: `setAnimator`/`deleteAnimator` change data (the whole list before and after). */
+export interface SetAnimatorsChange {
+  type: 'setAnimators';
+  previous: AnimatorController[];
+  next: AnimatorController[];
+}
+
+/** Phase 9.8: `setInput` change data (null = the defaults). */
+export interface SetInputChange {
+  type: 'setInput';
+  previous: InputConfig | null;
+  next: InputConfig | null;
 }
 
 /** Phase 9.6: `setLighting` change data — one scene's bake (null = none). */
@@ -604,6 +625,8 @@ export type ChangeData =
   | SetMaterialsChange
   | SetEnvironmentChange
   | SetLightingChange
+  | SetAnimatorsChange
+  | SetInputChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -629,6 +652,8 @@ export type ForwardChange =
   | SetMaterialsChange
   | SetEnvironmentChange
   | SetLightingChange
+  | SetAnimatorsChange
+  | SetInputChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -744,6 +769,18 @@ export interface SetEnvironmentInverse {
   restore: EnvironmentConfig | null;
 }
 
+/** Undo of `setAnimator`/`deleteAnimator`: restore the previous list. */
+export interface SetAnimatorsInverse {
+  kind: 'setAnimators';
+  restore: AnimatorController[];
+}
+
+/** Undo of `setInput`: restore the previous actions (null = the defaults). */
+export interface SetInputInverse {
+  kind: 'setInput';
+  restore: InputConfig | null;
+}
+
 /** Undo of `setLighting`: restore the scene's previous bake (null = none). */
 export interface SetLightingInverse {
   kind: 'setLighting';
@@ -780,6 +817,8 @@ export type InverseSpec =
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
+  | SetAnimatorsInverse
+  | SetInputInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse

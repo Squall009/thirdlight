@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -120,7 +120,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. setEnvironment {environment: {wind: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}}} (the foliage shader bends by COLOR_0.r). setLighting {sceneId, ' +
-      'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Returns the new revision on success, ' +
+      'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Animation: setAnimator {controller: ' +
+      '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
+      '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
+      '[{from: stateId|"*", to, conditions: [{parameter, op: greater|less|equals|notEquals|true|false|trigger, value?}], duration, exitTime?, ' +
+      'interruption?: none|source}], entry, events: [{assetId, clip, time, name}]}}; deleteAnimator {controllerId}; a model entity plays one ' +
+      'with setComponent "animator" {controller, parameters?}. The player\'s animators get speed, grounded, velocityY and a landed trigger ' +
+      'automatically; scripts use ctx.animator(entityId)?.set/trigger/state(). Input: setInput {input: {actions: [{name, type: ' +
+      'button|axis1d|axis2d, map: gameplay|ui, bindings: [{kind: "key", code: KeyboardEvent.code} | {kind: "gamepadButton", button} | ' +
+      '{kind: "gamepadAxis", axis} | {kind: "keys1d", negative, positive} | {kind: "keys2d", up, down, left, right} | {kind: ' +
+      '"gamepadButtons1d", negative, positive} | {kind: "gamepadStick", x, y}], deadZone?, invert?, scale?}]} | null} (null = defaults: ' +
+      'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {
@@ -216,7 +226,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Run a bounded, step-indexed semantic action sequence against an explicitly presented play session in ' +
       'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
-      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released. Returns the applied ' +
+      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; jump ∈ none|pressed|held|released; optional actions: ' +
+      '{<action name>: {v, x?, y?, p: none|pressed|held|released}} for named input actions (attack, interact, …; scripts read ' +
+      'them with ctx.input). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
     inputSchema: {
@@ -233,6 +245,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
               stepOffset: { type: 'integer', minimum: 0 },
               moveX: { type: 'number', minimum: -1, maximum: 1 },
               jump: { type: 'string', enum: ['none', 'pressed', 'held', 'released'] },
+              actions: {
+                type: 'object',
+                additionalProperties: {
+                  type: 'object',
+                  properties: { v: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' }, p: { type: 'string', enum: ['none', 'pressed', 'held', 'released'] } },
+                  required: ['v', 'p'],
+                  additionalProperties: false,
+                },
+              },
             },
             required: ['stepOffset', 'moveX', 'jump'],
             additionalProperties: false,
@@ -286,7 +307,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
-      'GLB/WAV bytes, base64 media, authoring token or locator capability. timeoutMs 250-15000 (default 5000). ' +
+      'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
+      'current animator state. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {

@@ -42,6 +42,9 @@ export type V3MutationOp =
   | 'deleteMaterial'
   | 'setEnvironment'
   | 'setLighting'
+  | 'setAnimator'
+  | 'deleteAnimator'
+  | 'setInput'
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
@@ -90,7 +93,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -118,6 +121,8 @@ export const CHANGE_TYPES = [
   'setMaterials',
   'setEnvironment',
   'setLighting',
+  'setAnimators',
+  'setInput',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------
@@ -717,6 +722,12 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     }
     if (!Number.isInteger(ev.deathCount) || (ev.deathCount as number) < 0) {
       return fieldError('field_value', `/events/${i}/deathCount`, 'event.deathCount must be a non-negative integer');
+    }
+  }
+  // Phase 9.7: optional animator states (entity id → state name).
+  if (value.animators !== undefined) {
+    if (!isPlainObject(value.animators) || Object.keys(value.animators).length > 64 || !Object.values(value.animators).every((x) => typeof x === 'string')) {
+      return fieldError('field_type', '/animators', 'animators maps entity ids to state names (at most 64)');
     }
   }
   const n = utf8Bytes(value);

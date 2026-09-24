@@ -29,6 +29,7 @@ import {
   createMenuController,
   type MenuSample,
 } from './menu';
+import { actionKeys, createActionEvaluator, platformerKeys } from './actions';
 import {
   DEFAULT_KEYBOARD_MAP,
   GAMEPAD_DEAD_ZONE,
@@ -36,9 +37,6 @@ import {
   type RawInputSnapshot,
 } from './types';
 
-const LEFT_CODES = new Set(DEFAULT_KEYBOARD_MAP.left);
-const RIGHT_CODES = new Set(DEFAULT_KEYBOARD_MAP.right);
-const JUMP_CODES = new Set(DEFAULT_KEYBOARD_MAP.jump);
 const DEVICE_ID_MAX = 64;
 
 /** The minimal event surface the owner reads (real DOM events satisfy it). */
@@ -57,12 +55,6 @@ interface VisibilityEventLike {
   target?: unknown;
 }
 
-function isMappedCode(code: unknown): code is string {
-  return (
-    typeof code === 'string' &&
-    (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code))
-  );
-}
 
 /** Editable-target detection from the event's own target (input.md §5.1). */
 function isEditableTarget(target: unknown): boolean {
@@ -146,6 +138,20 @@ export function attachBrowserInput(
     return () => candidate.call(nav);
   })();
 
+  // Phase 9.8: the platformer keys come from the project's move/jump actions.
+  const keyMap = options.inputConfig !== undefined ? platformerKeys(options.inputConfig) : DEFAULT_KEYBOARD_MAP;
+  const LEFT_CODES = new Set(keyMap.left);
+  const RIGHT_CODES = new Set(keyMap.right);
+  const JUMP_CODES = new Set(keyMap.jump);
+  const evaluator = options.inputConfig !== undefined ? createActionEvaluator(options.inputConfig) : null;
+  /** Every key an action uses (held keys and taps between samples feed the evaluator). */
+  const ACTION_CODES = new Set(options.inputConfig?.actions.flatMap(actionKeys) ?? []);
+  const actionHeld = new Set<string>();
+  const actionPressed = new Set<string>();
+  const isMappedCode = (code: unknown): code is string =>
+    typeof code === 'string' && (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code));
+  let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
+
   let detached = false;
   let unavailableState: { reason: 'gamepad' | 'environment'; message: string } | null = null;
   let unavailableReported = false;
@@ -216,6 +222,9 @@ export function attachBrowserInput(
   const suspend = (reason: string): void => {
     if (detached) return;
     held.clear();
+    actionHeld.clear();
+    actionPressed.clear();
+    evaluator?.reset();
     menu.clear('all'); // focus/visibility loss: every held key/button and the
     // menu latch clear (delivery.md §4.6)
     freshActivation();
@@ -350,6 +359,11 @@ export function attachBrowserInput(
     // (Enter/KeyM are not gameplay bindings — packet-38); the editable-target
     // and repeat gates above still apply (menu keys in a text field are inert).
     menu.keyboardDown(String(e.code ?? ''));
+    if (typeof e.code === 'string' && ACTION_CODES.has(e.code)) {
+      actionHeld.add(e.code);
+      actionPressed.add(e.code);
+      if (!isMappedCode(e.code) && typeof e.preventDefault === 'function') e.preventDefault();
+    }
     if (!isMappedCode(e.code)) return;
     if (JUMP_CODES.has(e.code)) jumpLatch = true;
     held.add(e.code);
@@ -363,6 +377,7 @@ export function attachBrowserInput(
     // target key: otherwise a consumed confirm would stay needsRelease until
     // the next focus loss.
     menu.keyboardUp(String(e.code ?? ''));
+    if (typeof e.code === 'string') actionHeld.delete(e.code);
     if (!isMappedCode(e.code)) return;
     // Always release the control, even when the up event lands on an editable
     // target: otherwise a key held before focus moved into a text field would
@@ -460,6 +475,7 @@ export function attachBrowserInput(
         const list = pollGamepads();
         const active = pickActiveGamepad(list);
         gamepad = active ? toSnapshot(active) : null;
+        lastPad = active ? { buttons: Array.from(active.buttons, (b) => b?.pressed === true), axes: Array.from(active.axes, (a) => (Number.isFinite(a) ? a : 0)) } : null;
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
         gamepad = null;
@@ -503,7 +519,10 @@ export function attachBrowserInput(
     });
     state = next;
     jumpLatch = false; // the latch is cleared after the sample, in the same call
-    return frame;
+    if (evaluator === null) return frame;
+    const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null });
+    actionPressed.clear();
+    return { ...frame, actions };
   };
 
   const reset = (reason?: string): void => suspend(reason ?? 'reset');
@@ -523,6 +542,8 @@ export function attachBrowserInput(
     }
     listeners.length = 0;
     held.clear();
+    actionHeld.clear();
+    actionPressed.clear();
     jumpLatch = false;
     menu.clear('all');
     state = { down: false, awaitingRelease: false };

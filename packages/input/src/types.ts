@@ -69,6 +69,8 @@ export interface RawInputSnapshot {
   } | null;
 }
 
+import type { InputConfigLike } from './actions';
+
 /**
  * The explicit browser attachment options (`attachBrowserInput`). Every
  * environment surface is injectable so the owner is testable against fakes;
@@ -90,6 +92,12 @@ export interface InputBindingOptions {
    * Structured diagnostic sink (bounded event codes, input.md §7). Never
    * throws into the binding — a throwing sink is swallowed.
    */
+  /**
+   * Phase 9.8: the project's input actions. Its `move`/`jump` keyboard
+   * bindings drive the platformer; every action is sampled into the frame's
+   * `actions`. Absent: the M2 keys only.
+   */
+  inputConfig?: InputConfigLike;
   onDiagnostic?: (event: {
     code:
       | 'input_unavailable'
