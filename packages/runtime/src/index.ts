@@ -134,6 +134,7 @@ export {
 export { MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, instantiateRuntime } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
+  BEHAVIOR_SELF_OWNER,
   BehaviorHostError,
   BehaviorHostIntentLimit,
   behaviorModuleId,

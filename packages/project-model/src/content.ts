@@ -246,6 +246,7 @@ const KNOWN_SOURCE_FIELDS = new Set([
   'outputDigest',
   'outputByteLength',
   'requiredModules',
+  'ownedTransforms',
   'publishedRevision',
 ]);
 const KNOWN_TRUST_FIELDS = new Set(['entries']);
@@ -1262,6 +1263,17 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
       }
     }
   }
+  const owned = s['ownedTransforms'];
+  if (owned !== undefined) {
+    // Phase 14.1: entity ids or "@self", ascending, unique, 1..16 (the container's rules).
+    if (!Array.isArray(owned) || owned.length < 1 || owned.length > 16) errors.push(fieldValue(`${path}/ownedTransforms`, owned, '1-16 entity ids or "@self"', 'ownedTransforms is absent or lists 1-16 entries'));
+    else {
+      owned.forEach((id, i) => {
+        if (typeof id !== 'string' || (id !== '@self' && !ID_RE_V2.test(id))) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'an entity id or "@self"', 'an owned transform names an entity id or "@self"'));
+        else if (i > 0 && typeof owned[i - 1] === 'string' && (owned[i - 1] as string) >= id) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'ascending unique entries', 'ownedTransforms must be ascending and unique'));
+      });
+    }
+  }
   const published = s['publishedRevision'];
   if (published === undefined) errors.push(fieldMissing(`${path}/publishedRevision`, 'publishedRevision'));
   else if (typeof published !== 'number' || !Number.isInteger(published) || published < 0) {
@@ -1625,6 +1637,7 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
             outputDigest: b.source.outputDigest,
             outputByteLength: b.source.outputByteLength,
             requiredModules: [...b.source.requiredModules],
+            ...(b.source.ownedTransforms !== undefined && b.source.ownedTransforms.length > 0 ? { ownedTransforms: [...b.source.ownedTransforms] } : {}),
             publishedRevision: b.source.publishedRevision,
           },
     publishedRevision: b.publishedRevision,

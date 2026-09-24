@@ -13,7 +13,7 @@ import type { EntityV3, PrefabDefinition } from '@thirdlight/project-model';
 export const MAX_SPAWNS_PER_STEP = 64;
 /** Engine limit: spawned entities alive at once (prefab children count). */
 export const MAX_LIVE_SPAWNED = 1024;
-/** Runtime ids of spawned entities: `spawn-<n>`, n counting from 1 in each run. */
+/** Runtime ids of spawned entities: `spawn-<n>`, n counting from 1 for the whole game (never reused). */
 export const SPAWN_ID_PREFIX = 'spawn-';
 
 /** Where a copy goes (`ctx.spawn(prefabId, options)`). */

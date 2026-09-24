@@ -17,6 +17,13 @@ import { compareCodePoints } from './canonical';
 
 /** §22.1 rule 2: stored-path grammar. */
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
+/**
+ * Phase 14.1: the `ownedTransforms` entry that means "the entity carrying this
+ * behavior" — each instance may move its own entity (a spawned copy included,
+ * whose runtime id is not known when the script is published). The runtime's
+ * `BEHAVIOR_SELF_OWNER` is the same token.
+ */
+const SELF_OWNER = '@self';
 const KNOWN_CONTAINER_FIELDS = new Set(['graphVersion', 'entryPath', 'requiredModules', 'ownedTransforms', 'files']);
 const KNOWN_FILE_FIELDS = new Set(['path', 'text']);
 /** project-model.md §5.1 ID syntax (reused for `ownedTransforms` entries). */
@@ -250,8 +257,9 @@ export function parseSourceGraphContainer(
     }
   }
   for (const id of ownedTransforms) {
-    if (!ID_RE.test(id)) {
-      return containerFailure('behavior_source_invalid', 'container', { path: '/ownedTransforms', detail: id, message: `ownedTransforms entry "${id}" is not an ID` });
+    // Phase 14.1: "@self" (never an entity id) = each carrier's own transform.
+    if (!ID_RE.test(id) && id !== SELF_OWNER) {
+      return containerFailure('behavior_source_invalid', 'container', { path: '/ownedTransforms', detail: id, message: `ownedTransforms entry "${id}" is not an ID (or "@self")` });
     }
   }
   // Step 6: duplicate stored path.

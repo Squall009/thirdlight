@@ -622,7 +622,7 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
   `[x, y]` (the root keeps the prefab's own z) or `[x, y, z]`; `rotation` a
   quaternion `[x, y, z, w]`, `scale` a number or `[x, y, z]` (a prefab with
   a collider turns about Z only and keeps scale 1). It returns the new root
-  id (`spawn-1`, `spawn-2`, … counted per run) at once; the copy appears at
+  id (`spawn-1`, `spawn-2`, …; never reused while the game runs) at once; the copy appears at
   the next step. Children keep their places under the root, and a script
   property that names an object of the prefab points at the copy's object.
 - `ctx.destroy(id)` removes a spawned object and its children at the next
@@ -636,10 +636,13 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
   Scripts keep running before the run starts, so spawn once the game is
   playing (or spawn again when your object is gone). Saves never keep
   spawned objects.
-- A spawned object's own script runs, but it cannot move its object with
-  transform intents (those need the object listed in `ownedTransforms`
-  when the script is published); give it a mover (or make it an enemy)
-  to move it.
+- A spawned object's own script runs. To let it move its object, list
+  `"@self"` in the script's `ownedTransforms` (the source container): every
+  object carrying that script — placed in the editor or spawned — may then
+  write its own transform and pose with `ctx.emit({ kind: "transform",
+  entityId: ctx.entityId, position: { x } })` in the transform phase (never
+  another object's; not on the camera or an object with a collider or the
+  player controller). A mover or an enemy component moves objects too.
 
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.

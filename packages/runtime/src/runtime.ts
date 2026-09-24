@@ -1277,7 +1277,7 @@ class RuntimeInstance implements Runtime {
   private readonly reservedSpawnIds = new Set<string>();
   /** Destroys queued (so a second destroy of the same id reports false). */
   private readonly pendingDestroys = new Set<string>();
-  /** The last `spawn-<n>` number handed out in this run. */
+  /** The last `spawn-<n>` number handed out (never reset while the game runs). */
   private spawnSerial = 0;
   private spawnsThisStep = 0;
   private spawnRefusalLogged = false;
@@ -2180,7 +2180,7 @@ class RuntimeInstance implements Runtime {
     const session = this.session;
     if (session === null) return true;
     const outcome = session.boundary(ordinal);
-    // Phase 14.1: a new run starts without spawned entities (ids count from 1 again).
+    // Phase 14.1: a new run starts without spawned entities.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
@@ -2732,7 +2732,39 @@ class RuntimeInstance implements Runtime {
         this.failStopFromError(e, this.stepIndex);
         return false;
       }
+      if (!this.refreshOwners(entry)) return false;
     }
+    return true;
+  }
+
+  /**
+   * Phase 14.1: re-read a module's transform owners after entities came or
+   * went (a behavior that owns "@self" owns each carrier, spawned copies
+   * included). A new owner gets the instantiate-time checks: claimed by no
+   * other module, not the camera, not a physics body. Returns false after a
+   * fail-stop.
+   */
+  private refreshOwners(entry: ModuleEntry): boolean {
+    if (!entry.phased) return true;
+    const next = (entry.instance as SimulationPhaseModule).transformOwners;
+    if (next === entry.owners || !Array.isArray(next)) return true;
+    const before = new Set(entry.owners);
+    for (const id of next) {
+      if (before.has(id)) continue;
+      const other = this.entries.find((en) => en !== entry && en.owners.includes(id));
+      if (other !== undefined) {
+        this.failStop('transform_owner_conflict', id, `entity "${id}" is claimed by "${other.id}" and "${entry.id}"`, this.stepIndex, entry.id);
+        return false;
+      }
+      const data = this.entities.get(id);
+      const physicsBody = data?.hasCollider === true || id === this.controllerEntityId;
+      if (id === this.cameraInfo.id || (physicsBody && !entry.phases.includes('controller'))) {
+        const what = id === this.cameraInfo.id ? 'camera' : 'physics_entity';
+        this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims ${what === 'camera' ? 'the camera' : 'physics'} entity "${id}"`, this.stepIndex, entry.id, undefined, what);
+        return false;
+      }
+    }
+    entry.owners = [...next];
     return true;
   }
 
@@ -2746,6 +2778,9 @@ class RuntimeInstance implements Runtime {
       } catch (e) {
         this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
       }
+      // Phase 14.1: owners that left ("@self" carriers) are released.
+      const owners = instance.transformOwners;
+      if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
     }
     if (colliderIds.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
       try {
@@ -2915,13 +2950,16 @@ class RuntimeInstance implements Runtime {
     this.sceneSetCache = null;
   }
 
-  /** A new run: every spawned entity goes, pending requests are dropped, ids count from 1 again. */
+  /**
+   * A new run: every spawned entity goes and pending requests are dropped. Ids
+   * keep counting (never reused in one game), so an id a script kept from the
+   * last run cannot name a new copy.
+   */
   private clearSpawned(): void {
     this.removeSpawnedIds(new Set(this.spawnedEntities.keys()));
     this.spawnOps = [];
     this.reservedSpawnIds.clear();
     this.pendingDestroys.clear();
-    this.spawnSerial = 0;
   }
 
   /** A replay starts from the start scenes again: others unloaded, unloaded start scenes restored. */

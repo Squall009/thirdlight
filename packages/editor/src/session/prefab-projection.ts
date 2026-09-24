@@ -171,7 +171,7 @@ function toDeclarationView(b: BehaviorRecord): BehaviorDeclarationView {
     behaviorId: b.behaviorId,
     displayName: b.displayName,
     declaration: { properties: b.declaration.properties.map((p) => ({ ...p })) },
-    source: b.source === null ? null : { ...b.source, requiredModules: [...b.source.requiredModules] },
+    source: b.source === null ? null : { ...b.source, requiredModules: [...b.source.requiredModules], ...(b.source.ownedTransforms !== undefined ? { ownedTransforms: [...b.source.ownedTransforms] } : {}) },
     publishedRevision: b.publishedRevision,
   };
 }

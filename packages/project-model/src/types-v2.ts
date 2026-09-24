@@ -263,6 +263,13 @@ export interface BehaviorSourceRecord {
   outputDigest: string;
   outputByteLength: number;
   requiredModules: string[];
+  /**
+   * Phase 14.1: the transforms the script may write (entity ids, or "@self" =
+   * each carrier's own), as its container declared them; stored only when
+   * non-empty (older records stay byte-identical). Before, the record dropped
+   * them, so Play and the export ran every script without its owners.
+   */
+  ownedTransforms?: string[];
   publishedRevision: number;
 }
 

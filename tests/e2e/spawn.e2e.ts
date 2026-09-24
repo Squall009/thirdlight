@@ -1,8 +1,9 @@
 /**
  * Phase 14.1: a script spawns prefab copies into the running game, against a
  * real backend. On the engine sample (Beacon Reach) a neutral "Projectile"
- * prefab is made by command from a small magenta box with a mover (it flies
- * 8 m to the right once), and a script on the player spawns one every second
+ * prefab is made by command from a small magenta box carrying its own script
+ * (it owns "@self", flies right and counts "flown" 3 m out), and a script on
+ * the player spawns one every second
  * beside the player, keeps the last three and destroys the older ones. In
  * Play the observation lists the live spawned entities (`spawn-<n>`), the
  * shot counter climbs while at most four are alive, and the projectiles are
@@ -53,9 +54,9 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return res;
 }
 
-/** Publish a behavior with this source and attach it to the player. */
-async function playerScript(behaviorId: string, source: string): Promise<void> {
-  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
+/** Publish a behavior with this source and attach it to `entityId` (default: the player). */
+async function script(behaviorId: string, source: string, ownedTransforms: string[] = [], entityId?: string): Promise<void> {
+  const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms, files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
   const stage = await api('content/stages', {});
   const stageId = String(stage.json.stageId);
   const put = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/stages/${stageId}/bytes`, {
@@ -65,12 +66,12 @@ async function playerScript(behaviorId: string, source: string): Promise<void> {
   });
   expect(put.status).toBe(200);
   const declaration = { properties: [{ key: 'every', label: 'Seconds between shots', type: 'number', default: 1, min: 0.1, max: 10, step: 0.1 }] };
-  await cmd('publishBehavior', { behaviorId, displayName: 'Shooter', mode: 'declaration-create', declaration });
+  await cmd('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
   await cmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
-  const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: 'Shooter', declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${'5'.repeat(32)}` });
+  const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${createHash('sha256').update(behaviorId).digest('hex').slice(0, 32)}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   const game = await query('queryGameConfig');
-  await cmd('setBehaviorProperties', { entityId: String((game.game as { playerId: string }).playerId), behaviorId, values: { every: 1 } });
+  await cmd('setBehaviorProperties', { entityId: entityId ?? String((game.game as { playerId: string }).playerId), behaviorId, values: { every: 1 } });
 }
 
 /** One projectile every `every` seconds (120 steps per second) beside the player; the last three stay. */
@@ -94,6 +95,27 @@ const SHOOTER = [
   '',
 ].join('\n');
 
+/**
+ * The projectile's own script: it owns its own transform ("@self") and flies
+ * right at 4 m/s; once 3 m from where it appeared it counts "flown" (once).
+ */
+const BOLT = [
+  'export default {',
+  '  prepare() { return {}; },',
+  '  instantiate() { return { x0: null as number | null, done: false }; },',
+  '  step(state: { x0: number | null; done: boolean }, ctx: any) {',
+  "    if (ctx.phase !== 'transform') return;",
+  '    const me = ctx.world.transform(ctx.entityId);',
+  '    if (me === undefined) return;',
+  '    if (state.x0 === null) state.x0 = me.position[0];',
+  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: me.position[0] + 4 / 120 } });",
+  "    if (!state.done && me.position[0] - state.x0 > 3) { state.done = true; ctx.game.add('flown', 1); }",
+  '  },',
+  '  dispose() {},',
+  '};',
+  '',
+].join('\n');
+
 /** Pixels that are clearly magenta, lit or not (the projectile colour; nothing else in the sample is). */
 async function magenta(target: Page | Locator): Promise<number> {
   const img = decodePng(await target.screenshot());
@@ -109,14 +131,15 @@ async function magenta(target: Page | Locator): Promise<number> {
 
 test('a script spawns a projectile every second in Play (and in the export); old ones are destroyed', async ({ page }) => {
   test.setTimeout(300_000);
-  // The prefab: a small magenta box that flies 8 m to the right once (kept far below the level).
-  const made = await cmd('createEntity', { kind: 'box', name: 'Projectile', transform: { position: [0, -40, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ff00ff' } }, components: { mover: { waypoints: [[8, 0, 0]], speed: 4, mode: 'once' } } });
+  // The prefab: a small magenta box whose own script flies it to the right (made far below the level).
+  const made = await cmd('createEntity', { kind: 'box', name: 'Projectile', transform: { position: [0, -40, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#ff00ff' } } });
   const sourceId = String(made.createdId);
+  await script('behavior-bolt', BOLT, ['@self'], sourceId);
   await cmd('createPrefab', { prefabId: 'projectile', displayName: 'Projectile', sourceEntityId: sourceId });
   const def = (await query('queryPrefabs', { prefabId: 'projectile', includeEntities: true })) as { prefabs?: { entities: { components: Record<string, unknown> }[] }[] };
-  expect(def.prefabs?.[0]?.entities[0]?.components['mover']).toMatchObject({ waypoints: [[8, 0, 0]], speed: 4, mode: 'once' });
+  expect(def.prefabs?.[0]?.entities[0]?.components['behavior']).toMatchObject({ behaviorId: 'behavior-bolt' });
   await cmd('deleteEntity', { entityId: sourceId });
-  await playerScript('behavior-shooter', SHOOTER);
+  await script('behavior-shooter', SHOOTER);
   const entitiesBefore = ((await query('queryEntities', { limit: 500, offset: 0 })).entities as unknown[]).length;
 
   // Play.
@@ -135,6 +158,8 @@ test('a script spawns a projectile every second in Play (and in the export); old
 
   // The shots come once a (simulated) second; at most three stay, plus one on its way out.
   await expect.poll(async () => (await observe()).counters?.['shots'] ?? 0, { timeout: 90_000 }).toBeGreaterThanOrEqual(5);
+  // Each projectile moved itself: its own script counted it 3 m away from where it appeared.
+  expect((await observe()).counters?.['flown'] ?? 0).toBeGreaterThanOrEqual(3);
   const o = await observe();
   expect(o.spawned!.count).toBeGreaterThanOrEqual(3);
   expect(o.spawned!.count).toBeLessThanOrEqual(4);

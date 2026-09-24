@@ -101,6 +101,13 @@ export interface BehaviorHostInput {
 export const BEHAVIOR_MODULE_PREFIX = 'thirdlight.behavior:';
 
 /** The module ID of one published behavior. */
+/**
+ * Phase 14.1: the `ownedTransforms` entry meaning "the entity carrying this
+ * behavior": each instance may move (transform/pose intents) its own entity —
+ * an authored one or a spawned copy, whose runtime id is only known at spawn.
+ */
+export const BEHAVIOR_SELF_OWNER = '@self';
+
 export function behaviorModuleId(behaviorId: string): string {
   return `${BEHAVIOR_MODULE_PREFIX}${behaviorId}`;
 }
@@ -353,7 +360,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
     );
   }
   const declaration = validateDeclaration(input.declaration);
-  const ownedTransforms = [...new Set(artifact.ownedTransforms ?? [])].sort();
+  const declaredOwned = [...new Set(artifact.ownedTransforms ?? [])].sort();
+  // Phase 14.1: "@self" — each instance owns its own entity's transform.
+  const selfOwned = declaredOwned.includes(BEHAVIOR_SELF_OWNER);
+  const ownedTransforms = declaredOwned.filter((id) => id !== BEHAVIOR_SELF_OWNER);
   const spec = behaviorSpecOf(artifact.namespace);
   const prepareConfig = Object.freeze({
     behaviorId,
@@ -363,7 +373,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
   });
   return {
     id: behaviorModuleId(behaviorId),
-    phases: ownedTransforms.length > 0 ? ['intent', 'transform'] : ['intent'],
+    phases: declaredOwned.length > 0 ? ['intent', 'transform'] : ['intent'],
     create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule {
       // Phase 12 (b/c): the tag query — the runtime's live index (it follows
       // scene loads), else one built from the snapshot.
@@ -397,6 +407,19 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims entity "${owner}" which does not carry this behavior`, 'not_behavior_entity');
         }
       };
+      /** Phase 14.1: a carrier that owns itself ("@self") is neither the camera nor a physics body. */
+      const checkSelf = (id: string): void => {
+        if (cameraIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on the camera entity "${id}"`, 'camera');
+        if (physicsIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on physics entity "${id}"`, 'physics_entity');
+      };
+      /** The current owners: the listed entities, plus every carrier when "@self" (the runtime re-reads it after loads). */
+      let owners: readonly string[] = Object.freeze([...ownedTransforms]);
+      const refreshOwners = (): void => {
+        if (!selfOwned) return;
+        owners = Object.freeze([...new Set([...ownedTransforms, ...[...entityIds].sort()])]);
+      };
+      if (selfOwned) for (const id of entityIds) checkSelf(id);
+      refreshOwners();
       const presentIds = new Set(snapshot.scene.entities.map((e) => e.id));
       for (const owner of ownedTransforms) {
         if (deferOwners && !presentIds.has(owner)) continue;
@@ -458,6 +481,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
       };
 
+      /** A listed entity, or (with "@self") the instance's own entity. */
+      const owns = (instance: BehaviorInstance, entityId: string): boolean => ownedTransforms.includes(entityId) || (selfOwned && entityId === instance.entityId);
       const emitFor = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase) => (raw: unknown): void => {
         // The contract's §14.4 order, per instance: shape → phase → value →
         // ownership → duplicate → caps. The runtime repeats 1–4 and owns the
@@ -471,12 +496,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (valueError !== null) throw valueError;
         const channels: string[] = [];
         if (intent.kind === 'transform') {
-          if (!ownedTransforms.includes(intent.entityId)) {
+          if (!owns(instance, intent.entityId)) {
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
           for (const axis of Object.keys(intent.position)) channels.push(`t:${intent.entityId}:${axis}`);
         } else if (intent.kind === 'pose') {
-          if (!ownedTransforms.includes(intent.entityId)) {
+          if (!owns(instance, intent.entityId)) {
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
           if (intent.rotation !== undefined) channels.push(`p:${intent.entityId}:rotation`);
@@ -567,7 +592,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
       } = {
-        transformOwners: Object.freeze([...ownedTransforms]),
+        get transformOwners(): readonly string[] {
+          return owners;
+        },
         step(phase: SimulationPhase, ctx: StepContext): void {
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
@@ -590,6 +617,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             }
           }
           for (const e of entities) if (ownedTransforms.includes(e.id)) checkOwner(e.id);
+          if (selfOwned) {
+            for (const id of added) checkSelf(id);
+            refreshOwners();
+          }
           for (const e of entities) {
             if (!added.has(e.id)) continue;
             const values = (e.components as { behavior?: { values?: Record<string, unknown> } }).behavior?.values ?? {};
@@ -612,6 +643,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             cameraIds.delete(id);
             physicsIds.delete(id);
           }
+          refreshOwners();
         },
         dispose(): void {
           if (disposed) return;

@@ -4,7 +4,7 @@
  * the runtime: requests queue with the step and apply at the next boundary in
  * order, colliders go to the physics port, scripts and gameplay blocks attach,
  * destroy releases all of it, engine limits refuse with a diagnostic, a new
- * run removes every copy and counts ids from 1 again, saves keep none, and
+ * run removes every copy (ids are never reused), saves keep none, and
  * the same inputs give the same ids and transforms.
  *
  * The gameplay/camera modules are test stubs and the physics port records
@@ -89,18 +89,21 @@ const stubCamera: SimulationModuleSpec = { id: 'thirdlight.teststub:camera', pha
 
 interface SpawnCtx {
   stepIndex: number;
+  phase: string;
+  entityId: string;
+  emit(intent: unknown): void;
   spawn(prefabId: string, options: unknown): string | null;
   destroy(id: string): boolean;
   world: { transform(id: string): { position: readonly number[] } | undefined };
 }
 
-function artifact(behaviorId: string, step: (ctx: SpawnCtx) => void, calls: string[]): never {
+function artifact(behaviorId: string, step: (ctx: SpawnCtx) => void, calls: string[], ownedTransforms: string[] = []): never {
   return {
     behaviorId,
     sourceDigest: 'a'.repeat(64),
     manifestDigest: 'b'.repeat(64),
     outputDigest: 'c'.repeat(64),
-    ownedTransforms: [],
+    ownedTransforms,
     requiredModules: [],
     enginePins: [],
     namespace: {
@@ -116,12 +119,12 @@ function artifact(behaviorId: string, step: (ctx: SpawnCtx) => void, calls: stri
   } as never;
 }
 
-function harness(script: (ctx: SpawnCtx) => void) {
+function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModuleSpec[]; prefabs?: unknown[]; entities?: unknown[] } = {}) {
   const log: PortLog = { added: [], removed: [] };
   const calls: string[] = [];
   const spawner = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('spawner', script, calls) });
   const part = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('part', () => {}, calls) });
-  const specs = [spawner, part, stubGameplay, stubCamera];
+  const specs = [spawner, part, ...(more.specs ?? []), stubGameplay, stubCamera];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
   const now = { t: 0 };
@@ -139,10 +142,11 @@ function harness(script: (ctx: SpawnCtx) => void) {
           { id: 'player-0001', components: { transform: at(0, 0) } },
           { id: 'spawn-0001', components: { transform: at(0, 0), playerSpawn: {} } },
           { id: 'box-spawner', components: { transform: at(0, -5), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, behavior: { behaviorId: 'spawner', values: {} } } },
+          ...(more.entities ?? []),
         ],
       },
       game: { configVersion: 2, title: 'Spawns', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
-      prefabs: PREFABS,
+      prefabs: [...PREFABS, ...(more.prefabs ?? [])],
     },
     registry,
     modules: specs.map((s) => s.id),
@@ -308,7 +312,7 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(h.diag().state).toBe('running');
   });
 
-  it('a new run removes every spawned entity and counts ids from 1 again; the same inputs give the same game', () => {
+  it('a new run removes every spawned entity (ids are never reused); the same inputs give the same game', () => {
     const record = (): { h: ReturnType<typeof harness>; ids: string[] } => {
       const ids: string[] = [];
       const h = harness((ctx) => {
@@ -328,13 +332,88 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect([...a.h.transforms()]).toEqual([...b.h.transforms()]);
     expect(a.h.spawned().length).toBeGreaterThan(3);
     const before = a.h.spawned();
-    // A replay: none left (colliders freed), and the first id is spawn-1 again.
+    // A replay: none left (colliders freed); ids keep counting, so an old id names nothing.
     expect(a.h.rt.gameCommand('replay').ok).toBe(true);
     const firstAfter = a.ids.length;
     a.h.tick(1);
     expect(a.h.spawned()).toEqual([]);
     for (const id of before) if (id !== undefined && a.h.log.added.some((s) => s.startsWith(`${id}@`))) expect(a.h.log.removed).toContain(id);
     a.h.tick(20);
-    expect(a.ids[firstAfter]).toBe('spawn-1');
+    expect(a.ids[firstAfter]).toBe(`spawn-${firstAfter + 1}`);
+  });
+});
+
+describe('spawn: a copy moves itself ("@self" in ownedTransforms)', () => {
+  /** A bolt flies right 0.05 m per step by its own script; an authored bolt does too; a crate with a collider may not own itself. */
+  const BOLT_PREFABS = [
+    { prefabId: 'bolt', displayName: 'Bolt', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0020', components: { transform: at(0, 0), box: { size: [0.2, 0.2, 0.2], material: { color: '#ff00ff' } }, behavior: { behaviorId: 'bolt', values: {} } } }] },
+    { prefabId: 'bolt-crate', displayName: 'Bolt crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0021', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, behavior: { behaviorId: 'bolt', values: {} } } }] },
+  ];
+  const boltSpec = (poke?: { other: string | null }) => createBehaviorModuleSpec({
+    declaration: DECL,
+    artifact: artifact('bolt', (ctx) => {
+      if (ctx.phase !== 'transform') return;
+      const me = ctx.world.transform(ctx.entityId)!;
+      ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: me.position[0]! + 0.05 } });
+      if (poke?.other !== null && poke?.other !== undefined && ctx.entityId === 'spawn-2') ctx.emit({ kind: 'transform', entityId: poke.other, position: { y: 9 } });
+    }, [], ['@self']),
+  });
+
+  it('each copy (and an authored carrier) moves its own entity; deterministically; a destroyed copy is released', () => {
+    const run = () => {
+      let shots = 0;
+      let kill = false;
+      const h = harness((ctx) => {
+        if (ctx.stepIndex >= 20 && shots < 2 && ctx.stepIndex % 5 === 0) {
+          ctx.spawn('bolt', { position: [0, 2 + shots] });
+          shots += 1;
+        }
+        if (kill) {
+          ctx.destroy('spawn-1');
+          kill = false;
+        }
+      }, { specs: [boltSpec()], prefabs: BOLT_PREFABS, entities: [{ id: 'box-bolt', components: { transform: at(-10, 1), box: { size: [0.2, 0.2, 0.2], material: { color: '#ff00ff' } }, behavior: { behaviorId: 'bolt', values: {} } } }] });
+      h.tick(40);
+      const mid = h.transforms();
+      kill = true;
+      h.tick(10);
+      return { h, mid, end: h.transforms() };
+    };
+    const a = run();
+    const b = run();
+    expect(a.h.diag().state).toBe('running');
+    // The copies flew right from x 0 at 0.05 m per step (spawned 5 steps apart).
+    const x1 = a.mid.get('spawn-1')![0]!;
+    const x2 = a.mid.get('spawn-2')![0]!;
+    expect(x1).toBeGreaterThan(0.5);
+    expect(x1 - x2).toBeCloseTo(0.25, 9);
+    expect(a.mid.get('spawn-2')![1]).toBe(3);
+    expect(a.mid.get('box-bolt')![0]).toBeGreaterThan(-10 + 1);
+    // Destroyed copy gone; the other keeps flying; same inputs, same result.
+    expect(a.end.has('spawn-1')).toBe(false);
+    expect(a.end.get('spawn-2')![0]).toBeCloseTo(x2 + 0.5, 9);
+    expect([...a.end]).toEqual([...b.end]);
+  });
+
+  it('"@self" owns only the instance\'s own entity; a physics copy may not own itself', () => {
+    const poke = { other: 'spawn-1' as string | null };
+    let n = 0;
+    const a = harness((ctx) => {
+      if (ctx.stepIndex >= 20 && n < 2) {
+        ctx.spawn('bolt', { position: [0, 2] });
+        n += 1;
+      }
+    }, { specs: [boltSpec(poke)], prefabs: BOLT_PREFABS });
+    expect(() => a.tick(30)).toThrow();
+    expect(a.diag().errors.some((e) => e.reason === 'not_owner' || e.message.includes('ownedTransforms'))).toBe(true);
+    let asked = false;
+    const b = harness((ctx) => {
+      if (ctx.stepIndex >= 20 && !asked) {
+        asked = true;
+        ctx.spawn('bolt-crate', { position: [0, 2] });
+      }
+    }, { specs: [boltSpec()], prefabs: BOLT_PREFABS });
+    expect(() => b.tick(30)).toThrow();
+    expect(b.diag().errors.some((e) => e.message.includes('physics'))).toBe(true);
   });
 });
