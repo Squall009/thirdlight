@@ -9,6 +9,7 @@ import type { ComponentDescriptor, DescriptorRegistry, FieldDescriptor, ObjectFi
 import {
   addEntries,
   checkNumber,
+  intChoices,
   collectSignals,
   componentOp,
   componentPatch,
@@ -106,6 +107,10 @@ describe('widgetFor', () => {
     expect(sliderRange(f({ type: 'number', key: 'a', min: 0 }))).toBeNull();
     expect(sliderRange(f({ type: 'number', key: 'a', min: -1e6, max: 1e6 }))).toBeNull();
     expect(sliderRange(f({ type: 'int', key: 'a', min: 0, max: 10 }))?.step).toBe(1);
+    // Phase 15.3: an int with a list of allowed values is a select (no slider).
+    expect(sliderRange(f({ type: 'int', key: 'a', min: 60, max: 240, values: [60, 120, 240] }))).toBeNull();
+    expect(intChoices(f({ type: 'int', key: 'a', values: [60, 120, 240] }))).toEqual([60, 120, 240]);
+    expect(intChoices(f({ type: 'int', key: 'a', min: 0, max: 10 }))).toBeNull();
   });
 
   it('names fields by component and path', () => {
@@ -186,6 +191,8 @@ describe('number input', () => {
     expect(parseNumberInput(n, 'abc').ok).toBe(false);
     expect(parseNumberInput(n, '11').ok).toBe(false);
     expect(checkNumber(f({ type: 'int', key: 'i' }), 1.5).ok).toBe(false);
+    expect(checkNumber(f({ type: 'int', key: 'i', values: [60, 120, 240] }), 100).ok).toBe(false);
+    expect(checkNumber(f({ type: 'int', key: 'i', values: [60, 120, 240] }), 240).ok).toBe(true);
     expect(checkNumber(f({ type: 'number', key: 'x', min: 0, minExclusive: true }), 0).ok).toBe(false);
     expect(checkNumber(f({ type: 'number', key: 'x', nonZero: true }), 0).ok).toBe(false);
   });

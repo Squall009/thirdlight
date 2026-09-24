@@ -121,9 +121,15 @@ export function widgetFor(f: FieldDescriptor): WidgetKind {
 /** A number field small enough for a slider next to its text box (both ends bounded). */
 export function sliderRange(f: FieldDescriptor): { min: number; max: number; step: number } | null {
   if (f.type !== 'number' && f.type !== 'int') return null;
+  if (intChoices(f) !== null) return null;
   if (f.min === undefined || f.max === undefined || !(f.max - f.min <= 10_000)) return null;
   const step = f.step ?? (f.type === 'int' ? 1 : (f.max - f.min) / 100);
   return { min: f.min, max: f.max, step };
+}
+
+/** Phase 15.3: an `int` limited to a list of values (e.g. the step rate) is a choice, not a free number. */
+export function intChoices(f: FieldDescriptor): readonly number[] | null {
+  return f.type === 'int' && f.values !== undefined && f.values.length > 0 ? f.values : null;
 }
 
 /** The visible label: the descriptor label with its unit. */
@@ -417,6 +423,8 @@ export function parseNumberInput(f: FieldDescriptor, raw: string): ParsedNumber 
 export function checkNumber(f: FieldDescriptor, n: number): ParsedNumber {
   const lim = f as { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean; nonZero?: boolean };
   if (f.type === 'int' && !Number.isInteger(n)) return { ok: false, message: `${f.label}: a whole number` };
+  const choices = intChoices(f);
+  if (choices !== null && !choices.includes(n)) return { ok: false, message: `${f.label}: one of ${choices.join(', ')}` };
   if (lim.min !== undefined && (n < lim.min || (lim.minExclusive === true && n === lim.min))) return { ok: false, message: `${f.label}: ${lim.minExclusive === true ? 'above' : 'at least'} ${lim.min}` };
   if (lim.max !== undefined && (n > lim.max || (lim.maxExclusive === true && n === lim.max))) return { ok: false, message: `${f.label}: ${lim.maxExclusive === true ? 'below' : 'at most'} ${lim.max}` };
   if (f.type === 'number' && lim.nonZero === true && n === 0) return { ok: false, message: `${f.label}: not 0` };

@@ -190,7 +190,9 @@ controller's capsule (**Fit to model**, **Default**), an exit zone
 editor, which knows the model's own material names) and a script (its
 declared properties). The game block (Gameplay → Game: texts, the player,
 camera and start spawn, and the sound cues as sound pickers) is built the
-same way; the Gameplay tab's Camera page points to the camera object, whose
+same way, and so is Gameplay → Settings (every project setting, the engine
+settings included; the step rate is a choice of 60, 120 or 240 Hz; each
+change is saved at once); the Gameplay tab's Camera page points to the camera object, whose
 lens and follow settings are Inspector sections. The Media tab is for
 listening to the project's sounds.
 

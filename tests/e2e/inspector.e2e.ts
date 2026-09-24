@@ -8,7 +8,7 @@
  * command. Components that cannot be added say why; the game block (with
  * its sound cues as asset pickers) is built from its descriptor too.
  */
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -256,4 +256,33 @@ test('the game block is built from its descriptor: create, texts, references and
   await expect.poll(async () => (await game())?.['cues']).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: sound });
   await undo(page);
   await expect.poll(async () => ((await game())?.['cues'] as { goal: unknown }).goal).toBeNull();
+  // Phase 15.3: the session timing is a descriptor field of the block too.
+  await expect(block.getByLabel('game respawnDelay', { exact: true })).toHaveValue('0.25');
+  const delay = block.getByLabel('game respawnDelay', { exact: true });
+  await delay.fill('0.5');
+  await delay.press('Enter');
+  await expect.poll(async () => (await game())?.['respawnDelay']).toBe(0.5);
+});
+
+test('the gameplay settings are built from their descriptor: a number and the step-rate choice', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const settings = (): Record<string, unknown> => (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { settings: Record<string, unknown> } }).content.settings;
+  await page.getByRole('tab', { name: 'Gameplay' }).click();
+  await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
+  const tab = page.getByLabel('gameplay settings');
+  const run = tab.getByLabel('settings run_speed', { exact: true });
+  await run.fill('5');
+  await run.press('Enter');
+  await expect.poll(() => settings()['run_speed']).toBe(5);
+  // An int with allowed values (15.3) is a select of exactly those values.
+  const hz = tab.getByLabel('settings fixed_step_hz', { exact: true });
+  await expect(hz).toHaveValue('120');
+  await expect(hz.locator('option')).toHaveText(['60 Hz', '120 Hz', '240 Hz']);
+  await hz.selectOption('60');
+  await expect.poll(() => settings()['fixed_step_hz']).toBe(60);
+  await expect(tab.getByLabel('settings audio_voices', { exact: true })).toHaveValue('8');
+  await undo(page);
+  await expect.poll(() => settings()['fixed_step_hz']).toBeUndefined();
 });

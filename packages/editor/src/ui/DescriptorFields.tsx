@@ -22,6 +22,7 @@ import {
   getAt,
   groupFields,
   checkNumber,
+  intChoices,
   parseNumberInput,
   pickedValue,
   setAt,
@@ -210,12 +211,27 @@ export function FieldRow(p: RowProps): JSX.Element | null {
   const clear = (): void => p.onEdit(p.path, f.nullable === true && !optional ? null : undefined);
   switch (kind) {
     case 'number':
-    case 'int':
+    case 'int': {
+      // Phase 15.3: an int with a list of allowed values is a select.
+      const choices = intChoices(f);
+      if (choices !== null)
+        return (
+          <Row f={f} label={p.label} isDefault={isDefault}>
+            <SelectWidget
+              aria={aria}
+              value={typeof shown === 'number' ? String(shown) : ''}
+              options={choices.map((v) => ({ value: String(v), label: f.unit !== undefined ? `${v} ${f.unit}` : String(v) }))}
+              none={optional && f.default === undefined ? '—' : null}
+              onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, Number(v)))}
+            />
+          </Row>
+        );
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
           <NumberWidget {...p} aria={aria} shown={typeof shown === 'number' ? shown : undefined} />
         </Row>
       );
+    }
     case 'bool':
       return (
         <label className={`tl-flag tl-desc__row${isDefault ? ' is-default' : ''}`} title={f.tooltip} data-field={f.key}>

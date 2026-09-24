@@ -683,6 +683,64 @@ function GameBlockTab({
 // Settings tab
 // ---------------------------------------------------------------------------
 
+/**
+ * The settings built from their descriptor (integration of 15.1 + 15.3):
+ * every registry key, the engine settings included (a choice of numbers is a
+ * select). Each edit is one partial `setSettings`; a setting cannot be
+ * removed (the command has no removal), so an emptied field is refused here.
+ */
+function SettingsBlockTab({
+  settings,
+  backendError,
+  onSaveSettings,
+  registry,
+  fieldContext,
+}: {
+  settings: Record<string, unknown> | null;
+  backendError: GameplayBackendError | null;
+  onSaveSettings: (settings: Record<string, number>) => void;
+  registry: DescriptorRegistry;
+  fieldContext: FieldContext;
+}): JSX.Element {
+  const [error, setError] = useState<string | null>(null);
+  const desc = registry.content.find((b) => b.key === 'settings')?.value;
+  if (desc === undefined || desc.type !== 'object') return <p className="tl-note">The settings have no description.</p>;
+  const current = settings ?? {};
+  return (
+    <div className="tl-gameplay__tab" aria-label="gameplay settings">
+      {backendError !== null && (
+        <div className="tl-gameplay__errors" role="alert">
+          <div className="tl-gameplay__errors-title">{backendError.code}</div>
+          <ul>
+            <li>{backendError.message}</li>
+          </ul>
+        </div>
+      )}
+      {error !== null && (
+        <div className="tl-prop__error" role="alert">
+          {error}
+        </div>
+      )}
+      {settings === null && <p className="tl-note">Values shown are the defaults until the project's settings are known; only the field you change is sent.</p>}
+      <ObjectFields
+        desc={desc}
+        value={current}
+        path={[]}
+        component="settings"
+        ctx={fieldContext}
+        onFail={setError}
+        onEdit={(path, next) => {
+          const key = String(path[0]);
+          if (typeof next !== 'number') return setError(`${key}: a setting keeps a value (it cannot be removed)`);
+          if (current[key] === next) return;
+          setError(null);
+          onSaveSettings({ [key]: next });
+        }}
+      />
+    </div>
+  );
+}
+
 function SettingsTab({
   settings,
   backendError,
@@ -813,7 +871,10 @@ export function GameplayPanel(props: Props): JSX.Element {
         />
       )}
       {tab === 'camera' && <CameraTab entities={props.entities} onSelectEntity={props.onSelectEntity} />}
-      {tab === 'settings' && <SettingsTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} />}
+      {tab === 'settings' && props.registry !== null && (
+        <SettingsBlockTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} registry={props.registry} fieldContext={props.fieldContext} />
+      )}
+      {tab === 'settings' && props.registry === null && <SettingsTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} />}
     </div>
   );
 }
