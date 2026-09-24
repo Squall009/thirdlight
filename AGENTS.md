@@ -27,8 +27,8 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   "unverified" instead. Never invent results.
 - When an item is done, update its row in `docs/STATUS.md` in one or two
   lines. Do not write handoff files, gate reviews, or evidence dumps.
-- Commit to `main` with a clear message when a coherent change is green.
-  Do not push or publish.
+- Commit to `main` with a clear message when a coherent change is green,
+  then push to `origin`.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
 
