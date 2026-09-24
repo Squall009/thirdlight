@@ -633,3 +633,5 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 10px; background: #253049; border: 1px solid #3b4a68; }
 .tl-chip button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; }
 .tl-input-action__listen { color: #f2b544; }
+.tl-animator__preview { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 200px; border: 1px solid var(--border);
+  border-radius: 4px; margin: 6px 0; }

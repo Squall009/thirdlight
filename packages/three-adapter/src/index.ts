@@ -161,3 +161,5 @@ export {
   type LightmapSet,
 } from './lightmaps';
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
+// Phase 9.7: poses a model from an animator pose (the Animator window's live preview).
+export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';

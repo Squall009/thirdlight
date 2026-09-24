@@ -106,6 +106,31 @@ test('a controller built in the Animator window poses a skinned model in Play by
   expect(controllers[0]!.states.map((s) => s.name)).toEqual(['idle', 'Bent']);
   expect(controllers[0]!.transitions).toEqual([{ from: 'state-01', to: 'state-02', conditions: [{ parameter: 'bent', op: 'true' }], duration: 0 }]);
 
+  // The live preview: the controller runs on its model; flipping `bent` in the preview moves to Bent and changes the pose.
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const preview = page.getByLabel('animator preview', { exact: true });
+  await expect(preview).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
+  await page.waitForTimeout(500);
+  const before = decodePng(await preview.screenshot());
+  await page.getByLabel('preview bent').check();
+  await expect(preview).toHaveAttribute('data-state', 'Bent');
+  await page.waitForTimeout(500);
+  const after = decodePng(await preview.screenshot());
+  let changed = 0;
+  for (let y = 0; y < Math.min(before.height, after.height); y += 2) {
+    for (let x = 0; x < Math.min(before.width, after.width); x += 2) {
+      const a = before.pixel(x, y);
+      const b = after.pixel(x, y);
+      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 60) changed += 1;
+    }
+  }
+  console.log(`[animator] preview pixels changed by the pose: ${changed}`);
+  expect(changed).toBeGreaterThan(20);
+  await page.getByRole('button', { name: 'Stop preview' }).click();
+  await expect(preview).toHaveCount(0);
+  // Nothing was saved by the preview.
+  expect(JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'])).not.toContain('"default":true');
+
   // Put the controller on the model (Inspector).
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${column}"]`).click();
   await page.getByLabel('animator controller of the object').selectOption({ label: 'New animator' });

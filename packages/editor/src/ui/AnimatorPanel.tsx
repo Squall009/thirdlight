@@ -9,6 +9,8 @@
  * crossfade, exit time) or the parameters. Every edit is one `setAnimator`
  * (one undo). "Platformer" builds a controller from a model's clips named
  * idle/run/jump/fall/land with the parameters the player gets automatically.
+ * "Preview" runs the controller live on its model in a small canvas, with
+ * the parameters as sliders, checkboxes and trigger buttons (nothing saved).
  *
  * Browser-only (React).
  */
@@ -20,8 +22,19 @@ export interface ClipInfo {
   duration: number;
 }
 
+/** A running live preview of one controller (App owns the model and the frame loop). */
+export interface AnimatorPreview {
+  set(name: string, value: number | boolean): void;
+  trigger(name: string): void;
+  /** The current state's name. */
+  state(): string;
+  dispose(): void;
+}
+
 interface Props {
   controllers: AnimatorController[];
+  /** Start a live preview of `controller` in `canvas`, or say why not. */
+  preview?: (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
   models: { assetId: string; displayName: string }[];
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   onSave: (controller: AnimatorController) => void;
@@ -567,6 +580,7 @@ export function AnimatorPanel(p: Props): JSX.Element {
               </div>
             )}
             <ParameterList controller={draft} onSave={save} />
+            {p.preview !== undefined && <LivePreview controller={draft} start={p.preview} />}
           </div>
         </div>
       )}
@@ -615,6 +629,83 @@ function ParameterList({ controller, onSave }: { controller: AnimatorController;
           Add parameter
         </button>
       </div>
+    </div>
+  );
+}
+
+function LivePreview({ controller, start }: { controller: AnimatorController; start: NonNullable<Props['preview']> }): JSX.Element {
+  const [on, setOn] = useState(false);
+  const [state, setState] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, number | boolean>>({});
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const live = useRef<AnimatorPreview | null>(null);
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const key = JSON.stringify(controller);
+  // (Re)start while on: an edited controller restarts the preview with the values kept.
+  useEffect(() => {
+    if (!on || canvas.current === null) return;
+    let cancelled = false;
+    void start(controller, canvas.current).then((r) => {
+      if (typeof r === 'string') {
+        if (!cancelled) {
+          setError(r);
+          setOn(false);
+        }
+        return;
+      }
+      if (cancelled) {
+        r.dispose();
+        return;
+      }
+      setError(null);
+      for (const [k, v] of Object.entries(valuesRef.current)) r.set(k, v);
+      live.current = r;
+    });
+    const timer = setInterval(() => setState(live.current?.state() ?? ''), 100);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      live.current?.dispose();
+      live.current = null;
+    };
+  }, [on, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (name: string, v: number | boolean): void => {
+    setValues((x) => ({ ...x, [name]: v }));
+    live.current?.set(name, v);
+  };
+  const valueOf = (x: AnimatorParameter): number | boolean => values[x.name] ?? x.default ?? (x.type === 'bool' ? false : 0);
+  return (
+    <div aria-label="animator preview panel">
+      <div className="tl-panel__title">Live preview</div>
+      <button type="button" className="tl-button" onClick={() => setOn(!on)} disabled={controller.states.length === 0}>
+        {on ? 'Stop preview' : 'Preview'}
+      </button>
+      {error !== null && <p className="tl-hint" role="alert">{error}</p>}
+      {on && (
+        <>
+          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} ref={canvas} />
+          <div className="tl-hint">state: <b aria-label="preview state">{state}</b></div>
+          {controller.parameters.map((x) => (
+            <div className="tl-animator__row" key={x.name}>
+              <span className="tl-animator__param">{x.name}</span>
+              {x.type === 'bool' && <input type="checkbox" aria-label={`preview ${x.name}`} checked={valueOf(x) === true} onChange={(e) => set(x.name, e.target.checked)} />}
+              {(x.type === 'float' || x.type === 'int') && (
+                <>
+                  <input type="range" aria-label={`preview ${x.name}`} min={-10} max={10} step={x.type === 'int' ? 1 : 0.1} value={Number(valueOf(x))} onChange={(e) => set(x.name, Number(e.target.value))} />
+                  <small>{Number(valueOf(x)).toFixed(x.type === 'int' ? 0 : 1)}</small>
+                </>
+              )}
+              {x.type === 'trigger' && (
+                <button type="button" className="tl-button" aria-label={`preview ${x.name}`} onClick={() => live.current?.trigger(x.name)}>
+                  fire
+                </button>
+              )}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }

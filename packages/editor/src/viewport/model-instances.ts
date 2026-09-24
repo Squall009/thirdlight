@@ -85,6 +85,8 @@ export interface AssetPreviewSession {
   assetId: string;
   descriptor: VisualDescriptor;
   clips: readonly VisualClipInfo[];
+  /** The instance's loaded clips (the Animator window's live preview poses them). */
+  animationClips: readonly THREE.AnimationClip[];
   controller: AssetPreviewController;
   dispose(): void;
 }
@@ -425,6 +427,7 @@ export class ModelInstances {
         assetId: descriptor.assetId,
         descriptor,
         clips: result.resource.clips,
+        animationClips: created.instance.animationClips(),
         controller: controller.controller,
         dispose: () => {
           controller.controller.dispose();

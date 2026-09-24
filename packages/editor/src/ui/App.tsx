@@ -81,7 +81,8 @@ import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
-import { createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
+import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
+import { createAnimatorPlayer, createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
@@ -93,7 +94,7 @@ import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowse
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
-import { AnimatorPanel } from './AnimatorPanel';
+import { AnimatorPanel, type AnimatorPreview } from './AnimatorPanel';
 import { InputPanel } from './InputPanel';
 import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
@@ -1930,6 +1931,51 @@ function EditorApp(): JSX.Element {
     }
   }, []);
 
+  // Phase 9.7: the Animator window's live preview — the controller's model in
+  // its own small stage, posed every frame by the runtime's state machine.
+  const previewAnimator = useCallback(async (controller: AnimatorController, canvas: HTMLCanvasElement): Promise<AnimatorPreview | string> => {
+    const c = clientRef.current;
+    const m = modelInstancesRef.current;
+    if (!c || !m) return 'the editor is not ready';
+    const first = controller.states.find((x) => x.motion.kind === 'clip' || x.motion.children.length > 0)?.motion;
+    const assetId = first === undefined ? undefined : first.kind === 'clip' ? first.clip.assetId : first.children[0]!.clip.assetId;
+    if (assetId === undefined) return 'give a state a clip first';
+    const v = c.content.resolveVersion(assetId);
+    if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return 'the model has no published version';
+    const stage = new PreviewStage(canvas);
+    const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength }, stage.scene);
+    if (!res.ok) {
+      stage.dispose();
+      return res.message;
+    }
+    stage.frame(res.session.root);
+    const machine = new AnimatorMachine(controller as unknown as AnimatorControllerLike);
+    const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId);
+    let last = performance.now();
+    let raf = 0;
+    const tick = (now: number): void => {
+      machine.step(Math.min(0.1, Math.max(0, (now - last) / 1000)));
+      last = now;
+      player.apply(machine.pose());
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    let done = false;
+    return {
+      set: (name, value) => void machine.set(name, value),
+      trigger: (name) => void machine.trigger(name),
+      state: () => machine.stateName(),
+      dispose: () => {
+        if (done) return;
+        done = true;
+        cancelAnimationFrame(raf);
+        player.dispose();
+        if (m.previewSession() === res.session) m.clearPreview();
+        stage.dispose();
+      },
+    };
+  }, []);
+
   const loadPreview = useCallback(async (assetId: string) => {
     const c = clientRef.current;
     const m = modelInstancesRef.current;
@@ -3048,6 +3094,7 @@ function EditorApp(): JSX.Element {
               controllers={animators}
               models={assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               clipsOf={clipsOf}
+              preview={previewAnimator}
               onSave={(controller) => void saveAnimator(controller)}
               onDelete={(id) => void deleteAnimator(id)}
               error={animatorError}

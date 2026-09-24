@@ -642,11 +642,13 @@ Add one dated line per decision taken during the run (what, why).
   Clip durations live in the controller (the editor fills them from the
   file) because the runtime never loads GLBs. Not built (left for the
   wrap-up if time allows): the second override layer with a bone mask,
-  animation-only GLBs (clips for another rig), a live preview with
-  parameter sliders in the Animator window, the migration of the old
+  animation-only GLBs (clips for another rig), the migration of the old
   `modelAnimation` idle/run/airborne profile into a built-in controller
-  (the old component keeps working). (The import caps for skins — joints
-  ≤ 128, ≤ 4 skins, ≤ 32 morph targets — were added in the wrap-up.) Only clips of the entity's own model
+  (the old component keeps working). (Added in the wrap-up: the import caps
+  for skins — joints ≤ 128, ≤ 4 skins, ≤ 32 morph targets — and a live
+  preview in the Animator window: the controller on its model in its own
+  small canvas, parameters as sliders/checkboxes/trigger buttons, not
+  saved; e2e `animator`.) Only clips of the entity's own model
   play (a controller naming another asset's clip is skipped at runtime).
   A skinned character exported as one rig node (Sprout) is one piece named
   after that node; place it as a whole file. Characters do not turn to face
