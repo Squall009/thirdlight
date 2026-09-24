@@ -19,6 +19,7 @@ import type { ColliderComponent, PropertyDeclaration } from '@thirdlight/project
 import type { ProjectedEntity } from '../session/projection';
 import type { EffectiveEntityFlags } from '../session/hierarchy';
 import { deriveBehaviorControls, deriveComponentControls } from '../session/property-controls';
+import { CAPSULE_LIMITS, controllerCapsuleOf } from '@thirdlight/runtime';
 import type { GizmoMode } from '../viewport/viewport';
 import { ComponentControlList, PropertyControlList, type ControlErrorView } from './PropertyControls';
 
@@ -37,6 +38,12 @@ interface Props {
   onAddComponent: (entityId: string, component: 'collider' | 'controller') => void;
   onRemoveComponent: (entityId: string, component: 'collider' | 'controller') => void;
   onEditColliderBox: (entityId: string, hx: string, hy: string) => void;
+  /** Phase 14.0: store the player's capsule (null: back to the default). */
+  onSetCapsule?: (entityId: string, capsule: { radius: number; height: number; offset?: [number, number] } | null) => void;
+  /** Phase 14.0: size the capsule to the entity's models. */
+  onFitCapsule?: (entityId: string) => void;
+  /** Phase 14.0: the name of the player this entity hangs under (it collides with that capsule), else null. */
+  capsuleOwner?: string | null;
   onRename: (entityId: string, name: string) => void;
   onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => void;
   /** Phase 12: the entity's effective (inherited) flags. */
@@ -184,6 +191,70 @@ function VecField(props: { label: string; values: number[]; onCommit: (next: num
   );
 }
 
+/**
+ * Phase 14.0: the player's collision capsule — radius, height and offset
+ * (Enter commits one field; the stored capsule is replaced whole), "Fit to
+ * model" and "Default". Without a stored capsule it shows the default one.
+ */
+function CollisionSection(props: {
+  entity: ProjectedEntity;
+  onSet: (capsule: { radius: number; height: number; offset?: [number, number] } | null) => void;
+  onFit: () => void;
+}): JSX.Element {
+  const stored = props.entity.capsule;
+  const c = controllerCapsuleOf(stored === undefined ? {} : { capsule: stored });
+  const commit = (patch: Partial<{ radius: number; height: number; ox: number; oy: number }>): void => {
+    const radius = patch.radius ?? c.radius;
+    const height = patch.height ?? c.height;
+    const ox = patch.ox ?? c.offset[0];
+    const oy = patch.oy ?? c.offset[1];
+    props.onSet({ radius, height, ...(ox !== 0 || oy !== 0 ? { offset: [ox, oy] as [number, number] } : {}) });
+  };
+  const num = (raw: string): number | null => {
+    const n = Number(raw);
+    return raw.trim() === '' || !Number.isFinite(n) ? null : n;
+  };
+  const L = CAPSULE_LIMITS;
+  return (
+    <div className="tl-inspector__section tl-inspector__collision" aria-label="collision" data-capsule={stored === undefined ? 'default' : 'own'}>
+      <div className="tl-panel__title">Collision</div>
+      <p className="tl-inspector__hint">
+        A capsule {stored === undefined ? '(the default: an adult human) ' : ''}that every system uses: physics, spawns, zones, pickups and stomps. Drag its top or side handle in the Scene view.
+      </p>
+      <div className="tl-vec">
+        <span className="tl-vec__label">radius</span>
+        <div className="tl-vec__nums">
+          <CommitField className="tl-vec__num" label="capsule radius" value={fmt(c.radius)} onCommit={(raw) => { const v = num(raw); if (v !== null) commit({ radius: v }); }} />
+        </div>
+      </div>
+      <div className="tl-vec">
+        <span className="tl-vec__label">height</span>
+        <div className="tl-vec__nums">
+          <CommitField className="tl-vec__num" label="capsule height" value={fmt(c.height)} onCommit={(raw) => { const v = num(raw); if (v !== null) commit({ height: v }); }} />
+        </div>
+      </div>
+      <div className="tl-vec">
+        <span className="tl-vec__label">offset</span>
+        <div className="tl-vec__nums">
+          <CommitField className="tl-vec__num" label="capsule offset x" value={fmt(c.offset[0])} onCommit={(raw) => { const v = num(raw); if (v !== null) commit({ ox: v }); }} />
+          <CommitField className="tl-vec__num" label="capsule offset y" value={fmt(c.offset[1])} onCommit={(raw) => { const v = num(raw); if (v !== null) commit({ oy: v }); }} />
+        </div>
+      </div>
+      <p className="tl-inspector__hint">
+        Radius {L.minRadius}–{L.maxRadius} m, height {L.minHeight}–{L.maxHeight} m (at least twice the radius), offset from the object's origin up to ±{L.maxOffset} m.
+      </p>
+      <div className="tl-inspector__modes">
+        <button className="tl-btn" onClick={props.onFit} title="Size the capsule to this object's models: their height, half the smaller of width and depth, feet at their lowest point">
+          Fit to model
+        </button>
+        <button className="tl-btn" disabled={stored === undefined} onClick={() => props.onSet(null)} title="Back to the default capsule">
+          Default
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const DEG = 180 / Math.PI;
 
 function eulerDegrees(q: number[]): number[] {
@@ -196,7 +267,7 @@ function quaternionOf(deg: number[]): number[] {
   return [q.x, q.y, q.z, q.w];
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, extra }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onSetCapsule, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, extra }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -210,10 +281,13 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           declarations,
         )
       : null;
+  // Phase 14.0: the player (a controller) collides with its capsule and a
+  // child of the player with the player's: no "absent" collider row for them.
+  const capsuleCollides = entity !== null && (entity.controller === true || (capsuleOwner ?? null) !== null);
   const components = deriveComponentControls(
     entity && !isFolder ? { collider: entity.collider as ColliderComponent | undefined, controller: entity.controller } : null,
     { includeAbsent: entity !== null && !isFolder },
-  );
+  ).filter((c) => !(capsuleCollides && c.component === 'collider' && !c.present));
   return (
     <div className="tl-panel tl-inspector">
       <div className="tl-panel__title">Inspector</div>
@@ -296,6 +370,16 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
                   {propertyError.code}: {propertyError.message}
                 </div>
               )}
+            </div>
+          )}
+
+          {entity.controller === true && onSetCapsule !== undefined && (
+            <CollisionSection entity={entity} onSet={(capsule) => onSetCapsule(entity.id, capsule)} onFit={() => onFitCapsule?.(entity.id)} />
+          )}
+          {entity.controller !== true && (capsuleOwner ?? null) !== null && !isFolder && (
+            <div className="tl-inspector__section tl-inspector__collision" aria-label="collision" data-capsule="parent">
+              <div className="tl-panel__title">Collision</div>
+              <p className="tl-inspector__hint">Collides with its parent's capsule ({capsuleOwner}).</p>
             </div>
           )}
 

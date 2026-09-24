@@ -68,6 +68,7 @@ import {
 } from '../session/behavior-publication';
 import { Gesture, type Transform } from '../session/gesture';
 import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
+import { fitCapsule } from '../session/size-handles';
 import {
   DEFAULT_ZONE_SIZE,
   planCreateSpawn,
@@ -703,6 +704,16 @@ function EditorApp(): JSX.Element {
         if (waypoints === undefined || index < 1 || index > waypoints.length) return;
         const next = waypoints.map((w, i) => (i === index - 1 ? offset.map((v) => Math.round(v * 1000) / 1000) : w));
         void c.setComponent(entityId, 'mover', { waypoints: next }, c.projection.revision).then((r) => reportFailure('Mover path', r));
+      },
+      // Phase 14.0: a dragged size handle (capsule, area, box collider, fog volume) — one setComponent on release.
+      onSizeHandleMoved: (entityId, component, value) => {
+        const c = clientRef.current;
+        if (!c) return;
+        void c.setComponent(entityId, component, value, c.projection.revision).then((r) => {
+          // A drag that ends where it began changes nothing: not an error.
+          if (!r.ok && (r.response as { code?: string }).code === 'no_change') return;
+          reportFailure(component === 'controller' ? 'Collision capsule' : 'Size', r);
+        });
       },
     }, { snapping: () => snappingRef.current && !shiftRef.current });
     viewportRef.current = viewport;
@@ -2481,6 +2492,27 @@ function EditorApp(): JSX.Element {
     [runTypedCommand],
   );
 
+  // Phase 14.0: the player's collision capsule (Inspector fields, "Fit to model").
+  const setCapsule = useCallback(
+    async (entityId: string, capsule: { radius: number; height: number; offset?: [number, number] } | null) => {
+      setComponentError(null);
+      await runTypedCommand('setComponent', { entityId, component: 'controller', value: { capsule } }, setComponentError);
+    },
+    [runTypedCommand],
+  );
+  const fitCapsuleToModel = useCallback(
+    async (entityId: string) => {
+      const bounds = viewportRef.current?.modelBounds(entityId) ?? null;
+      const fit = bounds === null ? null : fitCapsule(bounds);
+      if (fit === null) {
+        setComponentError({ code: 'no_model', message: 'Fit to model needs a loaded model on this object or on its children.' });
+        return;
+      }
+      await setCapsule(entityId, fit);
+    },
+    [setCapsule],
+  );
+
   const editColliderBox = useCallback(
     async (entityId: string, hxRaw: string, hyRaw: string) => {
       const c = clientRef.current;
@@ -3260,6 +3292,19 @@ function EditorApp(): JSX.Element {
           onAddComponent={(entityId, component) => void addComponent(entityId, component)}
           onRemoveComponent={(entityId, component) => void removeComponent(entityId, component)}
           onEditColliderBox={(entityId, hx, hy) => void editColliderBox(entityId, hx, hy)}
+          onSetCapsule={(entityId, capsule) => void setCapsule(entityId, capsule)}
+          onFitCapsule={(entityId) => void fitCapsuleToModel(entityId)}
+          capsuleOwner={(() => {
+            // Phase 14.0: a child of the player collides with the player's capsule.
+            let parent = selected?.parentId ?? null;
+            for (let depth = 0; parent !== null && depth < 64; depth++) {
+              const p = entities.find((e) => e.id === parent);
+              if (p === undefined) break;
+              if (p.controller === true) return p.name;
+              parent = p.parentId;
+            }
+            return null;
+          })()}
           onRename={(entityId, name) => void rename(entityId, name)}
           onEditTransform={(entityId, patch) => void editTransform(entityId, patch)}
           flags={selected !== null ? (hierarchyFlags.get(selected.id) ?? null) : null}

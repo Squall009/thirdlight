@@ -69,6 +69,7 @@ export {
   type DiagnosticErrorEntry,
   type GameCameraBounds,
   type GameContent,
+  type PlayerCapsule,
   type GameEvent,
   type GameEventKind,
   type GameSessionPort,
@@ -169,8 +170,10 @@ export {
 // load; the editor uses the same rules for its viewport and inspector).
 export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags } from '@thirdlight/project-model';
+// Phase 14.0: the character capsule's default and ranges (the editor draws and edits it).
+export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { sceneEntitiesFromDocument } from './scene-set';
+export { capsuleHalfTotal, playerCapsuleOf, sceneEntitiesFromDocument } from './scene-set';
 // Phase 9.7/9.8: animators and ctx.input.
 export { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 export { inputView, type BehaviorInputView } from './behavior';

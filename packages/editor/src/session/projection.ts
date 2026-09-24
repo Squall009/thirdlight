@@ -72,8 +72,10 @@ export interface ProjectedEntity {
   behaviorValues?: Record<string, unknown>;
   /** M2 (packet 28): the physics collider shape, when present (§10.7/§21.3). */
   collider?: unknown;
-  /** M2 (packet 28): the controller marker component is present (§10.8). */
+  /** M2 (packet 28): the controller component is present (§10.8). */
   controller?: boolean;
+  /** Phase 14.0: the controller's own collision capsule (absent: the default one). */
+  capsule?: { radius: number; height: number; offset?: [number, number] };
   /** M3 (packet 56): the game-zone component, when present (project-model §23.3.1). */
   gameZone?: GameZoneComponent;
   /** M3 (packet 56): the field-less spawn marker is present (project-model §23.3.2). */
@@ -154,6 +156,14 @@ function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName
 
 const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 
+/** Phase 14.0: a controller component's capsule, copied (undefined when it has none). */
+function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
+  const c = (controller as { capsule?: { radius?: unknown; height?: unknown; offset?: unknown } } | null | undefined)?.capsule;
+  if (c === undefined || typeof c.radius !== 'number' || typeof c.height !== 'number') return undefined;
+  const o = Array.isArray(c.offset) ? (c.offset as number[]) : undefined;
+  return { radius: c.radius, height: c.height, ...(o !== undefined ? { offset: [o[0] ?? 0, o[1] ?? 0] as [number, number] } : {}) };
+}
+
 function toProjected(e: EntityV3): ProjectedEntity {
   const flags = e as { active?: boolean; locked?: boolean; static?: boolean; tags?: number };
   const c = e.components as {
@@ -203,6 +213,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     ...(c.behavior?.values ? { behaviorValues: { ...c.behavior.values } } : {}),
     ...(c.collider !== undefined ? { collider: c.collider } : {}),
     ...(c.controller !== undefined ? { controller: true } : {}),
+    ...(capsuleOf(c.controller) !== undefined ? { capsule: capsuleOf(c.controller)! } : {}),
     ...(c.gameZone !== undefined ? { gameZone: { ...c.gameZone, size: [...c.gameZone.size] as [number, number] } } : {}),
     ...(c.playerSpawn !== undefined ? { playerSpawn: true } : {}),
     ...(c.cameraFollow !== undefined ? { cameraFollow: { deadZone: { ...c.cameraFollow.deadZone }, smoothing: c.cameraFollow.smoothing, ...(c.cameraFollow.bounds !== undefined ? { bounds: { ...c.cameraFollow.bounds } } : {}) } } : {}),
@@ -445,6 +456,9 @@ export class Projection {
         } else if (change.component === 'controller') {
           if (change.next === null) delete p.controller;
           else p.controller = true;
+          const capsule = capsuleOf(change.next);
+          if (capsule !== undefined) p.capsule = capsule;
+          else delete p.capsule;
         } else if (change.component === 'gameZone') {
           // M3 (packet 56): the zone component converges add/edit/remove the
           // same way (the change carries the full component value or null).

@@ -732,6 +732,35 @@ enemy turns it to face where its parent goes (a yaw for moving right and for
 moving left, reached over a short turn time); it keeps its facing while the
 parent stands still.
 
+## The player's collision capsule
+
+The player (the object with the controller) collides as an upright capsule.
+Select it: the Inspector's **Collision** section shows the capsule's radius,
+height (end caps included, at least twice the radius) and offset (where the
+capsule's centre sits relative to the object's origin). Without an own
+capsule it uses the default — radius 0.3 m, height 1.8 m, centred — so older
+projects play exactly as before. **Fit to model** sizes it to the player's
+model and its children's models (their height, half the smaller of width and
+depth, the feet at their lowest point); **Default** goes back to the default.
+Objects under the player show "collides with its parent's capsule".
+
+The Scene view draws the capsule in the collider colour (Gizmos → collider
+outlines); clicking its outline selects the player. While the player is
+selected, white handles on the capsule's top and side drag its height (the
+feet stay where they are, so the offset follows) and its radius — one undo
+step per drag, sizes snap to 5 cm with snapping on (hold Shift for exact
+sizes). The same top/side handles resize an enemy's box (it keeps standing
+on its feet), a pickup, trigger or switch area, a game zone, a box collider
+and a fog volume while their object is selected.
+
+Everything uses the capsule: physics (walls, ceilings, slopes, one-way
+platforms), spawn and respawn placement (the object's origin goes to the
+spawn marker; with the offset at half the height the origin is the feet, so
+a spawn on the ground puts the feet on the ground), hazard, checkpoint, goal
+and exit zones, pickups, triggers, switches, stomps, enemies' chase height
+and moving platforms' push-out. MCP: `setComponent` `controller`
+`{capsule: {radius, height, offset?} | null}`; `tl_inspect` shows it.
+
 ## Upgrade
 
 ```sh

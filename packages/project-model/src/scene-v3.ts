@@ -61,6 +61,7 @@ import {
   validateCameraV2,
   validateColliderComponent,
   validateControllerComponent,
+  canonicalController,
   validateModelComponent,
   validateModelPiece,
   validatePhysicsTransform,
@@ -797,7 +798,7 @@ function validateEntityComponentsV3(
     if (oneWay !== undefined && (version !== 4 || oneWay !== true)) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true (v4 scenes)', 'oneWay is true or absent'));
     validateColliderComponent(isPlainObject(col) && oneWay !== undefined ? Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay')) : col, `${path}/collider`, errors);
   }
-  if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors);
+  if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
   // v3 components (field values, §23.3.1–§23.3.6)
   let zoneRole: GameZoneRole | null = null;
@@ -1065,7 +1066,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
   if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}) };
-  if (comps['controller'] !== undefined) components.controller = {};
+  if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['gameZone'] !== undefined) components.gameZone = canonicalGameZone(comps['gameZone']);
   if (comps['playerSpawn'] !== undefined) components.playerSpawn = {};
   if (comps['cameraFollow'] !== undefined) components.cameraFollow = canonicalCameraFollow(comps['cameraFollow']);

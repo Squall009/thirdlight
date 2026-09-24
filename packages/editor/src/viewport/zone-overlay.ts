@@ -19,6 +19,18 @@ import * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import type { ZonePose } from '../session/zone-gesture';
 import type { ZoneRole } from '../session/gameplay';
+import { capsuleDistance, handlePoint, outlinePoints, resizeShape, sizeShapesOf, type SizeHandle, type SizeShape } from '../session/size-handles';
+
+/** Phase 14.0: a size handle under the pointer (which shape of which entity, which handle). */
+export interface SizeHandleRef {
+  entityId: string;
+  shapeIndex: number;
+  handle: SizeHandle;
+}
+
+/** The collider outline colour (phase 9.12); the player's capsule uses it too. */
+const COLLIDER_COLOR = 0x7cfc00;
+const SIZE_HANDLE_COLOR = 0xffffff;
 
 export type ZoneTool = { kind: 'zone'; role: ZoneRole; safeSpawnId?: string } | { kind: 'spawn' };
 
@@ -83,6 +95,15 @@ export class ZoneOverlay {
   private readonly colliders = new THREE.Group();
   /** Phase 9.12: each mover's path for the waypoint drag preview. */
   private readonly moverPaths = new Map<string, { origin: THREE.Vector3; waypoints: number[][]; loop: boolean; line: THREE.Line; dots: THREE.Mesh[] }>();
+  /** Phase 14.0: the entities of the last sync (the size handles read the selected one). */
+  private entities: readonly ProjectedEntity[] = [];
+  /** Phase 14.0: each player's capsule (drawn with the collider outlines, clickable). */
+  private readonly capsules = new Map<string, { shape: SizeShape; z: number }>();
+  /** Phase 14.0: the selected entity's size handles and the drag preview outline. */
+  private readonly sizeHandles = new THREE.Group();
+  private sizeShapes: SizeShape[] = [];
+  private sizeZ = 0;
+  private sizePreview: THREE.Line | null = null;
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.scene = scene;
@@ -94,6 +115,8 @@ export class ZoneOverlay {
     this.root.add(this.blocks);
     this.colliders.name = 'collider-outlines';
     this.root.add(this.colliders);
+    this.sizeHandles.name = 'size-handles';
+    this.root.add(this.sizeHandles);
     scene.add(this.root);
   }
 
@@ -110,6 +133,7 @@ export class ZoneOverlay {
   setSelected(id: string | null): void {
     this.selectedId = id;
     this.updateResizeHandle();
+    this.updateSizeHandles();
   }
 
   /**
@@ -236,6 +260,8 @@ export class ZoneOverlay {
     }
     this.updateResizeHandle();
     this.syncBlocks(entities);
+    this.entities = entities;
+    this.updateSizeHandles();
   }
 
   /**
@@ -264,10 +290,26 @@ export class ZoneOverlay {
       const sin = Math.sin(angle);
       const pts = [...corners, corners[0]!].map(([a, b]) => new THREE.Vector3(N(e.position[0]) + N(a) * cos - N(b) * sin, N(e.position[1]) + N(a) * sin + N(b) * cos, 0.03));
       const oneWay = (e.collider as { oneWay?: boolean }).oneWay === true;
-      const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: oneWay ? 0x8fb573 : 0x7cfc00, depthTest: false, transparent: true, opacity: 0.85 }));
+      const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: oneWay ? 0x8fb573 : COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.85 }));
       outline.name = `collider-outline:${e.id}`;
       outline.renderOrder = 9;
       this.colliders.add(outline);
+    }
+    // Phase 14.0: the player's capsule (its own, or the default one), in the collider colour.
+    this.capsules.clear();
+    for (const e of entities) {
+      if (e.controller !== true) continue;
+      const shape = sizeShapesOf(e).find((s) => s.kind === 'capsule');
+      if (shape === undefined) continue;
+      const z = N(e.position[2]) + 0.03;
+      const outline = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(outlinePoints(shape, 16).map((p) => new THREE.Vector3(p.x, p.y, z))),
+        new THREE.LineBasicMaterial({ color: COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.95 }),
+      );
+      outline.name = `capsule-outline:${e.id}`;
+      outline.renderOrder = 9;
+      this.colliders.add(outline);
+      this.capsules.set(e.id, { shape, z });
     }
     const rect = (x: number, y: number, w: number, h: number, color: number): THREE.Line => {
       const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([a, b]) => new THREE.Vector3(x + (a! * w) / 2, y + (b! * h) / 2, 0.02));
@@ -302,7 +344,8 @@ export class ZoneOverlay {
       }
       for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
         const size = (b[k] as { size?: number[] } | undefined)?.size;
-        if (size !== undefined) this.blocks.add(rect(x, y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
+        // An enemy's box stands on its position (its feet), as the runtime tests it (phase 14.0 fix).
+        if (size !== undefined) this.blocks.add(rect(x, k === 'enemy' ? y + N(size[1]) / 2 : y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
       }
       // Phase 9.10: an audio source's hearing range along X (full volume in the inner quarter).
       const sound = b.audioSource as { range?: number } | undefined;
@@ -322,8 +365,8 @@ export class ZoneOverlay {
   }
 
   /** Phase 9.9: the drawn gameplay helpers (names of the mover paths), for tests. */
-  blockHelpers(): { moverPaths: string[]; count: number; colliders: number } {
-    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length, colliders: this.colliders.children.length };
+  blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number } {
+    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length, colliders: this.colliders.children.length, capsules: this.capsules.size, sizeHandles: this.sizeHandles.children.length };
   }
 
   /** Phase 9.12: the Gizmos menu's collider outlines and gameplay helpers. */
@@ -361,6 +404,119 @@ export class ZoneOverlay {
     m.line.geometry.dispose();
     m.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
     return offset;
+  }
+
+  // ---- Phase 14.0: size handles and the player's capsule ---------------------
+
+  /** The pointer ray for a client position (false when the canvas has no size). */
+  private aim(clientX: number, clientY: number): boolean {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return true;
+  }
+
+  /** Rebuild the selected entity's size handles (two per shape: top and side). */
+  private updateSizeHandles(): void {
+    for (const c of [...this.sizeHandles.children]) {
+      this.sizeHandles.remove(c);
+      this.disposeGroup(c as THREE.Group);
+    }
+    this.sizeShapes = [];
+    const e = this.selectedId === null ? undefined : this.entities.find((x) => x.id === this.selectedId);
+    if (e === undefined || !e.active || e.locked) return;
+    this.sizeShapes = sizeShapesOf(e);
+    this.sizeZ = N(e.position[2]) + 0.04;
+    this.sizeShapes.forEach((shape, shapeIndex) => {
+      for (const handle of ['top', 'side'] as const) {
+        const p = handlePoint(shape, handle);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: SIZE_HANDLE_COLOR, depthTest: false }));
+        mesh.position.set(p.x, p.y, this.sizeZ);
+        mesh.renderOrder = 12;
+        mesh.name = `size-handle:${shape.component}:${handle}`;
+        mesh.userData = { entityId: e.id, shapeIndex, handle };
+        this.sizeHandles.add(mesh);
+      }
+    });
+  }
+
+  /** The size handle under the pointer, or null. */
+  pickSizeHandle(clientX: number, clientY: number): SizeHandleRef | null {
+    if (this.sizeHandles.children.length === 0 || !this.aim(clientX, clientY)) return null;
+    this.root.updateMatrixWorld(true);
+    const hit = this.raycaster.intersectObjects(this.sizeHandles.children, false)[0];
+    if (hit === undefined) return null;
+    const d = hit.object.userData as { entityId: string; shapeIndex: number; handle: SizeHandle };
+    return { entityId: d.entityId, shapeIndex: d.shapeIndex, handle: d.handle };
+  }
+
+  /** The drag preview: the resized shape for a game-plane point (the outline and the handle follow). */
+  previewSize(ref: SizeHandleRef, at: GamePlaneHit, snap: boolean): SizeShape | null {
+    const shape = this.sizeShapes[ref.shapeIndex];
+    if (shape === undefined || shape.entityId !== ref.entityId) return null;
+    const next = resizeShape(shape, ref.handle, at, snap);
+    const pts = outlinePoints(next, 16).map((p) => new THREE.Vector3(p.x, p.y, this.sizeZ));
+    if (this.sizePreview === null) {
+      this.sizePreview = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: SIZE_HANDLE_COLOR, depthTest: false }));
+      this.sizePreview.renderOrder = 12;
+      this.root.add(this.sizePreview);
+    } else {
+      this.sizePreview.geometry.dispose();
+      this.sizePreview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    }
+    for (const m of this.sizeHandles.children) {
+      const d = m.userData as { shapeIndex: number; handle: SizeHandle };
+      if (d.shapeIndex !== ref.shapeIndex) continue;
+      const p = handlePoint(next, d.handle);
+      m.position.set(p.x, p.y, this.sizeZ);
+    }
+    return next;
+  }
+
+  /** End a size drag's preview (the committed value comes back through the next sync). */
+  endSizePreview(): void {
+    if (this.sizePreview !== null) {
+      this.root.remove(this.sizePreview);
+      this.sizePreview.geometry.dispose();
+      (this.sizePreview.material as THREE.Material).dispose();
+      this.sizePreview = null;
+    }
+    this.updateSizeHandles();
+  }
+
+  /**
+   * The player whose capsule is under the pointer (drawn only with the
+   * collider outlines on): `onOutline` when the pointer is on the outline
+   * itself (within a few pixels), else inside it.
+   */
+  capsuleAt(clientX: number, clientY: number): { entityId: string; onOutline: boolean } | null {
+    if (!this.colliders.visible || this.capsules.size === 0 || !this.aim(clientX, clientY)) return null;
+    let best: { entityId: string; onOutline: boolean; d: number } | null = null;
+    const rect = this.canvas.getBoundingClientRect();
+    for (const [entityId, { shape, z }] of this.capsules) {
+      const hit = new THREE.Vector3();
+      if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -z), hit)) continue;
+      // About 6 pixels at the capsule's distance.
+      const tolerance = (6 * 2 * Math.tan((this.camera.fov * Math.PI) / 360) * hit.distanceTo(this.camera.position)) / Math.max(1, rect.height);
+      const d = capsuleDistance(shape, { x: hit.x, y: hit.y });
+      if (d > tolerance) continue;
+      const onOutline = Math.abs(d) <= tolerance;
+      if (best === null || (onOutline && !best.onOutline) || Math.abs(d) < best.d) best = { entityId, onOutline, d: Math.abs(d) };
+    }
+    return best === null ? null : { entityId: best.entityId, onOutline: best.onOutline };
+  }
+
+  /** The size handles' client positions (the Scene view stamps them for tests). */
+  sizeHandleClientPoints(): { component: string; handle: SizeHandle; x: number; y: number }[] {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return [];
+    this.camera.updateMatrixWorld();
+    return this.sizeHandles.children.map((m) => {
+      const v = m.position.clone().project(this.camera);
+      const d = m.userData as { shapeIndex: number; handle: SizeHandle };
+      return { component: this.sizeShapes[d.shapeIndex]?.component ?? '', handle: d.handle, x: Math.round(rect.left + ((v.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - v.y) / 2) * rect.height) };
+    });
   }
 
   private kindSignature(e: ProjectedEntity): string {
@@ -510,6 +666,12 @@ export class ZoneOverlay {
     for (const g of this.objects.values()) this.disposeGroup(g);
     this.disposeGroup(this.blocks);
     this.disposeGroup(this.colliders);
+    this.disposeGroup(this.sizeHandles);
+    if (this.sizePreview !== null) {
+      this.sizePreview.geometry.dispose();
+      (this.sizePreview.material as THREE.Material).dispose();
+      this.sizePreview = null;
+    }
     this.objects.clear();
     if (this.resizeHandle) {
       this.resizeHandle.geometry.dispose();

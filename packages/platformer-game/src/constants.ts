@@ -15,10 +15,8 @@ export const PLATFORMER_GAME_MODULE_ID = 'thirdlight.platformer-game:session';
 /** The camera-phase module ID (packet 51 implements the module itself). */
 export const PLATFORMER_GAME_CAMERA_MODULE_ID = 'thirdlight.platformer-game:camera';
 
-/** `gameplay.md` §4.2: solver-independent geometric capsule radius (m). */
-export const CAPSULE_RADIUS = 0.3;
-/** `gameplay.md` §4.2: capsule centre-line half length (m). */
-export const CAPSULE_HALF_HEIGHT = 0.6;
+// Phase 14.0: the capsule is the player's own (`GameContent.player.capsule`,
+// from its `controller` component) — no capsule constant lives here.
 /**
  * `gameplay.md` §4.2/§8.2: the overlap tolerance (m). `d < R − EPS` is an
  * overlap; `|d − R| ≤ EPS` is the tangency bucket and is **not** an overlap.
@@ -41,8 +39,5 @@ export const RUN_LIMITS = Object.freeze({
   pendingRunCommands: 1,
   /** `gameplay.md` §4.1/item 39 §23.10: at most 64 zones per scene. */
   zonesPerScene: 64,
-  /** The geometric capsule the predicate sweeps. */
-  capsuleRadius: CAPSULE_RADIUS,
-  capsuleHalfHeight: CAPSULE_HALF_HEIGHT,
   zoneOverlapEps: ZONE_OVERLAP_EPS,
 } as const);

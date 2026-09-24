@@ -61,6 +61,7 @@ export function createGameSessionModule(
         killY: content.game.killY ?? Number.NEGATIVE_INFINITY,
         from: segment.from,
         to: segment.to,
+        capsule: content.player.capsule,
       });
       if (decision.kind === 'death') {
         if (decision.cause === 'hazard') port.beginRespawn('hazard', decision.zoneId);

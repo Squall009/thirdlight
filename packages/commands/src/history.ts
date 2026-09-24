@@ -79,7 +79,7 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset'],
   collider: ['shape'],
-  controller: [],
+  controller: ['capsule'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],

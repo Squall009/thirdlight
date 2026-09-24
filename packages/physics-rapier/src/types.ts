@@ -78,6 +78,15 @@ export interface RapierControllerConfig {
  * transform (parented, scaled, tilted) is refused rather than flattened.
  */
 export interface RapierCharacterSpec extends Vec2 {
+  /**
+   * Phase 14.0: the player's capsule (its `controller.capsule`): radius, the
+   * centre-line half-height (total height = 2 × (halfHeight + radius)) and
+   * the centre's offset from the entity origin. Absent = the default shape
+   * (radius 0.3, half-height 0.6, no offset).
+   */
+  radius?: number;
+  halfHeight?: number;
+  offset?: Vec2;
   parentId?: string | null;
   scale?: readonly [number, number, number];
   rotation?: readonly [number, number, number, number];

@@ -37,7 +37,7 @@ import {
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery } from './behavior';
-import { byEntityId, capsuleInZone, offsetEntities, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -148,16 +148,12 @@ const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
 const PHYSICS_PORT_REASON = 'physics_port';
 
 // ---------------------------------------------------------------------------
-// M3 reset transaction (gameplay.md §5) — the §4.2 capsule constants (the
-// runtime's own copy for the R2 hazard check; the `gameplay`-phase module
-// carries its own) and the reset-fault signatures (the test-only seam's
-// fail-stop codes, pinned by `fixtures/m3/gameplay/run/failure-phases.json`).
+// M3 reset transaction (gameplay.md §5) — the zone overlap tolerance (the
+// capsule is the player's own since phase 14.0: `GameContent.player.capsule`)
+// and the reset-fault signatures (the test-only seam's fail-stop codes, pinned
+// by `fixtures/m3/gameplay/run/failure-phases.json`).
 // ---------------------------------------------------------------------------
 
-/** gameplay.md §8.2: the character capsule radius (m). */
-const GAME_CAPSULE_RADIUS = 0.3;
-/** gameplay.md §8.2: the character capsule centre-line half-height (m). */
-const GAME_CAPSULE_HALF_HEIGHT = 0.6;
 /** gameplay.md §8.2: the zone overlap tolerance (m). */
 const GAME_ZONE_OVERLAP_EPS = 1e-9;
 
@@ -789,7 +785,8 @@ export function instantiateRuntime(
       game: g,
       zones: [...zoneSpecs].sort(byId),
       spawns: [...spawnSpecs].sort(byId),
-      player: { entityId: g.playerId },
+      // Phase 14.0: the player's capsule (its controller's, else the default).
+      player: { entityId: g.playerId, capsule: playerCapsuleOf(scene.entities.find((e) => e.id === g.playerId)?.components.controller) },
       camera: {
         entityId: cameraId as string,
         deadZone: cameraFollowData?.deadZone ?? { x: 0, y: 0 },
@@ -1346,6 +1343,8 @@ class RuntimeInstance implements Runtime {
         physics: this.physics,
         curr: this.curr,
         playerId: this.playerEntityId,
+        // Phase 14.0: the player's own capsule (the default without game content).
+        playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(undefined),
         player: () => {
           const t = rt.curr.get(rt.playerEntityId);
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
@@ -2376,20 +2375,23 @@ class RuntimeInstance implements Runtime {
   /**
    * The R2 hazard predicate (gameplay.md §4.2 closed form over a zero-motion
    * segment, from === to === `target`): the swept centre-line rectangle
-   * [target.x] × [target.y ± CAPSULE_HALF_HEIGHT] against the zone's
-   * half-extent rectangle. `d < R − EPS` is an overlap.
+   * [x] × [y ± halfHeight] of the player's capsule (centred at `target` plus
+   * its offset) against the zone's half-extent rectangle. `d < R − EPS` is an
+   * overlap.
    */
   private capsuleOverlapsZone(target: Vec2, zone: { center: Vec2; half: Vec2 }): boolean {
-    const rx = target.x;
-    const ry0 = target.y - GAME_CAPSULE_HALF_HEIGHT;
-    const ry1 = target.y + GAME_CAPSULE_HALF_HEIGHT;
+    const capsule = this.gameContent!.player.capsule;
+    const rx = target.x + capsule.offset.x;
+    const cy = target.y + capsule.offset.y;
+    const ry0 = cy - capsule.halfHeight;
+    const ry1 = cy + capsule.halfHeight;
     const zx0 = zone.center.x - zone.half.x;
     const zx1 = zone.center.x + zone.half.x;
     const zy0 = zone.center.y - zone.half.y;
     const zy1 = zone.center.y + zone.half.y;
     const dx = Math.max(0, rx - zx1, zx0 - rx);
     const dy = Math.max(0, ry0 - zy1, zy0 - ry1);
-    const limit = GAME_CAPSULE_RADIUS - GAME_ZONE_OVERLAP_EPS;
+    const limit = capsule.radius - GAME_ZONE_OVERLAP_EPS;
     return dx * dx + dy * dy < limit * limit;
   }
 
@@ -2778,7 +2780,8 @@ class RuntimeInstance implements Runtime {
     if (segment === undefined) return;
     for (const zone of content.zones) {
       if (zone.role !== 'exit') continue;
-      const inside = capsuleInZone(segment.to, zone, GAME_CAPSULE_RADIUS, GAME_CAPSULE_HALF_HEIGHT, GAME_ZONE_OVERLAP_EPS);
+      const capsule = content.player.capsule;
+      const inside = capsuleInZone({ x: segment.to.x + capsule.offset.x, y: segment.to.y + capsule.offset.y }, zone, capsule.radius, capsule.halfHeight, GAME_ZONE_OVERLAP_EPS);
       if (!inside) {
         this.exitsInside.delete(zone.entityId);
         continue;

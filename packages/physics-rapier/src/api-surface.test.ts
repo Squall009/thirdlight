@@ -14,7 +14,7 @@ import type { CharacterMoveResult, PhysicsPort } from '@thirdlight/runtime';
 
 import * as physicsRapier from './index';
 import { createPhysicsPort } from './index';
-import { AUTOSTEP_DISABLED, CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS, CONTROLLER_OFFSET_SKIN, FIXED_HZ, GROUND_SNAP_DISTANCE, RAPIER_PIN, PHYSICS_IMPLEMENTATION } from './constants';
+import { AUTOSTEP_DISABLED, DEFAULT_CAPSULE_HALF_HEIGHT, DEFAULT_CAPSULE_RADIUS, CONTROLLER_OFFSET_SKIN, FIXED_HZ, GROUND_SNAP_DISTANCE, RAPIER_PIN, PHYSICS_IMPLEMENTATION } from './constants';
 
 const RAD = (deg: number): number => (deg * Math.PI) / 180;
 
@@ -77,8 +77,8 @@ describe('public exports', () => {
     expect(RAPIER_PIN).toBe('0.20.0');
     expect(PHYSICS_IMPLEMENTATION).toBe('rapier2d-compat@0.20.0');
     expect(FIXED_HZ).toBe(120);
-    expect(CAPSULE_RADIUS).toBe(0.3);
-    expect(CAPSULE_HALF_HEIGHT).toBe(0.6);
+    expect(DEFAULT_CAPSULE_RADIUS).toBe(0.3);
+    expect(DEFAULT_CAPSULE_HALF_HEIGHT).toBe(0.6);
     expect(CONTROLLER_OFFSET_SKIN).toBe(0.01);
     expect(GROUND_SNAP_DISTANCE).toBe(0.1);
     expect(AUTOSTEP_DISABLED).toBe(false);

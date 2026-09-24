@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CharacterMoveResult } from '@thirdlight/runtime';
 
 import { createPhysicsPort, PHYSICS_IMPLEMENTATION, RAPIER_PIN } from './index';
-import { CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS, FIXED_HZ } from './constants';
+import { DEFAULT_CAPSULE_HALF_HEIGHT, DEFAULT_CAPSULE_RADIUS, FIXED_HZ } from './constants';
 import { PhysicsPortError } from './errors';
 import type {
   PhysicsPortInitResult,
@@ -23,7 +23,7 @@ import type {
 
 const RAD = (deg: number): number => (deg * Math.PI) / 180;
 const DT = 1 / FIXED_HZ;
-const REACH = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
+const REACH = DEFAULT_CAPSULE_HALF_HEIGHT + DEFAULT_CAPSULE_RADIUS;
 
 function box(
   entityId: string,
@@ -236,7 +236,7 @@ describe('capsule against static geometry (real library)', () => {
     }
     expect(sawWall).toBe(true);
     // Wall face at x=3.5: the center must stop at 3.5 - 0.3 - 0.01.
-    expect(probe.last!.position.x).toBeLessThanOrEqual(3.5 - CAPSULE_RADIUS - 0.01 + 0.005);
+    expect(probe.last!.position.x).toBeLessThanOrEqual(3.5 - DEFAULT_CAPSULE_RADIUS - 0.01 + 0.005);
     expect(probe.last!.contacts.wall).toBe(true);
     port.dispose();
   });

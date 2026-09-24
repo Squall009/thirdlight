@@ -75,8 +75,24 @@ export interface ColliderComponent {
   oneWay?: true;
 }
 
-/** §10.8/§21.1 marker component: no fields in M2. */
-export type ControllerComponent = Record<string, never>;
+/**
+ * Phase 14.0 (v4 scenes): the player character's collision capsule. `height`
+ * is the total height (end caps included, >= 2 x radius); `offset` places the
+ * capsule's centre relative to the entity origin (default [0, 0]).
+ */
+export interface ControllerCapsule {
+  radius: number;
+  height: number;
+  offset?: [number, number];
+}
+
+/**
+ * §10.8/§21.1 the player controller. Its only field is the optional capsule
+ * (phase 14.0, v4); absent = `DEFAULT_CONTROLLER_CAPSULE`.
+ */
+export interface ControllerComponent {
+  capsule?: ControllerCapsule;
+}
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */
 export interface EntityComponentsV2 {

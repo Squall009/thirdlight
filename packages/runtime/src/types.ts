@@ -313,6 +313,19 @@ export interface GameCameraBounds {
 }
 
 /**
+ * Phase 14.0: the player's collision capsule as the systems use it —
+ * `radius`, the centre-line `halfHeight` (the total height is
+ * `2 × (halfHeight + radius)`) and the centre's `offset` from the entity
+ * origin. Positions the runtime reports (the player's transform, motion
+ * segments) are the entity origin; the capsule centre is origin + offset.
+ */
+export interface PlayerCapsule {
+  readonly radius: number;
+  readonly halfHeight: number;
+  readonly offset: Vec2;
+}
+
+/**
  * The frozen gameplay content the runtime projects from a v3 snapshot
  * (gameplay.md §4.1) — deep-frozen at instantiate, carried on `StepContext.gameplay`.
  */
@@ -321,7 +334,8 @@ export interface GameContent {
   /** Ascending `entityId` codepoint order. */
   readonly zones: readonly GameZoneSpec[];
   readonly spawns: readonly { entityId: string; center: Vec2 }[];
-  readonly player: { entityId: string };
+  /** Phase 14.0: the player entity and its collision capsule (from its `controller`). */
+  readonly player: { entityId: string; capsule: PlayerCapsule };
   readonly camera: {
     entityId: string;
     deadZone: Vec2;
