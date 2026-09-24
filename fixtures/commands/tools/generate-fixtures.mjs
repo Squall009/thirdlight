@@ -126,13 +126,17 @@ function manifestObj(id, name, createdAt) {
 }
 
 const RETENTION = 128;
+// The retry-record format (phase 14.8): version 2 records store the live
+// acknowledgement, `sceneId` included. A block without the key is version 1
+// (no `sceneId`), still read by the workspace; this corpus writes version 2.
+const RECORD_VERSION = 2;
 
 function contentFileObj(projectId, revision, content, records) {
-  return { storageVersion: 4, type: "project-content", projectId, revision, content, retry: { retention: RETENTION, records } };
+  return { storageVersion: 4, type: "project-content", projectId, revision, content, retry: { recordVersion: RECORD_VERSION, retention: RETENTION, records } };
 }
 
 function sceneFileObj(projectId, scene, records) {
-  return { storageVersion: 4, type: "scene", projectId, scene, retry: { retention: RETENTION, records } };
+  return { storageVersion: 4, type: "scene", projectId, scene, retry: { recordVersion: RECORD_VERSION, retention: RETENTION, records } };
 }
 
 // ---------------------------------------------------------------------------
@@ -309,9 +313,9 @@ function mutationSuccess({ op, projectId, requestId, revision, duplicated, creat
 }
 
 // The live acknowledgement of a v4 project additionally names the scene the
-// command edited (`sceneId`, appended last). The retry record keeps the
-// §5.1 payload without it, so an identical retry replays the record
-// (`duplicated: true`) without `sceneId` (see scenarios/01 scenario.md).
+// command edited (`sceneId`, appended last). Since record version 2 (phase
+// 14.8) the retry record stores that acknowledgement, so an identical retry
+// replays it (`duplicated: true`) with `sceneId` (see scenarios/01).
 const liveAck = (recorded) => ({ ...recorded, sceneId: SCENE_ID });
 const replayOf = (recorded) => ({ ...deepCopy(recorded), duplicated: true });
 
@@ -456,7 +460,7 @@ class FixtureProject {
     return revision;
   }
 
-  /** Run one mutation; returns the recorded result (the live ack adds `sceneId`). */
+  /** Run one mutation; returns the recorded result (the live ack, `sceneId` included). */
   mutation(request, { op, undo, redo }) {
     const digest = digestOf(request);
     let result;
@@ -504,6 +508,8 @@ class FixtureProject {
         revision, duplicated: false, createdId, change, history: this.depths(),
       });
     }
+    // Every op of this corpus edits the one scene: the ack names it.
+    result = liveAck(result);
     this.sceneRecords.push(recordObj(request.requestId, digest, this.revision, result));
     if (this.sceneRecords.length > RETENTION) this.sceneRecords.shift();
     return result;
@@ -1004,7 +1010,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
     notes: [
       "Each scenario is self-contained: disk-before pins the exact on-disk project (all files), messages.json the ordered request/result pairs, disk-after the exact resulting files. Scenarios 01-04/06-09 share the demo-0001 mainline timeline (T0..T7, commands A1..A7, requestId prefix req-1...); scenario 05 is a separate demo-0001 timeline from revision 0 (prefix req-2...); the retention fixture uses demo-0002 (prefix req-4...).",
       "Every command of the corpus edits the one scene: it writes scenes/scene-main.json only (stamped with the new project revision, the retry record appended there); content.json keeps revision 0 and no records, except after acceptExternalState (scenario 08), which rewrites every file with its records cleared and stamps content.json with the project revision.",
-      "A live acknowledgement of a v4 project names the edited scene (sceneId, last key); the retry record stores the commands.md §5.1 payload without it, so a replay (duplicated: true) has no sceneId.",
+      "A live acknowledgement of a v4 project names the edited scene (sceneId, last key); the retry record (recordVersion 2) stores that acknowledgement, so a replay (duplicated: true) carries the same sceneId. A retry block without recordVersion (version 1, written before phase 14.8) stores records without sceneId and is still read.",
       "File bytes are canonical (2-space indent, LF, one trailing newline, fixed key order). Record digests are real SHA-256 over the digest-canonical request bytes (commands.md §6.6) — recompute with tools/generate-fixtures.mjs --check.",
     ],
     envelopeFixtures: [
@@ -1023,7 +1029,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
       { dir: "envelope/invalid/scene-id-mismatch", reason: "manifest_scene_mismatch", code: "manifest_scene_mismatch", file: SCENE_REL },
     ],
     scenarios: [
-      { dir: "scenarios/01-retry-lost-ack", name: "retry after lost acknowledgement", outcomes: [{ kind: "success", revision: 5, duplicated: true }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (replay changes nothing)", "record R5 present in the scene file with appliedRevision 5", "the replay is the recorded payload (no sceneId)"] },
+      { dir: "scenarios/01-retry-lost-ack", name: "retry after lost acknowledgement", outcomes: [{ kind: "success", revision: 5, duplicated: true }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (replay changes nothing)", "record R5 present in the scene file with appliedRevision 5", "the replay is the recorded live acknowledgement, sceneId included"] },
       { dir: "scenarios/02-request-id-reused", name: "requestId reuse with different content", outcomes: [{ kind: "error", code: "request_id_reused", cls: "conflict" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before"] },
       { dir: "scenarios/03-stale-revision", name: "stale revision + recovery re-issue", outcomes: [{ kind: "error", code: "revision_conflict", cls: "conflict" }, { kind: "success", revision: 6, duplicated: false }], finalRevision: 6, invariants: ["recovery re-issue uses a fresh requestId (req-3...02) and the current revision", "only the scene file changes"] },
       { dir: "scenarios/04-invalid-no-partial", name: "invalid transactions leave no partial changes", outcomes: [{ kind: "error", code: "quaternion_invalid", cls: "validation" }, { kind: "error", code: "entity_not_found", cls: "validation" }, { kind: "error", code: "reference_missing", cls: "validation" }, { kind: "error", code: "no_change", cls: "validation" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (four rejected commands, zero state change)"] },

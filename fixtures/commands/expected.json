@@ -9,7 +9,7 @@
   "notes": [
     "Each scenario is self-contained: disk-before pins the exact on-disk project (all files), messages.json the ordered request/result pairs, disk-after the exact resulting files. Scenarios 01-04/06-09 share the demo-0001 mainline timeline (T0..T7, commands A1..A7, requestId prefix req-1...); scenario 05 is a separate demo-0001 timeline from revision 0 (prefix req-2...); the retention fixture uses demo-0002 (prefix req-4...).",
     "Every command of the corpus edits the one scene: it writes scenes/scene-main.json only (stamped with the new project revision, the retry record appended there); content.json keeps revision 0 and no records, except after acceptExternalState (scenario 08), which rewrites every file with its records cleared and stamps content.json with the project revision.",
-    "A live acknowledgement of a v4 project names the edited scene (sceneId, last key); the retry record stores the commands.md §5.1 payload without it, so a replay (duplicated: true) has no sceneId.",
+    "A live acknowledgement of a v4 project names the edited scene (sceneId, last key); the retry record (recordVersion 2) stores that acknowledgement, so a replay (duplicated: true) carries the same sceneId. A retry block without recordVersion (version 1, written before phase 14.8) stores records without sceneId and is still read.",
     "File bytes are canonical (2-space indent, LF, one trailing newline, fixed key order). Record digests are real SHA-256 over the digest-canonical request bytes (commands.md §6.6) — recompute with tools/generate-fixtures.mjs --check."
   ],
   "envelopeFixtures": [
@@ -115,7 +115,7 @@
       "invariants": [
         "disk-after bytes identical to disk-before (replay changes nothing)",
         "record R5 present in the scene file with appliedRevision 5",
-        "the replay is the recorded payload (no sceneId)"
+        "the replay is the recorded live acknowledgement, sceneId included"
       ]
     },
     {

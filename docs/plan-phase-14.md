@@ -258,3 +258,24 @@ Play shows the player walking under a low ceiling afterwards.
 ## 6. Decision log
 
 Add one dated line per decision taken during the run (what, why).
+
+- 2026-09-24 (14.8): the record version lives in the v4 retry block
+  (`retry: { recordVersion: 2, retention, records }`), not in
+  `storageVersion` — only the record format changed; a storage bump would
+  have touched every loader for no reason. A block without the key is
+  record version 1 and is still read; only version 2 is written (the next
+  change of a file rewrites its block as version 2, older records kept as
+  they are). A v3 envelope's retry block is unchanged.
+- 2026-09-24 (14.8): a version-2 record stores the live acknowledgement
+  itself (`sceneId` last, absent for a scene-index change), so a replay is
+  exactly the live ack with `duplicated: true`. `sceneId` is optional in a
+  version-2 record (records carried over from a version-1 block have none;
+  they keep replaying without it — not recoverable, the scene of an old
+  record is unknown); a version-1 record with `sceneId`, a malformed id, a
+  `sceneId` on a scene-index change or an unknown `recordVersion` blocks
+  the project (`retry_records_invalid`), like any malformed record.
+- 2026-09-24 (14.8): corpus regenerated (every retry block version 2;
+  scenarios 01 and 07 replay with `sceneId`; scenario 08's recovery snapshot
+  name follows its new hash). Seen, left as is: a recorded-result detail
+  path starts at `/result` without the `/retry/records/<i>` prefix (already
+  pinned by `json-pointer-escaping.test.ts`).

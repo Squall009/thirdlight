@@ -74,7 +74,8 @@
       "history": {
         "undoDepth": 5,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   }
 ]

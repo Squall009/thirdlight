@@ -72,7 +72,8 @@ for d, want in dirs:
     assert max(content['revision'], scene['scene']['revision']) == want
     for f, rev in ((content, content['revision']), (scene, scene['scene']['revision'])):
         recs = [r['appliedRevision'] for r in f['retry']['records']]
-        assert f['retry']['retention'] == 128 and len(recs) <= 128
+        assert f['retry']['recordVersion'] == 2 and f['retry']['retention'] == 128 and len(recs) <= 128
+        assert all(r['result']['sceneId'] == 'scene-main' for r in f['retry']['records'])
         assert all(recs[i] < recs[i+1] for i in range(len(recs)-1))
         assert (not recs) or max(recs) <= rev
 print("project-file invariants OK")
