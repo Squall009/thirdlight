@@ -37,6 +37,15 @@ test('Sprout on the live service: the editor, Play and the export', async ({ pag
   if ((await open.count()) > 0 && (await open.locator('option', { hasText: 'Meadow 2' }).count()) > 0) await open.selectOption({ label: 'Meadow 2' });
   await page.waitForTimeout(4000); // models load
   await shot('editor');
+  // Phase 14.9: Meadow 2 has its own look (golden hour): with Meadow 2 active the Scene view offers it.
+  const m2 = page.locator('.tl-scene-header').filter({ has: page.locator('.tl-scene-header__name', { hasText: /^Meadow 2$/ }) });
+  if ((await m2.count()) > 0) {
+    await m2.locator('.tl-scene-header__name').click();
+    await expect(m2).toContainText('ACTIVE', { ignoreCase: true, timeout: 10_000 });
+    await expect(page.getByRole('button', { name: /^level look/ })).toHaveText('level look: on', { timeout: 10_000 });
+    await page.waitForTimeout(3000);
+    await shot('editor-meadow2-look');
+  }
 
   // Play in the backend's headless editor (the active session), over the relay: the title, then Meadow 1.
   const api = async (path: string, body: unknown = {}): Promise<Record<string, unknown>> => {

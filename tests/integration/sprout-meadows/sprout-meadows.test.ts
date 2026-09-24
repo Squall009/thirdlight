@@ -13,8 +13,10 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { createGameHost } from '@thirdlight/game-host';
+import { createBehaviorCompiler } from '@thirdlight/behavior-build';
+import { createGameHost, linkBehaviorModules } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
+import { capsuleHalfTotal, playerCapsuleOf } from '@thirdlight/runtime';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -38,6 +40,29 @@ class FakeNode {
 }
 
 const sceneOf = (id: string): Any[] => JSON.parse(readFileSync(join(DIR, 'scenes', `${id}.json`), 'utf8')).scene.entities;
+
+/**
+ * Phase 14.9: the project's published scripts, compiled from their stored
+ * sources by the same pinned compiler the backend uses and linked the way the
+ * export links them (a boar drops a coin through `ctx.spawn`).
+ */
+async function projectBehaviors(content: Any): Promise<Any[]> {
+  const compiler = createBehaviorCompiler();
+  const rows: Any[] = [];
+  const outputs = new Map<string, Uint8Array>();
+  let enginePins: Any[] = [];
+  for (const b of content.behaviors ?? []) {
+    if (b.source === null || b.source === undefined) continue;
+    const containerBytes = new Uint8Array(readFileSync(join(DIR, 'sources', 'sha256', b.source.sourceDigest)));
+    const out: Any = await compiler.compile({ behaviorId: b.behaviorId, declaration: b.declaration, containerBytes, pinnedModules: compiler.pinnedModules });
+    if (!out.ok) throw new Error(`compile ${b.behaviorId}: ${JSON.stringify(out).slice(0, 400)}`);
+    expect(out.outputDigest).toBe(b.source.outputDigest);
+    enginePins = out.manifest.enginePins;
+    outputs.set(b.behaviorId, out.outputBytes);
+    rows.push({ behaviorId: b.behaviorId, sourceDigest: b.source.sourceDigest, manifestDigest: out.manifestDigest, outputDigest: out.outputDigest, declaration: b.declaration, ownedTransforms: out.manifest.ownedTransforms, requiredModules: out.manifest.requiredModules, path: b.behaviorId });
+  }
+  return linkBehaviorModules(rows, enginePins, async (path) => import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(outputs.get(path)!).toString('base64')}`));
+}
 
 describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headless play-through)', () => {
   it('both levels can be played from the title screen to the end', async () => {
@@ -67,8 +92,10 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
     const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, ...content.settings };
     const player = byId.get(content.game.playerId);
     const [px0, py0] = worldPos(player);
+    // Phase 14.9: the player's own capsule (Sprout's is fitted to his model), as the hosts pass it.
+    const capsule = playerCapsuleOf(player.components.controller);
     const physics = await createPhysicsPort({
-      character: { x: px0, y: py0 },
+      character: { x: px0, y: py0, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: capsule.offset },
       statics,
       solver: { hz: HZ, gravityY: settings.gravity_y },
       controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180, minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180, autostep: false },
@@ -96,9 +123,13 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
         scene: { schemaVersion: 4, sceneId: start[0], revision: 1, entities: startEntities },
         scenes: content.scenes.map((s: Any) => ({ sceneId: s.sceneId, start: start.includes(s.sceneId), ...(start.includes(s.sceneId) ? { entityIds: scenes[s.sceneId]!.map((e: Any) => e.id) } : {}) })),
         game: content.game,
+        // Phase 14.9: animators (a stomped boar's `defeated`), prefabs (its dropped coin).
+        ...(content.animators !== undefined ? { animators: content.animators } : {}),
+        ...(content.prefabs !== undefined ? { prefabs: content.prefabs } : {}),
       },
       settings,
       physics: port,
+      behaviorModules: await projectBehaviors(content),
       adapter: () => null,
       input: {
         sample: (stepIndex: number) => ({ stepIndex, ...frame }),
@@ -127,7 +158,8 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
     // --- the bot -----------------------------------------------------------------
     let jumpHold = 0;
     let airborneSince = 0;
-    const FEET = 0.9;
+    // The feet: the capsule's bottom below the player's origin.
+    const FEET = capsuleHalfTotal(capsule) - capsule.offset.y;
     const ray = (x: number, y: number, dx: number, dy: number, d: number): { distance: number } | null => port.raycast({ x, y }, { x: dx, y: dy }, d);
     const decide = (view: Any): void => {
       const t = rt.getInterpolatedState().state.transforms;
@@ -177,7 +209,10 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
 
     // --- the run -------------------------------------------------------------------
     let now = 0;
-    const results: { level: string; seconds: number; deaths: number }[] = [];
+    const results: { level: string; seconds: number; deaths: number; counters: Record<string, number>; spawned: number; spawnedTaken: number; score: unknown }[] = [];
+    let spawnedSeen = new Set<string>();
+    let spawnedTaken = new Set<string>();
+    let lastCounters: Record<string, number> = {};
     let levelStart = 0;
     let lastDeaths = 0;
     let screen = '';
@@ -195,8 +230,12 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
       const view = rt.getGameView().view;
       const flow = obs.flow;
       if (flow.screen !== screen) {
-        if (flow.screen === 'playing') levelStart = view.simTime;
-        if (flow.screen === 'levelComplete') results.push({ level: flow.levelId, seconds: Math.round((view.simTime - levelStart) * 10) / 10, deaths: lastDeaths });
+        if (flow.screen === 'playing') {
+          levelStart = view.simTime;
+          spawnedSeen = new Set();
+          spawnedTaken = new Set();
+        }
+        if (flow.screen === 'levelComplete') results.push({ level: flow.levelId, seconds: Math.round((view.simTime - levelStart) * 10) / 10, deaths: lastDeaths, counters: lastCounters, spawned: spawnedSeen.size, spawnedTaken: spawnedTaken.size, score: flow.score });
         if (flow.screen === 'levelComplete' || flow.screen === 'gameOver') ui.submit = true;
         screen = flow.screen;
         if (screen === 'finished') break;
@@ -211,6 +250,9 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
       }
       if (screen === 'playing') {
         lastDeaths = view.deathCount;
+        lastCounters = { ...rt.gameCounters().counters };
+        for (const e of rt.sceneSet().spawned) spawnedSeen.add(e.id);
+        for (const id of rt.hiddenEntities()) if (spawnedSeen.has(id)) spawnedTaken.add(id);
         decide(view);
       } else frame = { moveX: 0, jump: 'none' };
     }
@@ -219,5 +261,7 @@ describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headles
     console.log('end state:', screen, JSON.stringify(endAt), 'deaths', rt.getGameView().view.deathCount, 'frame', JSON.stringify(frame));
     expect(screen).toBe('finished');
     expect(results.map((r) => r.level)).toEqual(['meadow-1', 'meadow-2']);
+    // Phase 14.9: every boar the bot stomped dropped a coin (Sprout's script, ctx.spawn).
+    for (const r of results) expect(r.spawned).toBe(r.counters['defeated'] ?? 0);
   }, 180_000);
 });

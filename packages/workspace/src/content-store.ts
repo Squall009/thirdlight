@@ -343,6 +343,24 @@ function listStageDirs(root: string): string[] {
   }
 }
 
+/**
+ * Remove the stage directories past the stage TTL (measured as `resolveStage`
+ * measures it: the directory's mtime), except `keep`. Non-authoritative
+ * cleanup only; best effort.
+ */
+function removeExpiredStages(root: string, keep: string, nowMs: number): void {
+  for (const name of listStageDirs(root)) {
+    if (name === keep) continue;
+    const p = join(root, name);
+    try {
+      const st = lstatSync(p);
+      if (st.isDirectory() && Math.floor((nowMs - st.mtimeMs) / 1000) > STAGE_TTL_SECONDS) rmSync(p, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+}
+
 /** Sum the staged `source.bin` bytes under the staging root. */
 function stagedBytes(root: string): number {
   let total = 0;
@@ -423,6 +441,13 @@ export function stageContent(
   const rootRes = stagingRoot(ctx.dir, ctx.thirdlightDir);
   if (!rootRes.ok) return { ok: false, error: rootRes.error };
   const root = rootRes.dir;
+  // Phase 14.9: a stage past its TTL can never be used again (`resolveStage`
+  // refuses it as `stage_expired`), so it no longer counts as open: remove
+  // the expired ones (another stage than this one) before counting. Before,
+  // a publication (which keeps its stage) or an abandoned upload held one of
+  // the eight open-stage slots for the 24 h abandoned-stage retention, and a
+  // few sessions' uploads locked the project out of staging for a day.
+  removeExpiredStages(root, stageId, core.content.now());
   const existing = listStageDirs(root);
   if (!existing.includes(stageId) && existing.length >= MAX_OPEN_STAGES) {
     return { ok: false, error: stageLimitError('open_stages', existing.length + 1, MAX_OPEN_STAGES) };
