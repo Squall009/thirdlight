@@ -80,7 +80,7 @@ import {
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { RelayActionSource } from './relay-input';
@@ -103,7 +103,7 @@ export interface PreviewManifestV2 {
   tags?: { bit: number; name: string }[];
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
-  environment?: { wind?: WindLike };
+  environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -745,17 +745,20 @@ export function bootstrapPreviewM3(): void {
 bootstrapPreviewM3();
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials'] } {
+function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment'] } {
   if (manifest.materials === undefined && manifest.environment === undefined) return {};
+  const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
+    const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
+    const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
+    return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+  };
+  const env = manifest.environment;
   return {
+    ...(env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined) ? { environment: { value: env, loadTexture } } : {}),
     materials: {
       defs: manifest.materials ?? [],
       wind: manifest.environment?.wind ?? null,
-      loadTexture: (assetId) => {
-        const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
-        const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
-        return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
-      },
+      loadTexture,
     },
   };
 }

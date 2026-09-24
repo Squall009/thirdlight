@@ -2140,6 +2140,21 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       }
     }
   });
+  // Phase 9.5: sky images and the grading LUT are texture assets too.
+  const env = doc['environment'];
+  if (isPlainObject(env)) {
+    const refs: [string, unknown][] = [];
+    const sky = env['sky'];
+    if (isPlainObject(sky)) {
+      if (sky['texture'] !== undefined) refs.push(['/environment/sky/texture', sky['texture']]);
+      if (Array.isArray(sky['cube'])) sky['cube'].forEach((id, i) => refs.push([`/environment/sky/cube/${i}`, id]));
+    }
+    const post = env['post'];
+    if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
+    for (const [p, id] of refs) {
+      if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  }
   assets.forEach((a, i) => {
     const mapping = a['materials'];
     if (mapping === undefined) return;

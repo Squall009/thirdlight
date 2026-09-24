@@ -81,7 +81,7 @@ import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
-import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
+import { createMaterialLibrary, type EnvironmentLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
 import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
@@ -92,7 +92,7 @@ import { StatusBar } from './StatusBar';
 import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
-import { LightEditor } from './LightEditor';
+import { FogVolumeEditor, LightEditor } from './LightEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -294,6 +294,8 @@ function EditorApp(): JSX.Element {
   const thumbnailsRef = useRef<ThumbnailRenderer | null>(null);
   const materialLibraryRef = useRef<MaterialLibrary | null>(null);
   const materialsKeyRef = useRef('');
+  const environmentKeyRef = useRef('');
+  const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
   /** Phase 9.4: the project materials and the environment, for the panels. */
   const [materials, setMaterials] = useState<MaterialDef[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
@@ -431,6 +433,11 @@ function EditorApp(): JSX.Element {
       materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[]);
     }
     materialLibraryRef.current?.setWind(env?.wind ?? null);
+    const envKey = JSON.stringify(env);
+    if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
+      environmentKeyRef.current = envKey;
+      viewportRef.current?.setEnvironment(env === null ? null : (env as unknown as EnvironmentLike), loadTextureRef.current);
+    }
     setUi((s) => ({ ...s, revision: c.projection.revision }));
   }, []);
 
@@ -605,16 +612,18 @@ function EditorApp(): JSX.Element {
     // resolver is the editor's authenticated byte read; the renderer never
     // receives the token (sessions.md §16.1).
     // Phase 9.4: project materials (shared by boxes, models and instance sets).
+    const loadTextureAsset = async (assetId: string): Promise<THREE.Texture | null> => {
+      const v = client.content.resolveVersion(assetId);
+      if (v === null) return null;
+      const bytes = await client.assetBytes(assetId, v.version);
+      const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
+      t.needsUpdate = true;
+      return t;
+    };
+    loadTextureRef.current = loadTextureAsset;
     const materialLibrary = createMaterialLibrary({
-      loadTexture: async (assetId) => {
-        const v = client.content.resolveVersion(assetId);
-        if (v === null) return null;
-        const bytes = await client.assetBytes(assetId, v.version);
-        const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-        const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
-        t.needsUpdate = true;
-        return t;
-      },
+      loadTexture: loadTextureAsset,
       onChange: () => viewport.requestRender(),
     });
     materialLibraryRef.current = materialLibrary;
@@ -1055,6 +1064,12 @@ function EditorApp(): JSX.Element {
       ),
     [createEntityAt],
   );
+  /** Phase 9.5: a fog volume edit (a partial value). */
+  const saveFogVolume = useCallback(async (entityId: string, patch: Record<string, unknown>) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Fog volume', await c.setComponent(entityId, 'fogVolume', patch, c.projection.revision));
+  }, [reportFailure]);
   /** Phase 9.5: a light edit (a partial value; null removes an optional field). */
   const saveLightPatch = useCallback(async (entityId: string, patch: Record<string, unknown>) => {
     const c = clientRef.current;
@@ -2466,6 +2481,7 @@ function EditorApp(): JSX.Element {
           { label: 'Directional light', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void createLight('directional') },
           { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },
           { label: 'Point light', onSelect: () => void createLight('point') },
+          { label: 'Fog volume', onSelect: () => void createEntityAt('Create fog volume', { kind: 'group', name: 'Fog volume', components: { fogVolume: { size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5 } } }) },
           { label: 'Spot light', onSelect: () => void createLight('spot') },
           { label: 'Hemisphere light', disabled: entities.some((e) => e.light?.type === 'hemisphere'), reason: 'the scene already has a hemisphere light', onSelect: () => void createLight('hemisphere') },
         ] },
@@ -2813,7 +2829,14 @@ function EditorApp(): JSX.Element {
               error={materialError}
             />
           )}
-          {bottomTab === 'environment' && <EnvironmentPanel environment={environment} onSave={(env) => void saveEnvironment(env)} error={materialError} />}
+          {bottomTab === 'environment' && (
+            <EnvironmentPanel
+              environment={environment}
+              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              onSave={(env) => void saveEnvironment(env)}
+              error={materialError}
+            />
+          )}
           {bottomTab === 'tags' && (
             <TagsPanel
               tags={tags}
@@ -2887,7 +2910,9 @@ function EditorApp(): JSX.Element {
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
           extra={
-            selected !== null && selected.light !== undefined ? (
+            selected !== null && selected.fogVolume !== undefined ? (
+              <FogVolumeEditor volume={selected.fogVolume} onSave={(patch) => void saveFogVolume(selected.id, patch)} />
+            ) : selected !== null && selected.light !== undefined ? (
               <LightEditor light={selected.light} onSave={(patch) => void saveLightPatch(selected.id, patch)} />
             ) : selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
               <MaterialMappingEditor

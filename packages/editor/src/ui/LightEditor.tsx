@@ -108,3 +108,49 @@ export function LightEditor({ light, onSave }: Props): JSX.Element {
     </div>
   );
 }
+
+/** Phase 9.5: the fog volume section of the Inspector (size, density, colour, soft edges). */
+export function FogVolumeEditor({ volume, onSave }: { volume: { size: [number, number, number]; density: number; color: string; falloff?: number }; onSave: (patch: Record<string, unknown>) => void }): JSX.Element {
+  const [draft, setDraft] = useState(volume);
+  useEffect(() => setDraft(volume), [JSON.stringify(volume)]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="tl-inspector__section" aria-label="fog volume">
+      <div className="tl-panel__title">Fog volume</div>
+      <label className="tl-field">
+        <span className="tl-field__label">size (m)</span>
+        <span className="tl-param__vec2">
+          {[0, 1, 2].map((i) => (
+            <input
+              key={i}
+              className="tl-input tl-input--num"
+              aria-label={`fog size ${'xyz'[i]}`}
+              type="number"
+              min={0.1}
+              step={0.5}
+              value={draft.size[i]}
+              onChange={(e) => {
+                const size = [...draft.size] as [number, number, number];
+                size[i] = Math.max(0.1, Number(e.target.value));
+                setDraft({ ...draft, size });
+              }}
+              onBlur={() => JSON.stringify(draft.size) !== JSON.stringify(volume.size) && onSave({ size: draft.size })}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            />
+          ))}
+        </span>
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">density</span>
+        <input type="range" aria-label="fog density" min={0} max={1} step={0.01} value={draft.density} onChange={(e) => setDraft({ ...draft, density: Number(e.target.value) })} onPointerUp={() => onSave({ density: draft.density })} onKeyUp={() => onSave({ density: draft.density })} />
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">soft edges</span>
+        <input type="range" aria-label="fog falloff" min={0} max={1} step={0.01} value={draft.falloff ?? 0.5} onChange={(e) => setDraft({ ...draft, falloff: Number(e.target.value) })} onPointerUp={() => onSave({ falloff: draft.falloff ?? 0.5 })} onKeyUp={() => onSave({ falloff: draft.falloff ?? 0.5 })} />
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">colour</span>
+        <input type="color" aria-label="fog volume colour" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} onBlur={() => draft.color !== volume.color && onSave({ color: draft.color })} />
+      </label>
+    </div>
+  );
+}

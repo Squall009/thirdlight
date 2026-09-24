@@ -17,7 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { validateMaterialMapping } from '@thirdlight/project-model';
+import { validateFogVolumeComponent, validateMaterialMapping } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
   validateInstancesComponent,
@@ -51,6 +51,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   instances: ['asset', 'buffer', 'count'],
   // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
+  fogVolume: ['size', 'density', 'color', 'falloff'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -85,6 +86,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'instances',
   // Phase 9.4: v4 scenes only.
   'materials',
+  // Phase 9.5: v4 scenes only.
+  'fogVolume',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -160,6 +163,9 @@ export function validateV3ComponentValue(
       break;
     case 'materials':
       validateMaterialMapping(value, path, errors as unknown as Parameters<typeof validateMaterialMapping>[2]);
+      break;
+    case 'fogVolume':
+      validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);
       break;
     case 'light':
       validateLightComponent(value, path, errors, version);

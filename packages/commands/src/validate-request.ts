@@ -159,6 +159,8 @@ const CREATE_COMPONENTS: readonly string[] = [
   'instances',
   // Phase 9.4: v4 scenes only.
   'materials',
+  // Phase 9.5: v4 scenes only.
+  'fogVolume',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

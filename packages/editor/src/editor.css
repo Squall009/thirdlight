@@ -599,3 +599,4 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-param__reset { padding: 0 6px; }
 .tl-btn--danger { color: #ff8a80; }
 .tl-environment .tl-field { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px; }
+.tl-environment__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; overflow: auto; }

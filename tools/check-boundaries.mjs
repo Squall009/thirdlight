@@ -142,6 +142,17 @@ export const NODE_SIDE_ALLOWED = {
         // 2026-09-24: skinned meshes need SkeletonUtils.clone so each
         // instance gets its own skeleton (gltf-loader port only).
         'examples/jsm/utils/SkeletonUtils.js',
+        // Phase 9.5 (environment.ts): sky, the post stack and FXAA.
+        'examples/jsm/objects/Sky.js',
+        'examples/jsm/postprocessing/EffectComposer.js',
+        'examples/jsm/postprocessing/RenderPass.js',
+        'examples/jsm/postprocessing/ShaderPass.js',
+        'examples/jsm/postprocessing/UnrealBloomPass.js',
+        'examples/jsm/postprocessing/OutputPass.js',
+        'examples/jsm/postprocessing/SMAAPass.js',
+        'examples/jsm/postprocessing/GTAOPass.js',
+        'examples/jsm/postprocessing/BokehPass.js',
+        'examples/jsm/shaders/FXAAShader.js',
       ],
     },
     node: [],

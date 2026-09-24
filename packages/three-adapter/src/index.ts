@@ -135,3 +135,16 @@ export {
   type MaterialShaderName,
   type WindLike,
 } from './material-library';
+// Phase 9.5: sky, fog, fog volumes, tone mapping and the post stack.
+export {
+  createEnvironmentRenderer,
+  QUALITY_PROFILE,
+  type EnvironmentLike,
+  type EnvironmentRenderer,
+  type EnvironmentRendererOptions,
+  type FogLike,
+  type FogVolumeLike,
+  type PostLike,
+  type QualityLevel,
+  type SkyLike,
+} from './environment';

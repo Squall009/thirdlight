@@ -249,7 +249,9 @@ export type V3OwnedComponent =
   /** Phase 12 (c), v4 scenes only: an instance set. */
   | 'instances'
   /** Phase 9.4, v4 scenes only: the object's material mapping. */
-  | 'materials';
+  | 'materials'
+  /** Phase 9.5, v4 scenes only: a fog volume. */
+  | 'fogVolume';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

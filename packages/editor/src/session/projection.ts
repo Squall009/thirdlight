@@ -51,6 +51,8 @@ export interface ProjectedEntity {
   piece?: string;
   /** Phase 9.4: the object's material mapping (source material name or "*" → materialId). */
   materials?: Record<string, string>;
+  /** Phase 9.5: a fog volume around the entity. */
+  fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number };
   /**
    * M2 (packet 28): the informational prefab provenance a materialized copy
    * carries (`components.prefab`, project-model §20.4). It is what lets the
@@ -157,6 +159,7 @@ function toProjected(e: Entity): ProjectedEntity {
     modelAnimation?: ModelAnimationComponent;
     instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number };
     materials?: Record<string, string>;
+    fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number };
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
@@ -176,6 +179,7 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
     ...(typeof c.model?.piece === 'string' ? { piece: c.model.piece } : {}),
     ...(c.materials !== undefined ? { materials: { ...c.materials } } : {}),
+    ...(c.fogVolume !== undefined ? { fogVolume: { ...c.fogVolume, size: [...c.fogVolume.size] as [number, number, number] } } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
     ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
     ...(c.behavior?.values ? { behaviorValues: { ...c.behavior.values } } : {}),
@@ -401,6 +405,9 @@ export class Projection {
             else delete p.piece;
             p.kind = 'model';
           }
+        } else if (change.component === 'fogVolume') {
+          if (change.next === null) delete p.fogVolume;
+          else p.fogVolume = { ...(change.next as NonNullable<ProjectedEntity['fogVolume']>) };
         } else if (change.component === 'materials') {
           if (change.next === null) delete p.materials;
           else p.materials = { ...(change.next as Record<string, string>) };

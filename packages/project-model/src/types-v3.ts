@@ -15,7 +15,7 @@
  * the `audio` discriminator) — see §23.3.6/§23.3.7.
  */
 
-import type { EnvironmentConfig, MaterialDef } from './materials';
+import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
 import type {
   AssetMetrics,
   AssetVersion,
@@ -176,6 +176,8 @@ export interface ModelAnimationComponent {
 export interface EntityComponentsV3 extends EntityComponentsV2 {
   /** Phase 9.4, v4 only: source material name (or "*") → materialId. */
   materials?: Record<string, string>;
+  /** Phase 9.5, v4 only: a box of fog around the entity. */
+  fogVolume?: FogVolumeComponent;
   gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
   cameraFollow?: CameraFollowComponent;

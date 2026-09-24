@@ -25,7 +25,7 @@ describe('local lights (v4)', () => {
       { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5A4A38', intensity: 0.8 },
       { type: 'directional', color: '#ffffff', intensity: 1, direction: [0, -1, 0], mode: 'baked' },
     ]);
-    const lights = r.normalized.entities.map((e) => (e.components as { light: Record<string, unknown> }).light);
+    const lights = r.normalized.entities.map((e) => (e.components as unknown as { light: Record<string, unknown> }).light);
     expect(lights[0]).toEqual({ type: 'point', color: '#ffaa00', intensity: 40, castShadow: true, range: 8, decay: 2, mode: 'mixed' });
     expect(lights[1]).toMatchObject({ type: 'spot', angle: 25, penumbra: 0.3, direction: [0, -1, 0] });
     expect(lights[2]).toEqual({ type: 'hemisphere', color: '#bcd7ff', intensity: 0.8, groundColor: '#5a4a38' });

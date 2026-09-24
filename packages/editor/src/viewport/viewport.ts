@@ -11,7 +11,7 @@
  * Browser-only: uses the DOM (canvas, events) + WebGL via three.js.
  */
 
-import type { MaterialLibrary } from '@thirdlight/three-adapter';
+import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type MaterialLibrary } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -191,6 +191,7 @@ export class Viewport {
     return this.lighting;
   }
   private applyLighting(): void {
+    this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
     this.render();
@@ -229,8 +230,17 @@ export class Viewport {
       have.light.dispose();
       this.sceneLights.delete(id);
     }
+    // The sun of a procedural sky sits opposite the scene's directional light.
+    const key = entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
+    this.environment?.setKeyLightDirection(key?.light?.direction ?? null);
+    this.fogVolumeData = new Map(entities.filter((e) => e.fogVolume !== undefined).map((e) => [e.id, e.fogVolume!]));
+    const lightingBefore = this.lighting;
     if (!this.lightingChosen) this.lighting = this.sceneLights.size > 0 ? 'game' : 'editor';
-    this.applyLighting();
+    if (lightingBefore !== this.lighting) this.applyLighting();
+    else {
+      for (const l of this.editorLights) l.visible = this.lighting === 'editor';
+      for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
+    }
   }
 
   /** Phase 9.4: project materials on boxes (models get theirs through ModelInstances). */
@@ -323,7 +333,10 @@ export class Viewport {
     this.renderQueued = true;
     requestAnimationFrame(() => {
       this.renderQueued = false;
-      this.renderer.render(this.scene, this.camera);
+      if (this.environment !== null && this.lighting === 'game') {
+        this.environment.setFogVolumes(this.fogVolumesNow());
+        this.environment.render(this.camera);
+      } else this.renderer.render(this.scene, this.camera);
     });
   }
 
@@ -494,6 +507,17 @@ export class Viewport {
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
       this.addIcon(group, e.id, e.playerSpawn === true ? 'spawn' : 'empty');
+      // Phase 9.5: a fog volume shows its box.
+      if (e.fogVolume !== undefined) {
+        const box = new THREE.LineSegments(
+          new THREE.EdgesGeometry(new THREE.BoxGeometry(e.fogVolume.size[0], e.fogVolume.size[1], e.fogVolume.size[2])),
+          new THREE.LineBasicMaterial({ color: new THREE.Color(e.fogVolume.color), transparent: true, opacity: 0.7 }),
+        );
+        box.name = e.id;
+        (box as { entityId?: string }).entityId = e.id;
+        box.userData = { fogVolumeSize: e.fogVolume.size.join(',') };
+        group.add(box);
+      }
     }
     this.updateMesh(group, e);
     return group;
@@ -521,6 +545,17 @@ export class Viewport {
     // default blue when the component is absent) — the highlight emissive is
     // untouched (it is a separate material property).
     for (const c of obj.children) {
+      // Phase 9.5: a fog volume's box follows its size and colour.
+      if (c.userData['fogVolumeSize'] !== undefined && e.fogVolume !== undefined) {
+        const lines = c as THREE.LineSegments;
+        if (c.userData['fogVolumeSize'] !== e.fogVolume.size.join(',')) {
+          lines.geometry.dispose();
+          lines.geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(e.fogVolume.size[0], e.fogVolume.size[1], e.fogVolume.size[2]));
+          c.userData['fogVolumeSize'] = e.fogVolume.size.join(',');
+        }
+        (lines.material as THREE.LineBasicMaterial).color.set(e.fogVolume.color);
+        continue;
+      }
       const mesh = c as THREE.Mesh;
       if (e.kind !== 'box' || !(mesh instanceof THREE.Mesh) || mesh.userData.lightKind !== undefined) continue;
       const own = (mesh.userData['__tlSourceMaterial'] ?? mesh.material) as THREE.MeshLambertMaterial;
@@ -734,8 +769,37 @@ export class Viewport {
     for (const sp of this.sprites) fitSprite(sp, this.camera.aspect);
     this.renderer.setSize(w, h, false);
     this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.environment?.resize(w, h);
     this.requestRender();
   }
+
+  /**
+   * Phase 9.5: the project environment (sky, fog, fog volumes, post) in the
+   * Scene view — with game lighting only (the editor rig shows the plain view).
+   */
+  private environment: EnvironmentRenderer | null = null;
+  private environmentValue: EnvironmentLike | null = null;
+  setEnvironment(value: EnvironmentLike | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
+    this.environmentValue = value;
+    if (this.environment === null) {
+      this.environment = createEnvironmentRenderer(this.renderer, this.scene, { loadTexture, onChange: () => this.requestRender() });
+      this.environment.resize(Math.max(1, this.root.clientWidth || this.root.width), Math.max(1, this.root.clientHeight || this.root.height));
+    }
+    this.environment.set(this.lighting === 'game' ? value : null);
+    this.requestRender();
+  }
+  private fogVolumesNow(): FogVolumeLike[] {
+    const out: FogVolumeLike[] = [];
+    const p = new THREE.Vector3();
+    for (const [id, fv] of this.fogVolumeData) {
+      const obj = this.meshes.get(id);
+      if (obj === undefined || this.hierarchyFlags.get(id)?.active === false) continue;
+      obj.getWorldPosition(p);
+      out.push({ center: [p.x, p.y, p.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}) });
+    }
+    return out;
+  }
+  private fogVolumeData = new Map<string, NonNullable<ProjectedEntity['fogVolume']>>();
 
   dispose(): void {
     for (const m of this.meshes.values()) {

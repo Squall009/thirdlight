@@ -27,6 +27,7 @@
  * backend), never a throw.
  */
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
+import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -83,6 +84,16 @@ export interface SceneAdapterOptions {
     readonly defs: readonly MaterialDefLike[];
     readonly wind: WindLike | null;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  };
+  /**
+   * Phase 9.5: sky, fog, fog volumes and post-processing (the manifest's
+   * environment). Absent: the scene renders as before.
+   */
+  environment?: {
+    readonly value: EnvironmentLike;
+    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+    /** A player's quality setting (null = the environment's). */
+    readonly quality?: QualityLevel | null;
   };
 }
 
@@ -208,6 +219,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** Phase 9.5: the environment renderer (created with the renderer). */
+  let environmentRenderer: EnvironmentRenderer | null = null;
+  const fogVolumeIds = new Set<string>();
+  const tmpWorld = new THREE.Vector3();
+  /** The fog volumes of the loaded scenes, in world space (entities may move). */
+  const fogVolumesNow = (): FogVolumeLike[] => {
+    const out: FogVolumeLike[] = [];
+    for (const id of fogVolumeIds) {
+      const obj = objects.get(id);
+      const doc = entityDocs.get(id) as { components: { fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number } } } | undefined;
+      const fv = doc?.components.fogVolume;
+      if (obj === undefined || fv === undefined || !obj.visible) continue;
+      obj.getWorldPosition(tmpWorld);
+      out.push({ center: [tmpWorld.x, tmpWorld.y, tmpWorld.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}) });
+    }
+    return out;
+  };
   /** Phase 9.5: point/spot lights casting shadows (the shadow map is enabled for them). */
   let localShadowLights = 0;
   /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise; baked lights are not realtime). */
@@ -339,6 +367,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     objects.set(e.id, obj);
+    if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
     if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials));
     entityDocs.set(e.id, e);
@@ -348,6 +377,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
   };
   const releaseEntity = (id: string): void => {
+    fogVolumeIds.delete(id);
     materialUndo.get(id)?.();
     materialUndo.delete(id);
     const obj = objects.get(id);
@@ -795,7 +825,20 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
     try {
-      renderer.render(scene, camera!);
+      if (opts.environment !== undefined) {
+        if (environmentRenderer === null) {
+          environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment.loadTexture });
+          environmentRenderer.set(opts.environment.value);
+          if (opts.environment.quality !== undefined) environmentRenderer.setQuality(opts.environment.quality);
+        }
+        const key = keyLight;
+        environmentRenderer.setKeyLightDirection(key?.direction !== undefined ? [key.direction[0], key.direction[1], key.direction[2]] : null);
+        environmentRenderer.setFogVolumes(fogVolumesNow());
+        environmentRenderer.resize(w, h);
+        environmentRenderer.render(camera!);
+      } else {
+        renderer.render(scene, camera!);
+      }
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
@@ -884,6 +927,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
     materialLibrary?.dispose();
+    environmentRenderer?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
     // FIRST — cancel every in-flight prepare, dispose the attached
     // instances (cloned materials + controllers + instances) and the

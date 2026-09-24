@@ -249,8 +249,58 @@ export interface WindConfig {
   turbulence: number;
 }
 
+/** Phase 9.5: the sky (background + image-based lighting). */
+export interface SkyConfig {
+  /** procedural: physically based (Preetham); gradient: three colours; texture: an equirect or six-face image; color: solid. */
+  mode: 'procedural' | 'gradient' | 'texture' | 'color';
+  turbidity?: number;
+  rayleigh?: number;
+  mieCoefficient?: number;
+  mieDirectionalG?: number;
+  /** true (default): the sun sits opposite the scene's directional light; false: sunElevation/sunAzimuth. */
+  sunFromLight?: boolean;
+  sunElevation?: number;
+  sunAzimuth?: number;
+  topColor?: string;
+  horizonColor?: string;
+  bottomColor?: string;
+  color?: string;
+  /** An equirectangular texture asset. */
+  texture?: string;
+  /** Six texture assets px, nx, py, ny, pz, nz (instead of `texture`). */
+  cube?: [string, string, string, string, string, string];
+  /** Background brightness. */
+  intensity?: number;
+  /** Image-based lighting strength from the sky (0 = none). */
+  environmentIntensity?: number;
+}
+
+export interface FogConfig {
+  mode: 'none' | 'linear' | 'exp2';
+  color: string;
+  near?: number;
+  far?: number;
+  density?: number;
+}
+
+export interface PostConfig {
+  toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
+  exposure?: number;
+  bloom?: { enabled: boolean; strength?: number; radius?: number; threshold?: number };
+  grading?: { contrast?: number; saturation?: number; brightness?: number; tint?: string; lut?: string };
+  vignette?: { enabled: boolean; darkness?: number; offset?: number };
+  ssao?: { enabled: boolean; radius?: number; intensity?: number };
+  dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
+  antialias?: 'none' | 'fxaa' | 'smaa';
+}
+
 export interface EnvironmentConfig {
   wind?: WindConfig;
+  sky?: SkyConfig;
+  fog?: FogConfig;
+  post?: PostConfig;
+  /** The project's default quality level (players can change it in the settings menu). */
+  quality?: 'low' | 'medium' | 'high';
 }
 
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
@@ -260,7 +310,11 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
     err(errors, 'field_type', path, 'environment is an object', value);
     return;
   }
-  for (const k of Object.keys(value)) if (k !== 'wind') err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'wind');
+  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post', 'quality'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'wind, sky, fog, post, quality');
+  if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
+  if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
+  if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
+  if (value['quality'] !== undefined && !['low', 'medium', 'high'].includes(value['quality'] as string)) err(errors, 'field_value', `${path}/quality`, 'quality is low, medium or high', value['quality']);
   const w = value['wind'];
   if (w === undefined) return;
   if (!isPlainObject(w)) {
@@ -279,10 +333,167 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
   for (const k of Object.keys(w)) if (k !== 'direction' && !(k in range)) err(errors, 'field_unexpected', `${path}/wind/${k}`, `unknown wind field "${k}"`, k, 'direction, strength, gust, gustFrequency, turbulence');
 }
 
+/** Keys in a fixed order, colours lowercase (values were validated). */
+function canonicalObject<T extends object>(o: T): T {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(o).sort()) {
+    const v = (o as Record<string, unknown>)[k];
+    if (v === undefined) continue;
+    out[k] = typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : Array.isArray(v) ? [...v] : typeof v === 'object' && v !== null ? canonicalObject(v as object) : v;
+  }
+  return out as T;
+}
+
 export function canonicalEnvironment(e: EnvironmentConfig): EnvironmentConfig {
   return {
     ...(e.wind !== undefined
       ? { wind: { direction: [e.wind.direction[0], e.wind.direction[1]], strength: e.wind.strength, gust: e.wind.gust, gustFrequency: e.wind.gustFrequency, turbulence: e.wind.turbulence } }
       : {}),
+    ...(e.sky !== undefined ? { sky: canonicalObject(e.sky) } : {}),
+    ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
+    ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
+    ...(e.quality !== undefined ? { quality: e.quality } : {}),
   };
+}
+
+// ---- phase 9.5: sky, fog, post-processing ----------------------------------------
+
+/** `other`: a known field the caller checks itself (arrays, nested shapes). */
+type FieldRule = { kind: 'num'; min: number; max: number } | { kind: 'color' } | { kind: 'bool' } | { kind: 'enum'; values: readonly string[] } | { kind: 'id' } | { kind: 'other' };
+
+function checkFields(value: unknown, path: string, rules: Record<string, FieldRule>, required: readonly string[], errors: ModelErrorV2[]): Record<string, unknown> | null {
+  if (!isPlainObject(value)) {
+    err(errors, 'field_type', path, 'an object is expected', value);
+    return null;
+  }
+  for (const k of required) if (value[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`, undefined, k);
+  for (const [k, v] of Object.entries(value)) {
+    const rule = rules[k];
+    if (rule === undefined) {
+      err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, Object.keys(rules).join(', '));
+      continue;
+    }
+    if (rule.kind === 'other') continue;
+    const bad =
+      rule.kind === 'num'
+        ? typeof v !== 'number' || !Number.isFinite(v) || v < rule.min || v > rule.max
+          ? `a number in [${rule.min}, ${rule.max}]`
+          : null
+        : rule.kind === 'color'
+          ? typeof v !== 'string' || !COLOR_RE.test(v.toLowerCase())
+            ? 'a colour "#rrggbb"'
+            : null
+          : rule.kind === 'bool'
+            ? typeof v !== 'boolean'
+              ? 'true or false'
+              : null
+            : rule.kind === 'enum'
+              ? typeof v !== 'string' || !rule.values.includes(v)
+                ? `one of ${rule.values.join(', ')}`
+                : null
+              : typeof v !== 'string' || !ID_RE.test(v)
+                ? 'a texture asset id'
+                : null;
+    if (bad !== null) err(errors, 'field_value', `${path}/${k}`, `${k} must be ${bad}`, v, bad);
+  }
+  return value;
+}
+
+export function validateSky(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  const checked = checkFields(
+    value,
+    path,
+    {
+      cube: { kind: 'other' },
+      mode: { kind: 'enum', values: ['procedural', 'gradient', 'texture', 'color'] },
+      turbidity: { kind: 'num', min: 1, max: 20 },
+      rayleigh: { kind: 'num', min: 0, max: 4 },
+      mieCoefficient: { kind: 'num', min: 0, max: 0.1 },
+      mieDirectionalG: { kind: 'num', min: 0, max: 1 },
+      sunFromLight: { kind: 'bool' },
+      sunElevation: { kind: 'num', min: -10, max: 90 },
+      sunAzimuth: { kind: 'num', min: -180, max: 180 },
+      topColor: { kind: 'color' },
+      horizonColor: { kind: 'color' },
+      bottomColor: { kind: 'color' },
+      color: { kind: 'color' },
+      texture: { kind: 'id' },
+      intensity: { kind: 'num', min: 0, max: 8 },
+      environmentIntensity: { kind: 'num', min: 0, max: 8 },
+    },
+    ['mode'],
+    errors,
+  );
+  if (checked === null || !isPlainObject(value)) return;
+  const v = value;
+  const cube = v['cube'];
+  if (cube !== undefined && (!Array.isArray(cube) || cube.length !== 6 || !cube.every((c) => typeof c === 'string' && ID_RE.test(c)))) {
+    err(errors, 'field_value', `${path}/cube`, 'cube is six texture asset ids (px, nx, py, ny, pz, nz)', cube);
+  }
+  if (v['mode'] === 'texture' && v['texture'] === undefined && v['cube'] === undefined) err(errors, 'field_missing', `${path}/texture`, 'a texture sky needs "texture" or "cube"', undefined, 'texture');
+}
+
+export function validateFog(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  checkFields(
+    value,
+    path,
+    { mode: { kind: 'enum', values: ['none', 'linear', 'exp2'] }, color: { kind: 'color' }, near: { kind: 'num', min: 0, max: 10000 }, far: { kind: 'num', min: 0, max: 10000 }, density: { kind: 'num', min: 0, max: 1 } },
+    ['mode', 'color'],
+    errors,
+  );
+}
+
+export function validatePost(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  const nested: FieldRule = { kind: 'other' };
+  const v = checkFields(
+    value,
+    path,
+    {
+      toneMapping: { kind: 'enum', values: ['none', 'aces', 'agx', 'neutral'] },
+      exposure: { kind: 'num', min: 0, max: 8 },
+      antialias: { kind: 'enum', values: ['none', 'fxaa', 'smaa'] },
+      bloom: nested,
+      grading: nested,
+      vignette: nested,
+      ssao: nested,
+      dof: nested,
+    },
+    [],
+    errors,
+  );
+  if (v === null) return;
+  const sub: Record<string, Record<string, FieldRule>> = {
+    bloom: { enabled: { kind: 'bool' }, strength: { kind: 'num', min: 0, max: 3 }, radius: { kind: 'num', min: 0, max: 1 }, threshold: { kind: 'num', min: 0, max: 2 } },
+    grading: { contrast: { kind: 'num', min: -1, max: 1 }, saturation: { kind: 'num', min: -1, max: 1 }, brightness: { kind: 'num', min: -1, max: 1 }, tint: { kind: 'color' }, lut: { kind: 'id' } },
+    vignette: { enabled: { kind: 'bool' }, darkness: { kind: 'num', min: 0, max: 1 }, offset: { kind: 'num', min: 0, max: 2 } },
+    ssao: { enabled: { kind: 'bool' }, radius: { kind: 'num', min: 0.01, max: 4 }, intensity: { kind: 'num', min: 0, max: 4 } },
+    dof: { enabled: { kind: 'bool' }, focus: { kind: 'num', min: 0.1, max: 1000 }, aperture: { kind: 'num', min: 0, max: 0.1 }, maxBlur: { kind: 'num', min: 0, max: 0.05 } },
+  };
+  for (const [k, rules] of Object.entries(sub)) {
+    if (v[k] !== undefined) checkFields(v[k], `${path}/${k}`, rules, k === 'grading' ? [] : ['enabled'], errors);
+  }
+}
+
+/** Phase 9.5: a fog volume (box) the post pass fills with fog. */
+export interface FogVolumeComponent {
+  size: [number, number, number];
+  density: number;
+  color: string;
+  /** Soft edges: 0 = hard box, 1 = fades from the centre. */
+  falloff?: number;
+}
+
+export const MAX_FOG_VOLUMES = 16;
+
+export function validateFogVolumeComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  const v = checkFields(value, path, { size: { kind: 'other' }, density: { kind: 'num', min: 0, max: 1 }, color: { kind: 'color' }, falloff: { kind: 'num', min: 0, max: 1 } }, ['size', 'density', 'color'], errors);
+  if (v === null) return;
+  const size = v['size'];
+  if (!Array.isArray(size) || size.length !== 3 || !size.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 1000)) {
+    err(errors, 'field_value', `${path}/size`, 'size is [x, y, z] in meters, each 0 < v <= 1000', size);
+  }
+}
+
+export function canonicalFogVolume(v: FogVolumeComponent): FogVolumeComponent {
+  return { size: [v.size[0], v.size[1], v.size[2]], density: v.density, color: v.color.toLowerCase(), ...(v.falloff !== undefined ? { falloff: v.falloff } : {}) };
 }

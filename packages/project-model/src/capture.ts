@@ -135,6 +135,11 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const m of (content as { materials?: { textures: Record<string, string> }[] }).materials ?? []) {
     for (const id of Object.values(m.textures)) setRef(id);
   }
+  // Phase 9.5: the sky images and the grading LUT.
+  const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
+  if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
+  for (const id of env?.sky?.cube ?? []) setRef(id);
+  if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
   const game = content.game;
   if (game !== null) {
     for (const k of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {

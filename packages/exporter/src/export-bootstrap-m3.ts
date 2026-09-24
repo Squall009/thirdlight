@@ -58,7 +58,7 @@ import {
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
@@ -79,7 +79,7 @@ interface ExportManifestV2 {
   tags?: { bit: number; name: string }[];
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
-  environment?: { wind?: WindLike };
+  environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -294,6 +294,19 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         snapshot,
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
+          : {}),
+        // Phase 9.5: sky, fog, fog volumes, post-processing.
+        ...(manifest.environment !== undefined && (manifest.environment.sky !== undefined || manifest.environment.fog !== undefined || manifest.environment.post !== undefined || manifest.environment.quality !== undefined)
+          ? {
+              environment: {
+                value: manifest.environment,
+                loadTexture: (assetId: string) => {
+                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
+                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
+                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+                },
+              },
+            }
           : {}),
         // Phase 9.4: project materials and wind (textures from the verified bytes).
         ...(manifest.materials !== undefined || manifest.environment !== undefined

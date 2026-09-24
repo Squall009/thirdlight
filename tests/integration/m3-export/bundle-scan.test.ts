@@ -168,7 +168,8 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     expect(inputs.some((p) => p.includes('packages/three-adapter/src/gltf-loader.ts'))).toBe(true);
     const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
     // GLTFLoader and its two utils, plus (2026-09-23) three's Draco/KTX2
-    // loaders with their helpers and the meshopt decoder — nothing else.
+    // loaders with their helpers and the meshopt decoder, plus (phase 9.5b)
+    // the environment's sky and post-processing passes — nothing else.
     expect(addons).toEqual([
       'libs/ktx-parse.module.js',
       'libs/meshopt_decoder.module.js',
@@ -177,6 +178,26 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
       'loaders/GLTFLoader.js',
       'loaders/KTX2Loader.js',
       'math/ColorSpaces.js',
+      'math/SimplexNoise.js',
+      'objects/Sky.js',
+      'postprocessing/BokehPass.js',
+      'postprocessing/EffectComposer.js',
+      'postprocessing/GTAOPass.js',
+      'postprocessing/MaskPass.js',
+      'postprocessing/OutputPass.js',
+      'postprocessing/Pass.js',
+      'postprocessing/RenderPass.js',
+      'postprocessing/SMAAPass.js',
+      'postprocessing/ShaderPass.js',
+      'postprocessing/UnrealBloomPass.js',
+      'shaders/BokehShader.js',
+      'shaders/CopyShader.js',
+      'shaders/FXAAShader.js',
+      'shaders/GTAOShader.js',
+      'shaders/LuminosityHighPassShader.js',
+      'shaders/OutputShader.js',
+      'shaders/PoissonDenoiseShader.js',
+      'shaders/SMAAShader.js',
       'utils/BufferGeometryUtils.js',
       'utils/SkeletonUtils.js',
       'utils/WorkerPool.js',

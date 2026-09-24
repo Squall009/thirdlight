@@ -557,7 +557,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
 | 9.3 one schema version (phase 8 rest) | deferred to after 9.13 (see §6) | |
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
-| 9.5 lights, environment, sky, fog, post | todo | |
+| 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
 | 9.6 light baking | todo | |
 | 9.7 rigs + Animator + Sprout clips | todo | |
 | 9.8 input actions + Input window | todo | |
@@ -605,4 +605,12 @@ Add one dated line per decision taken during the run (what, why).
   of an asset and wipe its emissive). Assigning Sprout's kit/foliage
   materials is done with the demo levels (9.13), where the kit and its macro
   normal texture get imported anyway.
-
+- 2026-09-24 (9.5): the fog-volume "height gradient" and a per-scene
+  environment override are not built; the override moves to 9.10 with levels.
+  Grading is brightness/contrast/saturation/tint plus a LUT strip and vignette
+  in one custom pass (no lift/gamma/gain, no separate LUTPass). Point/spot
+  limits are 16 per scene (schema), not a Problems warning at 8 realtime / 2
+  shadow casters. Qwen puts the horizon low in its panoramas, so the Sprout
+  sky script records each horizon and remaps it to the middle row; the lower
+  half is a flat ground colour. The skies are committed in Sprout but not
+  pushed (pushing Sprout was not permitted); they get imported with 9.13.

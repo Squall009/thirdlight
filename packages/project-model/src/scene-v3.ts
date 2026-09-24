@@ -18,7 +18,7 @@
  * result, never throws, never reads files.
  */
 
-import { canonicalMaterialMapping, validateMaterialMapping } from './materials';
+import { canonicalFogVolume, canonicalMaterialMapping, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, type FogVolumeComponent } from './materials';
 import {
   canonicalBox,
   canonicalCamera,
@@ -120,7 +120,7 @@ const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activa
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
@@ -626,6 +626,7 @@ interface EntityV3Counts {
   ambient: number;
   local: number;
   hemisphere: number;
+  fogVolumes: number;
   cameras: number;
   controllers: number;
   colliders: number;
@@ -640,6 +641,7 @@ const EMPTY_COUNTS: EntityV3Counts = {
   ambient: 0,
   local: 0,
   hemisphere: 0,
+  fogVolumes: 0,
   cameras: 0,
   controllers: 0,
   colliders: 0,
@@ -804,6 +806,7 @@ function validateEntityComponentsV3(
     }
   }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
+  if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
 
@@ -901,6 +904,7 @@ function validateEntityComponentsV3(
     directional: lightType === 'directional' ? 1 : 0,
     ambient: lightType === 'ambient' ? 1 : 0,
     local: lightType === 'point' || lightType === 'spot' ? 1 : 0,
+    fogVolumes: comps['fogVolume'] !== undefined ? 1 : 0,
     hemisphere: lightType === 'hemisphere' ? 1 : 0,
     cameras: comps['camera'] !== undefined ? 1 : 0,
     controllers: comps['controller'] !== undefined ? 1 : 0,
@@ -1044,6 +1048,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
   if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
+  if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
     components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };
@@ -1170,6 +1175,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.directional += c.directional;
         counts.ambient += c.ambient;
         counts.local += c.local;
+        counts.fogVolumes += c.fogVolumes;
         counts.hemisphere += c.hemisphere;
         counts.cameras += c.cameras;
         counts.controllers += c.controllers;
@@ -1261,6 +1267,9 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     }
     if (counts.local > MAX_LOCAL_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
+    }
+    if (counts.fogVolumes > MAX_FOG_VOLUMES) {
+      errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));
     }
     if (counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
