@@ -7,7 +7,7 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { composeV4, DEFAULT_INPUT, effectiveEntityFlags, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, DEFAULT_INPUT, DESCRIPTORS, effectiveEntityFlags, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
@@ -529,7 +529,8 @@ function failure(op: string, projectId: string, error: import('@thirdlight/comma
  * The v4 queries. `queryEntities` takes an optional `sceneId` (default: all
  * scenes, in index order, with `entitySceneIds` naming each entity's scene);
  * `queryEntity` reports the entity's `sceneId`; `queryProject` lists the
- * scene index and the start set; `queryGameConfig` adds them too.
+ * scene index and the start set; `queryGameConfig` adds them too (and,
+ * with `args.descriptors: true`, the phase 15.0 descriptor registry).
  */
 export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, args: Record<string, unknown> | undefined, workspace: unknown): QueryResult {
   const state = s.v4 as V4State;
@@ -537,6 +538,16 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   if (op === 'queryAssets' || op === 'queryPrefabs' || op === 'queryBehaviors' || op === 'queryGameConfig') {
     const cs = createCommandState({ ...primaryScene(state), revision: state.revision }, state.content as unknown as ContentDocument);
     const request: Record<string, unknown> = { op, projectId };
+    // Phase 15.0: `queryGameConfig {descriptors: true}` adds the component and
+    // content descriptor registry (asked for once; it is static and ~120 KB).
+    let withDescriptors = false;
+    if (op === 'queryGameConfig' && args !== undefined && Object.prototype.hasOwnProperty.call(args, 'descriptors')) {
+      const d = args['descriptors'];
+      if (typeof d !== 'boolean') return failure(op, projectId, fieldTypeError('/args/descriptors', d, 'boolean'));
+      withDescriptors = d;
+      const { descriptors: _d, ...rest } = args;
+      args = rest;
+    }
     if (args !== undefined) request['args'] = args;
     const result = op === 'queryAssets' ? queryAssets(cs, request) : op === 'queryPrefabs' ? queryPrefabs(cs, request) : op === 'queryBehaviors' ? queryBehaviors(cs, request) : queryGameConfig(cs, request);
     if (op === 'queryGameConfig' && (result as { ok?: boolean }).ok === true) {
@@ -552,6 +563,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
         inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
+        ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown } : {}),
       } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;

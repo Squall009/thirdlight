@@ -94,7 +94,8 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
   actions.forEach((a, i) => {
     const p = `${path}/actions/${i}`;
     if (!isPlainObject(a)) return err(errors, 'field_type', p, 'an action is an object', a);
-    for (const k of Object.keys(a)) if (!['name', 'type', 'map', 'bindings', 'deadZone', 'invert', 'scale'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown field "${k}"`, k);
+    const ACTION_KEYS = ['name', 'type', 'map', 'bindings', 'deadZone', 'invert', 'scale'];
+    for (const k of Object.keys(a)) if (!ACTION_KEYS.includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown field "${k}"`, k, ACTION_KEYS.join(', '));
     if (typeof a['name'] !== 'string' || !NAME_RE.test(a['name'])) err(errors, 'field_value', `${p}/name`, 'an action name is a letter or _ then up to 31 letters, digits or _', a['name']);
     else if (names.has(a['name'])) err(errors, 'field_value', `${p}/name`, 'action names are unique', a['name']);
     else names.add(a['name']);
@@ -113,7 +114,7 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
       const keys = BINDING_KEYS[kind];
       if (keys === undefined) return err(errors, 'field_value', `${bp}/kind`, 'kind is key, gamepadButton, gamepadAxis, keys1d, keys2d, gamepadButtons1d or gamepadStick', kind);
       if (!FITS[type].includes(kind)) return err(errors, 'field_value', `${bp}/kind`, `a ${kind} binding does not fit a ${type} action`, kind);
-      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k)) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, keys.join(', '));
+      for (const k of Object.keys(b)) if (k !== 'kind' && !keys.includes(k)) err(errors, 'field_unexpected', `${bp}/${k}`, `unknown field "${k}"`, k, ['kind', ...keys].join(', '));
       for (const k of keys) {
         const v = b[k];
         const ok = kind === 'key' || kind === 'keys1d' || kind === 'keys2d' ? code(v) : kind === 'gamepadAxis' || kind === 'gamepadStick' ? axis(v) : button(v);

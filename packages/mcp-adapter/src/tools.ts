@@ -183,7 +183,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
       'optional); target="integrity" returns the bounded content-integrity report (a file referenced in place is ' +
       'ok / changed / missing); target="game" returns the ' +
-      'full normalized `content.game` block (the v3 `queryGameConfig`, or null); target="projectFiles" lists one ' +
+      'full normalized `content.game` block (the v3 `queryGameConfig`, or null; includeDescriptors adds the ' +
+      'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
+      'Scene handle, ~120 KB); target="projectFiles" lists one ' +
       'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav ' +
       'files) for tl_content_upload projectPath. Never returns bytes.',
     inputSchema: {
@@ -199,6 +201,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         includeVersions: { type: 'boolean' },
         includeEntities: { type: 'boolean' },
         includeDeclaration: { type: 'boolean' },
+        includeDescriptors: { type: 'boolean', description: 'target="game": also return the descriptor registry' },
       },
       required: ['target'],
       additionalProperties: false,
@@ -657,7 +660,8 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   // Packet 48 repair: the v3 game-config query (commands.md §3.1.11/§A6) over
   // the same shared command surface; no args.
   if (target === 'game') {
-    const res = await ctx.client.command(ctx.projectId, { op: 'queryGameConfig' });
+    if (a.includeDescriptors !== undefined && typeof a.includeDescriptors !== 'boolean') return toolError('includeDescriptors must be a boolean');
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryGameConfig', ...(a.includeDescriptors === true ? { args: { descriptors: true } } : {}) });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'assets' || target === 'asset') {

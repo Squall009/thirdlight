@@ -147,6 +147,14 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     expect(game?.title).toBe('Beacon Reach v2');
     expect(game?.objective).toBe('Reach the far beacon');
     expect(game).not.toHaveProperty('killY');
+    // Phase 15.0: the descriptor registry only when asked for.
+    expect(viaMcp.body).not.toHaveProperty('descriptors');
+    const withDescriptors = await mcp.call('tl_content_query', { target: 'game', includeDescriptors: true });
+    expect(withDescriptors.isError, JSON.stringify(withDescriptors.body)).toBe(false);
+    const registry = withDescriptors.body.descriptors as { version: number; components: { name: string }[] };
+    expect(registry.version).toBe(1);
+    expect(registry.components.map((c) => c.name)).toContain('controller');
+    expect((await mcp.call('tl_content_query', { target: 'game', includeDescriptors: 'yes' })).isError).toBe(true);
     const viaHttp = await http(`${bp.origin}/api/v1/projects/${V3_PROJECT}/commands`, {
       body: { op: 'queryGameConfig', projectId: V3_PROJECT },
       token: AUTH_TOKEN,
