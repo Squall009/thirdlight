@@ -31,8 +31,10 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
-import { ZoneOverlay, type SizeHandleRef, type ZoneTool } from './zone-overlay';
-import { sizeEdit, type SizeShape } from '../session/size-handles';
+import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { ZoneOverlay, type ZoneTool } from './zone-overlay';
+import { commitValue, type HandleShape } from '../session/handles';
+import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
 import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import type { ModelInstances } from './model-instances';
 
@@ -56,10 +58,20 @@ export interface ViewportCallbacks {
   onZoneGestureFrame: (hit: { x: number; y: number }) => void;
   onZoneGestureEnd: (hit: { x: number; y: number }) => void;
   onZoneGestureCancel: () => void;
-  /** Phase 9.12: a mover waypoint handle was dragged and dropped (its new offset from the mover). */
-  onWaypointMoved?: (entityId: string, index: number, offset: [number, number, number]) => void;
-  /** Phase 14.0: a size handle was dragged and dropped — the component value to store (one setComponent). */
-  onSizeHandleMoved?: (entityId: string, component: string, value: Record<string, unknown>) => void;
+  /**
+   * Phase 15.2 (generalises 9.12's waypoint and 14.0's size handles): a
+   * handle was dragged and dropped, or a corner deleted — the component
+   * value to store (one setComponent, one undo step).
+   */
+  onHandleEdit?: (entityId: string, component: string, value: Record<string, unknown>) => void;
+  /** Phase 15.2: a handle edit that cannot be stored (a concave polygon, the last corners) — nothing is sent. */
+  onHandleRefused?: (message: string) => void;
+  /** Phase 15.2: one copy of the selected instance set was clicked (null: none). */
+  onCopyPick?: (entityId: string, index: number | null) => void;
+  /** Phase 15.2: the selected copy was moved, turned or scaled with the gizmo (its new local transform). */
+  onCopyTransform?: (entityId: string, index: number, t: CopyTransform) => void;
+  /** Phase 15.2: a brush stroke on the selected instance set — new copies at these points (the set's local space). */
+  onBrushStroke?: (entityId: string, points: [number, number, number][]) => void;
 }
 
 const GROUND_SIZE = 20;
@@ -84,10 +96,16 @@ const N = (v: number | undefined): number => v ?? 0;
  * light (type, direction, range, cone, mode) and whether it has a fog volume
  * or is a spawn. A change rebuilds them (sizes and colours update in place).
  */
-function buildKeyOf(e: ProjectedEntity): string {
+function buildKeyOf(e: ProjectedEntity, aspect: number): string {
   const l = e.light;
-  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true]);
+  // Phase 15.2: the camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing shape the helpers too.
+  const camera = e.kind === 'camera' ? [e.components['camera'] ?? null, aspect] : null;
+  const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { facing?: string } | undefined)?.facing ?? null) : null;
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, camera, facing]);
 }
+
+/** Phase 15.2: the game's aspect before the Scene view is told one (16:9, the common screen shape). */
+const DEFAULT_GAME_ASPECT = 16 / 9;
 
 function boxColor(e: ProjectedEntity): number {
   const hex = e.surface?.color ?? e.box?.color ?? '#cccccc';
@@ -177,17 +195,32 @@ export class Viewport {
       this.draggingGizmo = true;
       this.gizmoCancelled = false;
       this.applySnapping();
+      // Phase 15.2: a copy of an instance set previews locally; its release stores one buffer.
+      if (this.gizmo.object === this.copyProxy) return;
       this.cb.onGestureBegin(id);
     });
     this.gizmo.addEventListener('objectChange', () => {
       const id = this.gizmoTargetId;
-      if (this.draggingGizmo && id && !this.gizmoCancelled) this.cb.onGestureFrame(id, this.readTarget());
+      if (!this.draggingGizmo || !id || this.gizmoCancelled) return;
+      if (this.gizmo.object === this.copyProxy && this.copySel !== null) {
+        const t = this.readCopyProxy();
+        this.models?.previewCopy(this.copySel.entityId, this.copySel.index, [...t.position, ...t.rotation, ...t.scale]);
+        this.updateCopyHighlight();
+        return;
+      }
+      this.cb.onGestureFrame(id, this.readTarget());
     });
     this.gizmo.addEventListener('mouseUp', () => {
       const id = this.gizmoTargetId;
       const cancelled = this.gizmoCancelled;
       this.draggingGizmo = false;
       this.gizmoCancelled = false;
+      if (this.gizmo.object === this.copyProxy && this.copySel !== null) {
+        const sel = this.copySel;
+        if (cancelled) this.syncCopyProxy(true);
+        else this.cb.onCopyTransform?.(sel.entityId, sel.index, this.readCopyProxy());
+        return;
+      }
       if (id && !cancelled) this.cb.onGestureEnd(id, this.readTarget());
     });
     this.scene.add(this.gizmo.getHelper());
@@ -329,6 +362,8 @@ export class Viewport {
   refreshLightmaps(): void {
     this.unapplyLightmaps();
     this.applyLightmaps();
+    // Phase 15.2: an instance buffer arrived — the selected copy's stand-in and box follow it.
+    if (this.copySel !== null && !this.draggingGizmo) this.syncCopyProxy();
   }
 
   /**
@@ -617,8 +652,13 @@ export class Viewport {
     this.renderQueued = true;
     requestAnimationFrame(() => {
       this.renderQueued = false;
-      // Phase 14.0: where the size handles are on screen (tests drag them).
+      // Phase 14.0/15.2: where the handle grips are on screen (tests drag them); grips keep their screen size.
+      this.zones.scaleGrips();
       this.root.setAttribute('data-size-handles', JSON.stringify(this.zones.sizeHandleClientPoints()));
+      // Phase 15.2: the selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
+      const setId = this.selectedId !== null && this.projected.find((x) => x.id === this.selectedId)?.instances !== undefined ? this.selectedId : null;
+      this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
+      this.root.setAttribute('data-gizmo-grab', JSON.stringify(this.gizmoGrab()));
       if (this.environment !== null && this.lighting === 'game') {
         this.environment.setFogVolumes(this.fogVolumesNow());
         this.environment.render(this.camera);
@@ -672,6 +712,19 @@ export class Viewport {
         return true;
       }
     }
+    // Phase 15.2: a handle drag or a brush stroke cancels with nothing stored.
+    if (this.handleDragging) {
+      this.handleDragging = false;
+      this.orbit.enabled = true;
+      this.zones.cancelHandleDrag();
+      this.render();
+      return true;
+    }
+    if (this.brushStroke !== null) {
+      this.orbit.enabled = true;
+      this.endBrush(true);
+      return true;
+    }
     if (!this.draggingGizmo || this.gizmoCancelled) return false;
     this.gizmo.reset();
     this.gizmoCancelled = true;
@@ -697,7 +750,7 @@ export class Viewport {
         m = this.buildMesh(e);
         this.meshes.set(e.id, m);
         this.scene.add(m);
-      } else if (m.userData['tlBuildKey'] !== buildKeyOf(e)) {
+      } else if (m.userData['tlBuildKey'] !== buildKeyOf(e, this.gameAspect)) {
         // Phase 15.1: a component added or removed in the Inspector (a box, a
         // camera, a light, a fog volume…) redraws the entity's own helpers;
         // children and a realized model under the node stay where they are.
@@ -765,7 +818,7 @@ export class Viewport {
     const before = new Set(group.children);
     this.decorateInner(group, e);
     for (const c of group.children) if (!before.has(c)) c.userData['tlOwn'] = true;
-    group.userData['tlBuildKey'] = buildKeyOf(e);
+    group.userData['tlBuildKey'] = buildKeyOf(e, this.gameAspect);
   }
 
   private decorateInner(group: THREE.Group, e: ProjectedEntity): THREE.Object3D {
@@ -829,10 +882,26 @@ export class Viewport {
       frustum.name = e.id;
       (frustum as { entityId?: string }).entityId = e.id;
       group.add(frustum);
+      // Phase 15.2: the real frustum (its fovY, near, far and the game's aspect), shown while the camera is selected.
+      const real = cameraFrustum(e, this.gameAspect);
+      real.visible = this.selectedId === e.id;
+      group.add(real);
       this.addIcon(group, e.id, 'camera');
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
       this.addIcon(group, e.id, iconKindFor(e));
+      // Phase 15.2: a spawn's facing, as an arrow along X.
+      const facing = e.playerSpawn === true ? (e.components['playerSpawn'] as { facing?: string } | undefined)?.facing : undefined;
+      if (facing === 'left' || facing === 'right') {
+        const s = facing === 'right' ? 1 : -1;
+        const arrow = new THREE.LineSegments(
+          new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.55 * s, 0.18, 0), new THREE.Vector3(0.8 * s, 0, 0), new THREE.Vector3(0.55 * s, -0.18, 0)]),
+          new THREE.LineBasicMaterial({ color: 0xffc857, depthTest: false }),
+        );
+        arrow.name = `spawn-facing:${facing}`;
+        arrow.renderOrder = 10;
+        group.add(arrow);
+      }
       // Phase 9.5: a fog volume shows its box.
       if (e.fogVolume !== undefined) {
         const box = new THREE.LineSegments(
@@ -867,6 +936,7 @@ export class Viewport {
     this.root.setAttribute('data-collider-outlines', String(c.colliders));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
     this.root.setAttribute('data-capsule-outlines', String(c.capsules));
+    this.root.setAttribute('data-chase-bands', String(c.chaseBands));
     this.root.setAttribute('data-gizmos', (Object.keys(this.gizmos) as (keyof typeof this.gizmos)[]).filter((k) => this.gizmos[k]).join(' '));
   }
 
@@ -960,14 +1030,21 @@ export class Viewport {
 
   /** Set the selected entity (drives the gizmo + the zone overlay handle). */
   setSelected(id: string | null, mode: GizmoMode = this.gizmoMode): void {
+    if (this.selectedId !== id) this.copySel = null;
     this.selectedId = id;
     this.gizmoMode = mode;
     for (const [eid, m] of this.meshes) {
       this.setMeshHighlight(m, eid === id);
+      // Phase 15.2: a camera's real frustum shows while it is selected.
+      for (const c of m.children) if (c.userData['cameraFrustum'] !== undefined) c.visible = eid === id;
     }
+    const frustum = id === null ? undefined : this.meshes.get(id)?.children.find((c) => c.userData['cameraFrustum'] !== undefined);
+    this.root.setAttribute('data-camera-frustum', frustum === undefined ? '' : JSON.stringify(frustum.userData['cameraFrustum']));
+    // Phase 15.2: a selected copy of an instance set takes the gizmo.
+    this.syncCopyProxy();
     // Phase 12: no gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true;
-    const target = id && movable ? this.targetFor(id) : null;
+    const target = this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
     if (id && target) {
       if (this.gizmo.object !== target) this.gizmo.attach(target);
       this.gizmo.setMode(mode);
@@ -1064,31 +1141,43 @@ export class Viewport {
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
 
-  /** Phase 9.12: an in-flight waypoint handle drag (the last previewed offset). */
-  private waypointDrag: { entityId: string; index: number; offset: [number, number, number] | null } | null = null;
+  /** Phase 15.2: a handle drag is in flight (the overlay holds the previewed shape). */
+  private handleDragging = false;
 
-  /** Phase 14.0: an in-flight size handle drag (the last previewed shape). */
-  private sizeDrag: { ref: SizeHandleRef; shape: SizeShape | null } | null = null;
+  /** Phase 15.2: an in-flight brush stroke on an instance set (world points, their preview dots). */
+  private brushStroke: { entityId: string; points: THREE.Vector3[]; dots: THREE.Group } | null = null;
 
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
-    // Phase 14.0: a size handle of the selected entity drags that size (one command on release).
-    const sh = this.zones.activeTool === null ? this.zones.pickSizeHandle(e.clientX, e.clientY) : null;
-    if (sh !== null) {
+    // Phase 15.2: a handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
+    const grip = this.zones.activeTool === null ? this.zones.pickHandle(e.clientX, e.clientY) : null;
+    if (grip !== null) {
       e.stopImmediatePropagation();
-      this.sizeDrag = { ref: sh, shape: null };
+      // A press on a grip is never a click that picks (or deselects) what is under it.
+      this.downAt = null;
+      if (e.altKey && grip.role === 'vertex') {
+        const del = this.zones.deleteHandlePoint(grip);
+        if (!del.ok) this.cb.onHandleRefused?.(del.message);
+        else this.commitHandle(del.shape);
+        return;
+      }
+      if (!this.zones.beginHandleDrag(grip)) return;
+      this.handleDragging = true;
       this.orbit.enabled = false;
       this.root.setPointerCapture(e.pointerId);
+      this.requestRender();
       return;
     }
-    // Phase 9.12: a mover's waypoint handle drags that waypoint (one command on release).
-    const wp = this.zones.activeTool === null ? this.zones.pickWaypoint(e.clientX, e.clientY) : null;
-    if (wp !== null) {
+    // Phase 15.2: the brush paints copies onto the selected instance set (not while the gizmo is under the pointer).
+    if (this.brush !== null && this.brush === this.selectedId && this.zones.activeTool === null && this.gizmo.axis === null) {
       e.stopImmediatePropagation();
-      this.waypointDrag = { ...wp, offset: null };
+      const dots = new THREE.Group();
+      this.scene.add(dots);
+      this.brushStroke = { entityId: this.brush, points: [], dots };
       this.orbit.enabled = false;
       this.root.setPointerCapture(e.pointerId);
+      this.brushAt(e.clientX, e.clientY);
       return;
     }
     // M3 (packet 56): a consumed pointer down drives a zone gesture
@@ -1105,24 +1194,65 @@ export class Viewport {
     }
   };
 
-  private onPointerMove = (e: PointerEvent): void => {
-    if (this.sizeDrag !== null) {
-      e.stopImmediatePropagation();
-      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
-      if (hit !== null) {
-        this.sizeDrag.shape = this.zones.previewSize(this.sizeDrag.ref, hit, this.snapping());
-        this.requestRender();
+  /** Phase 15.2: add a brush point (the surface under the pointer), at least the brush spacing from the others. */
+  private brushAt(clientX: number, clientY: number): void {
+    const s = this.brushStroke;
+    if (s === null) return;
+    const [x, y, z] = this.dropPoint(clientX, clientY);
+    const p = new THREE.Vector3(x, y, z);
+    if (s.points.some((q) => q.distanceTo(p) < BRUSH_SPACING_M)) return;
+    s.points.push(p);
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0x7fe0a0, depthTest: false }));
+    dot.position.copy(p);
+    dot.renderOrder = 12;
+    s.dots.add(dot);
+    this.requestRender();
+  }
+
+  private endBrush(cancel: boolean): void {
+    const s = this.brushStroke;
+    this.brushStroke = null;
+    if (s === null) return;
+    s.dots.removeFromParent();
+    s.dots.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh === true) {
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
       }
+    });
+    this.requestRender();
+    const node = this.meshes.get(s.entityId);
+    if (cancel || node === undefined || s.points.length === 0) return;
+    node.updateWorldMatrix(true, false);
+    const round = (v: number): number => Math.round(v * 1000) / 1000;
+    this.cb.onBrushStroke?.(s.entityId, s.points.map((p) => {
+      const l = node.worldToLocal(p.clone());
+      return [round(l.x), round(l.y), round(l.z)] as [number, number, number];
+    }));
+  }
+
+  /** Phase 15.2: store a handle shape (one setComponent), or say why it cannot be stored. */
+  private commitHandle(shape: HandleShape): void {
+    const edit = commitValue(shape);
+    if (edit === null) return;
+    if (!edit.ok) {
+      this.cb.onHandleRefused?.(edit.message);
       return;
     }
-    if (this.waypointDrag !== null) {
+    this.cb.onHandleEdit?.(shape.entityId, edit.component, edit.value);
+  }
+
+  private onPointerMove = (e: PointerEvent): void => {
+    if (this.handleDragging) {
       e.stopImmediatePropagation();
-      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
-      if (hit !== null) {
-        const snap = (v: number): number => (this.snapping() ? Math.round(v / SNAP_TRANSLATE_M) * SNAP_TRANSLATE_M : v);
-        this.waypointDrag.offset = this.zones.previewWaypoint(this.waypointDrag.entityId, this.waypointDrag.index, { x: snap(hit.x), y: snap(hit.y) });
-        this.requestRender();
-      }
+      this.zones.moveHandleDrag(e.clientX, e.clientY, this.snapping());
+      this.requestRender();
+      return;
+    }
+    if (this.brushStroke !== null) {
+      e.stopImmediatePropagation();
+      this.brushAt(e.clientX, e.clientY);
       return;
     }
     if (this.draggingZone) {
@@ -1139,25 +1269,19 @@ export class Viewport {
   private onPointerUp = (e: PointerEvent): void => {
     const down = this.downAt;
     this.downAt = null;
-    if (this.sizeDrag !== null) {
+    if (this.handleDragging) {
       e.stopImmediatePropagation();
-      const drag = this.sizeDrag;
-      this.sizeDrag = null;
+      this.handleDragging = false;
       this.orbit.enabled = true;
-      this.zones.endSizePreview();
+      const shape = this.zones.endHandleDrag();
       this.requestRender();
-      if (drag.shape !== null) {
-        const edit = sizeEdit(drag.shape);
-        this.cb.onSizeHandleMoved?.(drag.ref.entityId, edit.component, edit.value);
-      }
+      if (shape !== null) this.commitHandle(shape);
       return;
     }
-    if (this.waypointDrag !== null) {
+    if (this.brushStroke !== null) {
       e.stopImmediatePropagation();
-      const drag = this.waypointDrag;
-      this.waypointDrag = null;
       this.orbit.enabled = true;
-      if (drag.offset !== null) this.cb.onWaypointMoved?.(drag.entityId, drag.index, drag.offset);
+      this.endBrush(false);
       return;
     }
     if (this.draggingZone) {
@@ -1172,8 +1296,199 @@ export class Viewport {
     // A left click (no drag, not on a gizmo handle) picks or deselects.
     if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
+    // Phase 15.2: with an instance set selected, a click on one of its copies selects that copy.
+    const sel = this.selectedId;
+    if (sel !== null && this.projected.find((x) => x.id === sel)?.instances !== undefined) {
+      const copy = this.pickCopy(e.clientX, e.clientY, sel);
+      if (copy !== null) {
+        this.cb.onCopyPick?.(sel, copy);
+        return;
+      }
+    }
     this.cb.onPick(this.pick(e.clientX, e.clientY));
   };
+
+  // ---- Phase 15.2: descriptors, the game's aspect, instance copies, model outlines ----
+
+  private gameAspect = DEFAULT_GAME_ASPECT;
+  private brush: string | null = null;
+  private copySel: { entityId: string; index: number } | null = null;
+  private readonly copyProxy = new THREE.Object3D();
+  private copyHighlight: THREE.Box3Helper | null = null;
+
+  /** The component descriptors: the handles come from them. */
+  setDescriptors(reg: DescriptorRegistry | null): void {
+    this.zones.setHandleSources(reg, (id) => this.meshes.get(id) ?? null);
+    this.requestRender();
+  }
+
+  /** The game view's aspect (width / height): the cameras' frustums use it. */
+  setGameAspect(aspect: number): void {
+    if (!Number.isFinite(aspect) || aspect <= 0 || Math.abs(aspect - this.gameAspect) < 1e-3) return;
+    this.gameAspect = aspect;
+    for (const e of this.projected) {
+      const m = this.meshes.get(e.id);
+      if (e.kind === 'camera' && m !== undefined) this.redecorate(m as THREE.Group, e);
+    }
+    this.requestRender();
+  }
+
+  /** The brush paints copies onto this instance set (null: off). */
+  setBrush(entityId: string | null): void {
+    this.brush = entityId;
+    if (entityId === null && this.brushStroke !== null) this.endBrush(true);
+    this.root.setAttribute('data-brush', entityId ?? '');
+  }
+
+  /** Select one copy of the selected instance set (null: the whole set). */
+  setSelectedCopy(index: number | null): void {
+    this.copySel = index === null || this.selectedId === null ? null : { entityId: this.selectedId, index };
+    this.setSelected(this.selectedId);
+  }
+
+  getSelectedCopy(): { entityId: string; index: number } | null {
+    return this.copySel;
+  }
+
+  private readCopyProxy(): CopyTransform {
+    const p = this.copyProxy;
+    return { position: [p.position.x, p.position.y, p.position.z], rotation: [p.quaternion.x, p.quaternion.y, p.quaternion.z, p.quaternion.w], scale: [clampScale(p.scale.x), clampScale(p.scale.y), clampScale(p.scale.z)] };
+  }
+
+  /** Put the gizmo's stand-in on the selected copy (from the stored buffer; `reset` also redraws the copy there). */
+  private syncCopyProxy(reset = false): void {
+    const sel = this.copySel;
+    const e = sel === null ? undefined : this.projected.find((x) => x.id === sel.entityId);
+    if (sel !== null && (e?.instances === undefined || sel.index >= e.instances.count)) this.copySel = null;
+    const now = this.copySel;
+    const node = now === null ? undefined : this.meshes.get(now.entityId);
+    if (now === null || node === undefined) {
+      this.copyProxy.removeFromParent();
+      this.updateCopyHighlight();
+      return;
+    }
+    // A buffer still loading keeps the stand-in where it is (the drag left it at the stored transform).
+    const floats = e?.instances !== undefined ? this.models?.instanceBuffer(e.instances.buffer) : undefined;
+    const t = floats === undefined ? null : copyAt(floats, now.index);
+    if (this.copyProxy.parent !== node) node.add(this.copyProxy);
+    if (t !== null) {
+      this.copyProxy.position.set(...t.position);
+      this.copyProxy.quaternion.set(...t.rotation);
+      this.copyProxy.scale.set(...t.scale);
+      if (reset) this.models?.previewCopy(now.entityId, now.index, [...t.position, ...t.rotation, ...t.scale]);
+    }
+    this.updateCopyHighlight();
+  }
+
+  /** A box around the selected copy (and its index on the view element, for tests). */
+  private updateCopyHighlight(): void {
+    this.copyHighlight?.removeFromParent();
+    this.copyHighlight?.dispose();
+    this.copyHighlight = null;
+    const sel = this.copySel;
+    this.root.setAttribute('data-instance-copy', sel === null ? '' : String(sel.index));
+    if (sel === null) return;
+    const box = new THREE.Box3();
+    const m = new THREE.Matrix4();
+    for (const mesh of this.models?.instanceSetMeshes(sel.entityId) ?? []) {
+      if (sel.index >= mesh.count) continue;
+      mesh.updateWorldMatrix(true, false);
+      if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
+      mesh.getMatrixAt(sel.index, m);
+      box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m.premultiply(mesh.matrixWorld)));
+    }
+    if (box.isEmpty()) return;
+    this.copyHighlight = new THREE.Box3Helper(box, 0xffe27a);
+    this.copyHighlight.raycast = () => undefined;
+    this.scene.add(this.copyHighlight);
+  }
+
+  /** The copy of an instance set under the pointer, or null. */
+  private pickCopy(clientX: number, clientY: number, entityId: string): number | null {
+    const meshes = this.models?.instanceSetMeshes(entityId) ?? [];
+    if (meshes.length === 0) return null;
+    const rect = this.root.getBoundingClientRect();
+    this.raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
+    this.scene.updateMatrixWorld(true);
+    const hit = this.raycaster.intersectObjects([...meshes], false).find((h) => h.instanceId !== undefined);
+    return hit?.instanceId ?? null;
+  }
+
+  /** Where the copies of an instance set are on screen (the middle of each drawn copy; tests click them). */
+  copyClientPoints(entityId: string): { index: number; x: number; y: number }[] {
+    const mesh = this.models?.instanceSetMeshes(entityId)[0];
+    if (mesh === undefined) return [];
+    const rect = this.root.getBoundingClientRect();
+    mesh.updateWorldMatrix(true, false);
+    if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
+    const centre = mesh.geometry.boundingBox!.getCenter(new THREE.Vector3());
+    const m = new THREE.Matrix4();
+    const out: { index: number; x: number; y: number }[] = [];
+    for (let i = 0; i < Math.min(64, mesh.count); i++) {
+      mesh.getMatrixAt(i, m);
+      const v = centre.clone().applyMatrix4(m).applyMatrix4(mesh.matrixWorld).project(this.camera);
+      out.push({ index: i, x: Math.round(rect.left + ((v.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - v.y) / 2) * rect.height) });
+    }
+    return out;
+  }
+
+  /** The gizmo's centre and a point on its X arrow, on screen (null: no gizmo). */
+  private gizmoGrab(): { x: number; y: number; ax: number; ay: number } | null {
+    const target = this.gizmo.object;
+    if (target === undefined || this.gizmoTargetId === null) return null;
+    const rect = this.root.getBoundingClientRect();
+    const at = target.getWorldPosition(new THREE.Vector3());
+    // TransformControls' own size: distance × min(1.9 tan(fov/2), 7) × size / 4; its arrows run about 0.5 of that.
+    const factor = (at.distanceTo(this.camera.position) * Math.min(1.9 * Math.tan((Math.PI * this.camera.fov) / 360), 7) * 0.9) / 4;
+    const toScreen = (v: THREE.Vector3): { x: number; y: number } => {
+      const p = v.clone().project(this.camera);
+      return { x: Math.round(rect.left + ((p.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - p.y) / 2) * rect.height) };
+    };
+    const c = toScreen(at);
+    const a = toScreen(at.clone().add(new THREE.Vector3(0.3 * factor, 0, 0)));
+    return { x: c.x, y: c.y, ax: a.x, ay: a.y };
+  }
+
+  /**
+   * Phase 15.2 ("collider from model outline"): the vertices of the models
+   * drawn for an entity (its own and its children's), on the play plane
+   * relative to its origin with its rotation about Z undone (the collider's
+   * frame), or null when no model is loaded.
+   */
+  modelOutline(entityId: string): { x: number; y: number }[] | null {
+    const node = this.meshes.get(entityId);
+    if (node === undefined || this.models === null) return null;
+    this.scene.updateMatrixWorld(true);
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    node.matrixWorld.decompose(pos, quat, new THREE.Vector3());
+    const angle = new THREE.Euler().setFromQuaternion(quat, 'ZYX').z;
+    const toFrame = new THREE.Matrix4().makeRotationZ(angle).setPosition(pos).invert();
+    const out: { x: number; y: number }[] = [];
+    const v = new THREE.Vector3();
+    const addMesh = (mesh: THREE.Mesh): void => {
+      const attr = mesh.geometry.getAttribute('position');
+      if (attr === undefined) return;
+      const m = new THREE.Matrix4().multiplyMatrices(toFrame, mesh.matrixWorld);
+      // At most ~50k points per mesh (the hull only needs the extremes).
+      const stride = Math.max(1, Math.ceil(attr.count / 50_000));
+      for (let i = 0; i < attr.count; i += stride) {
+        v.fromBufferAttribute(attr, i).applyMatrix4(m);
+        out.push({ x: v.x, y: v.y });
+      }
+    };
+    const visit = (o: THREE.Object3D): void => {
+      const id = (o as { entityId?: string }).entityId;
+      if (id !== undefined && this.meshes.get(id) === o) {
+        this.models!.instanceFor(id)?.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh === true && c.visible) addMesh(c as THREE.Mesh);
+        });
+      }
+      for (const c of o.children) visit(c);
+    };
+    visit(node);
+    return out.length === 0 ? null : out;
+  }
 
   /** Frame every entity (the whole level) from the current view direction. */
   frameAll(entities: readonly ProjectedEntity[]): void {
@@ -1286,6 +1601,33 @@ function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
       return dl;
     }
   }
+}
+
+/**
+ * Phase 15.2: a camera's real frustum in its own space (it looks down −Z):
+ * the near and far rectangles and the edges from the eye, from its fovY,
+ * near and far and the game's aspect.
+ */
+function cameraFrustum(e: ProjectedEntity, aspect: number): THREE.LineSegments {
+  const c = (e.components['camera'] ?? {}) as { fovY?: number; near?: number; far?: number };
+  const fov = ((c.fovY ?? 60) * Math.PI) / 180;
+  const near = c.near ?? 0.1;
+  const far = c.far ?? 100;
+  const rectAt = (d: number): THREE.Vector3[] => {
+    const h = Math.tan(fov / 2) * d;
+    const w = h * aspect;
+    return [new THREE.Vector3(-w, -h, -d), new THREE.Vector3(w, -h, -d), new THREE.Vector3(w, h, -d), new THREE.Vector3(-w, h, -d)];
+  };
+  const n = rectAt(near);
+  const f = rectAt(far);
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < 4; i++) pts.push(n[i]!, n[(i + 1) % 4]!, f[i]!, f[(i + 1) % 4]!, new THREE.Vector3(0, 0, 0), f[i]!);
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf2b544, transparent: true, opacity: 0.6 }));
+  lines.name = `camera-frustum:${e.id}`;
+  lines.userData['cameraFrustum'] = { fovY: c.fovY ?? 60, near, far, aspect };
+  // Drawn only: its long lines never take a click meant for what is behind them.
+  lines.raycast = () => undefined;
+  return lines;
 }
 
 /** Phase 9.5: a point light's reach (three circles) or a spot light's cone, as lines. */

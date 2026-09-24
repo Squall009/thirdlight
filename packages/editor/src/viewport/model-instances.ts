@@ -289,6 +289,22 @@ export class ModelInstances {
     }
   }
 
+  /** Phase 15.2: the drawn copies of an instance set (picking one copy). */
+  instanceSetMeshes(entityId: string): readonly THREE.InstancedMesh[] {
+    return this.sets.get(entityId)?.built.meshes ?? [];
+  }
+
+  /** Phase 15.2: a loaded instance buffer (the copies' transforms), if here. */
+  instanceBuffer(digest: string): Float32Array | undefined {
+    return this.buffers.get(digest);
+  }
+
+  /** Phase 15.2: preview one copy at a transform while it is dragged (the stored buffer is untouched). */
+  previewCopy(entityId: string, index: number, transform: readonly number[]): void {
+    this.sets.get(entityId)?.built.setCopy(index, transform);
+    this.options.onChanged?.();
+  }
+
   private detachSet(entityId: string): void {
     const set = this.sets.get(entityId);
     if (set === undefined) return;

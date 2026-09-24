@@ -12,7 +12,7 @@ import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerC
 /** What one scene adds to the running game. */
 export interface SceneContribution {
   zones: GameZoneSpec[];
-  spawns: { entityId: string; center: Vec2 }[];
+  spawns: { entityId: string; center: Vec2; facing?: 'left' | 'right' }[];
   colliders: StaticColliderSpec[];
 }
 
@@ -46,7 +46,11 @@ export function sceneContribution(entities: readonly EntityV3[]): SceneContribut
         ...(zone.spawnId !== undefined ? { spawnId: zone.spawnId } : {}),
       });
     }
-    if (c['playerSpawn'] !== undefined) out.spawns.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] } });
+    if (c['playerSpawn'] !== undefined) {
+      // Phase 15.2: the facing travels only when set (left/right).
+      const facing = (c['playerSpawn'] as { facing?: string }).facing;
+      out.spawns.push({ entityId: e.id, center: { x: t.position[0], y: t.position[1] }, ...(facing === 'left' || facing === 'right' ? { facing } : {}) });
+    }
     const collider = c['collider'] as { shape?: unknown; rotationZ?: number; oneWay?: boolean } | undefined;
     if (collider !== undefined && c['controller'] === undefined) {
       out.colliders.push({

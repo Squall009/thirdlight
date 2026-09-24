@@ -154,7 +154,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
       'health {max, start?, invulnerableSeconds? (1 s), knockback? m/s, knockbackTime? s (0.25), hitBounce? m/s (5)} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size? (absent: its model\'s recorded bounds, else 1 x 1 m), ' +
       'respawn?: never|death, cue?: audioAssetId (collect sound)}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
-      'health, chase? m (walks toward a player in range), chaseHeight? m (2), stompBounce? m/s (9), stompTolerance? m (0.2), defeat?: none|squash|fade (squash), defeatTime? s (0.3), wallProbe? m (0.05, edges), ledgeProbe? m (0.4, edges)}; collider {oneWay: true} (jump up through, Down+Jump drops); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] m from the entity origin} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m) (null resets one); cameraFollow also takes distance? m (absent: where the camera is placed) and maxSpeed? m/s (480); gameZone hazard {damage?} (health instead of a life); audioSource ' +
+      'health, chase? m (walks toward a player in range), chaseHeight? m (2), stompBounce? m/s (9), stompTolerance? m (0.2), defeat?: none|squash|fade (squash), defeatTime? s (0.3), wallProbe? m (0.05, edges), ledgeProbe? m (0.4, edges)}; collider {oneWay: true} (jump up through, Down+Jump drops); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] m from the entity origin} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m) (null resets one); cameraFollow also takes distance? m (absent: where the camera is placed) and maxSpeed? m/s (480); gameZone hazard {damage?} (health instead of a life); playerSpawn {facing?: none|left|right} (v4; the player\'s face-movement models turn to it at start and respawn; null = none); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
       '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — colliders, pickups, enemies, movers and its scripts work; it appears at the next step; ' +
@@ -313,13 +313,16 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'instancing as ONE entity (foliage, rocks, repeated detail). transforms is a flat list of 10 numbers per copy ' +
       '(position x y z, rotation quaternion x y z w, scale x y z; local to the entity), 1-4096 copies. Returns ' +
       '{digest, count}; then create the entity with tl_command createEntity {kind:"group", components:{instances:' +
-      '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state.',
+      '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state. ' +
+      'Phase 15.2: give digest instead (an instance set\'s buffer) to READ its copies ({digest, count, transforms}; sets of up to ' +
+      '4096 copies) - to move, turn, scale, delete or add single copies, edit that list, publish it and setComponent "instances" ' +
+      '{buffer, count} (one undo step; the editor\'s copy editing and brush do exactly this).',
     inputSchema: {
       type: 'object',
       properties: {
         transforms: { type: 'array', items: { type: 'number' }, minItems: 10, maxItems: 40960 },
+        digest: { type: 'string', description: 'read this buffer (64 hex) instead of publishing' },
       },
-      required: ['transforms'],
       additionalProperties: false,
     },
   },
@@ -822,6 +825,16 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
 
 /** Phase 12 (c): publish an instance-set buffer (inline transforms). */
 async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  if (a.digest !== undefined) {
+    if (a.transforms !== undefined) return toolError('give transforms (publish) or digest (read), not both');
+    if (typeof a.digest !== 'string' || !/^[0-9a-f]{64}$/.test(a.digest)) return toolError('digest must be 64 lowercase hex characters');
+    const read = await ctx.client.readInstanceBuffer(ctx.projectId, a.digest);
+    if (!read.ok) return surfaceBackendError(read.response);
+    const count = Math.floor(read.floats.length / 10);
+    if (count > 4096) return toolError(`the buffer holds ${count} copies; reading returns sets of up to 4096 copies`);
+    // 9 significant digits: every float32 reads back to the same value when republished.
+    return toolOk({ ok: true, digest: a.digest, count, transforms: Array.from(read.floats, (v) => Number(v.toPrecision(9))) });
+  }
   const t = a.transforms;
   if (!Array.isArray(t) || t.length === 0 || t.length % 10 !== 0 || t.length > 40960 || !t.every((v) => typeof v === 'number' && Number.isFinite(v))) {
     return toolError('transforms must be a flat list of finite numbers, 10 per copy, 1-4096 copies');

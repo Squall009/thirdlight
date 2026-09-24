@@ -110,8 +110,14 @@ export const INSTANCE_FLOATS = 10;
 /** Most copies in one instance set. */
 export const MAX_INSTANCES = 65_536;
 
-/** §23.3.2 field-less spawn marker. */
-export type PlayerSpawnComponent = Record<string, never>;
+/** Phase 15.2: which way the player faces when it starts or respawns at a spawn. */
+export const PLAYER_SPAWN_FACINGS = ['none', 'left', 'right'] as const;
+export type PlayerSpawnFacing = (typeof PLAYER_SPAWN_FACINGS)[number];
+
+/** §23.3.2 spawn marker; phase 15.2 (v4 scenes) adds an optional `facing` (absent: none). */
+export interface PlayerSpawnComponent {
+  facing?: PlayerSpawnFacing;
+}
 
 /** §23.3.3 camera follow data (presentation math is packet 40's). */
 export interface CameraFollowComponent {

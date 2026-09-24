@@ -213,6 +213,28 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/buffers`, body);
   }
 
+  /**
+   * Phase 15.2: GET an instance-set buffer's bytes (the copies' transforms, 10
+   * little-endian float32 each), or the backend's error. Bounded by the
+   * buffer cap (65536 copies = 2.5 MiB).
+   */
+  async readInstanceBuffer(projectId: string, digest: string): Promise<{ ok: true; floats: Float32Array } | { ok: false; response: BackendResponse }> {
+    const url = `${this.origin}/api/v1/projects/${encodeURIComponent(projectId)}/content/buffers/${encodeURIComponent(digest)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await fetch(url, { method: 'GET', headers: { authorization: `Bearer ${this.token}` }, signal: controller.signal });
+      if (!res.ok) return { ok: false, response: await readResponse(res) };
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const floats = new Float32Array(bytes.byteLength >> 2);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let i = 0; i < floats.length; i += 1) floats[i] = view.getFloat32(i * 4, true);
+      return { ok: true, floats };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** DELETE a stage (non-authoritative cleanup). */
   discardStage(projectId: string, stageId: string): Promise<BackendResponse> {
     return this.request('DELETE', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}`);

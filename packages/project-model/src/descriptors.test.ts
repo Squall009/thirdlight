@@ -453,7 +453,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { role: 'goal', size: [2, 2] },
     { role: 'exit', size: [1.5, 2.5], load: ['scene-b'], unload: ['scene-c'], spawnId: 'spawn-0001' },
   ],
-  playerSpawn: [{}],
+  playerSpawn: [{ facing: 'left' }],
   mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
     { shape: 'box', size: [2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },

@@ -163,6 +163,8 @@ export {
   type PcmWavMetrics,
   type PcmWavRecipe,
   type PlayerSpawnComponent,
+  type PlayerSpawnFacing,
+  PLAYER_SPAWN_FACINGS,
   type SceneV3,
   type SurfaceComponent,
 } from './types-v3';

@@ -67,6 +67,9 @@ import {
 import { Gesture, type Transform } from '../session/gesture';
 import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
 import { fitCapsule } from '../session/size-handles';
+import { maxPolygonCorners } from '../session/handles';
+import { boxFromOutline, polygonFromOutline } from '../session/outline';
+import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
 import {
   DEFAULT_ZONE_SIZE,
   planCreateSpawn,
@@ -351,6 +354,9 @@ function EditorApp(): JSX.Element {
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
   // Phase 15.1: the component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
+  /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
+  const [selectedCopy, setSelectedCopy] = useState<number | null>(null);
+  const [brushOn, setBrushOn] = useState(false);
   const [animatorError, setAnimatorError] = useState<string | null>(null);
   // Phase 9.8: the input actions (null = the defaults).
   const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
@@ -720,26 +726,25 @@ function EditorApp(): JSX.Element {
         // The placement tool stays armed (Esc cancels the GESTURE, not the
         // tool — the user can try again; the panel's button disarms it).
       },
-      // Phase 9.12: a dragged mover waypoint handle — one setComponent on release.
-      onWaypointMoved: (entityId, index, offset) => {
-        const c = clientRef.current;
-        if (!c) return;
-        const e = c.projection.listEntities().find((x) => x.id === entityId);
-        const waypoints = (e?.blocks?.mover as { waypoints?: number[][] } | undefined)?.waypoints;
-        if (waypoints === undefined || index < 1 || index > waypoints.length) return;
-        const next = waypoints.map((w, i) => (i === index - 1 ? offset.map((v) => Math.round(v * 1000) / 1000) : w));
-        void c.setComponent(entityId, 'mover', { waypoints: next }, c.projection.revision).then((r) => reportFailure('Mover path', r));
-      },
-      // Phase 14.0: a dragged size handle (capsule, area, box collider, fog volume) — one setComponent on release.
-      onSizeHandleMoved: (entityId, component, value) => {
+      // Phase 15.2: a dragged handle (any descriptor handle: sizes, radii, capsules, ranges, cones,
+      // directions, paths, polygon corners) — one setComponent on release, one undo step.
+      onHandleEdit: (entityId, component, value) => {
         const c = clientRef.current;
         if (!c) return;
         void c.setComponent(entityId, component, value, c.projection.revision).then((r) => {
           // A drag that ends where it began changes nothing: not an error.
           if (!r.ok && (r.response as { code?: string }).code === 'no_change') return;
-          reportFailure(component === 'controller' ? 'Collision capsule' : 'Size', r);
+          reportFailure(component === 'controller' ? 'Collision capsule' : 'Handle edit', r);
         });
       },
+      onHandleRefused: (message) => setNotice(`Not stored: ${message}`),
+      // Phase 15.2: one copy of an instance set.
+      onCopyPick: (_entityId, index) => {
+        viewportRef.current?.setSelectedCopy(index);
+        setSelectedCopy(index);
+      },
+      onCopyTransform: (entityId, index, t) => void editCopiesRef.current.transform(entityId, index, t),
+      onBrushStroke: (entityId, points) => void editCopiesRef.current.add(entityId, points),
     }, { snapping: () => snappingRef.current && !shiftRef.current });
     viewportRef.current = viewport;
     // Packet 27: one shared GLB realization path for placements + preview. The
@@ -991,6 +996,33 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setSelected(selectedId, gizmoMode);
   }, [selectedId, gizmoMode]);
+  // Phase 15.2: another selection drops the selected copy and the brush.
+  useEffect(() => {
+    setSelectedCopy(null);
+    setBrushOn(false);
+  }, [selectedId]);
+  useEffect(() => {
+    viewportRef.current?.setBrush(brushOn ? selectedId : null);
+  }, [brushOn, selectedId]);
+  // Phase 15.2: the descriptors drive the Scene-view handles.
+  useEffect(() => {
+    viewportRef.current?.setDescriptors(registry);
+  }, [registry]);
+  // Phase 15.2: the cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
+  useEffect(() => {
+    const update = (): void => {
+      const frame = document.querySelector('iframe.tl-app__preview-frame');
+      const r = frame?.getBoundingClientRect();
+      viewportRef.current?.setGameAspect(r !== undefined && r.width > 0 && r.height > 0 ? r.width / r.height : window.innerWidth / Math.max(1, window.innerHeight));
+    };
+    update();
+    window.addEventListener('resize', update);
+    const timer = window.setInterval(update, 1000);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     clientRef.current?.setSelection(selection.ids);
   }, [selection]);
@@ -1157,6 +1189,12 @@ function EditorApp(): JSX.Element {
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
+    // Phase 15.2: a selected copy of an instance set is deleted from its set (the object stays).
+    const copy = viewportRef.current?.getSelectedCopy() ?? null;
+    if (copy !== null) {
+      await editCopiesRef.current.remove(copy.entityId, copy.index);
+      return;
+    }
     // Phase 12: every selected subtree (one deleteEntity each; a child of a
     // selected entity goes with it).
     const ids = draggedRoots(c.projection.listEntities(), selectionRef.current.length > 0 ? selectionRef.current : [selectedIdRef.current]);
@@ -1267,6 +1305,58 @@ function EditorApp(): JSX.Element {
   }, [reportFailure]);
   const editRef = useRef({ duplicate, copySelection, paste });
   editRef.current = { duplicate, copySelection, paste };
+
+  /**
+   * Phase 15.2: edit an instance set's copies — the new copy list is
+   * published through the buffer route (the one `tl_instance_buffer` uses)
+   * and stored with one `setComponent instances` (one undo step).
+   */
+  const editCopies = async (entityId: string, what: string, make: (floats: Float32Array) => Float32Array | string): Promise<boolean> => {
+    const c = clientRef.current;
+    const inst = c?.projection.getEntity(entityId)?.instances;
+    if (!c || inst === undefined) return false;
+    const floats = modelInstancesRef.current?.instanceBuffer(inst.buffer) ?? (await c.instanceBufferBytes(inst.buffer).catch(() => null));
+    if (floats === null) {
+      setNotice(`${what} failed: the copies are not loaded yet`);
+      return false;
+    }
+    const next = make(floats);
+    if (typeof next === 'string') {
+      setNotice(`${what}: ${next}`);
+      return false;
+    }
+    const published = await c.publishInstanceBuffer(next);
+    if (!published.ok) {
+      setNotice(`${what} failed: ${published.error.message}`);
+      return false;
+    }
+    const r = await c.setComponent(entityId, 'instances', { buffer: published.digest, count: published.count }, c.projection.revision);
+    if (!r.ok && (r.response as { code?: string }).code === 'no_change') return true;
+    reportFailure(what, r);
+    return r.ok;
+  };
+  const editCopiesRef = useRef({
+    transform: async (_e: string, _i: number, _t: CopyTransform): Promise<void> => undefined,
+    add: async (_e: string, _p: [number, number, number][]): Promise<void> => undefined,
+    remove: async (_e: string, _i: number): Promise<void> => undefined,
+  });
+  editCopiesRef.current = {
+    transform: async (entityId, index, t) => {
+      await editCopies(entityId, 'Move copy', (f) => withCopy(f, index, t));
+    },
+    add: async (entityId, points) => {
+      await editCopies(entityId, 'Brush', (f) => withAddedCopies(f, points));
+    },
+    remove: async (entityId, index) => {
+      const ok = await editCopies(entityId, 'Delete copy', (f) => withoutCopy(f, index) ?? 'an instance set keeps at least one copy (delete the object instead)');
+      if (ok) {
+        viewportRef.current?.setSelectedCopy(null);
+        setSelectedCopy(null);
+      }
+    },
+  };
+
+
 
   /** File → Export game…: the admin export route, then a zip download. */
   const exportGame = useCallback(async () => {
@@ -2439,6 +2529,27 @@ function EditorApp(): JSX.Element {
     [editComponent],
   );
 
+  /** Phase 15.2: a collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
+  const colliderFromModel = useCallback(
+    async (entityId: string, kind: 'box' | 'polygon') => {
+      const points = viewportRef.current?.modelOutline(entityId) ?? null;
+      if (points === null) {
+        setComponentError({ code: 'no_model', message: 'A collider from the model needs a loaded model on this object or on its children.' });
+        return;
+      }
+      const made = kind === 'box' ? boxFromOutline(points) : polygonFromOutline(points, maxPolygonCorners(registry));
+      if (!made.ok) {
+        setComponentError({ code: 'no_outline', message: made.message });
+        return;
+      }
+      if (made.note !== undefined) setNotice(`Collider: ${made.note}`);
+      const has = clientRef.current?.projection.getEntity(entityId)?.components['collider'] !== undefined;
+      if (has) await editComponent(entityId, 'collider', { shape: made.shape });
+      else await addComponentTo(entityId, 'collider', { shape: made.shape });
+    },
+    [editComponent, addComponentTo, registry],
+  );
+
   const refreshAssets = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
@@ -2628,6 +2739,8 @@ function EditorApp(): JSX.Element {
       prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
     },
     signals: registry === null ? [] : collectSignals(registry, allEntities.map((e) => e.components)),
+    // Phase 15.2: an animator's starting values are edited from its controller's parameters.
+    animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
     ...(selected?.sceneId !== undefined ? { sceneId: selected.sceneId } : {}),
   };
   // The game block's pickers name objects in any scene.
@@ -2745,7 +2858,13 @@ function EditorApp(): JSX.Element {
             if (selectedId !== null) void addComponentTo(selectedId, c.name, value as Record<string, unknown>);
           };
           if (mine.length > 1) {
-            out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items: mine.map((e) => ({ label: e.label.slice(c.label.length + 2), onSelect: () => add(e.value) })) });
+            const items: MenuEntry[] = mine.map((e) => ({ label: e.label.slice(c.label.length + 2), onSelect: () => add(e.value) }));
+            // Phase 15.2: a collider from the model's outline.
+            if (c.name === 'collider' && selectedId !== null) {
+              const id = selectedId;
+              items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
+            }
+            out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items });
           } else {
             out.push({ label: c.label, disabled: blocked !== null || pickReason !== null, reason: blocked ?? pickReason ?? '', onSelect: () => add(first.value) });
           }
@@ -3221,6 +3340,17 @@ function EditorApp(): JSX.Element {
           // Phase 15.1: descriptor-keyed custom widgets — the material mapping knows the
           // model's own material names; a surface offers the built-in presets.
           alwaysShow={selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? ['materials'] : []}
+          addExtras={(() => {
+            // Phase 15.2: "Add collider → box / polygon from model outline" (where a collider may be added).
+            if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
+            const entry = addEntries(registry, new Set(Object.keys(selected.components))).find((x) => x.component === 'collider');
+            const enabled = entry?.enabled === true;
+            const reason = entry?.reason ?? null;
+            return [
+              { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
+              { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
+            ];
+          })()}
           bodies={
             selected === null
               ? {}
@@ -3240,6 +3370,50 @@ function EditorApp(): JSX.Element {
             selected === null
               ? {}
               : {
+                  // Phase 15.2: one copy of an instance set, and the copy brush.
+                  instances: (
+                    <div className="tl-inspector__copies" data-copy={selectedCopy ?? ''}>
+                      {selectedCopy !== null && (
+                        <>
+                          <p className="tl-inspector__hint">Copy {selectedCopy + 1} selected: move, turn or scale it with the gizmo (W/E/R); Del deletes it.</p>
+                          <div className="tl-inspector__modes">
+                            <button className="tl-btn" onClick={() => void editCopiesRef.current.remove(selected.id, selectedCopy)}>
+                              Delete copy
+                            </button>
+                            <button
+                              className="tl-btn"
+                              onClick={() => {
+                                viewportRef.current?.setSelectedCopy(null);
+                                setSelectedCopy(null);
+                              }}
+                            >
+                              Whole set
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      <button className="tl-btn" aria-pressed={brushOn} title="Click or drag in the Scene view to add copies (at least 1 m apart); each stroke is one undo step" onClick={() => setBrushOn((v) => !v)}>
+                        {brushOn ? 'Brush: on' : 'Brush: add copies'}
+                      </button>
+                    </div>
+                  ),
+                  // Phase 15.2: a collider from the model's outline; how to edit a polygon in the Scene view.
+                  collider: (
+                    <>
+                      <div className="tl-inspector__modes">
+                        <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'box')}>
+                          Box from model
+                        </button>
+                        <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'polygon')}>
+                          Polygon from model outline
+                        </button>
+                      </div>
+                      {(selected.components['collider'] as { shape?: { type?: string } } | undefined)?.shape?.type === 'polygon' && (
+                        <p className="tl-inspector__hint">Scene view: drag a corner; drag a small grey point to add a corner there; Alt+click a corner to delete it.</p>
+                      )}
+                    </>
+                  ),
+                  mover: <p className="tl-inspector__hint">Scene view: drag a point; drag a small grey point to add one there; Alt+click a point to delete it.</p>,
                   surface: (
                     <label className="tl-field">
                       <span className="tl-field__label">Preset</span>

@@ -745,7 +745,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       component: args.component,
       previous,
       next: null,
-      changedFields: [...COMPONENT_FIELD_ORDER[args.component].filter((f) => args.component !== 'controller' || (previous as Record<string, unknown> | null)?.[f] !== undefined), ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : [])],
+      changedFields: [...COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn') || (previous as Record<string, unknown> | null)?.[f] !== undefined), ...(args.component === 'collider' && (previous as { oneWay?: unknown } | null)?.oneWay !== undefined ? ['oneWay'] : [])],
     };
     return {
       ok: true,
