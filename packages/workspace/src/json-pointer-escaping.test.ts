@@ -30,7 +30,9 @@
  * storageVersion 3 now; a v3 project is upgraded to v4 on open), and the
  * retry-block sites are pinned a second time through the v4 file loader
  * (`loadV4`, store-v4.ts) on a real v4 project's content.json, where the
- * loader prefixes the file (`/content.json/retry/...`).
+ * loader prefixes the file (`/content.json/retry/...`). The v4 loader's own
+ * top-level key check (store-v4.ts `checkFileKeys`) is pinned through the
+ * service on content.json and a scene file.
  *
  * (session.ts's `validateQueryEnvelope` carries the same pattern but has no
  * callers at HEAD — unreachable; its site is fixed for consistency and is
@@ -378,5 +380,48 @@ describe('O2 workspace audit — retry-block sites through the v4 file loader (l
     // The detail path ends in the escaped segment (whatever the record-level prefix).
     expect(res.errors.some((x) => x.path.endsWith('/history/h~1i')), JSON.stringify(res.errors)).toBe(true);
     expect(res.errors.some((x) => x.path.endsWith('/history/h/i'))).toBe(false);
+  });
+});
+
+describe('O2 workspace audit — file-key sites of the v4 file loader (store-v4.ts checkFileKeys), through the service', () => {
+  let root: string;
+  let dir: string;
+
+  beforeEach(() => {
+    root = makeRoot();
+    const service = openWorkspaceService({ root, backendId: BACKEND_ID });
+    expect(service.createProject('p000', 'P000').ok).toBe(true);
+    service.dispose();
+    dir = join(root, 'projects', 'p000');
+  });
+
+  /** Add a top-level key to one project file, then open the project (a fresh service). */
+  function openWithExtraKey(rel: string, key: string): { code?: string; reason?: string; details?: { path: string }[] } {
+    const doc = JSON.parse(readFileSync(join(dir, rel), 'utf8')) as Record<string, unknown>;
+    doc[key] = 1;
+    writeFileSync(join(dir, rel), JSON.stringify(doc, null, 2) + '\n');
+    const service = openWorkspaceService({ root, backendId: BACKEND_ID });
+    try {
+      const q = service.query({ op: 'queryProject', projectId: 'p000' }) as unknown as { ok: boolean; error?: { code?: string; reason?: string; details?: { path: string }[] } };
+      expect(q.ok).toBe(false);
+      return q.error ?? {};
+    } finally {
+      service.dispose();
+    }
+  }
+
+  it('content.json: unknown top-level key "a/b~c" ⇒ envelope_invalid detail at /a~1b~0c', () => {
+    const e = openWithExtraKey('content.json', 'a/b~c');
+    expect(e.code).toBe('project_unavailable');
+    const paths = (e.details ?? []).map((d) => d.path);
+    expect(paths, JSON.stringify(e)).toContain('/a~1b~0c');
+    expect(paths).not.toContain('/a/b~c');
+  });
+
+  it('scenes/scene-main.json: unknown top-level key "x/y" ⇒ envelope_invalid detail at /x~1y', () => {
+    const e = openWithExtraKey(join('scenes', 'scene-main.json'), 'x/y');
+    expect(e.code).toBe('project_unavailable');
+    const paths = (e.details ?? []).map((d) => d.path);
+    expect(paths, JSON.stringify(e)).toContain('/x~1y');
   });
 });

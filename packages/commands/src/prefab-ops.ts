@@ -66,6 +66,8 @@ const MAX_PREFAB_DEPTH = 16;
 const MAX_PREFAB_BYTES = 131_072;
 const MAX_PREFABS = 128;
 const MAX_SCENE_ENTITIES = 1024;
+/** Phase 12 (c): a v4 scene holds up to 16384 entities (as createEntity / pasteEntities). */
+const MAX_SCENE_ENTITIES_V4 = 16_384;
 const MAX_SCENE_DEPTH = 32;
 const ID_MAX = 9999;
 
@@ -459,8 +461,9 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
 
   // step 6: atomic preconditions — nothing is created if any fails.
   const totalEntities = scene.entities.length + definition.entities.length;
-  if (totalEntities > MAX_SCENE_ENTITIES) {
-    return { ok: false, error: limitsExceeded('entities', totalEntities, MAX_SCENE_ENTITIES) };
+  const maxEntities = scene.schemaVersion === 4 ? MAX_SCENE_ENTITIES_V4 : MAX_SCENE_ENTITIES;
+  if (totalEntities > maxEntities) {
+    return { ok: false, error: limitsExceeded('entities', totalEntities, maxEntities) };
   }
   const parentDepth = parentId === null ? 0 : sceneEntityDepth(scene, parentId);
   const resultingDepth = parentDepth + definition.depth;

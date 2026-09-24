@@ -31,6 +31,7 @@ import {
 } from './errors';
 import type { Core, OpenOutcome, PendingChange, ProjectSession } from './session';
 import {
+  changedFile,
   CONTENT_REL,
   contentFileBytes,
   firstChangedFile,
@@ -278,13 +279,62 @@ function diskBaseline(core: Core, s: ProjectSession, rels: Iterable<string>): Ma
   return out;
 }
 
+/** The public summary of a pending change (the §11 error payloads). */
+function infoOf<T extends PendingChange>(pc: T): { snapshotState: T['snapshotState']; externalHash: string | null; externalValid: boolean | null; externalErrorCount: number | null } {
+  return { snapshotState: pc.snapshotState, externalHash: pc.externalHash, externalValid: pc.externalValid, externalErrorCount: pc.externalErrors?.length ?? null };
+}
+
+/** The unreadable pending state (the bytes of `rel` are unknown): nothing read, nothing snapshotted. */
+export function setPendingUnreadableV4(s: ProjectSession, rel: string): void {
+  s.pendingChange = {
+    snapshotState: 'unreadable',
+    externalHash: null,
+    externalValid: null,
+    externalErrors: null,
+    externalScene: null,
+    externalContent: null,
+    externalStorageVersion: null,
+    externalFile: rel,
+  };
+}
+
+/**
+ * The §7.3 refusal clause for v4: while the pending change's evidence is
+ * missing (`snapshot_failed`) or its bytes are unknown (`unreadable`), a
+ * resolution first re-reads the project files (the pending file first):
+ * - still unreadable ⇒ refused `external_change_unreadable`;
+ * - every file is this backend's own again ⇒ proceed (nothing foreign on disk);
+ * - the same foreign bytes (or any readable bytes for an unreadable pending
+ *   change) ⇒ the detection re-runs (the snapshot is retried): proceed when it
+ *   is durable, else refused `external_change_evidence_missing`;
+ * - other foreign bytes ⇒ the protocol re-fires, refused `external_change_unresolved`.
+ */
+function rereadForResolutionV4(core: Core, s: ProjectSession): { ok: true } | { ok: false; error: import('@thirdlight/commands').CommandError } {
+  const state = s.v4 as V4State;
+  const pc = s.pendingChange as PendingChange & { externalFile?: string };
+  let found = pc.externalFile !== undefined ? changedFile(core.ops, s.dir, pc.externalFile, state.files.get(pc.externalFile)) : null;
+  if (found === null) found = firstChangedFile(core.ops, s.dir, state);
+  if (found === null) return { ok: true };
+  if ('unreadable' in found) {
+    setPendingUnreadableV4(s, found.rel);
+    return { ok: false, error: externalChangeUnreadable(s.projectId) };
+  }
+  const same = pc.snapshotState === 'unreadable' || (found.rel === pc.externalFile && found.hash === pc.externalHash);
+  const again = detectExternalChangeV4(core, s, found);
+  if (!same) return { ok: false, error: externalChangeUnresolved(infoOf(again)) };
+  if (again.snapshotState !== 'ok') return { ok: false, error: externalChangeEvidenceMissing(s.projectId, infoOf(again)) };
+  return { ok: true };
+}
+
 /** `acceptExternalState` for v4: the files on disk become the project (records cleared, new history). */
 export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; revision: number; historyReset: true; retryCleared: true } | { ok: false; error: import('@thirdlight/commands').CommandError } {
   if (s.mode !== 'open' || s.pendingChange === null) return { ok: false, error: noPendingChange() };
+  if (s.pendingChange.snapshotState !== 'ok') {
+    const rr = rereadForResolutionV4(core, s);
+    if (!rr.ok) return rr;
+  }
   // Re-read now: the resolution is never answered from a stale read.
   const l = loadV4(core.ops, s.dir, s.projectId);
-  const pc = s.pendingChange as PendingChange & { externalFile?: string };
-  if (pc.snapshotState !== 'ok') return { ok: false, error: externalChangeEvidenceMissing(s.projectId, { externalHash: pc.externalHash, externalValid: pc.externalValid, externalErrorCount: pc.externalErrors?.length ?? null }) };
   if (l.kind !== 'loaded') return { ok: false, error: externalChangeInvalid() };
   // Rewrite every file canonically with the retry records cleared (a new retry boundary).
   const state = l.state;
@@ -321,8 +371,11 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
 /** `discardExternalState` for v4: this backend's last known bytes go back on disk (new history). */
 export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; revision: number; historyReset: true } | { ok: false; error: import('@thirdlight/commands').CommandError } {
   if (s.mode !== 'open' || s.pendingChange === null || s.v4 === null || s.v4 === undefined) return { ok: false, error: noPendingChange() };
+  if (s.pendingChange.snapshotState !== 'ok') {
+    const rr = rereadForResolutionV4(core, s);
+    if (!rr.ok) return rr;
+  }
   const pc = s.pendingChange;
-  if (pc.snapshotState !== 'ok') return { ok: false, error: externalChangeEvidenceMissing(s.projectId, { externalHash: pc.externalHash, externalValid: pc.externalValid, externalErrorCount: pc.externalErrors?.length ?? null }) };
   const state = s.v4;
   const baseline = diskBaseline(core, s, state.files.keys());
   // The resolution overwrites only bytes that are known: this backend's own,
@@ -351,6 +404,11 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
         return { ok: false, error: externalChangeUnresolved({ snapshotState: again.snapshotState, externalHash: again.externalHash, externalValid: again.externalValid, externalErrorCount: again.externalErrors?.length ?? null }) };
       }
       if (res.failed.onDiskState === 'previous') return { ok: false, error: writeFailed('previous', res.failed.errno) };
+      // new-undurable: the last known bytes are back on disk (durability
+      // unproven): the resolution is applied in memory, the failure reported.
+      s.history = freshHistoryV4(state);
+      s.pendingChange = null;
+      return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
     }
   }
   s.history = freshHistoryV4(state);
@@ -385,6 +443,9 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
   }
   const fileRecords = new Map<string, RetryRecord[]>([...state.fileRecords.keys()].map((rel) => [rel, []]));
   publishV4(s, { ...state, files, fileRecords });
+  // new-undurable: the cleared files are on disk but not proven durable — a
+  // crash could bring the records back, so the release must not complete.
+  if (!res.ok) return { ok: false, error: writeFailed('new-undurable', res.failed.errno) };
   return { ok: true };
 }
 

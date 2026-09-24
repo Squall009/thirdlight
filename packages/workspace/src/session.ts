@@ -57,6 +57,7 @@ import {
   evaluateOwnership,
   parseOwnershipRecord,
   readOwnershipRecord,
+  reReadOwnershipHolder,
   releaseOwnership,
   stillHoldsOwnership,
   utcSecond,
@@ -833,25 +834,6 @@ function releasedRecord(core: Core): OwnershipRecord {
 
 // ---- external change protocol (workspace.md §7) ----------------------------------
 
-/**
- * §7.2 step 1 (a non-ENOENT read failure): the on-disk bytes are UNKNOWN,
- * never absent. No snapshot is taken (nothing was read); the pending
- * change records the unknown state (`paused-unreadable`) and writes stay
- * paused. Nothing is fabricated — `externalHash`/`externalValid` /
- * `externalErrors` are null.
- */
-export function setPendingUnreadable(s: ProjectSession): void {
-  s.pendingChange = {
-    snapshotState: 'unreadable',
-    externalHash: null,
-    externalValid: null,
-    externalErrors: null,
-    externalScene: null,
-    externalContent: null,
-    externalStorageVersion: null,
-  };
-}
-
 export function pendingInfo<T extends PendingChange>(pc: T): {
   snapshotState: T['snapshotState'];
   externalHash: string | null;
@@ -1221,7 +1203,12 @@ export function releaseProject(
     return { ok: true, revision: s.revision, retryCleared: true };
   }
   s.ownershipReverify = true;
-  return { ok: false, error: relV4.failed !== undefined ? writeFailed(relV4.failed.onDiskState ?? 'previous', relV4.failed.errno) : ownershipConflict(null) };
+  if (relV4.failed.external === true) {
+    // Foreign ownership observed (the record is no longer ours): report the
+    // holder found on disk; the next operation re-verifies from disk.
+    return { ok: false, error: ownershipConflict(reReadOwnershipHolder(s.thirdlightDir, core.ops)) };
+  }
+  return { ok: false, error: writeFailed(relV4.failed.onDiskState ?? 'previous', relV4.failed.errno) };
 }
 
 /**
