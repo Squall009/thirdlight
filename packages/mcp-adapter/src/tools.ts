@@ -134,7 +134,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). ' +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal} (with a box collider it is a moving platform that carries ' +
-      'the player; startOn makes a door); trigger {size: [w, h], signal, once?, exitSignal? (sent on leaving)}; switch {mode: interact|stand, signal, size, once?}; ' +
+      'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
       'health {max, start?, invulnerableSeconds?, knockback? m/s} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
       'respawn?: never|death, cue?: audioAssetId (collect sound)}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
       'health, chase? m (walks toward a player in range)}; a defeated enemy squashes, then vanishes; collider {oneWay: true} (jump up through, Down+Jump drops); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] m from the entity origin} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, zones, pickups, stomps); gameZone hazard {damage?} (health instead of a life); audioSource ' +
@@ -142,7 +142,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
       '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — colliders, pickups, enemies, movers and its scripts work; it appears at the next step; ' +
       'at most 64 spawns per step and 1024 spawned entities alive; a new run removes them all; saves never keep them) and ctx.destroy(spawnedId) (removes it and its children; ' +
-      'an authored entity throws: hide it with setVisible); a script whose source container lists "@self" in ownedTransforms may move its own entity (each carrier, spawned copies included) with transform/pose intents in the transform phase. Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
+      'an authored entity throws: hide it with setVisible); a script whose source container lists "@self" in ownedTransforms may move its own entity (each carrier, spawned copies included) with transform/pose intents in the transform phase. ' +
+      'ctx.timers.after(name, seconds)/every(name, seconds) (step-counted; calling it again with the same length changes nothing, another length restarts it; ' +
+      'at most 64 per script instance; a new run clears them), ctx.timers.fired(name) (true in the step it fires), ctx.timers.cancel(name); ' +
+      'ctx.events also holds {type: "enter"|"exit", trigger: entityId, stepIndex} (seen the step after) for the triggers the script owns: on its own entity, below it, ' +
+      'or named by one of its entityRef properties. Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
       'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +

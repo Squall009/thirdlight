@@ -3143,6 +3143,8 @@ class RuntimeInstance implements Runtime {
           audio: this.audioControl,
           save: this.saveControl,
           spawner: this.spawnControl,
+          // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
+          ...(this.blocks !== null ? { triggerEvents: this.blocks.triggerEvents() } : {}),
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {

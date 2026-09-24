@@ -578,7 +578,13 @@ under Gameplay ("+ Add gameplay component"):
   fires). With a box collider it carries the player standing on it and
   pushes a player it moves into. The Scene view draws its path.
 - **Trigger** — an area that sends a signal when the player enters it
-  (and, if set, another one when the player leaves it).
+  (and, if set, another one when the player leaves it). Its shape is a box
+  (width, height) or a circle (radius; tested against the player's capsule
+  itself, not its bounding box); switching the shape in the Inspector
+  converts the size to a radius and back. "sends: stay" sends the signal
+  every step while the player is inside instead of once per entry. The
+  Scene view draws a circle trigger as a circle with one handle that drags
+  its radius (5 cm snapping, Shift for exact, one undo per drag).
 - **Switch** — `interact` (the interact action while inside) or `stand`
   (a pressure plate); sends a signal.
 - **Health** — on the player: max health, the health a level starts with,
@@ -606,6 +612,32 @@ and `ctx.physics.raycast(origin, direction, maxDistance)`,
 `.overlapBox(center, half)` and `.overlapCircle(center, radius)` (the
 entities whose colliders overlap, never the player; 32 queries per step in
 all).
+
+### Timers and trigger events in scripts
+
+- `ctx.timers.after(name, seconds)` fires once, `ctx.timers.every(name,
+  seconds)` repeatedly; `ctx.timers.fired(name)` is true in the step the
+  timer fires; `ctx.timers.cancel(name)` stops it. Timers count fixed steps
+  (seconds × the step rate, rounded, at least one step), so a replay fires
+  them in the same steps. Calling `after`/`every` again with the same length
+  while it runs changes nothing (a script may call `every` every step);
+  another length restarts it; to restart the same one, cancel it first.
+  Each script instance (each object carrying the script) has its own
+  timers, at most 64 running; a new run (start, replay, the next level)
+  clears them. A bad name (1–64 letters, digits, `_ . : -`) or length
+  (0–3600 s) or a 65th timer stops the game with the script error.
+- `ctx.events` also lists `{ type: "enter" | "exit", trigger: id, stepIndex }`
+  when the player entered or left a trigger the script owns, in the step
+  after (like signals). A script owns the triggers on its own object, on
+  objects below it in the hierarchy, and the triggers named by its
+  entity-reference properties. Every entry and exit is reported, even for a
+  trigger whose signal is "only once". (Animator clip events stay in the
+  same list; they have `name` and `clip` instead of `type`.)
+
+A timed door, for example: a script on the door with a "sensor" entity
+property naming a trigger; on its `enter` event `ctx.timers.after("open",
+1)`; when `fired("open")` it hides the door (`ctx.game.setVisible`) and
+starts `after("close", 4)`, which shows it again.
 
 ### Spawning prefabs from scripts
 

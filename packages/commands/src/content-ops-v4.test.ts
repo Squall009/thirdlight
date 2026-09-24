@@ -560,6 +560,23 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(controllerOf(cleared.state)).toEqual({});
   });
 
+  it('phase 14.2: a trigger turns into a circle (radius) with stay mode in one edit, validated, undone in one step', () => {
+    const triggerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { trigger?: unknown }).trigger;
+    const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { size: [2, 2], signal: 'go' } }));
+    expect(triggerOf(added.state)).toEqual({ size: [2, 2], signal: 'go' });
+    const circle = ok(mutation(added.state, 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { shape: 'circle', radius: 1.5, size: null, mode: 'stay' } }));
+    expect(JSON.stringify(triggerOf(circle.state))).toBe('{"signal":"go","shape":"circle","radius":1.5,"mode":"stay"}');
+    expect((circle.result.change as unknown as { changedFields: string[] }).changedFields).toEqual(['size', 'shape', 'radius', 'mode']);
+    // A circle keeps no size; a box has no radius; unknown modes are refused.
+    expect(failCode(mutation(circle.state, 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { size: [1, 1] } }))).toBe('field_unexpected');
+    expect(failCode(mutation(circle.state, 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { shape: 'box' } }))).toBe('field_missing');
+    expect(failCode(mutation(circle.state, 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { mode: 'always' } }))).toBe('field_value');
+    const undone = ok(mutation(circle.state, 'undo', {}));
+    expect(triggerOf(undone.state)).toEqual({ size: [2, 2], signal: 'go' });
+    const back = ok(mutation(circle.state, 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { shape: null, radius: null, size: [3, 3], mode: null } }));
+    expect(triggerOf(back.state)).toEqual({ size: [3, 3], signal: 'go' });
+  });
+
   it('edits camera fields and rejects a model asset that does not resolve', () => {
     const state = baseState();
     const r = ok(mutation(state, 'setComponent', { entityId: 'cam-main', component: 'camera', value: { fovY: 45 } }));

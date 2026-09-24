@@ -17,11 +17,16 @@
  *
  * Boxes (triggers, switches, pickups) are centred on their entity; an enemy's
  * box stands on its entity's position (its feet).
+ *
+ * Phase 14.2: a trigger may be a circle (centred on its entity, tested
+ * against the player's capsule itself), may emit its signal every step while
+ * the player is inside (`mode: "stay"`), and records `enter`/`exit` events
+ * that the scripts owning it read in the next step (`ctx.events`).
  */
 import type { ActionFrame } from './actions';
 import type { PhysicsPort, Vec2 } from './ports';
 import type { EntityV3 } from '@thirdlight/project-model';
-import type { PlayerCapsule, TransformState } from './types';
+import type { PlayerCapsule, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal } from './scene-set';
 
 const STOMP_BOUNCE = 9;
@@ -66,6 +71,10 @@ interface Trigger extends Box {
   signal: string;
   exitSignal: string | null;
   once: boolean;
+  /** Phase 14.2: a circle's radius (null: the box `half`). */
+  radius: number | null;
+  /** Phase 14.2: emit the signal every step while inside. */
+  stay: boolean;
   inside: boolean;
   spent: boolean;
 }
@@ -162,6 +171,9 @@ export class GameplayBlocks {
   private knock = { v: 0, steps: 0, total: 0 };
   private signalsNow = new Set<string>();
   private signalsPrev = new Set<string>();
+  /** Phase 14.2: triggers entered/left in this step, and in the previous one (what scripts see). */
+  private triggerEventsNow: TriggerEventRecord[] = [];
+  private triggerEventsPrev: readonly TriggerEventRecord[] = Object.freeze([]);
   private pendingBounce: number | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
   private step = 0;
@@ -227,8 +239,20 @@ export class GameplayBlocks {
       }
       const t = c['trigger'];
       if (t !== undefined) {
-        const size = t['size'] as number[];
-        this.triggers.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(t['signal']), exitSignal: typeof t['exitSignal'] === 'string' ? (t['exitSignal'] as string) : null, once: t['once'] === true, inside: false, spent: false });
+        const circle = t['shape'] === 'circle';
+        const radius = circle ? num(t['radius'], 0.5) : null;
+        const size = (t['size'] as number[] | undefined) ?? [2 * (radius ?? 0.5), 2 * (radius ?? 0.5)];
+        this.triggers.set(e.id, {
+          id: e.id,
+          half: { x: size[0]! / 2, y: size[1]! / 2 },
+          radius,
+          stay: t['mode'] === 'stay',
+          signal: String(t['signal']),
+          exitSignal: typeof t['exitSignal'] === 'string' ? (t['exitSignal'] as string) : null,
+          once: t['once'] === true,
+          inside: false,
+          spent: false,
+        });
       }
       const s = c['switch'];
       if (s !== undefined) {
@@ -318,6 +342,8 @@ export class GameplayBlocks {
     this.knock = { v: 0, steps: 0, total: 0 };
     this.signalsNow.clear();
     this.signalsPrev.clear();
+    this.triggerEventsNow = [];
+    this.triggerEventsPrev = Object.freeze([]);
     this.pendingBounce = null;
     this.carry = { x: 0, y: 0 };
   }
@@ -401,6 +427,11 @@ export class GameplayBlocks {
     this.signalsNow.add(name);
   }
 
+  /** Phase 14.2: the triggers the player entered or left in the previous step (in trigger order). */
+  triggerEvents(): readonly TriggerEventRecord[] {
+    return this.triggerEventsPrev;
+  }
+
   /** The upward speed to give the player this step (a stomp or a hit), once. */
   takeBounce(): number | null {
     const b = this.pendingBounce;
@@ -424,6 +455,8 @@ export class GameplayBlocks {
     this.step = stepIndex;
     this.signalsPrev = this.signalsNow;
     this.signalsNow = new Set();
+    this.triggerEventsPrev = Object.freeze(this.triggerEventsNow);
+    this.triggerEventsNow = [];
     const dt = 1 / this.host.hz;
     const ground = this.host.groundEntityId();
     this.carry = { x: 0, y: 0 };
@@ -520,13 +553,28 @@ export class GameplayBlocks {
       const cy = feetAnchored ? at[1] + half.y : at[1];
       return Math.abs(player.x + this.pc.ox - at[0]) < half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - cy) < half.y + this.pc.hh;
     };
+    // Phase 14.2: a circle against the capsule itself (a segment of half
+    // length halfHeight − radius, swept by the radius): the distance from the
+    // circle's centre to the segment is under the two radii.
+    const segHalf = Math.max(0, this.pc.hh - this.pc.hw);
+    const inCircle = (id: string, r: number): boolean => {
+      const at = this.worldOf(id);
+      if (at === null) return false;
+      const cx = player.x + this.pc.ox;
+      const cy = player.y + this.pc.oy;
+      const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
+      return Math.hypot(at[0] - cx, at[1] - ny) < r + this.pc.hw;
+    };
     for (const t of this.triggers.values()) {
-      const inside = overlaps(t.id, t.half);
-      if (inside && !t.inside && !t.spent) {
+      const inside = t.radius !== null ? inCircle(t.id, t.radius) : overlaps(t.id, t.half);
+      if (inside && (!t.inside || t.stay) && !t.spent) {
         this.emit(t.signal);
         if (t.once) t.spent = true;
       }
       if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
+      // Phase 14.2: every real entry and exit (whatever `once` says about the signal).
+      // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
+      if (inside !== t.inside) this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
       t.inside = inside;
     }
     const interact = frame.actions?.['interact']?.p === 'pressed';

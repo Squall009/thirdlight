@@ -100,4 +100,28 @@ describe('zone overlay gameplay helpers', () => {
     expect(overlay.capsuleAt(...screen(0.3, 0))).toBeNull();
     overlay.dispose();
   });
+
+  it('phase 14.2: a circle trigger is drawn as a circle with one radius handle that drags', () => {
+    const scene = new THREE.Scene();
+    const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }) } as unknown as HTMLCanvasElement;
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+    camera.position.set(0, 0, 10);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    const overlay = new ZoneOverlay(scene, camera, canvas);
+    const ring = { ...entity('ring', { trigger: { shape: 'circle', radius: 1.5, signal: 's' } }), position: [1, 2, 0] } as ProjectedEntity;
+    overlay.sync([ring]);
+    const circle = scene.getObjectByName('trigger-circle:ring') as THREE.Line;
+    expect(circle).toBeDefined();
+    const pos = circle.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) expect(Math.hypot(pos.getX(i) - 1, pos.getY(i) - 2)).toBeCloseTo(1.5, 6);
+    overlay.setSelected('ring');
+    const handles = overlay.sizeHandleClientPoints();
+    expect(handles.map((h) => `${h.component}:${h.handle}`)).toEqual(['trigger:side']);
+    const ref = overlay.pickSizeHandle(handles[0]!.x, handles[0]!.y)!;
+    const next = overlay.previewSize(ref, { x: 1, y: 4.52 }, true)!;
+    expect(next).toMatchObject({ kind: 'circle', center: { x: 1, y: 2 }, half: { x: 2.5, y: 2.5 } });
+    overlay.endSizePreview();
+    overlay.dispose();
+  });
 });

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ProjectedEntity } from './projection';
-import { capsuleDistance, fitCapsule, handlePoint, resizeShape, SNAP_SIZE_M, sizeEdit, sizeShapesOf } from './size-handles';
+import { capsuleDistance, fitCapsule, handlePoint, handlesOf, outlinePoints, resizeShape, SNAP_SIZE_M, sizeEdit, sizeShapesOf } from './size-handles';
 
 const entity = (over: Partial<ProjectedEntity>): ProjectedEntity => ({
   id: 'e-0001',
@@ -74,6 +74,24 @@ describe('size handles', () => {
     // Sizes stay in range.
     expect(sizeEdit(resizeShape(trigger, 'side', { x: 2, y: 1 }, true)).value).toEqual({ size: [0.05, 2] });
     expect(SNAP_SIZE_M).toBe(0.05);
+  });
+
+  it('phase 14.2: a circle trigger has one radius handle; the radius snaps, stays in range and is stored alone', () => {
+    const [ring] = sizeShapesOf(entity({ blocks: { trigger: { shape: 'circle', radius: 1, signal: 's' } } }));
+    expect(ring).toMatchObject({ component: 'trigger', kind: 'circle', center: { x: 2, y: 1 }, half: { x: 1, y: 1 } });
+    expect(handlesOf(ring!)).toEqual(['side']);
+    expect(handlePoint(ring!, 'side')).toEqual({ x: 3, y: 1 });
+    // Any direction measures the radius (the pointer's distance from the centre).
+    expect(sizeEdit(resizeShape(ring!, 'side', { x: 2, y: 2.62 }, true))).toEqual({ component: 'trigger', value: { radius: 1.6 } });
+    expect(sizeEdit(resizeShape(ring!, 'side', { x: 2.123, y: 1 }, false)).value).toEqual({ radius: 0.123 });
+    expect(resizeShape(ring!, 'side', { x: 2, y: 1 }, true).half.x).toBe(0.025);
+    expect(resizeShape(ring!, 'side', { x: 900, y: 1 }, true).half.x).toBe(250);
+    // The outline is a closed circle.
+    const pts = outlinePoints(ring!, 12);
+    expect(pts[0]).toEqual(pts[pts.length - 1]);
+    for (const p of pts) expect(Math.hypot(p.x - 2, p.y - 1)).toBeCloseTo(1, 9);
+    // A box trigger keeps its two handles.
+    expect(handlesOf(sizeShapesOf(entity({ blocks: { trigger: { size: [2, 2], signal: 's' } } }))[0]!)).toEqual(['top', 'side']);
   });
 
   it('fits a capsule to a model bounding box (feet at its lowest point)', () => {

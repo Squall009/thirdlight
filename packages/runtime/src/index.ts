@@ -181,4 +181,7 @@ export { inputView, type BehaviorInputView } from './behavior';
 // Phase 14.1: ctx.spawn / ctx.destroy (prefab copies in the running game).
 export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';
 export type { BehaviorSpawnControl } from './types';
+// Phase 14.2: ctx.timers and the trigger events in ctx.events.
+export { MAX_TIMERS_PER_INSTANCE, MAX_TIMER_SECONDS } from './timers';
+export type { BehaviorTimers, TriggerEventRecord } from './types';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorSave, RunRestore, RunSaveState } from './types';

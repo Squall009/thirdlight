@@ -117,7 +117,19 @@ export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [], cu
           text(n, 'startOn', 'waits for signal'),
         ];
       case 'trigger':
-        return [size(n), text(n, 'signal', 'sends signal'), flag(n, 'once', 'only once'), text(n, 'exitSignal', 'sends on leaving')];
+        // Phase 14.2: box or circle (switching converts the size to a radius and back, one edit), enter or stay.
+        return [
+          select(n, 'shape', 'shape', ['box', 'circle'], (shape) => {
+            const sz = (v['size'] as number[] | undefined) ?? [2, 2];
+            const r = typeof v['radius'] === 'number' ? (v['radius'] as number) : Math.max(sz[0] ?? 2, sz[1] ?? 2) / 2;
+            return shape === 'circle' ? { shape, radius: r, size: null } : { shape: null, radius: null, size: [2 * r, 2 * r] };
+          }),
+          v['shape'] === 'circle' ? num(n, 'radius', 'radius (m)') : size(n),
+          text(n, 'signal', 'sends signal'),
+          select(n, 'mode', 'sends', ['enter', 'stay'], (m) => ({ mode: m === 'enter' ? null : m })),
+          flag(n, 'once', 'only once'),
+          text(n, 'exitSignal', 'sends on leaving'),
+        ];
       case 'switch':
         return [select(n, 'mode', 'mode', ['interact', 'stand']), size(n), text(n, 'signal', 'sends signal'), flag(n, 'once', 'only once')];
       case 'health':

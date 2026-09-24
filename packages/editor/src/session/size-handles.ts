@@ -11,6 +11,9 @@
  * one `setComponent` on release (one undo step), like the mover waypoint
  * handles of phase 9.12.
  *
+ * Phase 14.2: a circle trigger is a `circle` shape with one handle, on its
+ * right side, that drags its radius (the circle stays centred).
+ *
  * Pure: no DOM, no three.js.
  */
 import { CAPSULE_LIMITS, controllerCapsuleOf } from '@thirdlight/runtime';
@@ -26,15 +29,17 @@ import type { ProjectedEntity } from './projection';
 export const SNAP_SIZE_M = 0.05;
 
 export type SizeHandle = 'top' | 'side';
+/** The handles a shape has: a circle only its radius handle (on the side). */
+export const handlesOf = (s: { kind: SizeShape['kind'] }): readonly SizeHandle[] => (s.kind === 'circle' ? ['side'] : ['top', 'side']);
 export type SizeComponent = 'controller' | 'gameZone' | 'trigger' | 'switch' | 'pickup' | 'enemy' | 'collider' | 'fogVolume';
 
 export interface SizeShape {
   entityId: string;
   component: SizeComponent;
-  kind: 'capsule' | 'box';
+  kind: 'capsule' | 'box' | 'circle';
   /** The shape's centre on the game plane (world). */
   center: { x: number; y: number };
-  /** Half extents; a capsule's are (radius, height / 2). */
+  /** Half extents; a capsule's are (radius, height / 2), a circle's (radius, radius). */
   half: { x: number; y: number };
   /** Rotation about Z (a box collider only). */
   angle: number;
@@ -67,7 +72,11 @@ export function sizeShapesOf(e: ProjectedEntity): SizeShape[] {
   }
   if (e.gameZone !== undefined) box('gameZone', e.gameZone.size);
   const b = e.blocks ?? {};
-  for (const k of ['trigger', 'switch', 'pickup'] as const) box(k, (b[k] as { size?: number[] } | undefined)?.size);
+  const trigger = b.trigger as { shape?: string; radius?: number; size?: number[] } | undefined;
+  if (trigger?.shape === 'circle' && typeof trigger.radius === 'number') {
+    out.push({ entityId: e.id, component: 'trigger', kind: 'circle', center: { x, y }, half: { x: trigger.radius, y: trigger.radius }, angle: 0, anchor: 'center', origin });
+  } else box('trigger', trigger?.size);
+  for (const k of ['switch', 'pickup'] as const) box(k, (b[k] as { size?: number[] } | undefined)?.size);
   box('enemy', (b.enemy as { size?: number[] } | undefined)?.size, 'bottom');
   const shape = (e.collider as { shape?: { type?: string; hx?: number; hy?: number } } | undefined)?.shape;
   if (shape?.type === 'box' && typeof shape.hx === 'number' && typeof shape.hy === 'number') {
@@ -94,6 +103,12 @@ export function handlePoint(s: SizeShape, handle: SizeHandle): { x: number; y: n
 
 /** The shape's outline (world, closed), for drawing and the drag preview. */
 export function outlinePoints(s: SizeShape, segments = 12): { x: number; y: number }[] {
+  if (s.kind === 'circle') {
+    const n = Math.max(8, segments * 2);
+    const pts = Array.from({ length: n }, (_, i) => ({ x: s.center.x + s.half.x * Math.cos((i / n) * 2 * Math.PI), y: s.center.y + s.half.x * Math.sin((i / n) * 2 * Math.PI) }));
+    pts.push({ ...pts[0]! });
+    return pts;
+  }
   if (s.kind === 'box') {
     const { x: hx, y: hy } = s.half;
     return [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy], [-hx, -hy]].map(([a, b]) => toWorld(s, a!, b!));
@@ -152,6 +167,11 @@ export function resizeShape(s: SizeShape, handle: SizeHandle, hit: { x: number; 
     return { ...s, center: { x: s.center.x, y: bottom + height / 2 }, half: { x: s.half.x, y: height / 2 } };
   }
   const range = RANGE[s.component as Exclude<SizeComponent, 'controller'>];
+  if (s.kind === 'circle') {
+    // The radius is the pointer's distance from the centre (snapping to 5 cm steps of the radius).
+    const r = round3(clamp(snapTo(Math.hypot(dx, dy), snap), range.min / 2, range.max / 2));
+    return { ...s, half: { x: r, y: r } };
+  }
   if (handle === 'side') {
     const w = round3(clamp(snapTo(2 * Math.abs(lx), snap), range.min, range.max));
     return { ...s, half: { x: w / 2, y: s.half.y } };
@@ -175,6 +195,7 @@ export function sizeEdit(s: SizeShape): { component: SizeComponent; value: Recor
   const h = round3(2 * s.half.y);
   if (s.component === 'collider') return { component: 'collider', value: { shape: { type: 'box', hx: round3(s.half.x), hy: round3(s.half.y) } } };
   if (s.component === 'fogVolume') return { component: 'fogVolume', value: { size: [w, h, s.depth ?? 1] } };
+  if (s.kind === 'circle') return { component: s.component, value: { radius: round3(s.half.x) } };
   return { component: s.component, value: { size: [w, h] } };
 }
 

@@ -293,6 +293,10 @@ export {
   MOVER_MODES,
   PICKUP_KINDS,
   SWITCH_MODES,
+  // Phase 14.2: trigger shapes and modes.
+  TRIGGER_MODES,
+  TRIGGER_RADIUS,
+  TRIGGER_SHAPES,
   type BlockComponentName,
   type EnemyComponent,
   type AudioSourceComponent,
