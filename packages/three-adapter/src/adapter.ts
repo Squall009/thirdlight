@@ -129,6 +129,10 @@ export interface SceneAdapterDiagnostics {
    *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.
    */
   models?: SceneAdapterModelsDiagnostics;
+  /** The renderer's live GPU resources (three's `renderer.info`); ABSENT
+   *  until a renderer exists. Flat counts while a scene runs — growth means
+   *  something is allocated per frame and never freed. */
+  gpu?: { geometries: number; textures: number; programs: number };
 }
 
 export interface ScreenshotResult {
@@ -268,9 +272,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
   /** Phase 9.5: the environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
+  /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
+  let environmentSize: [number, number] | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
   const fogVolumeIds = new Set<string>();
   const tmpWorld = new THREE.Vector3();
+  const tmpSize = new THREE.Vector2();
   /** The fog volumes of the loaded scenes, in world space (entities may move). */
   const fogVolumesNow = (): FogVolumeLike[] => {
     const out: FogVolumeLike[] = [];
@@ -891,7 +898,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (followShadow) followCameraShadow();
     const [w, h] = canvasSize();
-    renderer.setSize(w, h, false);
+    // Resize only on a change: setSize rewrites the canvas' drawing buffer,
+    // and the environment renderer rebuilds its whole post stack on resize.
+    const current = renderer.getSize(tmpSize);
+    if (current.x !== w || current.y !== h || canvasLike?.width !== Math.floor(w * renderer.getPixelRatio())) {
+      renderer.setSize(w, h, false);
+    }
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
     try {
@@ -904,7 +916,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         const key = keyLight;
         environmentRenderer.setKeyLightDirection(key?.direction !== undefined ? [key.direction[0], key.direction[1], key.direction[2]] : null);
         environmentRenderer.setFogVolumes(fogVolumesNow());
-        environmentRenderer.resize(w, h);
+        if (environmentSize === null || environmentSize[0] !== w || environmentSize[1] !== h) {
+          environmentSize = [w, h];
+          environmentRenderer.resize(w, h);
+        }
         environmentRenderer.render(camera!);
       } else {
         renderer.render(scene, camera!);
@@ -986,6 +1001,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // `models` is absent; after dispose the realization is gone).
     if (realization !== null && !disposed) {
       d.models = realization.counters();
+    }
+    if (owned.renderer !== null && !disposed) {
+      const info = owned.renderer.info;
+      d.gpu = { geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs?.length ?? 0 };
     }
     return {
       ok: true,

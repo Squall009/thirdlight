@@ -258,6 +258,8 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
   let skyMesh: Sky | null = null;
   let skyDome: THREE.Mesh | null = null;
   let envMap: THREE.WebGLRenderTarget | null = null;
+  /** The cube/equirect background built from a sky texture (freed with the sky). */
+  let skyTexture: THREE.Texture | null = null;
   let skyKey = '';
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   let disposed = false;
@@ -296,6 +298,11 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     }
     envMap?.dispose();
     envMap = null;
+    if (skyTexture !== null) {
+      if (scene.background === skyTexture) scene.background = null;
+      skyTexture.dispose();
+      skyTexture = null;
+    }
     scene.environment = null;
   };
   const applyEnvIntensity = (sky: SkyLike): void => {
@@ -360,9 +367,11 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
       scene.background = null;
       scene.add(skyDome);
       const tmp = new THREE.Scene();
-      tmp.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), mat));
+      const probe = new THREE.SphereGeometry(10, 32, 16);
+      tmp.add(new THREE.Mesh(probe, mat));
       envMap = pmrem.fromScene(tmp, 0, 0.1, 100);
       scene.environment = envMap.texture;
+      probe.dispose();
       return;
     }
     // texture: an equirect image or six faces.
@@ -372,6 +381,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
         const cube = new THREE.CubeTexture(faces.map((f) => (f as THREE.Texture).image));
         cube.colorSpace = THREE.SRGBColorSpace;
         cube.needsUpdate = true;
+        skyTexture = cube;
         scene.background = cube;
         envMap = pmrem.fromCubemap(cube);
         scene.environment = envMap.texture;
@@ -401,6 +411,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
         eq.colorSpace = THREE.SRGBColorSpace;
         eq.flipY = true;
         eq.needsUpdate = true;
+        skyTexture = eq;
         scene.background = eq;
         envMap = pmrem.fromEquirectangular(eq);
         scene.environment = envMap.texture;
@@ -434,8 +445,16 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     };
   };
 
+  // EffectComposer.dispose() frees only its own targets and copy pass: every
+  // added pass (bloom, GTAO, bokeh, SMAA, shader passes) and the grading LUT
+  // clone are freed here, or each rebuild leaks their targets and programs.
   const disposeComposer = (): void => {
-    composer?.dispose();
+    if (composer !== null) {
+      const lut = (gradingPass?.uniforms as Record<string, { value: unknown }> | undefined)?.['tLut']?.value;
+      if (lut instanceof THREE.Texture) lut.dispose();
+      for (const pass of composer.passes) pass.dispose();
+      composer.dispose();
+    }
     composer = null;
     fogPass = null;
     gradingPass = null;
@@ -597,8 +616,11 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
       composer.render();
     },
     resize(w, h) {
-      width = Math.max(1, Math.floor(w));
-      height = Math.max(1, Math.floor(h));
+      const nw = Math.max(1, Math.floor(w));
+      const nh = Math.max(1, Math.floor(h));
+      if (nw === width && nh === height) return; // a same-size resize must not rebuild the post stack
+      width = nw;
+      height = nh;
       composerKey = '';
     },
     diagnostics() {
