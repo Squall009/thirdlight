@@ -126,9 +126,12 @@ test('Sprout on the live service: final Blender bake of both levels', async ({ p
     const bake = page.getByRole('button', { name: 'Bake final (Blender)' });
     await expect(bake).toBeEnabled();
     const started = Date.now();
-    await bake.click();
     const status = page.locator('[aria-label="bake status"]');
-    for (let i = 0; !((await status.textContent()) ?? '').includes('Final (Blender) bake'); i++) {
+    const before = (await status.textContent()) ?? '';
+    await bake.click();
+    // Done: a new final bake (a level baked before shows its old, now stale, bake until then).
+    const done = (t: string): boolean => t !== before && t.includes('Final (Blender) bake') && !t.includes('stale');
+    for (let i = 0; !done((await status.textContent()) ?? ''); i++) {
       if (i > 340) throw new Error(`bake did not finish: ${await page.locator('.tl-lighting').textContent()}`);
       if (i % 6 === 0) process.stderr.write(`[bake ${level}] ${Math.round((Date.now() - started) / 1000)} s: ${((await page.locator('.tl-lighting').textContent()) ?? '').slice(-200)} | ${((await page.getByRole('status').first().textContent()) ?? '').slice(0, 200)}\n`);
       await page.waitForTimeout(5000);

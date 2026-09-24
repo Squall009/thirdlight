@@ -735,7 +735,12 @@ Add one dated line per decision taken during the run (what, why).
   the 5090 (from the Lighting window, `sprout-live.e2e.ts` with
   TL_SPROUT_BAKE): Meadow 1 105 static kit pieces in 53 s, Meadow 2 104 in
   65 s, one lightmap each; the level script marks every non-moving kit piece
-  static. Also fixed: an edit that changes nothing in a v4 project was not
+  static. Later the same day: seven scripted sound effects (Sprout
+  `art/scripts/audio/sfx_meadow_build.py`, not listened to) became the
+  game's cues and the coin/heart pickup sounds, boars chase within 3.5 m
+  and hits knock the player back; the bot then finished Meadow 1 in 15.1 s
+  and Meadow 2 in 15.9 s, both without deaths; both levels rebaked.
+  Also fixed: an edit that changes nothing in a v4 project was not
   refused as `no_change` (the canonical serializer had no v4 branch).
 - 2026-09-24 (9.3, returned to after 9.13): time-boxed. Done: the runtime
   plays only v3/v4 snapshot scenes (v1/v2 are `snapshot_invalid`), its
