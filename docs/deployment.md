@@ -122,11 +122,29 @@ holding `captured/project.json` (+ `assets/`, optional `template.json` with
 `name`, `description`, `requiredModules`). `samples/beacon-reach` is the
 one shipped today.
 
-A project directory is `project.json`, `scenes/main.json` (the scene +
-content envelope) and `sources/sha256/<digest>` (imported asset and script
-sources; a folder project's assets can instead stay in the game folder, see
-"Assets referenced in place"). `.thirdlight/` is process state (ownership,
-recovery, staging, derived caches); it is not part of a backup.
+A project directory holds:
+
+- `project.json`: id, name, engine version (schemaVersion 2);
+- `content.json`: assets, prefabs, scripts, settings, the game block, tags,
+  the scene list and the start scenes;
+- `scenes/<sceneId>.json`: one file per scene;
+- `sources/sha256/<digest>`: imported asset and script sources, and
+  instance-set buffers. A folder project's assets can instead stay in the
+  game folder, see "Assets referenced in place".
+
+An edit writes only the files it changed. An edit that touches several files
+(a new scene: the index plus its file) goes through a small redo journal
+(`.thirdlight/journal.json`), so a crash in the middle is completed at the
+next open. `.thirdlight/` is process state (ownership, recovery, staging,
+derived caches, the journal); it is not part of a backup.
+
+**Older projects upgrade automatically** the first time the backend opens
+them. A v3 project (one `scenes/main.json` envelope) becomes one scene,
+"Main" (`scenes/scene-main.json`); the old envelope is kept as
+`.thirdlight/migrated-v3/main.json`. The level bounds are dropped. A kill
+height becomes a "Fall zone" hazard zone below the old level. Falls are game
+rules now: a hazard zone, or a script (see "Scenes"). Take a backup first if
+you want the old files outside `.thirdlight/`.
 
 ## Hierarchy: folders and flags
 
@@ -140,7 +158,7 @@ recovery, staging, derived caches); it is not part of a backup.
   Click selects, Ctrl/Cmd+click toggles, Shift+click selects a range. Drag a
   row, or a selection, onto the top or bottom edge of a row to place it
   before or after that row, or onto its middle to file it inside. Drop on the
-  empty list area to move it to the end of the root. Every drop is one
+  empty list area to move it to the end of its scene's root. Every drop is one
   `moveEntities` command, so it is one undo step. Moves keep world
   positions; moving out of a rotated or scaled parent re-expresses the local
   transform. Delete removes every selected subtree, one undo step each.
@@ -198,6 +216,83 @@ inactive entities are removed, and each entity gets its effective `static`.
   - `tl_inspect target="project"` lists the registry.
   - `tl_inspect target="entity"` shows `tagNames: {own, effective}`.
 
+## Scenes
+
+A project has one or more scenes (up to 64), one file each. Entity ids are
+unique across the whole project. One command edits one scene.
+
+- **Start scenes.** The game starts with the scenes in the start set,
+  merged. The camera, the player, the lights and the start spawn live only
+  in start scenes.
+- **In the editor.** Each open scene is a header in the hierarchy.
+  - Click a header to make that scene active. New root objects go into the
+    active scene; a child goes into its parent's scene.
+  - **+ Scene** creates a scene, which becomes the active one.
+  - Double-click a header name to rename the scene.
+  - ★ adds the scene to the start set, or takes it out.
+  - 🗑 deletes a scene. It shows only on an empty scene.
+  - × closes a scene in this browser. Closed scenes are listed under
+    "open scene…". Which scenes are open is remembered per browser, not in
+    the project.
+  - Dragging objects to another scene is refused; moving between scenes
+    comes later.
+  - An editor session loads up to 65 536 objects over all scenes.
+- **Loading at run time.** Scripts get `ctx.scenes`:
+  - `load(sceneId, {at?: [x, y, z]})` requests a load. The page fetches
+    `scenes/<id>.json` and checks its digest; the scene joins at the next
+    step boundary. `at` offsets its root objects.
+  - `unload(sceneId)` removes the scene at the next boundary.
+  - `status(sceneId)` returns `unloaded`, `loading` or `loaded`.
+  - `loaded()` lists the loaded scenes.
+  - A loaded scene brings its colliders, script instances, tags and zones.
+    An unload releases them: colliders leave the physics world, scripts get
+    `dispose`, meshes and textures are freed, and a model no loaded object
+    uses any more is released.
+  - A scene holding the camera, the player, the start spawn or a light
+    cannot be unloaded.
+  - A replay returns to the start scenes.
+  - A checkpoint whose scene was unloaded no longer counts.
+- **Exit zones** (GameObject → Zone → Exit zone…; the inspector's
+  "Edit exit…"). An exit zone lists scenes to load and scenes to unload
+  when the player enters it. It can also name a spawn: once those scenes are
+  loaded, the player is moved there.
+- **Game rules in scripts.** There are no level bounds or kill heights any
+  more.
+  - `ctx.world.transform(entityId)` reads any loaded object's current
+    position, rotation and scale.
+  - `ctx.emit({kind: 'respawn'})` (intent phase) kills the player.
+  - Camera bounds are optional (Gameplay → Camera → "Keep the camera
+    inside bounds").
+- **Play and export** ship every scene file and load the others on demand.
+  An exported game needs nothing else.
+- **MCP.**
+  - `tl_command createScene {name, sceneId?}`, `renameScene`,
+    `deleteScene` (only an empty scene), `setStartScenes {sceneIds}`.
+  - `createEntity`/`instantiatePrefab` take `sceneId`.
+  - `tl_inspect target="entities"` takes `sceneId` and names every entity's
+    scene; `target="project"` lists the scenes.
+  - `tl_game_control` takes `loadScene`/`unloadScene` with `sceneId`.
+  - The game observation lists the loaded scenes.
+
+## Instance sets
+
+An instance set is one object that draws many copies of one model (up to
+65 536) with instancing. Use it for foliage, rocks and other repeated
+detail. Copies have no ids, colliders or scripts.
+
+- The copies' placements are a buffer: 10 float32 per copy (position xyz,
+  rotation quaternion xyzw, scale xyz, local to the object). It is stored by
+  its SHA-256 like an asset source. `POST .../content/buffers` publishes one
+  from `{transforms: [...]}` (up to 4096 copies inline) or `{stageId}` (an
+  uploaded stage); `GET .../content/buffers/<digest>` reads it.
+- GameObject → **Instance set…** scatters copies of a model on the ground
+  plane around the point the camera looks at. You choose the count, width,
+  depth, scale range and random turn; a seed repeats the same layout. The
+  object's transform moves, turns and scales the whole set.
+- MCP: `tl_instance_buffer {transforms}` returns `{digest, count}`. Then
+  `createEntity {kind: "group", components: {instances: {asset: {assetId},
+  buffer, count}}}`.
+
 ## MCP (coding harness)
 
 The MCP server is `dist/mcp-adapter/mcp.mjs` over stdio. Register it once,
@@ -221,7 +316,7 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 (`tl_inspect`, `tl_command`, `tl_diagnostics`, `tl_sessions`,
 `tl_play_start`/`tl_play_stop`, `tl_input_exercise`, `tl_game_control`,
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
-`tl_content_query`). Play tools need an editor browser
+`tl_content_query`, `tl_instance_buffer`). Play tools need an editor browser
 connected to the project; without one they return `session_unavailable`.
 
 ## Backup and restore
@@ -239,7 +334,8 @@ node tools/backup.mjs restore ~/thirdlight/backups/my-game-20260922T120000Z --as
 ```
 
 A backup is a directory: the project's files plus `backup-manifest.json`
-(SHA-256 inventory, written last). Copy the directory anywhere; `tar czf`
+(SHA-256 inventory, written last). Both layouts are handled: a v4 project
+(`content.json` + `scenes/*.json`) and an older one (`scenes/main.json`). Copy the directory anywhere; `tar czf`
 it if you want one file. Nothing is pruned automatically. `--data-root` and
 `--out` override the locations.
 
@@ -397,6 +493,9 @@ NODE_ENV=development npm ci --include=dev
 npm start -- --build
 node tools/project.mjs check ~/projects/<game>    # per folder project; --repin once verified
 ```
+
+Projects in an older layout are upgraded the first time they are opened
+(see "Projects").
 
 ## Verification
 
