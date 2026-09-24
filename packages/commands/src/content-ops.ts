@@ -648,7 +648,7 @@ export function applySetBehaviorProperties(
 const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
   box: ['size', 'material'],
   camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset'],
+  model: ['asset', 'piece'],
   collider: ['shape'],
   controller: ['capsule'],
   ...COMPONENT_FIELD_ORDER_V3,
@@ -684,13 +684,14 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     return { ok: false, error: componentMissing(args.entityId, args.component) };
   }
 
-  // Removal (`value: null`) is available for the M2 physics pair and every
-  // v3 add-capable component; the validator rejects `null` for
-  // box/camera/model.
+  // Removal (`value: null`) is available for every owned component (phase
+  // 15.1: box/camera/model too; the resulting scene is validated as always).
   if (args.value === null) {
     // §23.6 rule 2 (authoring §A4.2): a component removal that would dangle a
     // `content.game`/checkpoint reference is refused before application.
-    if (isV3Component(args.component)) {
+    // Phase 15.1: every removable component (the camera and the controller
+    // own game references too), not only the v3 ones.
+    {
       // §23.6 rule 2: only the removal that owns the reference dangles it —
       // `playerSpawn` ⇒ game.spawnId/checkpoint safeSpawnId, `controller` ⇒
       // game.playerId, `cameraFollow` ⇒ game.cameraId. The other v3
@@ -704,7 +705,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
         if (args.component === 'playerSpawn') {
           return p === '/game/spawnId' || p.endsWith('/components/gameZone/safeSpawnId');
         }
-        if (args.component === 'cameraFollow') return p === '/game/cameraId';
+        if (args.component === 'cameraFollow' || args.component === 'camera') return p === '/game/cameraId';
         return false;
       });
       if (refs.length > 0) {
@@ -741,7 +742,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     };
   }
 
-  if (args.component === 'model') {
+  if (args.component === 'model' && args.value['asset'] !== undefined) {
     const asset = args.value['asset'] as { assetId: string };
     if (!catalog.assets.some((a) => a.assetId === asset.assetId)) {
       return { ok: false, error: assetReferenceMissing(asset.assetId) };
@@ -767,7 +768,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay') || (args.component === 'controller' && f === 'capsule'))) delete candidate[f];
+      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay') || (args.component === 'controller' && f === 'capsule') || (args.component === 'model' && f === 'piece'))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }

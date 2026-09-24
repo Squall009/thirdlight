@@ -79,6 +79,16 @@ const CLICK_SLOP_PX = 4;
 const N = (v: number | undefined): number => v ?? 0;
 
 /** The box color the play renderer uses: the surface color, else the box material color. */
+/**
+ * Phase 15.1: what an entity's own helpers are built from — its kind, its
+ * light (type, direction, range, cone, mode) and whether it has a fog volume
+ * or is a spawn. A change rebuilds them (sizes and colours update in place).
+ */
+function buildKeyOf(e: ProjectedEntity): string {
+  const l = e.light;
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true]);
+}
+
 function boxColor(e: ProjectedEntity): number {
   const hex = e.surface?.color ?? e.box?.color ?? '#cccccc';
   return parseInt(hex.slice(1), 16);
@@ -687,6 +697,11 @@ export class Viewport {
         m = this.buildMesh(e);
         this.meshes.set(e.id, m);
         this.scene.add(m);
+      } else if (m.userData['tlBuildKey'] !== buildKeyOf(e)) {
+        // Phase 15.1: a component added or removed in the Inspector (a box, a
+        // camera, a light, a fog volume…) redraws the entity's own helpers;
+        // children and a realized model under the node stay where they are.
+        this.redecorate(m as THREE.Group, e);
       } else if (!(this.draggingGizmo && e.id === this.gizmoTargetId)) {
         // A gizmo drag owns its target's transform until release.
         this.updateMesh(m, e);
@@ -728,6 +743,32 @@ export class Viewport {
     const group = new THREE.Group();
     group.name = e.id;
     (group as { entityId?: string }).entityId = e.id;
+    this.decorate(group, e);
+    return group;
+  }
+
+  /** Phase 15.1: drop the node's own helpers (marked when built) and build them for what the entity is now. */
+  private redecorate(group: THREE.Group, e: ProjectedEntity): void {
+    this.boxMaterials.get(e.id)?.undo();
+    this.boxMaterials.delete(e.id);
+    for (const c of [...group.children]) {
+      if (c.userData['tlOwn'] !== true) continue;
+      group.remove(c);
+      this.disposeMesh(c);
+    }
+    this.decorate(group, e);
+    if (this.selectedId === e.id) this.setSelected(e.id);
+  }
+
+  /** The entity's own helpers (a box mesh, icons, gizmos), marked as its own. */
+  private decorate(group: THREE.Group, e: ProjectedEntity): void {
+    const before = new Set(group.children);
+    this.decorateInner(group, e);
+    for (const c of group.children) if (!before.has(c)) c.userData['tlOwn'] = true;
+    group.userData['tlBuildKey'] = buildKeyOf(e);
+  }
+
+  private decorateInner(group: THREE.Group, e: ProjectedEntity): THREE.Object3D {
     if (e.kind === 'folder') {
       // Phase 12: a folder is organisation only — an empty node at the origin
       // its children hang under (it has no transform of its own).

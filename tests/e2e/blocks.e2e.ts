@@ -69,7 +69,7 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
 
   // The player gets health (an enemy touch then costs health, not a life).
   await page.locator('.tl-hierarchy__list li[data-entity-id="model-0001"]').click();
-  await page.getByLabel('add gameplay component').selectOption('health');
+  await page.locator('.tl-inspector').getByLabel('add component', { exact: true }).selectOption({ label: 'Health' });
   await expect(page.getByLabel('health component')).toBeVisible();
   await field(page, 'health max', '3');
   await field(page, 'health start', '3');
@@ -84,15 +84,17 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   await expect(page.getByLabel('switch mode')).toHaveValue('stand');
   await create(page, 'Door (opens on "open")', 11.5, 1.5);
   await create(page, 'One-way platform', 14.5, 0.8);
-  await expect(page.getByLabel('collider one-way')).toBeChecked();
+  await expect(page.getByLabel('collider oneWay', { exact: true })).toBeChecked();
   await create(page, 'Moving platform', 17, 0.7);
-  await field(page, 'mover waypoints', '0 2 0');
+  await field(page, 'mover waypoints 1 x', '0');
+  await field(page, 'mover waypoints 1 y', '2');
   await page.getByLabel('mover mode').selectOption('once');
   await expect(page.getByLabel('mover mode')).toHaveValue('once');
   await field(page, 'mover startOn', 'ride');
   await create(page, 'Trigger', 17, 1.9);
   await field(page, 'trigger signal', 'ride');
-  await field(page, 'trigger size', '1.6, 1.6');
+  await field(page, 'trigger size w', '1.6');
+  await field(page, 'trigger size h', '1.6');
   await field(page, 'trigger exitSignal', 'left');
 
   // The stored components (what Play and the export read).

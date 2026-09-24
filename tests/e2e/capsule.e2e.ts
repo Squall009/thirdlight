@@ -71,8 +71,8 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   await expect(page.locator('.tl-inspector__name')).toHaveValue('Player');
   const collision = page.locator('.tl-inspector__collision[data-capsule="default"]');
   await expect(collision).toBeVisible();
-  await expect(page.getByLabel('capsule radius')).toHaveValue('0.3');
-  await expect(page.getByLabel('capsule height')).toHaveValue('1.8');
+  await expect(page.getByLabel('controller capsule radius', { exact: true })).toHaveValue('0.3');
+  await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue('1.8');
   await expect(page.locator('.tl-inspector').getByText('absent')).toHaveCount(0);
   // "Fit to model" sizes the capsule to the player's model (once it is loaded); "Default" goes back.
   await expect
@@ -85,7 +85,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   expect(fitted.radius).toBeGreaterThanOrEqual(0.05);
   expect(fitted.height).toBeGreaterThanOrEqual(2 * fitted.radius);
   await expect(page.locator('.tl-inspector__collision[data-capsule="own"]')).toBeVisible();
-  await expect(page.getByLabel('capsule height')).toHaveValue(String(fitted.height));
+  await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue(String(fitted.height));
   await page.getByRole('button', { name: 'Default', exact: true }).click();
   await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{}');
   await expect(page.locator('.tl-inspector__collision[data-capsule="default"]')).toBeVisible();
@@ -128,13 +128,13 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   expect(Math.abs(stored.height / 0.05 - Math.round(stored.height / 0.05))).toBeLessThan(1e-6);
   expect(0.91 + (stored.offset?.[1] ?? 0) - stored.height / 2).toBeCloseTo(0.01, 6);
   await expect(page.locator('.tl-inspector__collision[data-capsule="own"]')).toBeVisible();
-  await expect(page.getByLabel('capsule height')).toHaveValue(String(stored.height));
+  await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue(String(stored.height));
 
   // One undo restores the default capsule; redo brings the small one back.
   await page.locator('canvas[data-capsule-outlines]').hover();
   await page.keyboard.press('Control+z');
   await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{}');
-  await expect(page.getByLabel('capsule height')).toHaveValue('1.8');
+  await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue('1.8');
   await page.keyboard.press('Control+Shift+z');
   await expect.poll(async () => (await controllerOf(PLAYER))?.capsule?.height).toBe(stored.height);
 

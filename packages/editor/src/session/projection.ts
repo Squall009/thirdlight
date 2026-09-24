@@ -92,6 +92,13 @@ export interface ProjectedEntity {
   instances?: { assetId: string; piece?: string; buffer: string; count: number };
   /** Phase 12 (c): the scene the entity lives in (v4 projects; absent for older ones). */
   sceneId?: string;
+  /**
+   * Phase 15.1: the entity's whole component bag as stored (a private copy,
+   * kept current by every change). The generic Inspector reads its fields
+   * from here through the descriptors; the typed fields above stay for the
+   * viewport and the older panels.
+   */
+  components: Record<string, unknown>;
 }
 
 /** The result of applying one `mutation.applied` to the projection. */
@@ -156,6 +163,11 @@ function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName
 
 const IDENTITY = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 
+/** What an entity is, from its components (a component added or removed can change it). */
+function kindOf(c: Record<string, unknown>): ProjectedEntity['kind'] {
+  return c['folder'] !== undefined ? 'folder' : c['model'] ? 'model' : c['box'] ? 'box' : c['camera'] ? 'camera' : c['light'] ? 'light' : 'entity';
+}
+
 /** Phase 14.0: a controller component's capsule, copied (undefined when it has none). */
 function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
   const c = (controller as { capsule?: { radius?: unknown; height?: unknown; offset?: unknown } } | null | undefined)?.capsule;
@@ -186,7 +198,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
     animator?: { controller: string; parameters?: Record<string, number | boolean> };
   };
-  const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
+  const kind = kindOf(c as Record<string, unknown>);
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
   const blocks = blocksOf(e.components as unknown as Record<string, unknown>);
   const projected: ProjectedEntity = {
@@ -201,6 +213,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     position: [...t.position],
     rotation: [...t.rotation],
     scale: [...t.scale],
+    components: structuredClone(e.components as unknown as Record<string, unknown>),
     ...(c.box ? { box: boxOf(c.box) } : {}),
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
     ...(typeof c.model?.piece === 'string' ? { piece: c.model.piece } : {}),
@@ -225,6 +238,12 @@ function toProjected(e: EntityV3): ProjectedEntity {
     ...(c.modelAnimation !== undefined ? { modelAnimation: { assetId: c.modelAnimation.assetId, version: c.modelAnimation.version, roles: { idle: { ...c.modelAnimation.roles.idle }, run: { ...c.modelAnimation.roles.run }, airborne: { ...c.modelAnimation.roles.airborne } } } } : {}),
   };
   return projected;
+}
+
+/** Phase 15.1: the raw transform follows the projected one (a folder has none). */
+function syncRawTransform(p: ProjectedEntity): void {
+  if (p.components['transform'] === undefined) return;
+  p.components['transform'] = { position: [...p.position], rotation: [...p.rotation], scale: [...p.scale] };
 }
 
 /**
@@ -349,6 +368,7 @@ export class Projection {
         p.position = [...change.next.position];
         p.rotation = [...change.next.rotation];
         p.scale = [...change.next.scale];
+        syncRawTransform(p);
         return true;
       }
       case 'updateEntity': {
@@ -364,6 +384,7 @@ export class Projection {
           p.position = [...change.transform.next.position];
           p.rotation = [...change.transform.next.rotation];
           p.scale = [...change.transform.next.scale];
+          syncRawTransform(p);
         }
         if (change.order !== null) this.order = [...change.order.next];
         return true;
@@ -377,6 +398,7 @@ export class Projection {
             p.position = [...m.next.transform.position];
             p.rotation = [...m.next.transform.rotation];
             p.scale = [...m.next.transform.scale];
+            syncRawTransform(p);
           }
         }
         this.order = [...change.order.next];
@@ -424,15 +446,22 @@ export class Projection {
       case 'setComponent': {
         const p = this.entities.get(change.id);
         if (!p) return false;
+        // Phase 15.1: the raw bag first (every component, box/camera/model added or removed too).
+        if (change.next === null) delete p.components[change.component];
+        else p.components[change.component] = structuredClone(change.next);
+        p.kind = kindOf(p.components);
         if (change.component === 'box') {
           if (change.next !== null) p.box = boxOf(change.next as { size?: number[]; material?: { color?: string } });
+          else delete p.box;
         } else if (change.component === 'model') {
           const next = change.next as { asset?: { assetId?: string }; piece?: string } | null;
           if (next?.asset?.assetId) {
             p.assetId = next.asset.assetId;
             if (typeof next.piece === 'string') p.piece = next.piece;
             else delete p.piece;
-            p.kind = 'model';
+          } else if (next === null) {
+            delete p.assetId;
+            delete p.piece;
           }
         } else if (change.component === 'animator') {
           if (change.next === null) delete p.animator;
@@ -539,6 +568,8 @@ export class Projection {
         if (!p) return false;
         if (change.next === null) delete p.surface;
         else p.surface = { ...(change.next as SurfaceComponent) };
+        if (change.next === null) delete p.components['surface'];
+        else p.components['surface'] = structuredClone(change.next);
         return true;
       }
       default:
@@ -553,10 +584,12 @@ export class Projection {
     if (next === null) {
       delete p.behaviorId;
       delete p.behaviorValues;
+      delete p.components['behavior'];
       return true;
     }
     p.behaviorId = next.behaviorId;
     p.behaviorValues = { ...next.values };
+    p.components['behavior'] = structuredClone(next);
     return true;
   }
 

@@ -144,7 +144,7 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await page.getByLabel('trigger shape').selectOption('circle');
   await expect.poll(triggerValue).toEqual({ signal: 'trigger', shape: 'circle', radius: 1 });
   await expect(page.locator('.tl-inspector').getByLabel('trigger radius', { exact: true })).toHaveValue('1');
-  await expect(page.locator('.tl-inspector').getByLabel('trigger size', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.tl-inspector').getByLabel('trigger size w', { exact: true })).toHaveCount(0);
   await page.getByLabel('trigger mode').selectOption('stay');
   await field(page, 'trigger signal', 'here');
   await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'circle', radius: 1, mode: 'stay' });

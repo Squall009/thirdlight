@@ -133,7 +133,10 @@ test('a controller built in the Animator window poses a skinned model in Play by
 
   // Put the controller on the model (Inspector).
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${column}"]`).click();
-  await page.getByLabel('animator controller of the object').selectOption({ label: 'New animator' });
+  // Phase 15.1: "+ Add component" → Animator, then pick its controller.
+  await page.locator('.tl-inspector').getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });
+  await page.locator('.tl-inspector').getByLabel('animator controller', { exact: true }).selectOption({ label: 'New animator' });
+  await page.locator('.tl-inspector').getByRole('button', { name: 'Add', exact: true }).click();
   await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: column } }))['entity'] as { components: { animator?: unknown } }).components.animator).toEqual({ controller: controllers[0]!.controllerId });
 
   // Play: bent = false → straight; bent = true → the upper half leans over.

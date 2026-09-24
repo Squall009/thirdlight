@@ -102,7 +102,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Tags: setTags {tags: [{bit?, name}]} replaces the project tag registry (up to 32; a rename keeps the bit, a new ' +
       'name gets the lowest free bit, a tag still carried by an entity cannot be removed); the registry is in ' +
       'tl_inspect target="project" (tags) and each entity shows its own and effective tag names. Content ops: publishAsset, publishBehavior, ' +
-      'setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
+      'setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that ' +
+      'field, null removes an optional one; on an object without the component a complete value adds it; value null removes the ' +
+      'component — every owned component, box/camera/model included; model {piece: name|null} changes the piece), setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
       'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
       'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig. Scenes: createScene {name, sceneId?}, ' +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +

@@ -9,7 +9,7 @@ import { draggedRoots, dropTarget, dropZoneAt, effectiveFlagsOf, nextSelection, 
 import { Projection, type ProjectedEntity } from './projection';
 
 function e(id: string, parentId: string | null, kind: ProjectedEntity['kind'] = 'box', extra: Partial<ProjectedEntity> = {}): ProjectedEntity {
-  return { id, name: id, parentId, kind, active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], ...extra };
+  return { id, name: id, parentId, kind, active: true, locked: false, static: false, tags: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1], components: {}, ...extra };
 }
 
 // F (folder) > a > a1 ; b ; G (folder, empty)
