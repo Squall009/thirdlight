@@ -118,7 +118,8 @@ export interface CameraFollowComponent {
 
 /** §23.3.4 one directional key light or one ambient fill. */
 export interface LightComponent {
-  type: 'directional' | 'ambient';
+  /** Phase 9.5 (v4) adds point, spot and hemisphere. */
+  type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere';
   /** `^#[0-9a-f]{6}$`; canonical lowercase. */
   color: string;
   /** [0, 8]. */
@@ -127,6 +128,18 @@ export interface LightComponent {
   direction?: Vec3;
   /** Directional only; defaulted to `false` by the §23.7 normalizer. */
   castShadow?: boolean;
+  /** Phase 9.5, point/spot: the reach in meters (0 = unlimited). */
+  range?: number;
+  /** Phase 9.5, point/spot: light falloff (2 = physical). */
+  decay?: number;
+  /** Phase 9.5, spot: the cone half-angle in degrees. */
+  angle?: number;
+  /** Phase 9.5, spot: the soft edge (0-1). */
+  penumbra?: number;
+  /** Phase 9.5, hemisphere: the ground colour (`color` is the sky). */
+  groundColor?: string;
+  /** Phase 9.5/9.6: `baked` lights only feed light baking; `mixed` bakes indirect light (absent = realtime). */
+  mode?: 'baked' | 'mixed';
 }
 
 /** §23.3.5 copied surface value row (never a linked resource). */

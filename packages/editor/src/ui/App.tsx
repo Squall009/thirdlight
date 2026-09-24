@@ -92,6 +92,7 @@ import { StatusBar } from './StatusBar';
 import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
+import { LightEditor } from './LightEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -304,6 +305,7 @@ function EditorApp(): JSX.Element {
   /** Texture versions whose tile image was already fetched. */
   const textureTilesRef = useRef(new Set<string>());
   const [assetDropActive, setAssetDropActive] = useState(false);
+  const [lightingMode, setLightingMode] = useState<'editor' | 'game'>('editor');
   const [assetQuery, setAssetQuery] = useState<AssetQueryState>({ total: 0, offset: 0, limit: 50, hasMore: false });
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -756,6 +758,8 @@ function EditorApp(): JSX.Element {
   const framedRef = useRef(false);
   useEffect(() => {
     viewportRef.current?.syncEntities(entities);
+    const lit = viewportRef.current?.getLighting();
+    if (lit !== undefined) setLightingMode(lit);
     if (!framedRef.current && entities.length > 0) {
       framedRef.current = true;
       viewportRef.current?.frameAll(entities);
@@ -1035,16 +1039,28 @@ function EditorApp(): JSX.Element {
     [createEntityAt],
   );
   const createLight = useCallback(
-    (type: 'directional' | 'ambient') =>
+    (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') =>
       createEntityAt(
         `Create ${type} light`,
         type === 'directional'
           ? { kind: 'group', name: 'Directional light', components: { light: { type, color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true } } }
-          : { kind: 'group', name: 'Ambient light', components: { light: { type, color: '#8a94b0', intensity: 0.9 } } },
-        type === 'directional' ? [0, 10, 0] : [0, 0, 0],
+          : type === 'ambient'
+            ? { kind: 'group', name: 'Ambient light', components: { light: { type, color: '#8a94b0', intensity: 0.9 } } }
+            : type === 'point'
+              ? { kind: 'group', name: 'Point light', components: { light: { type, color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } } }
+              : type === 'spot'
+                ? { kind: 'group', name: 'Spot light', components: { light: { type, color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0] } } }
+                : { kind: 'group', name: 'Hemisphere light', components: { light: { type, color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8 } } },
+        type === 'directional' ? [0, 10, 0] : type === 'ambient' || type === 'hemisphere' ? [0, 0, 0] : undefined,
       ),
     [createEntityAt],
   );
+  /** Phase 9.5: a light edit (a partial value; null removes an optional field). */
+  const saveLightPatch = useCallback(async (entityId: string, patch: Record<string, unknown>) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Light', await c.setComponent(entityId, 'light', patch, c.projection.revision));
+  }, [reportFailure]);
   const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
   /** The full values of the selection's subtrees (parents first), read from the backend. */
@@ -2449,6 +2465,9 @@ function EditorApp(): JSX.Element {
         { label: 'Light', items: [
           { label: 'Directional light', disabled: hasDirectional, reason: lightReason('directional'), onSelect: () => void createLight('directional') },
           { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },
+          { label: 'Point light', onSelect: () => void createLight('point') },
+          { label: 'Spot light', onSelect: () => void createLight('spot') },
+          { label: 'Hemisphere light', disabled: entities.some((e) => e.light?.type === 'hemisphere'), reason: 'the scene already has a hemisphere light', onSelect: () => void createLight('hemisphere') },
         ] },
         'separator',
         { label: 'Player spawn', onSelect: () => void createSpawn() },
@@ -2519,6 +2538,12 @@ function EditorApp(): JSX.Element {
         playing={playing}
         snapping={snapping}
         onToggleSnapping={() => setSnapping((v) => !v)}
+        lighting={lightingMode}
+        onToggleLighting={() => {
+          const next = lightingMode === 'game' ? 'editor' : 'game';
+          viewportRef.current?.setLighting(next);
+          setLightingMode(next);
+        }}
         onPlay={() => void play()}
         onStop={() => void stop()}
       />
@@ -2862,7 +2887,9 @@ function EditorApp(): JSX.Element {
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
           extra={
-            selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
+            selected !== null && selected.light !== undefined ? (
+              <LightEditor light={selected.light} onSave={(patch) => void saveLightPatch(selected.id, patch)} />
+            ) : selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
               <MaterialMappingEditor
                 label="Materials"
                 sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}

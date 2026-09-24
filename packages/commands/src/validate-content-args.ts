@@ -460,7 +460,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   gameZone: ['role', 'size', 'safeSpawnId', 'activation'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   // Phase 12 (c) / 9.4 (v4 scenes).

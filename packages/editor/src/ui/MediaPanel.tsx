@@ -312,8 +312,9 @@ function LightsTab({
   onSaveLight: (entityId: string, value: Partial<LightView>) => void;
 }): JSX.Element {
   const counts = lightCounts(entities);
-  const lightEntity = selected !== null && selected.light !== undefined ? selected : null;
-  const light = lightEntity?.light ?? null;
+  // Phase 9.5: point, spot and hemisphere lights are edited in the Inspector.
+  const lightEntity = selected !== null && (selected.light?.type === 'directional' || selected.light?.type === 'ambient') ? selected : null;
+  const light = (lightEntity?.light ?? null) as (LightView & { type: 'directional' | 'ambient' }) | null;
   const [color, setColor] = useState('#ffffff');
   const [intensity, setIntensity] = useState('2');
   const [dx, setDx] = useState('0.35');

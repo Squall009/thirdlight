@@ -92,7 +92,7 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   await page.getByRole('button', { name: 'from project folder…' }).click();
   const picker = page.getByRole('dialog', { name: 'Import from project folder' });
   await picker.getByRole('button', { name: 'props/' }).click();
-  await expect(picker.getByRole('button', { name: /crate_checker\.png/ })).toHaveCount(0); // only importable files
+  await expect(picker.getByRole('button', { name: /crate_checker\.png/ })).toHaveCount(1); // a PNG imports as a texture (phase 9.4)
   await picker.getByRole('button', { name: /^crate\.fbx/ }).click();
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 120_000 });

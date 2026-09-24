@@ -126,6 +126,13 @@ const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
 const KNOWN_BOUNDS_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
 const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow']);
+/** Phase 9.5 (v4): the local light fields. */
+const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode']);
+/** Phase 9.5: point/spot intensity is in candela (three's physical units). */
+export const MAX_LOCAL_INTENSITY = 1000;
+/** Phase 9.5: most point + spot lights per scene, and hemisphere lights per scene. */
+export const MAX_LOCAL_LIGHTS = 16;
+export const MAX_HEMISPHERE_LIGHTS = 1;
 const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity']);
 const KNOWN_MODEL_ANIMATION_FIELDS = new Set(['assetId', 'version', 'roles']);
 const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
@@ -402,12 +409,19 @@ export function validateCameraFollowComponent(c: unknown, path: string, errors: 
   }
 }
 
-export function validateLightComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
+export function validateLightComponent(c: unknown, path: string, errors: ModelErrorV3[], version: 3 | 4 = 3): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
   }
   const type = c['type'];
+  if (version === 4 && (type === 'point' || type === 'spot' || type === 'hemisphere')) {
+    validateLocalLight(c, type, path, errors);
+    return;
+  }
+  if (version === 4 && c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
+    errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
+  }
   let directional = false;
   if (type === undefined) errors.push(fieldMissing(`${path}/type`, 'type'));
   else if (typeof type !== 'string') errors.push(fieldType(`${path}/type`, type, 'string'));
@@ -455,7 +469,47 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     }
   }
   for (const k of Object.keys(c)) {
+    if (version === 4 && k === 'mode') continue;
     if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow'));
+  }
+}
+
+/**
+ * Phase 9.5 (v4): a point light (at the entity, `range` 0 = unlimited,
+ * `decay`), a spot light (also `direction`, `angle` in degrees, `penumbra`)
+ * or a hemisphere light (`color` = sky, `groundColor`). Point and spot
+ * intensity is in candela; any light may be `realtime`, `baked` or `mixed`.
+ */
+function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' | 'hemisphere', path: string, errors: ModelErrorV3[]): void {
+  optionalColor(c['color'], `${path}/color`, 'required', errors);
+  if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
+  if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
+  else checkFiniteNumber(c['intensity'], `${path}/intensity`, { absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
+  if (typeof c['intensity'] === 'number' && c['intensity'] < 0) errors.push(fieldValue(`${path}/intensity`, c['intensity'], '>= 0', 'intensity is not negative'));
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode'];
+  for (const k of Object.keys(c)) {
+    if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
+  }
+  const range = (k: string, lo: number, hi: number): void => {
+    const v = c[k];
+    if (v === undefined) return;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) errors.push(fieldValue(`${path}/${k}`, v, `a number in [${lo}, ${hi}]`, `${k} must be in [${lo}, ${hi}]`));
+  };
+  range('range', 0, 1000);
+  range('decay', 0, 4);
+  range('angle', 1, 89);
+  range('penumbra', 0, 1);
+  if (type === 'hemisphere') optionalColor(c['groundColor'], `${path}/groundColor`, '#444444', errors);
+  if (c['castShadow'] !== undefined && typeof c['castShadow'] !== 'boolean') errors.push(fieldType(`${path}/castShadow`, c['castShadow'], 'boolean'));
+  if (c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
+    errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
+  }
+  if (type === 'spot') {
+    const dir = c['direction'];
+    if (dir === undefined) errors.push(fieldMissing(`${path}/direction`, 'direction'));
+    else if (!Array.isArray(dir) || dir.length !== 3 || !dir.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1) || Math.hypot(dir[0] as number, dir[1] as number, dir[2] as number) < MIN_DIRECTION_NORM) {
+      errors.push(fieldValue(`${path}/direction`, dir, '[x, y, z], each |v| <= 1, not all 0', 'a spot light points in a direction'));
+    }
   }
 }
 
@@ -570,6 +624,8 @@ interface EntityV3Counts {
   spawns: number;
   directional: number;
   ambient: number;
+  local: number;
+  hemisphere: number;
   cameras: number;
   controllers: number;
   colliders: number;
@@ -582,6 +638,8 @@ const EMPTY_COUNTS: EntityV3Counts = {
   spawns: 0,
   directional: 0,
   ambient: 0,
+  local: 0,
+  hemisphere: 0,
   cameras: 0,
   controllers: 0,
   colliders: 0,
@@ -745,7 +803,7 @@ function validateEntityComponentsV3(
       errors.push(componentMissing(`${path}/materials`, 'model|box|instances', 'a materials component sits only on an entity with a model, a box or an instance set'));
     }
   }
-  if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors);
+  if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
 
@@ -842,6 +900,8 @@ function validateEntityComponentsV3(
     spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
     directional: lightType === 'directional' ? 1 : 0,
     ambient: lightType === 'ambient' ? 1 : 0,
+    local: lightType === 'point' || lightType === 'spot' ? 1 : 0,
+    hemisphere: lightType === 'hemisphere' ? 1 : 0,
     cameras: comps['camera'] !== undefined ? 1 : 0,
     controllers: comps['controller'] !== undefined ? 1 : 0,
     colliders: comps['collider'] !== undefined ? 1 : 0,
@@ -899,15 +959,20 @@ function canonicalCameraFollow(c: unknown): CameraFollowComponent {
 function canonicalLight(c: unknown): LightComponent {
   const o = c as Record<string, unknown>;
   const out: LightComponent = {
-    type: o['type'] as 'directional' | 'ambient',
+    type: o['type'] as LightComponent['type'],
     color: (o['color'] as string).toLowerCase(),
     intensity: canonNum(o['intensity']),
   };
-  if (out.type === 'directional') {
+  if (out.type === 'directional' || out.type === 'spot') {
     const dir = o['direction'] as unknown[];
     out.direction = [canonNum(dir[0]), canonNum(dir[1]), canonNum(dir[2])];
-    out.castShadow = typeof o['castShadow'] === 'boolean' ? o['castShadow'] : false;
   }
+  if (out.type === 'directional') out.castShadow = typeof o['castShadow'] === 'boolean' ? o['castShadow'] : false;
+  if ((out.type === 'point' || out.type === 'spot') && typeof o['castShadow'] === 'boolean') out.castShadow = o['castShadow'];
+  // Phase 9.5 local-light fields, kept when set.
+  for (const k of ['range', 'decay', 'angle', 'penumbra'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
+  if (typeof o['groundColor'] === 'string') out.groundColor = o['groundColor'].toLowerCase();
+  if (o['mode'] === 'baked' || o['mode'] === 'mixed') out.mode = o['mode'];
   return out;
 }
 
@@ -1104,6 +1169,8 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.spawns += c.spawns;
         counts.directional += c.directional;
         counts.ambient += c.ambient;
+        counts.local += c.local;
+        counts.hemisphere += c.hemisphere;
         counts.cameras += c.cameras;
         counts.controllers += c.controllers;
         counts.colliders += c.colliders;
@@ -1191,6 +1258,12 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     }
     if (counts.ambient > GAME_ZONE_LIMITS.lightsAmbient) {
       errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, GAME_ZONE_LIMITS.lightsAmbient, 'scene exceeds the ambient-light limit'));
+    }
+    if (counts.local > MAX_LOCAL_LIGHTS) {
+      errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
+    }
+    if (counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
+      errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
     }
     if (!merged && counts.checkpointZoneIds.length > GAME_ZONE_LIMITS.checkpointZones) {
       errors.push(

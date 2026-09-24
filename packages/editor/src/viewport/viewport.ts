@@ -123,7 +123,9 @@ export class Viewport {
     const key = new THREE.DirectionalLight(0xffffff, 1.0);
     key.position.set(5, 10, 7);
     this.scene.add(key);
-    this.scene.add(new THREE.AmbientLight(0x8899bb, 0.6));
+    const fill = new THREE.AmbientLight(0x8899bb, 0.6);
+    this.scene.add(fill);
+    this.editorLights.push(key, fill);
 
     this.zones = new ZoneOverlay(this.scene, this.camera, canvas);
 
@@ -169,6 +171,66 @@ export class Viewport {
   /** Install the model realization path (packet 27). */
   setModelInstances(models: ModelInstances | null): void {
     this.models = models;
+  }
+
+  /**
+   * Phase 9.5: "editor" lighting is a fixed key + fill; "game" lighting uses
+   * the scene's own lights (what Play shows). Automatic until chosen: game
+   * lighting as soon as the scene has a light.
+   */
+  private readonly editorLights: THREE.Light[] = [];
+  private lighting: 'editor' | 'game' = 'editor';
+  private lightingChosen = false;
+  private readonly sceneLights = new Map<string, { key: string; light: THREE.Light; parent: THREE.Object3D }>();
+  setLighting(mode: 'editor' | 'game'): void {
+    this.lighting = mode;
+    this.lightingChosen = true;
+    this.applyLighting();
+  }
+  getLighting(): 'editor' | 'game' {
+    return this.lighting;
+  }
+  private applyLighting(): void {
+    for (const l of this.editorLights) l.visible = this.lighting === 'editor';
+    for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
+    this.render();
+  }
+  private syncSceneLights(entities: readonly ProjectedEntity[]): void {
+    const seen = new Set<string>();
+    for (const e of entities) {
+      const l = e.light;
+      if (l === undefined || l.mode === 'baked') continue;
+      seen.add(e.id);
+      const key = JSON.stringify(l);
+      const group = this.meshes.get(e.id);
+      if (group === undefined) continue;
+      let have = this.sceneLights.get(e.id);
+      if (have !== undefined && have.key !== key) {
+        have.parent.remove(have.light);
+        if (have.light instanceof THREE.SpotLight || have.light instanceof THREE.DirectionalLight) have.parent.remove(have.light.target);
+        have.light.dispose();
+        this.sceneLights.delete(e.id);
+        have = undefined;
+      }
+      if (have === undefined) {
+        const made = makeSceneLight(l);
+        // Directional/ambient/hemisphere lights ignore the entity transform (as in Play); point/spot follow it.
+        const parent = l.type === 'point' || l.type === 'spot' ? group : this.scene;
+        parent.add(made);
+        if (made instanceof THREE.SpotLight || made instanceof THREE.DirectionalLight) parent.add(made.target);
+        have = { key, light: made, parent };
+        this.sceneLights.set(e.id, have);
+      }
+      have.light.userData['tlActive'] = this.hierarchyFlags.get(e.id)?.active !== false;
+    }
+    for (const [id, have] of [...this.sceneLights]) {
+      if (seen.has(id)) continue;
+      have.parent.remove(have.light);
+      have.light.dispose();
+      this.sceneLights.delete(id);
+    }
+    if (!this.lightingChosen) this.lighting = this.sceneLights.size > 0 ? 'game' : 'editor';
+    this.applyLighting();
   }
 
   /** Phase 9.4: project materials on boxes (models get theirs through ModelInstances). */
@@ -359,6 +421,7 @@ export class Viewport {
       }
     }
     this.models?.sync(entities);
+    this.syncSceneLights(entities);
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
     this.zones.sync(entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false));
@@ -412,7 +475,9 @@ export class Viewport {
         (line as { userData?: unknown }).userData = { lightKind: 'directional' };
         group.add(line);
       }
-      this.addIcon(group, e.id, e.light.type === 'directional' ? 'sun' : 'ambient');
+      // Phase 9.5: a point light shows its reach, a spot light its cone.
+      if ((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') group.add(lightGizmo(e));
+      this.addIcon(group, e.id, e.light.type === 'directional' || e.light.type === 'spot' || e.light.type === 'point' ? 'sun' : 'ambient');
     } else if (e.kind === 'camera') {
       // A camera is an icon billboard plus a small wire frustum showing where it looks (-Z).
       const w = 0.42;
@@ -690,4 +755,68 @@ export class Viewport {
     this.disposeMesh(this.ground);
     this.renderer.dispose();
   }
+}
+
+/** Phase 9.5: the three.js light for an authored light (the editor's "game lighting"). */
+function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
+  const colour = new THREE.Color(l.color);
+  switch (l.type) {
+    case 'ambient':
+      return new THREE.AmbientLight(colour, l.intensity);
+    case 'hemisphere':
+      return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
+    case 'point':
+      return new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
+    case 'spot': {
+      const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      const d = l.direction ?? [0, -1, 0];
+      s.target.position.set(d[0], d[1], d[2]);
+      return s;
+    }
+    default: {
+      const d = l.direction ?? [0, -1, 0];
+      const dl = new THREE.DirectionalLight(colour, l.intensity);
+      dl.position.set(-d[0] * 20, -d[1] * 20, -d[2] * 20);
+      return dl;
+    }
+  }
+}
+
+/** Phase 9.5: a point light's reach (three circles) or a spot light's cone, as lines. */
+function lightGizmo(e: ProjectedEntity): THREE.LineSegments {
+  const l = e.light!;
+  const pts: THREE.Vector3[] = [];
+  const reach = l.range !== undefined && l.range > 0 ? l.range : 3;
+  if (l.type === 'point') {
+    const n = 32;
+    for (const axis of [0, 1, 2]) {
+      for (let i = 0; i < n; i += 1) {
+        const a = (i / n) * Math.PI * 2;
+        const b = ((i + 1) / n) * Math.PI * 2;
+        const at = (t: number): THREE.Vector3 => (axis === 0 ? new THREE.Vector3(0, Math.cos(t), Math.sin(t)) : axis === 1 ? new THREE.Vector3(Math.cos(t), 0, Math.sin(t)) : new THREE.Vector3(Math.cos(t), Math.sin(t), 0)).multiplyScalar(reach);
+        pts.push(at(a), at(b));
+      }
+    }
+  } else {
+    const d = new THREE.Vector3(...(l.direction ?? [0, -1, 0])).normalize();
+    const half = THREE.MathUtils.degToRad(l.angle ?? 30);
+    const r = Math.tan(half) * reach;
+    const side = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const u = new THREE.Vector3().crossVectors(d, side).normalize();
+    const v = new THREE.Vector3().crossVectors(d, u).normalize();
+    const centre = d.clone().multiplyScalar(reach);
+    const n = 24;
+    for (let i = 0; i < n; i += 1) {
+      const a = (i / n) * Math.PI * 2;
+      const b = ((i + 1) / n) * Math.PI * 2;
+      const p = (t: number): THREE.Vector3 => centre.clone().addScaledVector(u, Math.cos(t) * r).addScaledVector(v, Math.sin(t) * r);
+      pts.push(p(a), p(b));
+      if (i % 6 === 0) pts.push(new THREE.Vector3(0, 0, 0), p(a));
+    }
+  }
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.55 }));
+  lines.name = e.id;
+  (lines as { entityId?: string }).entityId = e.id;
+  lines.userData = { lightKind: l.type };
+  return lines;
 }

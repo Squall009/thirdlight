@@ -146,7 +146,8 @@ export function composeV4(
       const oneOf: string[] = [];
       if (c.camera !== undefined) oneOf.push('camera');
       if (c.controller !== undefined) oneOf.push('controller');
-      if (c.light !== undefined) oneOf.push(`${c.light.type} light`);
+      // Phase 9.5: point and spot lights may sit in any scene (a torch in a level).
+      if (c.light !== undefined && c.light.type !== 'point' && c.light.type !== 'spot') oneOf.push(`${c.light.type} light`);
       if (oneOf.length === 0) return;
       if (!inStart) {
         errors.push(

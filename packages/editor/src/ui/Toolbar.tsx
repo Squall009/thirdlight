@@ -15,6 +15,9 @@ interface Props {
   /** The local snapping gesture option (never persisted — sessions.md §9). */
   snapping: boolean;
   onToggleSnapping: () => void;
+  /** Phase 9.5: the Scene view's lighting — the fixed editor rig or the scene's own lights. */
+  lighting?: 'editor' | 'game';
+  onToggleLighting?: () => void;
   onPlay: () => void;
   onStop: () => void;
 }
@@ -46,6 +49,15 @@ export function Toolbar(p: Props): JSX.Element {
         >
           snap{p.snapping ? ': on' : ': off'}
         </button>
+        {p.lighting !== undefined && (
+          <button
+            className={p.lighting === 'game' ? 'tl-btn is-active' : 'tl-btn'}
+            onClick={p.onToggleLighting}
+            title="Scene view lighting: the scene's own lights (as in Play) or a fixed editor rig"
+          >
+            light: {p.lighting}
+          </button>
+        )}
       </div>
       <div className="tl-toolbar__spacer" />
       <div className="tl-toolbar__group">

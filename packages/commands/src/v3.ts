@@ -45,7 +45,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   instances: ['asset', 'buffer', 'count'],
@@ -162,7 +162,7 @@ export function validateV3ComponentValue(
       validateMaterialMapping(value, path, errors as unknown as Parameters<typeof validateMaterialMapping>[2]);
       break;
     case 'light':
-      validateLightComponent(value, path, errors);
+      validateLightComponent(value, path, errors, version);
       break;
     case 'surface':
       validateSurfaceComponent(value, path, errors);

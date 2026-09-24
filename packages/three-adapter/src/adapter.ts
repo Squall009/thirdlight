@@ -208,6 +208,30 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** Phase 9.5: point/spot lights casting shadows (the shadow map is enabled for them). */
+  let localShadowLights = 0;
+  /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise; baked lights are not realtime). */
+  const localLightOf = (e: { components: unknown }): THREE.Light | null => {
+    const l = (e.components as { light?: { type: string; color: string; intensity: number; range?: number; decay?: number; angle?: number; penumbra?: number; direction?: readonly number[]; groundColor?: string; castShadow?: boolean; mode?: string } }).light;
+    if (l === undefined || l.mode === 'baked') return null;
+    const colour = new THREE.Color(l.color);
+    if (l.type === 'hemisphere') return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
+    if (l.type === 'point') {
+      const p = new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
+      p.castShadow = l.castShadow === true;
+      if (p.castShadow) p.shadow.mapSize.set(512, 512);
+      return p;
+    }
+    if (l.type === 'spot') {
+      const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
+      const d = l.direction ?? [0, -1, 0];
+      s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
+      s.castShadow = l.castShadow === true;
+      if (s.castShadow) s.shadow.mapSize.set(1024, 1024);
+      return s;
+    }
+    return null;
+  };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
@@ -235,7 +259,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (isV3) {
     for (const e of sceneDoc.entities) {
       const l = (e.components as { light?: AuthoredLight }).light;
-      if (l) authoredLights.push(l);
+      // Phase 9.5: point/spot/hemisphere lights are built per entity (realizeEntity).
+      if (l && (l.type === 'directional' || l.type === 'ambient') && (l as { mode?: string }).mode !== 'baked') authoredLights.push(l);
     }
   }
   const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
@@ -306,6 +331,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj = camera;
     } else {
       obj = new THREE.Group();
+      const local = localLightOf(e);
+      if (local !== null) {
+        obj.add(local);
+        if (local instanceof THREE.SpotLight) obj.add(local.target);
+        if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
+      }
     }
     objects.set(e.id, obj);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
@@ -692,6 +723,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
     syncCheckpointLook();
+    if (localShadowLights > 0 && owned.renderer !== null && !owned.renderer.shadowMap.enabled) {
+      owned.renderer.shadowMap.enabled = true;
+      owned.renderer.shadowMap.type = THREE.PCFShadowMap;
+    }
     if (materialLibrary !== null && materialLibrary.animated()) {
       materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
     }
