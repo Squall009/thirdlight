@@ -37,6 +37,11 @@ export const M2_GLTF_TOOLCHAIN = Object.freeze({ three: '0.186.0' });
  * They are additional constraints on a requested animation profile; the
  * accepted M2 caps above still apply first.
  */
+/** Phase 9.7 skinned models: skins per file, joints per skin, morph targets per primitive. */
+export const MODEL_MAX_SKINS = 4;
+export const MODEL_MAX_SKIN_JOINTS = 128;
+export const MODEL_MAX_MORPH_TARGETS = 32;
+
 export const ANIMATION_PROFILE_MAX_CLIPS = 8;
 export const ANIMATION_PROFILE_MAX_TRACKS = 64;
 export const ANIMATION_PROFILE_MAX_TRACKS_PER_CLIP = 32;

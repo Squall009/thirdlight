@@ -46,6 +46,9 @@ import {
   M2_GLTF_SOURCE_BYTES,
   M2_GLTF_TOOLCHAIN,
   M2_GLTF_TOTAL_DECODED_BYTES,
+  MODEL_MAX_MORPH_TARGETS,
+  MODEL_MAX_SKIN_JOINTS,
+  MODEL_MAX_SKINS,
 } from './limits';
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 import type {
@@ -673,6 +676,10 @@ class Inspector {
     if (g !== null) return g;
     const nodes = this.checkNodesAndScenes();
     if (nodes !== null) return this.reject(nodes);
+
+    // 14b — skin and morph target caps (≤ 4 influences: only JOINTS_0/WEIGHTS_0 are allowed attributes).
+    const rig = this.checkRigCaps();
+    if (rig !== null) return this.reject(rig);
 
     // 15 — decoded limits.
     g = this.guard();
@@ -2408,6 +2415,31 @@ class Inspector {
     const out: number[] = [];
     for (let i = 0; i < info.count; i++) out.push(view.getFloat32(byteOffset + i * 4, true));
     return out;
+  }
+
+  /** Phase 9.7: ≤ MODEL_MAX_SKINS skins, ≤ MODEL_MAX_SKIN_JOINTS joints each, ≤ MODEL_MAX_MORPH_TARGETS morph targets per primitive. */
+  private checkRigCaps(): ImportDiagnostic[] | null {
+    const out: ImportDiagnostic[] = [];
+    const skins = this.collection('skins');
+    if (skins.length > MODEL_MAX_SKINS) {
+      out.push(diag('asset_limits_exceeded', ptr('skins'), `a model has at most ${MODEL_MAX_SKINS} skins`, { found: skins.length, expected: `<= ${MODEL_MAX_SKINS}`, limit: 'skins' }));
+    }
+    skins.forEach((skin, i) => {
+      const joints = isPlainObject(skin) && Array.isArray(skin['joints']) ? skin['joints'].length : 0;
+      if (joints > MODEL_MAX_SKIN_JOINTS) {
+        out.push(diag('asset_limits_exceeded', ptr('skins', i, 'joints'), `a skin has at most ${MODEL_MAX_SKIN_JOINTS} joints`, { found: joints, expected: `<= ${MODEL_MAX_SKIN_JOINTS}`, limit: 'skin_joints' }));
+      }
+    });
+    this.collection('meshes').forEach((mesh, m) => {
+      const primitives = isPlainObject(mesh) && Array.isArray(mesh['primitives']) ? mesh['primitives'] : [];
+      primitives.forEach((prim, p) => {
+        const targets = isPlainObject(prim) && Array.isArray(prim['targets']) ? prim['targets'].length : 0;
+        if (targets > MODEL_MAX_MORPH_TARGETS) {
+          out.push(diag('asset_limits_exceeded', ptr('meshes', m, 'primitives', p, 'targets'), `a primitive has at most ${MODEL_MAX_MORPH_TARGETS} morph targets`, { found: targets, expected: `<= ${MODEL_MAX_MORPH_TARGETS}`, limit: 'morph_targets' }));
+        }
+      });
+    });
+    return out.length > 0 ? out.slice(0, M2_GLTF_MAX_DIAGNOSTICS) : null;
   }
 
   private checkNodesAndScenes(): ImportDiagnostic[] | null {

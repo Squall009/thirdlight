@@ -115,6 +115,10 @@ export type ImportLimitName =
   | 'animation_tracks'
   | 'animation_track_times'
   | 'animation_clip_duration'
+  // phase 9.7: skinned model caps
+  | 'skins'
+  | 'skin_joints'
+  | 'morph_targets'
   | 'audio_pcm_bytes';
 
 /**
