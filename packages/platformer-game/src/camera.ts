@@ -13,8 +13,13 @@
  * smoothing → per-axis cap → authored bounds → frustum clamp) once, with a
  * pure fixed-step coefficient (no dt, no exponential time constant).
  *
- * The §7.1 contract constants (`CAMERA_Z`, `CAMERA_MAX_STEP`,
- * `DEFAULT_ASPECT`) are contract values (gameplay.md lines 756–758); the
+ * Phase 15.3: the view distance and the speed cap are the camera's data —
+ * `cameraFollow.distance` (absent: the camera's authored distance from the
+ * player, so a camera placed 12 m out keeps the old `CAMERA_Z` framing) and
+ * `cameraFollow.maxSpeed` (absent: 480 m/s, the old 4 m per step at 120 Hz).
+ * `CAMERA_Z`/`CAMERA_MAX_STEP` stay as those defaults for direct callers of
+ * `followCamera`; `DEFAULT_ASPECT` is the aspect until the host reports the
+ * viewport. The §7.1 values (gameplay.md lines 756–758); the
  * `platformer-game → runtime` edge is **types-only** (dependencies.md §4.1),
  * so this package owns its own copies of them (the runtime exports the same
  * values on its own export row, gameplay.md §15 / runtime.md §15 — one
@@ -37,13 +42,17 @@ import type {
 } from '@thirdlight/runtime';
 import { PLATFORMER_GAME_CAMERA_MODULE_ID } from './constants';
 
-/** `gameplay.md` §7.1: fixed view depth (m); the authored `position.z` is
- * never written. */
+/** `gameplay.md` §7.1: the view depth (m) of the frustum clamp when a caller
+ * gives none (phase 15.3: the module passes the camera's own distance). */
 export const CAMERA_Z = 12;
 
 /** `gameplay.md` §7.1: per-axis per-step displacement cap (m, safety bound),
- * active while smoothing (0 < k < 1). */
+ * active while smoothing (0 < k < 1) — phase 15.3: the default, at 120 Hz,
+ * of `cameraFollow.maxSpeed` (480 m/s). */
 export const CAMERA_MAX_STEP = 4;
+
+/** Phase 15.3: the default `cameraFollow.maxSpeed` (m/s): `CAMERA_MAX_STEP` at 120 Hz. */
+export const CAMERA_MAX_SPEED = 480;
 
 /** `gameplay.md` §7.1: the viewport aspect used until `setViewport` is
  * called. */
@@ -93,6 +102,10 @@ export interface CameraFollowInput {
   readonly aspect: number;
   /** `true` at the R6 reset barrier (§7.4): `k` forced to 1, cap skipped. */
   readonly snap?: boolean;
+  /** Phase 15.3: the view distance for the frustum clamp (absent: `CAMERA_Z`). */
+  readonly distance?: number;
+  /** Phase 15.3: the per-axis per-step cap (absent: `CAMERA_MAX_STEP`). */
+  readonly maxStep?: number;
 }
 
 /** The §7.2 pipeline outputs (the full order of operations, exposed per stage). */
@@ -138,7 +151,8 @@ function clampFrustum(v: number, min: number, max: number, half: number): number
  */
 export function followCamera(input: CameraFollowInput): CameraFollowResult {
   const { camera: C, player: P, deadZone: dz, smoothing: k, bounds, level, fovY, aspect } = input;
-  const halfH = CAMERA_Z * Math.tan((fovY * Math.PI) / 180 / 2);
+  const halfH = (input.distance ?? CAMERA_Z) * Math.tan((fovY * Math.PI) / 180 / 2);
+  const cap = input.maxStep ?? CAMERA_MAX_STEP;
   const halfW = halfH * aspect;
   const Tx = C.x + overflow(P.x - C.x, dz.x);
   const Ty = C.y + overflow(P.y - C.y, dz.y);
@@ -148,8 +162,8 @@ export function followCamera(input: CameraFollowInput): CameraFollowResult {
   const hard = input.snap === true || k === 0;
   const Sx = hard ? Tx : C.x + k * (Tx - C.x);
   const Sy = hard ? Ty : C.y + k * (Ty - C.y);
-  const sx = hard ? Sx : C.x + clampN(Sx - C.x, -CAMERA_MAX_STEP, CAMERA_MAX_STEP);
-  const sy = hard ? Sy : C.y + clampN(Sy - C.y, -CAMERA_MAX_STEP, CAMERA_MAX_STEP);
+  const sx = hard ? Sx : C.x + clampN(Sx - C.x, -cap, cap);
+  const sy = hard ? Sy : C.y + clampN(Sy - C.y, -cap, cap);
   const ax = clampN(sx, bounds.minX, bounds.maxX);
   const ay = clampN(sy, bounds.minY, bounds.maxY);
   const px = clampFrustum(ax, level.minX, level.maxX, halfW);
@@ -175,6 +189,10 @@ interface CameraFollowComponent {
   deadZone: { x: number; y: number };
   smoothing: number;
   bounds: CameraBounds2;
+  /** Phase 15.3 (v4): metres in front of the player plane (absent: as placed). */
+  distance?: number;
+  /** Phase 15.3 (v4): the per-axis speed cap, m/s (absent: 480). */
+  maxSpeed?: number;
 }
 
 function requireFinite(label: string, value: unknown): asserts value is number {
@@ -227,6 +245,7 @@ export function createGameCameraModule(
     throw new Error(`${PLATFORMER_GAME_CAMERA_MODULE_ID}: the scene has no entity "${cameraId}" (content.game.cameraId)`);
   }
   const components = camEntity.components as {
+    transform?: { position?: readonly number[] };
     camera?: { fovY?: unknown };
     cameraFollow?: CameraFollowComponent;
   };
@@ -247,6 +266,18 @@ export function createGameCameraModule(
   const deadZone = { x: follow.deadZone.x, y: follow.deadZone.y };
   const smoothing = follow.smoothing;
   const bounds: CameraBounds2 = follow.bounds !== undefined ? { ...follow.bounds } : { minX: Number.NEGATIVE_INFINITY, maxX: Number.POSITIVE_INFINITY, minY: Number.NEGATIVE_INFINITY, maxY: Number.POSITIVE_INFINITY };
+  // Phase 15.3: the view distance — authored (`distance`: the module keeps the
+  // camera that far in front of the player plane), else where the camera is
+  // placed (its z minus the player's; the old constant 12 for a camera at 12).
+  const playerZ = (snapshot.scene.entities.find((e) => e.id === playerId)?.components as { transform?: { position?: readonly number[] } } | undefined)?.transform?.position?.[2] ?? 0;
+  const authoredZ = components.transform?.position?.[2];
+  const hasDistance = typeof follow.distance === 'number' && Number.isFinite(follow.distance) && follow.distance > 0;
+  const placed = typeof authoredZ === 'number' && Number.isFinite(authoredZ) ? authoredZ - playerZ : CAMERA_Z;
+  const distance = hasDistance ? (follow.distance as number) : placed > 0 ? placed : CAMERA_Z;
+  const writeZ = hasDistance ? playerZ + distance : null;
+  // Phase 15.3: the speed cap per step at this step rate (480 m/s: 4 m at 120 Hz).
+  const maxSpeed = typeof follow.maxSpeed === 'number' && Number.isFinite(follow.maxSpeed) && follow.maxSpeed > 0 ? follow.maxSpeed : CAMERA_MAX_SPEED;
+  const maxStep = maxSpeed / cfg.fixedStepHz;
 
   /** The bounded diagnostics sink (runtime.md §14.8.1); presentation-only. */
   const diagnostics: ((level: BehaviorLogLevel, message: string) => void) | undefined = cfg.behaviorLog;
@@ -291,14 +322,18 @@ export function createGameCameraModule(
       fovY,
       aspect,
       snap,
+      distance,
+      maxStep,
     });
     if (r.moved) {
       // The only writes the camera module ever performs (§7.1/§3.4):
-      // `position.x/y` of the camera entity. `position.z` stays the
-      // authored depth; rotation and scale are never written.
+      // `position.x/y` of the camera entity, and (phase 15.3) `position.z`
+      // when `cameraFollow.distance` is authored; without it the z stays the
+      // authored depth. Rotation and scale are never written.
       cam.position[0] = r.position.x;
       cam.position[1] = r.position.y;
     }
+    if (writeZ !== null && cam.position[2] !== writeZ) cam.position[2] = writeZ;
   };
 
   return {

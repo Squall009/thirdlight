@@ -28,7 +28,7 @@ import {
   withFound,
 } from './validate';
 import type { ModelErrorV2 } from './errors';
-import type { ColliderShape, TransformComponent } from './types-v2';
+import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
 
 export const ID_RE_V2 = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/; // §20.5
@@ -365,18 +365,96 @@ export function controllerCapsuleOf(controller: unknown): { radius: number; heig
   };
 }
 
-/** Phase 14.0: the canonical controller, rebuilt field by field (the capsule's radius, height and optional offset). */
-export function canonicalController(controller: unknown): { capsule?: { radius: number; height: number; offset?: [number, number] } } {
-  const c = isPlainObject(controller) ? controller['capsule'] : undefined;
-  if (!isPlainObject(c)) return {};
-  const o = c['offset'];
+/**
+ * Phase 15.3: the character's movement tuning when a controller carries none —
+ * exactly the values every project played with before they became data (the
+ * packet-32 contract constants; recorded replays stay valid). Generic
+ * reasons: 40 / 60 m/s² reach a 4 m/s run in 0.1 s and stop in under 0.07 s
+ * (responsive but not instant, any walking character); 0.05 s coyote time
+ * and a 1/15 s (8 steps at 120 Hz) jump buffer are the usual few-frame
+ * forgiveness windows; releasing jump early keeps half the upward speed
+ * (variable jump height); a 0.1 m ground snap holds a walker on gentle
+ * slopes and small bumps; the 0.01 m skin is the physics gap that keeps the
+ * character from resting exactly on surfaces; autostep is off (a platformer
+ * climbs by jumping) and climbs 0.25 m (above a 0.18 m stair step) when on.
+ */
+export const DEFAULT_CONTROLLER_TUNING: Readonly<{
+  acceleration: number;
+  deceleration: number;
+  coyoteTime: number;
+  jumpBuffer: number;
+  jumpRelease: number;
+  groundSnap: number;
+  skin: number;
+  autostep: boolean;
+  autostepHeight: number;
+}> = Object.freeze({
+  acceleration: 40,
+  deceleration: 60,
+  coyoteTime: 0.05,
+  jumpBuffer: 8 / 120,
+  jumpRelease: 0.5,
+  groundSnap: 0.1,
+  skin: 0.01,
+  autostep: false,
+  autostepHeight: 0.25,
+});
+
+type TuningNumberKey = 'acceleration' | 'deceleration' | 'coyoteTime' | 'jumpBuffer' | 'jumpRelease' | 'groundSnap' | 'skin' | 'autostepHeight';
+
+/** Phase 15.3: the tuning ranges — wide enough for any character, narrow enough to keep the solver and the step counters sane. */
+export const CONTROLLER_TUNING_LIMITS: Readonly<Record<TuningNumberKey, { readonly min: number; readonly max: number }>> = Object.freeze({
+  acceleration: { min: 0.1, max: 1000 },
+  deceleration: { min: 0.1, max: 1000 },
+  coyoteTime: { min: 0, max: 1 },
+  jumpBuffer: { min: 0, max: 1 },
+  jumpRelease: { min: 0, max: 1 },
+  groundSnap: { min: 0, max: 1 },
+  skin: { min: 0.001, max: 0.1 },
+  autostepHeight: { min: 0.01, max: 2 },
+});
+
+/** Phase 15.3: the controller's tuning fields, in canonical order. */
+export const CONTROLLER_TUNING_FIELDS = ['acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'] as const;
+/** Every v4 controller field, in canonical order. */
+export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS];
+
+/** Phase 15.3: the tuning a controller component describes (each absent field at its default). */
+export function controllerTuningOf(controller: unknown): { -readonly [K in keyof typeof DEFAULT_CONTROLLER_TUNING]: (typeof DEFAULT_CONTROLLER_TUNING)[K] } {
+  const c = isPlainObject(controller) ? controller : {};
+  const d = DEFAULT_CONTROLLER_TUNING;
+  const num = (k: TuningNumberKey): number => {
+    const v = c[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : d[k];
+  };
   return {
-    capsule: {
+    acceleration: num('acceleration'),
+    deceleration: num('deceleration'),
+    coyoteTime: num('coyoteTime'),
+    jumpBuffer: num('jumpBuffer'),
+    jumpRelease: num('jumpRelease'),
+    groundSnap: num('groundSnap'),
+    skin: num('skin'),
+    autostep: typeof c['autostep'] === 'boolean' ? (c['autostep'] as boolean) : d.autostep,
+    autostepHeight: num('autostepHeight'),
+  };
+}
+
+/** Phase 14.0/15.3: the canonical controller, rebuilt field by field (the capsule's radius, height and optional offset, then the tuning fields present). */
+export function canonicalController(controller: unknown): ControllerComponent {
+  const src = isPlainObject(controller) ? controller : {};
+  const c = src['capsule'];
+  const out: Record<string, unknown> = {};
+  if (isPlainObject(c)) {
+    const o = c['offset'];
+    out['capsule'] = {
       radius: c['radius'] as number,
       height: c['height'] as number,
       ...(Array.isArray(o) ? { offset: [o[0] as number, o[1] as number] as [number, number] } : {}),
-    },
-  };
+    };
+  }
+  for (const k of CONTROLLER_TUNING_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  return out as ControllerComponent;
 }
 
 export function validateControllerComponent(c: unknown, path: string, errors: ModelErrorV2[], version: 2 | 3 | 4 = 2): void {
@@ -385,11 +463,21 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     return;
   }
   for (const k of Object.keys(c)) {
-    if (k === 'capsule' && version === 4) continue;
-    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'capsule' : '{} (no fields before v4)'));
+    if (CONTROLLER_FIELDS.includes(k) && version === 4) continue;
+    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? CONTROLLER_FIELDS.join(', ') : '{} (no fields before v4)'));
   }
+  if (version !== 4) return;
+  // Phase 15.3: the movement tuning.
+  for (const [key, lim] of Object.entries(CONTROLLER_TUNING_LIMITS)) {
+    const v = c[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max) {
+      errors.push(fieldValue(`${path}/${key}`, v, `a number ${lim.min}-${lim.max}`, `controller ${key} must be ${lim.min}-${lim.max}`));
+    }
+  }
+  if (c['autostep'] !== undefined && typeof c['autostep'] !== 'boolean') errors.push(fieldType(`${path}/autostep`, c['autostep'], 'boolean'));
   const capsule = c['capsule'];
-  if (capsule === undefined || version !== 4) return;
+  if (capsule === undefined) return;
   const cp = `${path}/capsule`;
   if (!isPlainObject(capsule)) {
     errors.push(fieldType(cp, capsule, 'object { radius, height, offset? }'));

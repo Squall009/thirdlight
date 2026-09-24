@@ -287,6 +287,37 @@ describe('manifest-v2: validateManifestV2 (strict reader)', () => {
   });
 });
 
+describe('manifest-v2: phase 15.3 optional engine settings and model bounds', () => {
+  const capture = (over: Record<string, unknown>): Record<string, unknown> => {
+    const res = captureManifestV2(v2Input(over) as never);
+    if (!res.ok) throw new Error('expected a valid capture');
+    return JSON.parse(new TextDecoder().decode(res.bytes)) as Record<string, unknown>;
+  };
+
+  it('a project that sets no engine setting keeps its exact settings block and digest', () => {
+    const doc = capture({});
+    expect(Object.keys(doc['settings'] as object)).toEqual(Object.keys(SETTINGS));
+    expect(doc['settingsDigest']).toBe(blockDigest(SETTINGS));
+  });
+
+  it('set engine settings follow the six in registry order and validate; out of order they are refused', () => {
+    const doc = capture({ settings: { ...SETTINGS, fixed_step_hz: 60, animation_crossfade_s: 0.1 } });
+    expect(validateManifestV2(doc).ok).toBe(true);
+    const bad = capture({ settings: { ...SETTINGS, animation_crossfade_s: 0.1, fixed_step_hz: 60 } });
+    expect(validateManifestV2(bad).ok).toBe(false);
+    const unknown = capture({ settings: { ...SETTINGS, teleport: 1 } });
+    expect(validateManifestV2(unknown).ok).toBe(false);
+  });
+
+  it('a model row carries its recorded bounds only when it has them', () => {
+    const bounds = { min: [-1, 0, -0.5], max: [1, 2, 0.5] };
+    const doc = capture({ assets: [{ ...ASSETS[0]!, bounds }] });
+    expect((doc['assets'] as Record<string, unknown>[])[0]!['bounds']).toEqual(bounds);
+    expect(validateManifestV2(doc).ok).toBe(true);
+    expect('bounds' in (capture({})['assets'] as Record<string, unknown>[])[0]!).toBe(false);
+  });
+});
+
 describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
   it('a v1 reader rejects a v2 document (manifest_version)', () => {
     const res = manifestVersionCompat({ manifestVersion: 2 }, 1);

@@ -79,10 +79,10 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset'],
   collider: ['shape'],
-  controller: ['capsule'],
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: [],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds'],
+  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -100,6 +100,9 @@ const GAME_CONFIG_FIELDS = [
   'level',
   'killY',
   'cues',
+  'respawnDelay',
+  'dropThroughTime',
+  'settleTime',
 ] as const;
 
 /** Read a component value as `null` when absent (commands.md §5.3). */

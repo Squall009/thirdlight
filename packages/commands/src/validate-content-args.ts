@@ -456,10 +456,10 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset'],
   collider: ['shape', 'oneWay'],
-  controller: ['capsule'],
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: [],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds'],
+  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -467,14 +467,14 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   instances: ['asset', 'buffer', 'count'],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
-  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
+  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
   switch: ['mode', 'signal', 'size', 'once'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback'],
+  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -781,7 +781,9 @@ export function validateSetSettingsArgs(
       spec.min !== undefined && (spec.minExclusive === true ? v <= spec.min : v < spec.min);
     const aboveMax =
       spec.max !== undefined && (spec.maxExclusive === true ? v >= spec.max : v > spec.max);
-    if (belowMin || aboveMax) {
+    // Phase 15.3: whole numbers / a choice of values (the step rate, the voice count).
+    const notAllowed = (spec.integer === true && !Number.isInteger(v)) || (spec.values !== undefined && !spec.values.includes(v));
+    if (belowMin || aboveMax || notAllowed) {
       return {
         ok: false,
         error: {
@@ -791,7 +793,7 @@ export function validateSetSettingsArgs(
           key,
           found: v,
           expected,
-          message: `setting '${key}' is outside its declared range`,
+          message: notAllowed ? `setting '${key}' is not one of its allowed values` : `setting '${key}' is outside its declared range`,
         },
       };
     }
@@ -801,9 +803,10 @@ export function validateSetSettingsArgs(
 
 /** Human-readable range text for a settings spec (used in `field_value.expected`). */
 export function settingsRangeText(spec: SettingsKeySpec): string {
+  if (spec.values !== undefined) return `one of ${spec.values.join(', ')}`;
   const lo = spec.min === undefined ? '' : `${spec.minExclusive === true ? '(' : '['}${spec.min}, `;
   const hi = spec.max === undefined ? '' : `${spec.max}${spec.maxExclusive === true ? ')' : ']'}`;
-  return `number in ${lo}${hi}`;
+  return `${spec.integer === true ? 'integer' : 'number'} in ${lo}${hi}`;
 }
 
 export function validateAcknowledgeBehaviorTrustArgs(

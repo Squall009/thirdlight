@@ -84,7 +84,7 @@ export type {
 } from './types-v2';
 
 // Phase 14.0: the character capsule (default, limits, resolved form).
-export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from './components';
+export { CAPSULE_LIMITS, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerTuningOf } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -92,6 +92,7 @@ export { validateManifest, normalizeManifest } from './validate';
 
 export {
   M2_SETTINGS_KEYS,
+  AUDIO_VOICE_CAP,
   MAX_SOURCE_PATH_LENGTH,
   MAX_CONVERTED_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,
@@ -111,6 +112,9 @@ export {
 // component-level validators and `validateGameConfig` are recorded in the
 // packet-44 handoff (CC-44-1).
 export {
+  // Phase 15.3: the follow camera's tuning defaults and ranges.
+  CAMERA_FOLLOW_DEFAULTS,
+  CAMERA_FOLLOW_LIMITS,
   normalizeSceneV3,
   validateActivationAppearance,
   validateCameraFollowComponent,
@@ -273,7 +277,7 @@ export {
   type ProjectV4,
 } from './project-v4';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
-export { validateContentV4, canonicalGame, MAX_SCENES } from './content';
+export { validateContentV4, canonicalGame, MAX_SCENES, GAME_TIMING_DEFAULTS, GAME_TIMING_FIELDS, GAME_TIMING_LIMITS } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {
@@ -289,6 +293,10 @@ export {
 export {
   BLOCK_COMPONENT_NAMES,
   BLOCK_COMPONENTS,
+  // Phase 15.3: the blocks' tuning defaults and ranges, the defeat effects.
+  BLOCK_DEFAULTS,
+  BLOCK_TUNING_LIMITS,
+  DEFEAT_EFFECTS,
   ENEMY_PATROLS,
   MOVER_MODES,
   PICKUP_KINDS,

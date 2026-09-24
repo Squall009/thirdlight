@@ -57,18 +57,31 @@ export interface RapierStaticColliderSpec {
 }
 
 export interface RapierSolverConfig {
-  hz: 120;
+  /** Phase 15.3: the project's `fixed_step_hz` setting — 60, 120 (the default) or 240. */
+  hz: number;
   gravityY: number;
 }
 
+/**
+ * Phase 15.3: the character controller's tuning is the player's data
+ * (`controller.skin`, `groundSnap`, `autostep`, `autostepHeight`); the
+ * defaults (0.01, 0.1, off) are the values the frozen traces were made with.
+ */
 export interface RapierControllerConfig {
-  offsetSkin: 0.01;
-  groundSnap: 0.1;
+  /** The gap kept from the world (m), 0.001–0.1. */
+  offsetSkin: number;
+  /** The maximum ground snap per step (m), 0–1. */
+  groundSnap: number;
   /** Radians, from settings `max_slope_climb_deg`. */
   maxSlopeClimbRad: number;
   /** Radians, from settings `min_slope_slide_deg`. */
   minSlopeSlideRad: number;
-  autostep: false;
+  /** Climb steps up to `autostepHeight` without jumping. */
+  autostep: boolean;
+  /** The highest step autostep climbs (m, 0.01–2); required with `autostep`. */
+  autostepHeight?: number;
+  /** The free width a step's top needs (m; absent: the capsule radius). */
+  autostepMinWidth?: number;
 }
 
 /**

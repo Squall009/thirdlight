@@ -124,6 +124,8 @@ export interface FlowDeps {
   readonly setLevelEnvironment?: (environment: LevelEnvironmentLike | null) => void;
   /** Phase 9.11: the player's saves (absent: no saving). */
   readonly save?: SaveStore;
+  /** Phase 15.3: seconds a music change crossfades (the project's `music_fade_s`; absent: 1). */
+  readonly musicFade?: number;
 }
 
 interface MenuItem {
@@ -194,6 +196,7 @@ export interface FlowController {
 
 export function createFlowController(deps: FlowDeps): FlowController {
   const { flow, dom } = deps;
+  const musicFade = typeof deps.musicFade === 'number' && Number.isFinite(deps.musicFade) ? deps.musicFade : 1;
   const text = (node: HostDomNode, value: string): void => {
     node.textContent = value;
   };
@@ -470,7 +473,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     // The title pauses a run left behind (quit to title); a fresh game waits at its start anyway.
     deps.runtime.setPaused?.(next === 'paused' || next === 'settings' || next === 'gameOver' || (next === 'title' && lastView !== null && lastView.state !== 'awaitingStart'));
     if (next === 'title') {
-      deps.audio.playMusic?.(flow.title?.music ?? null, 1);
+      deps.audio.playMusic?.(flow.title?.music ?? null, musicFade);
       loadTitleScene();
     }
     render();
@@ -498,7 +501,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     pendingStart = true;
     levelStartSim = null;
     levelResult = null;
-    deps.audio.playMusic?.(l.music ?? null, 1);
+    deps.audio.playMusic?.(l.music ?? null, musicFade);
     deps.setLevelEnvironment?.(l.environment ?? null);
     show('playing');
     return true;
@@ -671,7 +674,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
       case 'next':
         if (levelIndex + 1 < flow.levels.length) void beginLevel(levelIndex + 1);
         else {
-          deps.audio.playMusic?.(flow.title?.music ?? null, 1);
+          deps.audio.playMusic?.(flow.title?.music ?? null, musicFade);
           show('finished');
         }
         return;

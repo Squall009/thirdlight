@@ -10,14 +10,16 @@
  */
 import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
-import type { RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
+import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
 /** project-model §5.1 ID syntax (all IDs). */
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
 const MAX_REVISION = 2 ** 53 - 1;
 
-const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs']);
+const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds']);
+/** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
+const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
 const MAX_SNAPSHOT_SCENES = 64;
 
@@ -62,6 +64,7 @@ export function validateRuntimeSnapshot(
       scenes: readonly RuntimeSceneRow[] | null;
       animators: readonly AnimatorController[];
       prefabs: readonly PrefabDefinition[];
+      modelBounds: Readonly<Record<string, ModelBounds>>;
     }
   | { error: RuntimeError } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -259,6 +262,20 @@ export function validateRuntimeSnapshot(
     }
     prefabs = snap.prefabs as PrefabDefinition[];
   }
+  // Phase 15.3: the optional v4 model bounds (assetId -> the model's recorded bounds).
+  let modelBounds: Readonly<Record<string, ModelBounds>> = {};
+  if (snap.modelBounds !== undefined) {
+    const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/modelBounds', message } });
+    if (sceneVersion !== 4) return bad('snapshot field "modelBounds" is v4-only');
+    const mb = snap.modelBounds as unknown;
+    if (typeof mb !== 'object' || mb === null || Array.isArray(mb) || Object.keys(mb).length > MAX_MODEL_BOUNDS) return bad(`modelBounds must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    const vec = (v: unknown): boolean => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
+    for (const [k, v] of Object.entries(mb as Record<string, unknown>)) {
+      const b = v as { min?: unknown; max?: unknown } | null;
+      if (typeof b !== 'object' || b === null || !vec(b.min) || !vec(b.max)) return bad(`modelBounds["${k}"] must be { min: [x, y, z], max: [x, y, z] }`);
+    }
+    modelBounds = mb as Record<string, ModelBounds>;
+  }
   // Phase 12 (c): the optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
@@ -292,7 +309,7 @@ export function validateRuntimeSnapshot(
     if (starts === 0) return bad('at least one scene must be a start scene');
     scenes = snap.scenes as RuntimeSceneRow[];
   }
-  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs };
+  return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators, prefabs, modelBounds };
 }
 
 function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {

@@ -37,13 +37,13 @@
  */
 
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
-import { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, MAX_POLYGON_VERTICES } from './components';
-import { M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { CAPSULE_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_POLYGON_VERTICES } from './components';
+import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
 import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
-import { MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
+import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
 
 // ---- the descriptor types ----------------------------------------------------
@@ -53,7 +53,7 @@ export type DescriptorJson = null | boolean | number | string | readonly Descrip
 export type DescriptorScalar = string | number | boolean;
 
 /** The units a field may be in (display text; values are stored in these units). */
-export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'cd' | '1/m' | 'points' | 'points/s' | '×';
+export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
 export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'segment1d', 'cone', 'direction', 'path', 'polygon', 'point'] as const;
@@ -133,6 +133,8 @@ export interface IntFieldDescriptor extends FieldBase {
   readonly min?: number;
   readonly max?: number;
   readonly step?: number;
+  /** Phase 15.3: only these values (a choice of numbers, e.g. a step rate). */
+  readonly values?: readonly number[];
 }
 export interface BoolFieldDescriptor extends FieldBase {
   readonly type: 'bool';
@@ -515,6 +517,11 @@ const collider: ComponentDescriptor = {
   rules: PHYSICS_RULES,
 };
 
+const CT = DEFAULT_CONTROLLER_TUNING;
+const TL = CONTROLLER_TUNING_LIMITS;
+const BD = BLOCK_DEFAULTS;
+const BL = BLOCK_TUNING_LIMITS;
+
 const controller: ComponentDescriptor = {
   name: 'controller',
   label: 'Player controller',
@@ -526,7 +533,17 @@ const controller: ComponentDescriptor = {
       num('height', 'Height', 'Total height, both end caps included.', { required: true, min: CAPSULE_LIMITS.minHeight, max: CAPSULE_LIMITS.maxHeight, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.height, handle: 'capsule' }),
       vec2('offset', 'Offset', 'The capsule centre from the object origin.', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule' }),
     ], { group: 'Collision', rules: ['height ≥ 2 × radius'] }),
-  ]),
+    // Phase 15.3: the movement tuning (absent: the engine defaults, the values every project played with before).
+    num('acceleration', 'Acceleration', 'How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s).', { group: 'Movement', ...TL.acceleration, step: 1, unit: 'm/s²', default: CT.acceleration }),
+    num('deceleration', 'Deceleration', 'How fast it slows down when the input eases or stops.', { group: 'Movement', ...TL.deceleration, step: 1, unit: 'm/s²', default: CT.deceleration }),
+    num('coyoteTime', 'Coyote time', 'A jump still starts this long after walking off an edge.', { group: 'Jump', ...TL.coyoteTime, step: 0.01, unit: 's', default: CT.coyoteTime }),
+    num('jumpBuffer', 'Jump buffer', 'A jump pressed this long before landing still happens on landing.', { group: 'Jump', ...TL.jumpBuffer, step: 0.01, unit: 's', default: CT.jumpBuffer }),
+    num('jumpRelease', 'Jump release', 'Share of the upward speed kept when jump is released early (1: a fixed jump height).', { group: 'Jump', ...TL.jumpRelease, step: 0.05, unit: '×', default: CT.jumpRelease }),
+    num('groundSnap', 'Ground snap', 'Pulls the character down onto ground this close below it (walking down slopes and bumps).', { group: 'Collision', ...TL.groundSnap, step: 0.01, unit: 'm', default: CT.groundSnap }),
+    num('skin', 'Skin', 'The small gap the character keeps from walls and floors.', { group: 'Collision', ...TL.skin, step: 0.001, unit: 'm', default: CT.skin }),
+    bool('autostep', 'Autostep', 'Climb low steps without jumping.', { group: 'Collision', default: CT.autostep }),
+    num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight }),
+  ], { rules: ['The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too.'] }),
   add: { kind: 'menu', value: {} },
   handles: [{ kind: 'capsule', label: 'Capsule', bind: { radius: 'capsule/radius', height: 'capsule/height', offset: 'capsule/offset' }, space: 'local' }],
   excludes: [
@@ -611,6 +628,9 @@ const cameraFollow: ComponentDescriptor = {
       num('minY', 'Bottom', 'Bottom edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: -10, handle: 'box2' }),
       num('maxY', 'Top', 'Top edge.', { required: true, min: -V3_LIMIT, max: V3_LIMIT, step: 0.5, unit: 'm', default: 20, handle: 'box2' }),
     ], { rules: ['minX < maxX and minY < maxY'] }),
+    // Phase 15.3.
+    num('distance', 'Distance', 'How far in front of the player plane the camera stays (absent: where the camera is placed).', { ...CAMERA_FOLLOW_LIMITS.distance, step: 0.5, unit: 'm' }),
+    num('maxSpeed', 'Max speed', 'The fastest the smoothed camera moves per axis (a safety cap; smoothing shapes the motion).', { ...CAMERA_FOLLOW_LIMITS.maxSpeed, step: 10, unit: 'm/s', default: CAMERA_FOLLOW_DEFAULTS.maxSpeed }),
   ]),
   add: { kind: 'menu', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } },
   handles: [{ kind: 'box2', label: 'Bounds', bind: { minX: 'bounds/minX', maxX: 'bounds/maxX', minY: 'bounds/minY', maxY: 'bounds/maxY' }, space: 'world' }],
@@ -792,6 +812,7 @@ const mover: ComponentDescriptor = {
     num('wait', 'Wait', 'Pause at each point.', { min: 0, max: 60, step: 0.1, unit: 's', default: 0 }),
     enm('easing', 'Easing', 'Constant speed or smooth starts and stops.', MOVER_EASINGS, { default: 'linear' }),
     signal('startOn', 'Start on signal', 'Wait for this signal before moving (absent: moves from the start).'),
+    num('maxPush', 'Max push', 'The fastest it shoves a player out of its way (a safety limit that keeps the player out of the platform).', { ...BL.maxPush, step: 1, unit: 'm/s', default: BD.maxPush }),
   ]),
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local' }],
@@ -847,8 +868,10 @@ const health: ComponentDescriptor = {
   value: obj('health', 'Health', 'Player health.', [
     int('max', 'Maximum', 'Most health the player can have.', { required: true, min: 1, max: 1000, default: 3 }),
     int('start', 'Start', 'Health at the start and after a respawn (absent: the maximum).', { min: 1, max: 1000 }),
-    num('invulnerableSeconds', 'Grace time', 'No further damage for this long after a hit.', { min: 0, max: 10, step: 0.1, unit: 's', default: 1 }),
+    num('invulnerableSeconds', 'Grace time', 'No further damage for this long after a hit.', { min: 0, max: 10, step: 0.1, unit: 's', default: BD.invulnerableSeconds }),
     num('knockback', 'Knockback', 'A hit pushes the player away at this speed (0: none).', { min: 0, max: 20, step: 0.5, unit: 'm/s', default: 0 }),
+    num('knockbackTime', 'Knockback time', 'How long a knockback pushes (easing out).', { ...BL.knockbackTime, step: 0.05, unit: 's', default: BD.knockbackTime }),
+    num('hitBounce', 'Hit bounce', 'A hit throws the player up at this speed (0: none).', { ...BL.hitBounce, step: 0.5, unit: 'm/s', default: BD.hitBounce }),
   ], { rules: ['start ≤ max'] }),
   add: { kind: 'menu', value: { max: 3, invulnerableSeconds: 1 } },
   handles: [],
@@ -865,7 +888,7 @@ const pickup: ComponentDescriptor = {
     enm('kind', 'Kind', 'What it counts as.', PICKUP_KINDS, { required: true, default: 'coin' }),
     int('value', 'Value', 'How much it adds.', { required: true, min: 1, max: 10000, default: 1 }),
     str('counter', 'Counter', 'The counter a custom pickup adds to (a letter or _, then letters, digits or _).', { required: true, when: when('kind', 'custom'), format: 'counter', minLength: 1, maxLength: 32 }),
-    vec2('size', 'Size', 'The area that collects it (absent: 0.8 × 0.8 m).', { min: 0.05, max: 20, step: 0.05, unit: 'm', default: [0.8, 0.8], labels: ['w', 'h'], handle: 'box2' }),
+    vec2('size', 'Size', 'The area that collects it (absent: its model\'s recorded bounds, else 1 × 1 m).', { min: 0.05, max: 20, step: 0.05, unit: 'm', default: [...BD.pickupSize], labels: ['w', 'h'], handle: 'box2' }),
     enm('respawn', 'Comes back', 'Never, or when the player respawns after a death.', PICKUP_RESPAWN, { default: 'never' }),
     asset('cue', 'Sound', 'Played when collected.', ['audio']),
   ]),
@@ -889,6 +912,14 @@ const enemy: ComponentDescriptor = {
     bool('stompable', 'Stompable', 'Jumping on it defeats it.', { required: true, default: true }),
     int('health', 'Health', 'Stomps needed to defeat it.', { required: true, min: 1, max: 100, default: 1 }),
     num('chase', 'Chase distance', 'Walks toward the player within this distance (0: never).', { min: 0, max: 50, step: 0.5, unit: 'm', default: 0, handle: 'radius' }),
+    // Phase 15.3: the combat and walking tuning.
+    num('chaseHeight', 'Chase height', 'Notices a player within this height of its feet.', { group: 'Chase', ...BL.chaseHeight, step: 0.1, unit: 'm', default: BD.chaseHeight }),
+    num('stompBounce', 'Stomp bounce', 'A stomp throws the player up at this speed.', { group: 'Stomp', ...BL.stompBounce, step: 0.5, unit: 'm/s', default: BD.stompBounce }),
+    num('stompTolerance', 'Stomp tolerance', 'A stomp counts when the player\'s feet were at most this far below its top.', { group: 'Stomp', ...BL.stompTolerance, step: 0.05, unit: 'm', default: BD.stompTolerance }),
+    enm('defeat', 'Defeat effect', 'How it leaves when defeated: at once, squashed flat, or fading out.', DEFEAT_EFFECTS, { group: 'Defeat', default: BD.defeat }),
+    num('defeatTime', 'Defeat time', 'How long the squash or fade takes.', { group: 'Defeat', when: when('defeat', 'squash', 'fade'), ...BL.defeatTime, step: 0.05, unit: 's', default: BD.defeatTime }),
+    num('wallProbe', 'Wall probe', 'How far ahead of its front it looks for a wall to turn at.', { group: 'Walking', when: when('patrol', 'edges'), ...BL.wallProbe, step: 0.01, unit: 'm', default: BD.wallProbe }),
+    num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its feet, it looks for floor ahead (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Walking', when: when('patrol', 'edges'), ...BL.ledgeProbe, step: 0.05, unit: 'm', default: BD.ledgeProbe }),
   ]),
   add: { kind: 'menu', value: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 } },
   handles: [
@@ -967,6 +998,10 @@ const GAME: FieldDescriptor = obj('game', 'Game', 'Title texts, who the player i
     AUDIO_CUE('death', 'Death', 'Played when the player dies.'),
     AUDIO_CUE('goal', 'Goal', 'Played when the goal is reached.'),
   ], { required: true }),
+  // Phase 15.3: the session timing (absent: the engine defaults, the values every project played with before).
+  num('respawnDelay', 'Respawn delay', 'The pause between a death and the respawn.', { group: 'Session', ...GAME_TIMING_LIMITS.respawnDelay, step: 0.05, unit: 's', default: GAME_TIMING_DEFAULTS.respawnDelay }),
+  num('dropThroughTime', 'Drop-through time', 'How long a one-way platform lets the player fall through it (down + jump).', { group: 'Session', ...GAME_TIMING_LIMITS.dropThroughTime, step: 0.025, unit: 's', default: GAME_TIMING_DEFAULTS.dropThroughTime }),
+  num('settleTime', 'Settle time', 'The world settles this long before the first frame (resting bodies start at rest).', { group: 'Session', ...GAME_TIMING_LIMITS.settleTime, step: 0.05, unit: 's', default: GAME_TIMING_DEFAULTS.settleTime }),
 ], { nullable: true, default: null });
 
 const WIND = obj('wind', 'Wind', 'The global wind foliage and cloth sway in.', [
@@ -1249,17 +1284,26 @@ const DECLARED_PROPERTY = obj('*', 'Property', 'A property the script declares (
   ], { when: when('type', 'vec3'), rules: ['min ≤ max per axis'] }),
 ], { rules: ['min ≤ max; the default fits the type and its limits.'] });
 
-const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'Physics and movement settings of the player character.', M2_SETTINGS_KEYS.map((s) =>
-  num(s.key, s.key.replace(/_deg$/, '').replace(/_y$/, '').split('_').map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' '), `${s.key} (${s.unit}).`, {
+const settingsUnit = (u: string): DescriptorUnit => (u === 'm/s^2' ? 'm/s²' : u === 'degrees' ? 'deg' : (u as DescriptorUnit));
+const settingsLabel = (key: string): string => key.replace(/_deg$/, '').replace(/_y$/, '').split('_').map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
+const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The player character\'s physics and movement, and the engine settings (step rate, sound voices, music fade, animation blend).', M2_SETTINGS_KEYS.map((s): FieldDescriptor => {
+  const common = {
     ...(s.min !== undefined ? { min: s.min } : {}),
     ...(s.max !== undefined ? { max: s.max } : {}),
+    ...(s.group !== undefined ? { group: s.group } : {}),
+    unit: settingsUnit(s.unit),
+    default: s.default,
+  };
+  const label = s.label ?? settingsLabel(s.key);
+  const tooltip = s.tooltip ?? `${s.key} (${s.unit}).`;
+  if (s.integer === true) return int(s.key, label, tooltip, { ...common, ...(s.values !== undefined ? { values: [...s.values] } : {}) });
+  return num(s.key, label, tooltip, {
+    ...common,
     ...(s.minExclusive === true ? { minExclusive: true } : {}),
     ...(s.maxExclusive === true ? { maxExclusive: true } : {}),
-    unit: s.unit === 'm/s^2' ? 'm/s²' : s.unit === 'degrees' ? 'deg' : (s.unit as DescriptorUnit),
     step: 0.1,
-    default: s.default,
-  }),
-), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
+  });
+}), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 
 const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'game', label: 'Game', tooltip: 'Title texts, the player, camera, start spawn and sound cues.', required: true, value: GAME, ops: ['setGameConfig'] },
@@ -1269,7 +1313,7 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', `Up to ${MAX_MATERIALS} materials.`, MATERIAL_ITEM, { maxItems: MAX_MATERIALS, default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
   { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', `Up to ${MAX_ANIMATORS} controllers.`, ANIMATOR_ITEM, { maxItems: MAX_ANIMATORS, default: [] }), ops: ['setAnimator', 'deleteAnimator'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
-  { key: 'settings', label: 'Gameplay settings', tooltip: 'Gravity, run speed, jump and slopes.', required: true, value: SETTINGS, ops: ['setSettings'] },
+  { key: 'settings', label: 'Gameplay settings', tooltip: 'Gravity, run speed, jump, slopes, and the engine settings (step rate, sound voices, music fade, animation blend).', required: true, value: SETTINGS, ops: ['setSettings'] },
   { key: 'scenes', label: 'Scenes', tooltip: 'The project\'s scenes.', required: true, value: list('scenes', 'Scenes', `1–${MAX_SCENES} scenes.`, obj('*', 'Scene', 'A scene file.', [str('sceneId', 'Id', 'The stable scene id.', { ...ID, required: true, readOnly: true }), str('name', 'Name', 'Shown in the scene list.', { ...NAME, required: true })]), { required: true, minItems: 1, maxItems: MAX_SCENES }), ops: ['createScene', 'renameScene', 'deleteScene'] },
   { key: 'startScenes', label: 'Start scenes', tooltip: 'The scenes loaded when the game starts (without a flow).', required: true, value: list('startScenes', 'Start scenes', `1–${MAX_SCENES} scenes.`, scene('*', 'Scene', 'A start scene.'), { required: true, minItems: 1, maxItems: MAX_SCENES, unique: true }), ops: ['setStartScenes'] },
   {

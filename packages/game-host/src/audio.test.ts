@@ -377,6 +377,20 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     owner.dispose();
   });
 
+  it('phase 15.3: the voice count is the project\'s audio_voices (maxVoices), clamped to 1..32', async () => {
+    for (const [asked, cap] of [[3, 3], [20, 20], [100, 32], [0, 1]] as const) {
+      const ctx = new FakeContext();
+      const owner = createGameAudioOwner({ contextFactory: () => ctx, maxVoices: asked });
+      owner.registerCue('cue-jump', new Uint8Array([1, 2, 3, 4]));
+      await owner.unlock();
+      await settle();
+      for (let step = 0; step < cap + 5; step += 1) owner.submit([cue('run-1', 'jump', step)]);
+      expect(ctx.liveVoices(), `maxVoices ${asked}`).toBe(cap);
+      expect(owner.diagnostics().filter((d) => d.code === 'voice_cap')).toHaveLength(5);
+      owner.dispose();
+    }
+  });
+
   it('the diagnostic ring is bounded (drop-oldest at AUDIO_MAX_DIAGNOSTICS)', async () => {
     const { owner } = await armed();
     for (let step = 0; step < AUDIO_MAX_VOICES; step += 1) owner.submit([cue('run-1', 'jump', step)]);

@@ -30,15 +30,23 @@ import {
   type RunState,
 } from './types';
 
-/** gameplay.md §2.4: the bounded respawn delay in executed fixed steps. */
+/**
+ * gameplay.md §2.4: the bounded respawn delay in executed fixed steps —
+ * phase 15.3: the default (0.25 s at 120 Hz) of the game block's
+ * `respawnDelay` (seconds), which the runtime converts at its step rate.
+ */
 export const RESPAWN_DELAY_STEPS = 30;
 /** gameplay.md §6: the retained `GameView` event bound (front evictions). */
 export const MAX_GAME_EVENTS = 32;
 /** gameplay.md §7.1: the default aspect until the first accepted `setViewport`. */
 export const DEFAULT_ASPECT = 16 / 9;
-/** gameplay.md §7.1: the fixed view depth (m) — the camera module's constant (packet 51). */
+/**
+ * gameplay.md §7.1: the view depth (m) the v3 level frustum clamp used before
+ * phase 15.3 — now the camera's distance is `cameraFollow.distance`, else its
+ * authored distance from the player (12 for a camera placed 12 m out).
+ */
 export const CAMERA_Z = 12;
-/** gameplay.md §7.1: the per-axis per-step camera displacement cap (m) (packet 51). */
+/** gameplay.md §7.1: the per-axis per-step camera displacement cap (m) at 120 Hz — phase 15.3: `cameraFollow.maxSpeed` (default 480 m/s). */
 export const CAMERA_MAX_STEP = 4;
 
 /** The one pending run command per kind (gameplay.md §2.3). */
@@ -121,8 +129,12 @@ export class GameSession {
   private failed = false;
   private failure: { code: string; reason?: string; stepIndex: number; phase?: string } | null = null;
 
-  constructor(snapshotId: string) {
+  /** Phase 15.3: the game block's `respawnDelay` in steps (default `RESPAWN_DELAY_STEPS`). */
+  private readonly respawnDelaySteps: number;
+
+  constructor(snapshotId: string, respawnDelaySteps: number = RESPAWN_DELAY_STEPS) {
     this.snapshotId = snapshotId;
+    this.respawnDelaySteps = respawnDelaySteps;
   }
 
   get runId(): string {
@@ -281,7 +293,7 @@ export class GameSession {
    */
   beginRespawn(stepIndex: number, cause: 'hazard' | 'fall', zoneId?: string): void {
     this.deathCount += 1;
-    this.respawnAtStep = stepIndex + 1 + RESPAWN_DELAY_STEPS;
+    this.respawnAtStep = stepIndex + 1 + this.respawnDelaySteps;
     this.state = 'respawning';
     this.emit('died', stepIndex, false, { ...(zoneId !== undefined ? { zoneId } : {}), cause });
   }

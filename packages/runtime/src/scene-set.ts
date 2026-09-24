@@ -4,10 +4,10 @@
  * root offset of a load, the live tag index that follows loads and unloads,
  * and the exit-zone entry test. No I/O, no three.js.
  */
-import { controllerCapsuleOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { controllerCapsuleOf, controllerTuningOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { StaticColliderSpec, Vec2 } from './ports';
-import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, PlayerCapsule } from './types';
+import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, ModelBounds, PlayerCapsule } from './types';
 
 /** What one scene adds to the running game. */
 export interface SceneContribution {
@@ -97,6 +97,35 @@ export function playerCapsuleOf(controller: unknown): PlayerCapsule {
     halfHeight: Math.max(0, nano(c.height / 2 - c.radius)),
     offset: Object.freeze({ x: c.offset[0], y: c.offset[1] }),
   });
+}
+
+/**
+ * Phase 15.3: the character-controller tuning the physics port takes from the
+ * player's `controller` (its skin, ground snap and autostep; each absent
+ * field at its default: 0.01 m, 0.1 m, off). The preview and export hosts
+ * build the port's `controller` config from it.
+ */
+export function playerPhysicsOf(controller: unknown): { offsetSkin: number; groundSnap: number; autostep: boolean; autostepHeight: number } {
+  const t = controllerTuningOf(controller);
+  return { offsetSkin: t.skin, groundSnap: t.groundSnap, autostep: t.autostep, autostepHeight: t.autostepHeight };
+}
+
+/**
+ * Phase 15.3: the model bounds a manifest's asset rows carry (model rows with
+ * recorded `bounds`; the last version per asset), for `RuntimeSnapshot.modelBounds`
+ * — `undefined` when none has any (the snapshot stays as it was).
+ */
+export function modelBoundsFromAssetRows(rows: readonly { assetId: string; kind?: string; bounds?: unknown }[] | undefined): Record<string, ModelBounds> | undefined {
+  const out: Record<string, ModelBounds> = {};
+  let any = false;
+  for (const r of rows ?? []) {
+    const b = r.bounds as { min?: unknown; max?: unknown } | undefined;
+    const vec = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
+    if (r.kind !== 'model' || b === undefined || !vec(b.min) || !vec(b.max)) continue;
+    out[r.assetId] = { min: [b.min[0], b.min[1], b.min[2]], max: [b.max[0], b.max[1], b.max[2]] };
+    any = true;
+  }
+  return any ? out : undefined;
 }
 
 /** Phase 14.0: the capsule's half extent along Y (end caps included), nanometre-rounded (0.9 for the default). */

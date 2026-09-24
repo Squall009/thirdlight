@@ -130,7 +130,7 @@ const METRIC_LIMIT_NAMES: Partial<Record<keyof AssetMetrics, NonNullable<ModelEr
   decodedImageBytes: 'decoded_bytes',
 };
 
-const METRIC_ORDER: (keyof AssetMetrics)[] = [
+const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
   'nodes',
   'meshes',
   'primitives',
@@ -207,7 +207,19 @@ const GAME_FIELDS = ['configVersion', 'title', 'objective', 'instructions', 'pla
 const KNOWN_GAME_FIELDS = new Set<string>(GAME_FIELDS);
 /** Phase 12 (c): the v4 game block — no level bounds, no kill height (game rules live in scripts). */
 const GAME_FIELDS_V2 = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'cues'] as const;
-const KNOWN_GAME_FIELDS_V2 = new Set<string>(GAME_FIELDS_V2);
+/** Phase 15.3: the v4 game block's optional session timing (seconds; absent: `GAME_TIMING_DEFAULTS`). */
+export const GAME_TIMING_FIELDS = ['respawnDelay', 'dropThroughTime', 'settleTime'] as const;
+/**
+ * Phase 15.3: the session timing every project played with before it became
+ * data (recorded replays stay valid). Generic reasons: a 0.25 s pause after
+ * a death reads as a beat before the respawn; falling through a one-way
+ * platform ignores it for 0.125 s (enough to clear a thin platform at any
+ * normal fall speed); the world settles for 0.1 s before the first frame so
+ * resting bodies start at rest.
+ */
+export const GAME_TIMING_DEFAULTS = Object.freeze({ respawnDelay: 0.25, dropThroughTime: 0.125, settleTime: 0.1 });
+export const GAME_TIMING_LIMITS = Object.freeze({ respawnDelay: { min: 0, max: 10 }, dropThroughTime: { min: 0.01, max: 2 }, settleTime: { min: 0, max: 1 } });
+const KNOWN_GAME_FIELDS_V2 = new Set<string>([...GAME_FIELDS_V2, ...GAME_TIMING_FIELDS]);
 /** Phase 12 (c): at most this many scenes per project. */
 export const MAX_SCENES = 64;
 const KNOWN_LEVEL_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
@@ -467,9 +479,16 @@ function validateMetrics(
     }
   }
   for (const k of Object.keys(m)) {
-    if (!(METRIC_ORDER as string[]).includes(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, METRIC_ORDER.join(', ')));
+    if (!(METRIC_ORDER as string[]).includes(k) && k !== 'bounds') {
+      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...METRIC_ORDER, 'bounds'].join(', ')));
     }
+  }
+  // Phase 15.3: the model's axis-aligned bounds in its own space (optional; recorded at import).
+  const bounds = m['bounds'];
+  if (bounds !== undefined) {
+    const vec = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= MAX_LEN);
+    const ok = isPlainObject(bounds) && Object.keys(bounds).every((k) => k === 'min' || k === 'max') && vec(bounds['min']) && vec(bounds['max']) && [0, 1, 2].every((i) => (bounds['min'] as number[])[i]! <= (bounds['max'] as number[])[i]!);
+    if (!ok) errors.push(fieldValue(`${path}/bounds`, bounds, '{ min: [x, y, z], max: [x, y, z] } with min <= max', 'model bounds are the axis-aligned box of its vertices in metres'));
   }
   const g = m['decodedGeometryBytes'];
   const i = m['decodedImageBytes'];
@@ -1366,6 +1385,20 @@ export interface SettingsKeySpec {
   minExclusive?: boolean;
   maxExclusive?: boolean;
   unit: string;
+  /** Phase 15.3: whole numbers only. */
+  integer?: boolean;
+  /** Phase 15.3: exactly one of these values. */
+  values?: readonly number[];
+  /**
+   * Phase 15.3: an engine setting resolved only when the project sets it
+   * (absent: the engine uses `default`), so a project that never sets it
+   * keeps its exact resolved settings, manifest and digests.
+   */
+  optional?: boolean;
+  /** Phase 15.3: display text and Inspector group. */
+  label?: string;
+  tooltip?: string;
+  group?: string;
 }
 
 /** The six-key M2 gameplay settings registry (§21.4; the fixed M2 table). */
@@ -1376,7 +1409,22 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'max_fall_speed', type: 'number', default: -30, min: -100, max: 0, maxExclusive: true, unit: 'm/s' },
   { key: 'max_slope_climb_deg', type: 'number', default: 45, min: 0, max: 89.9, unit: 'degrees' },
   { key: 'min_slope_slide_deg', type: 'number', default: 30, min: 0, max: 89.9, unit: 'degrees' },
+  // Phase 15.3: engine settings (optional: resolved only when set). Defaults
+  // are the values every project ran with before they became data.
+  // 120 Hz: two simulation steps per 60 Hz display frame (smooth on common
+  // displays, cheap for any 2D scene); 60 halves the cost, 240 halves the
+  // step for fast motion.
+  { key: 'fixed_step_hz', type: 'number', default: 120, values: [60, 120, 240], integer: true, unit: 'Hz', optional: true, group: 'Engine', label: 'Fixed step', tooltip: 'Simulation steps per second (60, 120 or 240). Timings in seconds keep their length; replays are recorded at one rate.' },
+  // 8 voices: enough for overlapping effects in any scene; the engine cap is 32.
+  { key: 'audio_voices', type: 'number', default: 8, min: 1, max: 32, integer: true, unit: 'voices', optional: true, group: 'Audio', label: 'Sound voices', tooltip: 'How many sound effects play at once (a new one is dropped while all are busy; at most 32).' },
+  // 1 s: a gentle crossfade between two music tracks.
+  { key: 'music_fade_s', type: 'number', default: 1, min: 0, max: 10, unit: 's', optional: true, group: 'Audio', label: 'Music fade', tooltip: 'Seconds a music change crossfades (0: cut).' },
+  // 0.2 s: a quick blend between two animation roles (idle, run, airborne).
+  { key: 'animation_crossfade_s', type: 'number', default: 0.2, min: 0, max: 2, unit: 's', optional: true, group: 'Animation', label: 'Animation blend', tooltip: 'Seconds a model blends between its idle, run and airborne animations (animator transitions set their own).' },
 ];
+
+/** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */
+export const AUDIO_VOICE_CAP = 32;
 
 const SETTINGS_BY_KEY = new Map(M2_SETTINGS_KEYS.map((s) => [s.key, s]));
 
@@ -1386,7 +1434,7 @@ function settingsValueError(path: string, spec: SettingsKeySpec, found: unknown)
       code: 'field_value',
       path,
       message: `setting "${spec.key}" must be a number within its declared range`,
-      expected: `${spec.type} within the ${spec.key} range`,
+      expected: spec.values !== undefined ? `one of ${spec.values.join(', ')}` : `${spec.integer === true ? 'integer' : spec.type} within the ${spec.key} range`,
     },
     found,
   );
@@ -1419,6 +1467,8 @@ function validateSettings(settings: unknown, path: string, errors: ModelErrorV2[
     if (spec.min !== undefined && (spec.minExclusive ? value <= spec.min : value < spec.min)) {
       errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
     } else if (spec.max !== undefined && (spec.maxExclusive ? value >= spec.max : value > spec.max)) {
+      errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
+    } else if ((spec.integer === true && !Number.isInteger(value)) || (spec.values !== undefined && !spec.values.includes(value))) {
       errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
     }
   }
@@ -1531,6 +1581,8 @@ function canonicalAudioMetrics(m: PcmWavMetrics): PcmWavMetrics {
 function canonicalMetrics(m: AssetMetrics): AssetMetrics {
   const out = {} as AssetMetrics;
   for (const key of METRIC_ORDER) out[key] = m[key];
+  // Phase 15.3: optional, last (a version imported before keeps its exact bytes).
+  if (m.bounds !== undefined) out.bounds = { min: [m.bounds.min[0], m.bounds.min[1], m.bounds.min[2]], max: [m.bounds.max[0], m.bounds.max[1], m.bounds.max[2]] };
   return out;
 }
 
@@ -1746,7 +1798,7 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
   }
   for (const k of Object.keys(g)) {
     if (!known.has(k)) {
-      errors.push(gameError(`${path}/${pointerSegment(k)}`, 'field_unexpected', 'unknown game field is not permitted (the block has exactly its bounded keys)', `known fields: ${fields.join(', ')}`, k));
+      errors.push(gameError(`${path}/${pointerSegment(k)}`, 'field_unexpected', 'unknown game field is not permitted (the block has exactly its bounded keys)', `known fields: ${[...known].join(', ')}`, k));
       return;
     }
   }
@@ -1868,6 +1920,15 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
     }
     if (!ID_RE_V2.test(v)) {
       errors.push(gameError(`${path}/cues/${k}`, 'field_value', 'a cue assetId must match the §5.1 ID syntax', '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', v));
+      return;
+    }
+  }
+  // Phase 15.3 (v4): the optional session timing.
+  for (const k of GAME_TIMING_FIELDS) {
+    const v = g[k];
+    const lim = GAME_TIMING_LIMITS[k];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max)) {
+      errors.push(gameError(`${path}/${k}`, 'field_value', `${k} must be ${lim.min}-${lim.max} seconds`, `a number ${lim.min}-${lim.max}`, v));
       return;
     }
   }
@@ -2122,6 +2183,10 @@ export function canonicalGame(g: GameConfig): GameConfig {
       death: g.cues.death,
       goal: g.cues.goal,
     },
+    // Phase 15.3 (v4): the timing comes last (an existing game block keeps its exact canonical bytes).
+    ...(g.respawnDelay !== undefined ? { respawnDelay: g.respawnDelay } : {}),
+    ...(g.dropThroughTime !== undefined ? { dropThroughTime: g.dropThroughTime } : {}),
+    ...(g.settleTime !== undefined ? { settleTime: g.settleTime } : {}),
   };
 }
 

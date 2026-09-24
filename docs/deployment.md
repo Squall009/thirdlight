@@ -902,6 +902,68 @@ and exit zones, pickups, triggers, switches, stomps, enemies' chase height
 and moving platforms' push-out. MCP: `setComponent` `controller`
 `{capsule: {radius, height, offset?} | null}`; `tl_inspect` shows it.
 
+## Tuning values
+
+Every gameplay value a designer tunes is data with an engine default; a
+project that sets none plays exactly as before (recorded replays stay
+valid). The values are in the component descriptor registry, so the generic
+Inspector lists them in groups with units and tooltips; MCP sets them with
+the same commands (`setComponent`, `setGameConfig`, `setSettings`; `null`
+puts an optional value back to its default).
+
+- **Player (`controller`)** — *Movement*: acceleration 40 m/s²,
+  deceleration 60 m/s². *Jump*: coyote time 0.05 s, jump buffer 1/15 s
+  (0.067), jump release 0.5 (the share of the upward speed kept when jump is
+  released early; 1 = fixed jump height). *Collision*: ground snap 0.1 m,
+  skin 0.01 m, autostep off (on: climbs steps up to its height, default
+  0.25 m, without jumping). The steepest walkable slope, run speed, jump
+  speed and gravity stay project settings (`max_slope_climb_deg` …).
+- **Health** — hit bounce 5 m/s, knockback time 0.25 s, grace time 1 s.
+- **Enemy** — stomp bounce 9 m/s, stomp tolerance 0.2 m (how far below its
+  top the player's feet may be for a stomp), defeat effect squash / fade /
+  none over a defeat time of 0.3 s (fade draws the enemy fading out), chase
+  height 2 m, and for edge walkers the wall probe (0.05 m ahead) and ledge
+  probe (0.4 m down from 0.1 m above its feet).
+- **Mover** — max push 60 m/s: how hard it shoves a player out of its way
+  (0.5 m per step at 120 Hz; a safety limit). The gap it keeps is the
+  player's skin plus 1 mm.
+- **Pickup without a size** — collects over its model's recorded bounds (its
+  own model, else its first model child, scaled by their transforms); models
+  imported from now on record their bounds (from the glTF position bounds,
+  collision `_COL` nodes left out). Without bounds (no model, or one
+  imported before) the area is a neutral 1 × 1 m.
+- **Camera follow** — distance: absent, the camera stays at the depth it is
+  placed (its z minus the player's); set, it keeps that distance in front of
+  the player plane. Max speed 480 m/s (the per-axis cap while smoothing; 4 m
+  per step at 120 Hz).
+- **Game block (session)** — respawn delay 0.25 s, drop-through time
+  0.125 s (down + jump on a one-way platform), settle time 0.1 s (the world
+  settles before the first frame).
+- **Project settings (engine)** — fixed step 60 / 120 / 240 Hz (default
+  120; times in seconds keep their length, a replay is recorded at one
+  rate), sound voices 8 (at most 32), music fade 1 s, animation blend 0.2 s
+  (the idle/run/airborne model animation; animator transitions have their
+  own durations). These are stored only when set.
+
+### Engine limits (constants)
+
+These protect the runtime and are not tuning values:
+
+| Limit | Value |
+|---|---|
+| Fixed-step catch-up per frame | 8 steps (the rest are dropped) |
+| Script physics queries | 32 per step |
+| Zones per scene | 64 |
+| Game-view events kept | 32 |
+| Sound voices | 32 at most (the `audio_voices` setting's range) |
+| Registered sound assets / music tracks | 16 / 64 |
+| Spawns | 64 per step, 1024 alive |
+| Timers | 64 per script instance |
+| Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport |
+| Model animation run threshold | 0.05 m/s |
+| Shadow-follow extent | 24 m |
+| Stick dead zone default | 0.2 (per action: `deadZone`) |
+
 ## Upgrade
 
 ```sh
