@@ -97,7 +97,7 @@ import {
 import { sha256Hex } from './digest';
 import { snapshotForeignBytes } from './recovery';
 import type { PendingChangeInfo, QueryResult } from './types';
-import type { V4State } from './store-v4';
+import { cleanLeftoverTempsV4, type V4State } from './store-v4';
 import {
   acceptExternalV4,
   clearRecordsV4,
@@ -695,6 +695,8 @@ export function envelopeBytesForSession(
  * `.thirdlight/staging/` — never an authoritative path. */
 function cleanOpenArtifacts(core: Core, projectDir: string, sceneDir: string, thirdlightDir: string): void {
   cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
+  // Storage v4: the temps of content.json / project.json, every scene file and the journal.
+  cleanLeftoverTempsV4(core.ops, projectDir, sceneDir, thirdlightDir);
   // §5.4 extended to blob temps (§13.2 rule 5): the owner removes every
   // leftover `sources/sha256/.<digest>.tmp-*`.
   cleanBlobTemps(projectDir);
@@ -1752,6 +1754,17 @@ export function takeover(
     }
     // (4) load the project (§4.3) — plus the owner temp cleanup (§5.4).
     cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
+    // Phase 12 (c): a v4 project (or a v3 one, upgraded on the spot) — the
+    // same branch as the fresh open and `performClaimAndLoad`.
+    const v4Open = openV4OrUpgrade(core, dir, projectId, man.manifest, sceneDir, thirdlightDir, claim.record);
+    if (v4Open !== null) {
+      if (v4Open.kind === 'open') {
+        core.sessions.set(projectId, v4Open.session);
+        return { ok: true, lockEpoch: claim.record.lockEpoch, backendId: core.self.backendId, pid: core.self.pid };
+      }
+      core.sessions.set(projectId, blockSession(core, dir, projectId, man.manifest, claim.record, { reason: v4Open.reason, errors: v4Open.errors, count: v4Open.count }, sceneDir, thirdlightDir));
+      return { ok: false, error: projectUnavailable(v4Open.reason, null, v4Open.errors) };
+    }
     const l = loadProjectDir(core, sceneDir, projectId, man.manifest);
     if (l.kind === 'loaded') {
       const s = makeSession(core, dir, projectId, l, man.manifest, claim.record, sceneDir, thirdlightDir);

@@ -8,9 +8,9 @@ recorded mutations).
 
 ## Precondition (disk-before)
 
-A fresh `demo-0001` at revision 0 (`disk-before/scenes/main.json` ==
-`envelope/valid/demo-0001-rev0.json`). Origins: `browser-demo`
-(browser) and `pi-harness` (mcp).
+A new `demo-0001` at revision 0 (`disk-before` ==
+`envelope/valid/demo-0001-rev0`: `cam-main`, `light-0001`, `light-0002`).
+Origins: `browser-demo` (browser) and `pi-harness` (mcp).
 
 ## Messages (messages.json) — 9 steps; depth = (undoDepth, redoDepth)
 
@@ -25,6 +25,9 @@ A fresh `demo-0001` at revision 0 (`disk-before/scenes/main.json` ==
 | 7 | redo | mcp | re-creates box-0002 (recorded entity, original ID, end of array) | 7 | (3,1) |
 | 8 | setTransform box-0001 pos [0,0.25,-0.5] | mcp | fresh edit — **invalidates redo** | 8 | (4,0) |
 | 9 | undo | browser | box-0001 back to pos [0,0,-0.5] (inverse of the mcp edit) | 9 | (3,1) |
+
+Every acknowledgement ends with `sceneId: "scene-main"` (undo and redo
+route to the scene the history entry edited).
 
 ## Expected observations
 
@@ -44,11 +47,12 @@ A fresh `demo-0001` at revision 0 (`disk-before/scenes/main.json` ==
   (its original position by the LIFO argument).
 - **Redo invalidation**: step 8 truncates the redo tail (`redoDepth` 0);
   step 9 leaves `redoDepth 1` (the mcp edit is undoable once more).
-- **History is in-memory**: it is not in the envelope; a restart would
-  reset both depths to 0 (not exercised here). The envelope at
+- **History is in-memory**: it is not in the project files; a restart
+  would reset both depths to 0 (not exercised here). The scene file at
   `disk-after` (rev 9) contains **9 records** — undo/redo are full
   mutations with their own `requestId`/digest/record (a lost-ack retry of
-  an undo replays like any other command).
-- Final scene: `[cam-main, box-0001 (pos [0,0,-0.5]), box-0002]`,
-  revision 9 — also reproduced by an independent forward/inverse replay in
-  the fixture tool's self-check (`verification.md` §1).
+  an undo replays like any other command). `content.json` is unchanged.
+- Final scene: `[cam-main, light-0001, light-0002, box-0001 (pos
+  [0,0,-0.5]), box-0002]`, revision 9 — also reproduced by an independent
+  forward/inverse replay in the fixture tool's self-check
+  (`verification.md` §1).

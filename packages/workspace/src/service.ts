@@ -152,7 +152,7 @@ import {
   type WriteOps,
 } from './write';
 import { deepFreeze } from './isolate';
-import { isV4Layout, loadV4, writeTransaction, type V4State } from './store-v4';
+import { isV4Layout, listLeftoverTempsV4, loadV4, writeTransaction, type V4State } from './store-v4';
 import { changedFiles, checkExternalV4, detectExternalChangeV4, publishV4 } from './session-v4';
 import {
   DEFAULT_PROCESS_MARKER,
@@ -1607,7 +1607,9 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
   // Leftover temps — reported, not cleaned (workspace.md §10).
   const temps = listLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
-  if (temps.length > 0) entry.leftoverTemps = temps.length;
+  // Storage v4: also the temps of content.json / project.json, every scene file and the journal.
+  const tempsV4 = listLeftoverTempsV4(core.ops, dir, join(dir, 'scenes'), join(dir, '.thirdlight')).filter((rel) => !rel.startsWith('scenes/.main.json.tmp-'));
+  if (temps.length + tempsV4.length > 0) entry.leftoverTemps = temps.length + tempsV4.length;
 
   // Ownership: a stale (dead-pid) record is reported; no action is taken
   // (a live record means another backend is working: untouched).

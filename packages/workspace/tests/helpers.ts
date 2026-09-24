@@ -15,8 +15,18 @@ import { createHash } from 'node:crypto';
 
 import { openWorkspaceService, type WorkspaceService, type WriteOps } from '@thirdlight/workspace';
 
+import { buildEnvelopeBytes } from '../src/envelope';
+import { defaultScene } from '../src/session';
+
 export const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
 export const FIXTURES = join(REPO_ROOT, 'fixtures', 'commands');
+/** The one scene file of the corpus projects (storage v4). */
+export const SCENE_FILE = join('scenes', 'scene-main.json');
+
+/** A valid v4 project directory of the corpus (`envelope/valid/<name>`). */
+export function projectFixture(name: string): string {
+  return join(FIXTURES, 'envelope', 'valid', name);
+}
 
 /** Temp roots live on ext4 (/home/dadmin/.tl07-tmp-*), not tmpfs /tmp.
  * Each test removes its own root; the process-exit backstop below is a
@@ -64,6 +74,28 @@ export function makeRoot(tag: string): string {
   roots.push(base);
   backstop();
   return base;
+}
+
+/**
+ * A storage-v1 (M1) project at revision 0, built from the workspace's own v1
+ * builders — for the few tests of v1-only behavior (the storage-version op
+ * gate, M1 content refusal) until the v1/v2 code is removed (phase 9.3 step
+ * B). The command corpus (`FIXTURES`) is storage v4.
+ */
+export function seedV1Project(root: string, projectId: string): string {
+  const dir = join(root, 'projects', projectId);
+  mkdirSync(join(dir, 'scenes'), { recursive: true });
+  const manifest = {
+    schemaVersion: 1,
+    engineVersion: '0.1.0',
+    id: projectId,
+    name: 'Demo Project',
+    createdAt: '2026-09-16T23:40:00Z',
+    scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
+  };
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(manifest, null, 2) + '\n');
+  writeFileSync(join(dir, 'scenes', 'main.json'), buildEnvelopeBytes(projectId, defaultScene(), []));
+  return dir;
 }
 
 /** Copy a fixture disk state into `<root>/projects/<projectId>`. */
@@ -150,43 +182,6 @@ function sortKeys(v: unknown): unknown {
     const o = v as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const k of Object.keys(o).sort()) out[k] = sortKeys(o[k]);
-    return out;
-  }
-  return v;
-}
-
-/**
- * The commands fixtures were generated with hand-written model detail text
- * (fixtures/commands/tools/generate-fixtures.mjs), which in ONE place
- * (quaternion_invalid `hint`) diverges from the accepted model package's
- * output (pinned by the model's own tests). The detail text is model-owned
- * and passes through verbatim, so the scenario compare blurs `message` /
- * `hint` / `expected` inside `details` arrays on BOTH sides while keeping
- * code/path/found and every commands-layer field byte-pinned.
- */
-export function deepEqualModelLoose(actual: unknown, expected: unknown): boolean {
-  return JSON.stringify(sortKeys(blurDetailText(actual))) === JSON.stringify(sortKeys(blurDetailText(expected)));
-}
-
-function blurDetailText(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(blurDetailText);
-  if (v !== null && typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(o)) {
-      let val = o[k];
-      if (k === 'details' && Array.isArray(val)) {
-        val = val.map((d) => {
-          if (d === null || typeof d !== 'object' || Array.isArray(d)) return d;
-          const dd = { ...(d as Record<string, unknown>) };
-          for (const f of ['message', 'hint', 'expected']) {
-            if (typeof dd[f] === 'string') dd[f] = '<<model text>>';
-          }
-          return dd;
-        });
-      }
-      out[k] = blurDetailText(val);
-    }
     return out;
   }
   return v;

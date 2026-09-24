@@ -1,20 +1,29 @@
 #!/usr/bin/env node
-// Thirdlight packet 02 — fixture construction tool for fixtures/commands/**
+// Thirdlight — fixture construction tool for fixtures/commands/** (storage v4)
 //
 // Purpose:
-//   Generate the packet 02 fixtures (envelope documents, crash/ownership/
-//   external-change scenarios, command examples, and the expected.json
-//   index) as byte-exact files with REAL SHA-256 digests, per:
-//     docs/contracts/commands.md   (v0.1)
-//     docs/contracts/workspace.md  (v0.1)
-//     docs/contracts/project-model.md (v0.2)
+//   Generate the command/workspace contract corpus (project-file fixtures,
+//   crash/ownership/external-change scenarios, command examples, and the
+//   expected.json index) as byte-exact files with REAL SHA-256 digests, in
+//   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
+//
+//     project.json            manifest schemaVersion 2
+//     content.json            { storageVersion 4, type "project-content",
+//                               projectId, revision, content, retry }
+//     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
+//                               scene (schemaVersion 4), retry }
+//
+//   The v1 corpus this replaces is kept under
+//   archive/removed-v1-v2/fixtures-commands-v1/ (phase 9.3).
 //
 // IMPORTANT:
 //   This tool is FIXTURE TOOLING, not an implementation of the contracts.
-//   It contains a minimal scene/history model used only to build consistent
-//   fixture bytes. The packet 06/07 implementations must be written against
-//   the contract documents; where this tool and the contracts ever disagree,
-//   the contracts win and this tool (and its output) is a bug.
+//   It contains a minimal project/history model used only to build
+//   consistent fixture bytes. The workspace and commands packages are
+//   checked against these bytes by replaying the scenarios through the real
+//   service (packages/workspace/tests/scenarios.test.ts and friends); where
+//   the tool and the contracts ever disagree, the contracts win and this
+//   tool (and its output) is a bug.
 //
 // Usage:
 //   node tools/generate-fixtures.mjs            write all fixtures
@@ -49,27 +58,86 @@ function sortedDeep(v) {
 }
 const digestOf = (obj) => sha256(JSON.stringify(sortedDeep(obj)));
 
-// File canonical form (workspace.md §4.4 / project-model §12.2): objects are
-// pre-built in fixed key order; 2-space indent, LF, one trailing newline.
+// File canonical form (store-v4.ts `jsonBytes`): objects are pre-built in
+// fixed key order; 2-space indent, LF, one trailing newline.
 const canonJson = (obj) => JSON.stringify(obj, null, 2) + "\n";
+
+const deepCopy = (v) => JSON.parse(JSON.stringify(v));
+
+// ---------------------------------------------------------------------------
+// the v4 project a new project starts as (createProject, then the automatic
+// v3 → v4 upgrade on open): the M1 default camera plus the two starter
+// lights (workspace migration.ts `initialEnvelopeBytesV3`), one scene
+// "scene-main" named "Main", an empty content catalog.
+// ---------------------------------------------------------------------------
+
+const SCENE_ID = "scene-main";
+const SCENE_REL = `scenes/${SCENE_ID}.json`;
+const IDENTITY = () => ({ rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+
+function defaultEntities() {
+  return [
+    {
+      id: "cam-main",
+      name: "Main Camera",
+      components: {
+        transform: { position: [0, 0.5, 4], ...IDENTITY() },
+        camera: { type: "perspective", fovY: 60, near: 0.1, far: 100 },
+      },
+    },
+    {
+      id: "light-0001",
+      name: "Sun",
+      components: {
+        transform: { position: [0, 10, 0], ...IDENTITY() },
+        light: { type: "directional", color: "#ffffff", intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true },
+      },
+    },
+    {
+      id: "light-0002",
+      name: "Ambient",
+      components: {
+        transform: { position: [0, 0, 0], ...IDENTITY() },
+        light: { type: "ambient", color: "#8090a8", intensity: 0.6 },
+      },
+    },
+  ];
+}
+
+function defaultScene() {
+  return { schemaVersion: 4, sceneId: SCENE_ID, revision: 0, entities: defaultEntities() };
+}
+
+function defaultContent() {
+  return {
+    assets: [],
+    prefabs: [],
+    behaviors: [],
+    settings: {},
+    behaviorTrust: { entries: [] },
+    game: null,
+    scenes: [{ sceneId: SCENE_ID, name: "Main" }],
+    startScenes: [SCENE_ID],
+  };
+}
+
+function manifestObj(id, name, createdAt) {
+  return { schemaVersion: 2, engineVersion: "0.1.0", id, name, createdAt };
+}
+
+const RETENTION = 128;
+
+function contentFileObj(projectId, revision, content, records) {
+  return { storageVersion: 4, type: "project-content", projectId, revision, content, retry: { retention: RETENTION, records } };
+}
+
+function sceneFileObj(projectId, scene, records) {
+  return { storageVersion: 4, type: "scene", projectId, scene, retry: { retention: RETENTION, records } };
+}
 
 // ---------------------------------------------------------------------------
 // minimal scene model (fixture construction only)
 // ---------------------------------------------------------------------------
-
-const IDENT_ROT = [0, 0, 0, 1];
-const camMain = () => ({
-  id: "cam-main",
-  name: "Main Camera",
-  components: {
-    transform: { position: [0, 0.5, 4], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
-    camera: { type: "perspective", fovY: 60, near: 0.1, far: 100 },
-  },
-});
-
-function defaultScene(sceneId = "scene-main") {
-  return { schemaVersion: 1, sceneId, revision: 0, entities: [camMain()] };
-}
 
 function fullTransform(partial = {}, base = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }) {
   const t = {};
@@ -135,10 +203,7 @@ function applySetTransform(scene, entityId, partial) {
   const { index, entity } = entityById(scene, entityId);
   const prev = entity.components.transform;
   const next = fullTransform(partial, prev);
-  const updated = {
-    ...entity,
-    components: { ...entity.components, transform: next },
-  };
+  const updated = { ...entity, components: { ...entity.components, transform: next } };
   const entities = scene.entities.slice();
   entities[index] = updated;
   const changedFields = ["position", "rotation", "scale"].filter((f) => partial[f] !== undefined);
@@ -154,19 +219,14 @@ function applyDelete(scene, rootId) {
     if (closure.has(e.id)) entries.push({ index: i, entity: e });
   });
   const entities = scene.entities.filter((e) => !closure.has(e.id));
-  return {
-    scene: { ...scene, entities },
-    deletedIds: entries.map((e) => e.entity.id),
-    entries,
-    restoredParentId,
-  };
+  return { scene: { ...scene, entities }, deletedIds: entries.map((e) => e.entity.id), entries, restoredParentId };
 }
 
 function applyRestore(scene, entries, restoredParentId) {
   const ordered = [...entries].sort((a, b) => a.index - b.index);
   const out = scene.entities.slice();
   ordered.forEach((en, k) => {
-    const ent = JSON.parse(JSON.stringify(en.entity));
+    const ent = deepCopy(en.entity);
     if (k === 0) {
       if (restoredParentId === null) delete ent.parentId;
       else ent.parentId = restoredParentId;
@@ -213,10 +273,8 @@ function validateSceneLight(scene) {
   }
   const cams = scene.entities.filter((e) => e.components.camera);
   if (cams.length !== 1) throw new Error(`camera count ${cams.length}`);
-  if (scene.entities.length > 1024) throw new Error("entity limit");
 }
 
-const deepCopy = (v) => JSON.parse(JSON.stringify(v));
 const maskRevision = (scene) => ({ ...scene, revision: 0 });
 const noChange = (a, b) => canonJson(maskRevision(a)) === canonJson(maskRevision(b));
 
@@ -234,19 +292,12 @@ function req(op, projectId, expectedRevision, requestId, origin, args) {
 const browserOrigin = { kind: "browser", clientId: "browser-demo" };
 const mcpOrigin = { kind: "mcp", clientId: "pi-harness" };
 
-function changeCreate(id, entity) {
-  return { type: "createEntity", id, entity };
-}
-function changeSetTransform(id, previous, next, changedFields) {
-  return { type: "setTransform", id, previous, next, changedFields };
-}
-function changeDelete(rootId, deletedIds) {
-  return { type: "deleteEntity", rootId, deletedIds };
-}
-function changeRestore(rootId, entities) {
-  return { type: "restoreSubtree", rootId, entities };
-}
+const changeCreate = (id, entity) => ({ type: "createEntity", id, entity });
+const changeSetTransform = (id, previous, next, changedFields) => ({ type: "setTransform", id, previous, next, changedFields });
+const changeDelete = (rootId, deletedIds) => ({ type: "deleteEntity", rootId, deletedIds });
+const changeRestore = (rootId, entities) => ({ type: "restoreSubtree", rootId, entities });
 
+// The recorded §5.1 success payload (what a retry record carries).
 function mutationSuccess({ op, projectId, requestId, revision, duplicated, createdId, change, appliedOf, originOfApplied, history }) {
   const o = { ok: true, op, projectId, requestId, revision, duplicated };
   if (createdId !== undefined) o.createdId = createdId;
@@ -256,6 +307,13 @@ function mutationSuccess({ op, projectId, requestId, revision, duplicated, creat
   o.history = { undoDepth: history.undoDepth, redoDepth: history.redoDepth };
   return o;
 }
+
+// The live acknowledgement of a v4 project additionally names the scene the
+// command edited (`sceneId`, appended last). The retry record keeps the
+// §5.1 payload without it, so an identical retry replays the record
+// (`duplicated: true`) without `sceneId` (see scenarios/01 scenario.md).
+const liveAck = (recorded) => ({ ...recorded, sceneId: SCENE_ID });
+const replayOf = (recorded) => ({ ...deepCopy(recorded), duplicated: true });
 
 function mutationError({ op, projectId, requestId, error }) {
   const o = { ok: false };
@@ -276,124 +334,72 @@ function errObj(code, cls, fields, message, hint) {
 const HINT_STALE = "re-read the project (queryProject) and re-issue the command with a fresh requestId and the current revision";
 const HINT_PAUSED = "an operator must resolve the pending change (acceptExternalState or discardExternalState); dedup replays and queries remain available";
 
-function revisionConflictError(expectedRevision, currentRevision) {
-  return errObj(
-    "revision_conflict", "conflict",
-    { expectedRevision, currentRevision },
-    "expected revision does not match the current project revision",
-    HINT_STALE,
-  );
-}
-function requestIdReusedError(currentRevision) {
-  return errObj(
-    "request_id_reused", "conflict",
-    { currentRevision },
-    "requestId was already used with different content",
-    HINT_STALE,
-  );
-}
+const revisionConflictError = (expectedRevision, currentRevision) =>
+  errObj("revision_conflict", "conflict", { expectedRevision, currentRevision },
+    "expected revision does not match the current project revision", HINT_STALE);
+const requestIdReusedError = (currentRevision) =>
+  errObj("request_id_reused", "conflict", { currentRevision },
+    "requestId was already used with different content", HINT_STALE);
 
-function envelopeObj({ projectId, scene, records }) {
-  return {
-    storageVersion: 1,
-    type: "authoring-state",
-    projectId,
-    scene,
-    retry: { retention: 128, records },
-  };
-}
-const recordObj = (requestId, digest, appliedRevision, result) => ({
-  requestId, digest, appliedRevision, result,
-});
-
-function manifestObj(id, name, createdAt) {
-  return {
-    schemaVersion: 1,
-    engineVersion: "0.1.0",
-    id,
-    name,
-    createdAt,
-    scenes: [{ id: "scene-main", path: "scenes/main.json" }],
-  };
-}
+const recordObj = (requestId, digest, appliedRevision, result) => ({ requestId, digest, appliedRevision, result });
 
 function ownershipObj({ state, backendId, pid, openedAt, lockEpoch }) {
   return { storageVersion: 1, state, backendId, pid, openedAt, lockEpoch };
 }
 
-// Exclusive claim file (workspace.md §6.3, 2026-09-18 amended): the token an
-// ACTIVE owner holds for the life of the session. Key order matches the
-// canonical stamp bytes the workspace package writes (backendId, pid,
-// openedAt).
-function claimObj({ backendId, pid, openedAt }) {
-  return { backendId, pid, openedAt };
-}
-
-function queryProjectResult({ projectId, manifest, scene, revision, history, workspace }) {
-  return {
-    ok: true,
-    projectId,
-    revision,
-    manifest,
-    // C35-5 / CC-48-3 (promoted at Gate L): the scene summary reports the
-    // SCENE document's schemaVersion (never the manifest's).
-    scene: { sceneId: scene.sceneId, schemaVersion: scene.schemaVersion, entityCount: scene.entities.length, cameraId: cameraIdOf(scene) },
-    history,
-    workspace,
-  };
-}
-
-function queryEntityResult({ projectId, revision, scene, entityId, includeSubtree }) {
-  const { entity } = entityById(scene, entityId);
-  const subtreeIds = closureIds(scene, entityId);
-  const o = {
-    ok: true,
-    projectId,
-    revision,
-    entity,
-    parentChain: parentChain(scene, entityId),
-    childIds: childrenOf(scene, entityId),
-  };
-  if (includeSubtree) {
-    o.subtree = { count: subtreeIds.length, entities: scene.entities.filter((e) => subtreeIds.includes(e.id)) };
-  }
-  return o;
-}
-
-function queryEntitiesResult({ projectId, revision, scene, limit, offset }) {
-  return {
-    ok: true,
-    projectId,
-    revision,
-    total: scene.entities.length,
-    offset,
-    limit,
-    entities: scene.entities.slice(offset, offset + limit),
-  };
-}
+// Exclusive claim file (workspace.md §6.3): the token an ACTIVE owner holds
+// for the life of the session (key order: backendId, pid, openedAt).
+const claimObj = ({ backendId, pid, openedAt }) => ({ backendId, pid, openedAt });
 
 // ---------------------------------------------------------------------------
-// fixture project (minimal history/dedup model, commands.md §6/§7/§9)
+// fixture project (minimal v4 history/dedup model, commands.md §6/§7/§9)
 // ---------------------------------------------------------------------------
 
 class FixtureProject {
-  constructor(projectId, manifest, scene, records = []) {
+  constructor(projectId, manifest, files) {
     this.projectId = projectId;
     this.manifest = manifest;
-    this.scene = scene;
-    this.revision = scene.revision;
-    this.records = records; // [{requestId, digest, appliedRevision, result}]
+    this.content = deepCopy(files.content);
+    this.contentRevision = files.contentRevision;
+    this.contentRecords = deepCopy(files.contentRecords);
+    this.scene = deepCopy(files.scene);
+    this.sceneRecords = deepCopy(files.sceneRecords);
     this.history = [];
     this.cursor = 0;
-    this.snapshots = new Map(); // tag -> {scene, revision, records, result}
+    this.snapshots = new Map();
+  }
+
+  static fresh(projectId, manifest) {
+    return new FixtureProject(projectId, manifest, { content: defaultContent(), contentRevision: 0, contentRecords: [], scene: defaultScene(), sceneRecords: [] });
+  }
+
+  /** A fresh process on the files of a snapshot (empty history). */
+  static fromSnapshot(projectId, manifest, snap) {
+    return new FixtureProject(projectId, manifest, snap);
+  }
+
+  // The project revision is the highest revision of its files.
+  get revision() {
+    return Math.max(this.contentRevision, this.scene.revision);
+  }
+
+  /** The retry records of the project (the union over its files). */
+  get records() {
+    return [...this.contentRecords, ...this.sceneRecords].sort((a, b) => a.appliedRevision - b.appliedRevision);
+  }
+
+  files() {
+    return {
+      content: deepCopy(this.content),
+      contentRevision: this.contentRevision,
+      contentRecords: deepCopy(this.contentRecords),
+      scene: deepCopy(this.scene),
+      sceneRecords: deepCopy(this.sceneRecords),
+    };
   }
 
   snapshot(tag) {
-    this.snapshots.set(tag, {
-      scene: deepCopy(this.scene),
-      revision: this.revision,
-      records: deepCopy(this.records),
-    });
+    this.snapshots.set(tag, this.files());
   }
 
   depths() {
@@ -427,8 +433,7 @@ class FixtureProject {
   forward(entry) {
     const ch = entry.change;
     if (ch.type === "createEntity") {
-      const scene = { ...this.scene, entities: [...this.scene.entities, deepCopy(ch.entity)] };
-      return { scene, change: ch };
+      return { scene: { ...this.scene, entities: [...this.scene.entities, deepCopy(ch.entity)] }, change: ch };
     }
     if (ch.type === "setTransform") {
       const r = applySetTransform(this.scene, ch.id, { position: ch.next.position, rotation: ch.next.rotation, scale: ch.next.scale });
@@ -441,93 +446,134 @@ class FixtureProject {
     throw new Error("fixture-tool: unknown forward");
   }
 
-  mutation(request, { op, undo, redo, historyEntry }) {
+  // Every op of this corpus edits the one scene: the transaction writes the
+  // scene file only (stamped with the new project revision, the record
+  // appended there); content.json keeps its revision and records.
+  commit(scene) {
+    const revision = this.revision + 1;
+    validateSceneLight(scene);
+    this.scene = { ...scene, revision };
+    return revision;
+  }
+
+  /** Run one mutation; returns the recorded result (the live ack adds `sceneId`). */
+  mutation(request, { op, undo, redo }) {
     const digest = digestOf(request);
-    const history = this.depths();
-
-    if (undo) {
-      if (this.cursor === 0) throw new Error("fixture-tool: undo on empty stack");
-      const entry = this.history[this.cursor - 1];
-      const r = this.inverse(entry);
-      this.revision += 1;
-      this.scene = { ...r.scene, revision: this.revision };
-      this.cursor -= 1;
-      validateSceneLight(this.scene);
-      const result = mutationSuccess({
-        op: "undo", projectId: this.projectId, requestId: request.requestId,
-        revision: this.revision, duplicated: false, change: r.change,
-        appliedOf: entry.requestId, originOfApplied: entry.origin,
-        history: this.depths(),
+    let result;
+    if (undo || redo) {
+      if (undo && this.cursor === 0) throw new Error("fixture-tool: undo on empty stack");
+      if (redo && this.cursor === this.history.length) throw new Error("fixture-tool: redo on empty tail");
+      const entry = undo ? this.history[this.cursor - 1] : this.history[this.cursor];
+      const r = undo ? this.inverse(entry) : this.forward(entry);
+      const revision = this.commit(r.scene);
+      this.cursor += undo ? -1 : 1;
+      result = mutationSuccess({
+        op: undo ? "undo" : "redo", projectId: this.projectId, requestId: request.requestId,
+        revision, duplicated: false, change: r.change,
+        appliedOf: entry.requestId, originOfApplied: entry.origin, history: this.depths(),
       });
-      this.pushRecord(request.requestId, digest, result);
-      return result;
-    }
-
-    if (redo) {
-      if (this.cursor === this.history.length) throw new Error("fixture-tool: redo on empty tail");
-      const entry = this.history[this.cursor];
-      const r = this.forward(entry);
-      this.revision += 1;
-      this.scene = { ...r.scene, revision: this.revision };
+    } else {
+      const args = request.args;
+      const r = this.apply(op, args);
+      let change;
+      let createdId;
+      if (op === "createEntity") {
+        change = changeCreate(r.id, r.entity);
+        createdId = r.id;
+      } else if (op === "setTransform") {
+        change = changeSetTransform(args.entityId, r.previous, r.next, r.changedFields);
+      } else {
+        change = changeDelete(args.entityId, r.deletedIds);
+      }
+      const revision = this.commit(r.scene);
+      this.history = this.history.slice(0, this.cursor);
+      this.history.push({
+        requestId: request.requestId,
+        origin: request.origin ?? null,
+        change: deepCopy(change),
+        inverse:
+          op === "createEntity"
+            ? { kind: "delete", rootId: r.id }
+            : op === "setTransform"
+              ? { kind: "setTransform", id: args.entityId, restore: deepCopy(r.previous) }
+              : { kind: "restoreSubtree", rootId: args.entityId, entries: deepCopy(r.entries), restoredParentId: r.restoredParentId },
+      });
       this.cursor += 1;
-      validateSceneLight(this.scene);
-      const result = mutationSuccess({
-        op: "redo", projectId: this.projectId, requestId: request.requestId,
-        revision: this.revision, duplicated: false, change: r.change,
-        appliedOf: entry.requestId, originOfApplied: entry.origin,
-        history: this.depths(),
+      result = mutationSuccess({
+        op, projectId: this.projectId, requestId: request.requestId,
+        revision, duplicated: false, createdId, change, history: this.depths(),
       });
-      this.pushRecord(request.requestId, digest, result);
-      return result;
     }
-
-    // forward mutation
-    const r = this.apply(op, historyEntry.args);
-    validateSceneLight(r.scene);
-
-    let change;
-    let createdId;
-    if (op === "createEntity") {
-      change = changeCreate(r.id, r.entity);
-      createdId = r.id;
-    } else if (op === "setTransform") {
-      change = changeSetTransform(historyEntry.args.entityId, r.previous, r.next, r.changedFields);
-    } else if (op === "deleteEntity") {
-      change = changeDelete(historyEntry.args.entityId, r.deletedIds);
-    }
-
-    this.revision += 1;
-    this.scene = { ...r.scene, revision: this.revision };
-    this.history = this.history.slice(0, this.cursor);
-    this.history.push({
-      seq: this.history.length + 1,
-      requestId: request.requestId,
-      op,
-      origin: request.origin ?? null,
-      appliedRevision: this.revision,
-      change: deepCopy(change),
-      inverse:
-        op === "createEntity"
-          ? { kind: "delete", rootId: r.id }
-          : op === "setTransform"
-            ? { kind: "setTransform", id: historyEntry.args.entityId, restore: deepCopy(r.previous) }
-            : { kind: "restoreSubtree", rootId: historyEntry.args.entityId, entries: deepCopy(r.entries), restoredParentId: r.restoredParentId, rootId: r.rootId ?? historyEntry.args.entityId },
-    });
-    this.cursor += 1;
-
-    const result = mutationSuccess({
-      op, projectId: this.projectId, requestId: request.requestId,
-      revision: this.revision, duplicated: false, createdId, change,
-      history: this.depths(),
-    });
-    this.pushRecord(request.requestId, digest, result);
+    this.sceneRecords.push(recordObj(request.requestId, digest, this.revision, result));
+    if (this.sceneRecords.length > RETENTION) this.sceneRecords.shift();
     return result;
   }
+}
 
-  pushRecord(requestId, digest, result) {
-    this.records.push(recordObj(requestId, digest, this.revision, result));
-    if (this.records.length > 128) this.records.shift();
+/** The files of a project state: relative path → canonical bytes. */
+function projectFiles(projectId, manifest, snap) {
+  return {
+    "project.json": canonJson(manifest),
+    "content.json": canonJson(contentFileObj(projectId, snap.contentRevision, snap.content, snap.contentRecords)),
+    [SCENE_REL]: canonJson(sceneFileObj(projectId, snap.scene, snap.sceneRecords)),
+  };
+}
+
+const revisionOf = (snap) => Math.max(snap.contentRevision, snap.scene.revision);
+const recordsOf = (snap) => [...snap.contentRecords, ...snap.sceneRecords];
+
+// ---------------------------------------------------------------------------
+// query results (the v4 shapes of workspace session-v4.ts `serveQueryV4`)
+// ---------------------------------------------------------------------------
+
+function queryProjectResult({ projectId, manifest, snap, history, workspace }) {
+  const scene = snap.scene;
+  return {
+    ok: true,
+    projectId,
+    revision: revisionOf(snap),
+    manifest,
+    scene: { sceneId: scene.sceneId, schemaVersion: 4, entityCount: scene.entities.length, cameraId: cameraIdOf(scene) },
+    scenes: snap.content.scenes.map((e) => ({ sceneId: e.sceneId, name: e.name, entityCount: scene.entities.length })),
+    startScenes: [...snap.content.startScenes],
+    history,
+    workspace,
+    tags: [],
+  };
+}
+
+function queryEntityResult({ projectId, snap, entityId, includeSubtree }) {
+  const scene = snap.scene;
+  const { entity } = entityById(scene, entityId);
+  const o = {
+    ok: true,
+    projectId,
+    revision: revisionOf(snap),
+    sceneId: scene.sceneId,
+    entity,
+    parentChain: parentChain(scene, entityId),
+    childIds: childrenOf(scene, entityId),
+    tagNames: { own: [], effective: [] },
+  };
+  if (includeSubtree) {
+    const subtreeIds = closureIds(scene, entityId);
+    o.subtree = { count: subtreeIds.length, entities: scene.entities.filter((e) => subtreeIds.includes(e.id)) };
   }
+  return o;
+}
+
+function queryEntitiesResult({ projectId, snap, limit, offset }) {
+  const page = snap.scene.entities.slice(offset, offset + limit);
+  return {
+    ok: true,
+    projectId,
+    revision: revisionOf(snap),
+    total: snap.scene.entities.length,
+    offset,
+    limit,
+    entities: page,
+    entitySceneIds: page.map(() => snap.scene.sceneId),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -536,55 +582,10 @@ class FixtureProject {
 
 const P = "demo-0001";
 const MAIN = manifestObj(P, "Demo Project", "2026-09-16T23:40:00Z");
-const mainline = new FixtureProject(P, MAIN, defaultScene());
+const mainline = FixtureProject.fresh(P, MAIN);
+mainline.snapshot("T0");
 
 const A = (i) => `req-1${String(i).padStart(31, "0")}`; // req-1...01 .. req-1...07 (32 hex)
-
-// A1 create box-0001
-mainline.mutation(
-  req("createEntity", P, 0, A(1), browserOrigin, { kind: "box" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box" } } },
-);
-mainline.snapshot("T1");
-// A2 create box-0002
-mainline.mutation(
-  req("createEntity", P, 1, A(2), browserOrigin, { kind: "box" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box" } } },
-);
-mainline.snapshot("T2");
-// A3 setTransform box-0001 position
-mainline.mutation(
-  req("setTransform", P, 2, A(3), mcpOrigin, { entityId: "box-0001", transform: { position: [1.5, 0.25, 0] } }),
-  { op: "setTransform", historyEntry: { args: { entityId: "box-0001", transform: { position: [1.5, 0.25, 0] } } } },
-);
-mainline.snapshot("T3");
-// A4 create group-0001
-mainline.mutation(
-  req("createEntity", P, 3, A(4), browserOrigin, { kind: "group", name: "Walls" }),
-  { op: "createEntity", historyEntry: { args: { kind: "group", name: "Walls" } } },
-);
-mainline.snapshot("T4");
-// A5 setTransform box-0002 rotation (the lost-ack command in scenario 01)
-mainline.mutation(
-  req("setTransform", P, 4, A(5), mcpOrigin, { entityId: "box-0002", transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } }),
-  { op: "setTransform", historyEntry: { args: { entityId: "box-0002", transform: { rotation: [0.7071067811865476, 0, 0, 0.7071067811865476] } } } },
-);
-mainline.snapshot("T5");
-// A6 create box-0003
-mainline.mutation(
-  req("createEntity", P, 5, A(6), browserOrigin, { kind: "box" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box" } } },
-);
-mainline.snapshot("T6");
-// A7 create box-0004 (the crash-window command in scenarios 06/07)
-mainline.mutation(
-  req("createEntity", P, 6, A(7), mcpOrigin, { kind: "box" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box" } } },
-);
-mainline.snapshot("T7");
-
-// sanity: A7 must be box-0004
-if (mainline.scene.entities[5].id !== "box-0004") throw new Error("fixture-tool: A7 != box-0004");
 
 const mainlineRequests = {
   A1: req("createEntity", P, 0, A(1), browserOrigin, { kind: "box" }),
@@ -595,45 +596,42 @@ const mainlineRequests = {
   A6: req("createEntity", P, 5, A(6), browserOrigin, { kind: "box" }),
   A7: req("createEntity", P, 6, A(7), mcpOrigin, { kind: "box" }),
 };
-// snapshots carry {scene, revision, records}; per-command recorded results are
-// looked up by requestId within the snapshot's records
-const recordResult = (snapTag, requestId) => {
-  const rec = mainline.snapshots.get(snapTag).records.find((r) => r.requestId === requestId);
-  if (!rec) throw new Error(`fixture-tool: no record for ${requestId}`);
-  return rec.result;
-};
+const mainlineResults = {};
+for (let i = 1; i <= 7; i++) {
+  const r = mainlineRequests[`A${i}`];
+  mainlineResults[`A${i}`] = mainline.mutation(deepCopy(r), { op: r.op });
+  mainline.snapshot(`T${i}`);
+}
+// sanity: A7 must be box-0004 (after the camera, the two lights, box-0001..3, group-0001)
+if (mainline.scene.entities.at(-1).id !== "box-0004") throw new Error("fixture-tool: A7 != box-0004");
+if (mainline.revision !== 7 || mainline.contentRevision !== 0) throw new Error("fixture-tool: mainline revisions wrong");
+
+const snapT = (i) => mainline.snapshots.get(`T${i}`);
 
 // ---------------------------------------------------------------------------
 // scenario 05 timeline (undo/redo, mixed origins) — demo-0001 from revision 0
 // ---------------------------------------------------------------------------
 
-const S5P = new FixtureProject(P, MAIN, defaultScene());
+const S5P = FixtureProject.fresh(P, MAIN);
 const B = (i) => `req-2${String(i).padStart(31, "0")}`;
 
 const s5 = [];
-function s5m(tag, request, mutate) {
-  const result = S5P.mutation(request, mutate);
-  s5.push({ in: request, out: result });
-  S5P.snapshot(tag);
-  return result;
+function s5m(request, mutate) {
+  const recorded = S5P.mutation(request, mutate);
+  s5.push({ in: request, out: liveAck(recorded) });
 }
-s5m("S1", req("createEntity", P, 0, B(1), browserOrigin, { kind: "box", name: "Ground" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box", name: "Ground" } } });
-s5m("S2", req("setTransform", P, 1, B(2), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0, -0.5] } }),
-  { op: "setTransform", historyEntry: { args: { entityId: "box-0001", transform: { position: [0, 0, -0.5] } } } });
-s5m("S3", req("createEntity", P, 2, B(3), browserOrigin, { kind: "box", name: "Crate" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box", name: "Crate" } } });
-s5m("S4", req("deleteEntity", P, 3, B(4), mcpOrigin, { entityId: "box-0002" }),
-  { op: "deleteEntity", historyEntry: { args: { entityId: "box-0002" } } });
-s5m("S5", req("undo", P, 4, B(5), browserOrigin, {}), { undo: true });
-s5m("S6", req("undo", P, 5, B(6), browserOrigin, {}), { undo: true });
-s5m("S7", req("redo", P, 6, B(7), mcpOrigin, {}), { redo: true });
-s5m("S8", req("setTransform", P, 7, B(8), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0.25, -0.5] } }),
-  { op: "setTransform", historyEntry: { args: { entityId: "box-0001", transform: { position: [0, 0.25, -0.5] } } } });
-s5m("S9", req("undo", P, 8, B(9), browserOrigin, {}), { undo: true });
+s5m(req("createEntity", P, 0, B(1), browserOrigin, { kind: "box", name: "Ground" }), { op: "createEntity" });
+s5m(req("setTransform", P, 1, B(2), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0, -0.5] } }), { op: "setTransform" });
+s5m(req("createEntity", P, 2, B(3), browserOrigin, { kind: "box", name: "Crate" }), { op: "createEntity" });
+s5m(req("deleteEntity", P, 3, B(4), mcpOrigin, { entityId: "box-0002" }), { op: "deleteEntity" });
+s5m(req("undo", P, 4, B(5), browserOrigin, {}), { undo: true });
+s5m(req("undo", P, 5, B(6), browserOrigin, {}), { undo: true });
+s5m(req("redo", P, 6, B(7), mcpOrigin, {}), { redo: true });
+s5m(req("setTransform", P, 7, B(8), mcpOrigin, { entityId: "box-0001", transform: { position: [0, 0.25, -0.5] } }), { op: "setTransform" });
+s5m(req("undo", P, 8, B(9), browserOrigin, {}), { undo: true });
 
 (function verifyS5() {
-  if (S5P.scene.entities.map((e) => e.id).join(",") !== "cam-main,box-0001,box-0002") {
+  if (S5P.scene.entities.map((e) => e.id).join(",") !== "cam-main,light-0001,light-0002,box-0001,box-0002") {
     throw new Error("fixture-tool: S5 final entities wrong");
   }
   if (S5P.revision !== 9) throw new Error("fixture-tool: S5 final revision wrong");
@@ -649,18 +647,15 @@ s5m("S9", req("undo", P, 8, B(9), browserOrigin, {}), { undo: true });
   });
 })();
 
-const s5Requests = s5.map((m) => m.in);
-const s5Results = s5.map((m) => m.out);
-
 // ---------------------------------------------------------------------------
 // scenario 03 (stale revision + recovery re-issue) — branches from T5
 // ---------------------------------------------------------------------------
 
 const C = (i) => `req-3${String(i).padStart(31, "0")}`;
-const s3proj = new FixtureProject(P, MAIN, deepCopy(mainline.snapshots.get("T5").scene), deepCopy(mainline.snapshots.get("T5").records));
+const s3proj = FixtureProject.fromSnapshot(P, MAIN, snapT(5));
+const s3StaleReq = req("setTransform", P, 4, C(1), browserOrigin, { entityId: "box-0001", transform: { position: [0.75, 0, 0] } });
 const s3ReissueReq = req("setTransform", P, 5, C(2), browserOrigin, { entityId: "box-0001", transform: { position: [0.75, 0, 0] } });
-const s3Result = s3proj.mutation(s3ReissueReq, { op: "setTransform", historyEntry: { args: { entityId: "box-0001", transform: { position: [0.75, 0, 0] } } } });
-s3proj.snapshot("S3AFTER");
+const s3Result = s3proj.mutation(s3ReissueReq, { op: "setTransform" });
 
 // ---------------------------------------------------------------------------
 // scenario 04 (invalid transactions, no partial changes) — at T5
@@ -673,15 +668,17 @@ const d4reqs = {
   ghostParent: req("createEntity", P, 5, D(3), browserOrigin, { kind: "box", parentId: "ghost-0001" }),
   noChange: req("setTransform", P, 5, D(4), browserOrigin, { entityId: "box-0001", transform: { position: [1.5, 0.25, 0] } }),
 };
-// sanity: no_change request must equal current state
-if (!noChange(
-  { ...mainline.snapshots.get("T5").scene, revision: 0 },
-  applySetTransform(mainline.snapshots.get("T5").scene, "box-0001", { position: [1.5, 0.25, 0] }).scene,
-)) throw new Error("fixture-tool: S4 no_change case is not actually a no-op");
+// sanity: the no_change request must equal the current state
+if (!noChange(snapT(5).scene, applySetTransform(snapT(5).scene, "box-0001", { position: [1.5, 0.25, 0] }).scene)) {
+  throw new Error("fixture-tool: S4 no_change case is not actually a no-op");
+}
+const box1IndexT5 = entityById(snapT(5).scene, "box-0001").index;
 
+// The detail object is the project-model's own error (commands.md §5.2
+// passes it through verbatim); its text is the model's wording.
 const zeroQuatModelError = {
   code: "quaternion_invalid",
-  path: "/entities/1/components/transform/rotation",
+  path: `/entities/${box1IndexT5}/components/transform/rotation`,
   message: "rotation quaternion must have unit length within 1e-4",
   found: [0, 0, 0, 0],
   expected: "finite [x,y,z,w] with |norm - 1| <= 1e-4",
@@ -698,9 +695,10 @@ const d4errs = {
   ghostParent: errObj("reference_missing", "validation",
     { found: "ghost-0001", expected: "existing entity ID or null" },
     "parentId does not resolve to an existing entity"),
+  // A project with a content catalog (every v4 project) compares scene AND
+  // content (commands errors.ts `noChangeContent`; no hint).
   noChange: errObj("no_change", "validation", {},
-    "request would not change the scene",
-    "the scene already matches the requested values; nothing was recorded"),
+    "the resulting scene and content are byte-identical to the current state"),
 };
 
 // ---------------------------------------------------------------------------
@@ -708,32 +706,26 @@ const d4errs = {
 // ---------------------------------------------------------------------------
 
 const E = (i) => `req-6${String(i).padStart(31, "0")}`;
-const T7 = mainline.snapshots.get("T7");
-const t7Envelope = envelopeObj({ projectId: P, scene: T7.scene, records: T7.records });
-const t7EnvelopeBytes = canonJson(t7Envelope);
-const t7Hash = sha256(t7EnvelopeBytes);
+const T7 = snapT(7);
+const t7Files = projectFiles(P, MAIN, T7);
 
-// external edit: box-0001 color -> #ff8800, everything else identical
+// external edit of the scene file: box-0001 color -> #ff8800, everything
+// else identical (revision 7, retry block copied)
 const extScene = deepCopy(T7.scene);
-const extBox1 = entityById(extScene, "box-0001").entity;
-extBox1.components.box.material.color = "#ff8800";
-const extEnvelope = envelopeObj({ projectId: P, scene: extScene, records: deepCopy(T7.records) });
-const extEnvelopeBytes = canonJson(extEnvelope);
-const extHash = sha256(extEnvelopeBytes);
+entityById(extScene, "box-0001").entity.components.box.material.color = "#ff8800";
+const extSceneBytes = canonJson(sceneFileObj(P, extScene, deepCopy(T7.sceneRecords)));
+const extHash = sha256(extSceneBytes);
 const extHash8 = extHash.slice(0, 8);
 
-// accepted+continued envelope: external scene, retry cleared, then A8' at rev 8
-const s8proj = new FixtureProject(P, MAIN, deepCopy(extScene), []);
+// acceptExternalState (session-v4.ts `acceptExternalV4`): every file is
+// rewritten canonically with its retry records cleared; content.json is
+// stamped with the project revision (7). Then the post-accept command.
+const s8proj = FixtureProject.fromSnapshot(P, MAIN, { ...deepCopy(T7), scene: deepCopy(extScene), contentRevision: 7, contentRecords: [], sceneRecords: [] });
+const acceptedFiles = projectFiles(P, MAIN, s8proj.files());
 const e8req = req("setTransform", P, 7, E(2), mcpOrigin, { entityId: "box-0004", transform: { position: [0, 1, 0] } });
-const e8result = s8proj.mutation(e8req, { op: "setTransform", historyEntry: { args: { entityId: "box-0004", transform: { position: [0, 1, 0] } } } });
-s8proj.snapshot("S8AFTER");
-const s8FinalEnvelope = envelopeObj({ projectId: P, scene: s8proj.scene, records: s8proj.records });
-
-// The error payload's pendingChange carries the §7.2 step-2 snapshot
-// state (snapshotState: "ok" — the scenario-08 snapshot is durable),
-// matching the service's emitted key order (workspace.md §7.2/§11).
-const pendingChange = { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0 };
+const e8result = s8proj.mutation(e8req, { op: "setTransform" });
 const e8pauseReq = req("setTransform", P, 7, E(1), mcpOrigin, { entityId: "box-0004", transform: { position: [0, 1, 0] } });
+const pendingChange = { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0 };
 
 const ownerA = { backendId: "tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", pid: 5000, openedAt: "2026-09-17T09:00:00Z", lockEpoch: 0 };
 const ownerB = { backendId: "tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", pid: 5150, openedAt: "2026-09-17T10:30:00Z", lockEpoch: 1 };
@@ -746,64 +738,18 @@ const ownerC = { backendId: "tb-cccccccccccccccccccccccccccccccc", pid: 4300, op
 
 const RET = "demo-0002";
 const RETMAN = manifestObj(RET, "Retention Fixture", "2026-09-17T08:00:00Z");
-const ret = new FixtureProject(RET, RETMAN, defaultScene());
+const ret = FixtureProject.fresh(RET, RETMAN);
 const F = (i) => `req-4${String(i).padStart(31, "0")}`;
-ret.mutation(req("createEntity", RET, 0, F(1), browserOrigin, { kind: "box" }),
-  { op: "createEntity", historyEntry: { args: { kind: "box" } } });
-for (let i = 2; i <= 129; i++) {
-  const x = i - 1; // 1..128
-  ret.mutation(
-    req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-0001", transform: { position: [x / 100, 0, 0] } }),
-    { op: "setTransform", historyEntry: { args: { entityId: "box-0001", transform: { position: [x / 100, 0, 0] } } } },
-  );
-}
+const retRequest = (i) => (i === 1
+  ? req("createEntity", RET, 0, F(1), browserOrigin, { kind: "box" })
+  : req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-0001", transform: { position: [(i - 1) / 100, 0, 0] } }));
+for (let i = 1; i <= 129; i++) ret.mutation(retRequest(i), { op: retRequest(i).op });
 if (ret.revision !== 129) throw new Error("fixture-tool: retention revision wrong");
-if (ret.records.length !== 128) throw new Error("fixture-tool: retention record count wrong");
-if (ret.records[0].requestId !== F(2)) throw new Error("fixture-tool: eviction dropped the wrong record");
-const retBox = entityById(ret.scene, "box-0001").entity;
-if (JSON.stringify(retBox.components.transform.position) !== JSON.stringify([1.28, 0, 0])) {
+if (ret.sceneRecords.length !== 128) throw new Error("fixture-tool: retention record count wrong");
+if (ret.sceneRecords[0].requestId !== F(2)) throw new Error("fixture-tool: eviction dropped the wrong record");
+if (JSON.stringify(entityById(ret.scene, "box-0001").entity.components.transform.position) !== JSON.stringify([1.28, 0, 0])) {
   throw new Error("fixture-tool: retention final position wrong");
 }
-const retEnvelope = envelopeObj({ projectId: RET, scene: ret.scene, records: ret.records });
-
-// ---------------------------------------------------------------------------
-// invalid envelope fixtures
-// ---------------------------------------------------------------------------
-
-const rev0Scene = defaultScene();
-const rev0Envelope = envelopeObj({ projectId: P, scene: rev0Scene, records: [] });
-const rev0Bytes = canonJson(rev0Envelope);
-
-const invStorageVersion = (() => {
-  const o = JSON.parse(rev0Bytes);
-  o.storageVersion = 2;
-  // rebuild in canonical order with storageVersion first
-  return canonJson({ storageVersion: 2, type: "authoring-state", projectId: o.projectId, scene: o.scene, retry: o.retry });
-})();
-const invTypeMissing = (() => {
-  const lines = rev0Bytes.trimEnd().split("\n").filter((l) => !l.trim().startsWith('"type"'));
-  return lines.join("\n") + "\n";
-})();
-const invProjectMismatch = canonJson({
-  storageVersion: 1, type: "authoring-state", projectId: "demo-0002",
-  scene: rev0Scene, retry: { retention: 128, records: [] },
-});
-const invSceneInvalid = (() => {
-  const scene = deepCopy(rev0Scene);
-  scene.entities[0].components.transform.rotation = [0, 0, 0, 0];
-  return canonJson({ storageVersion: 1, type: "authoring-state", projectId: P, scene, retry: { retention: 128, records: [] } });
-})();
-const invRetryNonAscending = (() => {
-  const env = deepCopy(envelopeObj({ projectId: P, scene: mainline.snapshots.get("T5").scene, records: mainline.snapshots.get("T5").records }));
-  env.retry.records[0].appliedRevision = 99; // breaks strict ascending order
-  return canonJson(env);
-})();
-const invDuplicateKey = (() => {
-  const idx = rev0Bytes.indexOf('"projectId"');
-  if (idx < 0) throw new Error("fixture-tool: projectId line not found");
-  const lineEnd = rev0Bytes.indexOf("\n", idx);
-  return rev0Bytes.slice(0, lineEnd + 1) + rev0Bytes.slice(idx, lineEnd + 1) + rev0Bytes.slice(lineEnd + 1);
-})();
 
 // ---------------------------------------------------------------------------
 // file plan: relpath -> bytes (string)
@@ -814,249 +760,227 @@ const put = (rel, bytes) => {
   if (files.has(rel)) throw new Error(`fixture-tool: duplicate file ${rel}`);
   files.set(rel, bytes);
 };
+const putProject = (prefix, projectFileMap) => {
+  for (const [rel, bytes] of Object.entries(projectFileMap)) put(path.posix.join(prefix, rel), bytes);
+};
 
-// --- envelope fixtures
-put("envelope/valid/demo-0001-manifest.json", canonJson(MAIN));
-put("envelope/valid/demo-0001-rev0.json", rev0Bytes);
-put("envelope/valid/demo-0001-rev5.json", canonJson(envelopeObj({ projectId: P, scene: mainline.snapshots.get("T5").scene, records: mainline.snapshots.get("T5").records })));
-put("envelope/valid/demo-0001-rev6.json", canonJson(envelopeObj({ projectId: P, scene: mainline.snapshots.get("T6").scene, records: mainline.snapshots.get("T6").records })));
-put("envelope/valid/demo-0001-rev7.json", t7EnvelopeBytes);
-put("envelope/valid/demo-0002-manifest.json", canonJson(RETMAN));
-put("envelope/valid/demo-0002-revision-129.json", canonJson(retEnvelope));
-put("envelope/invalid/storage-version-unsupported.json", invStorageVersion);
-put("envelope/invalid/type-missing.json", invTypeMissing);
-put("envelope/invalid/project-mismatch.json", invProjectMismatch);
-put("envelope/invalid/embedded-scene-invalid.json", invSceneInvalid);
-put("envelope/invalid/retry-records-non-ascending.json", invRetryNonAscending);
-put("envelope/invalid/duplicate-key.json", invDuplicateKey);
+// --- valid project-file fixtures (each a whole v4 project directory)
+const validDirs = {
+  "demo-0001-rev0": projectFiles(P, MAIN, snapT(0)),
+  "demo-0001-rev5": projectFiles(P, MAIN, snapT(5)),
+  "demo-0001-rev6": projectFiles(P, MAIN, snapT(6)),
+  "demo-0001-rev7": t7Files,
+  "demo-0002-revision-129": projectFiles(RET, RETMAN, ret.files()),
+};
+for (const [name, fm] of Object.entries(validDirs)) putProject(`envelope/valid/${name}`, fm);
+
+// --- invalid project-file fixtures: a whole project directory each, with
+//     exactly one defect (loadV4 must block it with the pinned reason).
+const rev0 = validDirs["demo-0001-rev0"];
+const rev5 = validDirs["demo-0001-rev5"];
+const invalid = {};
+{
+  // storageVersion 3 in a v4 scene file
+  const o = JSON.parse(rev0[SCENE_REL]);
+  invalid["storage-version-unsupported"] = { ...rev0, [SCENE_REL]: canonJson({ ...o, storageVersion: 3 }) };
+}
+{
+  // content.json without its "type" key
+  const lines = rev0["content.json"].trimEnd().split("\n").filter((l) => !l.startsWith('  "type"'));
+  invalid["type-missing"] = { ...rev0, "content.json": lines.join("\n") + "\n" };
+}
+{
+  // the scene file names another project
+  const o = JSON.parse(rev0[SCENE_REL]);
+  invalid["project-mismatch"] = { ...rev0, [SCENE_REL]: canonJson({ ...o, projectId: "demo-0002" }) };
+}
+{
+  // the camera's rotation is not a unit quaternion
+  const o = JSON.parse(rev0[SCENE_REL]);
+  o.scene.entities[0].components.transform.rotation = [0, 0, 0, 0];
+  invalid["embedded-scene-invalid"] = { ...rev0, [SCENE_REL]: canonJson(o) };
+}
+{
+  // two records with the same appliedRevision (not strictly ascending)
+  const o = JSON.parse(rev5[SCENE_REL]);
+  o.retry.records[1].appliedRevision = o.retry.records[0].appliedRevision;
+  invalid["retry-records-non-ascending"] = { ...rev5, [SCENE_REL]: canonJson(o) };
+}
+{
+  // a duplicated "projectId" key in content.json
+  const b = rev0["content.json"];
+  const idx = b.indexOf('  "projectId"');
+  const lineEnd = b.indexOf("\n", idx);
+  invalid["duplicate-key"] = { ...rev0, "content.json": b.slice(0, lineEnd + 1) + b.slice(idx, lineEnd + 1) + b.slice(lineEnd + 1) };
+}
+{
+  // the content index names a scene whose file is missing
+  const { [SCENE_REL]: _gone, ...rest } = rev0;
+  invalid["scene-file-missing"] = rest;
+}
+{
+  // the scene file holds a different scene id than its file name
+  const o = JSON.parse(rev0[SCENE_REL]);
+  o.scene.sceneId = "scene-other";
+  invalid["scene-id-mismatch"] = { ...rev0, [SCENE_REL]: canonJson(o) };
+}
+for (const [name, fm] of Object.entries(invalid)) putProject(`envelope/invalid/${name}`, fm);
 
 // --- scenarios
 const sc = (dir, ...parts) => path.posix.join("scenarios", dir, ...parts);
+const putDisk = (dir, which, fm) => putProject(sc(dir, which), fm);
 
 // 01 — retry after lost acknowledgement (replay of A5 at T5)
-put(sc("01-retry-lost-ack", "disk-before/project.json"), canonJson(MAIN));
-put(sc("01-retry-lost-ack", "disk-before/scenes/main.json"), files.get("envelope/valid/demo-0001-rev5.json"));
-{
-  const replay = deepCopy(recordResult("T5", A(5)));
-  replay.duplicated = true;
-  const messages = [{ in: deepCopy(mainlineRequests.A5), out: replay }];
-  put(sc("01-retry-lost-ack", "messages.json"), canonJson(messages));
-}
+putDisk("01-retry-lost-ack", "disk-before", rev5);
+put(sc("01-retry-lost-ack", "messages.json"), canonJson([{ in: deepCopy(mainlineRequests.A5), out: replayOf(mainlineResults.A5) }]));
 
 // 02 — requestId reuse with different content
-put(sc("02-request-id-reused", "disk-before/project.json"), canonJson(MAIN));
-put(sc("02-request-id-reused", "disk-before/scenes/main.json"), files.get("envelope/valid/demo-0001-rev5.json"));
-{
-  const messages = [
-    {
-      in: req("deleteEntity", P, 5, A(5), mcpOrigin, { entityId: "box-0002" }),
-      out: mutationError({ op: "deleteEntity", projectId: P, requestId: A(5), error: requestIdReusedError(5) }),
-    },
-  ];
-  put(sc("02-request-id-reused", "messages.json"), canonJson(messages));
-}
+putDisk("02-request-id-reused", "disk-before", rev5);
+put(sc("02-request-id-reused", "messages.json"), canonJson([
+  {
+    in: req("deleteEntity", P, 5, A(5), mcpOrigin, { entityId: "box-0002" }),
+    out: mutationError({ op: "deleteEntity", projectId: P, requestId: A(5), error: requestIdReusedError(5) }),
+  },
+]));
 
 // 03 — stale revision + recovery re-issue
-put(sc("03-stale-revision", "disk-before/project.json"), canonJson(MAIN));
-put(sc("03-stale-revision", "disk-before/scenes/main.json"), files.get("envelope/valid/demo-0001-rev5.json"));
-{
-  const messages = [
-    {
-      in: req("setTransform", P, 4, C(1), browserOrigin, { entityId: "box-0001", transform: { position: [0.75, 0, 0] } }),
-      out: mutationError({ op: "setTransform", projectId: P, requestId: C(1), error: revisionConflictError(4, 5) }),
-    },
-    { in: s3ReissueReq, out: s3Result },
-  ];
-  put(sc("03-stale-revision", "messages.json"), canonJson(messages));
-  put(sc("03-stale-revision", "disk-after/project.json"), canonJson(MAIN));
-  put(sc("03-stale-revision", "disk-after/scenes/main.json"),
-    canonJson(envelopeObj({ projectId: P, scene: s3proj.snapshots.get("S3AFTER").scene, records: s3proj.snapshots.get("S3AFTER").records })));
-}
+putDisk("03-stale-revision", "disk-before", rev5);
+put(sc("03-stale-revision", "messages.json"), canonJson([
+  { in: s3StaleReq, out: mutationError({ op: "setTransform", projectId: P, requestId: C(1), error: revisionConflictError(4, 5) }) },
+  { in: s3ReissueReq, out: liveAck(s3Result) },
+]));
+putDisk("03-stale-revision", "disk-after", projectFiles(P, MAIN, s3proj.files()));
 
 // 04 — invalid transactions, no partial changes
-put(sc("04-invalid-no-partial", "disk-before/project.json"), canonJson(MAIN));
-put(sc("04-invalid-no-partial", "disk-before/scenes/main.json"), files.get("envelope/valid/demo-0001-rev5.json"));
-{
-  const messages = [
-    { in: d4reqs.zeroQuat, out: mutationError({ op: "setTransform", projectId: P, requestId: D(1), error: d4errs.zeroQuat }) },
-    { in: d4reqs.ghostDelete, out: mutationError({ op: "deleteEntity", projectId: P, requestId: D(2), error: d4errs.ghostDelete }) },
-    { in: d4reqs.ghostParent, out: mutationError({ op: "createEntity", projectId: P, requestId: D(3), error: d4errs.ghostParent }) },
-    { in: d4reqs.noChange, out: mutationError({ op: "setTransform", projectId: P, requestId: D(4), error: d4errs.noChange }) },
-  ];
-  put(sc("04-invalid-no-partial", "messages.json"), canonJson(messages));
-}
+putDisk("04-invalid-no-partial", "disk-before", rev5);
+put(sc("04-invalid-no-partial", "messages.json"), canonJson([
+  { in: d4reqs.zeroQuat, out: mutationError({ op: "setTransform", projectId: P, requestId: D(1), error: d4errs.zeroQuat }) },
+  { in: d4reqs.ghostDelete, out: mutationError({ op: "deleteEntity", projectId: P, requestId: D(2), error: d4errs.ghostDelete }) },
+  { in: d4reqs.ghostParent, out: mutationError({ op: "createEntity", projectId: P, requestId: D(3), error: d4errs.ghostParent }) },
+  { in: d4reqs.noChange, out: mutationError({ op: "setTransform", projectId: P, requestId: D(4), error: d4errs.noChange }) },
+]));
 
 // 05 — undo/redo with mixed human/agent edits
-put(sc("05-undo-redo-mixed", "disk-before/project.json"), canonJson(MAIN));
-put(sc("05-undo-redo-mixed", "disk-before/scenes/main.json"), rev0Bytes);
+putDisk("05-undo-redo-mixed", "disk-before", rev0);
 put(sc("05-undo-redo-mixed", "messages.json"), canonJson(s5));
-put(sc("05-undo-redo-mixed", "disk-after/project.json"), canonJson(MAIN));
-put(sc("05-undo-redo-mixed", "disk-after/scenes/main.json"),
-  canonJson(envelopeObj({ projectId: P, scene: S5P.scene, records: S5P.records })));
+putDisk("05-undo-redo-mixed", "disk-after", projectFiles(P, MAIN, S5P.files()));
 
-// 06 — crash before atomic replacement
-put(sc("06-crash-before-replace", "disk-before/project.json"), canonJson(MAIN));
-put(sc("06-crash-before-replace", "disk-before/scenes/main.json"), files.get("envelope/valid/demo-0001-rev6.json"));
-put(sc("06-crash-before-replace", "disk-before/scenes/.main.json.tmp-4242-7"), t7EnvelopeBytes);
-put(sc("06-crash-before-replace", "disk-before/.thirdlight/ownership.json"),
-  canonJson(ownershipObj({ state: "owned", ...ownerCrash })));
-{
-  const messages = [
-    {
-      in: { op: "queryProject", projectId: P },
-      out: queryProjectResult({
-        projectId: P, manifest: MAIN, scene: mainline.snapshots.get("T6").scene,
-        revision: 6, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false },
-      }),
-    },
-    { in: deepCopy(mainlineRequests.A7), out: recordResult("T7", A(7)) },
-  ];
-  put(sc("06-crash-before-replace", "messages.json"), canonJson(messages));
-  put(sc("06-crash-before-replace", "disk-after/project.json"), canonJson(MAIN));
-  put(sc("06-crash-before-replace", "disk-after/scenes/main.json"), t7EnvelopeBytes);
-  put(sc("06-crash-before-replace", "disk-after/.thirdlight/ownership.json"),
-    canonJson(ownershipObj({ state: "owned", ...ownerC })));
-}
+// disk-after for 01, 02 and 04: byte-identical copies of disk-before (replay / rejections)
+for (const dir of ["01-retry-lost-ack", "02-request-id-reused", "04-invalid-no-partial"]) putDisk(dir, "disk-after", rev5);
 
-// 07 — crash after atomic replacement
-put(sc("07-crash-after-replace", "disk-before/project.json"), canonJson(MAIN));
-put(sc("07-crash-after-replace", "disk-before/scenes/main.json"), t7EnvelopeBytes);
-put(sc("07-crash-after-replace", "disk-before/.thirdlight/ownership.json"),
-  canonJson(ownershipObj({ state: "owned", ...ownerCrash })));
-{
-  const replay = deepCopy(recordResult("T7", A(7)));
-  replay.duplicated = true;
-  const messages = [
-    {
-      in: { op: "queryProject", projectId: P },
-      out: queryProjectResult({
-        projectId: P, manifest: MAIN, scene: T7.scene,
-        revision: 7, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false },
-      }),
-    },
-    { in: deepCopy(mainlineRequests.A7), out: replay },
-  ];
-  put(sc("07-crash-after-replace", "messages.json"), canonJson(messages));
-  put(sc("07-crash-after-replace", "disk-after/project.json"), canonJson(MAIN));
-  put(sc("07-crash-after-replace", "disk-after/scenes/main.json"), t7EnvelopeBytes);
-  put(sc("07-crash-after-replace", "disk-after/.thirdlight/ownership.json"),
-    canonJson(ownershipObj({ state: "owned", ...ownerCrash })));
-}
+// 06 — crash before the atomic replacement of the scene file
+const t6Files = validDirs["demo-0001-rev6"];
+putDisk("06-crash-before-replace", "disk-before", t6Files);
+put(sc("06-crash-before-replace", "disk-before/scenes/.scene-main.json.tmp-4242-7"), t7Files[SCENE_REL]);
+put(sc("06-crash-before-replace", "disk-before/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerCrash })));
+put(sc("06-crash-before-replace", "messages.json"), canonJson([
+  {
+    in: { op: "queryProject", projectId: P },
+    out: queryProjectResult({ projectId: P, manifest: MAIN, snap: snapT(6), history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false } }),
+  },
+  // No record exists (the rename never happened): the retry re-executes fresh.
+  // A fresh process has an empty history, so the ack's depths are (1, 0).
+  { in: deepCopy(mainlineRequests.A7), out: liveAck({ ...deepCopy(mainlineResults.A7), history: { undoDepth: 1, redoDepth: 0 } }) },
+]));
+// The record written by the fresh re-execution carries the fresh depths too,
+// so the rev-7 scene file differs from the mainline's only in that record's
+// history block.
+const s6After = (() => {
+  const f = deepCopy(T7);
+  f.sceneRecords.at(-1).result.history = { undoDepth: 1, redoDepth: 0 };
+  return f;
+})();
+putDisk("06-crash-before-replace", "disk-after", projectFiles(P, MAIN, s6After));
+put(sc("06-crash-before-replace", "disk-after/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerC })));
 
-// 08 — unexpected external modification
-put(sc("08-external-modification", "disk-before/project.json"), canonJson(MAIN));
-put(sc("08-external-modification", "disk-before/scenes/main.json"), t7EnvelopeBytes);
-put(sc("08-external-modification", "disk-before/.thirdlight/ownership.json"),
-  canonJson(ownershipObj({ state: "owned", ...ownerA })));
-// Owner A's active session holds its exclusive claim file (the 2026-09-18
-// amended §6.2 self-reclaim row re-verifies it before serving).
-put(sc("08-external-modification", "disk-before/.thirdlight/claim-0"),
-  canonJson(claimObj(ownerA)));
-put(sc("08-external-modification", "disk-external/scenes/main.json"), extEnvelopeBytes);
-{
-  const messages = [
-    {
-      in: e8pauseReq,
-      out: mutationError({
-        op: "setTransform", projectId: P, requestId: E(1),
-        error: errObj("external_change_unresolved", "unavailable", { pendingChange },
-          "an unexpected external modification is pending resolution; writes are paused",
-          HINT_PAUSED),
-      }),
-    },
-    {
-      in: { op: "queryProject", projectId: P },
-      out: queryProjectResult({
-        projectId: P, manifest: MAIN, scene: T7.scene, revision: 7,
-        history: { undoDepth: 0, redoDepth: 0 },
-        workspace: {
-          writePaused: true, pauseReason: "external_change",
-          pendingChange: { snapshotState: "ok", externalHash: extHash, externalValid: true, externalErrorCount: 0, externalErrors: [] },
-        },
-      }),
-    },
-    {
-      in: { op: "acceptExternalState", projectId: P },
-      out: { ok: true, revision: 7, historyReset: true, retryCleared: true },
-    },
-    { in: e8req, out: e8result },
-  ];
-  put(sc("08-external-modification", "messages.json"), canonJson(messages));
-  const after = {
-    "disk-after/project.json": canonJson(MAIN),
-    "disk-after/scenes/main.json": canonJson(s8FinalEnvelope),
-    "disk-after/.thirdlight/ownership.json": canonJson(ownershipObj({ state: "owned", ...ownerA })),
-    ["disk-after/.thirdlight/recovery/scene-20260917T101500Z-" + extHash8 + ".json"]: extEnvelopeBytes,
-  };
-  for (const [rel, bytes] of Object.entries(after)) put(path.posix.join(sc("08-external-modification"), rel), bytes);
-}
+// 07 — crash after the atomic replacement of the scene file
+putDisk("07-crash-after-replace", "disk-before", t7Files);
+put(sc("07-crash-after-replace", "disk-before/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerCrash })));
+put(sc("07-crash-after-replace", "messages.json"), canonJson([
+  {
+    in: { op: "queryProject", projectId: P },
+    out: queryProjectResult({ projectId: P, manifest: MAIN, snap: T7, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false } }),
+  },
+  { in: deepCopy(mainlineRequests.A7), out: replayOf(mainlineResults.A7) },
+]));
+putDisk("07-crash-after-replace", "disk-after", t7Files);
+put(sc("07-crash-after-replace", "disk-after/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerC })));
 
-// 09 — second-backend ownership rejection
-put(sc("09-second-backend-ownership", "disk-before/project.json"), canonJson(MAIN));
-put(sc("09-second-backend-ownership", "disk-before/scenes/main.json"), t7EnvelopeBytes);
-put(sc("09-second-backend-ownership", "disk-before/.thirdlight/ownership.json"),
-  canonJson(ownershipObj({ state: "owned", ...ownerA })));
-// Owner A's active session holds its exclusive claim file (see 08).
-put(sc("09-second-backend-ownership", "disk-before/.thirdlight/claim-0"),
-  canonJson(claimObj(ownerA)));
+// 08 — unexpected external modification of the scene file
+putDisk("08-external-modification", "disk-before", t7Files);
+put(sc("08-external-modification", "disk-before/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerA })));
+put(sc("08-external-modification", "disk-before/.thirdlight/claim-0"), canonJson(claimObj(ownerA)));
+put(sc("08-external-modification", `disk-external/${SCENE_REL}`), extSceneBytes);
+put(sc("08-external-modification", "messages.json"), canonJson([
+  {
+    in: e8pauseReq,
+    out: mutationError({
+      op: "setTransform", projectId: P, requestId: E(1),
+      error: errObj("external_change_unresolved", "unavailable", { pendingChange },
+        "an unexpected external modification is pending resolution; writes are paused", HINT_PAUSED),
+    }),
+  },
+  {
+    in: { op: "queryProject", projectId: P },
+    out: queryProjectResult({
+      projectId: P, manifest: MAIN, snap: T7, history: { undoDepth: 0, redoDepth: 0 },
+      workspace: { writePaused: true, pauseReason: "external_change", pendingChange: { ...pendingChange, externalErrors: [] } },
+    }),
+  },
+  { in: { op: "acceptExternalState", projectId: P }, out: { ok: true, revision: 7, historyReset: true, retryCleared: true } },
+  { in: e8req, out: liveAck(e8result) },
+]));
+putDisk("08-external-modification", "disk-after", projectFiles(P, MAIN, s8proj.files()));
+put(sc("08-external-modification", "disk-after/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerA })));
+put(sc("08-external-modification", `disk-after/.thirdlight/recovery/scene-20260917T101500Z-${extHash8}.json`), extSceneBytes);
+
+// 09 — second-backend ownership rejection, then the automatic reclaim
+putDisk("09-second-backend-ownership", "disk-before", t7Files);
+put(sc("09-second-backend-ownership", "disk-before/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerA })));
+put(sc("09-second-backend-ownership", "disk-before/.thirdlight/claim-0"), canonJson(claimObj(ownerA)));
 {
   const holderA = { backendId: ownerA.backendId, pid: ownerA.pid, openedAt: ownerA.openedAt, lockEpoch: ownerA.lockEpoch, state: "owned" };
-  const messages = [
+  put(sc("09-second-backend-ownership", "messages.json"), canonJson([
     {
       in: { op: "queryProject", projectId: P },
       out: mutationError({
         op: "queryProject", projectId: P,
-        error: errObj("project_unavailable", "unavailable",
-          { reason: "ownership_conflict", holder: holderA },
+        error: errObj("project_unavailable", "unavailable", { reason: "ownership_conflict", holder: holderA },
           "project cannot be used right now: ownership_conflict",
           "another live backend owns this project; stop it or wait for an operator takeover"),
       }),
     },
     {
       in: { op: "queryProject", projectId: P },
-      out: queryProjectResult({
-        projectId: P, manifest: MAIN, scene: T7.scene, revision: 7,
-        history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false },
-      }),
+      out: queryProjectResult({ projectId: P, manifest: MAIN, snap: T7, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false } }),
     },
-  ];
-  put(sc("09-second-backend-ownership", "messages.json"), canonJson(messages));
-  put(sc("09-second-backend-ownership", "disk-after/project.json"), canonJson(MAIN));
-  put(sc("09-second-backend-ownership", "disk-after/scenes/main.json"), t7EnvelopeBytes);
-  put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"),
-    canonJson(ownershipObj({ state: "owned", ...ownerB })));
+  ]));
 }
+putDisk("09-second-backend-ownership", "disk-after", t7Files);
+put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), canonJson(ownershipObj({ state: "owned", ...ownerB })));
 
-// disk-after for 01 and 02: byte-identical copies of disk-before (replay/no-op)
-for (const dir of ["01-retry-lost-ack", "02-request-id-reused", "04-invalid-no-partial"]) {
-  put(path.posix.join(sc(dir), "disk-after/project.json"), files.get(path.posix.join(sc(dir), "disk-before/project.json")));
-  put(path.posix.join(sc(dir), "disk-after/scenes/main.json"), files.get(path.posix.join(sc(dir), "disk-before/scenes/main.json")));
-}
-
-// --- examples/commands.json
+// --- examples/commands.json (live acknowledgements, v4 query shapes)
 {
-  const t5 = mainline.snapshots.get("T5");
+  const t5 = snapT(5);
   const examples = {
-    createEntity: { request: mainlineRequests.A1, result: recordResult("T1", A(1)) },
-    setTransform: { request: mainlineRequests.A3, result: recordResult("T3", A(3)) },
-    deleteEntity: { request: s5Requests[3], result: s5Results[3] },
-    undo: { request: s5Requests[4], result: s5Results[4] },
-    redo: { request: s5Requests[6], result: s5Results[6] },
+    createEntity: { request: mainlineRequests.A1, result: liveAck(mainlineResults.A1) },
+    setTransform: { request: mainlineRequests.A3, result: liveAck(mainlineResults.A3) },
+    deleteEntity: { request: s5[3].in, result: s5[3].out },
+    undo: { request: s5[4].in, result: s5[4].out },
+    redo: { request: s5[6].in, result: s5[6].out },
+    retryReplay: { request: mainlineRequests.A5, result: replayOf(mainlineResults.A5) },
     queries: {
       queryProject: {
         request: { op: "queryProject", projectId: P },
-        result: queryProjectResult({
-          projectId: P, manifest: MAIN, scene: t5.scene, revision: 5,
-          history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false },
-        }),
+        result: queryProjectResult({ projectId: P, manifest: MAIN, snap: t5, history: { undoDepth: 0, redoDepth: 0 }, workspace: { writePaused: false } }),
       },
       queryEntity: {
         request: { op: "queryEntity", projectId: P, args: { entityId: "box-0002", includeSubtree: true } },
-        result: queryEntityResult({ projectId: P, revision: 5, scene: t5.scene, entityId: "box-0002", includeSubtree: true }),
+        result: queryEntityResult({ projectId: P, snap: t5, entityId: "box-0002", includeSubtree: true }),
       },
       queryEntities: {
         request: { op: "queryEntities", projectId: P, args: { limit: 2, offset: 0 } },
-        result: queryEntitiesResult({ projectId: P, revision: 5, scene: t5.scene, limit: 2, offset: 0 }),
+        result: queryEntitiesResult({ projectId: P, snap: t5, limit: 2, offset: 0 }),
       },
     },
   };
@@ -1068,53 +992,49 @@ for (const dir of ["01-retry-lost-ack", "02-request-id-reused", "04-invalid-no-p
   const outcome = (m) => (m.out.ok
     ? { kind: "success", revision: m.out.revision, duplicated: m.out.duplicated }
     : { kind: "error", code: m.out.error.code, cls: m.out.error.cls });
+  const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
-    indexVersion: 1,
+    indexVersion: 2,
+    storage: "v4: project.json (manifest schemaVersion 2), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
-      commands: "docs/contracts/commands.md v0.1 (packet 02, 2026-09-17)",
-      workspace: "docs/contracts/workspace.md v0.1 (packet 02, 2026-09-17)",
-      projectModel: "docs/contracts/project-model.md v0.2 (packet 01, 2026-09-17)",
+      commands: "docs/contracts/commands.md",
+      workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",
+      projectModel: "docs/contracts/project-model.md (v4: packages/project-model/src/project-v4.ts)",
     },
     notes: [
-      "Each scenario is self-contained: disk-before pins the exact on-disk state, messages.json the ordered request/result pairs, disk-after the exact resulting state. Scenarios 01-04/06-09 share the demo-0001 mainline timeline (T0..T7, commands A1..A7, requestId prefix req-1...); scenario 05 is a separate demo-0001 timeline from revision 0 (prefix req-2...); the retention fixture uses demo-0002 (prefix req-4...).",
-      "Envelope bytes are canonical (workspace.md §4.4). Record digests are real SHA-256 over the digest-canonical request bytes (commands.md §6.6) — recompute with tools/generate-fixtures.mjs --check.",
+      "Each scenario is self-contained: disk-before pins the exact on-disk project (all files), messages.json the ordered request/result pairs, disk-after the exact resulting files. Scenarios 01-04/06-09 share the demo-0001 mainline timeline (T0..T7, commands A1..A7, requestId prefix req-1...); scenario 05 is a separate demo-0001 timeline from revision 0 (prefix req-2...); the retention fixture uses demo-0002 (prefix req-4...).",
+      "Every command of the corpus edits the one scene: it writes scenes/scene-main.json only (stamped with the new project revision, the retry record appended there); content.json keeps revision 0 and no records, except after acceptExternalState (scenario 08), which rewrites every file with its records cleared and stamps content.json with the project revision.",
+      "A live acknowledgement of a v4 project names the edited scene (sceneId, last key); the retry record stores the commands.md §5.1 payload without it, so a replay (duplicated: true) has no sceneId.",
+      "File bytes are canonical (2-space indent, LF, one trailing newline, fixed key order). Record digests are real SHA-256 over the digest-canonical request bytes (commands.md §6.6) — recompute with tools/generate-fixtures.mjs --check.",
     ],
     envelopeFixtures: [
-      { file: "envelope/valid/demo-0001-rev0.json", project: "demo-0001", revision: 0, records: 0, note: "initial envelope after project creation; empty retry block" },
-      { file: "envelope/valid/demo-0001-rev5.json", project: "demo-0001", revision: 5, records: 5, note: "mainline T5; used by scenarios 01-04" },
-      { file: "envelope/valid/demo-0001-rev6.json", project: "demo-0001", revision: 6, records: 6, note: "mainline T6; used by scenario 06" },
-      { file: "envelope/valid/demo-0001-rev7.json", project: "demo-0001", revision: 7, records: 7, note: "mainline T7; used by scenarios 07-09; also the crash-window temp content in 06" },
-      { file: "envelope/valid/demo-0002-revision-129.json", project: "demo-0002", revision: 129, records: 128, note: "retention boundary: 129 commands applied, oldest record evicted (first retained record is req-40000000000000000000000000000002)" },
-      { file: "envelope/invalid/storage-version-unsupported.json", code: "storage_version_unsupported" },
-      { file: "envelope/invalid/type-missing.json", code: "envelope_invalid" },
-      { file: "envelope/invalid/project-mismatch.json", code: "envelope_project_mismatch" },
-      { file: "envelope/invalid/embedded-scene-invalid.json", code: "scene_invalid", detail: "quaternion_invalid on cam-main rotation" },
-      { file: "envelope/invalid/retry-records-non-ascending.json", code: "retry_records_invalid" },
-      { file: "envelope/invalid/duplicate-key.json", code: "duplicate_key" },
+      validEntry("demo-0001-rev0", P, snapT(0), "a new project (camera + two starter lights); empty retry blocks"),
+      validEntry("demo-0001-rev5", P, snapT(5), "mainline T5; used by scenarios 01-04"),
+      validEntry("demo-0001-rev6", P, snapT(6), "mainline T6; used by scenario 06"),
+      validEntry("demo-0001-rev7", P, T7, "mainline T7; used by scenarios 07-09; its scene file is also the crash-window temp content in 06"),
+      validEntry("demo-0002-revision-129", RET, ret.files(), "retention boundary: 129 commands applied, oldest record evicted (first retained record is req-40000000000000000000000000000002)"),
+      { dir: "envelope/invalid/storage-version-unsupported", reason: "storage_version_unsupported", code: "storage_version_unsupported", file: SCENE_REL },
+      { dir: "envelope/invalid/type-missing", reason: "envelope_invalid", code: "envelope_invalid", file: "content.json", detail: "required key 'type' is missing" },
+      { dir: "envelope/invalid/project-mismatch", reason: "envelope_invalid", code: "envelope_invalid", file: SCENE_REL, detail: "projectId must equal the project directory name" },
+      { dir: "envelope/invalid/embedded-scene-invalid", reason: "scene_invalid", code: "quaternion_invalid", file: SCENE_REL, detail: "cam-main rotation [0,0,0,0]" },
+      { dir: "envelope/invalid/retry-records-non-ascending", reason: "retry_records_invalid", code: "retry_records_invalid", file: SCENE_REL },
+      { dir: "envelope/invalid/duplicate-key", reason: "envelope_invalid", code: "duplicate_key", file: "content.json" },
+      { dir: "envelope/invalid/scene-file-missing", reason: "envelope_invalid", code: "envelope_invalid", file: SCENE_REL },
+      { dir: "envelope/invalid/scene-id-mismatch", reason: "manifest_scene_mismatch", code: "manifest_scene_mismatch", file: SCENE_REL },
     ],
     scenarios: [
-      { dir: "scenarios/01-retry-lost-ack", name: "retry after lost acknowledgement", outcomes: [outcome({ out: { ok: true, revision: 5, duplicated: true } })], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (replay changes nothing)", "record R5 present with appliedRevision 5"] },
+      { dir: "scenarios/01-retry-lost-ack", name: "retry after lost acknowledgement", outcomes: [{ kind: "success", revision: 5, duplicated: true }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (replay changes nothing)", "record R5 present in the scene file with appliedRevision 5", "the replay is the recorded payload (no sceneId)"] },
       { dir: "scenarios/02-request-id-reused", name: "requestId reuse with different content", outcomes: [{ kind: "error", code: "request_id_reused", cls: "conflict" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before"] },
-      { dir: "scenarios/03-stale-revision", name: "stale revision + recovery re-issue", outcomes: [{ kind: "error", code: "revision_conflict", cls: "conflict" }, { kind: "success", revision: 6, duplicated: false }], finalRevision: 6, invariants: ["recovery re-issue uses a fresh requestId (req-3...02) and the current revision"] },
+      { dir: "scenarios/03-stale-revision", name: "stale revision + recovery re-issue", outcomes: [{ kind: "error", code: "revision_conflict", cls: "conflict" }, { kind: "success", revision: 6, duplicated: false }], finalRevision: 6, invariants: ["recovery re-issue uses a fresh requestId (req-3...02) and the current revision", "only the scene file changes"] },
       { dir: "scenarios/04-invalid-no-partial", name: "invalid transactions leave no partial changes", outcomes: [{ kind: "error", code: "quaternion_invalid", cls: "validation" }, { kind: "error", code: "entity_not_found", cls: "validation" }, { kind: "error", code: "reference_missing", cls: "validation" }, { kind: "error", code: "no_change", cls: "validation" }], finalRevision: 5, invariants: ["disk-after bytes identical to disk-before (four rejected commands, zero state change)"] },
-      { dir: "scenarios/05-undo-redo-mixed", name: "undo/redo with mixed human/agent edits", outcomes: s5.map((m) => outcome(m)), finalRevision: 9, invariants: ["depth progression after each step: [1,0] [2,0] [3,0] [4,0] [3,1] [2,2] [3,1] [4,0] [3,1]", "undo of the mcp delete restores box-0002 (originOfApplied kind mcp)", "fresh mcp edit at step 8 invalidates redo (redoDepth 0)", "final entities: cam-main, box-0001 (position [0,0,-0.5]), box-0002", "9 records retained (undo/redo are recorded mutations)"] },
-      { dir: "scenarios/06-crash-before-replace", name: "crash before atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 6, writePaused: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["load after restart reports revision 6 (the temp is ignored and cleaned)", "leftover temp .main.json.tmp-4242-7 removed on open", "retry of A7 re-executes fresh (no record): createdId box-0004, duplicated false", "final envelope equals envelope/valid/demo-0001-rev7.json"] },
-      { dir: "scenarios/07-crash-after-replace", name: "crash after atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 7, writePaused: false }, { kind: "success", revision: 7, duplicated: true }], finalRevision: 7, invariants: ["load reports revision 7 (the rename landed)", "retry of A7 replays the recorded result (duplicated true)", "no double-apply: 6 entities, disk-after identical to disk-before"] },
-      { dir: "scenarios/08-external-modification", name: "unexpected external modification", outcomes: [{ kind: "error", code: "external_change_unresolved", cls: "unavailable" }, { kind: "success", revision: 7, duplicated: false }, { kind: "success", revision: 7, duplicated: false }, { kind: "success", revision: 8, duplicated: false }], finalRevision: 8, invariants: ["outcome 2 is a queryProject serving last-known-good with writePaused true and pendingChange", "outcome 3 is the admin acceptExternalState result", "recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/main.json", "final envelope carries the accepted color #ff8800, box-0004 position [0,1,0], and exactly 1 retry record (retry block cleared on accept, then the post-accept command)"] },
-      { dir: "scenarios/09-second-backend-ownership", name: "second-backend ownership rejection", outcomes: [{ kind: "error", code: "project_unavailable", cls: "unavailable" }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["outcome 1 reason ownership_conflict (live owner pid 5000)", "outcome 2: the owner is dead, so backend B reclaims automatically (lockEpoch 1) and serves the project", "envelope bytes unchanged throughout"] },
+      { dir: "scenarios/05-undo-redo-mixed", name: "undo/redo with mixed human/agent edits", outcomes: s5.map((m) => outcome(m)), finalRevision: 9, invariants: ["depth progression after each step: [1,0] [2,0] [3,0] [4,0] [3,1] [2,2] [3,1] [4,0] [3,1]", "undo of the mcp delete restores box-0002 (originOfApplied kind mcp)", "fresh mcp edit at step 8 invalidates redo (redoDepth 0)", "final entities: cam-main, light-0001, light-0002, box-0001 (position [0,0,-0.5]), box-0002", "9 records retained in the scene file (undo/redo are recorded mutations)"] },
+      { dir: "scenarios/06-crash-before-replace", name: "crash before atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 6, writePaused: false }, { kind: "success", revision: 7, duplicated: false }], finalRevision: 7, invariants: ["load after restart reports revision 6 (the temp is ignored and cleaned)", "leftover temp scenes/.scene-main.json.tmp-4242-7 removed on open", "retry of A7 re-executes fresh (no record): createdId box-0004, duplicated false, history (1, 0) in a fresh process", "final scene file equals envelope/valid/demo-0001-rev7 except the fresh record's history depths"] },
+      { dir: "scenarios/07-crash-after-replace", name: "crash after atomic replacement", outcomes: [{ kind: "query", op: "queryProject", revision: 7, writePaused: false }, { kind: "success", revision: 7, duplicated: true }], finalRevision: 7, invariants: ["load reports revision 7 (the rename landed)", "retry of A7 replays the recorded result (duplicated true)", "no double-apply: 8 entities, project files identical to disk-before"] },
+      { dir: "scenarios/08-external-modification", name: "unexpected external modification", outcomes: [{ kind: "error", code: "external_change_unresolved", cls: "unavailable" }, { kind: "query", op: "queryProject", revision: 7, writePaused: true }, { kind: "admin", op: "acceptExternalState", revision: 7 }, { kind: "success", revision: 8, duplicated: false }], finalRevision: 8, invariants: ["recovery snapshot disk-after/.thirdlight/recovery/scene-*.json is byte-identical to disk-external/scenes/scene-main.json", "accept rewrites every file with cleared records; content.json is stamped revision 7", "final scene file carries the accepted color #ff8800, box-0004 position [0,1,0], and exactly 1 retry record"] },
+      { dir: "scenarios/09-second-backend-ownership", name: "second-backend ownership rejection", outcomes: [{ kind: "error", code: "project_unavailable", cls: "unavailable", reason: "ownership_conflict" }, { kind: "query", op: "queryProject", revision: 7, writePaused: false }], finalRevision: 7, invariants: ["outcome 1 reason ownership_conflict (live owner pid 5000)", "outcome 2: the owner is dead, so backend B reclaims automatically (lockEpoch 1) and serves the project", "project files unchanged throughout"] },
     ],
-    examples: "examples/commands.json (one request/result pair per mutation op, drawn from the mainline and scenario 05; query examples on the T5 state)",
+    examples: "examples/commands.json (one request/live-ack pair per mutation op plus a retry replay, drawn from the mainline and scenario 05; query examples on the T5 state)",
   };
-  idx.scenarios[8].outcomes = [
-    { kind: "error", code: "project_unavailable", cls: "unavailable", reason: "ownership_conflict" },
-    { kind: "query", op: "queryProject", revision: 7, writePaused: false },
-  ];
-  idx.scenarios[7].outcomes = [
-    { kind: "error", code: "external_change_unresolved", cls: "unavailable" },
-    { kind: "query", op: "queryProject", revision: 7, writePaused: true },
-    { kind: "admin", op: "acceptExternalState", revision: 7 },
-    { kind: "success", revision: 8, duplicated: false },
-  ];
   put("expected.json", canonJson(idx));
 }
 
@@ -1124,43 +1044,34 @@ for (const dir of ["01-retry-lost-ack", "02-request-id-reused", "04-invalid-no-p
 
 const problems = [];
 
-// 1. digest verification against the known requests (every record's digest
-//    must equal the SHA-256 of its request's digest-canonical form)
+// 1. digest verification against the known requests
 {
   const reqById = new Map();
-  for (const k of Object.keys(mainlineRequests)) reqById.set(mainlineRequests[k].requestId, mainlineRequests[k]);
+  for (const r of Object.values(mainlineRequests)) reqById.set(r.requestId, r);
   for (const m of s5) reqById.set(m.in.requestId, m.in);
   reqById.set(s3ReissueReq.requestId, s3ReissueReq);
   reqById.set(e8req.requestId, e8req);
-  for (let i = 1; i <= 129; i++) {
-    reqById.set(F(i), i === 1
-      ? req("createEntity", RET, 0, F(i), browserOrigin, { kind: "box" })
-      : req("setTransform", RET, i - 1, F(i), mcpOrigin, { entityId: "box-0001", transform: { position: [(i - 1) / 100, 0, 0] } }));
-  }
+  for (let i = 1; i <= 129; i++) reqById.set(F(i), retRequest(i));
   const checkRecords = (label, records) => {
     for (const rec of records) {
       const r = reqById.get(rec.requestId);
       if (!r) { problems.push(`${label}: request not found for record ${rec.requestId}`); continue; }
-      const d = digestOf(r);
-      if (d !== rec.digest) problems.push(`${label}: digest mismatch for ${rec.requestId}`);
+      if (digestOf(r) !== rec.digest) problems.push(`${label}: digest mismatch for ${rec.requestId}`);
     }
   };
-  checkRecords("mainline-T5", mainline.snapshots.get("T5").records);
-  checkRecords("mainline-T7", T7.records);
+  checkRecords("mainline-T5", recordsOf(snapT(5)));
+  checkRecords("mainline-T7", recordsOf(T7));
   checkRecords("S5", S5P.records);
-  checkRecords("S3", s3proj.snapshots.get("S3AFTER").records);
+  checkRecords("S3", s3proj.records);
   checkRecords("S8", s8proj.records);
   checkRecords("RET", ret.records);
 }
 
 // 2. canonical serialization stability for every planned file
 for (const [rel, bytes] of files) {
+  if (rel.includes("/duplicate-key/")) continue; // deliberately not re-serializable
   try {
-    const parsed = JSON.parse(bytes);
-    // re-serialize only where we control key order (skip the duplicate-key fixture)
-    if (rel.endsWith("duplicate-key.json")) continue;
-    const again = canonJson(parsed);
-    if (again !== bytes) problems.push(`canonical stability: ${rel}`);
+    if (canonJson(JSON.parse(bytes)) !== bytes) problems.push(`canonical stability: ${rel}`);
   } catch (e) {
     problems.push(`parse: ${rel}: ${e.message}`);
   }
@@ -1168,38 +1079,34 @@ for (const [rel, bytes] of files) {
 
 // 3. scenario 05 history round-trip: replay forward+inverse independently
 {
-  let s = deepCopy(rev0Scene);
-  // apply s1..s4 forward
+  let s = defaultScene();
   s = applyCreate(s, { kind: "box", name: "Ground" }).scene;
   s = applySetTransform(s, "box-0001", { position: [0, 0, -0.5] }).scene;
   s = applyCreate(s, { kind: "box", name: "Crate" }).scene;
   const del = applyDelete(s, "box-0002");
   s = del.scene;
-  // undo delete (restore), undo create (delete), redo create (restore), setT, undo setT
-  s = applyRestore(s, del.entries, del.restoredParentId).scene;
-  s = applyDelete(s, "box-0002").scene;
-  s = { ...s, entities: [...s.entities, deepCopy(entityById(S5P.scene, "box-0002").entity)] };
-  const st8 = applySetTransform(s, "box-0001", { position: [0, 0.25, -0.5] });
-  s = st8.scene;
-  const st9 = applySetTransform(s, "box-0001", { position: [0, 0, -0.5] });
-  s = st9.scene;
-  if (canonJson(st9.previous === undefined ? st8.previous : st8.previous) !== canonJson(st8.previous)) void 0;
-  if (canonJson(s) !== canonJson({ ...S5P.scene, revision: s.revision })) problems.push("S5 independent round-trip mismatch");
+  s = applyRestore(s, del.entries, del.restoredParentId).scene; // undo delete
+  s = applyDelete(s, "box-0002").scene; // undo create
+  s = { ...s, entities: [...s.entities, deepCopy(entityById(S5P.scene, "box-0002").entity)] }; // redo create
+  s = applySetTransform(s, "box-0001", { position: [0, 0.25, -0.5] }).scene;
+  s = applySetTransform(s, "box-0001", { position: [0, 0, -0.5] }).scene; // undo setTransform
+  if (canonJson({ ...s, revision: 9 }) !== canonJson(S5P.scene)) problems.push("S5 independent round-trip mismatch");
 }
 
 // 3b. multi-entity subtree restore (contract §9.1): the index formula must
 //     reconstruct the pre-deletion array exactly for subtrees with > 1 entity.
-//     Pre-deletion: [A, B, C, D, E] with C a child of B and E a child of D.
-//     Deleting B's subtree {B, C} leaves [A, D, E]; restore must give back
-//     exactly [A, B, C, D, E] (parent before child).
 {
   const mk = (id, parentId) => (parentId === null ? { id } : { id, parentId });
   const pre = { entities: [mk("A", null), mk("B", null), mk("C", "B"), mk("D", null), mk("E", "D")] };
   const del = applyDelete(pre, "B");
-  const restored = applyRestore(del.scene, del.entries, del.restoredParentId).scene;
-  const got = restored.entities.map((e) => e.id).join(",");
+  const got = applyRestore(del.scene, del.entries, del.restoredParentId).scene.entities.map((e) => e.id).join(",");
   if (got !== "A,B,C,D,E") problems.push(`multi-entity restore: expected A,B,C,D,E but got ${got}`);
 }
+
+// 4. the crash-window temp of scenario 06 is exactly the rev-7 scene file,
+//    and the scene-08 snapshot is exactly the external writer's bytes
+if (files.get(sc("06-crash-before-replace", "disk-before/scenes/.scene-main.json.tmp-4242-7")) !== t7Files[SCENE_REL]) problems.push("06 temp != rev-7 scene file");
+if (acceptedFiles["content.json"] !== files.get(sc("08-external-modification", "disk-after/content.json"))) problems.push("08 content.json after accept drifted");
 
 // ---------------------------------------------------------------------------
 // write or check
@@ -1215,34 +1122,25 @@ function walk(dir) {
   return out;
 }
 
-let written = 0, checked = 0, failed = 0;
+const GENERATED_ROOTS = ["scenarios/", "envelope/", "examples/"];
+const isGenerated = (rel) => GENERATED_ROOTS.some((r) => rel.startsWith(r)) || rel === "expected.json";
+
+let written = 0, checked = 0;
 if (CHECK) {
   for (const [rel, bytes] of files) {
-    const p = path.join(FIX_ROOT, rel);
     let disk;
     try {
-      disk = readFileSync(p, "utf8");
+      disk = readFileSync(path.join(FIX_ROOT, rel), "utf8");
     } catch {
       problems.push(`check: missing file ${rel}`);
-      failed++;
       continue;
     }
-    if (disk !== bytes) {
-      problems.push(`check: content mismatch ${rel}`);
-      failed++;
-    } else {
-      checked++;
-    }
+    if (disk !== bytes) problems.push(`check: content mismatch ${rel}`);
+    else checked++;
   }
   // stray files under the generated roots that the tool does not own
-  const known = new Set(files.keys());
   for (const rel of walk(FIX_ROOT)) {
-    const base = rel.split("/").pop();
-    const generatedRoots = ["scenarios/", "envelope/", "examples/"];
-    if (generatedRoots.some((r) => rel.startsWith(r)) && !known.has(rel) && base !== "scenario.md") {
-      problems.push(`check: untracked generated file ${rel}`);
-      failed++;
-    }
+    if (isGenerated(rel) && !files.has(rel) && !rel.endsWith(".md")) problems.push(`check: untracked generated file ${rel}`);
   }
 } else {
   for (const [rel, bytes] of files) {
@@ -1251,13 +1149,11 @@ if (CHECK) {
     writeFileSync(p, bytes);
     written++;
   }
-  // remove previously generated files no longer in the plan (generated roots only;
-  // never touch *.md docs, tools/, or anything outside the generated roots)
+  // remove previously generated files no longer in the plan (generated roots
+  // only; never *.md docs, tools/, or anything outside the generated roots)
   let removed = 0;
   for (const rel of walk(FIX_ROOT)) {
-    const base = rel.split("/").pop();
-    const inGeneratedRoot = ["scenarios/", "envelope/", "examples/"].some((r) => rel.startsWith(r)) || rel === "expected.json";
-    if (inGeneratedRoot && !files.has(rel) && !base.endsWith(".md")) {
+    if (isGenerated(rel) && !files.has(rel) && !rel.endsWith(".md")) {
       rmSync(path.join(FIX_ROOT, rel));
       removed++;
     }

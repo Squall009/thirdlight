@@ -555,7 +555,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
-| 9.3 one schema version (phase 8 rest) | runtime part done 2026-09-24; commands/workspace/project-model and the corpus remain (see §6) | see git log "9.3" |
+| 9.3 one schema version (phase 8 rest) | runtime part done 2026-09-24; corpus regenerated in v4 (step A) 2026-09-24; the v1/v2 model code in commands/workspace/project-model remains (step B, see §6) | see git log "9.3" |
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
 | 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
@@ -744,3 +744,19 @@ Add one dated line per decision taken during the run (what, why).
   component validators, so they move rather than go). Nothing of this is
   reachable from the product; a plain grep for `schemaVersion: 2` can never
   reach zero because the v4 manifest is `schemaVersion: 2`.
+- 2026-09-24 (9.3 step A): the `fixtures/commands` corpus is storage v4
+  (116 files; the v1 corpus and the v1 envelope test are archived under
+  `archive/removed-v1-v2/`). The generator's own model reproduces a real
+  service-created project byte for byte; all nine scenarios are replayed
+  through the real service (06/07 for the first time). Replaying them on v4
+  found four workspace bugs, fixed with it: the reclaim of a dead owner
+  (§6.4) loaded only v1–v3 envelopes, so a v4 project stayed
+  `stale_ownership` after its backend crashed; leftover temps of v4 files
+  were neither cleaned at open nor counted by the scan; the v4 discard
+  overwrote a second, never-snapshotted foreign write; and a v4 load
+  reported raw model codes (`field_type`, `quaternion_invalid`) as the
+  `project_unavailable` reason instead of `scene_invalid` /
+  `content_invalid` / `manifest_invalid`. Pinned as-is: a replayed v4 ack
+  has no `sceneId` (records keep the §5.1 payload). The two v1-only tests
+  left (op gate, M1 captureContentView) seed a v1 project from the
+  package's own builders until step B removes the v1/v2 code.

@@ -11,7 +11,7 @@
  * project-model.md §12.1).
  *
  * G2 (P1, workspace.md §7.5 block semantics): on-demand open on a
- * corrupted *manifest* (`scenes[0].path` a 4000-level chain, valid JSON)
+ * corrupted *manifest* (the v1 `scenes[0].path`; the v4 manifest's `name`: a 4000-level chain, valid JSON)
  * threw `RangeError` from the public API instead of returning the
  * structured `project_unavailable { reason: 'manifest_invalid' }`
  * (workspace.md §7.5: "the project is blocked: commands return
@@ -33,11 +33,12 @@
  *
  * The projects are seeded by RAW FILE WRITES (no service-created project:
  * `dispose()` leaves an ownership record that would complicate the probe).
- * The on-disk shapes are the canonical fixture bytes
- * (fixtures/commands/envelope/valid/demo-0001-manifest.json +
- * demo-0001-rev0.json — the §4.4 byte-exact envelope fixtures), with the
- * project id substituted; the corruption is written as JSON text, mirroring
- * the reviewer's repro (4000-level nested array as JSON text, persisted).
+ * The on-disk shapes are the canonical fixture bytes (since phase 9.3 the
+ * storage-v4 project fixtures/commands/envelope/valid/demo-0001-rev0: the
+ * corrupt envelope is now the scene file, the corrupt manifest field the v2
+ * manifest's `name`), with the project id substituted; the corruption is
+ * written as JSON text, mirroring the reviewer's repro (4000-level nested
+ * array as JSON text, persisted).
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -54,6 +55,7 @@ import { openWorkspaceService } from '@thirdlight/workspace';
 // follow).
 const REPO_ROOT = join(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
 const FIXTURES = join(REPO_ROOT, 'fixtures', 'commands');
+const SCENE_FILE = join('scenes', 'scene-main.json');
 
 /** Disposable data root (tmpdir, like the other src repair tests). */
 function mkRoot(tag: string): string {
@@ -64,35 +66,31 @@ function mkRoot(tag: string): string {
  * only the service's strict byte parser materializes it). */
 const DEEP = '['.repeat(4000) + '0' + ']'.repeat(4000);
 
-/** Seed a project by raw file writes: fixture manifest + fixture envelope
- * (byte-exact shapes, project id substituted), no `.thirdlight` directory. */
-function seedProjectRaw(root: string, projectId: string): { dir: string; envText: string; manText: string } {
+/** Seed a project by raw file writes: the corpus' new v4 project
+ * (fixtures/commands/envelope/valid/demo-0001-rev0: project.json,
+ * content.json, scenes/scene-main.json — byte-exact shapes, project id
+ * substituted), no `.thirdlight` directory. */
+function seedProjectRaw(root: string, projectId: string): { dir: string } {
   const dir = join(root, 'projects', projectId);
   mkdirSync(join(dir, 'scenes'), { recursive: true });
-  const manText = readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-manifest.json'), 'utf8').replace(
-    /"demo-0001"/g,
-    `"${projectId}"`,
-  );
-  const envText = readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev0.json'), 'utf8').replace(
-    /"demo-0001"/g,
-    `"${projectId}"`,
-  );
-  writeFileSync(join(dir, 'project.json'), manText);
-  writeFileSync(join(dir, 'scenes', 'main.json'), envText);
-  return { dir, envText, manText };
+  for (const rel of ['project.json', 'content.json', SCENE_FILE]) {
+    const text = readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev0', rel), 'utf8').replace(/"demo-0001"/g, `"${projectId}"`);
+    writeFileSync(join(dir, rel), text);
+  }
+  return { dir };
 }
 
-/** The same valid envelope, but `scene.entities` is the 4000-level chain
- * (written as JSON text; the envelope is otherwise valid). */
+/** The same valid scene file, but `scene.entities` is the 4000-level chain
+ * (written as JSON text; the file is otherwise valid). */
 function corruptEnvelopeEntities(root: string, projectId: string): string {
   const dir = join(root, 'projects', projectId);
   const text = [
     '{',
-    '  "storageVersion": 1,',
-    '  "type": "authoring-state",',
+    '  "storageVersion": 4,',
+    '  "type": "scene",',
     `  "projectId": "${projectId}",`,
     '  "scene": {',
-    '    "schemaVersion": 1,',
+    '    "schemaVersion": 4,',
     '    "sceneId": "scene-main",',
     '    "revision": 0,',
     `    "entities": ${DEEP}`,
@@ -100,27 +98,21 @@ function corruptEnvelopeEntities(root: string, projectId: string): string {
     '  "retry": { "retention": 128, "records": [] }',
     '}',
   ].join('\n') + '\n';
-  writeFileSync(join(dir, 'scenes', 'main.json'), text);
+  writeFileSync(join(dir, SCENE_FILE), text);
   return text;
 }
 
-/** The same valid manifest, but `scenes[0].path` is the 4000-level chain
- * (written as JSON text; the envelope stays healthy). */
+/** The same valid v2 manifest, but `name` is the 4000-level chain
+ * (written as JSON text; the other project files stay healthy). */
 function corruptManifestPath(root: string, projectId: string): string {
   const dir = join(root, 'projects', projectId);
   const text = [
     '{',
-    '  "schemaVersion": 1,',
+    '  "schemaVersion": 2,',
     '  "engineVersion": "0.1.0",',
     `  "id": "${projectId}",`,
-    '  "name": "Demo Project",',
-    '  "createdAt": "2026-09-16T23:40:00Z",',
-    '  "scenes": [',
-    '    {',
-    '      "id": "scene-main",',
-    `      "path": ${DEEP}`,
-    '    }',
-    '  ]',
+    `  "name": ${DEEP},`,
+    '  "createdAt": "2026-09-16T23:40:00Z"',
     '}',
   ].join('\n') + '\n';
   writeFileSync(join(dir, 'project.json'), text);
@@ -144,7 +136,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup (workspa
 
       // The public entry must not throw (pre-fix: RangeError from the
       // startup scan, every project unserved until the file is repaired).
-      const svc = openWorkspaceService({ root });
+      const svc = openWorkspaceService({ root, storageV4: true });
       try {
         // The scan report marks the corrupt project per the scan contract
         // (workspace.md §10: "corrupt manifest/envelope | reported with the
@@ -201,7 +193,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup (workspa
         // The corrupt bytes are retained byte-identically (no auto-repair —
         // workspace.md §7.5: "never auto-repairs, auto-reverts, or
         // auto-deletes").
-        expect(readFileSync(join(root, 'projects', 'corrupt-1', 'scenes', 'main.json'), 'utf8')).toBe(corruptText);
+        expect(readFileSync(join(root, 'projects', 'corrupt-1', SCENE_FILE), 'utf8')).toBe(corruptText);
       } finally {
         svc.dispose();
       }
@@ -212,14 +204,14 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup (workspa
 });
 
 describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never throws (workspace.md §7.5/§4.3 step 8/§11)', () => {
-  it('a 4000-level deep scenes[0].path ⇒ project_unavailable { reason: "manifest_invalid" } on query AND command; bytes retained', () => {
+  it('a 4000-level deep manifest name ⇒ project_unavailable { reason: "manifest_invalid" } on query AND command; bytes retained', () => {
     const root = mkRoot('g2');
     try {
       seedProjectRaw(root, 'corrupt-2');
       const manText = corruptManifestPath(root, 'corrupt-2');
 
       // The startup scan is guarded (reported, not abortive — §10).
-      const svc = openWorkspaceService({ root });
+      const svc = openWorkspaceService({ root, storageV4: true });
       try {
         const entry = svc.lastScan.entries.find((e) => e.projectId === 'corrupt-2');
         expect(entry?.kind).toBe('project');
@@ -233,7 +225,7 @@ describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never t
           unavailableOf(q);
           expect(q.error.reason).toBe('manifest_invalid');
           // The load details carry the model error at the corrupt field.
-          expect(q.error.details?.some((d) => (d as { path?: string }).path === '/scenes/0/path')).toBe(true);
+          expect(q.error.details?.some((d) => (d as { path?: string }).path === '/name')).toBe(true);
         }
         // Commands fail the same way (§7.5).
         const m = svc.runCommand({

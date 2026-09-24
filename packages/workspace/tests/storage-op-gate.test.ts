@@ -4,34 +4,27 @@
  * and written, after which the project could no longer be loaded.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult } from '@thirdlight/workspace';
 
-import { FIXTURES, makeRoot, seedProject } from './helpers';
-
-/** A storageVersion-1 project at revision 5 (box-0001 present). */
-function seedV1(root: string): void {
-  const dir = seedProject(root, join(FIXTURES, 'scenarios', '01-retry-lost-ack', 'disk-before'), 'demo-0001');
-  mkdirSync(join(dir, 'scenes'), { recursive: true });
-  writeFileSync(join(dir, 'scenes', 'main.json'), readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5.json')));
-}
+import { makeRoot, seedV1Project } from './helpers';
 
 describe('storage-version op gate', () => {
   it('refuses an M2 op on a v1 project without writing; the project still loads after restart', () => {
     const root = makeRoot('op-gate');
-    seedV1(root);
+    // A storageVersion-1 project at revision 0 (the M1 default scene).
+    seedV1Project(root, 'demo-0001');
     const a = openWorkspaceService({ root });
 
     const refused = a.runCommand({
       op: 'setComponent',
       projectId: 'demo-0001',
-      expectedRevision: 5,
+      expectedRevision: 0,
       requestId: 'req-00000000000000000000000000000abc',
       origin: { kind: 'browser', clientId: 'test' },
-      args: { entityId: 'box-0001', component: 'box', value: { size: [2, 1, 1] } },
+      args: { entityId: 'cam-main', component: 'box', value: { size: [2, 1, 1] } },
     }) as MutationResult;
     expect(refused.ok).toBe(false);
     if (refused.ok) throw new Error('must fail');
@@ -41,7 +34,7 @@ describe('storage-version op gate', () => {
     const b = openWorkspaceService({ root });
     const q = b.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; revision?: number };
     expect(q.ok).toBe(true);
-    expect(q.revision).toBe(5);
+    expect(q.revision).toBe(0);
     b.dispose();
     rmSync(root, { recursive: true, force: true });
   });

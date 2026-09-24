@@ -109,7 +109,8 @@
       "history": {
         "undoDepth": 1,
         "redoDepth": 0
-      }
+      },
+      "sceneId": "scene-main"
     }
   }
 ]

@@ -2,19 +2,22 @@
 
 Pins: commands.md §6.1 (dedup precedes the revision check), §6.3 (replay),
 §7.1 (recorded result replay, `duplicated`), §7.2 (restart-safe records).
-Workspace: the record and the state live in ONE atomic envelope
-(workspace.md §4.1).
+Workspace (storage v4): the record lives in the file the command wrote —
+here the scene file — in the same atomic replacement as the state it
+describes.
 
 ## Precondition (disk-before)
 
-`demo-0001` at mainline state T5 (`disk-before/scenes/main.json` ==
-`envelope/valid/demo-0001-rev5.json`): revision 5, entities
-`[cam-main, box-0001, box-0002, group-0001]`, retry records R1–R5.
+`demo-0001` at mainline state T5 (`disk-before` ==
+`envelope/valid/demo-0001-rev5`): revision 5, entities
+`[cam-main, light-0001, light-0002, box-0001, box-0002, group-0001]`,
+retry records R1–R5 in `scenes/scene-main.json` (`content.json` is still
+revision 0 with no records).
 
 Background (already happened, not a message): the mcp client submitted
-A5 = `setTransform box-0002 { rotation: 90° yaw about Y }` with
+A5 = `setTransform box-0002 { rotation: 90° about X }` with
 `expectedRevision 4`, `requestId req-1…05`. The backend applied it: the
-envelope advanced to revision 5 **and** record R5 was written in the same
+scene file advanced to revision 5 **and** record R5 was written in the same
 atomic replacement. The success acknowledgement was lost in transit.
 
 ## Messages (messages.json)
@@ -31,17 +34,29 @@ atomic replacement. The success acknowledgement was lost in transit.
   revision check: the retried `expectedRevision` (4) is stale — current is
   5 — but that is irrelevant for an identical retry. No revision is
   consumed, no history entry is added, no write happens.
-- `disk-after` is **byte-identical** to `disk-before` (verified: the
-  `main.json` hashes match).
+- `disk-after` is **byte-identical** to `disk-before` (all three project
+  files).
 - The client now continues at revision 5 with fresh requestIds; its
   projection already contains the A5 change (the replayed `change` is the
   original change).
 
+## Storage v4 notes
+
+- The live acknowledgement of A5 carried `sceneId: "scene-main"` (a v4
+  project names the scene a command edited). The retry record stores the
+  commands.md §5.1 payload **without** it, so the replay has no `sceneId`.
+  That is the current product behavior, pinned here; a client that needs
+  the scene of a replayed create finds it from the entity (queryEntity
+  reports `sceneId`). Carrying `sceneId` in records would change the record
+  format (the v4 record validator refuses unknown result keys).
+
 ## Notes
 
 - The same request retried after a backend **restart** behaves identically
-  (the record was durable with the state — workspace.md §4.1; scenario 07
-  exercises the restart variant).
+  (the record was durable with the state; scenario 07 exercises the
+  restart variant).
 - If the record had been evicted (retention 128, commands.md §7.1), the
   retry would instead fail `revision_conflict` — safe, never a
-  double-apply. Not exercised here (only 5 records exist).
+  double-apply. Not exercised here (only 5 records exist; the eviction is
+  pinned by `envelope/valid/demo-0002-revision-129` and
+  `packages/workspace/tests/dedup-retry.test.ts`).

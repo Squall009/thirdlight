@@ -183,8 +183,18 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
   }
   const v = validateProjectV4(man.value, content.value['content'], sceneDocs, revision);
   if (!v.ok) {
-    const first = v.errors[0];
-    return blocked((first?.code ?? 'scene_invalid') as UnavailableReason, v.errors as unknown as LoadDetail[]);
+    // A document that fails its own validation blocks with that document's
+    // reason (as the v1–v3 load does); a cross-document rule reports its code.
+    const first = v.errors[0] as { code?: string; document?: string } | undefined;
+    const reason =
+      first?.document === 'manifest'
+        ? 'manifest_invalid'
+        : first?.document === 'content'
+          ? 'content_invalid'
+          : first?.document === 'scene'
+            ? 'scene_invalid'
+            : (first?.code ?? 'scene_invalid');
+    return blocked(reason as UnavailableReason, v.errors as unknown as LoadDetail[]);
   }
   if (v.normalized.manifest.id !== projectId) {
     return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: '/id', document: 'manifest', message: 'manifest.id must equal the project directory name', expected: projectId }]);
@@ -212,6 +222,40 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
 /** Whether a project directory uses the v4 layout (a `content.json`). */
 export function isV4Layout(ops: WriteOps, dir: string): boolean {
   return ops.fileExists(join(dir, CONTENT_REL));
+}
+
+/** A `W` temp of a v4 project file: `.<target>.tmp-<pid>-<nonce>` (write.ts). */
+const V4_TEMP_IN_PROJECT = /^\.(content|project)\.json\.tmp-/;
+const V4_TEMP_IN_SCENES = /^\.[a-z0-9][a-z0-9_-]{0,63}\.json\.tmp-/;
+const V4_TEMP_IN_THIRDLIGHT = /^\.journal\.json\.tmp-/;
+
+/**
+ * Leftover `W` temps of the v4 project files (workspace.md §5.4): of
+ * `content.json` / `project.json`, of every scene file, and of the journal.
+ * Relative to the project directory, sorted.
+ */
+export function listLeftoverTempsV4(ops: WriteOps, dir: string, sceneDir: string, thirdlightDir: string): string[] {
+  const out: string[] = [];
+  for (const n of ops.listDir(dir)) if (V4_TEMP_IN_PROJECT.test(n)) out.push(n);
+  for (const n of ops.listDir(sceneDir)) if (V4_TEMP_IN_SCENES.test(n)) out.push(`scenes/${n}`);
+  for (const n of ops.listDir(thirdlightDir)) if (V4_TEMP_IN_THIRDLIGHT.test(n)) out.push(`.thirdlight/${n}`);
+  return out.sort();
+}
+
+/** §5.4: the owner deletes every leftover v4 temp at open (before any command). */
+export function cleanLeftoverTempsV4(ops: WriteOps, dir: string, sceneDir: string, thirdlightDir: string): number {
+  let n = 0;
+  for (const rel of listLeftoverTempsV4(ops, dir, sceneDir, thirdlightDir)) {
+    const [head, ...rest] = rel.split('/');
+    const path = rest.length === 0 ? join(dir, rel) : join(head === 'scenes' ? sceneDir : thirdlightDir, rest.join('/'));
+    try {
+      ops.removeFile(path);
+      n += 1;
+    } catch {
+      // best effort: a temp never affects what loads (the target is renamed or not)
+    }
+  }
+  return n;
 }
 
 /** The union of the files' retry records, ascending appliedRevision. */

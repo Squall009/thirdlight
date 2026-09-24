@@ -1,0 +1,110 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "demo-0001",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main Camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.5,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "light-0001",
+        "name": "Sun",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              10,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#ffffff",
+            "intensity": 1.2,
+            "direction": [
+              0.4,
+              -1,
+              -0.3
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-0002",
+        "name": "Ambient",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#8090a8",
+            "intensity": 0.6
+          }
+        }
+      }
+    ]
+  },
+  "retry": {
+    "retention": 128,
+    "records": []
+  }
+}

@@ -325,6 +325,18 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
   if (pc.snapshotState !== 'ok') return { ok: false, error: externalChangeEvidenceMissing(s.projectId, { externalHash: pc.externalHash, externalValid: pc.externalValid, externalErrorCount: pc.externalErrors?.length ?? null }) };
   const state = s.v4;
   const baseline = diskBaseline(core, s, state.files.keys());
+  // The resolution overwrites only bytes that are known: this backend's own,
+  // or the pending (snapshotted) foreign bytes of the pending file. Any other
+  // change on disk has no snapshot yet: the protocol re-fires (snapshot, new
+  // pending change) instead of destroying it (workspace.md §7).
+  const pendingFile = (pc as PendingChange & { externalFile?: string }).externalFile;
+  for (const [rel, known] of state.files) {
+    const onDisk = baseline.get(rel);
+    const hash = onDisk?.hash ?? sha256Hex(new Uint8Array(0));
+    if (hash === known.hash || (rel === pendingFile && hash === pc.externalHash)) continue;
+    const again = detectExternalChangeV4(core, s, { rel, bytes: onDisk?.bytes ?? new Uint8Array(0), hash });
+    return { ok: false, error: externalChangeUnresolved({ snapshotState: again.snapshotState, externalHash: again.externalHash, externalValid: again.externalValid, externalErrorCount: again.externalErrors?.length ?? null }) };
+  }
   const writes: FileWrite[] = [];
   for (const [rel, known] of state.files) {
     if (baseline.get(rel)?.hash === known.hash) continue;

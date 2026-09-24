@@ -23,7 +23,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,19 +46,18 @@ function makeRoot(tag: string): string {
   return r;
 }
 
+/** demo-0001 at mainline T5 (storage v4: project.json, content.json,
+ * scenes/scene-main.json). A setTransform writes the scene file only (one W). */
 function seedProject(root: string, projectId: string): string {
   const dir = join(root, 'projects', projectId);
-  mkdirSync(join(dir, 'scenes'), { recursive: true });
-  writeFileSync(
-    join(dir, 'project.json'),
-    readFileSync(join(FIXTURES, 'scenarios', '01-retry-lost-ack', 'disk-before', 'project.json')),
-  );
-  writeFileSync(
-    join(dir, 'scenes', 'main.json'),
-    readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5.json')),
-  );
+  mkdirSync(dirname(dir), { recursive: true });
+  cpSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev5'), dir, { recursive: true });
   return dir;
 }
+
+/** The scene file and its W temp prefix (write.ts: `.<target>.tmp-<pid>-<n>`). */
+const SCENE_FILE = join('scenes', 'scene-main.json');
+const SCENE_TEMP_PREFIX = '.scene-main.json.tmp-';
 
 type ChildExit = { code: number | null; signal: NodeJS.Signals | null; stdout: string };
 
@@ -138,7 +137,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
   it('SIGKILL before the rename: old state + leftover temp; restart re-executes the request fresh (no double-apply)', async () => {
     const root = makeRoot('before');
     const dir = seedProject(root, 'demo-0001');
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const before = readFileSync(envPath);
     const requestId = 'req-11111111111111111111111111111101';
     const childId = 'tb-11111111111111111111111111111111';
@@ -149,7 +148,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     // The crash left the OLD state on disk (the rename never happened)…
     expect(readFileSync(envPath).equals(before)).toBe(true);
     // …and a leftover temp file in the scenes directory.
-    const temps = readdirSync(join(dir, 'scenes')).filter((n) => n.startsWith('.main.json.tmp-'));
+    const temps = readdirSync(join(dir, 'scenes')).filter((n) => n.startsWith(SCENE_TEMP_PREFIX));
     expect(temps.length).toBeGreaterThanOrEqual(1);
     // The claim had completed: the ownership record is the child's (now dead).
     const rec = JSON.parse(readFileSync(join(dir, '.thirdlight', 'ownership.json'), 'utf8')) as {
@@ -163,7 +162,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
 
     // Restart: the child's pid is gone from /proc, so the new backend
     // reclaims the project automatically.
-    const svc = openWorkspaceService({ root });
+    const svc = openWorkspaceService({ root, storageV4: true });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(q.ok).toBe(true);
 
@@ -183,7 +182,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
 
     // The takeover's open cleaned the leftover temp (owner cleans at
     // open, §5.4); the disk carries the applied state with the record.
-    const tempsAfter = readdirSync(join(dir, 'scenes')).filter((n) => n.startsWith('.main.json.tmp-'));
+    const tempsAfter = readdirSync(join(dir, 'scenes')).filter((n) => n.startsWith(SCENE_TEMP_PREFIX));
     expect(tempsAfter).toEqual([]);
     const disk = envJson(envPath);
     expect(disk.scene.revision).toBe(6);
@@ -194,7 +193,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
   it('SIGKILL after the rename: new bytes on disk; restart replays the ack from the durable record (duplicated, no rewrite)', async () => {
     const root = makeRoot('after');
     const dir = seedProject(root, 'demo-0001');
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const requestId = 'req-22222222222222222222222222222202';
     const childId = 'tb-22222222222222222222222222222222';
 
@@ -208,7 +207,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(diskNow.retry.records.map((x) => x.requestId)).toContain(requestId);
     const frozen = readFileSync(envPath);
 
-    const svc = openWorkspaceService({ root });
+    const svc = openWorkspaceService({ root, storageV4: true });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(q.ok).toBe(true);
 
@@ -247,7 +246,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     await waitForLine(holderState, '"holding":true', 15000);
     expect(holder.pid).toBeGreaterThan(0);
 
-    const svc = openWorkspaceService({ root });
+    const svc = openWorkspaceService({ root, storageV4: true });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as {
       ok: boolean;
       error?: { code: string; reason?: string; holder?: { backendId: string; pid: number; state: string } };

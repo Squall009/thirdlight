@@ -11,7 +11,18 @@ import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService } from '@thirdlight/workspace';
 
-import { FIXTURES, buildFakeProc, makeRoot, seedProject } from './helpers';
+import { FIXTURES, SCENE_FILE, buildFakeProc, makeRoot, projectFixture, seedProject } from './helpers';
+
+/** A new v4 project (the corpus' demo-0001 rev 0) under another project id. */
+function seedV4As(root: string, projectId: string): string {
+  const dir = join(root, 'projects', projectId);
+  mkdirSync(join(dir, 'scenes'), { recursive: true });
+  for (const rel of ['project.json', 'content.json', SCENE_FILE]) {
+    const text = readFileSync(join(projectFixture('demo-0001-rev0'), rel), 'utf8');
+    writeFileSync(join(dir, rel), text.replaceAll('"demo-0001"', `"${projectId}"`));
+  }
+  return dir;
+}
 
 function manifestFor(id: string, name: string): string {
   return (
@@ -136,9 +147,9 @@ describe('createProject (§8)', () => {
     const root = makeRoot('create-4');
     // Seed the scenario-09 disk (owner A live in the fake /proc).
     const dir = seedProject(root, join(FIXTURES, 'scenarios', '09-second-backend-ownership', 'disk-before'), 'demo-0001');
-    const envBefore = readFileSync(join(dir, 'scenes', 'main.json'));
+    const envBefore = readFileSync(join(dir, SCENE_FILE));
     const procRoot = buildFakeProc(root, { 5000: 'live' });
-    const svc = openWorkspaceService({ root, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
+    const svc = openWorkspaceService({ root, storageV4: true, backendId: 'tb-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', pid: 5150, procRoot });
     // R15 (2026-09-18 review): the §8.1 idempotent create is READ-ONLY —
     // a loadable existing project is a no-op regardless of who owns it;
     // no session is opened and no claim is written (pre-fix this
@@ -150,13 +161,13 @@ describe('createProject (§8)', () => {
       expect(res.revision).toBe(7);
     }
     // The foreign record is untouched (no takeover, no re-claim) and the
-    // envelope bytes are identical.
+    // project files are identical.
     const rec = JSON.parse(readFileSync(join(dir, '.thirdlight', 'ownership.json'), 'utf8'));
     expect(rec.backendId).toBe('tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(rec.pid).toBe(5000);
     expect(rec.state).toBe('owned');
     expect(rec.lockEpoch).toBe(0);
-    expect(readFileSync(join(dir, 'scenes', 'main.json')).equals(envBefore)).toBe(true);
+    expect(readFileSync(join(dir, SCENE_FILE)).equals(envBefore)).toBe(true);
     svc.dispose();
     rmSync(root, { recursive: true, force: true });
   });
@@ -176,25 +187,20 @@ describe('startup scan (§10)', () => {
     mkdirSync(join(proj('corrupt-man'), 'scenes'), { recursive: true });
     writeFileSync(join(proj('corrupt-man'), 'project.json'), '{nope');
 
-    // corrupt envelope (missing type), stale ownership record.
-    mkdirSync(join(proj('corrupt-env'), 'scenes'), { recursive: true });
-    writeFileSync(join(proj('corrupt-env'), 'project.json'), manifestFor('corrupt-env', 'Corrupt'));
-    const envNoType = JSON.parse(readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev0.json'), 'utf8')) as Record<string, unknown>;
-    delete envNoType['type'];
-    writeFileSync(join(proj('corrupt-env'), 'scenes', 'main.json'), JSON.stringify(envNoType, null, 2) + '\n');
+    // corrupt v4 project (content.json without its type), stale ownership record.
+    const corruptDir = seedV4As(root, 'corrupt-env');
+    const content = JSON.parse(readFileSync(join(corruptDir, 'content.json'), 'utf8')) as Record<string, unknown>;
+    delete content['type'];
+    writeFileSync(join(corruptDir, 'content.json'), JSON.stringify(content, null, 2) + '\n');
     mkdirSync(join(proj('corrupt-env'), '.thirdlight'), { recursive: true });
     writeFileSync(
       join(proj('corrupt-env'), '.thirdlight', 'ownership.json'),
       JSON.stringify({ storageVersion: 1, state: 'owned', backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', pid: 5000, openedAt: '2026-09-17T09:00:00Z', lockEpoch: 0 }, null, 2) + '\n',
     );
 
-    // leftover temp (reported, NOT cleaned).
-    mkdirSync(join(proj('temp-1'), 'scenes'), { recursive: true });
-    writeFileSync(join(proj('temp-1'), 'project.json'), manifestFor('temp-1', 'Temp'));
-    const env0raw = readFileSync(join(FIXTURES, 'envelope', 'valid', 'demo-0001-rev0.json'), 'utf8');
-    const env0 = env0raw.replace('"projectId": "demo-0001"', '"projectId": "temp-1"');
-    writeFileSync(join(proj('temp-1'), 'scenes', 'main.json'), env0);
-    writeFileSync(join(proj('temp-1'), 'scenes', '.main.json.tmp-4242-7'), 'partial');
+    // leftover temp of a v4 scene file (reported, NOT cleaned).
+    seedV4As(root, 'temp-1');
+    writeFileSync(join(proj('temp-1'), 'scenes', '.scene-main.json.tmp-4242-7'), 'partial');
 
     const svc = openWorkspaceService({ root, procRoot });
     const report = svc.scan(); // the startup scan already ran: lastScan
@@ -213,7 +219,7 @@ describe('startup scan (§10)', () => {
     expect(byId.get('temp-1')?.loadable).toBe(true);
     expect(byId.get('temp-1')?.leftoverTemps).toBe(1);
     // The scan is read-only: the temp file is still there.
-    expect(statSync(join(proj('temp-1'), 'scenes', '.main.json.tmp-4242-7')).isFile()).toBe(true);
+    expect(statSync(join(proj('temp-1'), 'scenes', '.scene-main.json.tmp-4242-7')).isFile()).toBe(true);
     // No ownership claim was made by the scan (no new records written).
     expect(() => readFileSync(join(proj('temp-1'), '.thirdlight', 'ownership.json'))).toThrow();
     svc.dispose();

@@ -10,11 +10,18 @@
  * vitest). Every fixture file is valid UTF-8 (packet 02 verification),
  * so the raw text round-trips to the exact file bytes via `TextEncoder`.
  *
- * The fixtures are the packet 02 normative examples (commands.md §12):
- * self-contained scenarios with `disk-before`/`disk-after` envelopes and
- * `messages.json` request/result pairs. The scenario `out` payloads of
- * the pure pipeline steps are byte-pinned and are asserted verbatim.
+ * The fixtures are the normative examples of commands.md §12, in storage v4
+ * since phase 9.3: self-contained scenarios whose `disk-before`/`disk-after`
+ * are whole v4 projects (`project.json`, `content.json`,
+ * `scenes/scene-main.json`) and `messages.json` request/result pairs. The
+ * scenario `out` payloads are the workspace's acknowledgements; the pure
+ * layer's result is the same payload without the `sceneId` the workspace
+ * appends for a v4 project (`withoutSceneId`), asserted verbatim.
  */
+
+import { validateContentV4, validateSceneV4, type ContentCatalogV4, type SceneV4 } from '@thirdlight/project-model';
+
+import type { ContentDocument } from './types';
 
 const RAW = import.meta.glob('../../../fixtures/commands/**', {
   eager: true,
@@ -40,6 +47,32 @@ export function fixtureText(rel: string): string {
 /** Exact bytes of `fixtures/commands/<rel>` (UTF-8, BOM-free fixtures). */
 export function fixtureBytes(rel: string): Uint8Array {
   return new TextEncoder().encode(fixtureText(rel));
+}
+
+/**
+ * The v4 project state under `fixtures/commands/<dir>` (a `disk-before` /
+ * `disk-after` directory): the one scene of `scenes/scene-main.json` (with
+ * the project revision, as the workspace hands it to the pure layer) and the
+ * content catalog of `content.json`, both validated by the model.
+ */
+export function fixtureProjectV4(dir: string): { scene: SceneV4; content: ContentDocument } {
+  const sceneFile = JSON.parse(fixtureText(`${dir}/scenes/scene-main.json`)) as { scene: unknown };
+  const contentFile = JSON.parse(fixtureText(`${dir}/content.json`)) as { revision: number; content: unknown };
+  const scene = validateSceneV4(sceneFile.scene);
+  if (!scene.ok) throw new Error(`fixture scene invalid: ${JSON.stringify(scene.errors)}`);
+  const content = validateContentV4(contentFile.content);
+  if (!content.ok) throw new Error(`fixture content invalid: ${JSON.stringify(content.errors)}`);
+  const revision = Math.max(scene.normalized.revision, contentFile.revision);
+  return {
+    scene: { ...scene.normalized, revision },
+    content: content.normalized as ContentCatalogV4 as unknown as ContentDocument,
+  };
+}
+
+/** A workspace acknowledgement without the `sceneId` a v4 project appends (the pure §5.1 payload). */
+export function withoutSceneId(out: Record<string, unknown>): Record<string, unknown> {
+  const { sceneId: _sceneId, ...rest } = out;
+  return rest;
 }
 
 /** Constant-time-free plain byte equality (no Buffer dependency). */

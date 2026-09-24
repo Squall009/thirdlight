@@ -10,9 +10,9 @@ import { describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type MutationResult, type QueryResult } from '@thirdlight/workspace';
 
-import { FIXTURES, makeRoot, seedProject, sha256Hex } from './helpers';
+import { FIXTURES, SCENE_FILE, makeRoot, seedProject, sha256Hex } from './helpers';
 
-/** demo-0001 at T7 (revision 7), owned by the service under test. */
+/** demo-0001 at T7 (revision 7, storage v4), owned by the service under test. */
 function seedT7(root: string): string {
   const base = '08-external-modification';
   const dir = seedProject(root, join(FIXTURES, 'scenarios', base, 'disk-before'), 'demo-0001');
@@ -25,6 +25,7 @@ function seedT7(root: string): string {
 function svcOn(root: string) {
   return openWorkspaceService({
     root,
+    storageV4: true,
     backendId: 'tb-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     pid: 5000,
     stamp: () => '20260917T101500Z',
@@ -44,7 +45,7 @@ describe('external change (workspace.md §7)', () => {
   it('invalid external bytes pause with externalValid:false; accept fails, discard restores LKG', () => {
     const root = makeRoot('ext-invalid');
     const dir = seedT7(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     const svc = svcOn(root);
     svc.query({ op: 'queryProject', projectId: 'demo-0001' }); // load LKG
@@ -83,7 +84,7 @@ describe('external change (workspace.md §7)', () => {
   it('a foreign deletion snapshots empty content; discard restores LKG (file re-created)', () => {
     const root = makeRoot('ext-delete');
     const dir = seedT7(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     const svc = svcOn(root);
     svc.query({ op: 'queryProject', projectId: 'demo-0001' });
@@ -106,7 +107,7 @@ describe('external change (workspace.md §7)', () => {
   it('a second external change while pending re-fires the protocol (new snapshot, new hash)', () => {
     const root = makeRoot('ext-again');
     const dir = seedT7(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     const svc = svcOn(root);
     svc.query({ op: 'queryProject', projectId: 'demo-0001' });
@@ -153,7 +154,7 @@ describe('external change (workspace.md §7)', () => {
   it('queries are served from the last known good while paused (§5.6)', () => {
     const root = makeRoot('ext-query');
     const dir = seedT7(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     const svc = svcOn(root);
     const before = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as QueryResult;
@@ -181,7 +182,7 @@ describe('external change (workspace.md §7)', () => {
   it('keeps at most 16 recovery snapshots (oldest pruned)', () => {
     const root = makeRoot('ext-prune');
     const dir = seedT7(root);
-    const envPath = join(dir, 'scenes', 'main.json');
+    const envPath = join(dir, SCENE_FILE);
     const lkg = readFileSync(envPath);
     const svc = svcOn(root);
     svc.query({ op: 'queryProject', projectId: 'demo-0001' });

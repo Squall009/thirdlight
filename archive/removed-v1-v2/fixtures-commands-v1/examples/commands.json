@@ -1,0 +1,526 @@
+{
+  "createEntity": {
+    "request": {
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 0,
+      "requestId": "req-10000000000000000000000000000001",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {
+        "kind": "box"
+      }
+    },
+    "result": {
+      "ok": true,
+      "op": "createEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-10000000000000000000000000000001",
+      "revision": 1,
+      "duplicated": false,
+      "createdId": "box-0001",
+      "change": {
+        "type": "createEntity",
+        "id": "box-0001",
+        "entity": {
+          "id": "box-0001",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "history": {
+        "undoDepth": 1,
+        "redoDepth": 0
+      }
+    }
+  },
+  "setTransform": {
+    "request": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 2,
+      "requestId": "req-10000000000000000000000000000003",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0001",
+        "transform": {
+          "position": [
+            1.5,
+            0.25,
+            0
+          ]
+        }
+      }
+    },
+    "result": {
+      "ok": true,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-10000000000000000000000000000003",
+      "revision": 3,
+      "duplicated": false,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0001",
+        "previous": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            1.5,
+            0.25,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "position"
+        ]
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 0
+      }
+    }
+  },
+  "deleteEntity": {
+    "request": {
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "expectedRevision": 3,
+      "requestId": "req-20000000000000000000000000000004",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0002"
+      }
+    },
+    "result": {
+      "ok": true,
+      "op": "deleteEntity",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000004",
+      "revision": 4,
+      "duplicated": false,
+      "change": {
+        "type": "deleteEntity",
+        "rootId": "box-0002",
+        "deletedIds": [
+          "box-0002"
+        ]
+      },
+      "history": {
+        "undoDepth": 4,
+        "redoDepth": 0
+      }
+    }
+  },
+  "undo": {
+    "request": {
+      "op": "undo",
+      "projectId": "demo-0001",
+      "expectedRevision": 4,
+      "requestId": "req-20000000000000000000000000000005",
+      "origin": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "args": {}
+    },
+    "result": {
+      "ok": true,
+      "op": "undo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000005",
+      "revision": 5,
+      "duplicated": false,
+      "change": {
+        "type": "restoreSubtree",
+        "rootId": "box-0002",
+        "entities": [
+          {
+            "id": "box-0002",
+            "name": "Crate",
+            "components": {
+              "transform": {
+                "position": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "box": {
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "material": {
+                  "color": "#b0b0b0"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "appliedOf": "req-20000000000000000000000000000004",
+      "originOfApplied": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 1
+      }
+    }
+  },
+  "redo": {
+    "request": {
+      "op": "redo",
+      "projectId": "demo-0001",
+      "expectedRevision": 6,
+      "requestId": "req-20000000000000000000000000000007",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {}
+    },
+    "result": {
+      "ok": true,
+      "op": "redo",
+      "projectId": "demo-0001",
+      "requestId": "req-20000000000000000000000000000007",
+      "revision": 7,
+      "duplicated": false,
+      "change": {
+        "type": "createEntity",
+        "id": "box-0002",
+        "entity": {
+          "id": "box-0002",
+          "name": "Crate",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        }
+      },
+      "appliedOf": "req-20000000000000000000000000000003",
+      "originOfApplied": {
+        "kind": "browser",
+        "clientId": "browser-demo"
+      },
+      "history": {
+        "undoDepth": 3,
+        "redoDepth": 1
+      }
+    }
+  },
+  "queries": {
+    "queryProject": {
+      "request": {
+        "op": "queryProject",
+        "projectId": "demo-0001"
+      },
+      "result": {
+        "ok": true,
+        "projectId": "demo-0001",
+        "revision": 5,
+        "manifest": {
+          "schemaVersion": 1,
+          "engineVersion": "0.1.0",
+          "id": "demo-0001",
+          "name": "Demo Project",
+          "createdAt": "2026-09-16T23:40:00Z",
+          "scenes": [
+            {
+              "id": "scene-main",
+              "path": "scenes/main.json"
+            }
+          ]
+        },
+        "scene": {
+          "sceneId": "scene-main",
+          "schemaVersion": 1,
+          "entityCount": 4,
+          "cameraId": "cam-main"
+        },
+        "history": {
+          "undoDepth": 0,
+          "redoDepth": 0
+        },
+        "workspace": {
+          "writePaused": false
+        }
+      }
+    },
+    "queryEntity": {
+      "request": {
+        "op": "queryEntity",
+        "projectId": "demo-0001",
+        "args": {
+          "entityId": "box-0002",
+          "includeSubtree": true
+        }
+      },
+      "result": {
+        "ok": true,
+        "projectId": "demo-0001",
+        "revision": 5,
+        "entity": {
+          "id": "box-0002",
+          "components": {
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                0.7071067811865476,
+                0,
+                0,
+                0.7071067811865476
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "box": {
+              "size": [
+                1,
+                1,
+                1
+              ],
+              "material": {
+                "color": "#b0b0b0"
+              }
+            }
+          }
+        },
+        "parentChain": [],
+        "childIds": [],
+        "subtree": {
+          "count": 1,
+          "entities": [
+            {
+              "id": "box-0002",
+              "components": {
+                "transform": {
+                  "position": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "rotation": [
+                    0.7071067811865476,
+                    0,
+                    0,
+                    0.7071067811865476
+                  ],
+                  "scale": [
+                    1,
+                    1,
+                    1
+                  ]
+                },
+                "box": {
+                  "size": [
+                    1,
+                    1,
+                    1
+                  ],
+                  "material": {
+                    "color": "#b0b0b0"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "queryEntities": {
+      "request": {
+        "op": "queryEntities",
+        "projectId": "demo-0001",
+        "args": {
+          "limit": 2,
+          "offset": 0
+        }
+      },
+      "result": {
+        "ok": true,
+        "projectId": "demo-0001",
+        "revision": 5,
+        "total": 4,
+        "offset": 0,
+        "limit": 2,
+        "entities": [
+          {
+            "id": "cam-main",
+            "name": "Main Camera",
+            "components": {
+              "transform": {
+                "position": [
+                  0,
+                  0.5,
+                  4
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "camera": {
+                "type": "perspective",
+                "fovY": 60,
+                "near": 0.1,
+                "far": 100
+              }
+            }
+          },
+          {
+            "id": "box-0001",
+            "components": {
+              "transform": {
+                "position": [
+                  1.5,
+                  0.25,
+                  0
+                ],
+                "rotation": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "scale": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "box": {
+                "size": [
+                  1,
+                  1,
+                  1
+                ],
+                "material": {
+                  "color": "#b0b0b0"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

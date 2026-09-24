@@ -1,0 +1,80 @@
+[
+  {
+    "in": {
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "expectedRevision": 4,
+      "requestId": "req-10000000000000000000000000000005",
+      "origin": {
+        "kind": "mcp",
+        "clientId": "pi-harness"
+      },
+      "args": {
+        "entityId": "box-0002",
+        "transform": {
+          "rotation": [
+            0.7071067811865476,
+            0,
+            0,
+            0.7071067811865476
+          ]
+        }
+      }
+    },
+    "out": {
+      "ok": true,
+      "op": "setTransform",
+      "projectId": "demo-0001",
+      "requestId": "req-10000000000000000000000000000005",
+      "revision": 5,
+      "duplicated": true,
+      "change": {
+        "type": "setTransform",
+        "id": "box-0002",
+        "previous": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "next": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0.7071067811865476,
+            0,
+            0,
+            0.7071067811865476
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "changedFields": [
+          "rotation"
+        ]
+      },
+      "history": {
+        "undoDepth": 5,
+        "redoDepth": 0
+      }
+    }
+  }
+]

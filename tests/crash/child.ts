@@ -29,8 +29,9 @@ function killSelf(): void {
   process.exit(137);
 }
 
+/** The authoring file a setTransform writes: the v4 scene file (the corpus is storage v4). */
 function targetIsEnvelope(path: string): boolean {
-  return path.endsWith('main.json');
+  return path.endsWith('scene-main.json');
 }
 function dirIsScenes(path: string): boolean {
   return path.endsWith('scenes') || path.endsWith('scenes' + '/');
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     console.error(JSON.stringify({ ok: false, error: { code: 'usage', message: 'argv: mode root projectId backendId [requestId] [expectedRevision]' } }));
     process.exit(2);
   }
-  const cfg = { root, backendId };
+  const cfg = { root, backendId, storageV4: true };
   let svc: ReturnType<typeof openWorkspaceService>;
   try {
     if (mode === 'crash-before') svc = openWorkspaceService({ ...cfg, ops: crashBeforeOps() });
