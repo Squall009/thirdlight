@@ -585,3 +585,17 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-exit__scenes { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; margin: 0; }
 .tl-exit__scenes legend { color: var(--text-dim); font-size: 11px; padding: 0 4px; }
 .tl-exit__scenes .tl-field { margin-bottom: 2px; }
+
+/* Phase 9.4: materials and environment */
+.tl-material-swatch { width: 34px; height: 34px; border-radius: 50%; display: block; box-shadow: inset -6px -8px 12px rgba(0,0,0,.35), inset 4px 5px 8px rgba(255,255,255,.25); }
+.tl-material-inspector { display: flex; flex-direction: column; gap: 4px; }
+.tl-param { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 6px; font-size: 12px; opacity: .75; }
+.tl-param.is-set { opacity: 1; }
+.tl-param.is-set .tl-field__label { color: var(--brand); }
+.tl-param__number, .tl-param__vec2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tl-param__number input[type="range"] { flex: 1; min-width: 60px; }
+.tl-input--num { width: 64px; }
+.tl-param__value { font-size: 11px; color: var(--text-dim); min-width: 36px; text-align: right; }
+.tl-param__reset { padding: 0 6px; }
+.tl-btn--danger { color: #ff8a80; }
+.tl-environment .tl-field { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px; }

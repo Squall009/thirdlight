@@ -11,6 +11,7 @@
  * Browser-only: uses the DOM (canvas, events) + WebGL via three.js.
  */
 
+import type { MaterialLibrary } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -170,6 +171,27 @@ export class Viewport {
     this.models = models;
   }
 
+  /** Phase 9.4: project materials on boxes (models get theirs through ModelInstances). */
+  private materialLibrary: MaterialLibrary | null = null;
+  private readonly boxMaterials = new Map<string, { key: string; undo: () => void }>();
+  setMaterialLibrary(library: MaterialLibrary | null): void {
+    this.materialLibrary = library;
+  }
+
+  private syncBoxMaterial(e: ProjectedEntity, obj: THREE.Object3D): void {
+    const lib = this.materialLibrary;
+    const mapping = e.kind === 'box' ? (e.materials ?? null) : null;
+    const key = mapping === null ? '' : JSON.stringify(mapping);
+    const have = this.boxMaterials.get(e.id);
+    if (have !== undefined && have.key === key) return;
+    have?.undo();
+    this.boxMaterials.delete(e.id);
+    if (lib === null || mapping === null) return;
+    const mesh = obj.children.find((c) => (c as THREE.Mesh).isMesh && (c as { entityId?: string }).entityId === e.id);
+    if (mesh === undefined) return;
+    this.boxMaterials.set(e.id, { key, undo: lib.apply(mesh, mapping) });
+  }
+
   /** The Object3D a gizmo/selection targets: the entity's node in the scene graph. */
   private targetFor(id: string): THREE.Object3D | null {
     return this.meshes.get(id) ?? null;
@@ -315,6 +337,7 @@ export class Viewport {
         // A gizmo drag owns its target's transform until release.
         this.updateMesh(m, e);
       }
+      this.syncBoxMaterial(e, m);
     }
     // Mirror the runtime scene graph: children hang under their parent node
     // (transforms are parent-relative, as in the play renderer).
@@ -327,6 +350,8 @@ export class Viewport {
     // Remove meshes whose entities are gone.
     for (const [id, m] of this.meshes) {
       if (!seen.has(id)) {
+        this.boxMaterials.get(id)?.undo();
+        this.boxMaterials.delete(id);
         m.parent?.remove(m);
         this.disposeMesh(m);
         this.meshes.delete(id);
@@ -433,7 +458,8 @@ export class Viewport {
     for (const c of obj.children) {
       const mesh = c as THREE.Mesh;
       if (e.kind !== 'box' || !(mesh instanceof THREE.Mesh) || mesh.userData.lightKind !== undefined) continue;
-      (mesh.material as THREE.MeshLambertMaterial).color.setHex(boxColor(e));
+      const own = (mesh.userData['__tlSourceMaterial'] ?? mesh.material) as THREE.MeshLambertMaterial;
+      own.color.setHex(boxColor(e));
       const size = e.box?.size ?? [1, 1, 1];
       if (mesh.userData.boxSize !== size.join(',')) {
         mesh.geometry.dispose();
@@ -454,7 +480,8 @@ export class Viewport {
       }
       const mesh = c as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
-      const mat = (mesh as { material?: THREE.Material | THREE.Material[] }).material;
+      // A project material is the library's; the mesh's own is kept aside while it is assigned.
+      const mat = (mesh.userData?.['__tlSourceMaterial'] ?? (mesh as { material?: THREE.Material | THREE.Material[] }).material) as THREE.Material | THREE.Material[] | undefined;
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else if (mat) mat.dispose();
       for (const child of c.children) {
@@ -498,12 +525,20 @@ export class Viewport {
         setSpriteSelected(c, on, () => this.requestRender());
         return;
       }
+      // Only the entity's own unshared meshes (a box's material): a model's
+      // materials and project materials are shared by every placement.
       const mesh = c as THREE.Mesh;
+      if ((mesh as { entityId?: string }).entityId === undefined || mesh.userData['__tlSourceMaterial'] !== undefined) return;
       const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
       if (mat && 'emissive' in mat) {
         mat.emissive.setHex(on ? 0x2a4a80 : 0x000000);
       }
     });
+  }
+
+  /** The entity under a pointer position (client coords), or null. */
+  pickAt(clientX: number, clientY: number): string | null {
+    return this.pick(clientX, clientY);
   }
 
   /** Pick the entity under a pointer position (client coords in the canvas). */

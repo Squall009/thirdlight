@@ -230,6 +230,8 @@ export interface PreparedVisualResource {
   collider2D(piece: string | null): [number, number][] | null;
   /** A piece's (or the whole file's) LOD0 bounds in the file's root space. */
   bounds(piece: string | null): THREE.Box3;
+  /** The names of the file's materials (of one piece), in first-use order. */
+  materialNames(piece: string | null): string[];
   diagnostics(): VisualResourceDiagnostics;
   ownership(): ResourceOwnership;
   /** Retire the resource: no new instances; shared resources are released when
@@ -796,6 +798,20 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
     },
     bounds(piece: string | null) {
       return pieceBounds(loaded.root, piece);
+    },
+    materialNames(piece: string | null) {
+      const names: string[] = [];
+      const roots = piece === null ? [loaded.root] : (modelPieces(loaded.root).find((p) => p.name === piece)?.nodes ?? []);
+      for (const r of roots) {
+        r.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+            if (m !== undefined && m.name !== '' && !names.includes(m.name)) names.push(m.name);
+          }
+        });
+      }
+      return names;
     },
     createInstance(options: CreateInstanceOptions = {}) {
       if (disposed) {

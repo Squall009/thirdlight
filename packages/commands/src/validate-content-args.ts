@@ -649,7 +649,9 @@ export function validateSetComponentArgs(
     component === 'cameraFollow' ||
     component === 'light' ||
     component === 'surface' ||
-    component === 'modelAnimation'
+    component === 'modelAnimation' ||
+    component === 'instances' ||
+    component === 'materials'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

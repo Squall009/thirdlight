@@ -556,7 +556,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
 | 9.3 one schema version (phase 8 rest) | deferred to after 9.13 (see §6) | |
-| 9.4 textures, materials, wind | todo | |
+| 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | todo | |
 | 9.6 light baking | todo | |
 | 9.7 rigs + Animator + Sprout clips | todo | |
@@ -595,4 +595,14 @@ Add one dated line per decision taken during the run (what, why).
   ~20 source files, ~25 test files and the whole v1 contract corpus, and
   changes nothing the owner can see; the feature items go first. New work
   targets v4 only and leaves the old paths alone.
+- 2026-09-24 (9.4): materials and the environment travel to Play/export in
+  the manifest only (bound by the buildId, read by both bootstraps); the
+  simulation never needs them, so the runtime snapshot is unchanged. The
+  kit shader shifts UV0 by the object's (or instance's) origin X, not per
+  vertex — the Sprout manifest says "per piece/instance". Selection highlight
+  and the checkpoint glow no longer write into shared materials (the
+  highlight skipped model meshes before too: it used to tint every placement
+  of an asset and wipe its emissive). Assigning Sprout's kit/foliage
+  materials is done with the demo levels (9.13), where the kit and its macro
+  normal texture get imported anyway.
 

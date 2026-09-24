@@ -1253,6 +1253,8 @@ export interface AssetSummary {
   convertedFrom?: { format: 'fbx'; sourcePath?: string };
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
+  /** Model only (phase 9.4): the default material mapping of every placement. */
+  materials?: Record<string, string>;
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }

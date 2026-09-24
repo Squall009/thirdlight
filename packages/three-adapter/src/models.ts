@@ -62,6 +62,7 @@ import {
   createVisualResourceStore,
 } from './visual';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
+import type { MaterialLibrary } from './material-library';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -85,6 +86,8 @@ export interface SceneAdapterModelAsset {
   readonly sourceDigest: string;
   /** COLOR_0 multiplies the albedo (absent = shader data). */
   readonly vertexColors?: 'tint';
+  /** Phase 9.4: the asset's default material mapping. */
+  readonly materials?: Readonly<Record<string, string>>;
 }
 
 /** One committed `modelAnimation` entity mapping (delivery.md (M4) §2.2). */
@@ -168,6 +171,8 @@ interface AttachedModel {
   roleUnresolved: boolean;
   diagnosticCode: string | null;
   disposed: boolean;
+  /** Phase 9.4: restores the file's materials. */
+  undoMaterials?: (() => void) | null;
 }
 
 /** The context the adapter hands the realization (all owned by the
@@ -192,6 +197,9 @@ export interface ModelsRealizationContext {
   readonly instanceEntities?: ReadonlyMap<string, InstanceSetRef>;
   /** `model` entities that show one piece of their file: `entityId` → piece name. */
   readonly modelPieces?: ReadonlyMap<string, string>;
+  /** Phase 9.4: project materials, and an entity's own material mapping. */
+  readonly materialLibrary?: MaterialLibrary | null;
+  readonly entityMaterials?: (entityId: string) => Readonly<Record<string, string>> | null;
   /** Phase 12 (c): more entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
   /** The entity holders (the adapter's `objects` map entries); `null` when
@@ -406,6 +414,18 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const instanceEntities = new Map(ctx.instanceEntities ?? []);
   const modelPieces = new Map(ctx.modelPieces ?? []);
   /** The instance options for an entity: its piece and the asset's vertex-colour mode. */
+  /** Phase 9.4: an entity's material mapping (the asset's default under its own). */
+  const mappingFor = (entityId: string, assetId: string): Record<string, string> | null => {
+    const base = rowsByAsset.get(assetId)?.materials;
+    const own = ctx.entityMaterials?.(entityId) ?? null;
+    if (base === undefined && own === null) return null;
+    return { ...(base ?? {}), ...(own ?? {}) };
+  };
+  const applyMaterials = (entityId: string, assetId: string, root: THREE.Object3D): (() => void) | null => {
+    const lib = ctx.materialLibrary;
+    const mapping = mappingFor(entityId, assetId);
+    return lib !== undefined && lib !== null && mapping !== null ? lib.apply(root, mapping) : null;
+  };
   const instanceOptions = (assetId: string, piece: string | undefined): CreateInstanceOptions => ({
     ...(piece !== undefined ? { piece } : {}),
     vertexColors: rowsByAsset.get(assetId)?.vertexColors === 'tint' ? 'tint' : 'data',
@@ -531,6 +551,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         disposed: false,
       };
       attached.set(entityId, rec);
+      rec.undoMaterials = applyMaterials(entityId, assetId, instance.root);
       // The committed mapping's stage 5–6 re-check (§41.3.6 rule 7; L6):
       // a mismatching mapping is the hard `animation_role_unresolved` —
       // the model renders statically at its committed transform, one
@@ -588,10 +609,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const template = created.instance;
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`);
     holder.add(built.group);
-    attachedSets.set(entityId, { entityId, template, built });
+    attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {
+    set.undoMaterials?.();
     set.built.dispose(); // the instance matrices (geometry/materials belong to the resource)
     try {
       set.template.dispose();
@@ -624,6 +646,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   function disposeAttached(rec: AttachedModel): void {
     if (rec.disposed) return;
     rec.disposed = true;
+    rec.undoMaterials?.();
     if (rec.controller !== null) {
       try {
         rec.controller.dispose();
@@ -849,4 +872,5 @@ interface AttachedInstanceSet {
   /** The model instance the meshes' geometry/materials come from (holds the resource reference). */
   readonly template: ModelInstance;
   readonly built: BuiltInstanceSet;
+  undoMaterials?: (() => void) | null;
 }

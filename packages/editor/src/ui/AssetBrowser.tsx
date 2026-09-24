@@ -9,7 +9,7 @@
  *
  * Browser-only (React).
  */
-import { Fragment, useRef, useState, type DragEvent, type JSX } from 'react';
+import { Fragment, useRef, useState, type DragEvent, type JSX, type ReactNode } from 'react';
 import type { AssetView } from '../session/content-projection';
 import { ASSET_DRAG_TYPE } from '../session/placement';
 import type { AssetImportState, AssetQueryState } from '../session/asset-browser';
@@ -62,6 +62,8 @@ interface Props {
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
+  /** Phase 9.4: extra sections for the selected asset (its default materials). */
+  sideExtra?: ReactNode;
 }
 
 /** The tile-preview key of an asset (or one of its pieces). */
@@ -113,8 +115,8 @@ export function AssetBrowser(p: Props): JSX.Element {
                 onClick={() => p.onSelect(a.assetId)}
                 title={a.kind === 'model' ? `${a.displayName} — drag into the scene or hierarchy` : a.assetId}
                 data-asset-id={a.assetId}
-                draggable={a.kind === 'model'}
-                onDragStart={a.kind === 'model' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
+                draggable={a.kind === 'model' || a.kind === 'texture'}
+                onDragStart={a.kind === 'model' || a.kind === 'texture' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
               >
                 <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
                   <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
@@ -316,6 +318,7 @@ export function AssetBrowser(p: Props): JSX.Element {
               </select>
             </label>
           )}
+          {p.sideExtra}
           <canvas className="tl-assets__preview-canvas" ref={p.previewCanvasRef} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onPreview(selected.assetId)} title="Realize the current version locally (play/pause/scrub)">
             load preview

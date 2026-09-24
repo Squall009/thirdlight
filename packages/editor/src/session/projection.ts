@@ -49,6 +49,8 @@ export interface ProjectedEntity {
   assetId?: string;
   /** One named piece of the model file (`components.model.piece`; absent: the whole file). */
   piece?: string;
+  /** Phase 9.4: the object's material mapping (source material name or "*" → materialId). */
+  materials?: Record<string, string>;
   /**
    * M2 (packet 28): the informational prefab provenance a materialized copy
    * carries (`components.prefab`, project-model §20.4). It is what lets the
@@ -154,6 +156,7 @@ function toProjected(e: Entity): ProjectedEntity {
     surface?: SurfaceComponent;
     modelAnimation?: ModelAnimationComponent;
     instances?: { asset?: { assetId?: string; piece?: string }; buffer?: string; count?: number };
+    materials?: Record<string, string>;
   };
   const kind = c.folder !== undefined ? 'folder' : c.model ? 'model' : c.box ? 'box' : c.camera ? 'camera' : c.light ? 'light' : 'entity';
   const t = (e.components as { transform?: typeof IDENTITY }).transform ?? IDENTITY;
@@ -172,6 +175,7 @@ function toProjected(e: Entity): ProjectedEntity {
     ...(c.box ? { box: boxOf(c.box) } : {}),
     ...(c.model?.asset?.assetId ? { assetId: c.model.asset.assetId } : {}),
     ...(typeof c.model?.piece === 'string' ? { piece: c.model.piece } : {}),
+    ...(c.materials !== undefined ? { materials: { ...c.materials } } : {}),
     ...(c.prefab?.prefabId && c.prefab.localId ? { prefab: { prefabId: c.prefab.prefabId, localId: c.prefab.localId } } : {}),
     ...(c.behavior?.behaviorId ? { behaviorId: c.behavior.behaviorId } : {}),
     ...(c.behavior?.values ? { behaviorValues: { ...c.behavior.values } } : {}),
@@ -397,6 +401,9 @@ export class Projection {
             else delete p.piece;
             p.kind = 'model';
           }
+        } else if (change.component === 'materials') {
+          if (change.next === null) delete p.materials;
+          else p.materials = { ...(change.next as Record<string, string>) };
         } else if (change.component === 'collider') {
           // C28-1 repair: add/edit/remove converge without a reload (§5.3).
           if (change.next === null) delete p.collider;

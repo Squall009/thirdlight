@@ -52,6 +52,9 @@ describe('materials and environment (storage v4)', () => {
     const box = ok(svc, 'createEntity', { kind: 'box', name: 'bush', components: { materials: { '*': 'mat-foliage' } } });
     expect(send(svc, 'createEntity', { kind: 'box', components: { materials: { '*': 'mat-nope' } } }).ok).toBe(false);
     expect(send(svc, 'deleteMaterial', { materialId: 'mat-foliage' }).ok).toBe(false);
+    // setComponent replaces the whole mapping (its keys are material names).
+    ok(svc, 'setComponent', { entityId: box.createdId, component: 'materials', value: { bark: 'mat-foliage' } });
+    expect(send(svc, 'setComponent', { entityId: box.createdId, component: 'materials', value: { bark: 'mat-nope' } }).ok).toBe(false);
     ok(svc, 'setComponent', { entityId: box.createdId, component: 'materials', value: null });
     ok(svc, 'deleteMaterial', { materialId: 'mat-foliage' });
     expect(gameConfig(svc).materials).toEqual([]);

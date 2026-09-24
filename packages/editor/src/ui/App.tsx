@@ -12,6 +12,7 @@
  *
  * Browser-only.
  */
+import * as THREE from 'three';
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { createRoot } from 'react-dom/client';
 import { forgetToken, readEditorConfig } from '../config';
@@ -80,6 +81,8 @@ import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
+import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
+import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -87,6 +90,8 @@ import { Inspector } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
+import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
+import { EnvironmentPanel } from './EnvironmentPanel';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
@@ -286,6 +291,16 @@ function EditorApp(): JSX.Element {
   const [assetThumbs, setAssetThumbs] = useState<ReadonlyMap<string, string>>(new Map());
   const [assetPieces, setAssetPieces] = useState<ReadonlyMap<string, readonly { name: string }[]>>(new Map());
   const thumbnailsRef = useRef<ThumbnailRenderer | null>(null);
+  const materialLibraryRef = useRef<MaterialLibrary | null>(null);
+  const materialsKeyRef = useRef('');
+  /** Phase 9.4: the project materials and the environment, for the panels. */
+  const [materials, setMaterials] = useState<MaterialDef[]>([]);
+  const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  /** The material names of the selected object's model file (for the mapping editor). */
+  const [selectedSourceMaterials, setSelectedSourceMaterials] = useState<string[]>([]);
+  const [assetSourceMaterials, setAssetSourceMaterials] = useState<string[]>([]);
   /** Texture versions whose tile image was already fetched. */
   const textureTilesRef = useRef(new Set<string>());
   const [assetDropActive, setAssetDropActive] = useState(false);
@@ -404,6 +419,16 @@ function EditorApp(): JSX.Element {
     setGameConfigLoaded(c.getGameConfigLoaded());
     setSettings(c.getSettings());
     setTags(c.getTags());
+    const mats = c.getMaterials();
+    const env = c.getEnvironment();
+    setMaterials(mats);
+    setEnvironment(env);
+    const matsKey = JSON.stringify(mats);
+    if (matsKey !== materialsKeyRef.current) {
+      materialsKeyRef.current = matsKey;
+      materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[]);
+    }
+    materialLibraryRef.current?.setWind(env?.wind ?? null);
     setUi((s) => ({ ...s, revision: c.projection.revision }));
   }, []);
 
@@ -577,6 +602,21 @@ function EditorApp(): JSX.Element {
     // Packet 27: one shared GLB realization path for placements + preview. The
     // resolver is the editor's authenticated byte read; the renderer never
     // receives the token (sessions.md §16.1).
+    // Phase 9.4: project materials (shared by boxes, models and instance sets).
+    const materialLibrary = createMaterialLibrary({
+      loadTexture: async (assetId) => {
+        const v = client.content.resolveVersion(assetId);
+        if (v === null) return null;
+        const bytes = await client.assetBytes(assetId, v.version);
+        const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
+        t.needsUpdate = true;
+        return t;
+      },
+      onChange: () => viewport.requestRender(),
+    });
+    materialLibraryRef.current = materialLibrary;
+    viewport.setMaterialLibrary(materialLibrary);
     const models = new ModelInstances(viewport.scene, {
       resolve: client.assetByteResolver(),
       descriptorFor: (assetId) => {
@@ -588,6 +628,8 @@ function EditorApp(): JSX.Element {
       parentFor: (entityId) => viewport.objectFor(entityId),
       resolveBuffer: (digest) => client.instanceBufferBytes(digest),
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
+      materialLibrary,
+      assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
       onFailuresChanged: (failures) =>
         setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
@@ -611,6 +653,8 @@ function EditorApp(): JSX.Element {
       client.dispose();
       thumbnails.dispose();
       thumbnailsRef.current = null;
+      materialLibrary.dispose();
+      materialLibraryRef.current = null;
       models.dispose();
       viewport.dispose();
       modelInstancesRef.current = null;
@@ -692,6 +736,22 @@ function EditorApp(): JSX.Element {
       cancelled = true;
     };
   }, [assets]);
+
+  // Phase 9.4: animated materials (wind, water) need frames while they are in view.
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const loop = (): void => {
+      const lib = materialLibraryRef.current;
+      if (lib !== null && lib.animated()) {
+        lib.tick((performance.now() - start) / 1000);
+        viewportRef.current?.requestRender();
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const framedRef = useRef(false);
   useEffect(() => {
@@ -1940,6 +2000,37 @@ function EditorApp(): JSX.Element {
     [reportFailure],
   );
 
+  // ---- phase 9.4: materials, their assignment, the environment ---------------
+  const refusal = (res: Awaited<ReturnType<SessionClient['command']>>): string | null =>
+    res.ok ? null : ((res.response as { message?: string; code?: string }).message ?? (res.response as { code?: string }).code ?? 'the edit was refused');
+  const saveMaterial = useCallback(async (material: MaterialDef) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setMaterialError(refusal(await c.command('setMaterial', { material }, c.projection.revision)));
+  }, []);
+  const deleteMaterial = useCallback(async (materialId: string) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const err = refusal(await c.command('deleteMaterial', { materialId }, c.projection.revision));
+    setMaterialError(err);
+    if (err === null) setSelectedMaterialId(null);
+  }, []);
+  const saveEnvironment = useCallback(async (env: EnvironmentConfig) => {
+    const c = clientRef.current;
+    if (!c) return;
+    setMaterialError(refusal(await c.command('setEnvironment', { environment: env }, c.projection.revision)));
+  }, []);
+  const setEntityMaterials = useCallback(async (entityId: string, mapping: Record<string, string> | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Materials', await c.setComponent(entityId, 'materials', mapping, c.projection.revision));
+  }, [reportFailure]);
+  const setAssetMaterials = useCallback(async (assetId: string, mapping: Record<string, string> | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Default materials', await c.command('setAssetOptions', { assetId, materials: mapping }, c.projection.revision));
+  }, [reportFailure]);
+
   const setVertexColors = useCallback(
     async (assetId: string, mode: 'data' | 'tint') => {
       const c = clientRef.current;
@@ -2227,6 +2318,41 @@ function EditorApp(): JSX.Element {
     }
   }, [ui.connection, ui.error]);
 
+  // Phase 9.4: the material names of the selected object's model file / the selected asset.
+  // (before the early returns below: hooks must run on every render)
+  const selectedForMaterials = entities.find((e) => e.id === selectedId) ?? null;
+  const selectedModelKey = selectedForMaterials !== null ? `${selectedForMaterials.assetId ?? selectedForMaterials.instances?.assetId ?? ''}|${selectedForMaterials.piece ?? selectedForMaterials.instances?.piece ?? ''}` : '';
+  useEffect(() => {
+    const [assetId, piece] = selectedModelKey.split('|') as [string, string];
+    const models = modelInstancesRef.current;
+    if (assetId === '' || models === null) {
+      setSelectedSourceMaterials([]);
+      return;
+    }
+    let live = true;
+    void models.prepared(assetId).then((r) => {
+      if (live) setSelectedSourceMaterials(r === null ? [] : r.materialNames(piece === '' ? null : piece));
+    });
+    return () => {
+      live = false;
+    };
+  }, [selectedModelKey]);
+  useEffect(() => {
+    const models = modelInstancesRef.current;
+    const a = selectedAssetId !== null ? assets.find((x) => x.assetId === selectedAssetId) : undefined;
+    if (a === undefined || a.kind !== 'model' || models === null) {
+      setAssetSourceMaterials([]);
+      return;
+    }
+    let live = true;
+    void models.prepared(a.assetId).then((r) => {
+      if (live) setAssetSourceMaterials(r === null ? [] : r.materialNames(null));
+    });
+    return () => {
+      live = false;
+    };
+  }, [selectedAssetId, assets]);
+
   if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
     return <TokenForm message={gate.message} />;
   }
@@ -2431,6 +2557,11 @@ function EditorApp(): JSX.Element {
           className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
           ref={stageRef}
           onDragOver={(ev) => {
+            if (centerTab === 'scene' && ev.dataTransfer.types.includes(MATERIAL_DRAG_TYPE)) {
+              ev.preventDefault();
+              ev.dataTransfer.dropEffect = 'copy';
+              return;
+            }
             if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
             ev.preventDefault();
             ev.dataTransfer.dropEffect = 'copy';
@@ -2441,6 +2572,18 @@ function EditorApp(): JSX.Element {
           }}
           onDrop={(ev) => {
             setAssetDropActive(false);
+            if (centerTab === 'scene' && ev.dataTransfer.types.includes(MATERIAL_DRAG_TYPE)) {
+              // A material dropped on an object: it uses it for all of its materials.
+              ev.preventDefault();
+              const materialId = ev.dataTransfer.getData(MATERIAL_DRAG_TYPE);
+              const id = viewportRef.current?.pickAt(ev.clientX, ev.clientY) ?? null;
+              const target = id !== null ? clientRef.current?.projection.getEntity(id) : undefined;
+              if (target !== undefined && (target.kind === 'model' || target.kind === 'box' || target.instances !== undefined)) {
+                void setEntityMaterials(target.id, { ...(target.materials ?? {}), '*': materialId });
+                setSelectedId(target.id);
+              } else setNotice('Drop a material on a model or a box.');
+              return;
+            }
             if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
             ev.preventDefault();
             const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
@@ -2553,6 +2696,17 @@ function EditorApp(): JSX.Element {
               thumbnails={assetThumbs}
               pieces={assetPieces}
               onVertexColors={(id, mode) => void setVertexColors(id, mode)}
+              sideExtra={
+                selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
+                  <MaterialMappingEditor
+                    label="Default materials (every placement)"
+                    sourceNames={assetSourceMaterials}
+                    mapping={assets.find((a) => a.assetId === selectedAssetId)?.materials ?? null}
+                    materials={materials}
+                    onChange={(mapping) => void setAssetMaterials(selectedAssetId, mapping)}
+                  />
+                ) : null
+              }
             />
           )}
           {bottomTab === 'prefabs' && (
@@ -2623,6 +2777,18 @@ function EditorApp(): JSX.Element {
               backendError={gameplayError}
             />
           )}
+          {bottomTab === 'materials' && (
+            <MaterialsPanel
+              materials={materials}
+              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              selectedId={selectedMaterialId}
+              onSelect={setSelectedMaterialId}
+              onSave={(m) => void saveMaterial(m)}
+              onDelete={(id) => void deleteMaterial(id)}
+              error={materialError}
+            />
+          )}
+          {bottomTab === 'environment' && <EnvironmentPanel environment={environment} onSave={(env) => void saveEnvironment(env)} error={materialError} />}
           {bottomTab === 'tags' && (
             <TagsPanel
               tags={tags}
@@ -2695,6 +2861,17 @@ function EditorApp(): JSX.Element {
           onSetFlag={(entityId, flag, value) => void setFlag(entityId, flag, value)}
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
+          extra={
+            selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? (
+              <MaterialMappingEditor
+                label="Materials"
+                sourceNames={selected.kind === 'box' ? [] : selectedSourceMaterials}
+                mapping={selected.materials ?? null}
+                materials={materials}
+                onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
+              />
+            ) : null
+          }
         />
         </div>
       </div>
@@ -2849,10 +3026,12 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
+  { id: 'materials', label: 'Materials' },
+  { id: 'environment', label: 'Environment' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },

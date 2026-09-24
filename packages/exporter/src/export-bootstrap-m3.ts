@@ -56,9 +56,9 @@ import {
   type ManifestBufferRow,
   type ManifestSceneRow,
 } from '@thirdlight/game-host';
-import { createSceneAdapter } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { SceneAdapter, SceneAdapterModels } from '@thirdlight/three-adapter';
+import type { MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
@@ -77,6 +77,9 @@ interface ExportManifestV2 {
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
   tags?: { bit: number; name: string }[];
+  /** Phase 9.4: project materials and the environment (bound by the buildId). */
+  materials?: MaterialDefLike[];
+  environment?: { wind?: WindLike };
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -111,7 +114,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -235,7 +238,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       throw new Error(`the scene references model asset(s) absent from the manifest: ${missing.join(', ')}`);
     }
     models = {
-      assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}) })),
+      assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}) })),
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
       resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
         const buf = assetBytesByKey.get(`${assetId}@${version}`);
@@ -291,6 +294,20 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
         snapshot,
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
+          : {}),
+        // Phase 9.4: project materials and wind (textures from the verified bytes).
+        ...(manifest.materials !== undefined || manifest.environment !== undefined
+          ? {
+              materials: {
+                defs: manifest.materials ?? [],
+                wind: manifest.environment?.wind ?? null,
+                loadTexture: (assetId: string) => {
+                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
+                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
+                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+                },
+              },
+            }
           : {}),
       });
       adapterRef.current = a;

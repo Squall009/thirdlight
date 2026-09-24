@@ -78,9 +78,9 @@ import {
   type GameHost,
   type HostDomNode,
 } from '@thirdlight/game-host';
-import { createSceneAdapter } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { SceneAdapter, SceneAdapterModels } from '@thirdlight/three-adapter';
+import type { MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { RelayActionSource } from './relay-input';
@@ -101,6 +101,9 @@ export interface PreviewManifestV2 {
   settings: GameplaySettings;
   game: Record<string, unknown> | null;
   tags?: { bit: number; name: string }[];
+  /** Phase 9.4: project materials and the environment (bound by the buildId). */
+  materials?: MaterialDefLike[];
+  environment?: { wind?: WindLike };
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -251,7 +254,7 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     }
   }
   return {
-    assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}) })),
+    assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}) })),
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
       const buf = bytes.get(`${assetId}@${version}`);
@@ -328,7 +331,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -423,6 +426,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
           : {}),
+        ...materialsOptionOf(manifest, assetBytes),
       });
       adapterRef.current = a;
       return a;
@@ -739,3 +743,19 @@ export function bootstrapPreviewM3(): void {
 // `game.js` for a v3 play is this bundle — the same role as the M2
 // `preview.js`/`preview-bootstrap.ts`).
 bootstrapPreviewM3();
+
+/** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
+function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials'] } {
+  if (manifest.materials === undefined && manifest.environment === undefined) return {};
+  return {
+    materials: {
+      defs: manifest.materials ?? [],
+      wind: manifest.environment?.wind ?? null,
+      loadTexture: (assetId) => {
+        const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
+        const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
+        return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+      },
+    },
+  };
+}

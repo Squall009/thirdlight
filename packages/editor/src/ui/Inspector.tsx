@@ -13,7 +13,7 @@
  *
  * Browser-only (React).
  */
-import { useState, type JSX, type KeyboardEvent } from 'react';
+import { useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { ColliderComponent, PropertyDeclaration } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
@@ -51,6 +51,8 @@ interface Props {
   onSetTags: (entityId: string, names: string[]) => void;
   /** Phase 12 (c): open the exit-zone editor for this zone (absent: no scenes). */
   onEditExit?: (entityId: string) => void;
+  /** Phase 9.4: extra sections for the entity (the material mapping). */
+  extra?: ReactNode;
 }
 
 /**
@@ -194,7 +196,7 @@ function quaternionOf(deg: number[]): number[] {
   return [q.x, q.y, q.z, q.w];
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit }: Props): JSX.Element {
+export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onAddComponent, onRemoveComponent, onEditColliderBox, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, onEditExit, extra }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -239,6 +241,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, declarations, prefab
           <div className="tl-inspector__kind">{entity.kind}{selectionCount > 1 ? ` · ${selectionCount} selected` : ''}</div>
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
           <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
+          {extra}
           {entity.gameZone?.role === 'exit' && (
             <div className="tl-inspector__exit">
               <p className="tl-inspector__hint">

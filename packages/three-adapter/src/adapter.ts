@@ -26,6 +26,7 @@
  * `renderBackend: null` diagnostics value are reported (the absent
  * backend), never a throw.
  */
+import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
@@ -73,6 +74,16 @@ export interface SceneAdapterOptions {
    *  the `@thirdlight/three-adapter/gltf-loader` subpath; the root subpath
    *  stays loader-free). Required iff `models` is present. */
   modelsLoader?: GlbLoaderPort;
+  /**
+   * Phase 9.4: project materials (the manifest's), the wind, and the texture
+   * decoder (bytes come from the wrapper's verified content). Absent: files
+   * and boxes keep their own materials.
+   */
+  materials?: {
+    readonly defs: readonly MaterialDefLike[];
+    readonly wind: WindLike | null;
+    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  };
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
@@ -189,6 +200,15 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
+  // Phase 9.4: project materials (shared by boxes, models and instance sets).
+  const materialLibrary: MaterialLibrary | null =
+    opts.materials !== undefined ? createMaterialLibrary({ loadTexture: opts.materials.loadTexture }) : null;
+  if (materialLibrary !== null && opts.materials !== undefined) {
+    materialLibrary.setMaterials(opts.materials.defs);
+    materialLibrary.setWind(opts.materials.wind);
+  }
+  const materialUndo = new Map<string, () => void>();
+  const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   let camera: THREE.PerspectiveCamera | null = null;
@@ -288,6 +308,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj = new THREE.Group();
     }
     objects.set(e.id, obj);
+    const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
+    if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials));
     entityDocs.set(e.id, e);
     if (own.geometries.length > 0) entityResources.set(e.id, own);
     const parent = e.parentId ? objects.get(e.parentId) : undefined;
@@ -295,6 +317,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
   };
   const releaseEntity = (id: string): void => {
+    materialUndo.get(id)?.();
+    materialUndo.delete(id);
     const obj = objects.get(id);
     obj?.removeFromParent();
     objects.delete(id);
@@ -416,6 +440,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       modelAnimationEntities,
       instanceEntities,
       modelPieces,
+      materialLibrary,
+      entityMaterials: (entityId: string) => (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials ?? null,
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,
@@ -545,7 +571,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const setActivation = (id: string, look: { emissive: string; emissiveIntensity: number } | null): void => {
     objects.get(id)?.traverse((o) => {
-      const mat = (o as THREE.Mesh).material as (THREE.Material & { emissive?: THREE.Color; emissiveIntensity?: number }) | undefined;
+      const mesh = o as THREE.Mesh;
+      // A project material is shared: the glow gets this mesh its own copy first.
+      if (mesh.isMesh === true && mesh.userData['__tlSourceMaterial'] !== undefined && mesh.userData['__tlOwnMaterial'] !== true && !Array.isArray(mesh.material)) {
+        const shared = mesh.material;
+        const own = shared.clone();
+        own.onBeforeCompile = shared.onBeforeCompile;
+        own.customProgramCacheKey = shared.customProgramCacheKey;
+        mesh.material = own;
+        mesh.userData['__tlOwnMaterial'] = true;
+      }
+      const mat = mesh.material as (THREE.Material & { emissive?: THREE.Color; emissiveIntensity?: number }) | undefined;
       if (mat === undefined || Array.isArray(mat) || mat.emissive === undefined) return;
       if (mat.userData.baseEmissive === undefined) {
         mat.userData.baseEmissive = mat.emissive.getHex();
@@ -656,6 +692,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
     syncCheckpointLook();
+    if (materialLibrary !== null && materialLibrary.animated()) {
+      materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
+    }
     // M4 (C64-4, delivery.md (M4) §2.4): one host-driven update per
     // rendered frame, in this order — (1) the transform sync above
     // (unchanged), (2) every live role controller advanced once with the
@@ -809,6 +848,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    materialLibrary?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
     // FIRST — cancel every in-flight prepare, dispose the attached
     // instances (cloned materials + controllers + instances) and the

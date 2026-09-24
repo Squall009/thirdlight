@@ -29,6 +29,7 @@
  * pure owner of the manifest derivation, C36-2); it reuses the M2 canonical
  * helpers and the `./sha256` digest primitives.
  */
+import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateSceneV3, validateSceneV4 } from './scene-v3';
@@ -70,7 +71,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -88,6 +89,8 @@ export const MANIFEST_KEYS_V2 = [
   'settings',
   'game',
   'tags',
+  'materials',
+  'environment',
   'scenes',
   'buffers',
   'assets',
@@ -151,6 +154,8 @@ export interface CapturedAssetV3 {
   metricsDigest: string;
   /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
+  /** Model only (phase 9.4): the default material mapping. */
+  materials?: Record<string, string>;
 }
 
 /** The captured v3 content view (delivery.md §2.3 `contentDigest` preimage). */
@@ -205,6 +210,8 @@ export interface ManifestAssetInputV2 {
   metricsDigest: string;
   /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
+  /** Model only (phase 9.4): the default material mapping. */
+  materials?: Record<string, string>;
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -470,6 +477,7 @@ export function captureContentViewV3(
       recipe: { id: importRecipe.profile, version: importRecipe.recipeVersion },
       metricsDigest: blockDigest(version.metrics),
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
     });
   }
   if (errors.length > 0) return fail(errors);
@@ -509,6 +517,9 @@ export interface CaptureManifestV2Input {
   game: GameConfig | null;
   /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];
+  /** Phase 9.4: the project materials (only when non-empty) and the environment (only when set). */
+  materials?: readonly MaterialDef[];
+  environment?: EnvironmentConfig;
   /**
    * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
    * (`start`) or on demand by the game; present only for a v4 project.
@@ -567,6 +578,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       metricsDigest: a.metricsDigest,
       path: `content/sha256/${a.sourceDigest}`,
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]
@@ -614,6 +626,8 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     settings: input.settings,
     game: input.game,
     ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
+    ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
+    ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
     assets,
@@ -712,6 +726,12 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const tagErrors: ModelErrorV2[] = [];
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
+  }
+  if (d['materials'] !== undefined || d['environment'] !== undefined) {
+    const matErrors: ModelErrorV2[] = [];
+    if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors);
+    if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
+    if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment are not valid', 'field_value') };
   }
 
   if (d['type'] !== RUNTIME_CONTENT_TYPE) {

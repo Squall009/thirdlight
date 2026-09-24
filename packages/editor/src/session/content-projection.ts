@@ -83,9 +83,13 @@ export class ContentProjection {
       case 'setAssetOptions': {
         const a = this.assets.get(change.assetId);
         if (a === undefined) return false;
-        const tint = (change.next as CommandAssetRecord).vertexColors === 'tint';
-        const { vertexColors: _old, ...rest } = a;
-        this.assets.set(change.assetId, tint ? { ...rest, vertexColors: 'tint' } : rest);
+        const next = change.next as CommandAssetRecord & { materials?: Record<string, string> };
+        const { vertexColors: _old, materials: _m, ...rest } = a;
+        this.assets.set(change.assetId, {
+          ...rest,
+          ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+          ...(next.materials !== undefined ? { materials: { ...next.materials } } : {}),
+        });
         return true;
       }
       default:
@@ -112,6 +116,7 @@ export class ContentProjection {
       currentVersion: next.currentVersion,
       versionCount: next.versions.length,
       ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}) } } : {}),
       // `change.next` carries the full record, so the version facts (never
@@ -166,6 +171,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     currentVersion: a.currentVersion,
     versionCount: a.versionCount,
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+    ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),

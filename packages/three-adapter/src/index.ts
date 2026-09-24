@@ -124,3 +124,14 @@ export {
   type VertexColorMode,
 } from './pieces';
 export type { CreateInstanceOptions } from './visual';
+// Phase 9.4: project materials (shader types, global wind) at runtime.
+export {
+  createMaterialLibrary,
+  decodeTexture,
+  DEFAULT_WIND_LIKE,
+  type MaterialDefLike,
+  type MaterialLibrary,
+  type MaterialLibraryOptions,
+  type MaterialShaderName,
+  type WindLike,
+} from './material-library';

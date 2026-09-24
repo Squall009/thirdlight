@@ -34,6 +34,7 @@ import {
   type VisualResourceHandle,
   type VisualResourceStore,
   type VertexColorMode,
+  type MaterialLibrary,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { ProjectedEntity } from '../session/projection';
@@ -59,6 +60,9 @@ export interface ModelInstancesOptions {
   resolveBuffer?: (digest: string) => Promise<Float32Array>;
   /** How an asset's COLOR_0 is used (default: shader data). */
   vertexColorsFor?: (assetId: string) => VertexColorMode;
+  /** Phase 9.4: project materials, and an asset's default material mapping. */
+  materialLibrary?: MaterialLibrary;
+  assetMaterialsFor?: (assetId: string) => Readonly<Record<string, string>> | null;
 }
 
 interface LiveInstance {
@@ -66,6 +70,9 @@ interface LiveInstance {
   holder: THREE.Object3D;
   /** What the instance was built from (`assetId@version:piece:vertexColors`). */
   key: string;
+  /** The material mapping in use (JSON) and how to undo it. */
+  materialsKey: string;
+  undoMaterials: (() => void) | null;
 }
 
 /** Bounded failed-load guard: attempts per `(assetId, version)` before backing off (GG-8). */
@@ -109,7 +116,7 @@ export class ModelInstances {
   /** Phase 12 (c): prepared resources by assetId (instance sets draw from them). */
   private readonly resources = new Map<string, { version: number; resource: PreparedVisualResource }>();
   /** Phase 12 (c): realized instance sets by entity id. */
-  private readonly sets = new Map<string, { key: string; template: ModelInstance; built: BuiltInstanceSet }>();
+  private readonly sets = new Map<string, { key: string; template: ModelInstance; built: BuiltInstanceSet; undoMaterials: (() => void) | null }>();
   private readonly buffers = new Map<string, Float32Array>();
   private readonly bufferLoads = new Set<string>();
   private preview: AssetPreviewSession | null = null;
@@ -159,12 +166,32 @@ export class ModelInstances {
         this.attach(e.id, res.resource.createInstance(this.instanceOptions(e)), this.keyFor(e, res.version));
       }
       if (live && this.options.parentFor === undefined) this.applyTransform(live.holder, e);
+      const liveNow = this.live.get(e.id);
+      if (liveNow !== undefined) this.syncMaterials(liveNow, e);
     }
     for (const [entityId, live] of [...this.live]) {
       if (wanted.has(entityId)) continue;
       this.detach(entityId);
     }
     this.syncSets();
+  }
+
+  /** The object's material mapping: the asset's default overlaid by the object's own. */
+  private mappingFor(e: ProjectedEntity): Record<string, string> | null {
+    const assetId = e.assetId ?? e.instances?.assetId;
+    const base = assetId !== undefined ? this.options.assetMaterialsFor?.(assetId) ?? null : null;
+    if (base === null && e.materials === undefined) return null;
+    return { ...(base ?? {}), ...(e.materials ?? {}) };
+  }
+
+  private syncMaterials(live: LiveInstance, e: ProjectedEntity): void {
+    const lib = this.options.materialLibrary;
+    const mapping = this.mappingFor(e);
+    const key = mapping === null ? '' : JSON.stringify(mapping);
+    if (live.materialsKey === key) return;
+    live.undoMaterials?.();
+    live.undoMaterials = lib !== undefined && mapping !== null ? lib.apply(live.holder, mapping) : null;
+    live.materialsKey = key;
   }
 
   private instanceOptions(e: ProjectedEntity): CreateInstanceOptions {
@@ -235,7 +262,8 @@ export class ModelInstances {
       wanted.add(e.id);
       const res = this.resources.get(ref.assetId);
       const floats = this.buffers.get(ref.buffer);
-      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}`;
+      const mapping = this.mappingFor(e);
+      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${mapping === null ? '' : JSON.stringify(mapping)}`;
       const current = this.sets.get(e.id);
       if (current !== undefined && current.key === key) continue;
       if (res === undefined || floats === undefined) continue;
@@ -248,7 +276,9 @@ export class ModelInstances {
       const parent = this.options.parentFor?.(e.id) ?? null;
       (parent ?? this.scene).add(built.group);
       if (parent === null) this.applyTransform(built.group, e);
-      this.sets.set(e.id, { key, template: created.instance, built });
+      const lib = this.options.materialLibrary;
+      const undoMaterials = lib !== undefined && mapping !== null ? lib.apply(built.group, mapping) : null;
+      this.sets.set(e.id, { key, template: created.instance, built, undoMaterials });
       this.options.onChanged?.();
     }
     for (const id of [...this.sets.keys()]) if (!wanted.has(id)) this.detachSet(id);
@@ -260,6 +290,7 @@ export class ModelInstances {
   private detachSet(entityId: string): void {
     const set = this.sets.get(entityId);
     if (set === undefined) return;
+    set.undoMaterials?.();
     set.built.dispose();
     set.template.dispose();
     this.sets.delete(entityId);
@@ -310,7 +341,10 @@ export class ModelInstances {
     (holder as { entityId?: string }).entityId = entityId;
     const parent = this.options.parentFor?.(entityId) ?? null;
     (parent ?? this.scene).add(holder);
-    this.live.set(entityId, { instance: created.instance, holder, key });
+    const live: LiveInstance = { instance: created.instance, holder, key, materialsKey: '', undoMaterials: null };
+    this.live.set(entityId, live);
+    const ent = this.entities.find((x) => x.id === entityId);
+    if (ent !== undefined) this.syncMaterials(live, ent);
     const e = this.entities.find((x) => x.id === entityId);
     if (e && parent === null) this.applyTransform(holder, e);
     this.options.onChanged?.();
@@ -319,6 +353,7 @@ export class ModelInstances {
   private detach(entityId: string): void {
     const live = this.live.get(entityId);
     if (!live) return;
+    live.undoMaterials?.();
     live.instance.dispose();
     live.holder.parent?.remove(live.holder);
     this.live.delete(entityId);

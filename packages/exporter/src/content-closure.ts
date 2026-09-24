@@ -22,6 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
+import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
 import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -376,6 +377,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       recipe: a.recipe,
       metricsDigest: a.metricsDigest,
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     });
   }
 
@@ -427,6 +429,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     game: view.game,
     // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
+    // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
+    ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined ? { materials: (input.content as { materials: MaterialDef[] }).materials } : {}),
+    ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,
