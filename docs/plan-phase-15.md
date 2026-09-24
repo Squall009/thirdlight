@@ -171,7 +171,7 @@ fixtures (`platformer/src/constants.ts`, `physics-rapier/src/constants.ts`).
 
 | Item | Status | Commits |
 |---|---|---|
-| 15.0 descriptors | todo | |
+| 15.0 descriptors | done 2026-09-24 | 44e8170 |
 | 15.1 generic Inspector | todo | |
 | 15.2 Scene handles, instance copies | todo | |
 | 15.3 tuning values as data | todo | |
