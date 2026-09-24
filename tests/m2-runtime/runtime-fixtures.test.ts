@@ -53,18 +53,18 @@ function v2Scene(controllerCount = 1): any {
   for (let i = 0; i < controllerCount; i += 1) {
     entities.push({ id: `char-${String(i + 1).padStart(4, '0')}`, components: { transform: transform([0, 1, 0]), controller: {} } });
   }
-  return { schemaVersion: 2, sceneId: 'scene-main', revision: 4, entities };
+  return { schemaVersion: 4, sceneId: 'scene-main', revision: 4, entities };
 }
 
 function snapshot(scene: any, projectId = 'demo-0001'): any {
-  return { snapshotId: `${projectId}@r${scene.revision}`, projectId, revision: scene.revision, scene };
+  return { snapshotId: `${projectId}@r${scene.revision}`, projectId, revision: scene.revision, scene, game: null };
 }
 
-/** A valid normalized schemaVersion 1 scene (accepted M1 shape). */
+/** The M1 demo scene (camera + box), now as a v4 scene (phase 9.3). */
 function v1Scene(): any {
   const transform = (position: number[]): any => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   return {
-    schemaVersion: 1,
+    schemaVersion: 4,
     sceneId: 'scene-main',
     revision: 4,
     entities: [
@@ -278,6 +278,11 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
         clock: () => 0,
         ...(c.modules.some((m: string) => m.includes('platformer')) ? { physics: fakePort() } : {}),
       });
+      if (c.reason === 'scene_version') {
+        // Phase 9.3: a v1 scene is no longer a snapshot at all; the
+        // M2-module-on-v1 refusal it pinned cannot happen.
+        continue;
+      }
       if (c.outcome === 'ok') {
         expect(res.ok, `${c.caseId} expected ok`).toBe(true);
         if (res.ok) res.runtime.dispose();
@@ -696,22 +701,7 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
       expect(resTarget.error.reason).toBe(target.expect.reason);
     }
 
-    const version = expectCase('scene_version');
-    const regVersion = createSimulationRegistry();
-    registerSimulationModule(regVersion, platformer.id, platformer);
-    const resVersion = instantiateRuntime({
-      snapshot: snapshot(v1Scene()),
-      registry: regVersion,
-      modules: [platformer.id],
-      driver: { kind: 'manual' },
-      clock: () => 0,
-      physics: fakePort(),
-    });
-    expect(resVersion.ok).toBe(false);
-    if (!resVersion.ok) {
-      expect(resVersion.error.code).toBe(version.expect.code);
-      expect(resVersion.error.reason).toBe(version.expect.reason);
-    }
+    // (The scene_version case pinned an M2 module on a v1 scene; v1 scenes were removed in phase 9.3.)
   });
 
   it('dispose_idempotent / restart_after_failure', () => {

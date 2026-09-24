@@ -4,16 +4,16 @@
  * by .test.ts files; same pattern as project-model's test-fixtures.ts).
  */
 
-/** A valid M1 scene (project-model §9/§10): one camera, one group, one
+/** A valid v4 scene: one camera, one group, one
  *  box under the group (parent before child, §11 order). */
 export function baseScene(): {
-  schemaVersion: 1;
+  schemaVersion: 4;
   sceneId: string;
   revision: number;
   entities: unknown[];
 } {
   return {
-    schemaVersion: 1,
+    schemaVersion: 4,
     sceneId: 'scene-main',
     revision: 4,
     entities: [
@@ -51,6 +51,7 @@ export function snapshotOf(scene: { revision: number }, projectId = 'demo-0001')
     projectId,
     revision,
     scene,
+    game: null,
   };
 }
 

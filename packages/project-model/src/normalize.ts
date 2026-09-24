@@ -22,11 +22,11 @@
 import type { ModelErrorV2, SerializeResult } from './errors';
 import type { Manifest, Scene } from './types';
 import type { ContentCatalog, SceneV2 } from './types-v2';
-import type { ContentCatalogV3, SceneV3 } from './types-v3';
+import type { ContentCatalogV3, ContentCatalogV4, SceneV3, SceneV4 } from './types-v3';
 import { normalizeManifest, normalizeScene } from './validate';
 import { normalizeSceneV2 } from './scene-v2';
-import { normalizeSceneV3 } from './scene-v3';
-import { normalizeContent, normalizeContentV3 } from './content';
+import { normalizeSceneV3, validateSceneV4 } from './scene-v3';
+import { normalizeContent, normalizeContentV3, validateContentV4 } from './content';
 
 /**
  * Emit the §12.2 canonical byte form of a validated manifest or scene
@@ -40,7 +40,7 @@ import { normalizeContent, normalizeContentV3 } from './content';
  */
 /**
  * Emit the §12.2 canonical byte form of a validated manifest, scene
- * (schemaVersion 1 or the embedded v2 scene) or content block document.
+ * (schemaVersion 1–4) or content block (v2, v3, or v4 with `startScenes`).
  *
  * Document kind is dispatched on the document's own top-level fields: a
  * value carrying `sceneId`/`entities` is a scene (validated as v2 when its
@@ -57,19 +57,23 @@ export function serializeCanonical(doc: unknown): SerializeResult {
   const isContent =
     obj !== null &&
     !isScene &&
-    ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game'].some((k) =>
+    ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game', 'startScenes'].some((k) =>
       Object.prototype.hasOwnProperty.call(obj, k),
     );
   const res:
-    | { ok: true; normalized: Manifest | Scene | SceneV2 | SceneV3 | ContentCatalog | ContentCatalogV3 }
+    | { ok: true; normalized: Manifest | Scene | SceneV2 | SceneV3 | SceneV4 | ContentCatalog | ContentCatalogV3 | ContentCatalogV4 }
     | { ok: false; errors: readonly ModelErrorV2[] } = isScene
-    ? obj['schemaVersion'] === 3
+    ? obj['schemaVersion'] === 4
+      ? validateSceneV4(doc)
+      : obj['schemaVersion'] === 3
       ? normalizeSceneV3(doc)
       : obj['schemaVersion'] === 2
         ? normalizeSceneV2(doc)
         : normalizeScene(doc)
     : isContent
-      ? obj !== null && Object.prototype.hasOwnProperty.call(obj, 'game')
+      ? obj !== null && Object.prototype.hasOwnProperty.call(obj, 'startScenes')
+        ? validateContentV4(doc)
+        : obj !== null && Object.prototype.hasOwnProperty.call(obj, 'game')
         ? normalizeContentV3(doc)
         : normalizeContent(doc)
       : normalizeManifest(doc);
@@ -78,7 +82,7 @@ export function serializeCanonical(doc: unknown): SerializeResult {
 }
 
 /** Canonical bytes (§12.2 rule 6) of a canonical document value. */
-function canonicalBytes(doc: Manifest | Scene | SceneV2 | SceneV3 | ContentCatalog | ContentCatalogV3): Uint8Array {
+function canonicalBytes(doc: Manifest | Scene | SceneV2 | SceneV3 | SceneV4 | ContentCatalog | ContentCatalogV3 | ContentCatalogV4): Uint8Array {
   // The normalized document is a fresh plain-object graph with fixed key
   // order and only finite numbers, so JSON.stringify is total here.
   return new TextEncoder().encode(JSON.stringify(doc, null, 2) + '\n');

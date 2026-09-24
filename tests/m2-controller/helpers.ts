@@ -75,7 +75,7 @@ function entityId(index: number): string {
 }
 
 /**
- * A valid `schemaVersion` 2 runtime scene for a course: one camera, the course
+ * A valid `schemaVersion` 4 runtime scene for a course: one camera, the course
  * statics as `components.collider` entities (so the snapshot and the injected
  * port describe the same world) and the single `components.controller`
  * character at `start`.
@@ -118,7 +118,8 @@ export function courseSnapshot(course: CourseFile, start: Vec2): unknown {
     snapshotId: 'demo-0001@r4',
     projectId: 'demo-0001',
     revision: 4,
-    scene: { schemaVersion: 2, sceneId: 'scene-main', revision: 4, entities },
+    scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 4, entities },
+    game: null,
   };
 }
 

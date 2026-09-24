@@ -22,7 +22,7 @@ function snapshotWith(entities: unknown[]): RuntimeSnapshot {
     snapshotId: 'demo-0001@r4',
     projectId: 'demo-0001',
     revision: 4,
-    scene: { schemaVersion: 2, sceneId: 'scene-main', revision: 4, entities },
+    scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 4, entities },
   } as unknown as RuntimeSnapshot;
 }
 
@@ -90,7 +90,7 @@ describe('module behaviour through the contracted StepContext only', () => {
         { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
         { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
       ]),
-      { fixedStepHz: 120, settings, sceneVersion: 2 },
+      { fixedStepHz: 120, settings, sceneVersion: 4 },
     ) as { transformOwners: readonly string[]; step: (p: string, c: StepContext) => void };
     expect(module.transformOwners).toEqual(['char-0001']);
   });
@@ -102,7 +102,7 @@ describe('module behaviour through the contracted StepContext only', () => {
           { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
           { id: 'char-0001', components: { ...TRANSFORM } },
         ]),
-        { fixedStepHz: 120, settings, sceneVersion: 2 },
+        { fixedStepHz: 120, settings, sceneVersion: 4 },
       ),
     ).toThrow(/exactly one components\.controller/);
   });
@@ -119,7 +119,7 @@ describe('module behaviour through the contracted StepContext only', () => {
         { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
         { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
       ]),
-      { fixedStepHz: 120, settings, sceneVersion: 2 },
+      { fixedStepHz: 120, settings, sceneVersion: 4 },
     ) as { step: (p: 'controller' | 'transform', c: StepContext) => void };
 
     last = {
@@ -162,7 +162,7 @@ describe('module behaviour through the contracted StepContext only', () => {
           { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
           { id: 'char-0001', components: { ...TRANSFORM, controller: {} } },
         ]),
-        { fixedStepHz: 120, settings, sceneVersion: 2 },
+        { fixedStepHz: 120, settings, sceneVersion: 4 },
       ) as { step: (p: 'controller' | 'transform', c: StepContext) => void };
       return {
         staged,

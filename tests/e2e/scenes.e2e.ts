@@ -253,3 +253,13 @@ test('a project whose recent commands include scene edits and a checkpoint loads
   expect(q['ok'], JSON.stringify(q).slice(0, 300)).toBe(true);
   expect((q['scenes'] as { name: string }[]).map((s) => s.name)).toContain('Extra room');
 });
+
+test('an edit that changes nothing in a v4 project is refused as no_change and adds no undo step', async () => {
+  be = await startBackend();
+  await cmd('setTransform', { entityId: 'cam-main', transform: { position: [1, 2, 9] } });
+  const rev = Number((await query('queryProject', {})).revision);
+  const again = await be.command({ op: 'setTransform', projectId: be.projectId, expectedRevision: rev, requestId: `req-${'6'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e-scenes' }, args: { entityId: 'cam-main', transform: { position: [1, 2, 9] } } });
+  expect(again['ok']).toBe(false);
+  expect((again['error'] as { code?: string }).code).toBe('no_change');
+  expect(Number((await query('queryProject', {})).revision)).toBe(rev);
+});

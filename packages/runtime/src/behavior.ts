@@ -33,7 +33,6 @@ import type {
   PropertyDeclaration,
   PropertyType,
   PropertyValue,
-  SceneV2,
 } from '@thirdlight/project-model';
 import type { ActionFrame } from './actions';
 import { clipMessage } from './errors';
@@ -724,9 +723,6 @@ export interface BehaviorLogEntry {
   moduleId: string;
   message: string;
 }
-
-/** The v2 scene view this host reads (`components.behavior`). */
-export type BehaviorScene = SceneV2;
 
 export type { BehaviorIntent, IntentSet };
 

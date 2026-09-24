@@ -13,7 +13,7 @@ import { createSimulationRegistry, instantiateRuntime, registerSimulationModule 
 
 /** A valid normalized schemaVersion 2 scene with the M2 component markers. */
 export function v2Scene(): {
-  schemaVersion: 2;
+  schemaVersion: 4;
   sceneId: string;
   revision: number;
   entities: unknown[];
@@ -24,7 +24,7 @@ export function v2Scene(): {
     scale: [1, 1, 1],
   });
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     sceneId: 'scene-main',
     revision: 4,
     entities: [
@@ -69,6 +69,7 @@ export function v2Snapshot(projectId = 'demo-0001'): unknown {
     projectId,
     revision: scene.revision,
     scene,
+    game: null,
   };
 }
 

@@ -153,7 +153,7 @@ async function compileHosted(
 function sceneFor(entries: { entityId: string; behaviorId: string; speed: number }[]): unknown {
   const transform = (position: number[]): unknown => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     sceneId: 'scene-main',
     revision: 1,
     entities: [
@@ -174,7 +174,7 @@ function sceneFor(entries: { entityId: string; behaviorId: string; speed: number
 }
 
 function snapshotOf(scene: unknown): unknown {
-  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene };
+  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene, game: null };
 }
 
 /**

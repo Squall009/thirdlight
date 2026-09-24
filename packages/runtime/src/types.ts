@@ -19,8 +19,6 @@ import type {
   GameplaySettings as ModelGameplaySettings,
   GameZoneRole,
   Quat,
-  Scene,
-  SceneV2,
   ResolvedSceneV3,
   TagDefinition,
   Vec3,
@@ -34,17 +32,14 @@ import type { ErrorCode, RuntimeError } from './errors';
 import type { PhysicsPort, PhysicsStepClient, Vec2 } from './ports';
 
 /** One entity of any supported normalized scene version. */
-export type RuntimeSnapshotEntity =
-  | Scene['entities'][number]
-  | SceneV2['entities'][number]
-  | ResolvedSceneV3['entities'][number];
+export type RuntimeSnapshotEntity = ResolvedSceneV3['entities'][number];
 
 /**
- * A complete normalized scene document of any supported version
- * (project-model §8/§12.2 for `schemaVersion` 1, §13 for 2, §23 for 3).
+ * A complete normalized scene document (project-model §23: `schemaVersion`
+ * 3, or 4 for the merged start scenes).
  */
 export interface RuntimeScene {
-  schemaVersion: 1 | 2 | 3 | 4;
+  schemaVersion: 3 | 4;
   sceneId: string;
   revision: number;
   entities: RuntimeSnapshotEntity[];
@@ -212,8 +207,8 @@ export interface ModuleConfig {
   fixedStepHz: number;
   /** The resolved, deep-frozen gameplay settings (M2 sets). */
   settings: Readonly<GameplaySettings>;
-  /** The snapshot's `schemaVersion` (1, 2 or 3). */
-  sceneVersion: 1 | 2 | 3 | 4;
+  /** The snapshot's `schemaVersion` (3, or 4 for the merged start scenes). */
+  sceneVersion: 3 | 4;
   /**
    * v3 only: the frozen `content.game` block carried inside the snapshot
    * (runtime.md §2 M3 note). `null` on a v3 snapshot whose content has no

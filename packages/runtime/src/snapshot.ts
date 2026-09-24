@@ -5,10 +5,10 @@
  * session layer and the exporter both construct snapshots). Strict shape
  * (unknown fields at the wrapper level ⇒ `snapshot_invalid`
  * `reason: "shape"` with the path), ID/revision rules, and a full
- * `validateScene` re-check (project-model §12.1) — failures carry ≤ 10
+ * `validateSceneV3`/`validateMergedSceneV4` re-check (project-model §23) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { resolveSceneHierarchy, validateMergedSceneV4, validateScene, validateSceneV2, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, type AnimatorController, type TagDefinition, type ModelError, type ModelErrorV2, type ModelErrorV3, type Scene, type SceneV2, type SceneV3, type GameConfig } from '@thirdlight/project-model';
+import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateGameConfig, validateTagRegistry, validateAnimators, type AnimatorController, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type GameConfig } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -53,7 +53,7 @@ export function validateRuntimeSnapshot(
 ):
   | {
       scene: RuntimeScene;
-      sceneVersion: 1 | 2 | 3 | 4;
+      sceneVersion: 3 | 4;
       snapshotId: string;
       projectId: string;
       revision: number;
@@ -143,19 +143,25 @@ export function validateRuntimeSnapshot(
   }
 
   // Re-validate the scene (project-model §12.1/§13/§23): the producer is not
-  // trusted. `schemaVersion` 1 uses `validateScene` (the accepted M1 entry
-  // point), 2 uses `validateSceneV2`, 3 uses `validateSceneV3`. Validation
-  // failures ⇒ snapshot_invalid carrying the project-model error objects
-  // (≤ 10 reported, total count given).
+  // trusted. Only schemaVersion 3 (`validateSceneV3`) and 4 (the merged start
+  // scenes, `validateMergedSceneV4`) are playable; the v1/v2 scene schemas
+  // were removed (phase 9.3). Validation failures ⇒ snapshot_invalid carrying
+  // the project-model error objects (≤ 10 reported, total count given).
   const rawScene = snap.scene as { schemaVersion?: unknown };
   const rawVersion: unknown = rawScene.schemaVersion;
-  const sceneVersion: 1 | 2 | 3 | 4 = rawVersion === 4 ? 4 : rawVersion === 3 ? 3 : rawVersion === 2 ? 2 : 1;
-  // M3 (runtime.md §2): the `game` wrapper field is v3-only and required on
-  // v3 snapshots; an absent-on-v3 or present-on-v1/v2 `game` is a strict-shape
-  // violation. The value check (block rules) runs once the scene is known to
-  // be v3, so v1/v2 scenes never see a `game`-carrying error path.
-  const gamePresent = 'game' in snap;
-  if (sceneVersion >= 3 && !gamePresent) {
+  if (rawVersion !== 3 && rawVersion !== 4) {
+    return {
+      error: {
+        code: 'snapshot_invalid',
+        reason: 'shape',
+        path: '/scene/schemaVersion',
+        message: 'the snapshot scene must be schemaVersion 3 or 4',
+      },
+    };
+  }
+  const sceneVersion: 3 | 4 = rawVersion;
+  // M3 (runtime.md §2): the `game` wrapper field is required (null is legal).
+  if (!('game' in snap)) {
     return {
       error: {
         code: 'snapshot_invalid',
@@ -165,84 +171,41 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  if (sceneVersion < 3 && gamePresent) {
+  const rawGame: GameConfig | null = snap.game === undefined ? null : (snap.game as GameConfig | null);
+  // v4: the start scenes merged into one runtime scene (no per-scene limits).
+  const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
+  if (!sceneResult.ok) {
+    const errors: readonly ModelErrorV3[] = sceneResult.errors;
     return {
       error: {
         code: 'snapshot_invalid',
-        reason: 'shape',
-        path: '/game',
-        message: 'snapshot field "game" is v3-only (absent for schemaVersion 1/2 snapshots)',
+        reason: 'scene_validation',
+        message: clipSceneMessage(errors),
+        errors: errors.slice(0, 10),
+        errorTotal: errors.length,
       },
     };
   }
-  const rawGame: GameConfig | null = snap.game === undefined ? null : (snap.game as GameConfig | null);
-  let scene: RuntimeScene;
-  if (sceneVersion >= 3) {
-    // v4: the start scenes merged into one runtime scene (no per-scene limits).
-    const sceneResult = sceneVersion === 4 ? validateMergedSceneV4(snap.scene) : validateSceneV3(snap.scene);
-    if (!sceneResult.ok) {
-      const errors: readonly ModelErrorV3[] = sceneResult.errors;
+  // Phase 12: the game never sees folders or inactive entities (resolved
+  // once here, at scene load).
+  const scene: RuntimeScene = resolveSceneHierarchy(sceneResult.normalized);
+  // The §23.4 game-block rules (project-model; references inside the block
+  // are resolved by the cross-block check, never here). `null` is legal —
+  // an M3-enabled module set rejects it at instantiate (`game_config`).
+  if (rawGame !== null) {
+    const gameErrors: ModelErrorV2[] = [];
+    validateGameConfig(rawGame, '/game', gameErrors, sceneVersion === 4 ? 2 : 1);
+    if (gameErrors.length > 0) {
       return {
         error: {
           code: 'snapshot_invalid',
           reason: 'scene_validation',
-          message: clipSceneMessage(errors),
-          errors: errors.slice(0, 10),
-          errorTotal: errors.length,
+          message: clipSceneMessage(gameErrors),
+          errors: gameErrors.slice(0, 10),
+          errorTotal: gameErrors.length,
         },
       };
     }
-    // Phase 12: the game never sees folders or inactive entities (resolved
-    // once here, at scene load).
-    scene = resolveSceneHierarchy(sceneResult.normalized);
-    // The §23.4 game-block rules (project-model; references inside the block
-    // are resolved by the cross-block check, never here). `null` is legal —
-    // an M3-enabled module set rejects it at instantiate (`game_config`).
-    if (rawGame !== null) {
-      const gameErrors: ModelErrorV2[] = [];
-      validateGameConfig(rawGame, '/game', gameErrors, sceneVersion === 4 ? 2 : 1);
-      if (gameErrors.length > 0) {
-        return {
-          error: {
-            code: 'snapshot_invalid',
-            reason: 'scene_validation',
-            message: clipSceneMessage(gameErrors),
-            errors: gameErrors.slice(0, 10),
-            errorTotal: gameErrors.length,
-          },
-        };
-      }
-    }
-  } else if (sceneVersion === 2) {
-    const sceneResult = validateSceneV2(snap.scene);
-    if (!sceneResult.ok) {
-      const errors: readonly ModelErrorV2[] = sceneResult.errors;
-      return {
-        error: {
-          code: 'snapshot_invalid',
-          reason: 'scene_validation',
-          message: clipSceneMessage(errors),
-          errors: errors.slice(0, 10),
-          errorTotal: errors.length,
-        },
-      };
-    }
-    scene = sceneResult.normalized;
-  } else {
-    const sceneResult = validateScene(snap.scene);
-    if (!sceneResult.ok) {
-      const errors: readonly ModelError[] = sceneResult.errors;
-      return {
-        error: {
-          code: 'snapshot_invalid',
-          reason: 'scene_validation',
-          message: clipSceneMessage(errors),
-          errors: errors.slice(0, 10), // runtime.md §2: ≤ 10 reported, total count given
-          errorTotal: errors.length,
-        },
-      };
-    }
-    scene = sceneResult.normalized;
   }
   if (scene.revision !== revision) {
     return {
@@ -266,9 +229,6 @@ export function validateRuntimeSnapshot(
   // Phase 12 (b): the optional v3 tag registry.
   let tags: readonly TagDefinition[] = [];
   if (snap.tags !== undefined) {
-    if (sceneVersion < 3) {
-      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/tags', message: 'snapshot field "tags" is v3-only' } };
-    }
     const tagErrors: ModelErrorV2[] = [];
     validateTagRegistry(snap.tags, '/tags', tagErrors);
     if (tagErrors.length > 0) {
@@ -323,7 +283,7 @@ export function validateRuntimeSnapshot(
   return { scene, sceneVersion, snapshotId, projectId, revision, game: rawGame, tags, scenes, animators };
 }
 
-function clipSceneMessage(errors: readonly (ModelError | ModelErrorV2 | ModelErrorV3)[]): string {
+function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): string {
   const first = errors[0];
   const firstPart = first ? `; first: ${first.code} at ${first.path}` : '';
   const msg = `scene validation failed: ${errors.length} error(s)${firstPart}`;

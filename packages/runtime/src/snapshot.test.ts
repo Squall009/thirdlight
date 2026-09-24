@@ -88,7 +88,7 @@ describe('snapshot validation (runtime.md §2)', () => {
     for (const revision of [-1, 1.5, 2 ** 53, Number.MAX_SAFE_INTEGER + 1]) {
       const scene = cloneJson(baseScene());
       scene.revision = revision;
-      const snap = { snapshotId: 'demo-0001@r0', projectId: 'demo-0001', revision, scene };
+      const snap = { snapshotId: 'demo-0001@r0', projectId: 'demo-0001', revision, scene, game: null };
       const err = badSnapshot(snap);
       expect(err.code).toBe('snapshot_invalid');
       expect(err.reason).toBe('shape');
@@ -98,7 +98,7 @@ describe('snapshot validation (runtime.md §2)', () => {
     // to match) — only the bounds are tested here.
     const scene = cloneJson(baseScene());
     const okLow = instantiateRuntime({
-      snapshot: { snapshotId: 'demo-0001@r4', projectId: 'demo-0001', revision: 4, scene },
+      snapshot: { snapshotId: 'demo-0001@r4', projectId: 'demo-0001', revision: 4, scene, game: null },
       registry: registryWithDemo(),
       driver: { kind: 'manual' },
     });
@@ -113,6 +113,7 @@ describe('snapshot validation (runtime.md §2)', () => {
       projectId: 'demo-0001',
       revision: 5,
       scene: { ...cloneJson(baseScene()), revision: 5 },
+      game: null,
     };
     const err = badSnapshot(snap);
     expect(err.code).toBe('snapshot_invalid');
@@ -125,6 +126,7 @@ describe('snapshot validation (runtime.md §2)', () => {
       projectId: 'demo-0001',
       revision: 5,
       scene: cloneJson(baseScene()), // scene.revision 4
+      game: null,
     };
     const err = badSnapshot(snap);
     expect(err.code).toBe('snapshot_invalid');

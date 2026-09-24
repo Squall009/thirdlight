@@ -5,11 +5,11 @@
  * package's tests/fixtures (dependencies.md §3).
  */
 
-/** A valid M1 scene (project-model §9/§10): one camera, one group, one
+/** A valid v4 scene: one camera, one group, one
  *  box under the group (parent before child, §11 order). */
-export function baseScene(): { schemaVersion: 1; sceneId: string; revision: number; entities: unknown[] } {
+export function baseScene(): { schemaVersion: 4; sceneId: string; revision: number; entities: unknown[] } {
   return {
-    schemaVersion: 1,
+    schemaVersion: 4,
     sceneId: 'scene-main',
     revision: 7,
     entities: [
@@ -42,7 +42,7 @@ export function baseScene(): { schemaVersion: 1; sceneId: string; revision: numb
 /** A well-formed runtime snapshot over `scene`. */
 export function snapshotOf(scene: { revision: number }, projectId = 'demo-0001'): unknown {
   const revision = scene.revision;
-  return { snapshotId: `${projectId}@r${revision}`, projectId, revision, scene };
+  return { snapshotId: `${projectId}@r${revision}`, projectId, revision, scene, game: null };
 }
 
 /** Plain JSON clone. */

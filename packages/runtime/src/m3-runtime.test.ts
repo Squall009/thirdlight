@@ -399,8 +399,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
         driver: { kind: 'manual' },
       }));
 
-    // An M3 module with a non-v3 scene (v2 and v1 — both without the v3-only
-    // `game` wrapper field, which snapshot validation refuses first).
+    // A v1/v2 scene is not a playable snapshot at all (phase 9.3).
     const v2SceneNoGame = { schemaVersion: 2, sceneId: 'scene-main', revision: 1, entities: [
       {
         id: 'cam-main',
@@ -410,10 +409,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
         },
       },
     ] };
-    expect(bad({ snapshotId: 'demo-t49@r1', projectId: 'demo-t49', revision: 1, scene: v2SceneNoGame }, [STUB_GAMEPLAY, STUB_CAMERA])).toMatchObject({
-      code: 'config_invalid',
-      reason: 'scene_version',
-    });
+    expect(bad({ snapshotId: 'demo-t49@r1', projectId: 'demo-t49', revision: 1, scene: v2SceneNoGame }, [STUB_GAMEPLAY, STUB_CAMERA])).toMatchObject({ code: 'snapshot_invalid' });
     const v1Scene = {
       schemaVersion: 1,
       sceneId: 'scene-main',
@@ -428,10 +424,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
         },
       ],
     };
-    expect(bad({ snapshotId: 'demo-t49@r1', projectId: 'demo-t49', revision: 1, scene: v1Scene }, [STUB_GAMEPLAY, STUB_CAMERA])).toMatchObject({
-      code: 'config_invalid',
-      reason: 'scene_version',
-    });
+    expect(bad({ snapshotId: 'demo-t49@r1', projectId: 'demo-t49', revision: 1, scene: v1Scene }, [STUB_GAMEPLAY, STUB_CAMERA])).toMatchObject({ code: 'snapshot_invalid' });
     // A null game block.
     expect(bad(v3Snapshot(undefined, null), [STUB_GAMEPLAY, STUB_CAMERA])).toMatchObject({
       code: 'config_invalid',
@@ -494,8 +487,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
       reason: 'shape',
       path: '/game',
     });
-    // The `game` wrapper field is refused on a v1/v2 snapshot (shape, before
-    // any scene validation runs).
+    // A v2 scene is refused whatever it carries (phase 9.3: v3/v4 only).
     const v2WithGame = errOf(
       instantiateRuntime({
         snapshot: { snapshotId: 'demo-t49@r1', projectId: 'demo-t49', revision: 1, scene: v2Scene, game: gameBlock() },
@@ -504,7 +496,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
         driver: { kind: 'manual' },
       }),
     );
-    expect(v2WithGame).toMatchObject({ code: 'snapshot_invalid', reason: 'shape', path: '/game' });
+    expect(v2WithGame).toMatchObject({ code: 'snapshot_invalid', reason: 'shape', path: '/scene/schemaVersion' });
     // A malformed game block (a missing required field).
     const badGame = cloneJson(gameBlock()) as Record<string, unknown>;
     delete badGame.killY;
@@ -526,7 +518,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
         projectId: 'demo-t49',
         revision: 1,
         scene: {
-          schemaVersion: 2,
+          schemaVersion: 4,
           sceneId: 'scene-main',
           revision: 1,
           entities: [
@@ -539,6 +531,7 @@ describe('M3 runtime wiring (gameplay.md §3/§6.1/§7.1; runtime.md §15)', () 
             },
           ],
         },
+        game: null,
       },
       registry: registryWith(demoSpec),
       modules: ['thirdlight.teststub:transform'],

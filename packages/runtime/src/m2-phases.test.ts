@@ -217,7 +217,7 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
     expect(err).toMatchObject({ code: 'module_combination_unsupported' });
   });
 
-  it('controller set without a port ⇒ config_invalid physics_port; controller count ≠ 1 ⇒ controller_target; v1 scene ⇒ scene_version', () => {
+  it('controller set without a port ⇒ config_invalid physics_port; controller count ≠ 1 ⇒ controller_target; v1/v2 scene ⇒ snapshot_invalid', () => {
     const controller = probeSpec({
       id: 'thirdlight.platformer:controller',
       phases: ['controller', 'transform'],
@@ -237,12 +237,14 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
         projectId: 'demo-0001',
         revision: 4,
         scene: noController,
+        game: null,
       }),
     ).toMatchObject({ code: 'config_invalid', reason: 'controller_target' });
 
+    // Phase 9.3: a v1/v2 scene is no longer a playable snapshot at all.
     expect(
-      instantiateError([controller.id], [controller], undefined, makeFakePort(), snapshotOf(cloneJson(baseScene()))),
-    ).toMatchObject({ code: 'config_invalid', reason: 'scene_version' });
+      instantiateError([controller.id], [controller], undefined, makeFakePort(), snapshotOf({ ...cloneJson(baseScene()), schemaVersion: 2 } as { revision: number })),
+    ).toMatchObject({ code: 'snapshot_invalid' });
   });
 
   it('an M1 module participating in an M2 set runs in the implicit transform phase', () => {

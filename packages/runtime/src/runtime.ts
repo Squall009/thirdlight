@@ -582,7 +582,7 @@ export function instantiateRuntime(
   // Phase 12: for a v3 scene, modules see the scene with folders and
   // inactive entities resolved away (the input stays frozen as well).
   const inputSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
-  const frozenSnapshot = sceneVersion >= 3 ? deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot) : inputSnapshot;
+  const frozenSnapshot = deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot);
 
   // Resolve + deep-freeze the gameplay settings (runtime.md §3.1/§12.2).
   const settingsResult = resolveSettings(settings);
@@ -592,25 +592,13 @@ export function instantiateRuntime(
   // M2/M3 module-set validation (runtime.md §12.4) — before any instance is
   // created and before any port method is called.
   const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
-  const controllerIds =
-    sceneVersion >= 2
-      ? scene.entities
-          .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
-          .map((e) => e.id)
-      : [];
+  const controllerIds = scene.entities
+    .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
+    .map((e) => e.id);
   const sceneCameraEntity = scene.entities.find((e) => (e.components as { camera?: unknown }).camera !== undefined);
   if (isM2) {
     if (isM3) {
       // ---- M3 composition (gameplay.md §3.4; runtime.md §12.4 supersession)
-      if (sceneVersion < 3) {
-        return {
-          ok: false,
-          error: fail('config_invalid', 'an M3 module requires a schemaVersion 3 snapshot scene', {
-            reason: 'scene_version',
-            path: '/modules',
-          }),
-        };
-      }
       if (game === null) {
         return {
           ok: false,
@@ -663,14 +651,6 @@ export function instantiateRuntime(
           }),
         };
       }
-    } else if (sceneVersion !== 2) {
-      return {
-        ok: false,
-        error: fail('config_invalid', 'an M2 module requires a schemaVersion 2 snapshot scene', {
-          reason: 'scene_version',
-          path: '/modules',
-        }),
-      };
     }
     const selectedIds = new Set(selected.map((s) => s.id));
     for (const spec of selected) {
@@ -832,7 +812,7 @@ export function instantiateRuntime(
     settings: resolvedSettings,
     sceneVersion,
     // M3 (runtime.md §12.1/§15): the frozen `content.game` block, v3 only.
-    ...(sceneVersion >= 3 ? { game } : {}),
+    game,
     behaviorLog: (level: BehaviorLogLevel, message: string) => logSink.handler?.(specId, level, message),
     ...(liveTags !== null ? { tags: liveTags } : {}),
   });

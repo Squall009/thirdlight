@@ -106,11 +106,11 @@ function sceneWithBehaviors(
       },
     });
   }
-  return { schemaVersion: 2, sceneId: 'scene-main', revision: 1, entities };
+  return { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
 }
 
 function snapshot(scene: unknown): unknown {
-  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene };
+  return { snapshotId: 'demo-0001@r1', projectId: 'demo-0001', revision: 1, scene, game: null };
 }
 
 interface Harness {

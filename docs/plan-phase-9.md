@@ -555,7 +555,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
 | 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | done 2026-09-24 | see git log "Phase 11" |
-| 9.3 one schema version (phase 8 rest) | deferred to after 9.13 (see §6) | |
+| 9.3 one schema version (phase 8 rest) | runtime part done 2026-09-24; commands/workspace/project-model and the corpus remain (see §6) | see git log "9.3" |
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
 | 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
@@ -565,7 +565,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.10 game flow, menus, HUD, audio | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.10" |
 | 9.11 save system | done 2026-09-24 | see git log "9.11" |
 | 9.12 placeholders, icons, gizmos | done 2026-09-24 (owner look pending) | see git log "9.12" |
-| 9.13 Sprout demo levels | todo | |
+| 9.13 Sprout demo levels | done 2026-09-24 (owner look pending) | see git log "9.13"; Sprout 10e0b5a + level-script static pieces (not pushed) |
 | 9.14 wrap-up | todo | |
 
 ## 6. Decision log
@@ -710,3 +710,37 @@ Add one dated line per decision taken during the run (what, why).
   ranges and trigger/switch areas already existed; 9.12 added collider
   outlines, waypoint handles and the Gizmos menu. Sensor shapes other than
   boxes do not exist yet, so none are drawn.
+- 2026-09-24 (9.13): the levels are built by a script in Sprout
+  (`art/scripts/levels/meadow_levels_build.mjs`) through the HTTP command
+  API — the same commands as the editor and MCP; a rerun clears and rebuilds
+  them. Playthrough facts (headless: real game host, Rapier and the saved
+  scenes, driven by a raycasting bot in
+  `tests/integration/sprout-meadows`): Meadow 1 15.1 s, 0 deaths; Meadow 2
+  22.0 s, 2 deaths (boars); title → both levels → end screen. The export
+  served statically starts at the title and plays Meadow 1 (screenshots);
+  headless Play on this server renders on the CPU (~4.5 fps), so it only
+  checks that Meadow 1 runs. Found and fixed on the way: a texture sky was
+  upside down (WebGL ignores flipY for an ImageBitmap; the sky now goes
+  through a canvas), a gate rising beside the player was a physics port
+  error (the kinematic move is now allowed slack), scene commands and a
+  historical checkpoint's spawn broke reloading from retry records.
+  Known limits: a player pushing into a rising gate gets lifted and wedged
+  (the gates open fast and sit apart from the switch); the player capsule
+  is the engine's 1.8 m while Sprout is ~1 m tall; boars are kinematic
+  boxes without a defeat animation. Final Blender bakes of both levels on
+  the 5090 (from the Lighting window, `sprout-live.e2e.ts` with
+  TL_SPROUT_BAKE): Meadow 1 105 static kit pieces in 53 s, Meadow 2 104 in
+  65 s, one lightmap each; the level script marks every non-moving kit piece
+  static. Also fixed: an edit that changes nothing in a v4 project was not
+  refused as `no_change` (the canonical serializer had no v4 branch).
+- 2026-09-24 (9.3, returned to after 9.13): time-boxed. Done: the runtime
+  plays only v3/v4 snapshot scenes (v1/v2 are `snapshot_invalid`), its
+  types are v3/v4 only, and every runtime/adapter/platformer test scene is
+  v4. Left, because it hangs on rewriting the v1 `fixtures/commands`
+  generator (~1,300 lines, 85 files) in v4: the v1/v2 arms in commands
+  (`gateResultState`), the v1/v2 envelopes and migrations in workspace, new
+  projects still built from an M1 default scene then upgraded, and the
+  v1/v2 scene validators in project-model (v3/v4 reuse many of their
+  component validators, so they move rather than go). Nothing of this is
+  reachable from the product; a plain grep for `schemaVersion: 2` can never
+  reach zero because the v4 manifest is `schemaVersion: 2`.

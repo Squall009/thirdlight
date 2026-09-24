@@ -102,3 +102,39 @@ test('Sprout on the live service: the editor, Play and the export', async ({ pag
   }
   expect(errors).toEqual([]);
 });
+
+/**
+ * Opt-in (TL_SPROUT_BAKE=1 as well): the final Blender bake of both Sprout
+ * levels on the live service's bake host, from the Lighting window with each
+ * level open. It writes lightmaps into the project (new undo steps).
+ */
+test('Sprout on the live service: final Blender bake of both levels', async ({ page }) => {
+  test.skip(LIVE === undefined || process.env['TL_SPROUT_BAKE'] === undefined || !existsSync(TOKEN_FILE), 'needs TL_SPROUT_LIVE, TL_SPROUT_BAKE and the owner token');
+  test.setTimeout(3_600_000);
+  mkdirSync(SHOTS, { recursive: true });
+  const token = readFileSync(TOKEN_FILE, 'utf8').trim();
+  await page.goto(`${LIVE}/?project=sprout#token=${token}`);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 30_000 });
+  for (const level of ['Meadow 1', 'Meadow 2']) {
+    const head = page.locator('.tl-scene-header').filter({ has: page.locator('.tl-scene-header__name', { hasText: new RegExp(`^${level}$`) }) });
+    if ((await head.count()) === 0) await page.getByLabel('open scene', { exact: true }).selectOption({ label: level });
+    await head.locator('.tl-scene-header__name').click();
+    await expect(head).toContainText('ACTIVE', { ignoreCase: true, timeout: 10_000 });
+    await page.waitForTimeout(4000); // models load: the bake package is built from them
+    await page.getByRole('tab', { name: 'Lighting' }).click();
+    await expect(page.locator('.tl-lighting .tl-panel__title')).toContainText(level);
+    const bake = page.getByRole('button', { name: 'Bake final (Blender)' });
+    await expect(bake).toBeEnabled();
+    const started = Date.now();
+    await bake.click();
+    const status = page.locator('[aria-label="bake status"]');
+    for (let i = 0; !((await status.textContent()) ?? '').includes('Final (Blender) bake'); i++) {
+      if (i > 340) throw new Error(`bake did not finish: ${await page.locator('.tl-lighting').textContent()}`);
+      if (i % 6 === 0) process.stderr.write(`[bake ${level}] ${Math.round((Date.now() - started) / 1000)} s: ${((await page.locator('.tl-lighting').textContent()) ?? '').slice(-200)} | ${((await page.getByRole('status').first().textContent()) ?? '').slice(0, 200)}\n`);
+      await page.waitForTimeout(5000);
+    }
+    await expect(bake).toBeEnabled({ timeout: 60_000 });
+    process.stderr.write(`Sprout bake ${level}: ${((Date.now() - started) / 1000).toFixed(1)} s — ${await page.locator('[aria-label="bake status"]').textContent()} — ${await page.getByRole('status').first().textContent()}\n`);
+    await page.screenshot({ path: join(SHOTS, `bake-${level.replace(' ', '-').toLowerCase()}.png`) });
+  }
+});
