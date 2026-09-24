@@ -245,3 +245,4 @@ fixtures (`platformer/src/constants.ts`, `physics-rapier/src/constants.ts`).
 - Stick dead zone 0.2: `input/src/types.ts:28`, `input/src/actions.ts:52`.
 - Editor dock/tabs: `editor/src/ui/App.tsx` (`centerTab` state, `BOTTOM_TABS`),
   `editor/src/ui/layout.ts` (dock sizes).
+- 2026-09-24 (run): 15.3 and 15.4 were built in parallel with 15.1 and merged before 15.2 (which needs the descriptor-driven Inspector and the tuning fields to exist); items were started in order, only the merge order differs.
