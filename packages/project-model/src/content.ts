@@ -235,7 +235,9 @@ const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevi
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'components']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision']);
 const KNOWN_DECLARATION_FIELDS = new Set(['properties']);
-const KNOWN_PROPERTY_FIELDS = new Set(['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds']);
+const KNOWN_PROPERTY_FIELDS = new Set(['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds', 'visibility', 'group', 'header', 'tooltip']);
+/** Phase 15.4: the optional presentation texts of a declared property and their length caps. */
+const PROPERTY_TEXT_FIELDS = [['group', 64], ['header', 64], ['tooltip', 256]] as const;
 const KNOWN_BOUNDS_FIELDS = new Set(['min', 'max']);
 const KNOWN_SOURCE_FIELDS = new Set([
   'sourceDigest',
@@ -247,6 +249,7 @@ const KNOWN_SOURCE_FIELDS = new Set([
   'outputByteLength',
   'requiredModules',
   'ownedTransforms',
+  'declaredInCode',
   'publishedRevision',
 ]);
 const KNOWN_TRUST_FIELDS = new Set(['entries']);
@@ -1140,6 +1143,15 @@ function checkPropertyValueShape(
   }
 }
 
+/** Phase 15.4: no C0 control character or DEL (the declared text fields). */
+function isControlFreeText(v: string): boolean {
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c <= 0x1f || c === 0x7f) return false;
+  }
+  return true;
+}
+
 function validateDeclaredProperty(p: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(p)) {
     errors.push(fieldType(path, p, 'object'));
@@ -1218,6 +1230,19 @@ function validateDeclaredProperty(p: unknown, path: string, errors: ModelErrorV2
       }
     }
   }
+  // Phase 15.4: visibility (absent = public) and the Inspector texts.
+  const visibility = p['visibility'];
+  if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
+    errors.push(fieldValue(`${path}/visibility`, visibility, '"public" or "private"', 'property visibility must be "public" or "private"'));
+  }
+  for (const [field, max] of PROPERTY_TEXT_FIELDS) {
+    const v = p[field];
+    if (v === undefined) continue;
+    if (typeof v !== 'string') errors.push(fieldType(`${path}/${field}`, v, 'string'));
+    else if (v.length < 1 || v.length > max || !isControlFreeText(v)) {
+      errors.push(fieldValue(`${path}/${field}`, v, `string, 1-${max} chars, no control characters`, `property ${field} must be 1-${max} characters without control characters`));
+    }
+  }
   for (const k of Object.keys(p)) {
     if (!KNOWN_PROPERTY_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_PROPERTY_FIELDS].join(', ')));
   }
@@ -1279,6 +1304,10 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
         else if (i > 0 && typeof owned[i - 1] === 'string' && (owned[i - 1] as string) >= id) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'ascending unique entries', 'ownedTransforms must be ascending and unique'));
       });
     }
+  }
+  // Phase 15.4: present only as `true` (the declaration was derived from the code).
+  if (s['declaredInCode'] !== undefined && s['declaredInCode'] !== true) {
+    errors.push(fieldValue(`${path}/declaredInCode`, s['declaredInCode'], 'true or absent', 'declaredInCode is absent or true'));
   }
   const published = s['publishedRevision'];
   if (published === undefined) errors.push(fieldMissing(`${path}/publishedRevision`, 'publishedRevision'));
@@ -1624,6 +1653,11 @@ function canonicalProperty(p: DeclaredProperty): DeclaredProperty {
   if (p.maxLength !== undefined) out.maxLength = p.maxLength;
   if (p.values !== undefined) out.values = [...p.values];
   if (p.bounds !== undefined) out.bounds = { min: [...p.bounds.min], max: [...p.bounds.max] };
+  // Phase 15.4: public is the default and is omitted (older declarations stay byte-identical).
+  if (p.visibility === 'private') out.visibility = 'private';
+  if (p.group !== undefined) out.group = p.group;
+  if (p.header !== undefined) out.header = p.header;
+  if (p.tooltip !== undefined) out.tooltip = p.tooltip;
   return out;
 }
 
@@ -1645,6 +1679,7 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
             outputByteLength: b.source.outputByteLength,
             requiredModules: [...b.source.requiredModules],
             ...(b.source.ownedTransforms !== undefined && b.source.ownedTransforms.length > 0 ? { ownedTransforms: [...b.source.ownedTransforms] } : {}),
+            ...(b.source.declaredInCode === true ? { declaredInCode: true as const } : {}),
             publishedRevision: b.source.publishedRevision,
           },
     publishedRevision: b.publishedRevision,

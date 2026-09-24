@@ -59,6 +59,8 @@ export const ERROR_CODES = [
   'property_type',
   'property_value',
   'property_declaration_incompatible',
+  // phase 15.4: a private declared property is not settable per object.
+  'property_private',
   'setting_unknown',
   'reference_in_use',
   'asset_not_found',
@@ -496,6 +498,21 @@ export function propertyUnknown(behaviorId: string | undefined, key: string): Co
     message: 'the behavior declaration does not declare this property key',
   };
   return e;
+}
+
+/**
+ * Phase 15.4: a value for a private declared property (not settable per
+ * object: the script reads the declared default).
+ */
+export function propertyPrivate(behaviorId: string | undefined, key: string): CommandError {
+  return {
+    code: 'property_private',
+    cls: 'validation',
+    ...(behaviorId !== undefined ? { behaviorId } : {}),
+    key,
+    message: 'the property is private: objects cannot set it (the script reads its declared default)',
+    hint: 'make the property public in the behavior declaration to set it per object',
+  };
 }
 
 /** §5.4/§20.5: a value does not match its declared property type. */

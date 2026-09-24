@@ -12,12 +12,15 @@
  * door, not a second validator.
  *
  * Property shape (project-model §20.5): seven types, canonical field order
- * `key, label, type, default, min, max, step, maxLength, values, bounds`.
+ * `key, label, type, default, min, max, step, maxLength, values, bounds`;
+ * phase 15.4 adds `visibility` (absent = public; `"public"` is normalized
+ * away), `group`, `header` and `tooltip`.
  */
 
 import {
   assetReferenceMissing,
   fieldValue,
+  propertyPrivate,
   propertyType,
   propertyTypeDetail,
   propertyUnknown,
@@ -43,6 +46,17 @@ const TYPES: readonly PropertyType[] = [
   'entityRef',
   'assetRef',
 ];
+
+/** The declared-property fields (phase 15.4: visibility, group, header, tooltip). */
+const DECLARED_PROPERTY_FIELDS: readonly string[] = ['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds', 'visibility', 'group', 'header', 'tooltip'];
+
+/** Phase 15.4: the optional Inspector texts of a declared property and their caps. */
+const PROPERTY_TEXTS: readonly (readonly ['group' | 'header' | 'tooltip', number])[] = [['group', 64], ['header', 64], ['tooltip', 256]];
+
+/** Phase 15.4: whether a declared property is private (absent visibility = public). */
+export function isPrivateProperty(p: { visibility?: string }): boolean {
+  return p.visibility === 'private';
+}
 
 /** Reference-resolution context for value checks. */
 export interface ValueContext {
@@ -131,7 +145,7 @@ function checkDeclaredProperty(
   }
   const p = prop as Record<string, unknown>;
   for (const field of Object.keys(p)) {
-    if (!['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds'].includes(field)) {
+    if (!DECLARED_PROPERTY_FIELDS.includes(field)) {
       return {
         ok: false,
         error: {
@@ -139,7 +153,7 @@ function checkDeclaredProperty(
           cls: 'validation',
           path: `${path}/${field}`,
           found: field,
-          expected: 'key, label, type, default, min, max, step, maxLength, values, bounds',
+          expected: DECLARED_PROPERTY_FIELDS.join(', '),
           message: 'unknown declared-property field',
         },
       };
@@ -248,10 +262,28 @@ function checkDeclaredProperty(
       }
     }
   }
+  // Phase 15.4: visibility and the Inspector texts.
+  const visibility = p['visibility'];
+  if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
+    return { ok: false, error: declarationValueError(key, visibility, '"public" or "private"', 'property visibility must be "public" or "private"') };
+  }
+  for (const [field, max] of PROPERTY_TEXTS) {
+    const v = p[field];
+    if (v === undefined) continue;
+    if (typeof v !== 'string' || v.length < 1 || v.length > max || !isControlFree(v)) {
+      return { ok: false, error: declarationValueError(key, v, `string, 1-${max} chars, no control characters`, `property ${field} must be 1-${max} characters without control characters`) };
+    }
+  }
   // The default must satisfy the property's own constraints.
   const ctx: ValueContext = { entityIds: new Set(), assetIds: new Set() };
   const checked = checkPropertyValue(pt, key, def, p, ctx, true);
   if (!checked.ok) return { ok: false, error: checked.error };
+  // Public is the default: the stored record omits it (the canonical form).
+  if (visibility === 'public') {
+    const { visibility: _public, ...rest } = p;
+    void _public;
+    return { ok: true, prop: rest as unknown as DeclaredProperty };
+  }
   return { ok: true, prop: p as unknown as DeclaredProperty };
 }
 
@@ -553,8 +585,9 @@ export function validateDeclaration(
 
 /**
  * Check a provided value map against a declaration and fill defaults
- * (§8.9 step 4/5): every provided key must be declared and type-check; the
- * result contains every declared key in declaration order.
+ * (§8.9 step 4/5): every provided key must be declared, public (phase 15.4)
+ * and type-check; the result contains every public declared key in
+ * declaration order.
  */
 export function fillDeclaredValues(
   declaration: PropertyDeclaration,
@@ -569,10 +602,16 @@ export function fillDeclaredValues(
     declaration.properties.map((p) => [p.key, p]),
   );
   for (const key of Object.keys(provided)) {
-    if (!byKey.has(key)) return { ok: false, error: propertyUnknown(behaviorId, key) };
+    const prop = byKey.get(key);
+    if (prop === undefined) return { ok: false, error: propertyUnknown(behaviorId, key) };
+    // Phase 15.4: a private property is not settable per object.
+    if (isPrivateProperty(prop)) return { ok: false, error: propertyPrivate(behaviorId, key) };
   }
   const values: Record<string, PropertyValue> = {};
   for (const prop of declaration.properties) {
+    // Phase 15.4: private properties are never stored (the script reads the
+    // default); a value left from when the property was public is dropped.
+    if (isPrivateProperty(prop)) continue;
     const providedValue = Object.prototype.hasOwnProperty.call(provided, prop.key);
     // Omitted keys keep the existing stored value when the component already
     // has one (§20.8.3: changing a default affects NEW values only); a fresh

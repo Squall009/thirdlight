@@ -169,7 +169,8 @@ export function entityRefLinks(
   if (declaration === undefined) return [];
   const out: { key: string; entityId: string }[] = [];
   for (const prop of declaration.properties) {
-    if (prop.type !== 'entityRef') continue;
+    // Phase 15.4: a private property's stored value is inert (never read).
+    if (prop.type !== 'entityRef' || prop.visibility === 'private') continue;
     const value = entity.behavior.values[prop.key];
     if (typeof value === 'string') out.push({ key: prop.key, entityId: value });
   }
@@ -472,6 +473,12 @@ export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ com
           key: override.key,
           expected: `one of: ${declaration.properties.map((p) => p.key).join(', ')}`,
         },
+      };
+    }
+    if (prop.visibility === 'private') {
+      return {
+        ok: false,
+        error: { code: 'property_private', message: `"${override.key}" is private: copies cannot set it`, path: '/args/overrides', key: override.key, localId: override.localId },
       };
     }
     const invalid = validatePropertyValue(prop, override.value);

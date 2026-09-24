@@ -695,7 +695,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   /** The §20 wire observation (+ the player position), or null without a game. */
-  const observation = (h: M3PreviewHandle): Record<string, unknown> | null => {
+  const observation = (h: M3PreviewHandle, entityId?: string): Record<string, unknown> | null => {
     const gv = h.host.runtime.getGameView();
     const obs = h.host.observe();
     if (!gv.ok || !obs.ok) return null;
@@ -737,12 +737,14 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
       // Phase 14.5: the title background and the camera's offset behind the title menu.
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
+      // Phase 15.4: the requested entity's script property values (public and private), read-only.
+      ...(entityId !== undefined ? { behaviors: behaviorValues(h.host.runtime, entityId) } : {}),
     };
   };
 
   bridge.on('tl.game.observe', (m) => {
-    const body = m as { relayId: string };
-    const o = handle === null ? null : observation(handle);
+    const body = m as { relayId: string; entityId?: string };
+    const o = handle === null ? null : observation(handle, body.entityId);
     if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has no game session' } });
     else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
   });
@@ -807,6 +809,25 @@ function gameCounters(runtime: unknown): { counters?: Record<string, number>; he
   if (g === undefined) return {};
   const entries = Object.entries(g.counters).slice(0, 32);
   return { ...(entries.length > 0 ? { counters: Object.fromEntries(entries) } : {}), ...(g.health !== null ? { health: g.health } : {}) };
+}
+
+/**
+ * Phase 15.4: the property values the running scripts on `entityId` read
+ * (public and private; at most 8 scripts, strings clipped to 64 characters so
+ * the observation stays inside its 16 KiB bound). Read from the running
+ * runtime — the editor never runs game code.
+ */
+function behaviorValues(runtime: unknown, entityId: string): { entityId: string; scripts: unknown[] } {
+  type View = { behaviorId: string; properties: { key: string; label: string; type: string; visibility: string; value: unknown }[] };
+  const views = (runtime as { behaviorProperties?: (id: string) => View[] }).behaviorProperties?.(entityId) ?? [];
+  const clip = (v: unknown): unknown => (typeof v === 'string' && v.length > 64 ? `${v.slice(0, 63)}…` : Array.isArray(v) ? [...v] : v);
+  return {
+    entityId,
+    scripts: views.slice(0, 8).map((v) => ({
+      behaviorId: v.behaviorId,
+      properties: v.properties.slice(0, 32).map((p) => ({ key: p.key, label: p.label, type: p.type, visibility: p.visibility, value: clip(p.value) })),
+    })),
+  };
 }
 
 /** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */

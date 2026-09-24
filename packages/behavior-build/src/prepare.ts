@@ -35,6 +35,7 @@ export function preparedSourceFrom(result: BehaviorCompileSuccess): PreparedBeha
     requiredModules: [...m.requiredModules],
     ownedTransforms: [...m.ownedTransforms],
     declaration: { properties: m.declaration.properties.map((p) => ({ ...p })) },
+    ...(m.declaredInCode === true ? { declaredInCode: true as const } : {}),
     declarationDigest: result.declarationDigest,
     recipeDigest: result.recipeDigest,
     compiler: { ...m.compiler },

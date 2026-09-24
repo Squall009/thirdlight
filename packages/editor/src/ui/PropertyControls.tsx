@@ -43,9 +43,10 @@ function PropertyRow({
     onCommit(raw);
   };
   return (
-    <div className="tl-prop">
+    <div className="tl-prop" data-property={control.key} title={control.tooltip}>
+      {control.header !== undefined && <div className="tl-prop__header">{control.header}</div>}
       <div className="tl-prop__head">
-        <span className="tl-prop__label" title={control.key}>
+        <span className="tl-prop__label" title={control.tooltip ?? control.key}>
           {control.label}
         </span>
         <span className="tl-prop__type">{control.type}</span>
@@ -106,13 +107,22 @@ export function PropertyControlList({
   controls: readonly PropertyControl[];
   onCommit: (key: string, raw: string) => void;
 }): JSX.Element {
-  if (controls.length === 0) return <div className="tl-inspector__empty">no declared properties</div>;
+  if (controls.length === 0) return <div className="tl-inspector__empty">no public properties</div>;
+  // Remount on a committed value change so the input re-seeds from the
+  // authoritative value (the row keeps local draft state while typing).
+  const row = (c: PropertyControl): JSX.Element => <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} />;
+  // Phase 15.4: ungrouped properties first, then one foldable section per
+  // group (in the order the groups first appear in the declaration).
+  const groups: string[] = [];
+  for (const c of controls) if (c.group !== undefined && !groups.includes(c.group)) groups.push(c.group);
   return (
     <div className="tl-props">
-      {controls.map((c) => (
-        // Remount on a committed value change so the input re-seeds from the
-        // authoritative value (the row keeps local draft state while typing).
-        <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} />
+      {controls.filter((c) => c.group === undefined).map(row)}
+      {groups.map((g) => (
+        <details className="tl-props__group" key={`group:${g}`} open data-group={g}>
+          <summary className="tl-props__group-title">{g}</summary>
+          {controls.filter((c) => c.group === g).map(row)}
+        </details>
       ))}
     </div>
   );

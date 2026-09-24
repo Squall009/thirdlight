@@ -724,6 +724,58 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
 
+### Script properties: public and private
+
+A script declares the properties objects give it (`ctx.properties.<key>`):
+number, boolean, text, choice (enum), vector, object or asset. Each one is
+**public** (the default) or **private**, like Unity's public/private
+fields:
+
+- **Public**: shown in the Inspector of every object carrying the script
+  and set per object there (or with `setBehaviorProperties`). Optional
+  `group` (the Inspector section it is listed in), `header` (a heading
+  above it) and `tooltip` (hover help).
+- **Private**: not shown and not settable per object or per prefab copy
+  (refused with `property_private`); the script always reads the declared
+  default. A property made private later keeps any old per-object value
+  in the file, unused, until that object's properties are next set.
+- An object stores only the public values it sets; a key added to a script
+  in use reads its default until set.
+
+Declare them in Bottom dock → **Behaviors**: "+ New behavior" (or select a
+behavior) opens the declaration editor — key, label, type, default,
+visibility, group, header, tooltip and the type's limits (min/max/step,
+max length, choices, vector bounds) — and one save publishes the whole
+declaration (one undo step). Saving no longer detaches the behavior's
+published source.
+
+Or declare them in the script itself, in `src/index.ts`:
+
+```ts
+export const properties = {
+  speed: property.number(3, { min: 0, group: 'Movement', tooltip: 'Metres per second' }),
+  secret: property.private.number(1),
+  mode: property.enum('walk', { values: ['walk', 'run'] }),
+};
+```
+
+`property[.public|.private].<number|boolean|string|enum|vec3|entityRef|assetRef>(default, options?)`
+with literal values; options: label (default: the key in words), min, max,
+step, maxLength, values, bounds, group, header, tooltip. The compiler reads
+it without running the code and publishes it as the declaration: **the code
+wins** over any JSON declaration sent with the source (the source route then
+needs none), so the two cannot drift. Such a declaration shows read-only in
+the Behaviors tab, and a JSON `declaration-update` of it is refused
+(`behavior_declaration_mismatch`, reason `declared_in_code`): change the
+source. The source still publishes into an existing behavior record. A
+script without that export keeps using its JSON declaration.
+
+**Play debug view**: while Play runs, selecting an object that carries a
+script shows under the Inspector the values its running script reads —
+public and private — read-only, refreshed twice a second (read from the
+running game over the game-observe relay; the editor runs no game code).
+`tl_game_observe {entityId}` returns the same values as `behaviors`.
+
 ## Game flow, menus and music
 
 Bottom dock → **Game flow** turns a scene into a game with levels (v4

@@ -104,6 +104,8 @@ import { FogVolumeEditor, LightEditor } from './LightEditor';
 import { BLOCK_DEFAULTS, BlocksEditor } from './BlocksEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
+import type { DeclarationSave } from './DeclarationEditor';
+import { PlayDebugView } from './PlayDebugView';
 import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
@@ -291,9 +293,34 @@ function EditorApp(): JSX.Element {
       else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId));
       else if (type === 'input.request') b.requestInput(psid, String(req.requestId), req.frames as never);
       else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command), typeof req.sceneId === 'string' ? req.sceneId : undefined);
-      else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId));
+      else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId), typeof req.entityId === 'string' ? req.entityId : undefined);
     };
   }, [playInfo]);
+
+  /**
+   * Phase 15.4: one observation of the running Play with `entityId`'s script
+   * property values (the Play debug view) — over the preview bridge, answered
+   * by the preview from the running game; null when nothing answers in 2 s.
+   */
+  const observeEntity = useCallback(
+    (entityId: string): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const b = bridgeRef.current;
+        if (b === null || playInfo === null) {
+          resolve(null);
+          return;
+        }
+        let hex = '';
+        for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+        const relayId = `relay-${hex}`;
+        debugWaitersRef.current.set(relayId, resolve);
+        b.requestGameObserve(playInfo.playSessionId, relayId, entityId);
+        window.setTimeout(() => {
+          if (debugWaitersRef.current.delete(relayId)) resolve(null);
+        }, 2000);
+      }),
+    [playInfo],
+  );
 
   // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
   const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
@@ -348,6 +375,8 @@ function EditorApp(): JSX.Element {
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
   const localRelaysRef = useRef(new Set<string>());
+  /** Phase 15.4: the editor's own observation requests (the Play debug view), by relay id. */
+  const debugWaitersRef = useRef(new Map<string, (r: Record<string, unknown> | null) => void>());
   // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
   const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
   const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
@@ -421,10 +450,6 @@ function EditorApp(): JSX.Element {
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
   const [sourceDraft, setSourceDraft] = useState('');
   const [behaviorError, setBehaviorError] = useState<UiError | null>(null);
-  const [newBehaviorId, setNewBehaviorId] = useState('');
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [newPropertyKey, setNewPropertyKey] = useState('speed');
-  const [newPropertyDefault, setNewPropertyDefault] = useState('3.5');
   // The generated prefabId for the current selection (stable while selected).
   const captureIdRef = useRef<string | null>(null);
 
@@ -1080,6 +1105,13 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.game.observe.result', (m) => {
       const r = m as Record<string, unknown>;
+      // Phase 15.4: the Play debug view's own observations are not the backend's relays.
+      const waiter = debugWaitersRef.current.get(String(r.relayId));
+      if (waiter !== undefined) {
+        debugWaitersRef.current.delete(String(r.relayId));
+        waiter(r.ok === true && typeof r.result === 'object' && r.result !== null ? (r.result as Record<string, unknown>) : null);
+        return;
+      }
       ack({ type: 'game.observe.ack', relayId: r.relayId, ...outcome(r, ['result']) });
     });
 
@@ -2643,6 +2675,7 @@ function EditorApp(): JSX.Element {
         declaration: view.declaration,
         sourceDigest: staged.digest,
         sourceByteLength: staged.byteLength,
+        stageId: staged.stageId,
       },
       c.projection.revision,
     );
@@ -2657,33 +2690,24 @@ function EditorApp(): JSX.Element {
     refreshEntities();
   }, [behaviorViews, selectedBehaviorId, publication, refreshEntities]);
 
-  const createDeclaration = useCallback(async () => {
-    const c = clientRef.current;
-    if (!c) return;
-    setBehaviorError(null);
-    const parsed = Number(newPropertyDefault);
-    const declaration = {
-      properties: [
-        {
-          key: newPropertyKey,
-          label: newPropertyKey,
-          type: 'number' as const,
-          default: Number.isFinite(parsed) ? parsed : 0,
-        },
-      ],
-    };
-    const res = await c.publishBehaviorDeclaration(
-      { behaviorId: newBehaviorId, displayName: newDisplayName || newBehaviorId, mode: 'declaration-create', declaration },
-      c.projection.revision,
-    );
-    if (!res.ok) {
-      const r = res.response;
-      setBehaviorError(r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code });
-      return;
-    }
-    setSelectedBehaviorId(newBehaviorId);
-    refreshEntities();
-  }, [newBehaviorId, newDisplayName, newPropertyDefault, newPropertyKey, refreshEntities]);
+  /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
+  const saveDeclaration = useCallback(
+    async (save: DeclarationSave): Promise<boolean> => {
+      const c = clientRef.current;
+      if (!c) return false;
+      setBehaviorError(null);
+      const res = await c.publishBehaviorDeclaration(save, c.projection.revision);
+      if (!res.ok) {
+        const r = res.response;
+        setBehaviorError(r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code });
+        return false;
+      }
+      setSelectedBehaviorId(save.behaviorId);
+      refreshEntities();
+      return true;
+    },
+    [refreshEntities],
+  );
 
   // A rejected token is forgotten and asked for again; an unknown project
   // goes back to the picker.
@@ -3158,10 +3182,6 @@ function EditorApp(): JSX.Element {
               sourceDraft={sourceDraft}
               activePlay={playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null}
               error={behaviorError}
-              newBehaviorId={newBehaviorId}
-              newDisplayName={newDisplayName}
-              newPropertyKey={newPropertyKey}
-              newPropertyDefault={newPropertyDefault}
               onSelect={(id) => {
                 setSelectedBehaviorId(id);
                 setBehaviorError(null);
@@ -3170,11 +3190,7 @@ function EditorApp(): JSX.Element {
               onStage={() => void stageBehaviorSource()}
               onAcknowledge={(digest) => void acknowledgeDigest(digest)}
               onPublishSource={() => void publishStagedSource()}
-              onNewBehaviorId={setNewBehaviorId}
-              onNewDisplayName={setNewDisplayName}
-              onNewPropertyKey={setNewPropertyKey}
-              onNewPropertyDefault={setNewPropertyDefault}
-              onCreateDeclaration={() => void createDeclaration()}
+              onSaveDeclaration={saveDeclaration}
             />
           )}
           {bottomTab === 'gameplay' && (
@@ -3414,6 +3430,9 @@ function EditorApp(): JSX.Element {
             </>
           }
         />
+        {playing && playInfo !== null && selected !== null && selected.behaviorId !== undefined && (
+          <PlayDebugView entityId={selected.id} observe={observeEntity} />
+        )}
         </div>
       </div>
       <StatusBar state={ui} onResync={resync} />

@@ -581,7 +581,7 @@ function contentDoc(extra: Obj = {}): Obj {
   };
 }
 const PROPERTY_BASES: Obj[] = [
-  { key: 'speed', label: 'Speed', type: 'number', default: 5, min: 0, max: 10, step: 0.5 },
+  { key: 'speed', label: 'Speed', type: 'number', default: 5, min: 0, max: 10, step: 0.5, visibility: 'private', group: 'Movement', header: 'Tuning', tooltip: 'How fast.' },
   { key: 'title', label: 'Title', type: 'string', default: 'hi', maxLength: 32 },
   { key: 'mood', label: 'Mood', type: 'enum', default: 'calm', values: ['calm', 'angry'] },
   { key: 'offset', label: 'Offset', type: 'vec3', default: [0, 0, 0], bounds: { min: [-1, -1, -1], max: [1, 1, 1] } },

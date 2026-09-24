@@ -395,6 +395,16 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
   if (existing === null && catalog.behaviors.length + 1 > 64) {
     return { ok: false, error: limitsExceeded('behaviors', catalog.behaviors.length + 1, 64) };
   }
+  // Phase 15.4: a declaration derived from the code is edited in the code.
+  if (existing !== null && args.mode === 'declaration-update' && existing.source?.declaredInCode === true) {
+    return {
+      ok: false,
+      error: {
+        ...behaviorDeclarationMismatch(args.behaviorId, 'declared_in_code'),
+        message: 'this behavior declares its properties in its source (export const properties): edit and publish the source instead; nothing was written',
+      },
+    };
+  }
   // step 6: declaration-update compatibility against every existing use.
   if (existing !== null && args.mode === 'declaration-update') {
     const uses = collectBehaviorUses(input.scene, catalog, args.behaviorId);
@@ -411,7 +421,10 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
     behaviorId: args.behaviorId,
     displayName: args.displayName,
     declaration: dv.declaration,
-    source: null,
+    // Phase 15.4: an update keeps the published script (its compiled code
+    // does not embed the declaration: the host feeds the record's values), so
+    // tuning a declaration no longer detaches the source.
+    source: existing !== null && args.mode === 'declaration-update' && existing.source !== null ? deepClone(existing.source) : null,
     publishedRevision: input.revision,
   };
   return finishBehaviorPublication(input, catalog, record, existing);
@@ -531,6 +544,8 @@ function applyPublishBehaviorSource(
       requiredModules: [...prepared.requiredModules],
       // Phase 14.1: the owners travel with the record (Play and the export read them).
       ...(prepared.ownedTransforms.length > 0 ? { ownedTransforms: [...prepared.ownedTransforms] } : {}),
+      // Phase 15.4: the declaration comes from the code (editors show it read-only).
+      ...(prepared.declaredInCode === true ? { declaredInCode: true as const } : {}),
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,

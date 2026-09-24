@@ -638,3 +638,19 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-input-action__listen { color: #f2b544; }
 .tl-animator__preview { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 200px; border: 1px solid var(--border);
   border-radius: 4px; margin: 6px 0; }
+
+/* Phase 15.4: script property visibility — Inspector groups/headers, the declaration editor, the Play debug view. */
+.tl-prop__header { font-weight: 600; font-size: 11px; margin: 6px 0 2px; }
+.tl-props__group { margin-top: 4px; border-top: 1px solid var(--line); }
+.tl-props__group-title { cursor: pointer; font-size: 11px; color: var(--text-dim); padding: 3px 0; }
+.tl-decl { margin-top: 8px; }
+.tl-decl__props { border: 0; margin: 0; padding: 0; min-width: 0; }
+.tl-decl__prop { border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; margin-top: 6px; }
+.tl-decl__prop[data-visibility="private"] { border-style: dashed; }
+.tl-decl__row { display: flex; gap: 6px; align-items: flex-end; flex-wrap: wrap; margin-top: 4px; }
+.tl-decl__field { display: flex; flex-direction: column; flex: 1 1 7em; min-width: 4em; }
+.tl-decl__name { font-size: 10px; color: var(--muted); }
+.tl-decl__tools { display: flex; gap: 2px; }
+.tl-prop__input.is-invalid { outline: 1px solid #d05050; }
+.tl-playdebug__script { margin-top: 4px; }
+.tl-playdebug .tl-comp__field[data-visibility="private"] .tl-comp__name { font-style: italic; }

@@ -193,8 +193,8 @@ export function makeGameControlRequest(relayId: string, command: string, expecte
 }
 
 /** §20.1 observation request forwarded to the owner editor. */
-export function makeGameObserveRequest(relayId: string, timeoutMs: number): string {
-  return emit({ type: 'game.observe.request', relayId, timeoutMs });
+export function makeGameObserveRequest(relayId: string, timeoutMs: number, entityId?: string): string {
+  return emit({ type: 'game.observe.request', relayId, timeoutMs, ...(entityId !== undefined ? { entityId } : {}) });
 }
 
 export function makeErrorEvent(

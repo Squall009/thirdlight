@@ -43,10 +43,11 @@ import {
   prefabNestedForbidden,
   prefabNotFound,
   propertyOverrideUnknown,
+  propertyPrivate,
   referenceMissing,
 } from './errors';
 import { contentOf, type OpInput } from './content-ops';
-import { checkOverrideValue, type ValueContext } from './properties';
+import { checkOverrideValue, isPrivateProperty, type ValueContext } from './properties';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type {
   CreatePrefabArgs,
@@ -176,7 +177,8 @@ function findExternalReference(
   for (const b of catalog.behaviors) {
     refKeys.set(
       b.behaviorId,
-      b.declaration.properties.filter((p) => p.type === 'entityRef').map((p) => p.key),
+      // Phase 15.4: a private property's stored value is inert (never read).
+      b.declaration.properties.filter((p) => p.type === 'entityRef' && !isPrivateProperty(p)).map((p) => p.key),
     );
   }
   for (const e of closure) {
@@ -397,8 +399,9 @@ function buildInstanceEntity(
   const recorded = de.components.behavior;
   if (recorded !== undefined) {
     const declaration = declarations.get(recorded.behaviorId);
+    // Phase 15.4: private properties are never stored on the copy.
     const keys =
-      declaration !== undefined ? declaration.map((p) => p.key) : Object.keys(recorded.values);
+      declaration !== undefined ? declaration.filter((p) => !isPrivateProperty(p)).map((p) => p.key) : Object.keys(recorded.values);
     const byKey = new Map((declaration ?? []).map((p) => [p.key, p]));
     const values: Record<string, PropertyValue> = {};
     for (const key of keys) {
@@ -467,6 +470,8 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
     if (prop === undefined) {
       return { ok: false, error: propertyOverrideUnknown(behavior?.behaviorId, override.key) };
     }
+    // Phase 15.4: a private property is not overridable per copy.
+    if (isPrivateProperty(prop)) return { ok: false, error: propertyPrivate(behavior?.behaviorId, override.key) };
     const checked = checkOverrideValue(prop, override.key, override.value, ctx, args.prefabId);
     if (!checked.ok) return checked;
     overrides.set(pairKey(override.localId, override.key), override.value);

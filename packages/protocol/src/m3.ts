@@ -551,13 +551,26 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
 
 export interface GameObserveRequest {
   timeoutMs: number;
+  /** Phase 15.4: also read the property values of this entity's running scripts (`behaviors`). */
+  entityId?: string;
 }
 
-/** Parse the §20 observation request body `{ timeoutMs? }` (250–15 000, default 5 000). */
+/**
+ * Parse the §20 observation request body `{ timeoutMs?, entityId? }`
+ * (250–15 000, default 5 000; phase 15.4: `entityId` adds the entity's
+ * script property values, public and private, read-only).
+ */
 export function parseGameObserveRequest(value: unknown): { ok: true; request: GameObserveRequest } | { ok: false; error: SessionError } {
-  const shape = checkShape(value ?? {}, '', new Map([['timeoutMs', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`]]), []);
+  const shape = checkShape(value ?? {}, '', new Map([['timeoutMs', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`], ['entityId', 'an entity id (optional)']]), []);
   if (!shape.ok) return { ok: false, error: shape.error };
-  if (shape.value.timeoutMs === undefined) return { ok: true, request: { timeoutMs: GAME_OBSERVE_TIMEOUT_DEFAULT_MS } };
+  let entityId: string | undefined;
+  if (shape.value.entityId !== undefined) {
+    const e = checkField(shape.value, 'entityId', '', 'an entity id', (v) => (typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v) ? null : { problem: 'entityId must be an entity id', kind: 'value' }));
+    if (!e.ok) return { ok: false, error: e.error };
+    entityId = e.value as string;
+  }
+  const withEntity = (r: GameObserveRequest): GameObserveRequest => (entityId !== undefined ? { ...r, entityId } : r);
+  if (shape.value.timeoutMs === undefined) return { ok: true, request: withEntity({ timeoutMs: GAME_OBSERVE_TIMEOUT_DEFAULT_MS }) };
   const t = checkField(shape.value, 'timeoutMs', '', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`, (v) => {
     if (typeof v !== 'number' || !Number.isInteger(v)) return { problem: 'timeoutMs must be an integer', kind: 'type' };
     if (v < GAME_OBSERVE_TIMEOUT_MIN_MS || v > GAME_OBSERVE_TIMEOUT_MAX_MS) {
@@ -566,7 +579,7 @@ export function parseGameObserveRequest(value: unknown): { ok: true; request: Ga
     return null;
   });
   if (!t.ok) return { ok: false, error: t.error };
-  return { ok: true, request: { timeoutMs: t.value as number } };
+  return { ok: true, request: withEntity({ timeoutMs: t.value as number }) };
 }
 
 function utf8Bytes(value: unknown): number | null {
@@ -730,6 +743,13 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (value.animators !== undefined) {
     if (!isPlainObject(value.animators) || Object.keys(value.animators).length > 64 || !Object.values(value.animators).every((x) => typeof x === 'string')) {
       return fieldError('field_type', '/animators', 'animators maps entity ids to state names (at most 64)');
+    }
+  }
+  // Phase 15.4: the optional script-property block of the requested entity.
+  if (value.behaviors !== undefined) {
+    const b = value.behaviors;
+    if (!isPlainObject(b) || typeof b['entityId'] !== 'string' || !Array.isArray(b['scripts']) || b['scripts'].length > 8) {
+      return fieldError('field_type', '/behaviors', 'behaviors is { entityId, scripts: [{ behaviorId, properties: [{ key, label, type, visibility, value }] }] } (at most 8 scripts)');
     }
   }
   // Phase 9.10: the optional game-flow block.

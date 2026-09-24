@@ -973,6 +973,8 @@ export interface PreparedBehaviorSourceFact {
   requiredModules: string[];
   ownedTransforms: string[];
   declaration: PropertyDeclaration;
+  /** Phase 15.4: the declaration was derived from `export const properties` in the code. */
+  declaredInCode?: true;
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };

@@ -202,13 +202,17 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
     case 'tl.game.observe': {
       // Phase 12 (c): loadScene / unloadScene carry the scene id.
       const sceneCommand = m['command'] === 'loadScene' || m['command'] === 'unloadScene';
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : [])] : ['v', 'type', 'playSessionId', 'relayId'];
+      // Phase 15.4: an observation may name an entity (its script property values).
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
       if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'].includes(String(m['command']))) {
         return { ok: false, reason: 'command must be start, replay, mute, unmute, loadScene or unloadScene', path: '/command' };
+      }
+      if (type === 'tl.game.observe' && m['entityId'] !== undefined && (typeof m['entityId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['entityId']))) {
+        return { ok: false, reason: 'entityId must be an entity id', path: '/entityId' };
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
