@@ -676,9 +676,11 @@ Add one dated line per decision taken during the run (what, why).
   enemy `chase` (toward a player in range, within its patrol limits, sets
   the Animator's `attacking`), a squash-then-vanish defeat, `health.start`
   and `knockback`, a pickup `cue` (an audio asset, played through the sfx
-  bus) and a trigger `exitSignal`. Still not built: sensor stay events and
-  shapes other than boxes, `overlapBox/Circle` for scripts, and the extra
-  script intents (rotation/scale, set active, spawn/destroy, timers). Known limit: a player spawn inside a
+  bus), a trigger `exitSignal`, and for scripts `ctx.physics.overlapBox/
+  overlapCircle` (sharing the 32 queries per step with rays) and
+  `ctx.game.setVisible`. Still not built: sensor stay events and shapes
+  other than boxes, and the extra script intents (rotation/scale,
+  spawn/destroy, timers). Known limit: a player spawn inside a
   one-way platform counts as blocked. Blocks need v4 projects.
 - 2026-09-24 (9.10): the game flow is a new optional content block
   `content.flow` (not a `content.game` field: game fields are all required

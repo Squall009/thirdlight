@@ -572,15 +572,22 @@ under Gameplay ("+ Add gameplay component"):
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box collider it carries the player standing on it and
   pushes a player it moves into. The Scene view draws its path.
-- **Trigger** — an area that sends a signal when the player enters it.
+- **Trigger** — an area that sends a signal when the player enters it
+  (and, if set, another one when the player leaves it).
 - **Switch** — `interact` (the interact action while inside) or `stand`
   (a pressure plate); sends a signal.
-- **Health** — on the player: max health and invulnerability after a hit.
-  Without it an enemy touch or a hazard is a death, as before.
+- **Health** — on the player: max health, the health a level starts with,
+  invulnerability after a hit and a knockback (the player is pushed away
+  from what hurt it). Without it an enemy touch or a hazard is a death, as
+  before.
 - **Pickup** — coin, gem, heart (heals), extra life, key or a custom counter;
-  collected pickups disappear; "comes back" on death if wanted.
+  collected pickups disappear; "comes back" on death if wanted; a collect
+  sound (an audio asset) if wanted.
 - **Enemy** — walks between two x offsets or until a ledge/wall, hurts on
-  contact, can be defeated by jumping on it (the player bounces).
+  contact, can be defeated by jumping on it (the player bounces; the enemy
+  squashes, then vanishes). With "chases the player within" it walks toward
+  a player that near (still inside its range / not off a ledge); its
+  Animator gets `speed`, `attacking` (chasing), `hurt` and `defeated`.
 - A collider's **one-way** flag: jump up through it, land on it from above,
   Down + Jump drops through. A hazard zone's **damage** takes health instead
   of a life.
@@ -588,8 +595,12 @@ under Gameplay ("+ Add gameplay component"):
 The HUD shows the counters and health ("Coins 2 · Health 3/3").
 `tl_game_observe` reports `counters` and `health`. Scripts use
 `ctx.signals.emit(name)` / `.on(name)` (seen the next step),
-`ctx.game.counter(name)` / `.add(name, n)` / `.health()`, and
-`ctx.physics.raycast(origin, direction, maxDistance)` (32 per step).
+`ctx.game.counter(name)` / `.add(name, n)` / `.health()` /
+`.setVisible(entityId, visible)` (until the next run; it still collides),
+and `ctx.physics.raycast(origin, direction, maxDistance)`,
+`.overlapBox(center, half)` and `.overlapCircle(center, radius)` (the
+entities whose colliders overlap, never the player; 32 queries per step in
+all).
 
 ## Game flow, menus and music
 

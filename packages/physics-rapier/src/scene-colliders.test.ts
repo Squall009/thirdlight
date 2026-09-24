@@ -51,4 +51,21 @@ describe('scene colliders (phase 12 c)', () => {
     expect(p.diagnostics().worldColliderCount).toBe(before.worldColliderCount);
     p.dispose();
   });
+
+  it('phase 9.9: overlap queries find the colliders in a box or a circle, never the character', async () => {
+    const p = await port();
+    p.addStaticColliders([
+      { entityId: 'crate-a', shape: { type: 'box', hx: 0.5, hy: 0.5 }, position: { x: 3, y: 1.5 }, rotationZ: 0 },
+      { entityId: 'crate-b', shape: { type: 'box', hx: 0.5, hy: 0.5 }, position: { x: 6, y: 1.5 }, rotationZ: 0 },
+    ]);
+    p.stageCharacterMove({ x: 0, y: 0 });
+    p.step();
+    expect(p.overlap({ type: 'box', hx: 1, hy: 0.4 }, { x: 3.2, y: 1.5 })).toEqual(['crate-a']);
+    expect(p.overlap({ type: 'box', hx: 2, hy: 0.4 }, { x: 4.5, y: 1.5 })).toEqual(['crate-a', 'crate-b']);
+    expect(p.overlap({ type: 'circle', radius: 0.6 }, { x: 6.9, y: 1.5 })).toEqual(['crate-b']);
+    expect(p.overlap({ type: 'circle', radius: 0.4 }, { x: 4.5, y: 1.5 })).toEqual([]);
+    expect(p.overlap({ type: 'box', hx: 0.5, hy: 0.5 }, { x: 20, y: 1.5 })).toEqual([]); // the character is not reported
+    expect(p.overlap({ type: 'box', hx: -1, hy: 1 }, { x: 3, y: 1.5 })).toEqual([]);
+    p.dispose();
+  });
 });

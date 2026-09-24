@@ -1219,6 +1219,9 @@ class RuntimeInstance implements Runtime {
       if (typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name)) this.blocks?.addCounter(name, Number(delta));
     },
     health: (): { current: number; max: number } | null => this.blocks?.healthView() ?? null,
+    setVisible: (entityId: string, visible: boolean): void => {
+      if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
+    },
   });
   /** Phase 9.10: sounds scripts asked for since the host last took them (bounded). */
   private audioQueue: { assetId: string; volume: number; stepIndex: number }[] = [];
@@ -3032,11 +3035,21 @@ class RuntimeInstance implements Runtime {
   private readonly physicsClient: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
     characterResult: (): CharacterMoveResult | undefined => this.lastCharacterResult,
-    // Phase 9.9: at most 32 rays per step for modules and scripts.
+    // Phase 9.9: at most 32 queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
       if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
       this.raycastsThisStep += 1;
       return this.physics.raycast(origin, direction, maxDistance);
+    },
+    overlapBox: (center: Vec2, half: Vec2): string[] => {
+      if (this.raycastsThisStep >= 32 || this.physics?.overlap === undefined || half === null || typeof half !== 'object') return [];
+      this.raycastsThisStep += 1;
+      return this.physics.overlap({ type: 'box', hx: Number(half.x), hy: Number(half.y) }, { x: Number(center?.x), y: Number(center?.y) });
+    },
+    overlapCircle: (center: Vec2, radius: number): string[] => {
+      if (this.raycastsThisStep >= 32 || this.physics?.overlap === undefined) return [];
+      this.raycastsThisStep += 1;
+      return this.physics.overlap({ type: 'circle', radius: Number(radius) }, { x: Number(center?.x), y: Number(center?.y) });
     },
   };
 

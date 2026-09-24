@@ -16,7 +16,7 @@
  * correction/support result.
  */
 import * as RAPIER from '@dimforge/rapier2d-compat';
-import type { CharacterClearanceResult, CharacterMoveResult, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
+import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 import {
   AUTOSTEP_DISABLED,
@@ -595,6 +595,27 @@ function createAdapter(
       if (hit === null) return null;
       const entityId = colliderInfo.get(hit.collider.handle)?.entityId;
       return entityId === undefined ? null : { entityId, distance: hit.timeOfImpact, normal: { x: hit.normal.x, y: hit.normal.y } };
+    },
+
+    overlap(shape: OverlapShape, center: Vec2): string[] {
+      assertLive('overlap');
+      if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) return [];
+      const s =
+        shape.type === 'box'
+          ? Number.isFinite(shape.hx) && Number.isFinite(shape.hy) && shape.hx > 0 && shape.hy > 0
+            ? new RAPIER.Cuboid(Math.min(shape.hx, 500), Math.min(shape.hy, 500))
+            : null
+          : Number.isFinite(shape.radius) && shape.radius > 0
+            ? new RAPIER.Ball(Math.min(shape.radius, 500))
+            : null;
+      if (s === null) return [];
+      const ids = new Set<string>();
+      world.intersectionsWithShape({ x: center.x, y: center.y }, 0, s, (c) => {
+        const id = colliderInfo.get(c.handle)?.entityId;
+        if (id !== undefined) ids.add(id);
+        return ids.size < 64;
+      }, undefined, undefined, characterCollider);
+      return [...ids].sort();
     },
 
     reset(next: Vec2): void {

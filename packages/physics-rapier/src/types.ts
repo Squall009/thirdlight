@@ -14,7 +14,7 @@
  * refuse an unsupported transform instead of silently flattening it
  * (physics.md §4).
  */
-import type { CharacterClearanceResult, CharacterMoveResult, PhysicsResetPort, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
+import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, PhysicsResetPort, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 /** Validated collider shape vocabulary (project-model §10.7/§21.3). */
 export interface ColliderShapeBox {
@@ -112,6 +112,8 @@ export interface RapierPhysicsPort extends PhysicsResetPort {
   /** Phase 12 (c): the static colliders of a loaded / unloaded scene. */
   addStaticColliders(specs: readonly StaticColliderSpec[]): void;
   removeStaticColliders(entityIds: readonly string[]): void;
+  /** Phase 9.9: the entities whose colliders overlap a box or circle (the character excluded), sorted, at most 64. */
+  overlap(shape: OverlapShape, center: Vec2): string[];
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }

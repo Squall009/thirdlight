@@ -14,8 +14,8 @@
  * Thirdlight M1 play/runtime core (docs/contracts/runtime.md, packet 08)
  * plus the M2 module-set lifecycle (packet 29, runtime.md §12/§13):
  *
- * - the runtime snapshot input (strict, re-validated, deep-frozen; v1, v2
- *   and M3 v3 with the `game` wrapper field);
+ * - the runtime snapshot input (strict, re-validated, deep-frozen; v3 and
+ *   v4 scenes with the `game` wrapper field — v1/v2 were removed in 9.3);
  * - the instantiate/start/stop/dispose lifecycle with a single frame-driver
  *   owner, the `failed` state and fail-stop (no rollback, fresh restart only);
  * - the separate mutable simulation state and the phase-scoped write guard;
@@ -60,6 +60,7 @@ export {
   type PhysicsResetPort,
   type PhysicsStepClient,
   type StaticColliderSpec,
+  type OverlapShape,
   type Vec2,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';

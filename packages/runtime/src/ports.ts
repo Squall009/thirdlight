@@ -35,6 +35,9 @@ export interface RaycastHit {
   normal: Vec2;
 }
 
+/** Phase 9.9: a shape for overlap queries (half extents / radius, meters). */
+export type OverlapShape = { type: 'box'; hx: number; hy: number } | { type: 'circle'; radius: number };
+
 /** The port's per-step character result (physics.md §5). */
 export interface CharacterMoveResult {
   requested: Vec2;
@@ -80,6 +83,8 @@ export interface PhysicsPort {
   dropThrough?(steps: number): void;
   /** Phase 9.9: the nearest collider hit by a ray (the character excluded). */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
+  /** Phase 9.9: the entities whose colliders overlap `shape` at `center` (the character excluded), sorted, at most 64. */
+  overlap?(shape: OverlapShape, center: Vec2): string[];
   dispose(): void;
 }
 
@@ -91,6 +96,10 @@ export interface PhysicsStepClient {
   characterResult(entityId: string): CharacterMoveResult | undefined;
   /** Phase 9.9: a ray against the level's colliders (bounded per step; null when nothing is hit). */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
+  /** Phase 9.9: the entities whose colliders overlap a box (center, half extents) — counted with the rays. */
+  overlapBox?(center: Vec2, half: Vec2): string[];
+  /** Phase 9.9: the entities whose colliders overlap a circle — counted with the rays. */
+  overlapCircle?(center: Vec2, radius: number): string[];
 }
 
 /** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */

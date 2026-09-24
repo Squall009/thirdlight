@@ -329,6 +329,12 @@ export class GameplayBlocks {
 
   // ---- queries ------------------------------------------------------------------
 
+  /** A script shows or hides an entity (a new run shows everything again). */
+  setVisible(entityId: string, visible: boolean): void {
+    if (visible) this.hidden.delete(entityId);
+    else this.hidden.add(entityId);
+  }
+
   hiddenEntities(): ReadonlySet<string> {
     return this.hidden;
   }

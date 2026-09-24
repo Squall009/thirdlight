@@ -565,6 +565,8 @@ export interface BehaviorGameState {
   counter(name: string): number;
   add(name: string, delta: number): void;
   health(): { current: number; max: number } | null;
+  /** Show or hide an entity (and its children) until the next run; it still collides and triggers. */
+  setVisible(entityId: string, visible: boolean): void;
 }
 
 /** Phase 9.7: one entity's animator, as a script sees it. */
