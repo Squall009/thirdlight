@@ -83,7 +83,7 @@ const MENU: { option: string; name: string; added: Record<string, unknown>; edit
   { option: 'Player spawn', name: 'playerSpawn', added: {} },
   { option: 'Mover', name: 'mover', added: { speed: 2 }, edit: (p) => field(p, 'mover waypoints 1 y', '3'), after: { waypoints: [[4, 3, 0]] } },
   { option: 'Trigger', name: 'trigger', added: { size: [2, 2] }, edit: (p) => inspector(p).getByLabel('trigger shape', { exact: true }).selectOption('circle'), after: { shape: 'circle', radius: 1 } },
-  { option: 'Switch', name: 'switch', added: { mode: 'interact' }, edit: (p) => inspector(p).getByLabel('switch once', { exact: true }).check(), after: { once: true } },
+  { option: 'Switch', name: 'switch', added: { mode: 'interact' }, edit: (p) => inspector(p).getByLabel('switch once', { exact: true }).click(), after: { once: true } },
   { option: 'Health', name: 'health', added: { max: 3 }, edit: (p) => field(p, 'health max', '5'), after: { max: 5 } },
   { option: 'Pickup', name: 'pickup', added: { kind: 'coin' }, edit: (p) => inspector(p).getByLabel('pickup kind', { exact: true }).selectOption('custom'), after: { kind: 'custom', counter: 'counter' } },
   { option: 'Enemy', name: 'enemy', added: { patrol: 'edges' }, edit: (p) => inspector(p).getByLabel('enemy patrol', { exact: true }).selectOption('points'), after: { patrol: 'points', range: [-2, 2] } },
