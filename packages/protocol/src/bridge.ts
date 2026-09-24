@@ -207,7 +207,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
-      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'].includes(String(m['command']))) {
+      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'].includes(String(m['command']))) {
         return { ok: false, reason: 'command must be start, replay, mute, unmute, loadScene or unloadScene', path: '/command' };
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {

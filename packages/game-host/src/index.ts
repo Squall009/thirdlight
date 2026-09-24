@@ -41,6 +41,7 @@ export {
   type AudioBus,
   MUSIC_MAX_REGISTERED,
 } from './audio';
+export { browserSaveStorage, createSaveStore, saveChecksum, SAVE_MAX_BYTES, SAVE_SLOTS, type SaveDocument, type SaveSettings, type SaveSlot, type SaveStorage, type SaveStore } from './save';
 export { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowScreen, type FlowUiEdges } from './flow';
 export {
   GAME_HOST_API_VERSION,

@@ -7,7 +7,25 @@
  */
 import * as THREE from 'three';
 
-export type IconKind = 'camera' | 'sun' | 'ambient' | 'spawn' | 'empty';
+export type IconKind =
+  | 'camera'
+  | 'sun'
+  | 'ambient'
+  | 'spawn'
+  | 'empty'
+  // Phase 9.12: lights by type, sound, gameplay pieces, fog, sky.
+  | 'point'
+  | 'spot'
+  | 'hemisphere'
+  | 'audio'
+  | 'pickup'
+  | 'enemy'
+  | 'mover'
+  | 'switch'
+  | 'door'
+  | 'sensor'
+  | 'fog'
+  | 'sky';
 
 const GLYPHS: Record<IconKind, { color: string; body: string }> = {
   camera: {
@@ -30,7 +48,49 @@ const GLYPHS: Record<IconKind, { color: string; body: string }> = {
     color: '#9aa3b2',
     body: '<g stroke="C" stroke-width="3.5" stroke-linecap="round"><path d="M32 14v36M14 32h36"/></g><circle cx="32" cy="32" r="5" fill="none" stroke="C" stroke-width="3"/>',
   },
+  // Phase 9.12 fallbacks (the generated artwork normally replaces them).
+  point: { color: '#ffe27a', body: '<circle cx="32" cy="28" r="10" fill="C"/><rect x="27" y="38" width="10" height="8" rx="2" fill="C"/>' },
+  spot: { color: '#ffe27a', body: '<path d="M26 14h12l10 36H16z" fill="C" opacity=".8"/>' },
+  hemisphere: { color: '#8fd3ff', body: '<path d="M14 32a18 18 0 0 1 36 0z" fill="C"/><path d="M14 34a18 18 0 0 0 36 0z" fill="#7cc26b"/>' },
+  audio: { color: '#4fd1c5', body: '<path d="M16 26h8l10-8v28l-10-8h-8z" fill="C"/><path d="M40 24a10 10 0 0 1 0 16" fill="none" stroke="C" stroke-width="3"/>' },
+  pickup: { color: '#f2c230', body: '<circle cx="32" cy="32" r="14" fill="C"/>' },
+  enemy: { color: '#9b59e8', body: '<path d="M16 44a16 16 0 0 1 32 0z" fill="C"/>' },
+  mover: { color: '#ffa53a', body: '<rect x="14" y="36" width="36" height="10" rx="2" fill="C"/><path d="M18 26h28M18 26l5-4M18 26l5 4M46 26l-5-4M46 26l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
+  switch: { color: '#ff5a5a', body: '<ellipse cx="32" cy="36" rx="16" ry="8" fill="C"/>' },
+  door: { color: '#c9824a', body: '<path d="M20 50V24a12 12 0 0 1 24 0v26z" fill="C"/>' },
+  sensor: { color: '#3ad7ff', body: '<rect x="14" y="14" width="36" height="36" fill="none" stroke="C" stroke-width="3" stroke-dasharray="5 4"/>' },
+  fog: { color: '#c8d6e5', body: '<path d="M16 26h32M12 34h40M18 42h28" stroke="C" stroke-width="4" stroke-linecap="round"/>' },
+  sky: { color: '#8fd3ff', body: '<circle cx="36" cy="26" r="9" fill="#ffd54a"/><ellipse cx="28" cy="38" rx="14" ry="8" fill="#ffffff"/>' },
 };
+
+/**
+ * Phase 9.12: the icon an entity shows (Scene view billboards, hierarchy
+ * rows): lights by type, and for an empty entity what it is for — a fog
+ * volume, an audio source, a gameplay piece or a player spawn.
+ */
+export function iconKindFor(e: {
+  kind: string;
+  light?: { type: string };
+  playerSpawn?: boolean;
+  fogVolume?: unknown;
+  blocks?: Partial<Record<string, unknown>>;
+}): IconKind {
+  if (e.light !== undefined) {
+    const t = e.light.type;
+    return t === 'directional' ? 'sun' : t === 'ambient' ? 'ambient' : t === 'point' ? 'point' : t === 'spot' ? 'spot' : 'hemisphere';
+  }
+  if (e.kind === 'camera') return 'camera';
+  if (e.playerSpawn === true) return 'spawn';
+  if (e.fogVolume !== undefined) return 'fog';
+  const b = e.blocks ?? {};
+  if (b['audioSource'] !== undefined) return 'audio';
+  if (b['enemy'] !== undefined) return 'enemy';
+  if (b['pickup'] !== undefined) return 'pickup';
+  if (b['switch'] !== undefined) return 'switch';
+  if (b['mover'] !== undefined) return (b['mover'] as { startOn?: string }).startOn !== undefined ? 'door' : 'mover';
+  if (b['trigger'] !== undefined) return 'sensor';
+  return 'empty';
+}
 
 function svgFor(kind: IconKind, selected: boolean): string {
   const g = GLYPHS[kind];
@@ -53,6 +113,18 @@ export const ICON_FILES: Record<IconKind, string> = {
   ambient: './icons/ambient.png',
   spawn: './icons/spawn.png',
   empty: './icons/empty.png',
+  point: './icons/light-point.png',
+  spot: './icons/light-spot.png',
+  hemisphere: './icons/light-hemisphere.png',
+  audio: './icons/audio-source.png',
+  pickup: './icons/pickup.png',
+  enemy: './icons/enemy.png',
+  mover: './icons/mover.png',
+  switch: './icons/switch.png',
+  door: './icons/door.png',
+  sensor: './icons/sensor.png',
+  fog: './icons/fog.png',
+  sky: './icons/sky.png',
 };
 
 /** Draw the disc, the artwork and (when selected) the ring onto a canvas. */

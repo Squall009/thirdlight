@@ -55,7 +55,7 @@ const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'] as const;
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -138,7 +138,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'respawn?: never|death}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
       'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
-      'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health() and ctx.audio.play(audioAssetId, {volume?}). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
+      'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health() and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
       'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
@@ -296,7 +296,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_control',
     description:
-      'Submit one bounded §20 game-control command (start, replay, mute, unmute, or loadScene / unloadScene with ' +
+      'Submit one bounded §20 game-control command (start, replay, mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
       'sceneId - the same request a script makes with ctx.scenes) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +

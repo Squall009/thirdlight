@@ -56,6 +56,7 @@ import {
   type ManifestBufferRow,
   type ManifestSceneRow,
   type FlowConfigLike,
+  browserSaveStorage,
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -363,6 +364,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
     inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
+    // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
+    ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
   };
   const host = createGameHost(config);

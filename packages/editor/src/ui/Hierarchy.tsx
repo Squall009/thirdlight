@@ -35,6 +35,7 @@ import {
   type EffectiveEntityFlags,
 } from '../session/hierarchy';
 import type { ProjectedEntity } from '../session/projection';
+import { ICON_FILES, iconKindFor } from '../viewport/icons';
 import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../session/placement';
 
 interface Props {
@@ -293,7 +294,7 @@ export function Hierarchy({ entities, flags, projectId, selectedIds, primaryId, 
               {e.kind === 'folder' ? (
                 <span className="tl-row__folder" aria-hidden="true" />
               ) : (
-                <img className="tl-row__icon" src={`./icons/${ROW_ICON[e.kind] ?? 'empty'}.png`} alt="" aria-hidden="true" />
+                <img className="tl-row__icon" src={e.kind === 'box' || e.kind === 'model' ? `./icons/${ROW_ICON[e.kind]}.png` : ICON_FILES[iconKindFor(e)]} alt="" aria-hidden="true" />
               )}
               <span className={`tl-row__kind tl-row__kind--${e.kind}`}>{e.kind}</span>
               {renaming?.id === r.id ? (

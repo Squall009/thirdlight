@@ -32,7 +32,7 @@ import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
 import { ZoneOverlay, type ZoneTool } from './zone-overlay';
-import { fitSprite, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
+import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import type { ModelInstances } from './model-instances';
 
 export interface ViewportCallbacks {
@@ -55,6 +55,8 @@ export interface ViewportCallbacks {
   onZoneGestureFrame: (hit: { x: number; y: number }) => void;
   onZoneGestureEnd: (hit: { x: number; y: number }) => void;
   onZoneGestureCancel: () => void;
+  /** Phase 9.12: a mover waypoint handle was dragged and dropped (its new offset from the mover). */
+  onWaypointMoved?: (entityId: string, index: number, offset: [number, number, number]) => void;
 }
 
 const GROUND_SIZE = 20;
@@ -103,6 +105,8 @@ export class Viewport {
   private readonly grid: THREE.GridHelper;
   /** M3 (packet 56): the imperative zone/spawn/cameraFollow overlay. */
   private readonly zones: ZoneOverlay;
+  /** Phase 9.12: which helpers the Scene view draws (the Gizmos menu). */
+  private gizmos = { icons: true, lights: true, colliders: true, gameplay: true };
   private readonly orbit: OrbitControls;
   private readonly gizmo: TransformControls;
   private readonly snapping: () => boolean;
@@ -684,6 +688,7 @@ export class Viewport {
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
     this.zones.sync(entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false));
+    this.stampGizmoCounts();
     this.applyLightmaps();
     // A selection that became locked or a folder loses its gizmo.
     if (this.selectedId !== null && !this.draggingGizmo) this.setSelected(this.selectedId);
@@ -735,8 +740,13 @@ export class Viewport {
         group.add(line);
       }
       // Phase 9.5: a point light shows its reach, a spot light its cone.
-      if ((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') group.add(lightGizmo(e));
-      this.addIcon(group, e.id, e.light.type === 'directional' || e.light.type === 'spot' || e.light.type === 'point' ? 'sun' : 'ambient');
+      if ((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') {
+        const g = lightGizmo(e);
+        g.userData['gizmo'] = 'light';
+        g.visible = this.gizmos.lights;
+        group.add(g);
+      }
+      this.addIcon(group, e.id, iconKindFor(e));
     } else if (e.kind === 'camera') {
       // A camera is an icon billboard plus a small wire frustum showing where it looks (-Z).
       const w = 0.42;
@@ -752,7 +762,7 @@ export class Viewport {
       this.addIcon(group, e.id, 'camera');
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
-      this.addIcon(group, e.id, e.playerSpawn === true ? 'spawn' : 'empty');
+      this.addIcon(group, e.id, iconKindFor(e));
       // Phase 9.5: a fog volume shows its box.
       if (e.fogVolume !== undefined) {
         const box = new THREE.LineSegments(
@@ -769,6 +779,26 @@ export class Viewport {
     return group;
   }
 
+  /** Phase 9.12: show or hide the Scene view's helpers (icons, light ranges, collider outlines, gameplay paths and areas). */
+  setGizmos(next: Partial<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean }>): void {
+    this.gizmos = { ...this.gizmos, ...next };
+    for (const s of this.sprites) s.visible = this.gizmos.icons;
+    this.scene.traverse((o) => {
+      if (o.userData['gizmo'] === 'light') o.visible = this.gizmos.lights;
+    });
+    this.zones.setGizmos({ colliders: this.gizmos.colliders, gameplay: this.gizmos.gameplay });
+    this.stampGizmoCounts();
+    this.requestRender();
+  }
+
+  /** Phase 9.12: the drawn helper counts on the view element (tests read them). */
+  private stampGizmoCounts(): void {
+    const c = this.zones.blockHelpers();
+    this.root.setAttribute('data-collider-outlines', String(c.colliders));
+    this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
+    this.root.setAttribute('data-gizmos', (Object.keys(this.gizmos) as (keyof typeof this.gizmos)[]).filter((k) => this.gizmos[k]).join(' '));
+  }
+
   /** The icon billboards (kept square on screen across resizes). */
   private readonly sprites = new Set<THREE.Sprite>();
 
@@ -776,14 +806,33 @@ export class Viewport {
     const sprite = makeIconSprite(kind, () => this.requestRender());
     sprite.name = entityId;
     (sprite as { entityId?: string }).entityId = entityId;
+    sprite.userData['iconKind'] = kind;
+    sprite.visible = this.gizmos.icons;
     fitSprite(sprite, this.camera.aspect);
     this.sprites.add(sprite);
     group.add(sprite);
   }
 
+  /** Phase 9.12: an entity's icon follows what it is (a component added or removed). */
+  private refreshIcon(obj: THREE.Object3D, e: ProjectedEntity): void {
+    const old = obj.children.find((c) => c instanceof THREE.Sprite && c.userData['iconKind'] !== undefined) as THREE.Sprite | undefined;
+    if (old === undefined) return;
+    const kind = iconKindFor(e);
+    if (old.userData['iconKind'] === kind) return;
+    obj.remove(old);
+    this.sprites.delete(old);
+    old.material.dispose();
+    this.addIcon(obj as THREE.Group, e.id, kind);
+    if (this.selectedId === e.id) {
+      const fresh = obj.children.find((c) => c instanceof THREE.Sprite && c.userData['iconKind'] === kind) as THREE.Sprite | undefined;
+      if (fresh !== undefined) setSpriteSelected(fresh, true);
+    }
+  }
+
   private updateMesh(obj: THREE.Object3D, e: ProjectedEntity): void {
     // Phase 12: an inactive entity is hidden, and with it its subtree.
     obj.visible = e.active;
+    this.refreshIcon(obj, e);
     obj.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
     obj.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
     obj.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
@@ -933,9 +982,21 @@ export class Viewport {
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
 
+  /** Phase 9.12: an in-flight waypoint handle drag (the last previewed offset). */
+  private waypointDrag: { entityId: string; index: number; offset: [number, number, number] | null } | null = null;
+
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
+    // Phase 9.12: a mover's waypoint handle drags that waypoint (one command on release).
+    const wp = this.zones.activeTool === null ? this.zones.pickWaypoint(e.clientX, e.clientY) : null;
+    if (wp !== null) {
+      e.stopImmediatePropagation();
+      this.waypointDrag = { ...wp, offset: null };
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
+      return;
+    }
     // M3 (packet 56): a consumed pointer down drives a zone gesture
     // (create/move/resize) and skips orbit/gizmo/pick.
     const zoneDown = this.zones.pointerDown(e.clientX, e.clientY);
@@ -951,6 +1012,16 @@ export class Viewport {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.waypointDrag !== null) {
+      e.stopImmediatePropagation();
+      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
+      if (hit !== null) {
+        const snap = (v: number): number => (this.snapping() ? Math.round(v / SNAP_TRANSLATE_M) * SNAP_TRANSLATE_M : v);
+        this.waypointDrag.offset = this.zones.previewWaypoint(this.waypointDrag.entityId, this.waypointDrag.index, { x: snap(hit.x), y: snap(hit.y) });
+        this.requestRender();
+      }
+      return;
+    }
     if (this.draggingZone) {
       e.stopImmediatePropagation();
       // The frame carries the pointer's game-plane WORLD hit (zero commands
@@ -965,6 +1036,14 @@ export class Viewport {
   private onPointerUp = (e: PointerEvent): void => {
     const down = this.downAt;
     this.downAt = null;
+    if (this.waypointDrag !== null) {
+      e.stopImmediatePropagation();
+      const drag = this.waypointDrag;
+      this.waypointDrag = null;
+      this.orbit.enabled = true;
+      if (drag.offset !== null) this.cb.onWaypointMoved?.(drag.entityId, drag.index, drag.offset);
+      return;
+    }
     if (this.draggingZone) {
       e.stopImmediatePropagation();
       const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);

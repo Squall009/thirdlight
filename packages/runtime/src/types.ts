@@ -530,6 +530,27 @@ export interface StepContext {
   readonly game?: BehaviorGameState;
   /** Phase 9.10: play a sound (an audio asset) — presentation only, never part of the simulation. */
   readonly audio?: BehaviorAudio;
+  /** Phase 9.11: values kept in the player's save. */
+  readonly save?: BehaviorSave;
+}
+
+/** Phase 9.11: what a save keeps of a run, and what a load restores. */
+export interface RunSaveState {
+  readonly checkpointId: string | null;
+  readonly counters: Readonly<Record<string, number>>;
+  readonly collected: readonly string[];
+  readonly defeated: readonly string[];
+  readonly health: number | null;
+  readonly values: Readonly<Record<string, unknown>>;
+}
+export type RunRestore = Partial<RunSaveState>;
+
+/** Phase 9.11: `ctx.save` — values a script keeps in the player's save (≤ 64 keys, ≤ 4 KB each as JSON). */
+export interface BehaviorSave {
+  get(key: string): unknown;
+  set(key: string, value: unknown): boolean;
+  remove(key: string): void;
+  keys(): string[];
 }
 
 /** Phase 9.10: `ctx.audio`. */
@@ -637,7 +658,9 @@ export interface Runtime {
   start(): { ok: true } | { ok: false; error: RuntimeError };
   stop(): { ok: true } | { ok: false; error: RuntimeError };
   /** Phase 9.10: switch to a level (its scenes become the loaded and start set; a fresh run at its spawn). */
-  startLevel?(level: { scenes: readonly string[]; spawnId: string }): { ok: true } | { ok: false; error: RuntimeError };
+  startLevel?(level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore): { ok: true } | { ok: false; error: RuntimeError };
+  /** Phase 9.11: what a save keeps of the current run. */
+  runState?(): RunSaveState;
   /** Phase 9.10: pause or resume the simulation (frames still render). */
   setPaused?(paused: boolean): void;
   readonly isPaused?: boolean;

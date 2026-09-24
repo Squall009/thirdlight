@@ -10,7 +10,8 @@
  * menus are plain DOM built with `textContent` only (project strings are
  * never HTML), keyboard/gamepad navigable and clickable.
  */
-import type { GameView } from '@thirdlight/runtime';
+import type { GameView, RunRestore, RunSaveState } from '@thirdlight/runtime';
+import { SAVE_SLOTS, SAVE_VERSION, type SaveDocument, type SaveSlot, type SaveStore, type SlotState } from './save';
 import type { HostDom, HostDomNode } from './hud';
 
 /** The flow block as the host reads it (structurally; validated by the model). */
@@ -24,7 +25,7 @@ export interface FlowConfigLike {
   readonly volumes?: { readonly music: number; readonly sfx: number };
 }
 
-export type FlowScreen = 'title' | 'playing' | 'paused' | 'settings' | 'levelComplete' | 'gameOver' | 'finished';
+export type FlowScreen = 'title' | 'playing' | 'paused' | 'settings' | 'levelComplete' | 'gameOver' | 'finished' | 'load' | 'save';
 
 /** One frame's menu edges (the input owner's `sampleUi`, plus the menu confirm). */
 export interface FlowUiEdges {
@@ -47,6 +48,8 @@ export interface FlowObservation {
   readonly music: { readonly assetId: string | null; readonly playing: boolean; readonly gain: number };
   readonly volumes: { readonly music: number; readonly sfx: number };
   readonly quality: 'low' | 'medium' | 'high';
+  /** Phase 9.11: each save slot's state, and the last save written. */
+  readonly save?: { readonly slots: Readonly<Record<SaveSlot, 'ok' | 'empty' | 'damaged'>>; readonly lastWrite: SaveSlot | null; readonly note: string | null };
 }
 
 export interface FlowDeps {
@@ -57,7 +60,8 @@ export interface FlowDeps {
   readonly dom: HostDom;
   readonly container: HostDomNode;
   readonly runtime: {
-    startLevel?(level: { scenes: readonly string[]; spawnId: string }): { ok: true } | { ok: false; error: { message: string } };
+    startLevel?(level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore): { ok: true } | { ok: false; error: { message: string } };
+    runState?(): RunSaveState;
     setPaused?(paused: boolean): void;
     gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   };
@@ -73,6 +77,8 @@ export interface FlowDeps {
     config?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
   };
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
+  /** Phase 9.11: the player's saves (absent: no saving). */
+  readonly save?: SaveStore;
 }
 
 interface MenuItem {
@@ -204,6 +210,18 @@ export function createFlowController(deps: FlowDeps): FlowController {
   let cancelCapture: (() => void) | null = null;
   let disposed = false;
   let lastView: GameView | null = null;
+  // Phase 9.11: saves.
+  let levelsMemory: SaveDocument['levels'] = {};
+  let lastCheckpoint: string | null = null;
+  let lastWrite: SaveSlot | null = null;
+  let saveNote: string | null = null;
+  const boundKeys: Record<string, string> = {};
+  const stored = deps.save?.readSettings() ?? null;
+  if (stored !== null) {
+    volumes = { music: stored.music, sfx: stored.sfx };
+    quality = stored.quality;
+    if (quality !== 'high') deps.setQuality?.(quality);
+  }
   deps.audio.setVolume?.('music', volumes.music);
   deps.audio.setVolume?.('sfx', volumes.sfx);
 
@@ -218,6 +236,8 @@ export function createFlowController(deps: FlowDeps): FlowController {
   /** The observable state on the menu root (tests read it in Play and in an export). */
   const stamp = (): void => {
     root.setAttribute?.('data-lives', lives === null ? '' : String(lives));
+    root.setAttribute?.('data-saved', lastWrite ?? '');
+    root.setAttribute?.('data-checkpoint', lastView?.checkpointId ?? '');
     const m = deps.audio.musicStatus?.();
     root.setAttribute?.('data-music', m?.assetId ?? '');
     root.setAttribute?.('data-music-gain', m !== undefined ? m.gain.toFixed(2) : '');
@@ -233,16 +253,41 @@ export function createFlowController(deps: FlowDeps): FlowController {
     let title = '';
     let lines: string[] = [];
     switch (screen) {
-      case 'title':
+      case 'title': {
         title = deps.gameTitle;
         lines = [flow.title?.subtitle ?? deps.objective, deps.instructions].filter((l) => l !== '');
-        items = [{ id: 'new', label: 'New game' }, { id: 'settings', label: 'Settings' }];
+        const slots = slotStates();
+        const damaged = SAVE_SLOTS.filter((s) => slots[s].state === 'damaged');
+        if (damaged.length > 0) lines.push(`Damaged save ignored: ${damaged.map(slotName).join(', ')}`);
+        items = [
+          ...(slots.auto.state === 'ok' ? [{ id: 'continue', label: `Continue — ${slots.auto.doc.levelName}` }] : []),
+          { id: 'new', label: 'New game' },
+          ...(SAVE_SLOTS.some((s) => s !== 'auto' && slots[s].state === 'ok') ? [{ id: 'loadmenu', label: 'Load game' }] : []),
+          { id: 'settings', label: 'Settings' },
+        ];
         break;
+      }
       case 'paused':
         title = 'Paused';
-        lines = [level().name];
-        items = [{ id: 'resume', label: 'Resume' }, { id: 'restart', label: 'Restart level' }, { id: 'settings', label: 'Settings' }, { id: 'quit', label: 'Quit to title' }];
+        lines = [level().name, ...(saveNote !== null ? [saveNote] : [])];
+        items = [
+          { id: 'resume', label: 'Resume' },
+          { id: 'restart', label: 'Restart level' },
+          ...(deps.save !== undefined ? [{ id: 'savemenu', label: 'Save game' }] : []),
+          { id: 'settings', label: 'Settings' },
+          { id: 'quit', label: 'Quit to title' },
+        ];
         break;
+      case 'load':
+      case 'save': {
+        title = screen === 'load' ? 'Load game' : 'Save game';
+        const slots = slotStates();
+        items = [
+          ...SAVE_SLOTS.filter((s) => s !== 'auto').map((s) => ({ id: `${screen}:${s}`, label: `${slotName(s)}: ${slotLabel(slots[s])}` })),
+          { id: 'back', label: 'Back' },
+        ];
+        break;
+      }
       case 'settings':
         title = 'Settings';
         lines = capturing !== null ? [`Press a key for ${capturing} (Esc cancels)`] : [];
@@ -314,10 +359,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
     render();
   };
 
-  const beginLevel = (i: number): boolean => {
+  const beginLevel = (i: number, restore?: RunRestore): boolean => {
     levelIndex = Math.max(0, Math.min(i, flow.levels.length - 1));
     const l = level();
-    const r = deps.runtime.startLevel?.({ scenes: l.scenes, spawnId: l.spawnId });
+    lastCheckpoint = restore?.checkpointId ?? null;
+    const r = deps.runtime.startLevel?.({ scenes: l.scenes, spawnId: l.spawnId }, restore);
     if (r !== undefined && r.ok === false) {
       console.warn('[game-host] level start failed', r.error.message);
       return false;
@@ -333,13 +379,62 @@ export function createFlowController(deps: FlowDeps): FlowController {
   const newGame = (): boolean => {
     lives = flow.lives?.start ?? null;
     for (const k of Object.keys(totals)) delete totals[k];
+    levelsMemory = {};
     return beginLevel(0);
   };
+
+  // --- saves ---------------------------------------------------------------
+  const slotName = (s: SaveSlot): string => (s === 'auto' ? 'Autosave' : `Slot ${s}`);
+  const slotLabel = (st: SlotState): string => (st.state === 'ok' ? `${st.doc.levelName} — ${st.doc.savedAt.slice(0, 16).replace('T', ' ')}` : st.state === 'damaged' ? 'damaged (ignored)' : 'empty');
+  const slotStates = (): Record<SaveSlot, SlotState> => {
+    const out = {} as Record<SaveSlot, SlotState>;
+    for (const s of SAVE_SLOTS) out[s] = deps.save?.read(s) ?? { state: 'empty' };
+    return out;
+  };
+  const docFor = (index: number, run: RunSaveState): SaveDocument => {
+    const l = flow.levels[index]!;
+    return { version: SAVE_VERSION, savedAt: new Date().toISOString(), levelId: l.id, levelIndex: index, levelName: l.name, lives, run, levels: levelsMemory };
+  };
+  const writeSave = (slot: SaveSlot, doc: SaveDocument): void => {
+    if (deps.save === undefined) return;
+    const r = deps.save.write(slot, doc);
+    if (r.ok) {
+      lastWrite = slot;
+      saveNote = slot === 'auto' ? null : `Saved to ${slotName(slot)}`;
+    } else saveNote = `Could not save: ${r.reason}`;
+  };
+  const currentRun = (): RunSaveState => deps.runtime.runState?.() ?? { checkpointId: null, counters: {}, collected: [], defeated: [], health: null, values: {} };
+  const loadDoc = (doc: SaveDocument): void => {
+    const index = flow.levels.findIndex((l) => l.id === doc.levelId);
+    if (index < 0) {
+      saveNote = 'That save is for a level this game no longer has';
+      render();
+      return;
+    }
+    lives = doc.lives === null ? null : Math.max(1, doc.lives);
+    levelsMemory = doc.levels ?? {};
+    for (const k of Object.keys(totals)) delete totals[k];
+    void beginLevel(index, doc.run);
+  };
+  const saveSettings = (): void => deps.save?.writeSettings({ music: volumes.music, sfx: volumes.sfx, quality, keys: { ...boundKeys } });
 
   const setVolume = (bus: 'music' | 'sfx', v: number): void => {
     volumes = { ...volumes, [bus]: Math.max(0, Math.min(1, Math.round(v * 10) / 10)) };
     deps.audio.setVolume?.(bus, volumes[bus]);
+    saveSettings();
   };
+
+  /** Bind a key to a button action (the first key binding; pad bindings stay). */
+  const applyKey = (name: string, code: string): void => {
+    if (deps.input?.config === undefined) return;
+    const next = {
+      actions: deps.input.config.actions.map((a) => (a.name === name ? { ...a, bindings: [{ kind: 'key', code }, ...a.bindings.filter((b) => (b as { kind?: string }).kind !== 'key')] } : a)),
+    };
+    deps.input.config = next;
+    deps.input.configure?.(next);
+    boundKeys[name] = code;
+  };
+  for (const [name, code] of Object.entries(stored?.keys ?? {})) if ((REBINDABLE as readonly string[]).includes(name)) applyKey(name, code);
 
   const rebind = (name: string): void => {
     const cfg = deps.input?.config;
@@ -349,12 +444,9 @@ export function createFlowController(deps: FlowDeps): FlowController {
     cancelCapture = deps.input.captureKey((code) => {
       capturing = null;
       cancelCapture = null;
-      if (code !== null && deps.input?.config !== undefined) {
-        const next = {
-          actions: deps.input.config.actions.map((a) => (a.name === name ? { ...a, bindings: [{ kind: 'key', code }, ...a.bindings.filter((b) => (b as { kind?: string }).kind !== 'key')] } : a)),
-        };
-        deps.input.config = next;
-        deps.input.configure?.(next);
+      if (code !== null) {
+        applyKey(name, code);
+        saveSettings();
       }
       render();
     });
@@ -365,6 +457,19 @@ export function createFlowController(deps: FlowDeps): FlowController {
     switch (id) {
       case 'new':
         void newGame();
+        return;
+      case 'continue': {
+        const st = deps.save?.read('auto');
+        if (st?.state === 'ok') loadDoc(st.doc);
+        return;
+      }
+      case 'loadmenu':
+        returnTo = screen;
+        show('load');
+        return;
+      case 'savemenu':
+        returnTo = screen;
+        show('save');
         return;
       case 'settings':
         returnTo = screen;
@@ -404,11 +509,19 @@ export function createFlowController(deps: FlowDeps): FlowController {
         const i = order.indexOf(quality);
         quality = order[(i + (dir < 0 ? 2 : 1)) % 3]!;
         deps.setQuality?.(quality);
+        saveSettings();
         render();
         return;
       }
       default:
         if (id.startsWith('bind:')) rebind(id.slice(5));
+        else if (id.startsWith('load:')) {
+          const st = deps.save?.read(id.slice(5) as SaveSlot);
+          if (st?.state === 'ok') loadDoc(st.doc);
+        } else if (id.startsWith('save:')) {
+          writeSave(id.slice(5) as SaveSlot, docFor(levelIndex, currentRun()));
+          show(returnTo);
+        }
     }
   };
 
@@ -464,12 +577,22 @@ export function createFlowController(deps: FlowDeps): FlowController {
             }
           }
         }
+        // Phase 9.11: reaching a checkpoint autosaves there.
+        if (!pendingStart && view.checkpointId !== lastCheckpoint) {
+          lastCheckpoint = view.checkpointId;
+          if (view.checkpointId !== null) writeSave('auto', docFor(levelIndex, currentRun()));
+        }
         if (view.state === 'won' && !pendingStart) {
           const g = deps.runtime.gameCounters?.();
           const counters = { ...(g?.counters ?? {}) };
           delete counters['defeated'];
           levelResult = { seconds: levelStartSim !== null ? view.simTime - levelStartSim : 0, counters, deaths: view.deathCount };
           for (const [k, v] of Object.entries(counters)) totals[k] = (totals[k] ?? 0) + v;
+          // Phase 9.11: remember the level (collected, best time); autosave at the next level's start.
+          const run = currentRun();
+          const best = levelsMemory[level().id]?.bestSeconds;
+          levelsMemory = { ...levelsMemory, [level().id]: { collected: [...run.collected], bestSeconds: best !== undefined ? Math.min(best, levelResult.seconds) : levelResult.seconds } };
+          if (levelIndex + 1 < flow.levels.length) writeSave('auto', docFor(levelIndex + 1, { checkpointId: null, counters: {}, collected: [], defeated: [], health: null, values: run.values }));
           show('levelComplete');
           return false;
         }
@@ -489,7 +612,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
       }
       if (ui.cancel || ui.pause) {
         if (screen === 'paused') show('playing');
-        else if (screen === 'settings') show(returnTo);
+        else if (screen === 'settings' || screen === 'load' || screen === 'save') show(returnTo);
         return false;
       }
       return false;
@@ -498,7 +621,18 @@ export function createFlowController(deps: FlowDeps): FlowController {
     restartLevel: () => beginLevel(levelIndex),
     observe(): FlowObservation {
       const m = deps.audio.musicStatus?.() ?? { assetId: null, playing: false, gain: volumes.music };
-      return { screen, levelIndex, levelId: level().id, lives, totals: { ...totals }, music: { assetId: m.assetId, playing: m.playing, gain: m.gain }, volumes: { ...volumes }, quality };
+      const slots = slotStates();
+      return {
+        screen,
+        levelIndex,
+        levelId: level().id,
+        lives,
+        totals: { ...totals },
+        music: { assetId: m.assetId, playing: m.playing, gain: m.gain },
+        volumes: { ...volumes },
+        quality,
+        ...(deps.save !== undefined ? { save: { slots: Object.fromEntries(SAVE_SLOTS.map((s) => [s, slots[s].state])) as Record<SaveSlot, 'ok' | 'empty' | 'damaged'>, lastWrite, note: saveNote } } : {}),
+      };
     },
     hudLine,
     setLogo(url: string): void {

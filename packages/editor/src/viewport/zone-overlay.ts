@@ -79,6 +79,10 @@ export class ZoneOverlay {
   private readonly raycaster = new THREE.Raycaster();
   /** Phase 9.9: the gameplay block helpers, rebuilt on every sync. */
   private readonly blocks = new THREE.Group();
+  /** Phase 9.12: every collider's 2D outline (the Gizmos menu toggles them). */
+  private readonly colliders = new THREE.Group();
+  /** Phase 9.12: each mover's path for the waypoint drag preview. */
+  private readonly moverPaths = new Map<string, { origin: THREE.Vector3; waypoints: number[][]; loop: boolean; line: THREE.Line; dots: THREE.Mesh[] }>();
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.scene = scene;
@@ -88,6 +92,8 @@ export class ZoneOverlay {
     this.root.name = 'zone-overlay';
     this.blocks.name = 'block-overlay';
     this.root.add(this.blocks);
+    this.colliders.name = 'collider-outlines';
+    this.root.add(this.colliders);
     scene.add(this.root);
   }
 
@@ -241,6 +247,28 @@ export class ZoneOverlay {
       this.blocks.remove(c);
       this.disposeGroup(c as THREE.Group);
     }
+    for (const c of [...this.colliders.children]) {
+      this.colliders.remove(c);
+      this.disposeGroup(c as THREE.Group);
+    }
+    this.moverPaths.clear();
+    // Phase 9.12: every collider's outline on the game plane (box or polygon, turned about Z).
+    for (const e of entities) {
+      const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
+      if (shape === undefined) continue;
+      const corners = shape.type === 'box' ? [[-N(shape.hx), -N(shape.hy)], [N(shape.hx), -N(shape.hy)], [N(shape.hx), N(shape.hy)], [-N(shape.hx), N(shape.hy)]] : (shape.vertices ?? []);
+      if (corners.length < 2) continue;
+      const q = e.rotation;
+      const angle = 2 * Math.atan2(N(q[2]), N(q[3]));
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const pts = [...corners, corners[0]!].map(([a, b]) => new THREE.Vector3(N(e.position[0]) + N(a) * cos - N(b) * sin, N(e.position[1]) + N(a) * sin + N(b) * cos, 0.03));
+      const oneWay = (e.collider as { oneWay?: boolean }).oneWay === true;
+      const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: oneWay ? 0x8fb573 : 0x7cfc00, depthTest: false, transparent: true, opacity: 0.85 }));
+      outline.name = `collider-outline:${e.id}`;
+      outline.renderOrder = 9;
+      this.colliders.add(outline);
+    }
     const rect = (x: number, y: number, w: number, h: number, color: number): THREE.Line => {
       const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([a, b]) => new THREE.Vector3(x + (a! * w) / 2, y + (b! * h) / 2, 0.02));
       return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
@@ -259,12 +287,18 @@ export class ZoneOverlay {
         line.name = `mover-path:${e.id}`;
         line.renderOrder = 10;
         this.blocks.add(line);
-        for (const s of stops) {
-          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: BLOCK_COLORS.mover, depthTest: false }));
-          dot.position.copy(s);
-          dot.renderOrder = 10;
+        const dots: THREE.Mesh[] = [];
+        const count = mover.waypoints.length + 1;
+        for (let i = 0; i < count; i++) {
+          // The stops after the first are handles: drag one to move that waypoint.
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(i === 0 ? 0.08 : 0.14, 10, 8), new THREE.MeshBasicMaterial({ color: i === 0 ? BLOCK_COLORS.mover : 0xffffff, depthTest: false }));
+          dot.position.copy(stops[i]!);
+          dot.renderOrder = 11;
+          dot.userData = { moverId: e.id, index: i };
           this.blocks.add(dot);
+          dots.push(dot);
         }
+        this.moverPaths.set(e.id, { origin: new THREE.Vector3(x, y, z), waypoints: mover.waypoints.map((w) => [N(w[0]), N(w[1]), N(w[2])]), loop: mover.mode === 'loop', line, dots });
       }
       for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
         const size = (b[k] as { size?: number[] } | undefined)?.size;
@@ -288,8 +322,45 @@ export class ZoneOverlay {
   }
 
   /** Phase 9.9: the drawn gameplay helpers (names of the mover paths), for tests. */
-  blockHelpers(): { moverPaths: string[]; count: number } {
-    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length };
+  blockHelpers(): { moverPaths: string[]; count: number; colliders: number } {
+    return { moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)), count: this.blocks.children.length, colliders: this.colliders.children.length };
+  }
+
+  /** Phase 9.12: the Gizmos menu's collider outlines and gameplay helpers. */
+  setGizmos(g: { colliders: boolean; gameplay: boolean }): void {
+    this.colliders.visible = g.colliders;
+    this.blocks.visible = g.gameplay;
+  }
+
+  /** Phase 9.12: the mover waypoint handle under the pointer (not the mover's own position), or null. */
+  pickWaypoint(clientX: number, clientY: number): { entityId: string; index: number } | null {
+    if (!this.blocks.visible) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    this.root.updateMatrixWorld(true);
+    const handles = [...this.moverPaths.values()].flatMap((m) => m.dots.slice(1));
+    const hit = this.raycaster.intersectObjects(handles, false)[0];
+    if (hit === undefined) return null;
+    return { entityId: String(hit.object.userData['moverId']), index: Number(hit.object.userData['index']) };
+  }
+
+  /**
+   * Phase 9.12: move a waypoint handle to a game-plane point (the drag
+   * preview); returns the waypoint's new offset from the mover (its depth kept).
+   */
+  previewWaypoint(entityId: string, index: number, at: GamePlaneHit): [number, number, number] | null {
+    const m = this.moverPaths.get(entityId);
+    const w = m?.waypoints[index - 1];
+    if (m === undefined || w === undefined) return null;
+    const offset: [number, number, number] = [at.x - m.origin.x, at.y - m.origin.y, N(w[2])];
+    m.dots[index]!.position.set(m.origin.x + offset[0], m.origin.y + offset[1], m.origin.z + offset[2]);
+    const pts = m.dots.map((d) => d.position.clone());
+    if (m.loop) pts.push(pts[0]!.clone());
+    m.line.geometry.dispose();
+    m.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    return offset;
   }
 
   private kindSignature(e: ProjectedEntity): string {
@@ -438,6 +509,7 @@ export class ZoneOverlay {
   dispose(): void {
     for (const g of this.objects.values()) this.disposeGroup(g);
     this.disposeGroup(this.blocks);
+    this.disposeGroup(this.colliders);
     this.objects.clear();
     if (this.resizeHandle) {
       this.resizeHandle.geometry.dispose();

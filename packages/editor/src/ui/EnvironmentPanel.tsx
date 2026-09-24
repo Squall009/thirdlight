@@ -105,7 +105,9 @@ export function EnvironmentPanel(p: Props): JSX.Element {
 
   return (
     <div className="tl-panel tl-environment">
-      <div className="tl-panel__title">Environment</div>
+      <div className="tl-panel__title">
+        <img className="tl-row__icon" src="./icons/sky.png" alt="" aria-hidden="true" /> Environment
+      </div>
       <p className="tl-inspector__hint">The Scene view shows this with game lighting (toolbar “light: game”); Play and the export use the same.</p>
       <div className="tl-environment__grid">
         <section className="tl-inspector__section" aria-label="sky">

@@ -292,6 +292,11 @@ export class GameSession {
     this.emit('checkpointActivated', stepIndex, false, { zoneId });
   }
 
+  /** Phase 9.11: a loaded save's checkpoint (no event: it was reached in an earlier session). */
+  restoreCheckpoint(zoneId: string): void {
+    this.checkpointId = zoneId;
+  }
+
   /** Phase 12 (c): the checkpoint's scene was unloaded — respawns go to the start spawn again. */
   clearCheckpoint(): void {
     this.checkpointId = null;

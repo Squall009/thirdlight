@@ -563,8 +563,8 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.8 input actions + Input window | done 2026-09-24 (owner look pending) | see git log "9.7/9.8" |
 | 9.9 physics + gameplay building blocks | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.9" |
 | 9.10 game flow, menus, HUD, audio | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.10" |
-| 9.11 save system | todo | |
-| 9.12 placeholders, icons, gizmos | todo | |
+| 9.11 save system | done 2026-09-24 | see git log "9.11" |
+| 9.12 placeholders, icons, gizmos | done 2026-09-24 (owner look pending) | see git log "9.12" |
 | 9.13 Sprout demo levels | todo | |
 | 9.14 wrap-up | todo | |
 
@@ -694,3 +694,19 @@ Add one dated line per decision taken during the run (what, why).
   UI-sounds bus, gamepad rebinding in the settings screen (keys only), and
   a title background scene other than level 1's start (the title shows the
   game as it stands).
+- 2026-09-24 (9.11): saves live in the game host (a storage port; the
+  wrappers pass localStorage, namespaced `thirdlight-play:<projectId>` in
+  Play and `thirdlight:<projectId>` in an export — not per build, so a
+  rebuilt game keeps its saves). A load is a level start with a restore:
+  the fresh run starts at the saved checkpoint's safe spawn, then the
+  collected pickups, defeated enemies, counters, health and script values
+  are put back. The checksum is FNV-1a (it detects damage, it is not a
+  signature). Per-level memory (collected, best time) is saved but not
+  applied when a level is replayed from the start.
+- 2026-09-24 (9.12): icons were generated at 256² (the size of the
+  existing set, not 512²) with one shared flat-icon prompt
+  (tools/icons/generate-phase9-icons.sh, seed 42; the sky icon seed 7
+  without a sky background). Light ranges, spot cones, fog boxes, enemy
+  ranges and trigger/switch areas already existed; 9.12 added collider
+  outlines, waypoint handles and the Gizmos menu. Sensor shapes other than
+  boxes do not exist yet, so none are drawn.

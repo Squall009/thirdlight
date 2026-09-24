@@ -419,7 +419,7 @@ function view(host: Harness['host']): { state: string; stepIndex: number } {
 describe('the §3.1 surface constants', () => {
   it('the version, actions and message names are the delivery.md rows', () => {
     expect(GAME_HOST_API_VERSION).toBe(1);
-    expect(GAME_CONTROL_ACTIONS).toEqual(['start', 'replay', 'mute', 'unmute']);
+    expect(GAME_CONTROL_ACTIONS).toEqual(['start', 'replay', 'mute', 'unmute', 'clearSave']); // phase 9.11 adds clearSave
     expect(GAME_HOST_MESSAGES).toEqual([
       'tl.game.control',
       'tl.game.observe',

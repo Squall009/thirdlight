@@ -635,6 +635,33 @@ distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
 `tl_game_control` *start* begins a new game and *replay* restarts the
 level. Settings last until the page is reloaded (saving them is phase 9.11).
 
+## Saves
+
+A game with a game flow saves in the player's browser (localStorage): an
+**autosave** when a checkpoint is reached and at the start of each next level,
+and three **slots** (pause menu → *Save game*). The title screen offers
+*Continue* (the autosave) and *Load game*; a game continues at the saved
+level and checkpoint with the lives, health, counters, collected pickups and
+defeated enemies it had, and with the scripts' saved values
+(`ctx.save.get/set/remove/keys`, at most 64 keys of 4 KB JSON each).
+Settings (volumes, quality, rebound keys) are saved as soon as they change.
+Each save is versioned, checksummed and at most 64 KB; a damaged one is
+named on the title screen and ignored. Play keeps its saves apart from
+exported games (and each project apart from the others); **Game flow →
+Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
+
+## Icons and gizmos
+
+The Scene view and the hierarchy show what an object is: its light type
+(directional, ambient, point, spot, hemisphere), a fog volume, an audio
+source, a gameplay piece (mover or door, switch, trigger, pickup, enemy) or
+a player spawn. The **Gizmos** menu turns the helpers on and off: icons,
+light ranges (point spheres, spot cones), **collider outlines** (every box
+and polygon collider on the game plane — a kit piece's `_COL` shape too;
+one-way platforms in a softer green), and gameplay paths and areas. A mover's
+waypoints are white handles: drag one to move that stop (one undo step;
+snapping applies).
+
 ## Upgrade
 
 ```sh

@@ -23,6 +23,9 @@ interface Props {
   gameSpawnId: string | null;
   onSave: (flow: GameFlow | null) => void;
   error: string | null;
+  /** Phase 9.11: forget the running Play's saves (null: no Play running). */
+  onClearPlaySave?: (() => void) | null;
+  note?: string | null;
 }
 
 /** A text input that commits on Enter or blur when it changed. */
@@ -271,6 +274,12 @@ export function FlowPanel(p: Props): JSX.Element {
           </label>
         ))}
       </div>
+      <div className="tl-panel__title">Saves</div>
+      <p className="tl-hint">Players have three save slots and an autosave (at checkpoints and at the start of each level); Play keeps its own saves, apart from exported games.</p>
+      <button type="button" className="tl-button" disabled={p.onClearPlaySave === null || p.onClearPlaySave === undefined} title={p.onClearPlaySave === null ? 'start Play first' : undefined} onClick={() => p.onClearPlaySave?.()}>
+        Clear Play save
+      </button>
+      {p.note !== null && p.note !== undefined && <p className="tl-hint" role="status">{p.note}</p>}
       <button type="button" className="tl-button" onClick={() => p.onSave(null)}>
         Remove game flow
       </button>

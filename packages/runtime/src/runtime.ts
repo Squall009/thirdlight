@@ -116,6 +116,8 @@ import {
   type StepContext,
   type TransformState,
   type ViewportInfo,
+  type RunRestore,
+  type RunSaveState,
 } from './types';
 
 /** runtime.md §3.1 default (the M1 constant). */
@@ -1189,7 +1191,12 @@ class RuntimeInstance implements Runtime {
   private readonly sceneRows: readonly RuntimeSceneRow[] | null;
   private startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
   /** Phase 9.10: the level being switched to (scenes loading), and the current level's spawn. */
-  private pendingLevel: { scenes: readonly string[]; spawnId: string; begun: boolean } | null = null;
+  private pendingLevel: { scenes: readonly string[]; spawnId: string; begun: boolean; restore?: RunRestore } | null = null;
+  /** Phase 9.11: a loaded save applied with the level's fresh run (and the checkpoint spawn it starts at). */
+  private pendingRestore: RunRestore | null = null;
+  private restoreSpawnId: string | null = null;
+  /** Phase 9.11: the scripts' saved values (ctx.save; kept across levels, saved with the game). */
+  private readonly saveStore = new Map<string, unknown>();
   private levelSpawnId: string | null = null;
   /** Phase 9.10: paused — frames render and call onFrame, no steps run. */
   private paused = false;
@@ -1235,6 +1242,26 @@ class RuntimeInstance implements Runtime {
   });
   /** Phase 9.10: sounds scripts asked for since the host last took them (bounded). */
   private audioQueue: { assetId: string; volume: number; stepIndex: number }[] = [];
+  private readonly saveControl = Object.freeze({
+    get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
+    set: (key: string, value: unknown): boolean => {
+      if (typeof key !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(key)) return false;
+      if (!this.saveStore.has(key) && this.saveStore.size >= 64) return false;
+      let text: string | undefined;
+      try {
+        text = JSON.stringify(value);
+      } catch {
+        return false;
+      }
+      if (text === undefined || text.length > 4096) return false;
+      this.saveStore.set(key, JSON.parse(text) as unknown);
+      return true;
+    },
+    remove: (key: string): void => {
+      this.saveStore.delete(String(key));
+    },
+    keys: (): string[] => [...this.saveStore.keys()].sort(),
+  });
   private readonly audioControl = Object.freeze({
     play: (assetId: string, options?: { volume?: number }): void => {
       if (typeof assetId !== 'string' || assetId.length === 0 || assetId.length > 128 || this.audioQueue.length >= 16) return;
@@ -1446,7 +1473,7 @@ class RuntimeInstance implements Runtime {
    * the level are unloaded, missing ones are loaded; the switch completes at
    * the first boundary after they have all loaded.
    */
-  startLevel(level: { scenes: readonly string[]; spawnId: string }): { ok: true } | { ok: false; error: RuntimeError } {
+  startLevel(level: { scenes: readonly string[]; spawnId: string }, restore?: RunRestore): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.sceneRows === null || this.session === null) return { ok: false, error: fail('scene_invalid', 'levels need a v4 game with a game block', { reason: 'level' }) };
     if (!Array.isArray(level.scenes) || level.scenes.length === 0) return { ok: false, error: fail('scene_invalid', 'a level loads at least one scene', { reason: 'level' }) };
@@ -1458,7 +1485,7 @@ class RuntimeInstance implements Runtime {
         return { ok: false, error: fail('scene_invalid', `the level does not load scene "${b.sceneId}", which holds the player or the camera`, { reason: 'level' }) };
       }
     }
-    this.pendingLevel = { scenes: [...level.scenes], spawnId: String(level.spawnId), begun: false };
+    this.pendingLevel = { scenes: [...level.scenes], spawnId: String(level.spawnId), begun: false, ...(restore !== undefined ? { restore } : {}) };
     return { ok: true };
   }
 
@@ -1497,8 +1524,22 @@ class RuntimeInstance implements Runtime {
     this.startBatchSource = source;
     this.levelSpawnId = level.spawnId;
     this.sceneSetCache = null;
+    // Phase 9.11: a save continues at its checkpoint (when that zone is in the level).
+    this.pendingRestore = level.restore ?? null;
+    this.restoreSpawnId = null;
+    const cpId = level.restore?.checkpointId;
+    if (typeof cpId === 'string') {
+      const zone = this.gameContent?.zones.find((z) => z.entityId === cpId && z.role === 'checkpoint');
+      if (zone?.safeSpawnId !== undefined && this.gameContent!.spawns.some((sp) => sp.entityId === zone.safeSpawnId)) this.restoreSpawnId = zone.safeSpawnId;
+    }
     session.submit(session.runState === 'awaitingStart' ? 'start' : 'replay');
     return true;
+  }
+
+  /** Phase 9.11: what a save keeps of the current run. */
+  runState(): RunSaveState {
+    const b = this.blocks?.snapshotRun() ?? { counters: {}, collected: [], defeated: [], health: null };
+    return { checkpointId: this.session?.checkpointTotal ?? null, ...b, values: Object.fromEntries(this.saveStore) };
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -2189,7 +2230,7 @@ class RuntimeInstance implements Runtime {
         spawnEntityId = this.levelSpawnId ?? content.game.spawnId;
       }
     } else {
-      spawnEntityId = this.levelSpawnId ?? content.game.spawnId;
+      spawnEntityId = this.restoreSpawnId ?? this.levelSpawnId ?? content.game.spawnId;
     }
     const spawn = content.spawns.find((s) => s.entityId === spawnEntityId);
     if (spawn === undefined) {
@@ -2306,6 +2347,18 @@ class RuntimeInstance implements Runtime {
     if (reset === 'replay' || reset === 'start') this.resetAnimators();
     // Phase 9.9: a new run resets the level's blocks; a respawn restores health.
     if (reset === 'replay' || reset === 'start') this.blocks?.resetRun();
+    // Phase 9.11: a loaded save's run on top of the fresh one.
+    if ((reset === 'replay' || reset === 'start') && this.pendingRestore !== null) {
+      const r = this.pendingRestore;
+      this.pendingRestore = null;
+      this.restoreSpawnId = null;
+      this.blocks?.restoreRun(r);
+      if (typeof r.checkpointId === 'string' && this.gameContent?.zones.some((z) => z.entityId === r.checkpointId && z.role === 'checkpoint')) session.restoreCheckpoint(r.checkpointId);
+      if (r.values !== undefined) {
+        this.saveStore.clear();
+        for (const [k, v] of Object.entries(r.values).slice(0, 64)) this.saveControl.set(k, v);
+      }
+    }
     else if (reset === 'spawn') this.blocks?.onRespawn();
 
     return true;
@@ -2874,6 +2927,7 @@ class RuntimeInstance implements Runtime {
           signals: this.signalControl,
           game: this.gameControl,
           audio: this.audioControl,
+          save: this.saveControl,
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {

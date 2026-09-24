@@ -317,6 +317,11 @@ function EditorApp(): JSX.Element {
   // Phase 9.10: the game flow (null = one level, as before).
   const [flow, setFlow] = useState<GameFlow | null>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
+  const [flowNote, setFlowNote] = useState<string | null>(null);
+  // Phase 9.12: the Scene view's helpers (Gizmos menu).
+  const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
+  useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
+  const localRelaysRef = useRef(new Set<string>());
   // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
   const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
   const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
@@ -641,6 +646,16 @@ function EditorApp(): JSX.Element {
         zoneGestureRef.current = null;
         // The placement tool stays armed (Esc cancels the GESTURE, not the
         // tool — the user can try again; the panel's button disarms it).
+      },
+      // Phase 9.12: a dragged mover waypoint handle — one setComponent on release.
+      onWaypointMoved: (entityId, index, offset) => {
+        const c = clientRef.current;
+        if (!c) return;
+        const e = c.projection.listEntities().find((x) => x.id === entityId);
+        const waypoints = (e?.blocks?.mover as { waypoints?: number[][] } | undefined)?.waypoints;
+        if (waypoints === undefined || index < 1 || index > waypoints.length) return;
+        const next = waypoints.map((w, i) => (i === index - 1 ? offset.map((v) => Math.round(v * 1000) / 1000) : w));
+        void c.setComponent(entityId, 'mover', { waypoints: next }, c.projection.revision).then((r) => reportFailure('Mover path', r));
       },
     }, { snapping: () => snappingRef.current && !shiftRef.current });
     viewportRef.current = viewport;
@@ -997,6 +1012,11 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.game.control.result', (m) => {
       const r = m as Record<string, unknown>;
+      // Phase 9.11: the editor's own requests (clear the Play save) are not the backend's relays.
+      if (localRelaysRef.current.delete(String(r.relayId))) {
+        setFlowNote(r.ok === true ? 'The Play save was cleared (restart Play to see the title without Continue).' : 'Clearing the Play save failed.');
+        return;
+      }
       ack({ type: 'game.control.ack', relayId: r.relayId, ...outcome(r, ['result']) });
     });
     bridge.on('tl.game.observe.result', (m) => {
@@ -2675,6 +2695,15 @@ function EditorApp(): JSX.Element {
       ],
     },
     {
+      label: 'Gizmos',
+      items: [
+        { label: `Icons: ${gizmos.icons ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, icons: !g.icons })) },
+        { label: `Light ranges: ${gizmos.lights ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, lights: !g.lights })) },
+        { label: `Collider outlines: ${gizmos.colliders ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, colliders: !g.colliders })) },
+        { label: `Gameplay paths and areas: ${gizmos.gameplay ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, gameplay: !g.gameplay })) },
+      ],
+    },
+    {
       label: 'Window',
       items: [
         { label: 'Scene', onSelect: () => setCenterTab('scene') },
@@ -2999,6 +3028,18 @@ function EditorApp(): JSX.Element {
               gameSpawnId={gameConfig?.spawnId ?? null}
               onSave={(next) => void saveFlow(next)}
               error={flowError}
+              note={flowNote}
+              onClearPlaySave={
+                playInfo !== null && bridgeRef.current !== null
+                  ? () => {
+                      let hex = '';
+                      for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+                      const relayId = `relay-${hex}`;
+                      localRelaysRef.current.add(relayId);
+                      bridgeRef.current?.requestGameControl(playInfo.playSessionId, relayId, 'clearSave');
+                    }
+                  : null
+              }
             />
           )}
           {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}

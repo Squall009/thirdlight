@@ -65,17 +65,20 @@ import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
 import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges } from './flow';
+import { createSaveStore, type SaveStorage } from './save';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
 
 /** delivery.md §3.1 — the four bounded game-control actions. */
-export type GameControlAction = 'start' | 'replay' | 'mute' | 'unmute';
+export type GameControlAction = 'start' | 'replay' | 'mute' | 'unmute' | 'clearSave';
 export const GAME_CONTROL_ACTIONS: readonly GameControlAction[] = Object.freeze([
   'start',
   'replay',
   'mute',
   'unmute',
+  // Phase 9.11: forget this game's saves and settings (the editor's "clear Play save").
+  'clearSave',
 ]);
 
 /** delivery.md §3.1 — the four bridge message names (the relay channel,
@@ -201,6 +204,9 @@ export interface GameHostConfig {
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
   /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
+  /** Phase 9.11: where saves go (localStorage in the browser) and this game's key prefix. */
+  readonly saveStorage?: SaveStorage;
+  readonly saveNamespace?: string;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
 }
@@ -635,6 +641,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
           acceptedAtStep: viewRes.ok ? viewRes.view.stepIndex : 0,
         };
       }
+      case 'clearSave':
+        if (config.saveStorage !== undefined && config.saveNamespace !== undefined) createSaveStore(config.saveStorage, config.saveNamespace).clear();
+        break;
       case 'mute':
         config.audio.setMuted(true);
         break;
@@ -749,7 +758,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         dom,
         container: config.container,
         runtime: {
-          startLevel: (l) => rt.startLevel!(l),
+          startLevel: (l, restore) => rt.startLevel!(l, restore),
+          runState: () => rt.runState!(),
           setPaused: (p) => rt.setPaused?.(p),
           gameCounters: () => rt.gameCounters?.() ?? { counters: {}, health: null },
         },
@@ -760,6 +770,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
           ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
         },
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
+        ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).
       const logo = flow.ui?.logo;

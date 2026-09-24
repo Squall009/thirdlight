@@ -438,7 +438,7 @@ export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelop
  * The §20.1 control commands (closed set). Phase 12 (c) adds `loadScene` /
  * `unloadScene` (with `sceneId`), the same request a script's `ctx.scenes` makes.
  */
-export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene'] as const;
+export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'] as const;
 export type GameControlCommand = (typeof GAME_CONTROL_COMMANDS)[number];
 
 /** §20.1 bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */

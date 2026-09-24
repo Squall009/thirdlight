@@ -98,6 +98,7 @@ async function playThrough(page: Page, flow: Locator, musicGain: () => Promise<n
   await expect(flow).toHaveAttribute('data-screen', 'paused');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown'); // Resume, Restart level, Save game, [Settings]
   await page.keyboard.press('Enter');
   await expect(flow).toHaveAttribute('data-screen', 'settings');
   await expect(flow).toContainText('Music volume: 80%');

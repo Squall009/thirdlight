@@ -310,6 +310,34 @@ export class GameplayBlocks {
     this.counters.set(name, (this.counters.get(name) ?? 0) + delta);
   }
 
+  /** Phase 9.11: what a save keeps of the run (collected pickups, defeated enemies, counters, health). */
+  snapshotRun(): { counters: Record<string, number>; collected: string[]; defeated: string[]; health: number | null } {
+    return {
+      counters: this.countersView(),
+      collected: [...this.pickups.values()].filter((p) => p.taken).map((p) => p.id).sort(),
+      defeated: [...this.enemies.values()].filter((e) => e.defeated).map((e) => e.id).sort(),
+      health: this.health?.current ?? null,
+    };
+  }
+
+  /** Phase 9.11: a loaded save's run (after the fresh run began): pickups stay collected, enemies defeated. */
+  restoreRun(run: { counters?: Record<string, number>; collected?: readonly string[]; defeated?: readonly string[]; health?: number | null }): void {
+    for (const [k, v] of Object.entries(run.counters ?? {})) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
+    for (const id of run.collected ?? []) {
+      const p = this.pickups.get(id);
+      if (p === undefined) continue;
+      p.taken = true;
+      this.hidden.add(id);
+    }
+    for (const id of run.defeated ?? []) {
+      const e = this.enemies.get(id);
+      if (e === undefined) continue;
+      e.defeated = true;
+      this.hidden.add(id);
+    }
+    if (this.health !== null && typeof run.health === 'number' && run.health >= 1) this.health.current = Math.min(this.health.max, Math.round(run.health));
+  }
+
   healthView(): { current: number; max: number } | null {
     return this.health === null ? null : { current: this.health.current, max: this.health.max };
   }

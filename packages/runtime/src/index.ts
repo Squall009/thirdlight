@@ -173,4 +173,4 @@ export { sceneEntitiesFromDocument } from './scene-set';
 // Phase 9.7/9.8: animators and ctx.input.
 export { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 export { inputView, type BehaviorInputView } from './behavior';
-export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle } from './types';
+export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorSave, RunRestore, RunSaveState } from './types';
