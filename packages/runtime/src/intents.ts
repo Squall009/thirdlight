@@ -21,7 +21,7 @@ import type { SimulationPhase } from './types';
  * The intent kinds (runtime.md §14.4). Phase 12 (c) adds `respawn`: the
  * player dies and respawns (a game's own fall/kill rules live in scripts).
  */
-export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'respawn';
+export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' | 'respawn';
 
 /** `−1 ≤ value ≤ 1`, quantized at commit (§14.4). */
 export interface ControlMoveIntent {
@@ -42,12 +42,26 @@ export interface TransformIntent {
   position: { x?: number; y?: number; z?: number };
 }
 
+/**
+ * Phase 9.9 (wrap-up): an owned entity's rotation (degrees: yaw about +Y,
+ * pitch about +X, roll about +Z, applied yaw · pitch · roll; missing axes are
+ * 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual
+ * (colliders keep their shape). Fields in the order kind, entityId,
+ * rotation, scale; at least one of rotation and scale.
+ */
+export interface PoseIntent {
+  kind: 'pose';
+  entityId: string;
+  rotation?: { yaw?: number; pitch?: number; roll?: number };
+  scale?: number | [number, number, number];
+}
+
 /** Phase 12 (c): kill the player (intent phase; ignored unless the run is playing). */
 export interface RespawnIntent {
   kind: 'respawn';
 }
 
-export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | RespawnIntent;
+export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | PoseIntent | RespawnIntent;
 
 /** One committed transform write in commit order (§14.5). */
 export interface IntentTransformWrite {
@@ -122,8 +136,13 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   control_move: ['kind', 'value'],
   control_jump: ['kind', 'value'],
   transform: ['kind', 'entityId', 'position'],
+  pose: ['kind', 'entityId', 'rotation', 'scale'],
   respawn: ['kind'],
 };
+const ROTATION_KEYS = ['yaw', 'pitch', 'roll'] as const;
+const MAX_DEGREES = 1e6;
+const SCALE_MIN = 0.001;
+const SCALE_MAX = 1000;
 
 const POSITION_KEYS = new Set(['x', 'y', 'z']);
 const MAX_POSITION = 1e6;
@@ -150,9 +169,10 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', 'an intent must be an object') };
   }
   const kind = value['kind'];
-  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'respawn') {
+  if (kind !== 'control_move' && kind !== 'control_jump' && kind !== 'transform' && kind !== 'pose' && kind !== 'respawn') {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
+  if (kind === 'pose') return poseShape(value);
   const keys = Object.keys(value);
   const allowed = INTENT_KEYS[kind];
   for (const key of keys) {
@@ -208,6 +228,35 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   return { ok: true, kind, intent: { kind, entityId: value['entityId'], position: parsed } };
 }
 
+function poseShape(value: Record<string, unknown>): IntentShapeResult {
+  const keys = Object.keys(value);
+  const order = INTENT_KEYS.pose.filter((k) => keys.includes(k));
+  if (keys.length !== order.length || keys.some((k, i) => k !== order[i])) {
+    return { ok: false, error: invalid('shape', `pose fields must be among and in the order ${INTENT_KEYS.pose.join(', ')}`) };
+  }
+  if (typeof value['entityId'] !== 'string') return { ok: false, error: invalid('shape', 'pose.entityId must be a string') };
+  if (value['rotation'] === undefined && value['scale'] === undefined) return { ok: false, error: invalid('shape', 'a pose needs rotation or scale') };
+  const intent: PoseIntent = { kind: 'pose', entityId: value['entityId'] };
+  const r = value['rotation'];
+  if (r !== undefined) {
+    if (!isPlainObject(r)) return { ok: false, error: invalid('shape', 'pose.rotation must be an object') };
+    const rk = Object.keys(r);
+    const rorder = ROTATION_KEYS.filter((k) => rk.includes(k));
+    if (rk.length === 0 || rk.length !== rorder.length || rk.some((k, i) => k !== rorder[i])) {
+      return { ok: false, error: invalid('shape', 'pose.rotation has yaw, pitch and/or roll, in that order') };
+    }
+    if (rk.some((k) => typeof r[k] !== 'number')) return { ok: false, error: invalid('shape', 'pose.rotation angles must be numbers') };
+    intent.rotation = Object.fromEntries(rk.map((k) => [k, r[k] as number])) as PoseIntent['rotation'];
+  }
+  const s = value['scale'];
+  if (s !== undefined) {
+    if (typeof s === 'number') intent.scale = s;
+    else if (Array.isArray(s) && s.length === 3 && s.every((v) => typeof v === 'number')) intent.scale = [s[0] as number, s[1] as number, s[2] as number];
+    else return { ok: false, error: invalid('shape', 'pose.scale must be a number or [x, y, z]') };
+  }
+  return { ok: true, kind: 'pose', intent };
+}
+
 /** The runtime's phase names this module reasons about (type-only view). */
 export type SimulationPhaseName = 'intent' | 'controller' | 'transform';
 
@@ -219,9 +268,9 @@ export type SimulationPhaseName = 'intent' | 'controller' | 'transform';
  * non-`transform` phase yields the same `phase` rejection).
  */
 export function validateIntentPhase(intent: BehaviorIntent, phase: SimulationPhase): BehaviorIntentError | null {
-  if (intent.kind === 'transform') {
+  if (intent.kind === 'transform' || intent.kind === 'pose') {
     if (phase !== 'transform') {
-      return invalid('phase', 'a transform intent is valid only in the transform phase');
+      return invalid('phase', `a ${intent.kind} intent is valid only in the transform phase`);
     }
     return null;
   }
@@ -246,6 +295,16 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     return null;
   }
   if (intent.kind === 'respawn') return null;
+  if (intent.kind === 'pose') {
+    for (const [axis, v] of Object.entries(intent.rotation ?? {})) {
+      if (!Number.isFinite(v) || Math.abs(v) > MAX_DEGREES) return invalid('value', `pose.rotation.${axis} must be finite and |v| <= ${MAX_DEGREES}`);
+    }
+    if (intent.scale !== undefined) {
+      const s = typeof intent.scale === 'number' ? [intent.scale] : intent.scale;
+      if (s.some((v) => !Number.isFinite(v) || v < SCALE_MIN || v > SCALE_MAX)) return invalid('value', `pose.scale must be within [${SCALE_MIN}, ${SCALE_MAX}]`);
+    }
+    return null;
+  }
   const position = intent.position;
   const axes = Object.keys(position);
   if (axes.length === 0) return invalid('value', 'transform.position needs at least one axis');

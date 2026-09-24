@@ -252,6 +252,52 @@ describe('validated intents (runtime.md §14.4/§14.5)', () => {
     expect(h.diag().intentCommitCount).toBe(12);
   });
 
+  it('applies a pose intent: rotation (yaw · pitch · roll, degrees) and scale on the owned entity', () => {
+    const art = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { phase: string; emit: (i: unknown) => void };
+      if (c.phase === 'transform') c.emit({ kind: 'pose', entityId: 'box-0001', rotation: { yaw: 90 }, scale: [1, 2, 0.5] });
+    }, { ownedTransforms: ['box-0001'] });
+    const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
+    h.boot();
+    const state = h.rt.getInterpolatedState();
+    if (!state.ok) throw new Error('state failed');
+    const box = state.state.transforms.find((t) => t.id === 'box-0001')!;
+    expect(box.rotation[1]).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(box.rotation[3]).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(box.scale).toEqual([1, 2, 0.5]);
+    // Yaw then pitch then roll: yaw 90 + roll 90 is (0.5, 0.5, 0.5, 0.5).
+    const art2 = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { phase: string; emit: (i: unknown) => void };
+      if (c.phase === 'transform') c.emit({ kind: 'pose', entityId: 'box-0001', rotation: { yaw: 90, roll: 90 } });
+    }, { ownedTransforms: ['box-0001'] });
+    const h2 = boot([art2], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
+    h2.boot();
+    const s2 = h2.rt.getInterpolatedState();
+    if (!s2.ok) throw new Error('state failed');
+    for (const v of s2.state.transforms.find((t) => t.id === 'box-0001')!.rotation) expect(v).toBeCloseTo(0.5, 6);
+  });
+
+  it('refuses a bad pose: no fields, wrong order, a bad scale, another entity, outside the transform phase', () => {
+    for (const [bad, reason, detail, phase] of [
+      [{ kind: 'pose', entityId: 'box-0001' }, 'behavior_intent_invalid', 'shape', 'transform'],
+      [{ kind: 'pose', entityId: 'box-0001', scale: 2, rotation: { yaw: 1 } }, 'behavior_intent_invalid', 'shape', 'transform'],
+      [{ kind: 'pose', entityId: 'box-0001', scale: 0 }, 'behavior_intent_invalid', 'value', 'transform'],
+      [{ kind: 'pose', entityId: 'cam-main', scale: 2 }, 'behavior_transform_forbidden', 'not_owner', 'transform'],
+      [{ kind: 'pose', entityId: 'box-0001', rotation: { roll: 5 } }, 'behavior_intent_invalid', 'phase', 'intent'],
+    ] as const) {
+      const art = artifact('behavior-0001', (_s, ctx) => {
+        const c = ctx as { phase: string; emit: (i: unknown) => void };
+        if (c.phase === phase) c.emit(bad);
+      }, { ownedTransforms: ['box-0001'] });
+      const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
+      h.boot();
+      const d = h.diag();
+      expect(d.state, JSON.stringify(bad)).toBe('failed');
+      expect(d.errors[0]?.reason).toBe(reason);
+      expect(d.errors[0]?.detail).toBe(detail);
+    }
+  });
+
   it('rejects a transform write outside the transform phase (detail phase)', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { emit: (i: unknown) => void };

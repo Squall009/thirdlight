@@ -261,6 +261,11 @@ unique across the whole project. One command edits one scene.
   - `ctx.world.transform(entityId)` reads any loaded object's current
     position, rotation and scale.
   - `ctx.emit({kind: 'respawn'})` (intent phase) kills the player.
+  - `ctx.emit({kind: 'pose', entityId, rotation: {yaw, pitch, roll}, scale})`
+    (transform phase, an entity the script owns; degrees, applied yaw then
+    pitch then roll; `scale` is a number or `[x, y, z]`; either may be left
+    out) turns or scales it — a spinning coin, a pulsing gem. It is visual:
+    colliders keep their shape.
   - Camera bounds are optional (Gameplay → Camera → "Keep the camera
     inside bounds").
 - **Play and export** ship every scene file and load the others on demand.

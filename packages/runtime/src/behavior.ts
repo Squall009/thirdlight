@@ -475,6 +475,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
           for (const axis of Object.keys(intent.position)) channels.push(`t:${intent.entityId}:${axis}`);
+        } else if (intent.kind === 'pose') {
+          if (!ownedTransforms.includes(intent.entityId)) {
+            throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
+          }
+          if (intent.rotation !== undefined) channels.push(`p:${intent.entityId}:rotation`);
+          if (intent.scale !== undefined) channels.push(`p:${intent.entityId}:scale`);
         } else {
           channels.push(intent.kind);
         }

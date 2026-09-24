@@ -2985,6 +2985,36 @@ class RuntimeInstance implements Runtime {
     if (transform === undefined) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" does not exist`);
     }
+    if (intent.kind === 'pose') {
+      const parts = [...(intent.rotation !== undefined ? ['rotation'] : []), ...(intent.scale !== undefined ? ['scale'] : [])];
+      for (const part of parts) {
+        if (this.intents.axes.has(`${intent.entityId}\u0000${part}`)) {
+          throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a ${part} write to "${intent.entityId}" in this step`);
+        }
+      }
+      this.bumpIntentCount();
+      if (intent.rotation !== undefined) {
+        const rad = Math.PI / 360; // half-angle per degree
+        const y = (intent.rotation.yaw ?? 0) * rad;
+        const x = (intent.rotation.pitch ?? 0) * rad;
+        const z = (intent.rotation.roll ?? 0) * rad;
+        // q = qYaw · qPitch · qRoll
+        const [cy, sy, cx, sx, cz, sz] = [Math.cos(y), Math.sin(y), Math.cos(x), Math.sin(x), Math.cos(z), Math.sin(z)];
+        const qyx = [cy * sx, sy * cx, -sy * sx, cy * cx]; // qYaw · qPitch as [x, y, z, w]
+        transform.rotation[0] = qyx[0]! * cz + qyx[1]! * sz;
+        transform.rotation[1] = qyx[1]! * cz - qyx[0]! * sz;
+        transform.rotation[2] = qyx[3]! * sz + qyx[2]! * cz;
+        transform.rotation[3] = qyx[3]! * cz - qyx[2]! * sz;
+      }
+      if (intent.scale !== undefined) {
+        const s = typeof intent.scale === 'number' ? [intent.scale, intent.scale, intent.scale] : intent.scale;
+        transform.scale[0] = s[0]!;
+        transform.scale[1] = s[1]!;
+        transform.scale[2] = s[2]!;
+      }
+      for (const part of parts) this.intents.axes.add(`${intent.entityId}\u0000${part}`);
+      return;
+    }
     const axes = Object.keys(intent.position).filter(
       (axis): axis is 'x' | 'y' | 'z' => axis === 'x' || axis === 'y' || axis === 'z',
     );
