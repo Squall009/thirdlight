@@ -57,11 +57,11 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
   audioSource: ['assetId', 'volume', 'range'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
-  trigger: ['size', 'signal', 'once'],
+  trigger: ['size', 'signal', 'once', 'exitSignal'],
   switch: ['mode', 'signal', 'size', 'once'],
-  health: ['max', 'invulnerableSeconds'],
-  pickup: ['kind', 'value', 'counter', 'size', 'respawn'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'],
+  health: ['max', 'start', 'invulnerableSeconds', 'knockback'],
+  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */

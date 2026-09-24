@@ -132,6 +132,9 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     // Phase 9.10: an audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);
+    // Phase 9.9: a pickup's collect sound.
+    const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
+    if (cue !== undefined) setRef(cue);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);

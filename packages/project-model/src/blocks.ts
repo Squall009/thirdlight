@@ -11,7 +11,8 @@
  *   `invulnerableSeconds` of grace follow a hit.
  * - `pickup`: a collectable (coin, gem, heart, life, key or a custom counter).
  * - `enemy`: walks back and forth (between two offsets, or until a ledge or a
- *   wall), hurts on contact, can be stomped.
+ *   wall), hurts on contact, can be stomped; with `chase` it walks toward a
+ *   player in range (still within its range / not off a ledge).
  */
 import type { ModelErrorV2 } from './errors';
 
@@ -39,6 +40,8 @@ export interface TriggerComponent {
   size: [number, number];
   signal: string;
   once?: boolean;
+  /** Emitted when the player leaves the box. */
+  exitSignal?: string;
 }
 
 export interface SwitchComponent {
@@ -50,7 +53,11 @@ export interface SwitchComponent {
 
 export interface HealthComponent {
   max: number;
+  /** Health at the start of a level and after a respawn (default: max). */
+  start?: number;
   invulnerableSeconds?: number;
+  /** A hit pushes the player away from what hurt it at this speed (m/s). */
+  knockback?: number;
 }
 
 export interface PickupComponent {
@@ -60,6 +67,8 @@ export interface PickupComponent {
   counter?: string;
   size?: [number, number];
   respawn?: (typeof PICKUP_RESPAWN)[number];
+  /** An audio asset played when it is collected. */
+  cue?: string;
 }
 
 export interface EnemyComponent {
@@ -71,6 +80,8 @@ export interface EnemyComponent {
   contactDamage: number;
   stompable: boolean;
   health: number;
+  /** Walks toward the player within this many meters (absent or 0: never). */
+  chase?: number;
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
@@ -105,7 +116,8 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
 
 export function validateTriggerComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'trigger is an object', value);
-  fields(value, ['size', 'signal', 'once'], ['size', 'signal'], path, errors);
+  fields(value, ['size', 'signal', 'once', 'exitSignal'], ['size', 'signal'], path, errors);
+  if (value['exitSignal'] !== undefined && (typeof value['exitSignal'] !== 'string' || !NAME_RE.test(value['exitSignal']))) err(errors, 'field_value', `${path}/exitSignal`, 'exitSignal is a name', value['exitSignal']);
   if (value['size'] !== undefined && !vec2(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
   if (value['signal'] !== undefined && (typeof value['signal'] !== 'string' || !NAME_RE.test(value['signal']))) err(errors, 'field_value', `${path}/signal`, 'signal is a name', value['signal']);
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
@@ -122,14 +134,17 @@ export function validateSwitchComponent(value: unknown, path: string, errors: Mo
 
 export function validateHealthComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'health is an object', value);
-  fields(value, ['max', 'invulnerableSeconds'], ['max'], path, errors);
+  fields(value, ['max', 'start', 'invulnerableSeconds', 'knockback'], ['max'], path, errors);
+  if (value['start'] !== undefined && !(Number.isInteger(value['start']) && num(value['start'], 1, typeof value['max'] === 'number' ? value['max'] : 1000))) err(errors, 'field_value', `${path}/start`, 'start is an integer 1–max', value['start']);
+  if (value['knockback'] !== undefined && !num(value['knockback'], 0, 20)) err(errors, 'field_value', `${path}/knockback`, 'knockback is 0–20 m/s', value['knockback']);
   if (value['max'] !== undefined && !(Number.isInteger(value['max']) && num(value['max'], 1, 1000))) err(errors, 'field_value', `${path}/max`, 'max is an integer 1–1000', value['max']);
   if (value['invulnerableSeconds'] !== undefined && !num(value['invulnerableSeconds'], 0, 10)) err(errors, 'field_value', `${path}/invulnerableSeconds`, 'invulnerableSeconds is 0–10', value['invulnerableSeconds']);
 }
 
 export function validatePickupComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'pickup is an object', value);
-  fields(value, ['kind', 'value', 'counter', 'size', 'respawn'], ['kind', 'value'], path, errors);
+  fields(value, ['kind', 'value', 'counter', 'size', 'respawn', 'cue'], ['kind', 'value'], path, errors);
+  if (value['cue'] !== undefined && (typeof value['cue'] !== 'string' || value['cue'].length === 0 || value['cue'].length > 128)) err(errors, 'field_value', `${path}/cue`, 'cue names an audio asset', value['cue']);
   if (value['kind'] !== undefined && !(PICKUP_KINDS as readonly unknown[]).includes(value['kind'])) err(errors, 'field_value', `${path}/kind`, 'kind is coin, gem, heart, life, key or custom', value['kind']);
   if (value['value'] !== undefined && !(Number.isInteger(value['value']) && num(value['value'], 1, 10000))) err(errors, 'field_value', `${path}/value`, 'value is an integer 1–10000', value['value']);
   if (value['kind'] === 'custom' && (typeof value['counter'] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(value['counter']))) err(errors, 'field_value', `${path}/counter`, 'a custom pickup names its counter', value['counter']);
@@ -140,7 +155,8 @@ export function validatePickupComponent(value: unknown, path: string, errors: Mo
 
 export function validateEnemyComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'enemy is an object', value);
-  fields(value, ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'], ['patrol', 'speed', 'size', 'contactDamage', 'stompable', 'health'], path, errors);
+  fields(value, ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase'], ['patrol', 'speed', 'size', 'contactDamage', 'stompable', 'health'], path, errors);
+  if (value['chase'] !== undefined && !num(value['chase'], 0, 50)) err(errors, 'field_value', `${path}/chase`, 'chase is 0–50 m', value['chase']);
   if (value['patrol'] !== undefined && !(ENEMY_PATROLS as readonly unknown[]).includes(value['patrol'])) err(errors, 'field_value', `${path}/patrol`, 'patrol is points or edges', value['patrol']);
   if (value['patrol'] === 'points' && !(vec2(value['range'], -500, 500) && (value['range'] as number[])[0]! < (value['range'] as number[])[1]!)) err(errors, 'field_value', `${path}/range`, 'a points patrol walks between two x offsets [left, right]', value['range']);
   if (value['patrol'] === 'edges' && value['range'] !== undefined) err(errors, 'field_unexpected', `${path}/range`, 'an edges patrol has no range', value['range']);
@@ -161,15 +177,21 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
   ...(c.easing !== undefined ? { easing: c.easing } : {}),
   ...(c.startOn !== undefined ? { startOn: c.startOn } : {}),
 });
-export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({ size: copy2(c.size), signal: c.signal, ...(c.once !== undefined ? { once: c.once } : {}) });
+export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({ size: copy2(c.size), signal: c.signal, ...(c.once !== undefined ? { once: c.once } : {}), ...(c.exitSignal !== undefined ? { exitSignal: c.exitSignal } : {}) });
 export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}) });
-export const canonicalHealth = (c: HealthComponent): HealthComponent => ({ max: c.max, ...(c.invulnerableSeconds !== undefined ? { invulnerableSeconds: c.invulnerableSeconds } : {}) });
+export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
+  max: c.max,
+  ...(c.start !== undefined ? { start: c.start } : {}),
+  ...(c.invulnerableSeconds !== undefined ? { invulnerableSeconds: c.invulnerableSeconds } : {}),
+  ...(c.knockback !== undefined ? { knockback: c.knockback } : {}),
+});
 export const canonicalPickup = (c: PickupComponent): PickupComponent => ({
   kind: c.kind,
   value: c.value,
   ...(c.counter !== undefined ? { counter: c.counter } : {}),
   ...(c.size !== undefined ? { size: copy2(c.size) } : {}),
   ...(c.respawn !== undefined ? { respawn: c.respawn } : {}),
+  ...(c.cue !== undefined ? { cue: c.cue } : {}),
 });
 export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
   patrol: c.patrol,
@@ -179,6 +201,7 @@ export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
   contactDamage: c.contactDamage,
   stompable: c.stompable,
   health: c.health,
+  ...(c.chase !== undefined ? { chase: c.chase } : {}),
 });
 
 /** Every block component, with its validator and canonical form (v4 scenes). */
@@ -224,11 +247,11 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
 
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'] },
-  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once'] },
+  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal'] },
   switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: ['mode', 'signal', 'size', 'once'] },
-  health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: ['max', 'invulnerableSeconds'] },
-  pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: ['kind', 'value', 'counter', 'size', 'respawn'] },
-  enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'] },
+  health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: ['max', 'start', 'invulnerableSeconds', 'knockback'] },
+  pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'] },
+  enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase'] },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: ['assetId', 'volume', 'range'] },
   faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: ['yawRight', 'yawLeft', 'turnSeconds'] },
 } as const;

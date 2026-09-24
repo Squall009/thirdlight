@@ -29,6 +29,12 @@ const PLAYER_HALF_H = 0.9;
 const STOMP_BOUNCE = 9;
 const HIT_BOUNCE = 5;
 const DEFAULT_INVULNERABLE = 1;
+/** A knockback pushes for this long, easing out. */
+const KNOCKBACK_SECONDS = 0.25;
+/** A defeated enemy squashes (feet anchored) for this long, then disappears. */
+const DEFEAT_SECONDS = 0.3;
+/** A chasing enemy notices a player within this height of its feet. */
+const CHASE_HEIGHT = 2;
 
 type Vec3 = [number, number, number];
 
@@ -60,6 +66,7 @@ interface Box {
 
 interface Trigger extends Box {
   signal: string;
+  exitSignal: string | null;
   once: boolean;
   inside: boolean;
   spent: boolean;
@@ -78,6 +85,7 @@ interface Pickup extends Box {
   value: number;
   counter: string | null;
   respawnOnDeath: boolean;
+  cue: string | null;
   taken: boolean;
 }
 
@@ -95,6 +103,11 @@ interface Enemy {
   maxHealth: number;
   health: number;
   defeated: boolean;
+  chase: number;
+  /** Steps left of the defeat squash (0: none running). */
+  squash: number;
+  /** The authored Y scale (the squash scales it). */
+  scaleY: number;
 }
 
 export interface BlocksHost {
@@ -110,6 +123,8 @@ export interface BlocksHost {
   groundEntityId(): string | null;
   /** Kill the player (the session's respawn), only while playing. */
   kill(): void;
+  /** Play an audio asset through the sfx bus (after the step). */
+  playCue?(assetId: string): void;
   /** The animator of an entity (or of one of its children), for parameters. */
   animator(entityId: string): { set(name: string, v: number | boolean): boolean; trigger(name: string): boolean } | null;
 }
@@ -138,7 +153,9 @@ export class GameplayBlocks {
   /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
   private readonly facers = new Map<string, { right: number; left: number; rate: number; yaw: number; lastX: number | null }>();
   private readonly counters = new Map<string, number>();
-  private health: { max: number; current: number; invulnerable: number; invulnerableUntil: number } | null = null;
+  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number } | null = null;
+  /** A hit's push: m/s along X, steps left. */
+  private knock = { v: 0, steps: 0, total: 0 };
   private signalsNow = new Set<string>();
   private signalsPrev = new Set<string>();
   private pendingBounce: number | null = null;
@@ -203,7 +220,7 @@ export class GameplayBlocks {
       const t = c['trigger'];
       if (t !== undefined) {
         const size = t['size'] as number[];
-        this.triggers.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(t['signal']), once: t['once'] === true, inside: false, spent: false });
+        this.triggers.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(t['signal']), exitSignal: typeof t['exitSignal'] === 'string' ? (t['exitSignal'] as string) : null, once: t['once'] === true, inside: false, spent: false });
       }
       const s = c['switch'];
       if (s !== undefined) {
@@ -220,6 +237,7 @@ export class GameplayBlocks {
           value: num(pk['value'], 1),
           counter: typeof pk['counter'] === 'string' ? (pk['counter'] as string) : null,
           respawnOnDeath: pk['respawn'] === 'death',
+          cue: typeof pk['cue'] === 'string' ? (pk['cue'] as string) : null,
           taken: false,
         });
       }
@@ -242,12 +260,16 @@ export class GameplayBlocks {
           maxHealth: health,
           health,
           defeated: false,
+          chase: num(en['chase'], 0),
+          squash: 0,
+          scaleY: e.components.transform.scale[1] ?? 1,
         });
       }
       const h = c['health'];
       if (h !== undefined && e.id === this.host.playerId) {
         const max = num(h['max'], 3);
-        this.health = { max, current: max, invulnerable: num(h['invulnerableSeconds'], DEFAULT_INVULNERABLE), invulnerableUntil: -1 };
+        const start = Math.min(max, num(h['start'], max));
+        this.health = { max, start, current: start, invulnerable: num(h['invulnerableSeconds'], DEFAULT_INVULNERABLE), invulnerableUntil: -1, knockback: num(h['knockback'], 0) };
       }
     }
   }
@@ -278,12 +300,14 @@ export class GameplayBlocks {
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
     for (const p of this.pickups.values()) p.taken = false;
     for (const e of this.enemies.values()) {
-      Object.assign(e, { x: e.start[0], dir: 1, health: e.maxHealth, defeated: false });
+      this.writeSquash(e.id, e.scaleY);
+      Object.assign(e, { x: e.start[0], dir: 1, health: e.maxHealth, defeated: false, squash: 0 });
       this.writeTransform(e.id, e.start);
     }
     this.hidden.clear();
     this.counters.clear();
-    if (this.health !== null) Object.assign(this.health, { current: this.health.max, invulnerableUntil: -1 });
+    if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });
+    this.knock = { v: 0, steps: 0, total: 0 };
     this.signalsNow.clear();
     this.signalsPrev.clear();
     this.pendingBounce = null;
@@ -292,7 +316,8 @@ export class GameplayBlocks {
 
   /** The player respawned after a death: health back to full, some pickups back. */
   onRespawn(): void {
-    if (this.health !== null) Object.assign(this.health, { current: this.health.max, invulnerableUntil: -1 });
+    if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });
+    this.knock = { v: 0, steps: 0, total: 0 };
     for (const p of this.pickups.values()) {
       if (p.taken && p.respawnOnDeath) {
         p.taken = false;
@@ -415,6 +440,11 @@ export class GameplayBlocks {
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
       else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m);
     }
+    // A hit's knockback: a horizontal push that eases out over KNOCKBACK_SECONDS.
+    if (this.knock.steps > 0) {
+      pushed.x += (this.knock.v * dt * this.knock.steps) / this.knock.total;
+      this.knock.steps -= 1;
+    }
     this.carry = { x: this.carry.x + pushed.x, y: this.carry.y + pushed.y };
     if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
   }
@@ -482,6 +512,7 @@ export class GameplayBlocks {
         this.emit(t.signal);
         if (t.once) t.spent = true;
       }
+      if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
       t.inside = inside;
     }
     const interact = frame.actions?.['interact']?.p === 'pressed';
@@ -498,6 +529,7 @@ export class GameplayBlocks {
       if (p.taken || !overlaps(p.id, p.half)) continue;
       p.taken = true;
       this.hidden.add(p.id);
+      if (p.cue !== null) this.host.playCue?.(p.cue);
       if (p.kind === 'heart') {
         if (this.health !== null) this.health.current = Math.min(this.health.max, this.health.current + p.value);
       } else {
@@ -518,19 +550,41 @@ export class GameplayBlocks {
         anim?.trigger('hurt');
         if (e.health <= 0) {
           e.defeated = true;
-          this.hidden.add(e.id);
+          e.squash = Math.max(1, Math.round(DEFEAT_SECONDS * this.host.hz));
           anim?.set('defeated', true);
+          this.host.animator(e.id)?.set('attacking', false);
           this.addCounter('defeated', 1);
         }
       } else if (e.contactDamage > 0) {
-        this.damage(e.contactDamage);
+        this.damage(e.contactDamage, at[0]);
       }
     }
   }
 
   private moveEnemies(dt: number): void {
+    const player = this.host.player();
     for (const e of this.enemies.values()) {
-      if (e.defeated) continue;
+      if (e.defeated) {
+        // The defeat: squash toward the feet, then gone.
+        if (e.squash > 0) {
+          e.squash -= 1;
+          const total = Math.max(1, Math.round(DEFEAT_SECONDS * this.host.hz));
+          this.writeSquash(e.id, e.scaleY * (0.15 + (0.85 * e.squash) / total));
+          if (e.squash === 0) this.hidden.add(e.id);
+        }
+        continue;
+      }
+      // Chase: turn toward a player in range (the patrol limits below still hold).
+      let chasing = false;
+      if (e.chase > 0 && player !== null) {
+        const dx = player.x - e.x;
+        const feet = player.y - PLAYER_HALF_H;
+        if (Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= CHASE_HEIGHT && Math.abs(dx) > 0.05) {
+          e.dir = dx > 0 ? 1 : -1;
+          chasing = true;
+        }
+      }
+      this.host.animator(e.id)?.set('attacking', chasing);
       const step = e.speed * dt * e.dir;
       let next = e.x + step;
       if (e.patrol === 'points') {
@@ -557,8 +611,8 @@ export class GameplayBlocks {
     }
   }
 
-  /** Damage the player; without a health component any damage kills. */
-  damage(amount: number): 'alive' | 'dead' {
+  /** Damage the player (from `fromX`: a knockback pushes away from it); without a health component any damage kills. */
+  damage(amount: number, fromX?: number): 'alive' | 'dead' {
     if (amount <= 0) return 'alive';
     if (this.health === null) {
       this.host.kill();
@@ -573,6 +627,12 @@ export class GameplayBlocks {
       return 'dead';
     }
     this.pendingBounce = HIT_BOUNCE;
+    const player = this.host.player();
+    if (this.health.knockback > 0 && fromX !== undefined && player !== null) {
+      const total = Math.max(1, Math.round(KNOCKBACK_SECONDS * this.host.hz));
+      // Twice the speed at the start, easing to zero: the mean is `knockback`.
+      this.knock = { v: 2 * this.health.knockback * (player.x >= fromX ? 1 : -1), steps: total, total };
+    }
     return 'alive';
   }
 
@@ -586,6 +646,12 @@ export class GameplayBlocks {
     if (damage === undefined || damage <= 0 || this.health === null) return 'kill';
     this.damage(damage);
     return 'handled';
+  }
+
+  private writeSquash(id: string, sy: number): void {
+    const t = this.host.curr.get(id);
+    if (t === undefined) return;
+    t.scale[1] = sy;
   }
 
   private writeTransform(id: string, pos: readonly number[]): void {

@@ -672,11 +672,13 @@ Add one dated line per decision taken during the run (what, why).
   physics. While grounded, the physics port now reports the surface right
   under the feet as the support normal (a lift's upward sweep otherwise
   only touched corners, which read as slopes). Enemies are kinematic boxes
-  that patrol with raycasts, not capsule characters; there is no chase,
-  knockback, defeat animation, collect cue, `health.start`, sensor
-  enter/stay/exit events for scripts, `overlapBox/Circle`, or the extra
-  script intents (rotation/scale, set active, spawn/destroy, timers) —
-  left for 9.10/9.13/9.14 as needed. Known limit: a player spawn inside a
+  that patrol with raycasts, not capsule characters. Added in the wrap-up:
+  enemy `chase` (toward a player in range, within its patrol limits, sets
+  the Animator's `attacking`), a squash-then-vanish defeat, `health.start`
+  and `knockback`, a pickup `cue` (an audio asset, played through the sfx
+  bus) and a trigger `exitSignal`. Still not built: sensor stay events and
+  shapes other than boxes, `overlapBox/Circle` for scripts, and the extra
+  script intents (rotation/scale, set active, spawn/destroy, timers). Known limit: a player spawn inside a
   one-way platform counts as blocked. Blocks need v4 projects.
 - 2026-09-24 (9.10): the game flow is a new optional content block
   `content.flow` (not a `content.game` field: game fields are all required

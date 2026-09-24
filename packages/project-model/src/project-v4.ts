@@ -227,6 +227,16 @@ export function composeV4(
     });
   }
 
+  // Phase 9.9: a pickup's collect sound is an audio asset of this project.
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
+      if (cue !== undefined && soundKinds.get(cue) !== 'audio') {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/pickup/cue`, message: 'a pickup cue plays an audio asset of this project', expected: 'an audio assetId' }, cue)));
+      }
+    });
+  }
+
   // Phase 9.7: an animator names a controller of this project.
   const controllerIds = new Set((content.animators ?? []).map((c) => c.controllerId));
   for (const s of scenes) {

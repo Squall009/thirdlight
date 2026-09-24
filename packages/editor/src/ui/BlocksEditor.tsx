@@ -22,6 +22,8 @@ interface Props {
   onSave: (component: string, value: Value | null) => void;
   /** Phase 9.10: the audio and music assets an audio source can play. */
   sounds?: readonly { assetId: string; displayName: string }[];
+  /** Audio (cue) assets: a pickup's collect sound. */
+  cues?: readonly { assetId: string; displayName: string }[];
 }
 
 export const BLOCK_DEFAULTS: Record<BlockName, Value> = {
@@ -59,7 +61,7 @@ function Field(p: { label: string; aria: string; value: string; onCommit: (raw: 
 const nums = (raw: string): number[] => raw.split(/[\s,]+/).filter((s) => s !== '').map(Number);
 const vec2Text = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : '');
 
-export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: Props): JSX.Element {
+export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [], cues = [] }: Props): JSX.Element {
   const missing = (['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const).filter((n) => blocks[n] === undefined && (n !== 'audioSource' || sounds.length > 0));
   const set = (n: string, patch: Value): void => onSave(n, patch);
   const num = (n: BlockName, key: string, label: string, integer = false): JSX.Element => (
@@ -115,11 +117,16 @@ export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: 
           text(n, 'startOn', 'waits for signal'),
         ];
       case 'trigger':
-        return [size(n), text(n, 'signal', 'sends signal'), flag(n, 'once', 'only once')];
+        return [size(n), text(n, 'signal', 'sends signal'), flag(n, 'once', 'only once'), text(n, 'exitSignal', 'sends on leaving')];
       case 'switch':
         return [select(n, 'mode', 'mode', ['interact', 'stand']), size(n), text(n, 'signal', 'sends signal'), flag(n, 'once', 'only once')];
       case 'health':
-        return [num(n, 'max', 'max health', true), num(n, 'invulnerableSeconds', 'invulnerable after a hit (s)')];
+        return [
+          num(n, 'max', 'max health', true),
+          num(n, 'start', 'starts with (empty: max)', true),
+          num(n, 'invulnerableSeconds', 'invulnerable after a hit (s)'),
+          num(n, 'knockback', 'knockback (m/s)'),
+        ];
       case 'pickup':
         return [
           select(n, 'kind', 'kind', ['coin', 'gem', 'heart', 'life', 'key', 'custom'], (k) => (k === 'custom' ? { kind: k, counter: 'stars' } : { kind: k, counter: null })),
@@ -127,6 +134,18 @@ export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: 
           ...(v['kind'] === 'custom' ? [text(n, 'counter', 'counter')] : []),
           size(n, 'size w, h (m, empty: the box)'),
           select(n, 'respawn', 'comes back', ['never', 'death']),
+          <label className="tl-field" key="cue">
+            <span className="tl-field__label">collect sound</span>
+            <select className="tl-input" aria-label="pickup cue" value={String(v['cue'] ?? '')} onChange={(e) => set(n, { cue: e.target.value === '' ? null : e.target.value })}>
+              <option value="">none</option>
+              {v['cue'] !== undefined && !cues.some((c) => c.assetId === v['cue']) && <option value={String(v['cue'])}>{String(v['cue'])}</option>}
+              {cues.map((c) => (
+                <option key={c.assetId} value={c.assetId}>
+                  {c.displayName}
+                </option>
+              ))}
+            </select>
+          </label>,
         ];
       case 'enemy':
         return [
@@ -137,6 +156,7 @@ export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: 
           num(n, 'contactDamage', 'contact damage', true),
           num(n, 'health', 'hits to defeat', true),
           flag(n, 'stompable', 'defeated by jumping on it'),
+          num(n, 'chase', 'chases the player within (m)'),
         ];
       case 'audioSource':
         return [

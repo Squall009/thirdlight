@@ -133,10 +133,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name). ' +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth, startOn?: signal} (with a box collider it is a moving platform that carries ' +
-      'the player; startOn makes a door); trigger {size: [w, h], signal, once?}; switch {mode: interact|stand, signal, size, once?}; ' +
-      'health {max, invulnerableSeconds?} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
-      'respawn?: never|death}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
-      'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life); audioSource ' +
+      'the player; startOn makes a door); trigger {size: [w, h], signal, once?, exitSignal? (sent on leaving)}; switch {mode: interact|stand, signal, size, once?}; ' +
+      'health {max, start?, invulnerableSeconds?, knockback? m/s} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
+      'respawn?: never|death, cue?: audioAssetId (collect sound)}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
+      'health, chase? m (walks toward a player in range)}; a defeated enemy squashes, then vanishes; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life); audioSource ' +
       '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health() and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +

@@ -67,6 +67,10 @@ async function level(spawn: [number, number], extra: Any[], drive: Drive, player
     markConfirmConsumed: () => undefined,
     dispose: () => undefined,
   };
+  // The sounds the host plays (ctx.audio and pickup cues), recorded.
+  const sounds: string[] = [];
+  const audio: Any = createGameAudioOwner({ contextFactory: () => null } as Any);
+  audio.playSound = (assetId: string) => sounds.push(assetId);
   const host = createGameHost({
     snapshot: {
       snapshotId: 'blocks@r1',
@@ -79,7 +83,7 @@ async function level(spawn: [number, number], extra: Any[], drive: Drive, player
     physics: physics.port,
     adapter: () => null,
     input,
-    audio: createGameAudioOwner({ contextFactory: () => null } as Any),
+    audio,
     readArtifact: async () => new ArrayBuffer(0),
     container: new FakeNode(),
     buildId: 'b',
@@ -105,7 +109,7 @@ async function level(spawn: [number, number], extra: Any[], drive: Drive, player
     const t = rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
     return [t.position[0], t.position[1]];
   };
-  return { rt, tick, pos, view: () => rt.getGameView().view, counters: () => rt.gameCounters(), hidden: () => rt.hiddenEntities() as ReadonlySet<string> };
+  return { rt, tick, pos, sounds, view: () => rt.getGameView().view, counters: () => rt.gameCounters(), hidden: () => rt.hiddenEntities() as ReadonlySet<string> };
 }
 
 const box = (id: string, x: number, y: number, components: Record<string, unknown>) => ({ id, components: { transform: at(x, y), ...components } });
@@ -251,5 +255,64 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
       seen.add(Math.round(yawOf(L, 'snout-0001')));
     }
     expect(seen.has(90) && seen.has(-90)).toBe(true);
+  });
+});
+
+describe('gameplay blocks: the 9.9 wrap-up additions', () => {
+  it('a chasing enemy walks toward the player in range; a patrolling one does not', async () => {
+    const enemy = { patrol: 'points', range: [-4, 4], speed: 1, size: [0.8, 0.8], contactDamage: 0, stompable: true, health: 1 };
+    const still = () => ({ moveX: 0, jump: 'none' as const });
+    const chaser = await level([0, 0.91], [box('enemy-0001', 5, 0, { enemy: { ...enemy, chase: 6 } })], still);
+    const walker = await level([0, 0.91], [box('enemy-0001', 5, 0, { enemy })], still);
+    chaser.tick(120);
+    walker.tick(120);
+    expect(chaser.pos('enemy-0001')[0]).toBeLessThan(4.2); // one second toward the player
+    expect(walker.pos('enemy-0001')[0]).toBeGreaterThan(5.8); // patrols right first
+  });
+
+  it('a stomped enemy squashes toward its feet, then disappears', async () => {
+    const enemy = { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 };
+    const L = await level([3, 3], [box('enemy-0001', 3, 0, { enemy })], () => ({ moveX: 0, jump: 'none' }), { health: { max: 3 } });
+    const scaleY = (): number => L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === 'enemy-0001').scale[1];
+    let squashed = Infinity;
+    for (let i = 0; i < 120 && !L.hidden().has('enemy-0001'); i++) {
+      L.tick();
+      if (L.counters().counters['defeated'] === 1) squashed = Math.min(squashed, scaleY());
+    }
+    expect(L.counters().counters['defeated']).toBe(1);
+    expect(squashed).toBeLessThan(0.5);
+    expect(L.hidden().has('enemy-0001')).toBe(true);
+  });
+
+  it('a hit with knockback pushes the player away; health starts at `start`', async () => {
+    const enemy = { patrol: 'points', range: [-0.5, 0.5], speed: 0, size: [0.8, 0.8], contactDamage: 1, stompable: false, health: 1 };
+    const walkIn = (s: number) => ({ moveX: s < 40 ? 1 : 0, jump: 'none' as const });
+    const soft = await level([0, 0.91], [box('enemy-0001', 1.6, 0, { enemy })], walkIn, { health: { max: 5, start: 3, invulnerableSeconds: 2 } });
+    const hard = await level([0, 0.91], [box('enemy-0001', 1.6, 0, { enemy })], walkIn, { health: { max: 5, start: 3, invulnerableSeconds: 2, knockback: 8 } });
+    soft.tick(120);
+    hard.tick(120);
+    expect(soft.counters().health).toEqual({ current: 2, max: 5 });
+    expect(hard.counters().health).toEqual({ current: 2, max: 5 });
+    expect(soft.pos('player-0001')[0] - hard.pos('player-0001')[0]).toBeGreaterThan(1); // pushed back ~2 m
+  });
+
+  it('a trigger emits its exit signal when the player leaves it; a pickup plays its cue', async () => {
+    const trigger = box('trig-0001', 3, 1, { trigger: { size: [1, 2], signal: 'in', exitSignal: 'out' } });
+    const door = box('door-0001', 12, 2, { box: { size: [0.6, 4, 2], material: { color: '#553311' } }, collider: { shape: { type: 'box', hx: 0.3, hy: 2 } }, mover: { waypoints: [[0, 4, 0]], speed: 8, mode: 'once', startOn: 'out' } });
+    const coin = box('coin-0001', 2, 0.9, { pickup: { kind: 'coin', value: 1, cue: 'asset-ding' } });
+    let x = 0;
+    const L = await level([0, 0.91], [trigger, door, coin], () => ({ moveX: x, jump: 'none' }));
+    const run = (n: number): void => L.tick(n);
+    x = 0.5;
+    // Walk into the trigger and stop inside it: the door stays shut.
+    for (let i = 0; i < 600 && L.pos('player-0001')[0] < 3; i++) run(1);
+    x = 0;
+    run(60);
+    expect(L.pos('door-0001')[1]).toBeCloseTo(2, 3);
+    expect(L.sounds).toEqual(['asset-ding']);
+    // Walk out of it: the exit signal opens the door.
+    x = 1;
+    run(120);
+    expect(L.pos('door-0001')[1]).toBeGreaterThan(5);
   });
 });

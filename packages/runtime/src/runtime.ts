@@ -1355,6 +1355,7 @@ class RuntimeInstance implements Runtime {
         kill: () => {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
+        playCue: (assetId: string) => rt.audioControl.play(assetId),
         animator: (id: string) => {
           const own = rt.animatorMachines.get(id)?.machine;
           if (own !== undefined) return own;

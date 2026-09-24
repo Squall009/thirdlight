@@ -72,11 +72,13 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   await page.getByLabel('add gameplay component').selectOption('health');
   await expect(page.getByLabel('health component')).toBeVisible();
   await field(page, 'health max', '3');
+  await field(page, 'health start', '3');
 
   await create(page, 'Coin', 4, 0.5);
   await create(page, 'Coin', 4.6, 0.5);
   await create(page, 'Enemy', 7.5, 0.4);
   await field(page, 'enemy speed', '0');
+  await field(page, 'enemy chase', '3');
   await create(page, 'Switch', 9.5, 0.5);
   await page.getByLabel('switch mode').selectOption('stand');
   await expect(page.getByLabel('switch mode')).toHaveValue('stand');
@@ -91,12 +93,15 @@ test('a level built from gameplay blocks plays: coins, stomp, plate and door, on
   await create(page, 'Trigger', 17, 1.9);
   await field(page, 'trigger signal', 'ride');
   await field(page, 'trigger size', '1.6, 1.6');
+  await field(page, 'trigger exitSignal', 'left');
 
   // The stored components (what Play and the export read).
   const lift = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } })) as { entities?: { name?: string; components: Record<string, unknown> }[] };
   const byName = (n: string) => lift.entities?.find((e) => e.name === n)?.components;
   expect(byName('Moving platform')?.['mover']).toEqual({ waypoints: [[0, 2, 0]], speed: 2, mode: 'once', wait: 0.5, startOn: 'ride' });
-  expect(byName('Player')?.['health']).toEqual({ max: 3, invulnerableSeconds: 1 });
+  expect(byName('Player')?.['health']).toEqual({ max: 3, start: 3, invulnerableSeconds: 1 });
+  expect(byName('Enemy')?.['enemy']).toMatchObject({ speed: 0, chase: 3 });
+  expect(byName('Trigger')?.['trigger']).toEqual({ size: [1.6, 1.6], signal: 'ride', exitSignal: 'left' });
 
   // Play.
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
