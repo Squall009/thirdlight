@@ -22,7 +22,9 @@ material node graph moved to phase 18 (after the WebGPU renderer phase 17).
   opt-in live test checks the editor, Play, the export and re-bakes
   (`tests/e2e/sprout-live.e2e.ts`, `TL_SPROUT_LIVE`, `TL_SPROUT_BAKE`).
 - **The player's collision capsule is not data.** It is hard-coded as radius
-  0.3 m and half-height 0.6 m (1.8 m tall, 0.6 m wide) in three places:
+  0.3 m and half-height 0.6 m (1.8 m tall, 0.6 m wide) in several places
+  (all listed in `docs/plan-phase-15.md` §7, including
+  `platformer-game/src/constants.ts` and `runtime/src/runtime.ts`), e.g.:
   `packages/platformer/src/constants.ts` (`capsuleRadius`,
   `capsuleHalfHeight`), `packages/physics-rapier/src/port.ts`
   (`CAPSULE_RADIUS`, `CAPSULE_HALF_HEIGHT`) and
@@ -88,7 +90,7 @@ Data:
   MCP tool text.
 
 Runtime and physics:
-- Remove the three hard-coded copies: the platformer, the Rapier port
+- Remove every hard-coded copy (see `docs/plan-phase-15.md` §7): the platformer, platformer-game, the runtime, the Rapier port
   (character creation, clearance probes, `placeCharacter`, the feet offset,
   one-way checks) and the gameplay blocks (player overlap box, stomp test,
   push-out, chase height) read the player's capsule from the snapshot.
