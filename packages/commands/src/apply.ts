@@ -46,6 +46,7 @@ import { applyCreatePrefab, applyInstantiatePrefab } from './prefab-ops';
 import { applyApplySurfacePreset, applySetGameConfig } from './v3-ops';
 import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
+import { applyPasteEntities } from './paste-ops';
 import { applySceneIndexOp } from './scene-ops';
 import type {
   ApplyOutcome,
@@ -300,6 +301,11 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setTags', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'pasteEntities': {
+      const r = applyPasteEntities(scene, va.validated.args, state.content, state.reservedIds);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'pasteEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setAssetOptions': {
       const r = applySetAssetOptions(input, va.validated.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -451,7 +457,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, createScene, renameScene, deleteScene, setStartScenes',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, createScene, renameScene, deleteScene, setStartScenes',
         }),
       };
     }

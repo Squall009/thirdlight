@@ -572,7 +572,7 @@ function buildService(core: Core): WorkspaceService {
     if (!target.ok) return failRequest(request, target.error);
     // `sceneId` on a create names the scene; the pure layer never sees it.
     let pureRequest = request;
-    if ((op === 'createEntity' || op === 'instantiatePrefab') && 'sceneId' in args) {
+    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && 'sceneId' in args) {
       const { sceneId: _s, ...rest } = args;
       pureRequest = { ...(request as object), args: rest };
     }
@@ -1843,7 +1843,7 @@ function targetSceneV4(
     const entry = op === 'undo' ? history.entries[history.cursor - 1] : history.entries[history.cursor];
     return { ok: true, sceneId: (entry as { sceneId?: string } | undefined)?.sceneId ?? null };
   }
-  if (op === 'createEntity' || op === 'instantiatePrefab') {
+  if (op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') {
     const explicit = args['sceneId'];
     if (explicit !== undefined) {
       if (typeof explicit !== 'string' || !state.scenes.has(explicit)) {

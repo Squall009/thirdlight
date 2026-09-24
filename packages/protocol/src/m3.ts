@@ -37,6 +37,7 @@ export type V3MutationOp =
   | 'moveEntities'
   | 'setTags'
   | 'setAssetOptions'
+  | 'pasteEntities'
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
@@ -85,7 +86,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops (commands.md §2; packet 45). */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 /** The v3 query op (commands.md §4; packet 45). */
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig'];
 
@@ -109,6 +110,7 @@ export const CHANGE_TYPES = [
   'setTags',
   'setSceneIndex',
   'setAssetOptions',
+  'pasteEntities',
 ] as const;
 
 // ---- structural helpers -------------------------------------------------------

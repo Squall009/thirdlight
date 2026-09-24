@@ -50,6 +50,7 @@ import {
   limitsExceeded,
 } from './errors';
 import { SURFACE_PRESET_NAMES } from './v3';
+import { validatePasteArgs } from './paste-ops';
 import {
   validateAcknowledgeBehaviorTrustArgs,
   validateApplySurfacePresetArgs,
@@ -89,6 +90,7 @@ import type {
   MoveEntitiesArgs,
   SetTagsArgs,
   SetAssetOptionsArgs,
+  PasteEntitiesArgs,
   SceneIndexArgs,
 } from './types';
 
@@ -125,6 +127,7 @@ const OPS: readonly MutationOp[] = [
   'moveEntities',
   'setTags',
   'setAssetOptions',
+  'pasteEntities',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -155,7 +158,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1117,6 +1120,7 @@ export type ValidatedOpArgs =
   | { op: 'moveEntities'; args: MoveEntitiesArgs }
   | { op: 'setTags'; args: SetTagsArgs }
   | { op: 'setAssetOptions'; args: SetAssetOptionsArgs }
+  | { op: 'pasteEntities'; args: PasteEntitiesArgs }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1166,6 +1170,11 @@ export function validateOpArgs(
       const r = validateSetTagsArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'setTags', args: r.args } };
+    }
+    case 'pasteEntities': {
+      const r = validatePasteArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'pasteEntities', args: r.args } };
     }
     case 'setAssetOptions': {
       const r = validateSetAssetOptionsArgs(args);

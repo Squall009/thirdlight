@@ -653,7 +653,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
-const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities'];
 /** Phase 12 (c): the ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -712,7 +712,7 @@ function validateRecordResult(
   }
   const op = opRaw;
   let allowed: string[];
-  if (op === 'createEntity') allowed = [...base, 'createdId'];
+  if (op === 'createEntity' || op === 'pasteEntities') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
   else allowed = base;
   for (const k of keys) {
@@ -974,6 +974,12 @@ function validateChangeShapeV2(change: unknown, op: string, storageVersion: 2 | 
     if (entErr !== null) return entErr;
     if (ent['id'] !== change['id']) return rerr('createEntity change entity id must equal change id', ent['id'], '/result/change/entity/id');
   }
+  if (t === 'pasteEntities') {
+    const ents = change['entities'];
+    if (!Array.isArray(ents) || ents.length === 0) return rerr('pasteEntities change entities must be a non-empty array', undefined, '/result/change/entities');
+    const entErr = validateHistoricalEntities(ents, '/result/change/entities', storageVersion);
+    if (entErr !== null) return entErr;
+  }
   return null;
 }
 
@@ -1000,6 +1006,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setTags',
   'setSceneIndex',
   'setAssetOptions',
+  'pasteEntities',
 ];
 
 /** Required field names per v2 change type (structural well-formedness). */
@@ -1024,6 +1031,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setTags: ['type', 'previous', 'next'],
   setSceneIndex: ['type', 'previous', 'next'],
   setAssetOptions: ['type', 'assetId', 'previous', 'next'],
+  pasteEntities: ['type', 'entities'],
 };
 
 /** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
@@ -1049,6 +1057,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   moveEntities: 'moveEntities',
   setTags: 'setTags',
   setAssetOptions: 'setAssetOptions',
+  pasteEntities: 'pasteEntities',
   createScene: 'setSceneIndex',
   renameScene: 'setSceneIndex',
   deleteScene: 'setSceneIndex',

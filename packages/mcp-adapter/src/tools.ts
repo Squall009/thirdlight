@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -112,7 +112,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
       '<piece>_COL nodes, or a top-level node); LOD nodes switch by screen size and _COL nodes are never drawn. A folder create ' +
       'may carry children: [createEntity args without parentId] (up to 256, one undo). setAssetOptions {assetId, vertexColors: ' +
-      '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour. Returns the new revision on success, ' +
+      '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour. pasteEntities {entities: [full entity ' +
+      'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
+      'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {

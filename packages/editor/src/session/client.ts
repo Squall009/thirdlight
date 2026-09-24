@@ -708,7 +708,7 @@ export class SessionClient {
     const rid = requestId ?? makeRequestId();
     // Phase 12 (c): a new root entity goes into the active scene (with a
     // parent, the parent's scene decides).
-    if ((op === 'createEntity' || op === 'instantiatePrefab') && this.activeScene !== null && typeof args === 'object' && args !== null) {
+    if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && this.activeScene !== null && typeof args === 'object' && args !== null) {
       const a = args as Record<string, unknown>;
       if ((a['parentId'] === undefined || a['parentId'] === null) && a['sceneId'] === undefined) args = { ...a, sceneId: this.activeScene };
     }

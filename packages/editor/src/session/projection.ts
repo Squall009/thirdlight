@@ -345,6 +345,14 @@ export class Projection {
         this.order = [...change.order.next];
         return true;
       }
+      case 'pasteEntities': {
+        for (const entity of change.entities) {
+          if (this.entities.has(entity.id)) continue;
+          this.entities.set(entity.id, toProjected(entity));
+          this.order.push(entity.id);
+        }
+        return true;
+      }
       case 'deleteEntity': {
         const ids = new Set(change.deletedIds);
         for (const id of ids) this.entities.delete(id);

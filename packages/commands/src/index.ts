@@ -148,6 +148,8 @@ export type {
   SetTagsChange,
   SetAssetOptionsArgs,
   SetAssetOptionsChange,
+  PasteEntitiesArgs,
+  PasteEntitiesChange,
   SetTagsInverse,
   SetTransformInverse,
 } from './types';

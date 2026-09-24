@@ -491,6 +491,14 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
+  if (inv.kind === 'removeEntities') {
+    const gone = new Set(inv.ids);
+    if (!inv.ids.every((id) => scene.entities.some((e) => e.id === id))) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextEntities = scene.entities.filter((e) => !gone.has(e.id));
+    const change: DeleteEntityChange = { type: 'deleteEntity', rootId: inv.ids[0] ?? '', deletedIds: [...inv.ids] };
+    return finish(state, { ...scene, revision: scene.revision + 1, entities: nextEntities }, state.content, change, entry.requestId);
+  }
+
   if (inv.kind === 'setAssetOptions') {
     const before = content.assets.find((a) => a.assetId === inv.assetId);
     if (before === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
@@ -831,6 +839,13 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const after = deepClone(f.next);
     const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
+  }
+
+  if (f.type === 'pasteEntities') {
+    if (scene.entities.some((e) => f.entities.some((c) => c.id === e.id))) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextEntities = [...scene.entities, ...f.entities.map((c) => deepClone(c) as unknown as EntityV2)];
+    const change: ChangeData = { type: 'pasteEntities', entities: f.entities.map((c) => deepClone(c)) };
+    return finish(state, { ...scene, revision: scene.revision + 1, entities: nextEntities }, state.content, change, entry.requestId);
   }
 
   if (f.type === 'setAssetOptions') {

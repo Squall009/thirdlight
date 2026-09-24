@@ -290,6 +290,8 @@ export function danglingGameReferences(
     if (closure.has(game.spawnId)) refs.push('/game/spawnId');
   }
   scene.entities.forEach((e, i) => {
+    // A checkpoint going away together with its safe spawn leaves nothing dangling.
+    if (closure.has(e.id)) return;
     const zone = (e.components as { gameZone?: { safeSpawnId?: unknown } }).gameZone;
     if (zone !== undefined && typeof zone.safeSpawnId === 'string' && closure.has(zone.safeSpawnId)) {
       refs.push(`/entities/${i}/components/gameZone/safeSpawnId`);

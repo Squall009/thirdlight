@@ -552,8 +552,8 @@ Done when: unit tests per component in runtime; e2e builds a small level
 
 | Item | State | Commit(s) |
 |---|---|---|
-| 9.0 import fixes | done 2026-09-24 | see git log "Multi-piece models" |
-| 9.1 multi-select leftovers | todo | |
+| 9.0 import fixes | done 2026-09-24 | 1c9edcd, idle thumbnails fix |
+| 9.1 multi-select leftovers | done 2026-09-24 | pasteEntities (see git log) |
 | 9.2 headless Play (phase 11) | todo | |
 | 9.3 one schema version (phase 8 rest) | todo | |
 | 9.4 textures, materials, wind | todo | |
@@ -579,3 +579,9 @@ Add one dated line per decision taken during the run (what, why).
   of a folder with `children` (≤ 256), so one undo removes it.
 - 2026-09-24: a skinned whole-file drop gets no static collider from its
   `_COL` (a character is not a wall); pieces and static props do.
+- 2026-09-24 (9.1): one op `pasteEntities {entities, parentId?, offset?}`
+  serves Duplicate (keeps parents, +0.5 m X, roots named "<name> copy") and
+  Copy/Paste (active scene, into the selected folder, same positions). The
+  clipboard holds full entity values read with `queryEntity`, so it works
+  across scenes. Deleting a folder that holds a checkpoint and its own safe
+  spawn is no longer refused (the reference goes away with it).

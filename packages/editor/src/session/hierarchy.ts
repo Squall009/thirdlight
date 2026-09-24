@@ -193,3 +193,26 @@ export function draggedRoots(entities: readonly ProjectedEntity[], ids: readonly
     })
     .map((e) => e.id);
 }
+
+/**
+ * The selection's roots with every descendant, parents before children (the
+ * order a copy needs). Descendants of a selected entity are not repeated.
+ */
+export function subtreeOrder(entities: readonly ProjectedEntity[], ids: readonly string[]): string[] {
+  const roots = draggedRoots(entities, ids);
+  const kids = new Map<string, string[]>();
+  for (const e of entities) {
+    if (e.parentId === null) continue;
+    const list = kids.get(e.parentId) ?? [];
+    list.push(e.id);
+    kids.set(e.parentId, list);
+  }
+  const out: string[] = [];
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    out.push(id);
+    for (const k of kids.get(id) ?? []) queue.push(k);
+  }
+  return out;
+}

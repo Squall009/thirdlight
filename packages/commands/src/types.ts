@@ -92,6 +92,7 @@ export type V3MutationOp =
   | 'moveEntities'
   | 'setTags'
   | 'setAssetOptions'
+  | 'pasteEntities'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -308,6 +309,12 @@ export type SceneIndexArgs =
   | { op: 'renameScene'; sceneId: string; name: string }
   | { op: 'deleteScene'; sceneId: string }
   | { op: 'setStartScenes'; sceneIds: string[] };
+
+/** `pasteEntities` change data: the created entities, parents first. */
+export interface PasteEntitiesChange {
+  type: 'pasteEntities';
+  entities: Entity[];
+}
 
 /** `setAssetOptions` change data: the whole asset record before and after. */
 export interface SetAssetOptionsChange {
@@ -560,6 +567,7 @@ export type ChangeData =
   | MoveEntitiesChange
   | SetTagsChange
   | SetAssetOptionsChange
+  | PasteEntitiesChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -581,6 +589,7 @@ export type ForwardChange =
   | MoveEntitiesChange
   | SetTagsChange
   | SetAssetOptionsChange
+  | PasteEntitiesChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -684,6 +693,12 @@ export interface MoveEntitiesInverse {
   restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
+/** Undo of a `pasteEntities`: remove the created entities. */
+export interface RemoveEntitiesInverse {
+  kind: 'removeEntities';
+  ids: string[];
+}
+
 /** Undo of a `setAssetOptions`: restore the whole previous record. */
 export interface SetAssetOptionsInverse {
   kind: 'setAssetOptions';
@@ -704,6 +719,7 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse
   | SetTagsInverse
@@ -898,6 +914,18 @@ export interface CreateEntityArgs {
  * `data` (default: COLOR_0 is shader data, never multiplied into the albedo)
  * or `tint` (the glTF default).
  */
+/**
+ * `pasteEntities`: create copies of full entity values in one transaction
+ * (Duplicate, Copy/Paste — also across scenes). See `paste-ops.ts`.
+ */
+export interface PasteEntitiesArgs {
+  entities: { id: string; parentId?: string; components: Record<string, unknown> }[];
+  /** The parent of the pasted roots (null = scene root); absent = each root's own parentId. */
+  parentId?: string | null;
+  /** Added to the positions of the copies placed in world space. */
+  offset?: [number, number, number];
+}
+
 export interface SetAssetOptionsArgs {
   assetId: string;
   vertexColors: 'data' | 'tint';

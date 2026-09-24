@@ -22,7 +22,7 @@ import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
-import { draggedRoots, effectiveFlagsOf } from '../session/hierarchy';
+import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarchy';
 import { scatterProblem, scatterTransforms } from '../session/instances';
 import { TagsPanel } from './TagsPanel';
 import type { AssetView } from '../session/content-projection';
@@ -706,6 +706,11 @@ function EditorApp(): JSX.Element {
           void redo();
           return;
         }
+        if (mod && (key === 'd' || key === 'c' || key === 'v')) {
+          e.preventDefault();
+          void (key === 'd' ? editRef.current.duplicate() : key === 'c' ? editRef.current.copySelection() : editRef.current.paste());
+          return;
+        }
         if (!mod && !e.altKey) {
           if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
@@ -960,47 +965,58 @@ function EditorApp(): JSX.Element {
   );
   const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
-  /** Duplicate the selection: a new entity with the same kind, components and a 0.5 m offset (children are not copied). */
+  /** The full values of the selection's subtrees (parents first), read from the backend. */
+  const selectionValues = useCallback(async (): Promise<Record<string, unknown>[] | null> => {
+    const c = clientRef.current;
+    if (!c) return null;
+    const ids = selectionRef.current.length > 0 ? selectionRef.current : selectedIdRef.current !== null ? [selectedIdRef.current] : [];
+    if (ids.length === 0) return null;
+    const order = subtreeOrder(c.projection.listEntities(), ids);
+    const read = await Promise.all(order.map((id) => c.queryEntity(id)));
+    const failed = read.find((r) => !r.ok);
+    if (failed !== undefined && !failed.ok) {
+      setNotice(`Copy failed: ${failed.error.message}`);
+      return null;
+    }
+    return read.map((r) => (r as { entity: Record<string, unknown> }).entity);
+  }, []);
+
+  /** Edit → Duplicate (Ctrl+D): the whole selection with its children, 0.5 m to the right, one undo. */
   const duplicate = useCallback(async () => {
     const c = clientRef.current;
-    const id = selectedIdRef.current;
-    if (!c || !id) return;
-    const q = await c.queryEntity(id);
-    if (!q.ok) {
-      setNotice(`Duplicate failed: ${q.error.message}`);
-      return;
-    }
-    const comps = (q.entity['components'] ?? {}) as Record<string, unknown>;
-    if (comps['folder'] !== undefined) {
-      // Phase 12: a folder duplicates as an empty folder next to it.
-      const res = await c.command(
-        'createEntity',
-        { kind: 'folder', name: `${String(q.entity['name'] ?? id)} copy`, parentId: q.parentChain.length > 0 ? q.parentChain[q.parentChain.length - 1] : null },
-        c.projection.revision,
-      );
-      if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
-      else reportFailure('Duplicate', res);
-      return;
-    }
-    const transform = (comps['transform'] ?? {}) as { position?: number[]; rotation?: number[]; scale?: number[] };
-    const position = [...(transform.position ?? [0, 0, 0])];
-    position[0] = (position[0] ?? 0) + 0.5;
-    const rest: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(comps)) if (!['transform', 'box', 'model', 'prefab'].includes(k)) rest[k] = v;
-    const kind = comps['box'] !== undefined ? 'box' : comps['model'] !== undefined ? 'model' : 'group';
-    const args: Record<string, unknown> = {
-      kind,
-      name: `${String(q.entity['name'] ?? id)} copy`,
-      parentId: q.parentChain.length > 0 ? q.parentChain[q.parentChain.length - 1] : null,
-      transform: { position, rotation: transform.rotation ?? [0, 0, 0, 1], scale: transform.scale ?? [1, 1, 1] },
-      ...(kind === 'box' ? { box: comps['box'] } : {}),
-      ...(kind === 'model' ? { model: comps['model'] } : {}),
-      ...(Object.keys(rest).length > 0 ? { components: rest } : {}),
-    };
-    const res = await c.command('createEntity', args, c.projection.revision);
+    const values = await selectionValues();
+    if (!c || values === null) return;
+    const sceneId = c.projection.listEntities().find((e) => e.id === values[0]?.['id'])?.sceneId;
+    // The duplicated roots are named "<name> copy" (their children keep their names).
+    const ids = new Set(values.map((v) => v['id']));
+    const named = values.map((v) => (ids.has(v['parentId']) ? v : { ...v, name: `${String(v['name'] ?? v['id'])} copy`.slice(0, 128) }));
+    const res = await c.command('pasteEntities', { entities: named, offset: [0.5, 0, 0], ...(sceneId !== undefined ? { sceneId } : {}) }, c.projection.revision);
     if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
     else reportFailure('Duplicate', res);
+  }, [reportFailure, selectionValues]);
+
+  /** Edit → Copy (Ctrl+C): remember the selection's values (any scene). */
+  const clipboardRef = useRef<Record<string, unknown>[] | null>(null);
+  const copySelection = useCallback(async () => {
+    const values = await selectionValues();
+    if (values === null) return;
+    clipboardRef.current = values;
+    setNotice(`Copied ${values.length} object${values.length === 1 ? '' : 's'}`);
+  }, [selectionValues]);
+
+  /** Edit → Paste (Ctrl+V): into the active scene, inside the selected folder if one is selected. */
+  const paste = useCallback(async () => {
+    const c = clientRef.current;
+    const values = clipboardRef.current;
+    if (!c || values === null) return;
+    const target = selectedIdRef.current !== null ? c.projection.listEntities().find((e) => e.id === selectedIdRef.current) : undefined;
+    const parentId = target?.kind === 'folder' ? target.id : null;
+    const res = await c.command('pasteEntities', { entities: values, parentId }, c.projection.revision);
+    if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
+    else reportFailure('Paste', res);
   }, [reportFailure]);
+  const editRef = useRef({ duplicate, copySelection, paste });
+  editRef.current = { duplicate, copySelection, paste };
 
   /** Component menu: set (or remove with null) one component on the selection. */
   const setComponentOnSelection = useCallback(
@@ -2268,6 +2284,8 @@ function EditorApp(): JSX.Element {
         { label: 'Redo', shortcut: 'Ctrl+Y', disabled: ui.redoDepth === 0, reason: 'nothing to redo', onSelect: () => void redo() },
         'separator',
         { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: noSelection, reason: need, onSelect: () => void duplicate() },
+        { label: 'Copy', shortcut: 'Ctrl+C', disabled: noSelection, reason: need, onSelect: () => void copySelection() },
+        { label: 'Paste', shortcut: 'Ctrl+V', disabled: clipboardRef.current === null, reason: 'copy something first', onSelect: () => void paste() },
         { label: 'Delete', shortcut: 'Del', disabled: noSelection, reason: need, onSelect: () => void del() },
         'separator',
         { label: `Snapping: ${snapping ? 'on' : 'off'}`, onSelect: () => setSnapping((v) => !v) },
