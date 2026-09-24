@@ -245,7 +245,7 @@ Play shows the player walking under a low ceiling afterwards.
 |---|---|---|
 | 14.0 character collider + handle editing | done 2026-09-24 | 81dea18 |
 | 14.1 spawn / destroy | done 2026-09-24 | 47563db,8758504 |
-| 14.2 timers, sensors | todo | |
+| 14.2 timers, sensors | done 2026-09-24 | f091c7c |
 | 14.3 score rules | todo | |
 | 14.4 per-level environment, fog height, lift/gamma/gain | todo | |
 | 14.5 pad rebinding, UI sounds, title scene, ambience | todo | |
