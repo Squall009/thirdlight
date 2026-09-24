@@ -53,6 +53,13 @@ export const CLEARANCE_SUPPORT_PROBE = 1000 as const;
 /** The ray origin epsilon above the capsule's lowest point (avoids a surface-coincident origin). */
 export const CLEARANCE_RAY_EPS = 1e-4 as const;
 
+/**
+ * Phase 9.9 (named in 14.7): how far below a one-way platform's top the feet
+ * may be and still land on it (a step's fall plus the controller's skin); the
+ * sweep and the spawn clearance probe use the same rule.
+ */
+export const ONE_WAY_LANDING_TOLERANCE = 0.06 as const;
+
 /** Ground-contact classification tolerance (physics.md §7, §8). */
 export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
 

@@ -170,7 +170,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
   it('a one-way platform is jumped through from below and stood on from above', async () => {
     // Jump apex: 8² / (2 · 20) = 1.6 m of feet height; the shelf top is at 1.3 m.
     const shelf = box('shelf-0001', 0, 1.2, { box: { size: [4, 0.2, 2], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 2, hy: 0.1 }, oneWay: true } });
-    // Start beside it (a spawn under a one-way platform counts as blocked), walk under, jump.
+    // Start beside it, walk under, jump.
     const L = await level([-4, 0.91], [shelf], (s) => ({ moveX: s < 70 ? 1 : 0, jump: s >= 110 && s < 112 ? 'pressed' : s >= 110 && s < 160 ? 'held' : 'none' }));
     const start = L.pos('player-0001')[1];
     let peak = -Infinity;
