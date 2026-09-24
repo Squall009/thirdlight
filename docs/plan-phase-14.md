@@ -7,7 +7,10 @@ A session should be able to follow this file from top to bottom without
 asking the owner anything; where a choice is needed, take the default given
 here and record it in §6.
 
-The material node graph stays phase 13 (planned, not part of this pass).
+Read `docs/roadmap.md` first: its principles apply here — above all,
+every feature and default is generic (for all potential projects), never
+fitted to the Sprout demo; Sprout's own values live in Sprout's data. The
+material node graph moved to phase 18 (after the WebGPU renderer phase 17).
 
 ## 1. Where things stand (2026-09-24)
 
