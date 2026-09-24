@@ -666,6 +666,28 @@ named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →
 Clear Play save** forgets Play's (MCP: `tl_game_control` `clearSave`).
 
+## Score
+
+**Game flow → Score**: tick *keep score*, then add the counters that earn
+points and how many each (*counter*, *points each*, *Add counter*). The
+names are the game's own counters: pickups count into `coins`, `gems`,
+`keys`, `lives` or a custom pickup's counter, stomped enemies into
+`defeated` (the field suggests these and the open scenes' custom counters);
+negative points are a penalty. *Time bonus* adds points for every second a
+level takes under a target time (default 60 s and 10 points a second;
+rounded down, nothing over the target).
+
+In the game the HUD shows the game's score so far ("Score 1230": the
+levels completed plus the current level's counters); *Level complete* adds
+the time bonus and shows the level's score and its best (or *New best
+score!*), the end screen shows the game's total. The best score per level
+is kept in the player's browser apart from the save slots, so it survives a
+new game (the pause menu shows it); the save slots keep the game's score so
+far. Without score rules nothing about score is shown (projects from before
+stay as they were). MCP: `setFlow` with `flow.score: { points?: { counter:
+points }, timeBonus?: { targetSeconds, perSecond } }`; `tl_game_observe`
+reports `flow.score` (game, level, best per level id).
+
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type

@@ -303,9 +303,12 @@ export {
   flowAssetRefs,
   HUD_PRESETS,
   MAX_FLOW_LEVELS,
+  MAX_SCORE_COUNTERS,
+  MAX_SCORE_POINTS,
   UI_FONTS,
   validateFlow,
   type FlowLevel,
+  type FlowScore,
   type GameFlow,
 } from './flow';
 // Phase 9.8: input actions.

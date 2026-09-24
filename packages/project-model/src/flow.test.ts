@@ -45,4 +45,26 @@ describe('game flow', () => {
     expect(codes({ ...FLOW, extra: 1 })).toEqual(['field_unexpected /flow/extra']);
     expect(codes({ levels: [{ id: 'l1', name: 'One', scenes: ['s', 's'], spawnId: 'sp' }] })).toEqual(['field_value /flow/levels/0/scenes']);
   });
+
+  it('phase 14.3: score rules — shape, bounds, counters in name order in the canonical form', () => {
+    const score = { points: { gems: 50, coins: 10, defeated: 100, hits: -5 }, timeBonus: { targetSeconds: 90, perSecond: 2.5 } };
+    expect(errorsOf({ ...FLOW, score })).toEqual([]);
+    const canon = canonicalFlow(JSON.parse(JSON.stringify({ ...FLOW, score })) as GameFlow);
+    expect(Object.keys(canon.score!.points!)).toEqual(['coins', 'defeated', 'gems', 'hits']);
+    expect(canon.score).toEqual(score);
+    // Absent: no score key at all (existing projects stay byte-identical).
+    expect('score' in canonicalFlow(FLOW)).toBe(false);
+    expect(canonicalFlow({ ...FLOW, score: {} }).score).toEqual({});
+    const codes = (v: unknown): string[] => errorsOf({ ...FLOW, score: v }).map((e) => `${e.code} ${e.path}`);
+    expect(codes(5)).toEqual(['field_type /flow/score']);
+    expect(codes({ extra: 1 })).toEqual(['field_unexpected /flow/score/extra']);
+    expect(codes({ points: { coins: 1.5 } })).toEqual(['field_value /flow/score/points/coins']);
+    expect(codes({ points: { '9lives': 1 } })).toEqual(['field_value /flow/score/points/9lives']);
+    expect(codes({ points: { 'a/b': 1 } })).toEqual(['field_value /flow/score/points/a~1b']);
+    expect(codes({ points: { coins: 2_000_000 } })).toEqual(['field_value /flow/score/points/coins']);
+    expect(codes({ points: Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`c${i}`, 1])) })).toEqual(['field_value /flow/score/points']);
+    expect(codes({ timeBonus: { targetSeconds: 0, perSecond: 1 } })).toEqual(['field_value /flow/score/timeBonus/targetSeconds']);
+    expect(codes({ timeBonus: { targetSeconds: 60, perSecond: -1 } })).toEqual(['field_value /flow/score/timeBonus/perSecond']);
+    expect(codes({ timeBonus: { targetSeconds: 60 } })).toEqual(['field_value /flow/score/timeBonus/perSecond']);
+  });
 });

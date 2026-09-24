@@ -13,6 +13,7 @@
 import type { GameView, RunRestore, RunSaveState } from '@thirdlight/runtime';
 import { SAVE_SLOTS, SAVE_VERSION, type SaveDocument, type SaveSlot, type SaveStore, type SlotState } from './save';
 import type { HostDom, HostDomNode } from './hud';
+import { counterPoints, levelScore, type ScoreRulesLike } from './score';
 
 /** The flow block as the host reads it (structurally; validated by the model). */
 export interface FlowConfigLike {
@@ -23,6 +24,8 @@ export interface FlowConfigLike {
   readonly ui?: { readonly font: 'sans' | 'serif' | 'mono' | 'rounded'; readonly accent: string; readonly panel: string; readonly text: string; readonly logo?: string };
   readonly texts?: { readonly levelComplete?: string; readonly gameOver?: string; readonly credits?: string };
   readonly volumes?: { readonly music: number; readonly sfx: number };
+  /** Phase 14.3: score rules (absent: no score shown or kept). */
+  readonly score?: ScoreRulesLike;
 }
 
 export type FlowScreen = 'title' | 'playing' | 'paused' | 'settings' | 'levelComplete' | 'gameOver' | 'finished' | 'load' | 'save';
@@ -50,6 +53,12 @@ export interface FlowObservation {
   readonly quality: 'low' | 'medium' | 'high';
   /** Phase 9.11: each save slot's state, and the last save written. */
   readonly save?: { readonly slots: Readonly<Record<SaveSlot, 'ok' | 'empty' | 'damaged'>>; readonly lastWrite: SaveSlot | null; readonly note: string | null };
+  /**
+   * Phase 14.3 (with score rules): the game's score so far (the HUD's), the
+   * current level's (running; its final score once complete) and the best
+   * score per level id.
+   */
+  readonly score?: { readonly game: number; readonly level: number; readonly best: Readonly<Record<string, number>> };
 }
 
 export interface FlowDeps {
@@ -207,7 +216,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
   let seenDeaths = 0;
   let seenLifePickups = 0;
   let levelStartSim: number | null = null;
-  let levelResult: { seconds: number; counters: Record<string, number>; deaths: number } | null = null;
+  let levelResult: { seconds: number; counters: Record<string, number>; deaths: number; score?: { points: number; bonus: number; score: number; best: number; newBest: boolean } } | null = null;
   let pendingStart = false;
   let volumes = { music: flow.volumes?.music ?? 0.8, sfx: flow.volumes?.sfx ?? 1 };
   let quality: 'low' | 'medium' | 'high' = 'high';
@@ -221,6 +230,10 @@ export function createFlowController(deps: FlowDeps): FlowController {
   let lastWrite: SaveSlot | null = null;
   let saveNote: string | null = null;
   const boundKeys: Record<string, string> = {};
+  // Phase 14.3: the score of the levels completed in this game, and the best per level (kept in the save's records).
+  const rules = flow.score;
+  let gameScore = 0;
+  const bestScores: Record<string, number> = rules !== undefined ? { ...(deps.save?.readRecords().bestScores ?? {}) } : {};
   const stored = deps.save?.readSettings() ?? null;
   if (stored !== null) {
     volumes = { music: stored.music, sfx: stored.sfx };
@@ -231,6 +244,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
   deps.audio.setVolume?.('sfx', volumes.sfx);
 
   const level = (): FlowConfigLike['levels'][number] => flow.levels[Math.min(levelIndex, flow.levels.length - 1)]!;
+
+  /** The running level's score (its counters' points; the time bonus comes at the goal). */
+  const runningLevelScore = (): number => (rules === undefined ? 0 : levelResult?.score?.score ?? counterPoints(rules, deps.runtime.gameCounters?.().counters ?? {}));
+  const hudScore = (): number => (screen === 'levelComplete' || screen === 'finished' ? gameScore : gameScore + runningLevelScore());
+  const bestOf = (id: string): number | undefined => (Object.prototype.hasOwnProperty.call(bestScores, id) ? bestScores[id] : undefined);
 
   const bindingOf = (name: string): string => {
     const a = deps.input?.config?.actions.find((x) => x.name === name);
@@ -247,6 +265,11 @@ export function createFlowController(deps: FlowDeps): FlowController {
     root.setAttribute?.('data-music', m?.assetId ?? '');
     root.setAttribute?.('data-music-gain', m !== undefined ? m.gain.toFixed(2) : '');
     root.setAttribute?.('data-music-playing', m?.playing === true ? 'true' : 'false');
+    if (rules !== undefined) {
+      root.setAttribute?.('data-score', String(hudScore()));
+      const best = bestOf(level().id);
+      root.setAttribute?.('data-best', best === undefined ? '' : String(best));
+    }
   };
 
   const render = (): void => {
@@ -274,7 +297,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
       }
       case 'paused':
         title = 'Paused';
-        lines = [level().name, ...(saveNote !== null ? [saveNote] : [])];
+        lines = [level().name, ...(rules !== undefined && bestOf(level().id) !== undefined ? [`Best score ${bestOf(level().id)}`] : []), ...(saveNote !== null ? [saveNote] : [])];
         items = [
           { id: 'resume', label: 'Resume' },
           { id: 'restart', label: 'Restart level' },
@@ -308,6 +331,12 @@ export function createFlowController(deps: FlowDeps): FlowController {
         title = flow.texts?.levelComplete ?? 'Level complete';
         const r = levelResult;
         lines = [level().name, ...(r !== null ? [`Time ${time(r.seconds)}`, ...Object.entries(r.counters).filter(([k]) => k !== 'lives').map(([k, v]) => `${k[0]!.toUpperCase()}${k.slice(1)} ${v}`), `Deaths ${r.deaths}`] : [])];
+        const sc = r?.score;
+        if (sc !== undefined) {
+          if (rules?.timeBonus !== undefined) lines.push(`Time bonus ${sc.bonus}`);
+          lines.push(`Score ${sc.score}`, sc.newBest ? `New best score!` : `Best ${sc.best}`);
+          if (levelIndex > 0) lines.push(`Game score ${gameScore}`);
+        }
         items = [{ id: 'next', label: levelIndex + 1 < flow.levels.length ? 'Next level' : 'Finish' }];
         break;
       }
@@ -318,7 +347,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
         break;
       case 'finished':
         title = `${deps.gameTitle} — finished!`;
-        lines = [...Object.entries(totals).filter(([k]) => k !== 'lives').map(([k, v]) => `${k[0]!.toUpperCase()}${k.slice(1)} ${v}`), ...(flow.texts?.credits !== undefined ? [flow.texts.credits] : [])];
+        lines = [...Object.entries(totals).filter(([k]) => k !== 'lives').map(([k, v]) => `${k[0]!.toUpperCase()}${k.slice(1)} ${v}`), ...(rules !== undefined ? [`Score ${gameScore}`] : []), ...(flow.texts?.credits !== undefined ? [flow.texts.credits] : [])];
         items = [{ id: 'quit', label: 'Back to title' }];
         break;
       default:
@@ -385,6 +414,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     lives = flow.lives?.start ?? null;
     for (const k of Object.keys(totals)) delete totals[k];
     levelsMemory = {};
+    gameScore = 0;
     return beginLevel(0);
   };
 
@@ -398,7 +428,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
   };
   const docFor = (index: number, run: RunSaveState): SaveDocument => {
     const l = flow.levels[index]!;
-    return { version: SAVE_VERSION, savedAt: new Date().toISOString(), levelId: l.id, levelIndex: index, levelName: l.name, lives, run, levels: levelsMemory };
+    return { version: SAVE_VERSION, savedAt: new Date().toISOString(), levelId: l.id, levelIndex: index, levelName: l.name, lives, run, levels: levelsMemory, ...(rules !== undefined ? { score: gameScore } : {}) };
   };
   const writeSave = (slot: SaveSlot, doc: SaveDocument): void => {
     if (deps.save === undefined) return;
@@ -418,6 +448,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
     }
     lives = doc.lives === null ? null : Math.max(1, doc.lives);
     levelsMemory = doc.levels ?? {};
+    gameScore = typeof doc.score === 'number' && Number.isSafeInteger(doc.score) ? doc.score : 0;
     for (const k of Object.keys(totals)) delete totals[k];
     void beginLevel(index, doc.run);
   };
@@ -538,6 +569,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
       for (const [k, v] of Object.entries(g.counters)) if (k !== 'defeated' && k !== 'lives') parts.push(`${k[0]!.toUpperCase()}${k.slice(1)} ${v}`);
       if (g.health !== null) parts.push(`Health ${g.health.current}/${g.health.max}`);
     }
+    if (rules !== undefined) parts.push(`Score ${hudScore()}`);
     if (flow.hud?.timer === true && lastView !== null && levelStartSim !== null) parts.push(time(Math.max(0, lastView.simTime - levelStartSim)));
     return parts.join(' · ');
   };
@@ -590,8 +622,22 @@ export function createFlowController(deps: FlowDeps): FlowController {
         if (view.state === 'won' && !pendingStart) {
           const g = deps.runtime.gameCounters?.();
           const counters = { ...(g?.counters ?? {}) };
+          const seconds = levelStartSim !== null ? view.simTime - levelStartSim : 0;
+          // Phase 14.3: the level's score (every counter, `defeated` included) and its best.
+          let score: NonNullable<typeof levelResult>['score'];
+          if (rules !== undefined) {
+            const s = levelScore(rules, counters, seconds);
+            const prev = bestOf(level().id);
+            const newBest = prev === undefined || s.score > prev;
+            if (newBest) {
+              bestScores[level().id] = s.score;
+              deps.save?.writeRecords({ bestScores: { ...bestScores } });
+            }
+            gameScore += s.score;
+            score = { ...s, best: newBest ? s.score : prev, newBest };
+          }
           delete counters['defeated'];
-          levelResult = { seconds: levelStartSim !== null ? view.simTime - levelStartSim : 0, counters, deaths: view.deathCount };
+          levelResult = { seconds, counters, deaths: view.deathCount, ...(score !== undefined ? { score } : {}) };
           for (const [k, v] of Object.entries(counters)) totals[k] = (totals[k] ?? 0) + v;
           // Phase 9.11: remember the level (collected, best time); autosave at the next level's start.
           const run = currentRun();
@@ -636,6 +682,7 @@ export function createFlowController(deps: FlowDeps): FlowController {
         music: { assetId: m.assetId, playing: m.playing, gain: m.gain },
         volumes: { ...volumes },
         quality,
+        ...(rules !== undefined ? { score: { game: hudScore(), level: runningLevelScore(), best: { ...bestScores } } } : {}),
         ...(deps.save !== undefined ? { save: { slots: Object.fromEntries(SAVE_SLOTS.map((s) => [s, slots[s].state])) as Record<SaveSlot, 'ok' | 'empty' | 'damaged'>, lastWrite, note: saveNote } } : {}),
       };
     },

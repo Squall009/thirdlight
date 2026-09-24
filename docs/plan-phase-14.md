@@ -258,3 +258,9 @@ Play shows the player walking under a low ceiling afterwards.
 ## 6. Decision log
 
 Add one dated line per decision taken during the run (what, why).
+- 2026-09-24 (14.3): `flow.score = { points?: { counter: n }, timeBonus?: { targetSeconds, perSecond } }` — counter names are free (the project's own counters, `defeated` included); points are whole numbers ±1 000 000 (negative = penalty), ≤ 32 counters; the canonical form sorts the counters by name (stable documents).
+- 2026-09-24 (14.3): the time bonus is `floor(max(0, target − seconds) × perSecond)` from the level's sim time, given at *Level complete* only — the HUD shows the counters' points while playing (the bonus is not known until the goal).
+- 2026-09-24 (14.3): the HUD shows the game's score so far (completed levels + the running level); *Level complete* shows the level's score, its best or "New best score!", and the game score from level 2 on; the end screen shows the game total; the pause menu shows the level's best — so a reload's kept best is visible without finishing the level again.
+- 2026-09-24 (14.3): best scores live in a separate `records` entry of the save namespace, not in the slots' per-level memory — the last level writes no autosave and a new game resets the slots' level memory, and a best score must survive both. The slot documents carry the game's score so far (`score`, optional; save version unchanged). "Clear Play save" clears the records too.
+- 2026-09-24 (14.3): the score is host-side only (never feeds the simulation), so replays and determinism are unaffected; without `score` nothing about score is shown or stored.
+- 2026-09-24 (14.3): a new time bonus in the Game flow window starts at 60 s / 10 points a second — round starting figures, not tuned to any demo.

@@ -141,7 +141,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (32 queries/step), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?}), ctx.save.get/set/remove/keys (kept in the player\'s save). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
-      'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
+      'volumes?: {music, sfx}, score?: {points?: {counterName: points per unit, e.g. coins, gems, keys, lives, defeated or a custom pickup counter}, ' +
+      'timeBonus?: {targetSeconds, perSecond} (points per second under the target)}} | null} (score: shown on the HUD and the level complete/end screens, best per level kept in the player\'s save; ' +
+      'every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +
       'replay = restart the level). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -320,7 +322,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes, and with score rules `score` {game, level, best per level id}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {

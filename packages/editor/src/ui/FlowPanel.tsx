@@ -1,15 +1,16 @@
 /**
  * Phase 9.10: the Game window — the game flow in one place: the levels in
  * order (the scenes each loads, the spawn it starts at, its music), lives,
- * the title screen, the HUD layout, the menu look, menu texts and default
- * volumes. Every edit is one `setFlow` with the whole flow (text fields
- * commit on Enter or when they lose focus); "Remove game flow" goes back to
- * one level with unlimited lives and no title screen.
+ * the title screen, the HUD layout, the menu look, menu texts, default
+ * volumes and (phase 14.3) the score rules. Every edit is one `setFlow` with
+ * the whole flow (text fields commit on Enter or when they lose focus);
+ * "Remove game flow" goes back to one level with unlimited lives and no
+ * title screen.
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { FlowLevel, GameFlow } from '@thirdlight/project-model';
+import type { FlowLevel, FlowScore, GameFlow } from '@thirdlight/project-model';
 
 interface Props {
   flow: GameFlow | null;
@@ -23,6 +24,8 @@ interface Props {
   gameSpawnId: string | null;
   onSave: (flow: GameFlow | null) => void;
   error: string | null;
+  /** Phase 14.3: counter names the game counts (the engine's and the open scenes' custom pickup counters), offered for score rules. */
+  counters?: readonly string[];
   /** Phase 9.11: forget the running Play's saves (null: no Play running). */
   onClearPlaySave?: (() => void) | null;
   note?: string | null;
@@ -39,6 +42,99 @@ function Text(p: { label: string; value: string; onCommit: (v: string) => void; 
     <textarea className="tl-input" aria-label={p.label} value={draft} rows={3} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
   ) : (
     <input className={p.wide === true ? 'tl-input tl-input--wide' : 'tl-input'} aria-label={p.label} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+  );
+}
+
+const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+/** A new time bonus: a minute's target and 10 points a second — round starting figures the designer tunes. */
+const DEFAULT_TIME_BONUS = { targetSeconds: 60, perSecond: 10 };
+
+/** Phase 14.3: the Score section — points per counter and a time bonus. */
+function ScoreSection(p: { score: FlowScore | undefined; counters: readonly string[]; onChange: (score: FlowScore | undefined) => void }): JSX.Element {
+  const [name, setName] = useState('');
+  const [points, setPoints] = useState('10');
+  const sc = p.score;
+  const rows = Object.entries(sc?.points ?? {});
+  const withPoints = (next: Record<string, number>): FlowScore => {
+    const { points: _p, ...rest } = sc ?? {};
+    return Object.keys(next).length > 0 ? { ...rest, points: next } : rest;
+  };
+  const addName = name.trim();
+  const addPoints = Number(points);
+  const canAdd = sc !== undefined && COUNTER_RE.test(addName) && !(sc.points !== undefined && Object.prototype.hasOwnProperty.call(sc.points, addName)) && Number.isInteger(addPoints) && Math.abs(addPoints) <= 1_000_000;
+  return (
+    <>
+      <div className="tl-panel__title">Score</div>
+      <label className="tl-flag">
+        <input type="checkbox" aria-label="keep score" checked={sc !== undefined} onChange={(e) => p.onChange(e.target.checked ? {} : undefined)} />
+        keep score (shown on the HUD and the level complete and end screens; the best per level is saved)
+      </label>
+      {sc !== undefined && (
+        <div className="tl-flow-panel__score" aria-label="score rules">
+          {rows.length === 0 && <p className="tl-hint">No counter scores points yet: add one below.</p>}
+          {rows.map(([k, v]) => (
+            <div className="tl-animator__row" key={k}>
+              <span className="tl-field__label">{k}</span>
+              <label className="tl-field">
+                <span className="tl-field__label">points each</span>
+                <Text label={`points per ${k}`} value={String(v)} onCommit={(t) => Number.isInteger(Number(t)) && t.trim() !== '' && p.onChange(withPoints({ ...sc.points, [k]: Number(t) }))} />
+              </label>
+              <button type="button" className="tl-button" aria-label={`stop scoring ${k}`} onClick={() => p.onChange(withPoints(Object.fromEntries(rows.filter(([x]) => x !== k))))}>
+                remove
+              </button>
+            </div>
+          ))}
+          <div className="tl-animator__row">
+            <label className="tl-field">
+              <span className="tl-field__label">counter</span>
+              <input className="tl-input" aria-label="scored counter" list="tl-flow-score-counters" value={name} placeholder="coins" onChange={(e) => setName(e.target.value)} />
+              <datalist id="tl-flow-score-counters">
+                {p.counters.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">points each</span>
+              <input className="tl-input" aria-label="points for the new counter" value={points} onChange={(e) => setPoints(e.target.value)} />
+            </label>
+            <button
+              type="button"
+              className="tl-button"
+              disabled={!canAdd}
+              title={canAdd ? undefined : 'a counter name (letters, digits, _) not scored yet, and whole points'}
+              onClick={() => {
+                p.onChange(withPoints({ ...(sc.points ?? {}), [addName]: addPoints }));
+                setName('');
+              }}
+            >
+              Add counter
+            </button>
+          </div>
+          <label className="tl-flag">
+            <input
+              type="checkbox"
+              aria-label="time bonus"
+              checked={sc.timeBonus !== undefined}
+              onChange={(e) => p.onChange(e.target.checked ? { ...sc, timeBonus: { ...DEFAULT_TIME_BONUS } } : (({ timeBonus: _t, ...rest }) => rest)(sc))}
+            />
+            time bonus (points for every second under a target time)
+          </label>
+          {sc.timeBonus !== undefined && (
+            <div className="tl-animator__row">
+              <label className="tl-field">
+                <span className="tl-field__label">target seconds</span>
+                <Text label="time bonus target seconds" value={String(sc.timeBonus.targetSeconds)} onCommit={(t) => Number(t) >= 1 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, targetSeconds: Number(t) } })} />
+              </label>
+              <label className="tl-field">
+                <span className="tl-field__label">points per second</span>
+                <Text label="time bonus points per second" value={String(sc.timeBonus.perSecond)} onCommit={(t) => t.trim() !== '' && Number(t) >= 0 && p.onChange({ ...sc, timeBonus: { ...sc.timeBonus!, perSecond: Number(t) } })} />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -255,6 +351,8 @@ export function FlowPanel(p: Props): JSX.Element {
         <span className="tl-field__label">credits (the end screen)</span>
         <Text label="credits" area value={f.texts?.credits ?? ''} onCommit={(v) => save({ texts: { ...(f.texts ?? {}), credits: v === '' ? undefined : v } })} />
       </label>
+
+      <ScoreSection score={f.score} counters={p.counters ?? []} onChange={(score) => p.onSave(score !== undefined ? { ...f, score } : (({ score: _s, ...rest }) => rest)(f))} />
 
       <div className="tl-panel__title">Default volumes</div>
       <div className="tl-animator__row">

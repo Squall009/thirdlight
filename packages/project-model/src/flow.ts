@@ -38,7 +38,25 @@ export interface GameFlow {
   texts?: { levelComplete?: string; gameOver?: string; credits?: string };
   /** Default volumes (0–1) before the player changes them in Settings. */
   volumes?: { music: number; sfx: number };
+  /** Phase 14.3: score rules (absent: no score is shown or kept). */
+  score?: FlowScore;
 }
+
+/**
+ * Phase 14.3: how a level's score is made. `points` gives points per unit of
+ * a run counter — the counter names are the project's own (pickups count
+ * into `coins`, `gems`, `keys`, `lives` or a custom counter; stomped enemies
+ * into `defeated`). `timeBonus` adds `perSecond` points for every second the
+ * level took under `targetSeconds` (rounded down; none over the target).
+ */
+export interface FlowScore {
+  points?: Record<string, number>;
+  timeBonus?: { targetSeconds: number; perSecond: number };
+}
+
+export const MAX_SCORE_COUNTERS = 32;
+/** Points per counter unit (negative: a penalty). */
+export const MAX_SCORE_POINTS = 1_000_000;
 
 export const MAX_FLOW_LEVELS = 32;
 export const MAX_LEVEL_SCENES = 16;
@@ -62,7 +80,7 @@ const unit = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v
 /** The shape of a flow block (references are checked by the project validator). */
 export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) return err(errors, 'field_type', path, 'flow is an object', value);
-  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes'], path, errors);
+  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes', 'score'], path, errors);
   const levels = value['levels'];
   if (!Array.isArray(levels) || levels.length < 1 || levels.length > MAX_FLOW_LEVELS) {
     err(errors, 'field_value', `${path}/levels`, `levels is a list of 1–${MAX_FLOW_LEVELS} levels`, Array.isArray(levels) ? levels.length : levels);
@@ -139,6 +157,39 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
       if (!unit(volumes['sfx'])) err(errors, 'field_value', `${path}/volumes/sfx`, 'the sound volume is 0–1', volumes['sfx']);
     }
   }
+  const score = value['score'];
+  if (score !== undefined) validateScore(score, `${path}/score`, errors);
+}
+
+const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+
+function validateScore(score: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isObj(score)) return err(errors, 'field_type', path, 'score is { points?: { counter: points }, timeBonus?: { targetSeconds, perSecond } }', score);
+  only(score, ['points', 'timeBonus'], path, errors);
+  const points = score['points'];
+  if (points !== undefined) {
+    if (!isObj(points)) err(errors, 'field_type', `${path}/points`, 'points is { counterName: points per unit }', points);
+    else {
+      const names = Object.keys(points);
+      if (names.length > MAX_SCORE_COUNTERS) err(errors, 'field_value', `${path}/points`, `score at most ${MAX_SCORE_COUNTERS} counters`, names.length);
+      for (const k of names) {
+        const at = `${path}/points/${k.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+        if (!COUNTER_RE.test(k)) err(errors, 'field_value', at, 'a counter name is 1–32 letters, digits or _ (not starting with a digit)', k);
+        else if (!int(points[k], -MAX_SCORE_POINTS, MAX_SCORE_POINTS)) err(errors, 'field_value', at, `points per unit are a whole number from -${MAX_SCORE_POINTS} to ${MAX_SCORE_POINTS}`, points[k]);
+      }
+    }
+  }
+  const bonus = score['timeBonus'];
+  if (bonus !== undefined) {
+    if (!isObj(bonus)) err(errors, 'field_type', `${path}/timeBonus`, 'timeBonus is { targetSeconds, perSecond }', bonus);
+    else {
+      only(bonus, ['targetSeconds', 'perSecond'], `${path}/timeBonus`, errors);
+      const t = bonus['targetSeconds'];
+      if (typeof t !== 'number' || !Number.isFinite(t) || t < 1 || t > 36_000) err(errors, 'field_value', `${path}/timeBonus/targetSeconds`, 'the target time is 1–36000 seconds', t);
+      const ps = bonus['perSecond'];
+      if (typeof ps !== 'number' || !Number.isFinite(ps) || ps < 0 || ps > 100_000) err(errors, 'field_value', `${path}/timeBonus/perSecond`, 'the time bonus is 0–100000 points per second', ps);
+    }
+  }
 }
 
 /** Every asset the flow names (music, the logo), for capture and export. */
@@ -160,5 +211,14 @@ export function canonicalFlow(f: GameFlow): GameFlow {
       ? { texts: { ...(f.texts.levelComplete !== undefined ? { levelComplete: f.texts.levelComplete } : {}), ...(f.texts.gameOver !== undefined ? { gameOver: f.texts.gameOver } : {}), ...(f.texts.credits !== undefined ? { credits: f.texts.credits } : {}) } }
       : {}),
     ...(f.volumes !== undefined ? { volumes: { music: f.volumes.music, sfx: f.volumes.sfx } } : {}),
+    ...(f.score !== undefined ? { score: canonicalScore(f.score) } : {}),
+  };
+}
+
+/** Score rules with the counters in name order (a stable document whatever order they were typed in). */
+function canonicalScore(s: FlowScore): FlowScore {
+  return {
+    ...(s.points !== undefined ? { points: Object.fromEntries(Object.keys(s.points).sort().map((k) => [k, s.points![k]!])) } : {}),
+    ...(s.timeBonus !== undefined ? { timeBonus: { targetSeconds: s.timeBonus.targetSeconds, perSecond: s.timeBonus.perSecond } } : {}),
   };
 }

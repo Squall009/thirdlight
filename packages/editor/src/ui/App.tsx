@@ -112,6 +112,20 @@ import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 
+/**
+ * Phase 14.3: the counter names a game counts, for the Score section — the
+ * engine's (pickup kinds, stomped enemies) and every custom pickup counter in
+ * the open scenes.
+ */
+function scoreCounterNames(entities: readonly { blocks?: Partial<Record<string, Record<string, unknown>>> }[]): string[] {
+  const names = new Set(['coins', 'gems', 'keys', 'lives', 'defeated']);
+  for (const e of entities) {
+    const c = e.blocks?.['pickup']?.['counter'];
+    if (typeof c === 'string') names.add(c);
+  }
+  return [...names];
+}
+
 /** A bounded, actionable error the panels display. */
 interface UiError {
   code: string;
@@ -3072,6 +3086,7 @@ function EditorApp(): JSX.Element {
               music={assets.filter((a) => a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               gameSpawnId={gameConfig?.spawnId ?? null}
+              counters={scoreCounterNames(entities)}
               onSave={(next) => void saveFlow(next)}
               error={flowError}
               note={flowNote}
