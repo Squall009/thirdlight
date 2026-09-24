@@ -52,6 +52,8 @@ import type {
   GameFlow,
   InputConfig,
   MaterialDef,
+  GraphDocument,
+  GraphOp,
 } from '@thirdlight/project-model';
 
 // ---- ops and origins --------------------------------------------------------
@@ -108,7 +110,11 @@ export type V3MutationOp =
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
-  | 'setStartScenes';
+  | 'setStartScenes'
+  // phase 16.1: graphs (standalone graph documents and the generic graph edit)
+  | 'setGraph'
+  | 'deleteGraph'
+  | 'graphEdit';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -355,6 +361,52 @@ export interface SetAnimatorsChange {
   type: 'setAnimators';
   previous: AnimatorController[];
   next: AnimatorController[];
+}
+
+/**
+ * Phase 16.1: the graph a `graphEdit` addresses — an owner kind (where the
+ * graph is stored) and the owning document's id. Owner kinds: `graph` (a
+ * standalone document in `content.graphs`); later phases add animator
+ * controllers, materials, behaviors and effects.
+ */
+export interface GraphOwner {
+  kind: string;
+  id: string;
+}
+
+/** `graphEdit` args: graph ops applied atomically to one owner's graph (one undo step). */
+export interface GraphEditArgs {
+  owner: GraphOwner;
+  ops: GraphOp[];
+}
+
+/** `graphEdit` change data: the ops applied (an undo carries the inverse ops). */
+export interface GraphEditChange {
+  type: 'graphEdit';
+  owner: GraphOwner;
+  ops: GraphOp[];
+}
+
+/** Undo of a `graphEdit`: the inverse ops, in order. */
+export interface GraphEditInverse {
+  kind: 'graphEdit';
+  owner: GraphOwner;
+  ops: GraphOp[];
+}
+
+/** `setGraph`/`deleteGraph` change data: one standalone graph document before and after (null = none). */
+export interface SetGraphChange {
+  type: 'setGraph';
+  graphId: string;
+  previous: GraphDocument | null;
+  next: GraphDocument | null;
+}
+
+/** Undo of `setGraph`/`deleteGraph`: restore the previous document (null = remove it). */
+export interface SetGraphInverse {
+  kind: 'setGraph';
+  graphId: string;
+  restore: GraphDocument | null;
 }
 
 /** Phase 9.10: `setFlow` change data (null = no flow). */
@@ -643,7 +695,9 @@ export type ChangeData =
   | SetAnimatorsChange
   | SetInputChange
   | SetFlowChange
-  | SetSceneIndexChange;
+  | SetSceneIndexChange
+  | GraphEditChange
+  | SetGraphChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -671,7 +725,9 @@ export type ForwardChange =
   | SetAnimatorsChange
   | SetInputChange
   | SetFlowChange
-  | SetSceneIndexChange;
+  | SetSceneIndexChange
+  | GraphEditChange
+  | SetGraphChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -837,6 +893,8 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | GraphEditInverse
+  | SetGraphInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1244,7 +1302,20 @@ export interface InstantiatePrefabArgs {
   overrides?: readonly PropertyOverride[];
 }
 
+/** Phase 16.1: `setGraph` creates or replaces one standalone graph document (by graphId). */
+export interface SetGraphArgs {
+  graph: GraphDocument;
+}
+
+/** Phase 16.1: `deleteGraph` removes one standalone graph document. */
+export interface DeleteGraphArgs {
+  graphId: string;
+}
+
 export type MutationArgs =
+  | GraphEditArgs
+  | SetGraphArgs
+  | DeleteGraphArgs
   | SceneIndexArgs
   | SetTagsArgs
   | UpdateEntityArgs

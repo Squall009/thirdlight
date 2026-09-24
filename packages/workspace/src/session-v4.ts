@@ -7,7 +7,7 @@
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { ContentDocument, HistoryState } from '@thirdlight/commands';
-import { composeV4, DEFAULT_INPUT, DESCRIPTORS, effectiveEntityFlags, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, DEFAULT_INPUT, DESCRIPTORS, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
@@ -563,7 +563,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
         inputDefaults: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
-        ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown } : {}),
+        // Phase 16.1: standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
+        graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,
+        ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),
       } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;

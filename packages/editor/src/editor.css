@@ -740,3 +740,46 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-script__trust { border: 1px solid var(--warn); border-radius: var(--radius); background: var(--warn-bg); padding: 8px; }
 .tl-script__published { color: var(--ok); font-size: 12px; }
 .tl-script__owned { display: flex; flex-direction: column; gap: 2px; }
+/* Phase 16.1: the graph editor (canvas + a DOM layer of focusable nodes and ports); it fills a `graph` document tab. */
+.tl-workspace__view > .tl-graph { margin: -8px; }
+.tl-graph { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; outline: none; }
+.tl-graph:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.tl-graph__toolbar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--surface-1); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tl-graph__sep { width: 1px; height: 18px; background: var(--line-strong); margin: 0 4px; }
+.tl-graph__spacer { flex: 1; }
+.tl-graph__icon { min-width: 26px; }
+.tl-graph__check { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 12px; }
+.tl-graph__zoom { color: var(--text-faint); font-size: 12px; min-width: 40px; text-align: right; }
+.tl-graph__problems { font-size: 12px; color: var(--text-dim); }
+.tl-graph__problems.is-error { color: var(--err); }
+.tl-graph__problems.is-warn { color: var(--warn); }
+.tl-graph__stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; cursor: default; }
+.tl-graph__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tl-graph__layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.tl-graph__node, .tl-graph__item { position: absolute; outline: none; border-radius: 3px; }
+.tl-graph__node:focus-visible, .tl-graph__item:focus-visible { box-shadow: 0 0 0 2px var(--brand); }
+.tl-graph__port { position: absolute; width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; }
+.tl-graph__port:focus-visible, .tl-graph__port.is-pending { box-shadow: 0 0 0 2px var(--brand); outline: none; }
+.tl-graph__minimap { position: absolute; right: 10px; bottom: 10px; border: 1px solid var(--line-strong); border-radius: 4px; cursor: pointer; }
+.tl-graph__status { position: absolute; left: 10px; bottom: 10px; max-width: 60%; padding: 4px 8px; border-radius: 4px; background: var(--surface-2); color: var(--text-dim); font-size: 12px; }
+.tl-graph__status.is-error { color: var(--err); background: var(--err-bg); }
+.tl-graph__popup { position: absolute; z-index: 3; width: 240px; max-height: 320px; display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.tl-graph__list { overflow-y: auto; min-height: 0; }
+.tl-graph__cat { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); padding: 6px 4px 2px; }
+.tl-graph__entry { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--text); padding: 4px 8px; border-radius: 4px; cursor: pointer; font: inherit; }
+.tl-graph__entry:hover, .tl-graph__entry.is-active { background: var(--select-bg); }
+.tl-graph__edit { position: absolute; z-index: 3; }
+.tl-graph__edit textarea, .tl-graph__edit input { width: 100%; height: 100%; background: var(--surface-3); color: var(--text); border: 1px solid var(--select); border-radius: 4px; font: 12px sans-serif; padding: 4px 6px; }
+.tl-graph-inspector .tl-field { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.tl-graph-inspector .tl-field--check { flex-direction: row; align-items: center; gap: 6px; }
+.tl-graph-inspector__vec { display: flex; gap: 4px; }
+.tl-graph-inspector__vec .tl-input { width: 33%; }
+.tl-warn { color: var(--warn); }
+.tl-graphs__new { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.tl-graphs__list { list-style: none; margin: 0; padding: 0; }
+.tl-graphs__row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+.tl-graphs__row.is-active { background: var(--select-bg); }
+.tl-graphs__name { font-weight: 600; }
+.tl-graphs__meta { flex: 1; color: var(--text-dim); font-size: 12px; }
+.tl-problem__link { background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; }
+.tl-problem__link:hover { text-decoration: underline; }

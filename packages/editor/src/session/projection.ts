@@ -557,6 +557,9 @@ export class Projection {
       case 'setAnimators':
       case 'setInput':
       case 'setFlow':
+      // Phase 16.1: graphs are tracked by the client from the change data.
+      case 'graphEdit':
+      case 'setGraph':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

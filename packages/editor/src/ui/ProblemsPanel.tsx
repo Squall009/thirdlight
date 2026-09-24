@@ -8,7 +8,20 @@ import type { JSX } from 'react';
 import type { ProblemView } from '../session/client';
 import type { SourceIssue } from '../session/asset-sources';
 
+/** Phase 16.1: one graph problem (from the graph kind's rules); a click opens the graph at the node. */
+export interface GraphIssueView {
+  key: string;
+  graphId: string;
+  graphName: string;
+  nodeId?: string;
+  nodeLabel: string | null;
+  severity: 'error' | 'warning';
+  message: string;
+}
+
 interface Props {
+  graphIssues?: readonly GraphIssueView[];
+  onGraphIssue?: (issue: GraphIssueView) => void;
   problems: readonly ProblemView[];
   /** Models the scene view could not load (by asset or entity). */
   viewFailures: readonly { id: string; name: string; code: string; message: string }[];
@@ -19,7 +32,7 @@ interface Props {
   onReimport: (issue: SourceIssue) => void;
 }
 
-export function ProblemsPanel({ problems, viewFailures, sourceIssues, checking, onCheckFiles, onReimport }: Props): JSX.Element {
+export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFailures, sourceIssues, checking, onCheckFiles, onReimport }: Props): JSX.Element {
   const newest = [...problems].reverse();
   const issues = sourceIssues ?? [];
   return (
@@ -61,7 +74,20 @@ export function ProblemsPanel({ problems, viewFailures, sourceIssues, checking, 
           ))}
         </ul>
       )}
-      {newest.length === 0 && issues.length === 0 && viewFailures.length === 0 ? (
+      {graphIssues.length > 0 && (
+        <ul className="tl-problems__list" aria-label="Graphs">
+          {graphIssues.map((g) => (
+            <li key={g.key} className="tl-problem">
+              <span className={`tl-problem__source tl-problem__source--${g.severity === 'error' ? 'command' : 'workspace'}`}>{g.severity === 'error' ? 'graph error' : 'graph warning'}</span>
+              <button className="tl-problem__message tl-problem__link" title="Open the graph at this node" onClick={() => onGraphIssue?.(g)}>
+                {g.graphName}
+                {g.nodeLabel !== null ? ` › ${g.nodeLabel} (${g.nodeId ?? ''})` : ''}: {g.message}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {newest.length === 0 && issues.length === 0 && viewFailures.length === 0 && graphIssues.length === 0 ? (
         <div className="tl-inspector__empty">No problems reported.</div>
       ) : (
         <ul className="tl-problems__list">

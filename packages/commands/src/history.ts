@@ -25,6 +25,8 @@
 
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
+import { editOwnerGraph, withGraphDocument } from './graph-ops';
+import type { GraphDocument } from '@thirdlight/project-model';
 import type {
   BehaviorComponent,
   BehaviorRecord,
@@ -520,6 +522,19 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withInput(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'graphEdit') {
+    const r = editOwnerGraph(content, inv.owner, inv.ops);
+    if (!r.ok) return { ok: false, error: historyInvalid(entry.requestId) };
+    const change: ChangeData = { type: 'graphEdit', owner: { ...inv.owner }, ops: deepClone(inv.ops) };
+    return finish(state, bumped(scene), r.content, change, entry.requestId);
+  }
+
+  if (inv.kind === 'setGraph') {
+    const before = ((content as { graphs?: GraphDocument[] }).graphs ?? []).find((g) => g.graphId === inv.graphId) ?? null;
+    const change: ChangeData = { type: 'setGraph', graphId: inv.graphId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withGraphDocument(content, inv.graphId, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setAnimators') {
     const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
     const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(inv.restore) };
@@ -904,6 +919,19 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { input?: InputConfig }).input ?? null;
     const change: ChangeData = { type: 'setInput', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withInput(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'graphEdit') {
+    const r = editOwnerGraph(content, f.owner, f.ops);
+    if (!r.ok) return { ok: false, error: historyInvalid(entry.requestId) };
+    const change: ChangeData = { type: 'graphEdit', owner: { ...f.owner }, ops: deepClone(f.ops) };
+    return finish(state, bumped(scene), r.content, change, entry.requestId);
+  }
+
+  if (f.type === 'setGraph') {
+    const before = ((content as { graphs?: GraphDocument[] }).graphs ?? []).find((g) => g.graphId === f.graphId) ?? null;
+    const change: ChangeData = { type: 'setGraph', graphId: f.graphId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withGraphDocument(content, f.graphId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setAnimators') {

@@ -717,6 +717,75 @@ above 0.05 m/s, else idle, 0.2 s crossfades), written as one new revision.
 If a clip length cannot be read from the model file the old component stays
 and keeps playing.
 
+## Graph editing
+
+Node graphs share one editor (phase 16.1): the animator state graph moves
+onto it in 16.2, and material graphs, visual scripts and effect graphs use
+it later. Each graph has a **kind** that sets its node catalogue
+(categories, ports, fields), its port types with the implicit conversions
+between them, and its rules (cycles allowed or not, a node budget, nodes a
+graph must have). For now the only kind is **Test graph**, a small
+numeric graph used to test the editor; it has no effect on the game and is
+never exported.
+
+Bottom dock → **Graphs** lists the project's graphs: pick a kind, type a
+name and **Create graph**; **Open** (or double-click) shows it in the centre
+area as a **Graph: <name>** document tab (like the other centre tabs:
+opening an open graph brings its tab to the front, × or middle-click closes
+it, Ctrl+Tab cycles, and the open tabs come back after a reload). While a
+graph tab is in front, the Inspector on the right shows the selected node
+(its fields), wire (its type or implicit conversion), group (title, colour)
+or comment. Deleting a graph closes its tab.
+
+- **View:** wheel zooms at the cursor; middle-drag or Space+drag pans; **F**
+  fits the selection, **Shift+F** everything (or the **Fit** button); click
+  or drag in the minimap (bottom right) to move the view. **Snap** keeps
+  positions on the 20-unit grid.
+- **Adding nodes:** right click or press Space over the graph (or **+ Node**)
+  for the catalogue: type to filter, arrows + Enter or a click to add. Drag
+  from a port to empty space: the catalogue lists only the nodes that can
+  take that wire and connects the new node.
+- **Wires:** drag from an output to an input (or the other way). Ports are
+  coloured by type; a wire that needs an implicit conversion is dashed and
+  names it (e.g. number→vector). An incompatible type or a wire that would
+  close a cycle (in kinds without cycles) is refused with the reason in the
+  bottom-left status. A single input takes one wire: a new wire replaces the
+  old one. Click a wire to select it; double-click a wire to add a reroute
+  point (drag it; double-click it to remove it).
+- **Selecting and moving:** click, Shift+click (add), Ctrl+click (toggle),
+  or drag a box on empty space; drag a selected node to move the whole
+  selection; dragging a group by its title moves everything inside its frame.
+  Double-click a node's title (or its ▸/▾) to collapse it.
+- **Editing:** Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste (at the pointer;
+  also into another graph of the same kind), Ctrl+D duplicates, Delete
+  removes (a node takes its wires), Ctrl+A selects all, Ctrl+G frames the
+  selection in a group (double-click its title to rename it), **Comment**
+  adds a note (double-click to edit). The toolbar aligns (left, centre, right,
+  top, middle, bottom) and distributes the selected nodes.
+- **Keyboard:** Tab reaches nodes and ports; arrows move the selection one
+  grid step (Shift: five); Enter on a port starts a wire and Enter on another
+  port connects it; Esc cancels.
+- **Problems:** the kind's rules are checked as you edit — a required input
+  left unconnected or a missing required node is an error, a node whose
+  result reaches no output a warning. They show as a badge on the node (hover
+  for the text), in the toolbar count and in the **Problems** tab, where a
+  click opens the graph at the node.
+
+Every gesture is one command on the backend (a drag of many nodes is one
+move on release), so it is one undo step (Ctrl+Z / Ctrl+Y) and every
+connected editor and MCP client sees the same graph. MCP: `setGraph
+{graph: {graphId, kind, name, graph: {nodes: [], edges: []}}}` creates or
+renames a graph, `deleteGraph {graphId}` removes one, and `graphEdit {owner:
+{kind: "graph", id}, ops: [...]}` applies up to 512 ops atomically (addNodes,
+removeNodes, moveNodes, setNodeData, setCollapsed, connect, disconnect,
+setReroutes, setGroups, removeGroups, setComments, removeComments — the full
+shapes are in the `tl_command` description). `tl_content_query
+target="game"` returns the graphs; with `includeDescriptors` also the kinds'
+catalogues. Limits: 4096 nodes per graph (the kind may set fewer), 256
+groups, 256 comments, 16 reroute points per wire, 64 graphs per project;
+graphs count toward the 1 MiB content cap (about 70 bytes per node and 80 per
+wire).
+
 ## Input actions
 
 The game reads named **actions**, not keys (bottom dock → Input): `move`
