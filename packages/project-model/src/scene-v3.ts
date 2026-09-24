@@ -221,7 +221,7 @@ export function validateActivationAppearance(a: unknown, path: string, errors: M
     checkFiniteNumber(
       a['emissiveIntensity'],
       `${path}/emissiveIntensity`,
-      { absMax: MAX_EMISSIVE_INTENSITY },
+      { min: 0, absMax: MAX_EMISSIVE_INTENSITY },
       `0 <= v <= ${MAX_EMISSIVE_INTENSITY}`,
       errors,
     );
@@ -383,14 +383,14 @@ export function validateCameraFollowComponent(c: unknown, path: string, errors: 
   else {
     for (const k of ['x', 'y'] as const) {
       if (dz[k] === undefined) errors.push(fieldMissing(`${path}/deadZone/${k}`, k));
-      else checkFiniteNumber(dz[k], `${path}/deadZone/${k}`, { absMax: MAX_ABS_V3 }, `0 <= v <= ${MAX_ABS_V3}`, errors);
+      else checkFiniteNumber(dz[k], `${path}/deadZone/${k}`, { min: 0, absMax: MAX_ABS_V3 }, `0 <= v <= ${MAX_ABS_V3}`, errors);
     }
     for (const k of Object.keys(dz)) {
       if (!KNOWN_DEADZONE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/deadZone/${pointerSegment(k)}`, k, 'x, y'));
     }
   }
   if (c['smoothing'] === undefined) errors.push(fieldMissing(`${path}/smoothing`, 'smoothing'));
-  else checkFiniteNumber(c['smoothing'], `${path}/smoothing`, { absMax: 1 }, '0 <= v <= 1', errors);
+  else checkFiniteNumber(c['smoothing'], `${path}/smoothing`, { min: 0, absMax: 1 }, '0 <= v <= 1', errors);
   const bounds = c['bounds'];
   // v4: bounds are optional (without them the camera follows anywhere).
   if (bounds === undefined) {
@@ -463,7 +463,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
   optionalColor(c['color'], `${path}/color`, 'required', errors);
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
-  else checkFiniteNumber(c['intensity'], `${path}/intensity`, { absMax: MAX_INTENSITY }, `0 <= v <= ${MAX_INTENSITY}`, errors);
+  else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: MAX_INTENSITY }, `0 <= v <= ${MAX_INTENSITY}`, errors);
 
   if (type === 'directional') {
     const dir = c['direction'];
@@ -514,8 +514,7 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   optionalColor(c['color'], `${path}/color`, 'required', errors);
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
-  else checkFiniteNumber(c['intensity'], `${path}/intensity`, { absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  if (typeof c['intensity'] === 'number' && c['intensity'] < 0) errors.push(fieldValue(`${path}/intensity`, c['intensity'], '>= 0', 'intensity is not negative'));
+  else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
   const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode'];
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
@@ -551,14 +550,14 @@ export function validateSurfaceComponent(c: unknown, path: string, errors: Model
   optionalColor(c['color'], `${path}/color`, SURFACE_DEFAULTS.color, errors);
   for (const k of ['roughness', 'metalness'] as const) {
     if (c[k] === undefined) continue; // §23.7 fills the default
-    checkFiniteNumber(c[k], `${path}/${k}`, { absMax: 1 }, '0 <= v <= 1', errors);
+    checkFiniteNumber(c[k], `${path}/${k}`, { min: 0, absMax: 1 }, '0 <= v <= 1', errors);
   }
   optionalColor(c['emissive'], `${path}/emissive`, SURFACE_DEFAULTS.emissive, errors);
   if (c['emissiveIntensity'] !== undefined) {
     checkFiniteNumber(
       c['emissiveIntensity'],
       `${path}/emissiveIntensity`,
-      { absMax: MAX_EMISSIVE_INTENSITY },
+      { min: 0, absMax: MAX_EMISSIVE_INTENSITY },
       `0 <= v <= ${MAX_EMISSIVE_INTENSITY}`,
       errors,
     );

@@ -286,9 +286,10 @@ export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
  * `applySurfacePreset`; the panel shows what will be applied).
  */
 export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceView>> = Object.freeze({
-  'matte-ground': Object.freeze({ color: '#8a8f98', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }),
-  hazard: Object.freeze({ color: '#d42a1e', roughness: 0.6, metalness: 0, emissive: '#400a06', emissiveIntensity: 0.6 }),
-  beacon: Object.freeze({ color: '#1bc8ff', roughness: 0.4, metalness: 0, emissive: '#1bc8ff', emissiveIntensity: 1.4 }),
+  // Phase 15.5: these had drifted from the authoritative rows; they are the model's rows again (media.test.ts pins them).
+  'matte-ground': Object.freeze({ color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }),
+  hazard: Object.freeze({ color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 }),
+  beacon: Object.freeze({ color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 }),
 });
 
 /**

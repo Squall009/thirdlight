@@ -514,6 +514,12 @@ export const DEFAULT_SCENE_ID = 'scene-main';
  * edit) and an empty content catalog. Built as a v3 project and converted
  * like the automatic upgrade (`projectFilesFromV3`), so it is exactly the
  * project a new project was before new projects were written as v4 directly.
+ *
+ * Phase 15.5 reasons: the camera 0.5 m up and 4 m out at 60° frames a 1 m box
+ * resting at the origin (where the editor's first box lands) with room around
+ * it; the sun is a white key from above-front at 1.2 casting shadows, the
+ * ambient a cool fill at 0.6 so shadowed sides stay readable. The GameObject
+ * menu's directional and ambient lights are these same values (descriptors).
  */
 export function defaultProjectFilesV4(
   projectId: string,

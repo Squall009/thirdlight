@@ -52,6 +52,32 @@ test('GameObject menu creates lights, spawns, empties; one camera and one light 
   await expect(page.locator('input.tl-inspector__name')).toHaveValue('Directional light');
 });
 
+test('phase 15.5: the menu lights are the starter values (the descriptor presets), not a sample\'s', async ({ page }) => {
+  await open(page);
+  type Ent = { id: string; components: { light?: { type: string }; camera?: object; transform?: { position: number[] } } };
+  const all = async (): Promise<Ent[]> => (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as Ent[];
+  const starter = await all();
+  const starterLight = (type: string) => starter.find((e) => e.components.light?.type === type)!.components.light;
+  const starterCamera = starter.find((e) => e.components.camera !== undefined)!.components.camera;
+  // Delete the starter lights, then create them again from the menu.
+  const lightRows = rows(page).filter({ has: page.locator('.tl-row__kind', { hasText: /^light$/ }) });
+  await expect(lightRows).toHaveCount(2);
+  for (let i = 0; i < 2; i += 1) {
+    await lightRows.first().click();
+    await menu(page, 'Edit', 'Delete');
+  }
+  await expect(lightRows).toHaveCount(0);
+  await menu(page, 'GameObject', 'Light', 'Directional light');
+  await expect(rows(page).filter({ hasText: 'Directional light' })).toHaveCount(1);
+  await menu(page, 'GameObject', 'Light', 'Ambient light');
+  await expect(rows(page).filter({ hasText: 'Ambient light' })).toHaveCount(1);
+  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'directional')?.components.light).toEqual(starterLight('directional'));
+  await expect.poll(async () => (await all()).find((e) => e.components.light?.type === 'ambient')?.components.light).toEqual(starterLight('ambient'));
+  // (The camera item uses the descriptor's camera too, but a v4 project holds exactly one camera
+  // in its start scenes, so it cannot be exercised here; the starter camera is that value.)
+  expect(starterCamera).toMatchObject({ fovY: 60 });
+});
+
 test('Edit → Duplicate copies the selection with its components; Component menu adds and removes', async ({ page }) => {
   const base = await open(page);
   await menu(page, 'GameObject', 'Box');

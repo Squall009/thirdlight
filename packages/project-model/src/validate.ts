@@ -307,6 +307,8 @@ export interface NumRange {
   maxExcl?: number;
   /** reject |v| > absMax */
   absMax?: number;
+  /** Phase 15.5: reject v < min (an inclusive lower bound, e.g. 0 for a strength or a factor) */
+  min?: number;
   /** reject v <= 0 (no zero or negative lengths/scales) */
   positive?: boolean;
 }
@@ -347,6 +349,7 @@ export function checkFiniteNumber(
   if (range.minExcl !== undefined && v <= range.minExcl) out = true;
   if (range.maxExcl !== undefined && v >= range.maxExcl) out = true;
   if (range.absMax !== undefined && Math.abs(v) > range.absMax) out = true;
+  if (range.min !== undefined && v < range.min) out = true;
   if (out) {
     errors.push(
       withFound(

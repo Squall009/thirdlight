@@ -1066,6 +1066,21 @@ These protect the runtime and are not tuning values:
 | Shadow-follow extent | 24 m |
 | Stick dead zone default | 0.2 (per action: `deadZone`) |
 
+### Engine defaults
+
+Every default is sized for any project, not for a sample: sizes are set
+against the default 1.8 m character and its 1.25 m jump, and each default has
+its reason next to it in the code (`project-model/src/descriptors.ts` and the
+constants it names). The GameObject menu's camera and lights are the same
+values as "+ Add component" and a new project's starter camera and lights
+(a white key light at 1.2 with shadows and a cool fill at 0.6, a 60° camera).
+A new checkpoint glows plain white; a gradient sky is grey below the
+horizon; an instance scatter starts as a 20 × 20 m square. Samples (Beacon
+Reach) keep their own values in their own data. Scene validation now refuses
+negative camera-follow dead zones and smoothing, directional/ambient light
+intensities, surface roughness/metalness/glow and checkpoint glow (they were
+accepted before although the range said `0 ≤ v`).
+
 ## Upgrade
 
 ```sh

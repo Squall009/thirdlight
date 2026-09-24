@@ -139,23 +139,6 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:']);
 
-/**
- * Validators looser than their stated range (they use |v| <= max, so a
- * negative passes where the message says 0 <= v): the descriptor states the
- * intended range, the Inspector enforces it. Listed so a tightened
- * validator shows up here (then remove the entry).
- */
-const LOOSER_MIN = new Set([
-  'cameraFollow:deadZone.x',
-  'cameraFollow:deadZone.y',
-  'cameraFollow:smoothing',
-  'light[0] light:intensity',
-  'light[1] light:intensity',
-  'surface:roughness',
-  'surface:metalness',
-  'surface:emissiveIntensity',
-  'gameZone:activation.emissiveIntensity',
-]);
 
 interface Ctx {
   label: string;
@@ -199,8 +182,7 @@ function probeNumberRange(ctx: Ctx, root: J, objPtr: string, key: string, d: { m
     } else if (!(d.nonZero && d.min === 0)) {
       expectOk(ctx, withValue(root, objPtr, key, d.min, dpath), errAt, `min ${d.min}`);
     }
-    if (LOOSER_MIN.has(dpath) || LOOSER_MIN.has(`${ctx.label} ${dpath}`)) expectOk(ctx, withValue(root, objPtr, key, d.min - (isInt ? 1 : eps(d.min) * 1000), dpath), errAt, `below min ${d.min} (known looser validator)`);
-    else expectErr(ctx, withValue(root, objPtr, key, d.min - (isInt ? 1 : eps(d.min) * 1000), dpath), errAt, `below min ${d.min}`);
+    expectErr(ctx, withValue(root, objPtr, key, d.min - (isInt ? 1 : eps(d.min) * 1000), dpath), errAt, `below min ${d.min}`);
   }
   if (d.max !== undefined) {
     if (d.maxExclusive) {

@@ -52,7 +52,7 @@ import {
   parseControlInput,
   planSetBehaviorProperties,
 } from '../session/property-controls';
-import { addEntries, collectSignals } from '../session/descriptor-fields';
+import { addEntries, collectSignals, presetValue } from '../session/descriptor-fields';
 import type { FieldContext } from './DescriptorFields';
 import type { PrefabSummaryView } from '../session/prefab-projection';
 import type { BehaviorDeclarationView } from '../session/prefab-projection';
@@ -262,8 +262,13 @@ function EditorApp(): JSX.Element {
   const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | null>(null);
   /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
   const [exitForm, setExitForm] = useState<{ entityId: string | null; load: string[]; unload: string[]; spawnId: string; error: string | null }>({ entityId: null, load: [], unload: [], spawnId: '', error: null });
-  /** Phase 12 (c): the scatter dialog's form (an instance set of one model). */
-  const [scatter, setScatter] = useState({ assetId: '', count: '200', width: '40', depth: '8', scaleMin: '0.7', scaleMax: '1.3', randomYaw: true, seed: '1', busy: false, error: null as string | null });
+  /**
+   * Phase 12 (c): the scatter dialog's form (an instance set of one model).
+   * Phase 15.5: a 20 × 20 m square (it was a 40 × 8 m side-scroller strip) —
+   * no view direction assumed; 200 copies at 0.7–1.3× with a random turn read
+   * as a natural scatter of props at any scale.
+   */
+  const [scatter, setScatter] = useState({ assetId: '', count: '200', width: '20', depth: '20', scaleMin: '0.7', scaleMax: '1.3', randomYaw: true, seed: '1', busy: false, error: null as string | null });
   const [exportState, setExportState] = useState<{ busy: boolean; result: { outputDir: string; revision: number; files: number } | null; error: string | null }>({ busy: false, result: null, error: null });
   const [playing, setPlaying] = useState(false);
   const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
@@ -1179,6 +1184,8 @@ function EditorApp(): JSX.Element {
   }, [reportFailure]);
 
   // ---- GameObject menu: create at the point the camera looks at -----------
+  // (Before the Scene view reports a focus point: [0, 0.5, 0], where a new 1 m
+  // box rests on the ground plane — a unit, not a character size.)
   const createEntityAt = useCallback(
     async (what: string, args: Record<string, unknown>, position?: number[]) => {
       const c = clientRef.current;
@@ -1192,26 +1199,39 @@ function EditorApp(): JSX.Element {
     [reportFailure],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
-  const createCamera = useCallback(
-    () => createEntityAt('Create camera', { kind: 'group', name: 'Camera', components: { camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }, [0, 4, 12]),
-    [createEntityAt],
-  );
+  // Phase 15.5: the camera and the lights are the descriptor's add value and
+  // presets (one table for this menu and "+ Add component"; they were copies
+  // of Beacon Reach's camera and key/fill lights).
+  const createCamera = useCallback(() => {
+    const camera = presetValue(registry, 'camera');
+    if (camera === null) return setNotice('Create camera failed: the component defaults have not arrived yet');
+    const c = clientRef.current;
+    if (!c) return;
+    // 4 m in front of the point the Scene view looks at, facing it — the starter camera's framing of the origin.
+    const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
+    const at = focus.map((v) => Math.round(v * 4) / 4);
+    // createEntity does not add cameras (its component set is closed): an object, then its camera (phase 15.1's setComponent add).
+    void (async () => {
+      const made = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Camera', transform: { position: [at[0]!, at[1]!, at[2]! + 4] } }, c.projection.revision);
+      if (!made.ok || made.createdId === undefined) return reportFailure('Create camera', made);
+      const res = await c.setComponent(made.createdId, 'camera', camera, c.projection.revision);
+      if (!res.ok) {
+        // Refused (a v4 project keeps exactly one camera in its start scenes): take the empty object away again.
+        reportFailure('Create camera', res);
+        await c.command('deleteEntity', { entityId: made.createdId }, c.projection.revision);
+        return;
+      }
+      setSelectedId(made.createdId);
+    })();
+  }, [registry, reportFailure, setSelectedId]);
   const createLight = useCallback(
-    (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') =>
-      createEntityAt(
-        `Create ${type} light`,
-        type === 'directional'
-          ? { kind: 'group', name: 'Directional light', components: { light: { type, color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true } } }
-          : type === 'ambient'
-            ? { kind: 'group', name: 'Ambient light', components: { light: { type, color: '#8a94b0', intensity: 0.9 } } }
-            : type === 'point'
-              ? { kind: 'group', name: 'Point light', components: { light: { type, color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } } }
-              : type === 'spot'
-                ? { kind: 'group', name: 'Spot light', components: { light: { type, color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0] } } }
-                : { kind: 'group', name: 'Hemisphere light', components: { light: { type, color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8 } } },
-        type === 'directional' ? [0, 10, 0] : type === 'ambient' || type === 'hemisphere' ? [0, 0, 0] : undefined,
-      ),
-    [createEntityAt],
+    (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') => {
+      const name = `${type.charAt(0).toUpperCase()}${type.slice(1)} light`;
+      const light = presetValue(registry, 'light', name);
+      if (light === null) return setNotice(`Create ${type} light failed: the component defaults have not arrived yet`);
+      return createEntityAt(`Create ${type} light`, { kind: 'group', name, components: { light } }, type === 'directional' ? [0, 10, 0] : type === 'ambient' || type === 'hemisphere' ? [0, 0, 0] : undefined);
+    },
+    [createEntityAt, registry],
   );
   const createSpawn = useCallback(() => createEntityAt('Create player spawn', { kind: 'group', name: 'Player spawn', components: { playerSpawn: {} } }), [createEntityAt]);
 
@@ -1316,7 +1336,7 @@ function EditorApp(): JSX.Element {
       await createEntityAt('Exit zone', {
         kind: 'group',
         name: 'Exit',
-        components: { gameZone: { role: 'exit', size: [2, 3], ...fields, ...(exitForm.spawnId !== '' ? { spawnId: exitForm.spawnId } : {}) } },
+        components: { gameZone: { role: 'exit', size: [...DEFAULT_ZONE_SIZE.exit], ...fields, ...(exitForm.spawnId !== '' ? { spawnId: exitForm.spawnId } : {}) } },
       });
       setDialog(null);
       return;
@@ -2709,6 +2729,10 @@ function EditorApp(): JSX.Element {
             setDialog('exit');
           } },
         ] },
+        // Phase 15.5: the gameplay blocks are placeholder boxes sized against the engine's default
+        // 1.8 m character and 1.25 m jump (a platform 2–3 m wide to land on, a 3 m door to walk
+        // through, a 0.4 m coin, a 0.8 m enemy it can jump on), each a colour of its own so they
+        // read apart; the one-way platform takes the Scene view's one-way outline green.
         { label: 'Gameplay', items: [
           { label: 'Moving platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create moving platform', { kind: 'box', name: 'Moving platform', box: { size: [2, 0.4, 2], material: { color: '#c9a36a' } }, components: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } }, mover: addValueOf('mover') } }) },
           { label: 'One-way platform', disabled: sceneHeaders === null, reason: v4Reason, onSelect: () => void createEntityAt('Create one-way platform', { kind: 'box', name: 'One-way platform', box: { size: [3, 0.2, 2], material: { color: '#8fb573' } }, components: { collider: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true } } }) },

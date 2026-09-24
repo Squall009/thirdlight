@@ -146,7 +146,8 @@ function seededForm(entities: readonly ProjectedEntity[]): GameConfigForm {
   return {
     title: 'Untitled game',
     objective: 'Reach the goal.',
-    instructions: 'Arrow keys (or A/D) to move; Space (or W / Up) to jump. The first gamepad button confirms menus and jumps.',
+    // Phase 15.5: the descriptor's neutral text (the old one named a W / Up jump no default binding has, and goes stale when the input is rebound).
+    instructions: 'Move and jump.',
     playerId: playerCandidates[0]?.id ?? '',
     cameraId: cameraCandidates[0]?.id ?? '',
     spawnId: spawnCandidates[0]?.id ?? '',

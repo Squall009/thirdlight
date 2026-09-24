@@ -498,6 +498,19 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
   return out;
 }
 
+/**
+ * Phase 15.5: a component's ready-made value for the GameObject menu — the
+ * preset with this label, else (no label) its "+ Add component" value — so
+ * the menu and the Inspector create the same thing from one table. A deep
+ * copy; null when the registry has not arrived or has no such value.
+ */
+export function presetValue(reg: DescriptorRegistry | null, component: string, label?: string): Obj | null {
+  const c = reg?.components.find((x) => x.name === component);
+  if (c === undefined) return null;
+  const v = label !== undefined ? c.presets?.find((p) => p.label === label)?.value : c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : undefined;
+  return v !== undefined && v !== null && typeof v === 'object' && !Array.isArray(v) ? (JSON.parse(JSON.stringify(v)) as Obj) : null;
+}
+
 /** The value a pick entry adds once its pick fields are set (`*` names a map key), or why not yet. */
 export function pickedValue(c: ComponentDescriptor, draft: Obj): { ok: true; value: Obj } | { ok: false; missing: string[] } {
   if (c.add.kind !== 'pick') return { ok: true, value: draft };
