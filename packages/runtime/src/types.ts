@@ -669,8 +669,8 @@ export interface BehaviorAnimatorHandle {
   /** Set a trigger (it resets when a transition uses it). */
   trigger(name: string): boolean;
   get(name: string): number | boolean | undefined;
-  /** The current state's name. */
-  state(): string;
+  /** The current state's name (of the base layer, or of override layer `layer` — 1 is the first; phase 14.6). */
+  state(layer?: number): string;
 }
 
 export interface BehaviorAnimatorControl {

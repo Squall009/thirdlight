@@ -549,6 +549,38 @@ clip events of the previous step are in `ctx.events`. MCP: `setAnimator` /
 `deleteAnimator` through `tl_command`; `tl_game_observe` reports each
 animator's current state.
 
+**Layers and bone masks.** "Add layer" (the tab row above the graph) adds an
+override layer — up to three — on top of the base layer, e.g. an attack
+played by the upper body while the legs keep running. Each layer has its own
+states, transitions and entry state and shares the controller's parameters
+(a trigger reaches every layer that tests it in the same step). Its side
+panel sets the name, the weight (0–1, optionally times a float parameter, so
+a script can fade the layer in and out) and the **bone mask**: a checkbox per
+bone of the model's skeleton ("+ children" takes a bone and everything under
+it; no bone picked = every bone). A layer state may be **empty** (right
+click → "Add empty state"): the layer plays nothing and the layers under it
+show through, so the usual layer is Empty → Attack (on a trigger) → back to
+Empty at its exit time. A masked bone that the layer's clip does not animate
+goes to its rest pose while the layer plays. `tl_game_observe` reports the
+states as `Run | Upper body: Attack`; scripts read a layer's state with
+`ctx.animator(id)?.state(1)`. Controllers without layers play exactly as
+before.
+
+**Animation-only files.** A GLB with bones and clips but no mesh imports as
+a model asset. Select it in the Asset browser and set **clips for rig of**
+to the model it animates: its clips then appear in the Animator's clip lists
+for that model (as `clip · file`) and play on it, matched by bone names (the
+field reports animated bones the rig does not have; those stay still). MCP:
+`setAssetOptions {assetId, clipsFor: rigAssetId | null}`.
+
+**The old idle/run/airborne animation.** A model object that still has the
+old `modelAnimation` profile keeps playing it until the project is opened
+again; on open it becomes an animator controller "Idle/run/airborne
+(<model>)" (the same three clips, airborne while not grounded, else run
+above 0.05 m/s, else idle, 0.2 s crossfades), written as one new revision.
+If a clip length cannot be read from the model file the old component stays
+and keeps playing.
+
 ## Input actions
 
 The game reads named **actions**, not keys (bottom dock → Input): `move`

@@ -96,6 +96,7 @@ import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './Mat
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
 import { AnimatorPanel, type AnimatorPreview } from './AnimatorPanel';
+import { ClipsForField } from './ClipsForField';
 import { InputPanel } from './InputPanel';
 import { FlowPanel } from './FlowPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
@@ -1994,9 +1995,24 @@ function EditorApp(): JSX.Element {
     const c = clientRef.current;
     const m = modelInstancesRef.current;
     if (!c || !m) return 'the editor is not ready';
-    const first = controller.states.find((x) => x.motion.kind === 'clip' || x.motion.children.length > 0)?.motion;
-    const assetId = first === undefined ? undefined : first.kind === 'clip' ? first.clip.assetId : first.children[0]!.clip.assetId;
-    if (assetId === undefined) return 'give a state a clip first';
+    // The model the clips are for: the first clip's asset, or the rig of an animation-only asset (phase 14.6).
+    const clipAssets = new Set<string>();
+    for (const g of [controller, ...(controller.layers ?? [])]) {
+      for (const x of g.states) {
+        if (x.motion.kind === 'clip') clipAssets.add(x.motion.clip.assetId);
+        else if (x.motion.kind === 'blend1d') for (const k of x.motion.children) clipAssets.add(k.clip.assetId);
+      }
+    }
+    const first = [...clipAssets][0];
+    if (first === undefined) return 'give a state a clip first';
+    const assetId = c.content.getAsset(first)?.clipsFor ?? first;
+    // Clips of animation-only assets marked "clips for" this model, loaded before the preview starts.
+    const foreign = new Map<string, readonly THREE.AnimationClip[]>();
+    for (const id of clipAssets) {
+      if (id === assetId || c.content.getAsset(id)?.clipsFor !== assetId) continue;
+      const r = await m.prepared(id);
+      if (r !== null) foreign.set(id, r.animationClips());
+    }
     const v = c.content.resolveVersion(assetId);
     if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return 'the model has no published version';
     const stage = new PreviewStage(canvas);
@@ -2007,7 +2023,7 @@ function EditorApp(): JSX.Element {
     }
     stage.frame(res.session.root);
     const machine = new AnimatorMachine(controller as unknown as AnimatorControllerLike);
-    const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId);
+    const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId, { clipsOf: (id) => foreign.get(id) ?? null });
     let last = performance.now();
     let raf = 0;
     const tick = (now: number): void => {
@@ -2022,6 +2038,7 @@ function EditorApp(): JSX.Element {
       set: (name, value) => void machine.set(name, value),
       trigger: (name) => void machine.trigger(name),
       state: () => machine.stateName(),
+      layerStates: () => Array.from({ length: machine.layerCount() }, (_, i) => machine.stateName(i)),
       dispose: () => {
         if (done) return;
         done = true;
@@ -2321,6 +2338,36 @@ function EditorApp(): JSX.Element {
   const clipsOf = useCallback(async (assetId: string) => {
     const r = await modelInstancesRef.current?.prepared(assetId);
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
+  }, []);
+  // Phase 14.6: a model's skeleton (the Animator's bone mask picker).
+  const skeletonOf = useCallback(async (assetId: string) => {
+    const r = await modelInstancesRef.current?.prepared(assetId);
+    return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
+  }, []);
+  // Phase 14.6: mark an animation-only file as clips for another model's rig (null clears it).
+  const setAssetClipsFor = useCallback(async (assetId: string, rig: string | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Clips for rig', await c.command('setAssetOptions', { assetId, clipsFor: rig }, c.projection.revision));
+  }, [reportFailure]);
+  /** The animated bones of `clipAssetId`'s clips that the rig `rigAssetId` does not have. */
+  const missingBones = useCallback(async (clipAssetId: string, rigAssetId: string): Promise<string[] | null> => {
+    const m = modelInstancesRef.current;
+    if (!m) return null;
+    const [clipsRes, rigRes] = await Promise.all([m.prepared(clipAssetId), m.prepared(rigAssetId)]);
+    if (clipsRes === null || rigRes === null) return null;
+    const have = new Set(rigRes.skeleton().map((b) => b.name));
+    const wanted = new Set<string>();
+    for (const clip of clipsRes.animationClips()) {
+      for (const t of clip.tracks) {
+        try {
+          wanted.add(THREE.PropertyBinding.parseTrackName(t.name).nodeName);
+        } catch {
+          /* an unparsable track binds nothing */
+        }
+      }
+    }
+    return [...wanted].filter((n) => n !== '' && !have.has(n)).sort();
   }, []);
   const setEntityAnimator = useCallback(async (entityId: string, controller: string | null) => {
     const c = clientRef.current;
@@ -3062,13 +3109,22 @@ function EditorApp(): JSX.Element {
               onVertexColors={(id, mode) => void setVertexColors(id, mode)}
               sideExtra={
                 selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
-                  <MaterialMappingEditor
-                    label="Default materials (every placement)"
-                    sourceNames={assetSourceMaterials}
-                    mapping={assets.find((a) => a.assetId === selectedAssetId)?.materials ?? null}
-                    materials={materials}
-                    onChange={(mapping) => void setAssetMaterials(selectedAssetId, mapping)}
-                  />
+                  <>
+                    <ClipsForField
+                      assetId={selectedAssetId}
+                      clipsFor={assets.find((a) => a.assetId === selectedAssetId)?.clipsFor ?? null}
+                      rigs={assets.filter((a) => a.kind === 'model' && a.assetId !== selectedAssetId && a.clipsFor === undefined).map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+                      onChange={(rig) => void setAssetClipsFor(selectedAssetId, rig)}
+                      missingBones={missingBones}
+                    />
+                    <MaterialMappingEditor
+                      label="Default materials (every placement)"
+                      sourceNames={assetSourceMaterials}
+                      mapping={assets.find((a) => a.assetId === selectedAssetId)?.materials ?? null}
+                      materials={materials}
+                      onChange={(mapping) => void setAssetMaterials(selectedAssetId, mapping)}
+                    />
+                  </>
                 ) : null
               }
             />
@@ -3201,8 +3257,9 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'animator' && (
             <AnimatorPanel
               controllers={animators}
-              models={assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              models={assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) }))}
               clipsOf={clipsOf}
+              skeletonOf={skeletonOf}
               preview={previewAnimator}
               onSave={(controller) => void saveAnimator(controller)}
               onDelete={(id) => void deleteAnimator(id)}

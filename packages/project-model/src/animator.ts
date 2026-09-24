@@ -7,7 +7,15 @@
  * transitions (from a state or from any state; conditions on parameters, a
  * crossfade duration, an optional exit time), an entry state and clip events.
  * Clips are named clips of model assets (`{assetId, clip, duration}`; the
- * editor fills the duration from the file). One (base) layer.
+ * editor fills the duration from the file).
+ *
+ * Phase 14.6: the controller's own states are the base layer; `layers` adds
+ * override layers on top (e.g. an upper-body attack while running). Each
+ * layer has its own states, transitions and entry state, shares the
+ * controller's parameters and events, and drives only the bones of its
+ * `mask` (empty = every bone), with a weight (0–1, optionally times a float
+ * parameter). A layer state may be `empty` (the layers under it show
+ * through).
  */
 import type { ModelErrorV2 } from './errors';
 
@@ -32,7 +40,9 @@ export interface AnimatorClipRef {
 
 export type AnimatorMotion =
   | { kind: 'clip'; clip: AnimatorClipRef }
-  | { kind: 'blend1d'; parameter: string; children: { threshold: number; clip: AnimatorClipRef }[] };
+  | { kind: 'blend1d'; parameter: string; children: { threshold: number; clip: AnimatorClipRef }[] }
+  /** Phase 14.6, override layers only: nothing plays (the layers under it show through). */
+  | { kind: 'empty' };
 
 export interface AnimatorState {
   id: string;
@@ -73,14 +83,31 @@ export interface AnimatorEvent {
   name: string;
 }
 
+/** Phase 14.6: an override layer (drawn over the base layer and the layers before it). */
+export interface AnimatorLayer {
+  name: string;
+  /** The bone (node) names this layer drives, as the model's skeleton names them; empty = every bone. */
+  mask: string[];
+  /** 0–1: how much the layer replaces the layers under it on its bones. */
+  weight: number;
+  /** A float parameter (clamped to 0–1) the weight is multiplied by. */
+  weightParameter?: string;
+  states: AnimatorState[];
+  transitions: AnimatorTransition[];
+  entry: string;
+}
+
 export interface AnimatorController {
   controllerId: string;
   name: string;
   parameters: AnimatorParameter[];
+  /** The base layer's states, transitions and entry state. */
   states: AnimatorState[];
   transitions: AnimatorTransition[];
   entry: string;
   events: AnimatorEvent[];
+  /** Phase 14.6: override layers over the base layer (absent = the base layer only). */
+  layers?: AnimatorLayer[];
 }
 
 export interface AnimatorComponent {
@@ -96,6 +123,10 @@ export const MAX_ANIMATOR_TRANSITIONS = 256;
 export const MAX_ANIMATOR_CONDITIONS = 8;
 export const MAX_ANIMATOR_EVENTS = 64;
 export const MAX_BLEND_CHILDREN = 16;
+/** Phase 14.6: override layers besides the base layer. */
+export const MAX_ANIMATOR_LAYERS = 3;
+/** Phase 14.6: bone names in one layer mask (the import cap on joints per skin). */
+export const MAX_LAYER_MASK = 128;
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PARAM_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -122,35 +153,9 @@ function checkClip(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!num(v['duration'], 0.001, 600)) err(errors, 'field_value', `${path}/duration`, 'duration is the clip length in seconds (0–600)', v['duration']);
 }
 
-/** One controller (structure, ranges and its internal references). */
-export function validateAnimatorController(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'an animator controller is an object', value);
-  const v = value;
-  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events'], path, errors);
-  if (typeof v['controllerId'] !== 'string' || !ID_RE.test(v['controllerId'])) err(errors, 'field_value', `${path}/controllerId`, 'controllerId is an id (a-z, 0-9, _ and -)', v['controllerId']);
-  if (!isName(v['name'])) err(errors, 'field_value', `${path}/name`, 'name is 1–128 characters', v['name']);
-
-  const params = new Map<string, AnimatorParameterType>();
-  const plist = v['parameters'];
-  if (!Array.isArray(plist) || plist.length > MAX_ANIMATOR_PARAMETERS) err(errors, 'field_value', `${path}/parameters`, `parameters is a list of at most ${MAX_ANIMATOR_PARAMETERS}`, plist);
-  else
-    plist.forEach((p, i) => {
-      const pp = `${path}/parameters/${i}`;
-      if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { name, type, default? }', p);
-      onlyKeys(p, ['name', 'type', 'default'], pp, errors);
-      const name = p['name'];
-      const type = p['type'];
-      if (typeof name !== 'string' || !PARAM_RE.test(name)) return err(errors, 'field_value', `${pp}/name`, 'a parameter name is a letter or _ then letters, digits or _', name);
-      if (params.has(name)) err(errors, 'field_value', `${pp}/name`, 'parameter names are unique', name);
-      if (!(ANIMATOR_PARAMETER_TYPES as readonly unknown[]).includes(type)) return err(errors, 'field_value', `${pp}/type`, 'type is float, int, bool or trigger', type);
-      params.set(name, type as AnimatorParameterType);
-      const d = p['default'];
-      if (d === undefined) return;
-      const ok = type === 'bool' ? typeof d === 'boolean' : type === 'int' ? Number.isInteger(d) && num(d, -1e6, 1e6) : type === 'float' ? num(d, -1e6, 1e6) : false;
-      if (!ok) err(errors, 'field_value', `${pp}/default`, type === 'trigger' ? 'a trigger has no default' : `the default must be a ${type}`, d);
-    });
-
-  const stateIds = new Set<string>();
+/** One layer's states, entry and transitions (the base layer or an override layer). */
+function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMap<string, AnimatorParameterType>, stateIds: Set<string>, allowEmpty: boolean, errors: ModelErrorV2[]): void {
+  const own = new Set<string>();
   const slist = v['states'];
   if (!Array.isArray(slist) || slist.length < 1 || slist.length > MAX_ANIMATOR_STATES) err(errors, 'field_value', `${path}/states`, `states is a list of 1–${MAX_ANIMATOR_STATES}`, Array.isArray(slist) ? slist.length : slist);
   else
@@ -160,8 +165,11 @@ export function validateAnimatorController(value: unknown, path: string, errors:
       onlyKeys(s, ['id', 'name', 'motion', 'speed', 'speedParameter', 'loop', 'position'], sp, errors);
       const id = s['id'];
       if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'field_value', `${sp}/id`, 'a state id is an id', id);
-      else if (stateIds.has(id)) err(errors, 'field_value', `${sp}/id`, 'state ids are unique', id);
-      else stateIds.add(id);
+      else if (stateIds.has(id)) err(errors, 'field_value', `${sp}/id`, 'state ids are unique (across all layers)', id);
+      else {
+        stateIds.add(id);
+        own.add(id);
+      }
       if (!isName(s['name'])) err(errors, 'field_value', `${sp}/name`, 'name is 1–128 characters', s['name']);
       if (!num(s['speed'], 0, 10)) err(errors, 'field_value', `${sp}/speed`, 'speed is a number in [0, 10]', s['speed']);
       if (typeof s['loop'] !== 'boolean') err(errors, 'field_type', `${sp}/loop`, 'loop is true or false', s['loop']);
@@ -190,10 +198,12 @@ export function validateAnimatorController(value: unknown, path: string, errors:
             checkClip(k['clip'], `${kp}/clip`, errors);
           });
         }
-      } else err(errors, 'field_value', `${sp}/motion/kind`, 'motion kind is clip or blend1d', m['kind']);
+      } else if (m['kind'] === 'empty' && allowEmpty) {
+        onlyKeys(m, ['kind'], `${sp}/motion`, errors);
+      } else err(errors, 'field_value', `${sp}/motion/kind`, allowEmpty ? 'motion kind is clip, blend1d or empty' : 'motion kind is clip or blend1d (empty is for override layers)', m['kind']);
     });
 
-  if (typeof v['entry'] !== 'string' || !stateIds.has(v['entry'])) err(errors, 'reference_missing', `${path}/entry`, 'entry names a state', v['entry']);
+  if (typeof v['entry'] !== 'string' || !own.has(v['entry'])) err(errors, 'reference_missing', `${path}/entry`, 'entry names a state of this layer', v['entry']);
 
   const tlist = v['transitions'];
   if (!Array.isArray(tlist) || tlist.length > MAX_ANIMATOR_TRANSITIONS) err(errors, 'field_value', `${path}/transitions`, `transitions is a list of at most ${MAX_ANIMATOR_TRANSITIONS}`, tlist);
@@ -202,8 +212,8 @@ export function validateAnimatorController(value: unknown, path: string, errors:
       const tp = `${path}/transitions/${i}`;
       if (!isPlainObject(t)) return err(errors, 'field_type', tp, 'a transition is an object', t);
       onlyKeys(t, ['from', 'to', 'conditions', 'duration', 'exitTime', 'interruption'], tp, errors);
-      if (t['from'] !== '*' && !stateIds.has(t['from'] as string)) err(errors, 'reference_missing', `${tp}/from`, 'from names a state or "*" (any state)', t['from']);
-      if (!stateIds.has(t['to'] as string)) err(errors, 'reference_missing', `${tp}/to`, 'to names a state', t['to']);
+      if (t['from'] !== '*' && !own.has(t['from'] as string)) err(errors, 'reference_missing', `${tp}/from`, 'from names a state of this layer or "*" (any state)', t['from']);
+      if (!own.has(t['to'] as string)) err(errors, 'reference_missing', `${tp}/to`, 'to names a state of this layer', t['to']);
       if (!num(t['duration'], 0, 10)) err(errors, 'field_value', `${tp}/duration`, 'duration is the crossfade in seconds [0, 10]', t['duration']);
       if (t['exitTime'] !== undefined && !num(t['exitTime'], 0, 100)) err(errors, 'field_value', `${tp}/exitTime`, 'exitTime is a normalized time [0, 100]', t['exitTime']);
       if (t['interruption'] !== undefined && t['interruption'] !== 'none' && t['interruption'] !== 'source') err(errors, 'field_value', `${tp}/interruption`, 'interruption is none or source', t['interruption']);
@@ -224,6 +234,64 @@ export function validateAnimatorController(value: unknown, path: string, errors:
         if (!numeric && c['value'] !== undefined) err(errors, 'field_unexpected', `${cp}/value`, 'only number conditions have a value', c['value']);
       });
     });
+
+}
+
+/** One controller (structure, ranges and its internal references). */
+export function validateAnimatorController(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'an animator controller is an object', value);
+  const v = value;
+  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events', 'layers'], path, errors);
+  if (typeof v['controllerId'] !== 'string' || !ID_RE.test(v['controllerId'])) err(errors, 'field_value', `${path}/controllerId`, 'controllerId is an id (a-z, 0-9, _ and -)', v['controllerId']);
+  if (!isName(v['name'])) err(errors, 'field_value', `${path}/name`, 'name is 1–128 characters', v['name']);
+
+  const params = new Map<string, AnimatorParameterType>();
+  const plist = v['parameters'];
+  if (!Array.isArray(plist) || plist.length > MAX_ANIMATOR_PARAMETERS) err(errors, 'field_value', `${path}/parameters`, `parameters is a list of at most ${MAX_ANIMATOR_PARAMETERS}`, plist);
+  else
+    plist.forEach((p, i) => {
+      const pp = `${path}/parameters/${i}`;
+      if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { name, type, default? }', p);
+      onlyKeys(p, ['name', 'type', 'default'], pp, errors);
+      const name = p['name'];
+      const type = p['type'];
+      if (typeof name !== 'string' || !PARAM_RE.test(name)) return err(errors, 'field_value', `${pp}/name`, 'a parameter name is a letter or _ then letters, digits or _', name);
+      if (params.has(name)) err(errors, 'field_value', `${pp}/name`, 'parameter names are unique', name);
+      if (!(ANIMATOR_PARAMETER_TYPES as readonly unknown[]).includes(type)) return err(errors, 'field_value', `${pp}/type`, 'type is float, int, bool or trigger', type);
+      params.set(name, type as AnimatorParameterType);
+      const d = p['default'];
+      if (d === undefined) return;
+      const ok = type === 'bool' ? typeof d === 'boolean' : type === 'int' ? Number.isInteger(d) && num(d, -1e6, 1e6) : type === 'float' ? num(d, -1e6, 1e6) : false;
+      if (!ok) err(errors, 'field_value', `${pp}/default`, type === 'trigger' ? 'a trigger has no default' : `the default must be a ${type}`, d);
+    });
+
+  const stateIds = new Set<string>();
+  checkGraph(v, path, params, stateIds, false, errors);
+
+  const layers = v['layers'];
+  if (layers !== undefined) {
+    if (!Array.isArray(layers) || layers.length < 1 || layers.length > MAX_ANIMATOR_LAYERS) err(errors, 'field_value', `${path}/layers`, `layers is a list of 1–${MAX_ANIMATOR_LAYERS} override layers (absent = the base layer only)`, Array.isArray(layers) ? layers.length : layers);
+    else
+      layers.forEach((l, i) => {
+        const lp = `${path}/layers/${i}`;
+        if (!isPlainObject(l)) return err(errors, 'field_type', lp, 'a layer is { name, mask, weight, weightParameter?, states, transitions, entry }', l);
+        onlyKeys(l, ['name', 'mask', 'weight', 'weightParameter', 'states', 'transitions', 'entry'], lp, errors);
+        if (!isName(l['name'])) err(errors, 'field_value', `${lp}/name`, 'name is 1–128 characters', l['name']);
+        const mask = l['mask'];
+        if (!Array.isArray(mask) || mask.length > MAX_LAYER_MASK) err(errors, 'field_value', `${lp}/mask`, `mask is a list of at most ${MAX_LAYER_MASK} bone names (empty = every bone)`, mask);
+        else {
+          const seen = new Set<string>();
+          mask.forEach((b, j) => {
+            if (!isName(b)) err(errors, 'field_value', `${lp}/mask/${j}`, 'a bone name is 1–128 characters', b);
+            else if (seen.has(b)) err(errors, 'field_value', `${lp}/mask/${j}`, 'bone names in a mask are unique', b);
+            else seen.add(b);
+          });
+        }
+        if (!num(l['weight'], 0, 1)) err(errors, 'field_value', `${lp}/weight`, 'weight is a number in [0, 1]', l['weight']);
+        if (l['weightParameter'] !== undefined && params.get(l['weightParameter'] as string) !== 'float') err(errors, 'reference_missing', `${lp}/weightParameter`, 'weightParameter names a float parameter', l['weightParameter']);
+        checkGraph(l, lp, params, stateIds, true, errors);
+      });
+  }
 
   const elist = v['events'];
   if (!Array.isArray(elist) || elist.length > MAX_ANIMATOR_EVENTS) err(errors, 'field_value', `${path}/events`, `events is a list of at most ${MAX_ANIMATOR_EVENTS}`, elist);
@@ -269,30 +337,55 @@ export function validateAnimatorComponent(value: unknown, path: string, errors: 
 
 const clipOf = (c: AnimatorClipRef): AnimatorClipRef => ({ assetId: c.assetId, clip: c.clip, duration: c.duration });
 
+const canonicalMotion = (m: AnimatorMotion): AnimatorMotion =>
+  m.kind === 'clip'
+    ? { kind: 'clip', clip: clipOf(m.clip) }
+    : m.kind === 'blend1d'
+      ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip) })) }
+      : { kind: 'empty' };
+const canonicalStates = (list: readonly AnimatorState[]): AnimatorState[] =>
+  list.map((s) => ({
+    id: s.id,
+    name: s.name,
+    motion: canonicalMotion(s.motion),
+    speed: s.speed,
+    ...(s.speedParameter !== undefined ? { speedParameter: s.speedParameter } : {}),
+    loop: s.loop,
+    ...(s.position !== undefined ? { position: [s.position[0], s.position[1]] as [number, number] } : {}),
+  }));
+const canonicalTransitions = (list: readonly AnimatorTransition[]): AnimatorTransition[] =>
+  list.map((t) => ({
+    from: t.from,
+    to: t.to,
+    conditions: t.conditions.map((x) => ({ parameter: x.parameter, op: x.op, ...(x.value !== undefined ? { value: x.value } : {}) })),
+    duration: t.duration,
+    ...(t.exitTime !== undefined ? { exitTime: t.exitTime } : {}),
+    ...(t.interruption !== undefined ? { interruption: t.interruption } : {}),
+  }));
+
 export function canonicalAnimatorController(c: AnimatorController): AnimatorController {
   return {
     controllerId: c.controllerId,
     name: c.name,
     parameters: c.parameters.map((p) => ({ name: p.name, type: p.type, ...(p.default !== undefined ? { default: p.default } : {}) })),
-    states: c.states.map((s) => ({
-      id: s.id,
-      name: s.name,
-      motion: s.motion.kind === 'clip' ? { kind: 'clip' as const, clip: clipOf(s.motion.clip) } : { kind: 'blend1d' as const, parameter: s.motion.parameter, children: s.motion.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip) })) },
-      speed: s.speed,
-      ...(s.speedParameter !== undefined ? { speedParameter: s.speedParameter } : {}),
-      loop: s.loop,
-      ...(s.position !== undefined ? { position: [s.position[0], s.position[1]] as [number, number] } : {}),
-    })),
-    transitions: c.transitions.map((t) => ({
-      from: t.from,
-      to: t.to,
-      conditions: t.conditions.map((x) => ({ parameter: x.parameter, op: x.op, ...(x.value !== undefined ? { value: x.value } : {}) })),
-      duration: t.duration,
-      ...(t.exitTime !== undefined ? { exitTime: t.exitTime } : {}),
-      ...(t.interruption !== undefined ? { interruption: t.interruption } : {}),
-    })),
+    states: canonicalStates(c.states),
+    transitions: canonicalTransitions(c.transitions),
     entry: c.entry,
     events: c.events.map((e) => ({ assetId: e.assetId, clip: e.clip, time: e.time, name: e.name })),
+    // Phase 14.6: override layers (a controller without them keeps its exact old form).
+    ...(c.layers !== undefined && c.layers.length > 0
+      ? {
+          layers: c.layers.map((l) => ({
+            name: l.name,
+            mask: [...l.mask],
+            weight: l.weight,
+            ...(l.weightParameter !== undefined ? { weightParameter: l.weightParameter } : {}),
+            states: canonicalStates(l.states),
+            transitions: canonicalTransitions(l.transitions),
+            entry: l.entry,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -310,9 +403,14 @@ export function canonicalAnimatorComponent(c: AnimatorComponent): AnimatorCompon
 /** Every model asset a controller's clips come from. */
 export function animatorAssetIds(c: AnimatorController): string[] {
   const ids = new Set<string>();
-  for (const s of c.states) {
+  for (const s of animatorStates(c)) {
     if (s.motion.kind === 'clip') ids.add(s.motion.clip.assetId);
-    else for (const k of s.motion.children) ids.add(k.clip.assetId);
+    else if (s.motion.kind === 'blend1d') for (const k of s.motion.children) ids.add(k.clip.assetId);
   }
   return [...ids].sort();
+}
+
+/** Phase 14.6: every state of a controller, the base layer's first, then each override layer's. */
+export function animatorStates(c: AnimatorController): AnimatorState[] {
+  return [...c.states, ...(c.layers ?? []).flatMap((l) => l.states)];
 }

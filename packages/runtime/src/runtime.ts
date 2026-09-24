@@ -1402,7 +1402,7 @@ class RuntimeInstance implements Runtime {
           set: (name: string, value: number | boolean) => m.set(String(name), value),
           trigger: (name: string) => m.trigger(String(name)),
           get: (name: string) => m.get(String(name)),
-          state: () => m.stateName(),
+          state: (layer?: number) => m.stateName(typeof layer === 'number' && Number.isInteger(layer) && layer >= 0 ? layer : 0),
         });
       },
     });

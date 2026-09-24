@@ -1053,6 +1053,8 @@ export interface SetAssetOptionsArgs {
   vertexColors?: 'data' | 'tint';
   /** Phase 9.4: the default material mapping of every placement (null = none). */
   materials?: Record<string, string> | null;
+  /** Phase 14.6: an animation-only file whose clips play on this model asset's rig (null = its clips are its own). */
+  clipsFor?: string | null;
 }
 
 export interface SetTransformArgs {
@@ -1338,6 +1340,8 @@ export interface AssetSummary {
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping of every placement. */
   materials?: Record<string, string>;
+  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  clipsFor?: string;
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
 }

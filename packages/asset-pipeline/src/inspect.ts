@@ -691,7 +691,7 @@ class Inspector {
     // 16 — non-empty.
     g = this.guard();
     if (g !== null) return g;
-    if (metrics.meshes === 0 || metrics.vertices === 0) {
+    if ((metrics.meshes === 0 || metrics.vertices === 0) && !(metrics.meshes === 0 && this.animationOnly())) {
       return this.reject([
         diag('asset_empty_model', ptr('meshes'), 'a model must carry geometry', {
           found: { meshes: metrics.meshes, vertices: metrics.vertices },
@@ -1399,9 +1399,24 @@ class Inspector {
     return out.length > 0 ? out : null;
   }
 
+  /**
+   * Phase 14.6: an animation-only file — no meshes (the key absent or an
+   * empty list) but at least one animation. It is imported as a model asset
+   * whose clips play on another model's rig (`clipsFor`).
+   */
+  private animationOnly(): boolean {
+    const meshes = this.json['meshes'];
+    const animations = this.json['animations'];
+    const nodes = this.json['nodes'];
+    // No node may point at a mesh (a file with a broken mesh list is not animation-only).
+    const meshless = !Array.isArray(nodes) || nodes.every((n) => typeof n !== 'object' || n === null || (n as Record<string, unknown>)['mesh'] === undefined);
+    return (meshes === undefined || (Array.isArray(meshes) && meshes.length === 0)) && meshless && Array.isArray(animations) && animations.length > 0;
+  }
+
   private checkMeshes(): ImportDiagnostic[] | null {
     const out: ImportDiagnostic[] = [];
     const meshes = this.json['meshes'];
+    if (this.animationOnly()) return null;
     if (!Array.isArray(meshes) || meshes.length < 1) {
       return [
         diag('asset_mesh_invalid', ptr('meshes'), 'the M2 profile requires at least one mesh', {
