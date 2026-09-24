@@ -7,11 +7,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { serializeCanonical } from '@thirdlight/project-model';
-import type { Entity, Scene } from '@thirdlight/project-model';
+import type { EntityV3, SceneV4 } from '@thirdlight/project-model';
 
 import {
   applyMutation,
-  createCommandState,
   MAX_REVISION,
   type ApplyOutcome,
   type CommandState,
@@ -26,10 +25,12 @@ import {
   req,
   scene,
   snapshot,
+  v4Content,
+  v4State,
 } from './test-scene';
 import { bytesEqual } from './test-fixtures';
 
-function sceneBytes(s: Scene): Uint8Array {
+function sceneBytes(s: unknown): Uint8Array {
   const r = serializeCanonical(s);
   if (!r.ok) throw new Error('canonical serialization failed');
   return r.bytes;
@@ -41,11 +42,11 @@ function ok(r: ApplyOutcome): { state: CommandState; result: MutationSuccess } {
   return { state: r.state, result: r.result };
 }
 
-const BASE: Scene = scene(0, [cameraEntity()]);
+const BASE: SceneV4 = scene(0, [cameraEntity()]);
 
 describe('redo — recorded values, not re-scans (§8.4)', () => {
   it('redo of a create re-inserts the recorded entity at the end with its original ID', () => {
-    const st0 = createCommandState(BASE);
+    const st0 = v4State(BASE);
     const o1 = applyMutation(st0, at(st0, 'createEntity', { kind: 'box', name: 'First' }));
     const o2 = applyMutation(ok(o1).state, at(ok(o1).state, 'createEntity', { kind: 'box', name: 'Second' }));
     // Undo the second create...
@@ -55,7 +56,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
     // at the end of the array — no ID re-scan.
     const red = applyMutation(ok(u1).state, at(ok(u1).state, 'redo', {}));
     const s = ok(red).result;
-    const ch = s.change as { type: string; id: string; entity: Entity };
+    const ch = s.change as { type: string; id: string; entity: EntityV3 };
     expect(ch.type).toBe('createEntity');
     expect(ch.id).toBe('box-0002');
     expect(ch.entity.name).toBe('Second');
@@ -67,7 +68,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
   });
 
   it('redo of a setTransform replaces the recorded fields with the recorded next values', () => {
-    const st0 = createCommandState(BASE);
+    const st0 = v4State(BASE);
     const c = applyMutation(st0, at(st0, 'createEntity', { kind: 'box' }));
     const t = applyMutation(ok(c).state, at(ok(c).state, 'setTransform', {
       entityId: 'box-0001',
@@ -83,7 +84,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
   });
 
   it('deep round-trip: three edits undone and redone restore byte-identical states', () => {
-    const st0 = createCommandState(BASE);
+    const st0 = v4State(BASE);
     const st1 = ok(applyMutation(st0, at(st0, 'createEntity', { kind: 'box', name: 'A' }))).state;
     const st2 = ok(applyMutation(st1, at(st1, 'setTransform', {
       entityId: 'box-0001',
@@ -115,13 +116,13 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
 });
 
 describe('history_invalid — defensive failure (§9.4, unreachable via LIFO state)', () => {
-  function cameraScene(rev: number): Scene {
+  function cameraScene(rev: number): SceneV4 {
     return scene(rev, [cameraEntity()]);
   }
 
   it('undo with an inapplicable inverse (delete of a missing ID) ⇒ history_invalid carrying the entry requestId; state and stacks untouched', () => {
     const sc = cameraScene(1);
-    const entity: Entity = {
+    const entity: EntityV3 = {
       id: 'box-0001',
       components: {
         transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
@@ -138,7 +139,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
       // Corruption: the inverse names an ID that is not in the scene.
       inverse: { kind: 'delete', rootId: 'ghost-0001' },
     };
-    const st: CommandState = { scene: sc, history: { entries: [entry], cursor: 1, seq: 2 } };
+    const st: CommandState = { scene: sc, content: v4Content(), history: { entries: [entry], cursor: 1, seq: 2 } };
     const snap = snapshot(st);
     const r = applyMutation(st, req('undo', {}, { expectedRevision: 1 }));
     if (r.ok) throw new Error('should have failed');
@@ -165,6 +166,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
     };
     const st: CommandState = {
       scene: cameraScene(1),
+      content: v4Content(),
       history: { entries: [entry], cursor: 1, seq: 2 },
     };
     const r = applyMutation(st, req('undo', {}, { expectedRevision: 1 }));
@@ -191,6 +193,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
     };
     const st: CommandState = {
       scene: cameraScene(1),
+      content: v4Content(),
       history: { entries: [entry], cursor: 1, seq: 2 },
     };
     const r = applyMutation(st, req('undo', {}, { expectedRevision: 1 }));
@@ -200,7 +203,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
 
   it('redo of a create whose ID already exists ⇒ history_invalid', () => {
     const sc = scene(1, [cameraEntity(), boxEntity('box-0001')]);
-    const entity = sc.entities.find((e) => e.id === 'box-0001') as Entity;
+    const entity = sc.entities.find((e) => e.id === 'box-0001') as EntityV3;
     const entry: HistoryEntry = {
       seq: 1,
       requestId: 'req-0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f',
@@ -210,7 +213,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
       change: { type: 'createEntity', id: 'box-0001', entity: { ...entity } },
       inverse: { kind: 'delete', rootId: 'box-0001' },
     };
-    const st: CommandState = { scene: sc, history: { entries: [entry], cursor: 0, seq: 2 } };
+    const st: CommandState = { scene: sc, content: v4Content(), history: { entries: [entry], cursor: 0, seq: 2 } };
     const r = applyMutation(st, req('redo', {}, { expectedRevision: 1 }));
     if (r.ok) throw new Error('should have failed');
     if (r.result.ok === false) expect(r.result.error.code).toBe('history_invalid');
@@ -219,7 +222,7 @@ describe('history_invalid — defensive failure (§9.4, unreachable via LIFO sta
 
 describe('origin transparency and revision bounds', () => {
   it('absent origin ⇒ originOfApplied is null (present key) in the undo result', () => {
-    const st0 = createCommandState(BASE);
+    const st0 = v4State(BASE);
     const c = applyMutation(st0, req('createEntity', { kind: 'box' }, { origin: null }));
     const u = applyMutation(ok(c).state, at(ok(c).state, 'undo', {}, { origin: null }));
     const s = ok(u).result;
@@ -229,8 +232,8 @@ describe('origin transparency and revision bounds', () => {
   });
 
   it('revision at 2^53-1 ⇒ revision_exhausted (defined for completeness)', () => {
-    const sc: Scene = scene(MAX_REVISION, [cameraEntity()]);
-    const st = createCommandState(sc);
+    const sc: SceneV4 = scene(MAX_REVISION, [cameraEntity()]);
+    const st = v4State(sc);
     const r = applyMutation(st, req('createEntity', { kind: 'box' }, { expectedRevision: MAX_REVISION }));
     if (r.ok) throw new Error('should have failed');
     const e = r.result.ok === false ? r.result.error : ({} as never);

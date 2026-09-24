@@ -1,26 +1,30 @@
 /**
- * Packet 46 — real SIGKILL durability for v3 state and the v2→v3 copy
- * (workspace.md §5.3/§16.5.3).
+ * Packet 46 — real SIGKILL durability for a storage v3 project's state after
+ * its in-place upgrade to storage v4 (workspace.md §5.3).
  *
  * The child runner (tests/crash/m3-storage-child.ts, esbuild-bundled) drives a
- * real v3 command or a real `migrateProjectCopyV3` and SIGKILLs itself from
- * inside a WriteOps seam at an exact boundary. The parent reopens (explicit
- * stale-owner takeover where needed) and asserts what is durable:
+ * real `setGameConfig` and SIGKILLs itself from inside a WriteOps seam at an
+ * exact boundary. The committed v3 fixture is seeded and opened once by the
+ * parent (upgraded in place to v4: project.json v2, content.json,
+ * scenes/scene-main.json); a game-config edit writes content.json alone. The
+ * parent reopens (explicit stale-owner takeover where needed) and asserts what
+ * is durable:
  *
- *   - crash before/after the v3 envelope replacement: old state + no record
+ *   - crash before/after the content.json replacement: old state + no record
  *     (fresh re-execution) or new state + record (durable replay);
- *   - crash after each copy marker phase (created/manifest/blobs/envelope) and
- *     before/after the destination envelope replacement: the resume path is
- *     idempotent and completes the destination byte-exactly;
  *   - a SIGKILLed owner is reported stale by the scan and reclaimed on the next access;
  *   - a lost ack is replayed, never double-applied.
+ *
+ * The v2→v3 copy-operator crash cases (`migrateProjectCopyV3`) were removed
+ * with the operator (phase 9.3 step B); the original suite is archived at
+ * archive/removed-v1-v2/tests/crash/m3-storage-crash.test.ts.
  *
  * Process-crash guarantees are proven here; power-loss durability is the
  * stronger property this suite cannot prove without a power-failure simulator.
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,13 +34,9 @@ import { openWorkspaceService, type WorkspaceService } from '@thirdlight/workspa
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
-const CONTRACTS = join(REPO_ROOT, 'fixtures', 'm3', 'contracts');
 const V3 = 'demo-0003';
-const SOURCE = 'demo-0002';
-const DEST = 'demo-0003';
 const REQUEST_ID = 'req-' + 'e'.repeat(32);
 const CREATED_AT = '2026-09-19T10:00:00Z';
-const COURIER_DIGEST = 'ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc';
 
 const ROOT_BASE = tmpdir() === '/tmp' ? '/home/dadmin' : tmpdir();
 const roots: string[] = [];
@@ -59,15 +59,23 @@ function seedV3(root: string): void {
   mkdirSync(join(dir, 'scenes'), { recursive: true });
   copyBytes(join(STORAGE, 'project-v3-demo-0003', 'project.json'), join(dir, 'project.json'));
   copyBytes(join(STORAGE, 'project-v3-demo-0003', 'scenes', 'main.json'), join(dir, 'scenes', 'main.json'));
+  // Open once: the v3 project is upgraded in place to storage v4; the graceful
+  // close releases the ownership so the child claims it at once.
+  const svc = open(root);
+  const q = svc.query({ op: 'queryProject', projectId: V3 }) as { ok: boolean; revision?: number };
+  if (!q.ok || q.revision !== 3) throw new Error('seed did not open as v4 at revision 3: ' + JSON.stringify(q));
+  svc.close();
 }
 
-function seedSource(root: string): void {
-  const dir = join(root, 'projects', SOURCE);
-  mkdirSync(join(dir, 'scenes'), { recursive: true });
-  mkdirSync(join(dir, 'sources', 'sha256'), { recursive: true });
-  copyBytes(join(STORAGE, 'project-v2-demo-0002', 'project.json'), join(dir, 'project.json'));
-  copyBytes(join(STORAGE, 'project-v2-demo-0002', 'scenes', 'main.json'), join(dir, 'scenes', 'main.json'));
-  copyBytes(join(CONTRACTS, 'source-preimages', 'courier.glb'), join(dir, 'sources', 'sha256', COURIER_DIGEST));
+const CONTENT_REL = 'content.json';
+type ContentFile = {
+  storageVersion: number;
+  revision: number;
+  retry: { records: { requestId: string }[] };
+  content: { game: { title: string } | null };
+};
+function contentFile(root: string): ContentFile {
+  return JSON.parse(readFileSync(join(root, 'projects', V3, CONTENT_REL), 'utf8')) as ContentFile;
 }
 
 type ChildExit = { code: number | null; signal: NodeJS.Signals | null; stdout: string };
@@ -76,7 +84,7 @@ function runChild(mode: string, root: string, backendId: string): Promise<ChildE
   return new Promise((resolve, reject) => {
     const c = spawn(
       process.execPath,
-      [childBundle, mode, root, V3, SOURCE, DEST, backendId],
+      [childBundle, mode, root, V3, backendId],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let out = '';
@@ -148,16 +156,20 @@ afterAll(() => {
   }
 });
 
-describe('packet 46 — real SIGKILL at the v3 envelope boundary (workspace.md §5.3)', () => {
-  it('SIGKILL before the rename: old v3 state, leftover temp cleaned on open, retry re-executes', async () => {
+describe('packet 46 — real SIGKILL at the content.json boundary of an upgraded v3 project (workspace.md §5.3)', () => {
+  it('SIGKILL before the rename: old state, leftover temp cleaned on open, retry re-executes', async () => {
     const root = makeRoot('v3-before');
     seedV3(root);
+    const before = readFileSync(join(root, 'projects', V3, CONTENT_REL));
     const ex = await runChild('v3-env-before', root, 'tb-' + '1'.repeat(32));
-    expect(ex.signal).toBe('SIGKILL');
-    const envPath = join(root, 'projects', V3, 'scenes', 'main.json');
-    const before = JSON.parse(readFileSync(envPath, 'utf8')) as { scene: { revision: number }; retry: { records: unknown[] } };
-    expect(before.scene.revision).toBe(3);
-    expect(before.retry.records.length).toBe(0);
+    expect(ex.signal, ex.stdout).toBe('SIGKILL');
+    // The old content.json is intact (no record) and the W temp is left behind.
+    expect(readFileSync(join(root, 'projects', V3, CONTENT_REL)).equals(before)).toBe(true);
+    const onDisk = contentFile(root);
+    expect(onDisk.revision).toBe(3);
+    expect(onDisk.retry.records.length).toBe(0);
+    const temps = (): string[] => readdirSync(join(root, 'projects', V3)).filter((n) => n.startsWith('.content.json.tmp-'));
+    expect(temps().length).toBeGreaterThanOrEqual(1);
 
     const svc = open(root);
     takeover(svc, V3);
@@ -165,8 +177,7 @@ describe('packet 46 — real SIGKILL at the v3 envelope boundary (workspace.md �
     expect(q.ok).toBe(true);
     expect(q.revision).toBe(3);
     // The open cleaned the leftover temp.
-    const leftovers = readFileSync(envPath).length > 0; // envelope intact
-    expect(leftovers).toBe(true);
+    expect(temps()).toEqual([]);
     // The same request re-executes fresh.
     const r = svc.runCommand(editRequest(3)) as { ok: boolean; revision?: number; duplicated?: boolean };
     expect(r.ok, JSON.stringify(r)).toBe(true);
@@ -179,19 +190,13 @@ describe('packet 46 — real SIGKILL at the v3 envelope boundary (workspace.md �
     const root = makeRoot('v3-after');
     seedV3(root);
     const ex = await runChild('v3-env-after', root, 'tb-' + '2'.repeat(32));
-    expect(ex.signal).toBe('SIGKILL');
-    const envPath = join(root, 'projects', V3, 'scenes', 'main.json');
-    const onDisk = JSON.parse(readFileSync(envPath, 'utf8')) as {
-      storageVersion: number;
-      scene: { revision: number };
-      retry: { records: { requestId: string }[] };
-      content: { game: { title: string } };
-    };
-    expect(onDisk.storageVersion).toBe(3);
-    expect(onDisk.scene.revision).toBe(4);
+    expect(ex.signal, ex.stdout).toBe('SIGKILL');
+    const onDisk = contentFile(root);
+    expect(onDisk.storageVersion).toBe(4);
+    expect(onDisk.revision).toBe(4);
     expect(onDisk.retry.records.length).toBe(1);
     expect(onDisk.retry.records[0]!.requestId).toBe(REQUEST_ID);
-    expect(onDisk.content.game.title).toBe('Crash edited');
+    expect(onDisk.content.game?.title).toBe('Crash edited');
 
     const svc = open(root);
     takeover(svc, V3);
@@ -210,7 +215,7 @@ describe('packet 46 — real SIGKILL at the v3 envelope boundary (workspace.md �
     const root = makeRoot('v3-stale');
     seedV3(root);
     const ex = await runChild('stale-owner', root, 'tb-' + '3'.repeat(32));
-    expect(ex.signal).toBe('SIGKILL');
+    expect(ex.signal, ex.stdout).toBe('SIGKILL');
 
     const svc = open(root);
     const entry = svc.scan().entries.find((e) => e.projectId === V3);
@@ -239,60 +244,4 @@ describe('packet 46 — real SIGKILL at the v3 envelope boundary (workspace.md �
     expect(r.revision).toBe(4);
     svc.dispose();
   });
-});
-
-describe('packet 46 — real SIGKILL at every copy boundary (workspace.md §16.5.3)', () => {
-  for (const mode of [
-    'mig-phase-created',
-    'mig-phase-manifest',
-    'mig-phase-blobs',
-    'mig-phase-envelope',
-    'mig-before-envelope',
-    'mig-after-envelope',
-  ]) {
-    it(`${mode}: resume completes the destination byte-exactly and removes the marker`, async () => {
-      const root = makeRoot(mode);
-      seedSource(root);
-      const ex = await runChild(mode, root, 'tb-' + '5'.repeat(32));
-      expect(ex.signal).toBe('SIGKILL');
-      const destDir = join(root, 'projects', DEST);
-      // The destination is never loadable before the resume (no authoritative
-      // envelope with a valid project state / a marker present).
-      const svc = open(root);
-      const scanEntry = svc.scan().entries.find((e) => e.projectId === DEST);
-      if (mode !== 'mig-phase-envelope' && mode !== 'mig-after-envelope') {
-        expect(scanEntry?.migration).toBe('resume_required');
-      }
-      const res = svc.migrateProjectCopyV3(SOURCE, DEST);
-      expect(res.ok, `${mode}: ${JSON.stringify(res)}`).toBe(true);
-      if (!res.ok) throw new Error(`${mode} resume failed: ${JSON.stringify(res)}`);
-      expect(res.resumed, mode).toBe(true);
-      expect(res.sourceVersion).toBe(2);
-      expect(res.newVersion).toBe(3);
-      // The destination envelope equals the committed expected fixture.
-      expect(
-        Buffer.compare(
-          readFileSync(join(destDir, 'scenes', 'main.json')),
-          readFileSync(join(CONTRACTS, 'migration', 'expected-v3-destination', 'envelope.json')),
-        ),
-        mode,
-      ).toBe(0);
-      expect(readFileSync(join(destDir, 'project.json')).equals(
-        readFileSync(join(CONTRACTS, 'migration', 'expected-v3-destination', 'project.json')),
-      )).toBe(true);
-      // The copied blob is correct, the marker is gone and the project loads.
-      expect(
-        Buffer.compare(
-          readFileSync(join(destDir, 'sources', 'sha256', COURIER_DIGEST)),
-          readFileSync(join(CONTRACTS, 'source-preimages', 'courier.glb')),
-        ),
-        mode,
-      ).toBe(0);
-      expect(() => readFileSync(join(destDir, '.thirdlight', 'migration.json'))).toThrow();
-      const q = svc.query({ op: 'queryProject', projectId: DEST }) as { ok: boolean; revision: number };
-      expect(q.ok, mode).toBe(true);
-      expect(q.revision, mode).toBe(0);
-      svc.dispose();
-    });
-  }
 });

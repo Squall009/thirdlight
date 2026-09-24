@@ -136,7 +136,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup (workspa
 
       // The public entry must not throw (pre-fix: RangeError from the
       // startup scan, every project unserved until the file is repaired).
-      const svc = openWorkspaceService({ root, storageV4: true });
+      const svc = openWorkspaceService({ root });
       try {
         // The scan report marks the corrupt project per the scan contract
         // (workspace.md §10: "corrupt manifest/envelope | reported with the
@@ -211,7 +211,7 @@ describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never t
       const manText = corruptManifestPath(root, 'corrupt-2');
 
       // The startup scan is guarded (reported, not abortive — §10).
-      const svc = openWorkspaceService({ root, storageV4: true });
+      const svc = openWorkspaceService({ root });
       try {
         const entry = svc.lastScan.entries.find((e) => e.projectId === 'corrupt-2');
         expect(entry?.kind).toBe('project');

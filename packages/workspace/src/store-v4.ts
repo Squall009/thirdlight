@@ -32,7 +32,9 @@ import {
   migrateProjectV3ToV4,
   parseDocumentBytes,
   serializeCanonical,
+  validateContentV3,
   validateProjectV4,
+  validateSceneV3,
   type ContentCatalogV3,
   type ContentCatalogV4,
   type Manifest,
@@ -453,6 +455,109 @@ export function snapshotForeignFile(thirdlightDir: string, bytes: Uint8Array, op
   return snapshotForeignBytes(thirdlightDir, bytes, ops, stamp);
 }
 
+// ---- a project's files from v3 values (the upgrade and new projects) ---------------
+
+/** The files of a whole project at the scene's revision, retry records empty. */
+export interface ProjectFilesV4 {
+  project: { manifest: ProjectManifestV2; content: ContentCatalogV4; scene: SceneV4 };
+  manifest: FileWrite;
+  scene: FileWrite;
+  content: FileWrite;
+  notes: string[];
+}
+
+/**
+ * The v4 files of a project given as v3 values (manifest v1, one v3 scene,
+ * the v3 content block): converted by the model (`migrateProjectV3ToV4`),
+ * validated and normalized by `validateProjectV4`. The automatic v3 → v4
+ * upgrade and project creation both build a project this one way, so a new
+ * project is byte for byte what the upgrade of the same v3 project gives.
+ */
+export function projectFilesFromV3(
+  projectId: string,
+  manifest: Manifest,
+  scene: SceneV3,
+  content: ContentCatalogV3,
+): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
+  const { project, notes } = migrateProjectV3ToV4(manifest, scene, content);
+  const v = validateProjectV4(project.manifest, project.content, project.scenes);
+  if (!v.ok) return { ok: false, message: v.errors[0]?.message ?? 'unknown' };
+  const sceneV4 = v.normalized.scenes[0] as SceneV4;
+  return {
+    ok: true,
+    files: {
+      project: { manifest: v.normalized.manifest, content: v.normalized.content, scene: sceneV4 },
+      manifest: { rel: MANIFEST_REL_V4, bytes: manifestV2Bytes(v.normalized.manifest) },
+      scene: { rel: sceneRel(sceneV4.sceneId), bytes: sceneFileBytes(projectId, sceneV4, []) },
+      content: { rel: CONTENT_REL, bytes: contentFileBytes(projectId, sceneV4.revision, v.normalized.content, []) },
+      notes,
+    },
+  };
+}
+
+/** The id of a new project's scene (its manifest v1 view names it too). */
+export const DEFAULT_SCENE_ID = 'scene-main';
+
+/**
+ * The files of a NEW project (revision 0): one scene "Main" holding the
+ * camera and the two starter lights (the runtime renders lit materials, so a
+ * scene without lights plays black; they are ordinary entities the user can
+ * edit) and an empty content catalog. Built as a v3 project and converted
+ * like the automatic upgrade (`projectFilesFromV3`), so it is exactly the
+ * project a new project was before new projects were written as v4 directly.
+ */
+export function defaultProjectFilesV4(
+  projectId: string,
+  name: string,
+  createdAt: string,
+  engineVersion: string,
+): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
+  const identity = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const scene = validateSceneV3({
+    schemaVersion: 3,
+    sceneId: DEFAULT_SCENE_ID,
+    revision: 0,
+    entities: [
+      {
+        id: 'cam-main',
+        name: 'Main Camera',
+        components: {
+          transform: { position: [0, 0.5, 4], ...identity },
+          camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 },
+        },
+      },
+      {
+        id: 'light-0001',
+        name: 'Sun',
+        components: {
+          transform: { position: [0, 10, 0], ...identity },
+          light: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true },
+        },
+      },
+      {
+        id: 'light-0002',
+        name: 'Ambient',
+        components: {
+          transform: { position: [0, 0, 0], ...identity },
+          light: { type: 'ambient', color: '#8090a8', intensity: 0.6 },
+        },
+      },
+    ],
+  });
+  if (!scene.ok) return { ok: false, message: `the default scene failed v3 validation: ${scene.errors[0]?.message ?? 'unknown'}` };
+  const content = validateContentV3({ assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null });
+  if (!content.ok) return { ok: false, message: `the empty content block failed v3 validation: ${content.errors[0]?.message ?? 'unknown'}` };
+  const manifest: Manifest = {
+    schemaVersion: 1,
+    engineVersion,
+    id: projectId,
+    name,
+    createdAt,
+    scenes: [{ id: DEFAULT_SCENE_ID, path: 'scenes/main.json' }],
+  };
+  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized);
+}
+
 // ---- migration v3 → v4 on disk -----------------------------------------------------
 
 /**
@@ -472,11 +577,12 @@ export function migrateDirV3ToV4(
   content: ContentCatalogV3,
   envelopeBytes: Uint8Array,
 ): { ok: true; notes: string[] } | { ok: false; error: LoadDetail } {
-  const { project, notes } = migrateProjectV3ToV4(manifest, scene, content);
-  const v = validateProjectV4(project.manifest, project.content, project.scenes);
-  if (!v.ok) {
-    return { ok: false, error: { code: 'envelope_invalid', path: '', message: `the automatic v3 → v4 upgrade does not validate: ${v.errors[0]?.message ?? 'unknown'}`, expected: 'a valid v4 project' } };
+  const built = projectFilesFromV3(projectId, manifest, scene, content);
+  if (!built.ok) {
+    return { ok: false, error: { code: 'envelope_invalid', path: '', message: `the automatic v3 → v4 upgrade does not validate: ${built.message}`, expected: 'a valid v4 project' } };
   }
+  const { files: pf } = built;
+  const notes = pf.notes;
   const backupDir = join(thirdlightDir, 'migrated-v3');
   try {
     if (!ops.dirExists(thirdlightDir)) return { ok: false, error: { code: 'envelope_invalid', path: '', message: 'the project has no .thirdlight directory', expected: '.thirdlight/' } };
@@ -486,13 +592,8 @@ export function migrateDirV3ToV4(
   }
   const copy = writeAtomic({ dir: backupDir, target: join(backupDir, 'main.json'), bytes: envelopeBytes, allowedPreHashes: [], previousHash: null, ops });
   if (copy.failed) return { ok: false, error: { code: 'envelope_invalid', path: '', message: 'could not keep a copy of the v3 envelope before upgrading', expected: 'a writable .thirdlight/' } };
-  const sceneV4 = v.normalized.scenes[0] as SceneV4;
-  const writes: FileWrite[] = [
-    { rel: CONTENT_REL, bytes: contentFileBytes(projectId, sceneV4.revision, v.normalized.content, []) },
-    { rel: sceneRel(sceneV4.sceneId), bytes: sceneFileBytes(projectId, sceneV4, []) },
-    { rel: MANIFEST_REL_V4, bytes: manifestV2Bytes(v.normalized.manifest) },
-  ];
-  if (sceneRel(sceneV4.sceneId) !== 'scenes/main.json') writes.push({ rel: 'scenes/main.json', bytes: null });
+  const writes: FileWrite[] = [pf.content, pf.scene, pf.manifest];
+  if (pf.scene.rel !== 'scenes/main.json') writes.push({ rel: 'scenes/main.json', bytes: null });
   const known = new Map<string, KnownFile>();
   for (const rel of [MANIFEST_REL_V4, 'scenes/main.json']) {
     try {

@@ -66,7 +66,7 @@ import {
   validatePhysicsTransform,
   validatePrefabProvenance,
   validateTransformV2,
-} from './scene-v2';
+} from './components';
 import type {
   BoxComponent,
   CameraComponent,

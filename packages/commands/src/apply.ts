@@ -16,7 +16,7 @@
  * (the envelope's `content` block as well as the scene) differs.
  */
 
-import type { ContentCatalog, Manifest } from '@thirdlight/project-model';
+import type { Manifest } from '@thirdlight/project-model';
 
 import {
   MAX_REVISION,
@@ -53,6 +53,7 @@ import { applySceneIndexOp } from './scene-ops';
 import type {
   ApplyOutcome,
   CommandState,
+  ContentDocument,
   ForwardOp,
   HistoryEntry,
   MutationFailure,
@@ -69,14 +70,14 @@ import {
 
 /**
  * Fresh per-project command state (empty history, §9.2: a restart starts
- * here). `content` is the envelope's M2 content block for a v2 project; it is
- * omitted for an M1 state (treated as the empty catalog). `manifest` is
- * supplied when the caller has one so v2 results get the three-block
- * `validateProjectV2` validation (project-model §13.1).
+ * here) over a v3 or v4 scene and its content block (an omitted block is
+ * treated as the empty v3 catalog). `manifest` is supplied when the caller
+ * has one so v3 results get the three-block `validateProjectV3` validation
+ * (project-model §13.2).
  */
 export function createCommandState<S extends SceneDocument>(
   scene: S,
-  content?: ContentCatalog,
+  content?: ContentDocument,
   manifest?: Manifest,
 ): CommandState<S> {
   const state: CommandState<S> = { scene, history: createHistory() };

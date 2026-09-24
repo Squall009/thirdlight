@@ -36,13 +36,10 @@ import {
 import type { ModelErrorV2, ModelResultV2, ModelResultV3 } from './errors';
 import type {
   AssetMetrics,
-  AssetRecord,
   AssetVersion,
   BehaviorRecord,
   ConvertedFrom,
-  BehaviorSourceRecord,
   BehaviorTrust,
-  ContentCatalog,
   DeclaredProperty,
   GameplaySettings,
   ImportRecipe,
@@ -56,7 +53,7 @@ import {
   PROPERTY_KEY_RE,
   validateBehaviorComponent,
   validateModelComponent,
-} from './scene-v2';
+} from './components';
 import type {
   AssetRecordV3,
   AssetVersionV3,
@@ -198,7 +195,6 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
   'KHR_texture_transform',
 ]);
 
-const KNOWN_CONTENT_FIELDS = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust']);
 /** §23.4: a v3 content block carries the five accepted keys plus `game`. */
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
 const GAME_FIELDS = ['configVersion', 'title', 'objective', 'instructions', 'playerId', 'cameraId', 'spawnId', 'level', 'killY', 'cues'] as const;
@@ -1460,34 +1456,10 @@ function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
   };
 }
 
-function canonicalVersion(v: AssetVersion): AssetVersion {
-  return {
-    version: v.version,
-    sourceDigest: v.sourceDigest,
-    sourceByteLength: v.sourceByteLength,
-    ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
-    ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
-    importRecipe: canonicalRecipe(v.importRecipe),
-    metrics: canonicalMetrics(v.metrics),
-    importedAt: v.importedAt,
-    publishedRevision: v.publishedRevision,
-  };
-}
-
-function canonicalAsset(a: AssetRecord): AssetRecord {
-  return {
-    assetId: a.assetId,
-    kind: a.kind,
-    displayName: a.displayName,
-    currentVersion: a.currentVersion,
-    versions: a.versions.map(canonicalVersion),
-  };
-}
-
 /**
  * §23.7: the kind-aware v3 version canonicalizer. The `audio` member keeps
  * `PcmWavMetrics`/`pcm-wav` (no `extensions` and no GLB metric fields); the
- * `model` member is the accepted M2 canonicalization above.
+ * `model` member keeps the accepted M2 field set.
  */
 function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV3 {
   const head = {
@@ -1637,114 +1609,6 @@ function canonicalTrust(t: BehaviorTrust): BehaviorTrust {
       acknowledgedRevision: e.acknowledgedRevision,
     })),
   };
-}
-
-/** §12.2 canonical content block (fixed key order, sorted arrays/keys). */
-export function canonicalContent(c: ContentCatalog): ContentCatalog {
-  return {
-    assets: sortedRecord(c.assets, (a) => a.assetId).map(canonicalAsset),
-    prefabs: sortedRecord(c.prefabs, (d) => d.prefabId).map(canonicalPrefab),
-    behaviors: sortedRecord(c.behaviors, (b) => b.behaviorId).map(canonicalBehavior),
-    settings: canonicalSettings(c.settings),
-    behaviorTrust: canonicalTrust(c.behaviorTrust),
-  };
-}
-
-// ---- public entry points ------------------------------------------------------
-
-function validateContentValue(doc: Record<string, unknown>): { errors: ModelErrorV2[]; doc?: ContentCatalog } {
-  const errors: ModelErrorV2[] = [];
-  for (const key of KNOWN_CONTENT_FIELDS) {
-    if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
-  }
-  for (const k of Object.keys(doc)) {
-    if (!KNOWN_CONTENT_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...KNOWN_CONTENT_FIELDS].join(', ')));
-  }
-
-  const assets = doc['assets'];
-  let versionRecords = 0;
-  if (assets !== undefined) {
-    if (!Array.isArray(assets)) errors.push(fieldType('/assets', assets, 'array'));
-    else {
-      if (assets.length > MAX_ASSETS) {
-        errors.push(limitsError('/assets', 'assets', assets.length, MAX_ASSETS, `the catalog may hold at most ${MAX_ASSETS} assets`));
-      }
-      const seen = new Set<string>();
-      for (let i = 0; i < assets.length; i++) {
-        versionRecords += validateAsset(assets[i], `/assets/${i}`, errors);
-        const a = assets[i];
-        if (isPlainObject(a) && typeof a['assetId'] === 'string') {
-          if (seen.has(a['assetId'])) {
-            errors.push(withFound({ code: 'id_duplicate', path: `/assets/${i}/assetId`, message: 'assetId is already used by an earlier record (first occurrence wins)', expected: 'a unique assetId' }, a['assetId']));
-          } else seen.add(a['assetId']);
-        }
-      }
-      if (versionRecords > MAX_VERSION_RECORDS) {
-        errors.push(limitsError('/assets', 'version_records', versionRecords, MAX_VERSION_RECORDS, `the catalog may hold at most ${MAX_VERSION_RECORDS} version records`));
-      }
-    }
-  }
-
-  const prefabs = doc['prefabs'];
-  if (prefabs !== undefined) {
-    if (!Array.isArray(prefabs)) errors.push(fieldType('/prefabs', prefabs, 'array'));
-    else {
-      if (prefabs.length > MAX_PREFABS) errors.push(limitsError('/prefabs', 'prefabs', prefabs.length, MAX_PREFABS, `the catalog may hold at most ${MAX_PREFABS} prefab definitions`));
-      const seen = new Set<string>();
-      for (let i = 0; i < prefabs.length; i++) {
-        validatePrefabDefinition(prefabs[i], `/prefabs/${i}`, errors);
-        const d = prefabs[i];
-        if (isPlainObject(d) && typeof d['prefabId'] === 'string') {
-          if (seen.has(d['prefabId'])) errors.push(withFound({ code: 'id_duplicate', path: `/prefabs/${i}/prefabId`, message: 'prefabId is already used (first occurrence wins)', expected: 'a unique prefabId' }, d['prefabId']));
-          else seen.add(d['prefabId']);
-        }
-        if (isPlainObject(d) && canonicalDocBytes(d) > MAX_PREFAB_BYTES) {
-          errors.push(limitsError(`/prefabs/${i}`, 'prefab_bytes', canonicalDocBytes(d), MAX_PREFAB_BYTES, 'canonical prefab definition exceeds the byte cap'));
-        }
-      }
-    }
-  }
-
-  const behaviors = doc['behaviors'];
-  if (behaviors !== undefined) {
-    if (!Array.isArray(behaviors)) errors.push(fieldType('/behaviors', behaviors, 'array'));
-    else {
-      if (behaviors.length > MAX_BEHAVIORS) errors.push(limitsError('/behaviors', 'behaviors', behaviors.length, MAX_BEHAVIORS, `the catalog may hold at most ${MAX_BEHAVIORS} behavior records`));
-      const seen = new Set<string>();
-      for (let i = 0; i < behaviors.length; i++) {
-        validateBehaviorRecord(behaviors[i], `/behaviors/${i}`, errors);
-        const b = behaviors[i];
-        if (isPlainObject(b) && typeof b['behaviorId'] === 'string') {
-          if (seen.has(b['behaviorId'])) errors.push(withFound({ code: 'id_duplicate', path: `/behaviors/${i}/behaviorId`, message: 'behaviorId is already used (first occurrence wins)', expected: 'a unique behaviorId' }, b['behaviorId']));
-          else seen.add(b['behaviorId']);
-        }
-      }
-    }
-  }
-
-  const settings = doc['settings'];
-  if (settings !== undefined) validateSettings(settings, '/settings', errors);
-
-  validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
-
-  if (errors.length > 0) return { errors };
-  const canonical = canonicalContent(doc as unknown as ContentCatalog);
-  if (canonicalDocBytes(canonical) > MAX_CONTENT_BYTES) {
-    return { errors: [limitsError('/content', 'content_bytes', canonicalDocBytes(canonical), MAX_CONTENT_BYTES, 'canonical content block exceeds the byte cap')] };
-  }
-  return { errors, doc: canonical };
-}
-
-export function validateContent(doc: unknown): ModelResultV2<ContentCatalog> {
-  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  const { errors, doc: canonical } = validateContentValue(doc);
-  if (errors.length > 0) return fail(errors);
-  return { ok: true, normalized: canonical as ContentCatalog };
-}
-
-/** §12.1: validate, then return the new canonical content block (§12.2). */
-export function normalizeContent(doc: unknown): ModelResultV2<ContentCatalog> {
-  return validateContent(doc);
 }
 
 // ---- content schemaVersion 3: `audio` kind and `content.game` (§23.4) ---------

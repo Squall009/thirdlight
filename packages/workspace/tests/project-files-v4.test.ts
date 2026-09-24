@@ -75,7 +75,7 @@ describe('v4 project files: strict load failures (fixtures/commands/envelope/inv
     for (const fx of invalid) {
       const root = makeRoot('v4-invalid');
       seedProject(root, join(FIXTURES, fx.dir), 'demo-0001');
-      const svc = openWorkspaceService({ root, storageV4: true });
+      const svc = openWorkspaceService({ root });
       const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean; error?: { code: string; reason?: string } };
       expect(q.ok, fx.dir).toBe(false);
       expect(q.error?.code, fx.dir).toBe('project_unavailable');

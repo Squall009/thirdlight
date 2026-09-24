@@ -15,7 +15,7 @@ import { REPO_ROOT, makeRoot, seedProject } from './helpers';
 
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const V3 = 'demo-0003';
-const V2 = 'demo-0002';
+const NEW = 'demo-0002';
 const CREATED_AT = '2026-09-19T10:00:00Z';
 
 function open(root: string): WorkspaceService {
@@ -69,12 +69,16 @@ describe('packet 48 repair — v3 queries through the real service', () => {
     svc.dispose();
   });
 
-  it('reads a v2 state as game: null (the v2 catalog has no game key)', () => {
-    const root = makeRoot('m3q-v2');
-    seedProject(root, join(STORAGE, 'project-v2-demo-0002'), V2);
+  it('reads a project without a game config as game: null', () => {
+    // Formerly a storage v2 project (no game key); v1/v2 projects are now
+    // refused (storage-version-refusal.test.ts). A new project's catalog
+    // carries `game: null`.
+    const root = makeRoot('m3q-nogame');
     const svc = open(root);
-    const q = svc.query({ op: 'queryGameConfig', projectId: V2 }) as { ok: boolean; game?: unknown };
+    expect(svc.createProject(NEW, 'No Game').ok).toBe(true);
+    const q = svc.query({ op: 'queryGameConfig', projectId: NEW }) as { ok: boolean; revision?: number; game?: unknown };
     expect(q.ok, JSON.stringify(q)).toBe(true);
+    expect(q.revision).toBe(0);
     expect(q.game).toBeNull();
     svc.dispose();
   });
@@ -85,16 +89,18 @@ describe('packet 48 repair — v3 queries through the real service', () => {
     const svc = open(root);
     const all = svc.query({ op: 'queryEntities', projectId: V3 }) as { ok: boolean; total?: number };
     expect(all.ok).toBe(true);
-    expect(all.total).toBe(9);
+    // 9 v3 entities + the hazard zone the v4 upgrade makes of the v3 killY.
+    expect(all.total).toBe(10);
     // C35-5 / CC-48-3: the queryProject scene summary carries the scene
-    // document's schemaVersion (3 for this v3 fixture), not the manifest's 1.
+    // document's schemaVersion, not the manifest's (the v3 fixture is upgraded
+    // to storage v4 on open: scene schemaVersion 4, manifest schemaVersion 2).
     const proj = svc.query({ op: 'queryProject', projectId: V3 }) as {
       ok: boolean;
       scene?: { schemaVersion?: number };
       manifest?: { schemaVersion?: number };
     };
-    expect(proj.scene?.schemaVersion).toBe(3);
-    expect(proj.manifest?.schemaVersion).toBe(1);
+    expect(proj.scene?.schemaVersion).toBe(4);
+    expect(proj.manifest?.schemaVersion).toBe(2);
 
     const zones = svc.query({ op: 'queryEntities', projectId: V3, args: { component: 'gameZone' } }) as {
       ok: boolean;
@@ -102,8 +108,10 @@ describe('packet 48 repair — v3 queries through the real service', () => {
       entities?: { id: string }[];
     };
     expect(zones.ok, JSON.stringify(zones)).toBe(true);
-    expect(zones.total).toBe(2);
-    expect(zones.entities?.map((e) => e.id)).toEqual(['zone-0001', 'zone-0003']);
+    // The two v3 zones plus the upgrade's "Fall zone" hazard (appended last).
+    expect(zones.total).toBe(3);
+    expect(zones.entities?.map((e) => e.id)).toEqual(['zone-0001', 'zone-0003', 'zone-0002']);
+    expect((zones.entities as unknown as { name?: string }[] | undefined)?.[2]?.name).toBe('Fall zone');
 
     // The filter composes with paging (total counts the filtered set).
     const page = svc.query({
@@ -112,7 +120,7 @@ describe('packet 48 repair — v3 queries through the real service', () => {
       args: { component: 'gameZone', offset: 1, limit: 1 },
     }) as { ok: boolean; total?: number; entities?: { id: string }[] };
     expect(page.ok).toBe(true);
-    expect(page.total).toBe(2);
+    expect(page.total).toBe(3);
     expect(page.entities?.map((e) => e.id)).toEqual(['zone-0003']);
 
     const bad = svc.query({ op: 'queryEntities', projectId: V3, args: { component: 'notAComponent' } }) as {

@@ -20,6 +20,8 @@ import { WebSocket } from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+import { upgradeSeededEnvelopeToV3 } from '../../storage-seed';
+
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const STORAGE_FIXTURE = join(REPO_ROOT, 'fixtures', 'm2', 'storage');
 const ROOT_BASE = tmpdir() === '/tmp' ? '/home/dadmin' : tmpdir();
@@ -48,7 +50,13 @@ export interface DisposableRoot {
   projectDir: string;
 }
 
-/** A disposable root with the static bundles and (optionally) the seeded v2 project. */
+/**
+ * A disposable root with the static bundles and (optionally) the seeded
+ * project. The committed M2 storage fixture is storage v2, which the
+ * workspace refuses since phase 9.3 step B; the seeded copy is converted to
+ * the equivalent storage v3 envelope (tests/storage-seed.ts), which the
+ * backend upgrades in place to storage v4 when it first opens the project.
+ */
 export function makeRoot(tag: string, seed = true): DisposableRoot {
   const root = mkdtempSync(join(ROOT_BASE, `.tl25-${tag}-${process.pid}-`));
   const dataRoot = join(root, 'data');
@@ -66,6 +74,7 @@ export function makeRoot(tag: string, seed = true): DisposableRoot {
     for (const blob of ['alpha.bin', 'beta.bin']) {
       cpSync(join(STORAGE_FIXTURE, 'blobs', blob), join(projectDir, 'sources', 'sha256', sha256HexFile(join(STORAGE_FIXTURE, 'blobs', blob))));
     }
+    upgradeSeededEnvelopeToV3(projectDir);
   }
   return { root, dataRoot, editorDir, previewDir, projectDir: join(dataRoot, 'projects', CONTENT_PROJECT) };
 }
@@ -84,7 +93,7 @@ export function fixtureFile(rel: string): Uint8Array {
   return new Uint8Array(readFileSync(join(REPO_ROOT, 'fixtures', 'm2', rel)));
 }
 
-/** Seed a second v2 project (distinct id) from the storage fixture. */
+/** Seed a second project (distinct id) from the storage fixture (converted to v3, upgraded to v4 on open). */
 export function seedSecondProject(root: DisposableRoot, projectId: string): void {
   const dst = join(root.dataRoot, 'projects', projectId);
   cpSync(join(STORAGE_FIXTURE, 'project'), dst, { recursive: true });
@@ -104,6 +113,7 @@ export function seedSecondProject(root: DisposableRoot, projectId: string): void
   for (const blob of ['alpha.bin', 'beta.bin']) {
     cpSync(join(STORAGE_FIXTURE, 'blobs', blob), join(dst, 'sources', 'sha256', sha256HexFile(join(STORAGE_FIXTURE, 'blobs', blob))));
   }
+  upgradeSeededEnvelopeToV3(dst);
 }
 
 let childBundle: string | null = null;

@@ -6,17 +6,14 @@
  * Fixture files are read through the Vite `import.meta.glob` `?raw`
  * transform (eager, raw text) because this package's boundary rules forbid
  * Node builtin imports in package sources (dependencies.md §4.1/§5 check
- * 1; the only exempted test import is vitest). Every fixture file under
- * `fixtures/project-model/` is valid UTF-8 (packet 01 verification), so
- * `TextEncoder` round-trips the text to the exact file bytes; the raw
- * text is what the strict byte parser is designed to consume.
+ * 1; the only exempted test import is vitest). Every fixture file read here
+ * is valid UTF-8, so `TextEncoder` round-trips the text to the exact file
+ * bytes; the raw text is what the strict byte parser is designed to consume.
+ *
+ * Phase 9.3: the M1 interchange corpus (`fixtures/project-model/`) was
+ * archived with the v1 scene model; its cases are inline v3 documents now
+ * (test-docs-v3.ts).
  */
-
-const RAW = import.meta.glob('../../../fixtures/project-model/**', {
-  eager: true,
-  query: '?raw',
-  import: 'default',
-}) as Record<string, string>;
 
 const RAW_M2_MODEL = import.meta.glob('../../../fixtures/m2/model/**', {
   eager: true,
@@ -30,7 +27,6 @@ const RAW_M3_CONTRACTS = import.meta.glob('../../../fixtures/m3/contracts/**/*.j
   import: 'default',
 }) as Record<string, string>;
 
-const PREFIX = '../../../fixtures/project-model/';
 const PREFIX_M2_MODEL = '../../../fixtures/m2/model/';
 const PREFIX_M3_CONTRACTS = '../../../fixtures/m3/contracts/';
 
@@ -46,12 +42,10 @@ function readGlob(glob: Record<string, string>, prefix: string, rel: string, lab
   return v;
 }
 
-/** Raw UTF-8 text of `fixtures/project-model/<rel>`. */
-export function fixtureText(rel: string): string {
-  return readGlob(RAW, PREFIX, rel, 'project-model');
-}
-
-/**\n * Raw UTF-8 text of `fixtures/m2/model/<rel>` (packet 20 M2 model fixtures).\n */
+/**
+ * Raw UTF-8 text of `fixtures/m2/model/<rel>` (the packet-20 fixtures, run
+ * through the v3 validators by m2-rules-v3.test.ts).
+ */
 export function m2ModelFixtureText(rel: string): string {
   return readGlob(RAW_M2_MODEL, PREFIX_M2_MODEL, rel, 'm2/model');
 }
@@ -59,11 +53,6 @@ export function m2ModelFixtureText(rel: string): string {
 /** Exact bytes of `fixtures/m2/model/<rel>`. */
 export function m2ModelFixtureBytes(rel: string): Uint8Array {
   return new TextEncoder().encode(m2ModelFixtureText(rel));
-}
-
-/** Exact bytes of `fixtures/project-model/<rel>` (UTF-8, BOM-free fixtures). */
-export function fixtureBytes(rel: string): Uint8Array {
-  return new TextEncoder().encode(fixtureText(rel));
 }
 
 /** Constant-time-free plain byte equality (no Buffer dependency). */

@@ -162,7 +162,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
 
     // Restart: the child's pid is gone from /proc, so the new backend
     // reclaims the project automatically.
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(q.ok).toBe(true);
 
@@ -207,7 +207,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(diskNow.retry.records.map((x) => x.requestId)).toContain(requestId);
     const frozen = readFileSync(envPath);
 
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(q.ok).toBe(true);
 
@@ -246,7 +246,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     await waitForLine(holderState, '"holding":true', 15000);
     expect(holder.pid).toBeGreaterThan(0);
 
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0001' }) as {
       ok: boolean;
       error?: { code: string; reason?: string; holder?: { backendId: string; pid: number; state: string } };

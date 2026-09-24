@@ -1,16 +1,15 @@
 /**
  * @thirdlight/project-model — public surface (dependencies.md §3;
- * project-model.md §12.1): types, parse*, validate*, normalize*, migrate*,
- * serializeCanonical, ERROR_CODES, KNOWN_VERSIONS, plus the packet-20 M2
- * versioned entry points (v2 scene, content, three-block composition,
- * captured content, settings resolution and the pure M1→M2 conversion).
+ * project-model.md §12.1): types, parse*, validate*, normalize*,
+ * serializeCanonical, ERROR_CODES, KNOWN_VERSIONS.
  *
- * The M1 schemaVersion 1 model (docs/contracts/project-model.md §7–§10) is
- * unchanged: strict byte parsing with duplicate-key rejection, total value
- * validation, normalization to the §12.2 canonical form, canonical byte
- * serialization, and the M1 migration entry points. The M2 logical types and
- * validators (§§18–22) are explicitly versioned so existing consumers keep
- * their M1 entry points.
+ * Only storage v4 projects load (`validateProjectV4`); a v3 project is read
+ * (`validateEnvelopeV3`/`validateProjectV3`) and upgraded on open
+ * (`migrateProjectV3ToV4`). The v1/v2 (M1/M2) scene models were removed in
+ * phase 9.3; their component rules live on in `components.ts`. Strict byte
+ * parsing with duplicate-key rejection, total value validation,
+ * normalization to the §12.2 canonical form and canonical byte
+ * serialization are unchanged.
  *
  * Pure data and logic: no I/O, no three.js, no Node built-ins — the leaf
  * unit of the node-side graph (dependencies.md §4.1). All entry points are
@@ -20,7 +19,6 @@
 
 export {
   ERROR_CODES,
-  INTERCHANGE_SCENE_VERSIONS,
   KNOWN_VERSIONS,
   SCHEMA_VERSIONS_BY_DOCUMENT,
   type EnvelopeV3Error,
@@ -40,11 +38,8 @@ export type {
   BoxComponent,
   BoxMaterial,
   CameraComponent,
-  Entity,
-  EntityComponents,
   Manifest,
   Quat,
-  Scene,
   SceneRef,
   TransformComponent,
   Vec3,
@@ -69,7 +64,6 @@ export type {
   ControllerComponent,
   DeclaredProperty,
   EntityComponentsV2,
-  EntityV2,
   GameplaySettings,
   ImportRecipe,
   ModelAssetRef,
@@ -82,33 +76,15 @@ export type {
   PropertyDeclaration,
   PropertyType,
   PropertyValue,
-  SceneV2,
   SettingsMap,
   SettingsValue,
   TrustEntry,
 } from './types-v2';
 
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
-export {
-  parseEnvelopeV3,
-  parseManifest,
-  parseScene,
-  parseSceneV2,
-  parseSceneV3,
-} from './parse-api';
+export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
-export {
-  validateManifest,
-  validateProject,
-  validateScene,
-  normalizeManifest,
-  normalizeScene,
-} from './validate';
-
-export {
-  normalizeSceneV2,
-  validateSceneV2,
-} from './scene-v2';
+export { validateManifest, normalizeManifest } from './validate';
 
 export {
   M2_SETTINGS_KEYS,
@@ -116,10 +92,8 @@ export {
   MAX_CONVERTED_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,
   isValidSourcePath,
-  normalizeContent,
   normalizeContentV3,
   resolveGameplaySettings,
-  validateContent,
   validateContentV3,
   validateGameConfig,
   validateTagRegistry,
@@ -190,7 +164,6 @@ export {
   type EffectiveEntityFlags,
 } from './hierarchy-v3';
 export {
-  migrateSceneV3,
   normalizeEnvelopeV3,
   validateEnvelopeV3,
   validateProjectV3,
@@ -198,7 +171,6 @@ export {
 } from './project-v3';
 
 export { captureContent, collectAssetRefsV3 } from './capture';
-export { validateProjectV2 } from './project-v2';
 
 // Packet 36: the pure runtime-content manifest capture (sessions.md §17.1.1)
 // plus the canonical/digest helpers the export closure needs. Additive public
@@ -271,8 +243,6 @@ export {
 } from './manifest-v2';
 
 export { serializeCanonical } from './normalize';
-
-export { migrateManifest, migrateScene, migrateSceneV1ToV2 } from './migrate';
 
 // The engine module registry + the declared-dependency resolver (D17).
 export {

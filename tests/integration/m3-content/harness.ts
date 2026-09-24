@@ -1,15 +1,21 @@
 /**
  * Packet 48 integration harness — a disposable data root holding the committed
- * v3 project (`fixtures/m3/storage/project-v3-demo-0003`) and the committed v2
- * project (`fixtures/m3/storage/project-v2-demo-0002`, the §16.5 migration
- * source), a REAL backend process (esbuild-bundled child, real fs + real
- * HTTP/WS), and a REAL `@modelcontextprotocol/sdk` client over a real stdio
- * transport against the out-of-process MCP server.
+ * v3 project (`fixtures/m3/storage/project-v3-demo-0003`) and a second project
+ * seeded from the committed v2 project (`fixtures/m3/storage/project-v2-demo-0002`),
+ * a REAL backend process (esbuild-bundled child, real fs + real HTTP/WS), and a
+ * REAL `@modelcontextprotocol/sdk` client over a real stdio transport against
+ * the out-of-process MCP server.
+ *
+ * Storage (phase 9.3 step B): the workspace opens only storage v4, upgrades a
+ * v3 project in place on open and refuses v1/v2. Both seeded projects open as
+ * v4: demo-0003 is v3 as committed; demo-0002's seeded copy is converted to
+ * the equivalent v3 envelope (tests/storage-seed.ts). The committed fixtures
+ * are never modified.
  *
  * Nothing is mocked where the packet requires integration: upload, staging,
- * inspection (model + audio + role-aware), blob publication, the v2→v3 copy,
- * the §20 relays and the envelope writes all run on the real filesystem in the
- * child. Bytes are read from the committed `fixtures/m3/media/**` files.
+ * inspection (model + audio + role-aware), blob publication, the §20 relays
+ * and the project writes all run on the real filesystem in the child. Bytes
+ * are read from the committed `fixtures/m3/media/**` files.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -22,6 +28,8 @@ import { build } from 'esbuild';
 import { WebSocket } from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+import { upgradeSeededEnvelopeToV3 } from '../../storage-seed';
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const V3_FIXTURE = join(REPO_ROOT, 'fixtures', 'm3', 'storage', 'project-v3-demo-0003');
@@ -78,9 +86,9 @@ export function makeRoot(tag: string): DisposableRoot {
   cpSync(V2_FIXTURE, v2Dir, { recursive: true });
   mkdirSync(join(v3Dir, 'sources', 'sha256'), { recursive: true });
   mkdirSync(join(v2Dir, 'sources', 'sha256'), { recursive: true });
-  // The v2 source references one immutable blob; the §16.5.3 precondition
-  // requires every referenced blob to be present and matching.
+  // The second project references one immutable blob (present and matching).
   cpSync(V2_BLOB_SOURCE, join(v2Dir, 'sources', 'sha256', V2_BLOB_DIGEST));
+  upgradeSeededEnvelopeToV3(v2Dir);
   return { root, dataRoot, editorDir, previewDir, v3Dir, v2Dir };
 }
 

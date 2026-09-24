@@ -130,9 +130,6 @@ export function createBackend(
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
     behaviorCompiler,
-    // Phase 12 (c): projects are one file per scene (storage v4); a v3
-    // project is upgraded when it is opened.
-    storageV4: true,
   });
   const sessions = new SessionRegistry();
   const tokenScopes = new Map<string, string>();

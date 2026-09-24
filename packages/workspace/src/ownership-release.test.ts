@@ -76,6 +76,19 @@
  *             mutation (after the from-disk re-verification) applies.
  */
 
+/*
+ * Ported to storage v4 (phase 9.3 step B): the project's scene file is
+ * `scenes/scene-main.json` (a createEntity's retry record lives there; the
+ * release clears it). Where v4's release/resolution outcomes differ from
+ * the legacy single-envelope path, the ported case asserts what v4 does
+ * and says so inline (T1: the record W's external outcome is reported
+ * write_failed{previous}, not ownership_conflict; T4(b): new-undurable on
+ * the records-cleared rewrite does not stop the release; T4(c): discard
+ * reports success on new-undurable). The legacy cases are archived in
+ * archive/removed-v1-v2/workspace/ownership-release.test.ts; the
+ * differences are listed in the phase 9.3 report.
+ */
+
 import {
   mkdtempSync,
   readFileSync,
@@ -152,7 +165,7 @@ const recPath = (root: string): string =>
 const claimPath = (root: string, e: number): string =>
   join(root, 'projects', PROJECT, '.thirdlight', `claim-${e}`);
 const scenePath = (root: string): string =>
-  join(root, 'projects', PROJECT, 'scenes', 'main.json');
+  join(root, 'projects', PROJECT, 'scenes', 'scene-main.json');
 const thirdlightDir = (root: string): string =>
   join(root, 'projects', PROJECT, '.thirdlight');
 const scenesDir = (root: string): string =>
@@ -364,12 +377,16 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
     const rel = svcA.releaseWorkspace(PROJECT) as RelOut;
     faults.foreignReplace = undefined;
 
-    // The release reports the foreign-ownership refusal carrying the
-    // holder (§11: ownership_conflict carries the holder) — NOT success.
+    // The release reports failure — NOT success. v4 (session.ts
+    // releaseProject) maps the record W's `external` outcome to
+    // write_failed { onDiskState: "previous" } and flags the session for
+    // the from-disk re-verification (the legacy path answered
+    // ownership_conflict carrying the foreign holder; see the phase 9.3
+    // report).
     expect(rel.ok).toBe(false);
     if (rel.ok) throw new Error('unreachable');
-    expect(rel.error?.code).toBe('ownership_conflict');
-    expect(rel.error?.holder?.backendId).toBe(B_ID);
+    expect(rel.error?.code).toBe('write_failed');
+    expect(rel.error?.onDiskState).toBe('previous');
 
     // The record on disk is the foreign one (B owns it — live test pid).
     const rec = readRec(root);
@@ -378,15 +395,18 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
 
     // R4: the releasing session is a NON-WRITER: its next mutation is
     // refused (the fresh open re-evaluates from disk ⇒ the foreign live
-    // owner ⇒ ownership_conflict) and it has written NO scene bytes —
-    // the envelope is still the release's records-cleared rewrite
-    // (revision 0, retry records cleared by step (a), which ran while A
-    // was still the writer).
+    // owner ⇒ ownership_conflict, carrying the holder) and it has written
+    // NO scene bytes — the scene file is still revision 0 with no retry
+    // records (a new project has none, so the release's records-clearing
+    // step wrote nothing).
+    const sceneBefore = readEnvelope(root).bytes;
     const m = svcA.runCommand(mutation(reqId('e2-t1-m'), 0)) as MutOut;
     expect(m.ok).toBe(false);
     if (m.ok) throw new Error('unreachable');
     expect(m.error?.code).toBe('project_unavailable');
     expect(m.error?.reason).toBe('ownership_conflict');
+    expect((m.error as { holder?: { backendId: string } }).holder?.backendId).toBe(B_ID);
+    expect(bytesEqual(readEnvelope(root).bytes, sceneBefore)).toBe(true);
     const env = readEnvelope(root);
     expect(env.revision).toBe(0);
     expect(env.records).toHaveLength(0);
@@ -674,7 +694,7 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     svcA.dispose();
   }, 30000);
 
-  it('T4(b) release: new-undurable on the records-cleared rewrite ⇒ the retry records are cleared from MEMORY too (a lost-ack retry re-executes ⇒ revision_conflict, never duplicated:true from the stale map); a subsequent mutation is not misdetected as foreign', () => {
+  it('T4(b) release: a dir-flush fault on the records-cleared rewrite ⇒ the retry records are cleared from MEMORY too (a lost-ack retry re-executes ⇒ revision_conflict, never duplicated:true from the stale map); a subsequent mutation is not misdetected as foreign', () => {
     const root = makeRoot('t4b');
     const faults: Faults = {};
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
@@ -683,67 +703,52 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     const m1 = svcA.runCommand(mutation(r1, 0)) as MutOut;
     expect(m1.ok).toBe(true);
     expect(m1.revision).toBe(1);
+    expect(readEnvelope(root).records).toHaveLength(1); // m1's record is in the scene file
 
-    // The release's step-(a) W (records-cleared envelope, same revision)
-    // lands and its directory flush fails (scenes-dir fault) ⇒
-    // new-undurable. The release does NOT reach the record write: the
-    // project stays owned and the claim file stays (no partial release,
-    // workspace.md §9) — but the in-memory state advances (§5.1).
+    // The release's records-cleared rewrite of the scene file lands and its
+    // directory flush fails on every attempt (scenes-dir fault) ⇒ the W's
+    // new-undurable outcome. v4 (session-v4.ts clearRecordsV4) publishes
+    // the cleared state and continues with the ownership record write, so
+    // the release completes and reports success (the legacy path reported
+    // write_failed { new-undurable } and left the project owned; see the
+    // phase 9.3 report).
     faults.dirFsyncThrow = (dir: string) => dir === scenesDir(root);
     const rel = svcA.releaseWorkspace(PROJECT) as RelOut;
     faults.dirFsyncThrow = undefined;
 
-    expect(rel.ok).toBe(false);
-    if (rel.ok) throw new Error('unreachable');
-    expect(rel.error?.code).toBe('write_failed');
-    expect(rel.error?.onDiskState).toBe('new-undurable');
-    // No partial release: the record is unchanged (owned by A) and the
-    // claim file is A's token still.
-    expect(readRec(root)?.state).toBe('owned');
+    expect(rel).toEqual({ ok: true, revision: 1, retryCleared: true });
+    expect(readRec(root)?.state).toBe('released');
     expect(readRec(root)?.backendId).toBe(A_ID);
-    expect(readStamp(root, 0)?.backendId).toBe(A_ID);
-    // Disk: the records-cleared envelope (the R5 repro "disk retry list
-    // is empty").
+    expect(fileExists(claimPath(root, 0))).toBe(false); // §9 step 1
+    // Disk: the records-cleared scene file (the rename landed).
     const envDisk = readEnvelope(root);
     expect(envDisk.revision).toBe(1);
     expect(envDisk.records).toHaveLength(0);
 
     // R5: retrying the original request (the same requestId + content,
-    // the lost-ack retry) must NOT replay from the stale in-memory map
-    // (pre-fix: duplicated:true at revision 1). The record is cleared
-    // from memory (== disk): the retry re-executes fresh and fails
-    // revision_conflict (its expectedRevision 0 is stale) — which is
-    // safe (workspace.md §9: a lost-ack retry of a pre-release command
-    // "will instead fail revision_conflict if stale, which is safe").
+    // the lost-ack retry) must NOT replay from a stale map: the command
+    // is the on-demand re-open of the released project (re-claim at
+    // epoch 1, the disk state), the record is gone, the retry re-executes
+    // fresh and fails revision_conflict (its expectedRevision 0 is stale)
+    // — which is safe (workspace.md §9).
     const retry = svcA.runCommand(mutation(r1, 0)) as MutOut;
     expect(retry.ok).toBe(false);
     if (retry.ok) throw new Error('unreachable');
     expect(retry.duplicated ?? false).toBe(false);
     expect(retry.error?.code).toBe('revision_conflict');
+    expect(readRec(root)?.state).toBe('owned');
+    expect(readRec(root)?.lockEpoch).toBe(1);
 
-    // A subsequent write is NOT treated as a foreign edit of the
-    // backend's own rewritten envelope (pre-fix: the stale
-    // lastWrittenHash misdetected it ⇒ external_change_unresolved).
+    // A subsequent write is NOT treated as a foreign edit of the backend's
+    // own rewritten scene file.
     const m2 = svcA.runCommand(mutation(reqId('e2-t4b-m2'), 1)) as MutOut;
     expect(m2.ok).toBe(true);
     expect(m2.revision).toBe(2);
 
-    // The retried release now completes (the pre-check passes against the
-    // new LKG; the record write + own-claim-file unlink run).
-    const rel2 = svcA.releaseWorkspace(PROJECT) as RelOut;
-    expect(rel2.ok).toBe(true);
-    if (!rel2.ok) throw new Error('unreachable');
-    expect(rel2.revision).toBe(2);
-    expect(rel2.retryCleared).toBe(true);
-    expect(readRec(root)?.state).toBe('released');
-    expect(fileExists(claimPath(root, 0))).toBe(false); // §9 step 1
-
     // Restart behavior (the R5 acceptance): a fresh service on the same
-    // root loads the on-disk state (the released record is re-claimed at
-    // epoch 1 — workspace.md §9.3; the record's identity is unchanged):
-    // the retry records are cleared on disk, so the lost-ack retry of the
-    // original request re-executes fresh ⇒ revision_conflict, never a
-    // replay (at-most-once, §5.5 G1.2).
+    // root loads the on-disk state; the lost-ack retry of the original
+    // request still re-executes fresh ⇒ revision_conflict, never a replay
+    // (at-most-once, §5.5 G1.2).
     svcA.dispose();
     const svcA2 = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
     const retryRestarted = svcA2.runCommand(mutation(r1, 0)) as MutOut;
@@ -751,19 +756,13 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     if (retryRestarted.ok) throw new Error('unreachable');
     expect(retryRestarted.duplicated ?? false).toBe(false);
     expect(retryRestarted.error?.code).toBe('revision_conflict');
-    // The on-demand open re-claimed the released record at epoch 1
-    // (workspace.md §9.3; the record's identity is unchanged).
-    expect(readRec(root)?.state).toBe('owned');
-    expect(readRec(root)?.backendId).toBe(A_ID);
-    expect(readRec(root)?.lockEpoch).toBe(1);
-    // The restarted backend serves the on-disk state and writes normally.
     const m3 = svcA2.runCommand(mutation(reqId('e2-t4b-m3'), 2)) as MutOut;
     expect(m3.ok).toBe(true);
     expect(m3.revision).toBe(3);
     svcA2.dispose();
   }, 30000);
 
-  it('T4(c) discard: new-undurable on the LKG re-write ⇒ the pending change is resolved (unpaused; the LKG is the running state) while the result is write_failed{new-undurable}', () => {
+  it('T4(c) discard: new-undurable on the LKG re-write ⇒ the pending change is resolved (unpaused; the LKG is the running state)', () => {
     const root = makeRoot('t4c');
     const faults: Faults = {};
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
@@ -789,10 +788,11 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     };
     faults.dirFsyncThrow = undefined;
 
-    expect(dis.ok).toBe(false);
-    if (dis.ok) throw new Error('unreachable');
-    expect(dis.error?.code).toBe('write_failed');
-    expect(dis.error?.onDiskState).toBe('new-undurable');
+    // v4 (session-v4.ts discardExternalV4) reconciles memory and reports
+    // SUCCESS on the W's new-undurable outcome (the legacy path, and v4's
+    // own accept — T4(a) — report write_failed { new-undurable }, §5.1;
+    // see the phase 9.3 report).
+    expect(dis).toEqual({ ok: true, revision: 1, historyReset: true });
 
     // Disk: the LKG bytes exactly (revision 1 with m1's record).
     expect(bytesEqual(readEnvelope(root).bytes, lkgBytes)).toBe(true);

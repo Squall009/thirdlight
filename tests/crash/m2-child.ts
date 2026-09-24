@@ -6,13 +6,17 @@
  *   blob-before    stage + publishBlob, SIGKILL before the blob rename
  *   blob-after     stage + publishBlob, SIGKILL after the blob rename (before
  *                  the directory flush completes / the ack)
- *   env-before     v2 setTransform, SIGKILL before the envelope rename
- *   env-after      v2 setTransform, SIGKILL after the envelope rename
+ *   env-before     setTransform, SIGKILL before the v4 scene-file rename
+ *                  (scenes/scene-main.json)
+ *   env-after      setTransform, SIGKILL after the scene-file rename (the
+ *                  scenes directory flush)
  *   publish-before blob published, then publishAsset, SIGKILL before the
- *                  envelope rename (the unreferenced-blob crash point)
+ *                  content.json rename (the unreferenced-blob crash point)
  *   publish-after  blob published, then publishAsset, SIGKILL after the
- *                  envelope rename (before the ack; the durable-reference
- *                  crash point)
+ *                  content.json rename (the project directory flush, before
+ *                  the ack; the durable-reference crash point)
+ *
+ * The project is storage v4 (the parent upgrades the seeded copy first).
  *
  * Every mode SIGKILLs itself from inside a WriteOps seam, so the process dies
  * with no cleanup, no flushes and no ack. Nothing is printed on the crash
@@ -88,17 +92,24 @@ function main(): void {
   }
   const digest = createHash('sha256').update(FRESH_BYTES).digest('hex');
   const blobAbs = directPath(root, projectId, `sources/sha256/${digest}`);
-  const envelopeAbs = directPath(root, projectId, 'scenes/main.json');
+  const sceneAbs = directPath(root, projectId, 'scenes/scene-main.json');
+  const contentAbs = directPath(root, projectId, 'content.json');
+  const projectDirAbs = `${root}/projects/${projectId}`;
 
   let svc: WorkspaceService;
   if (mode === 'blob-before') {
     svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(blobAbs) });
   } else if (mode === 'blob-after') {
     svc = openWorkspaceService({ root, backendId, ops: killAfterDirFlush((d) => d.includes('sources') && d.endsWith('sha256')) });
-  } else if (mode === 'env-before' || mode === 'publish-before') {
-    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(envelopeAbs) });
-  } else if (mode === 'env-after' || mode === 'publish-after') {
+  } else if (mode === 'env-before') {
+    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(sceneAbs) });
+  } else if (mode === 'publish-before') {
+    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(contentAbs) });
+  } else if (mode === 'env-after') {
     svc = openWorkspaceService({ root, backendId, ops: killAfterDirFlush((d) => d.endsWith('scenes')) });
+  } else if (mode === 'publish-after') {
+    // content.json lives in the project directory itself: its W flushes that directory.
+    svc = openWorkspaceService({ root, backendId, ops: killAfterDirFlush((d) => d.replace(/\/+$/, '') === projectDirAbs) });
   } else {
     console.error('unknown mode');
     process.exit(2);
@@ -126,6 +137,7 @@ function main(): void {
       origin: { kind: 'mcp', clientId: 'pi' },
       args: {
         mode: 'create',
+        kind: 'model',
         assetId: 'asset-00000000000000ee',
         displayName: 'Crash',
         sourceDigest: digest,
@@ -140,7 +152,7 @@ function main(): void {
     process.exit(0);
   }
 
-  // env-before / env-after: a plain v2 scene mutation (envelope replacement).
+  // env-before / env-after: a plain scene mutation (the scene file's replacement).
   const r = svc.runCommand({
     op: 'setTransform',
     projectId,

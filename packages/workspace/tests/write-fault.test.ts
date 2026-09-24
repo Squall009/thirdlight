@@ -50,7 +50,7 @@ function persistentFault(faultAt: keyof WriteOps, errno: string): WriteOps {
   return out as unknown as WriteOps;
 }
 
-const SHARED = { storageV4: true, backendId: 'tb-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', pid: 7000 };
+const SHARED = { backendId: 'tb-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', pid: 7000 };
 
 /** Open the project with a healthy service (claim), returning the dir.
  * The faulted service re-opens with the SAME identity (own record — a

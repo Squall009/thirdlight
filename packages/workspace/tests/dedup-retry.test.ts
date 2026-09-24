@@ -34,7 +34,7 @@ describe('durable retry records', () => {
     // the success ack is "lost" (the service is disposed without the
     // client ever seeing it).
     const procRoot = buildFakeProc(root, { 6000: 'dead' });
-    const a = openWorkspaceService({ root, storageV4: true, backendId: 'tb-cccccccccccccccccccccccccccccccc', pid: 6000, procRoot });
+    const a = openWorkspaceService({ root, backendId: 'tb-cccccccccccccccccccccccccccccccc', pid: 6000, procRoot });
     const request = {
       op: 'setTransform',
       projectId: 'demo-0001',
@@ -53,7 +53,7 @@ describe('durable retry records', () => {
     // Backend B (a DIFFERENT identity, like a real restart) starts on the
     // same root. A's record is stale (pid 6000 absent), so
     // B reclaims it automatically, then the retry.
-    const b = openWorkspaceService({ root, storageV4: true, backendId: 'tb-dddddddddddddddddddddddddddddddd', pid: 6001, procRoot });
+    const b = openWorkspaceService({ root, backendId: 'tb-dddddddddddddddddddddddddddddddd', pid: 6001, procRoot });
     const reopened = b.query({ op: 'queryProject', projectId: 'demo-0001' }) as { ok: boolean };
     expect(reopened.ok).toBe(true);
     // The retry (byte-identical request) is answered from the durable
@@ -77,7 +77,7 @@ describe('durable retry records', () => {
   it('evicts to 128 records; an evicted retry fails revision_conflict (never double-apply)', () => {
     const root = makeRoot('dedup-evict');
     const dir = seedRev5(root);
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const envelopePath = join(dir, SCENE_FILE);
     // 130 fresh mutations (records 6..135): retention evicts the oldest.
     const firstRequestId = req(8000);
@@ -124,7 +124,7 @@ describe('durable retry records', () => {
   it('failed commands are never recorded (commands.md §7.1)', () => {
     const root = makeRoot('dedup-failed');
     const dir = seedRev5(root);
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const envelopePath = join(dir, SCENE_FILE);
     const before = readFileSync(envelopePath);
     const res = svc.runCommand({

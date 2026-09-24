@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
 import { PrefabProjection } from './prefab-projection';
 import { Projection } from './projection';
-import type { Entity } from '@thirdlight/project-model';
+import type { EntityV3 as Entity } from '@thirdlight/project-model';
 
 const DECLARATION: PropertyDeclaration = {
   properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 3.5, min: -1000, max: 1000, step: 0.25 }],

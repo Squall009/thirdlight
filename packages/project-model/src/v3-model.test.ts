@@ -7,9 +7,11 @@
  * recorded expectations in `fixtures/m3/contracts/index.json` (code / path /
  * reason), plus the committed canonical bytes and SHA-256 digests.
  *
- * Also proves the pure v2→v3 migration identity policy, the non-destructive
- * refusal paths and the canonical `serializeCanonical` roundtrip
- * (parse→normalize→serialize is idempotent and digest-stable).
+ * Also proves the non-destructive refusal paths and the canonical
+ * `serializeCanonical` roundtrip (parse→normalize→serialize is idempotent and
+ * digest-stable). Phase 9.3 removed the v2→v3 scene conversion
+ * (`migrateSceneV3`); its cases are archived under
+ * archive/removed-v1-v2/project-model/v3-model.migrate-scene-v3.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,7 +20,6 @@ import {
   GAME_ZONE_ROLES,
   SURFACE_PRESETS,
   captureContent,
-  migrateSceneV3,
   normalizeContentV3,
   normalizeEnvelopeV3,
   normalizeSceneV3,
@@ -193,53 +194,36 @@ describe('packet 44 — catalog fixture through the real v3 content validator', 
   }
 });
 
-describe('packet 44 — migration fixtures: pure v2→v3 scene conversion', () => {
+describe('packet 44 — migration fixtures: the expected v3 destination loads', () => {
+  // The v2→v3 scene conversion (`migrateSceneV3`) was removed in phase 9.3
+  // (its cases are archived in archive/removed-v1-v2/project-model/); the
+  // committed v3 destination is still a valid storage-v3 project.
   const srcEnvelope = JSON.parse(m3ContractFixtureText('migration/v2-source/envelope.json')) as Record<string, unknown>;
   const dstEnvelope = JSON.parse(m3ContractFixtureText('migration/expected-v3-destination/envelope.json')) as Record<string, unknown>;
   const dstProject = JSON.parse(m3ContractFixtureText('migration/expected-v3-destination/project.json')) as unknown;
 
-  it('migrateSceneV3 carries every entity verbatim and sets schemaVersion 3', () => {
-    const srcScene = srcEnvelope['scene'] as Record<string, unknown>;
+  it('the destination scene, content and project validate as v3; the v2 source scene is refused', () => {
     const dstScene = dstEnvelope['scene'] as Record<string, unknown>;
-    const before = JSON.stringify(srcScene);
-    const migrated = migrateSceneV3(srcScene);
-    expect(migrated.ok).toBe(true);
-    if (!migrated.ok) return;
-    expect(migrated.normalized.schemaVersion).toBe(3);
-    expect(migrated.normalized.sceneId).toBe(srcScene['sceneId']);
-    // §23.11: entity values/order/IDs verbatim — the destination entity array
-    // is byte-identical to the pure conversion result.
-    expect(migrated.normalized.entities).toEqual(dstScene['entities']);
-    expect(JSON.stringify(migrated.normalized.entities)).toBe(JSON.stringify(dstScene['entities']));
-    // §23.11 is a scene-level operator: it does not reset the revision. The
-    // destination revision 0 is the workspace copy operator's reset
-    // (workspace.md §16.5, packet 46).
-    expect(srcScene['revision']).toBe(6);
     expect(dstScene['revision']).toBe(0);
-    expect(migrated.normalized.revision).toBe(6);
-    // The caller's input is never mutated (non-destructive).
-    expect(JSON.stringify(srcScene)).toBe(before);
-    // The expected destination scene is accepted verbatim by the v3 validator.
     expect(validateSceneV3(dstScene).ok).toBe(true);
     expect(validateContentV3(dstEnvelope['content']).ok).toBe(true);
-    // CC-44-4 resolved by the bounded contract repair
-    // (docs/handoffs/repair-cc44-3-4.md): `workspace.md` §16.5.2 now resets the
-    // derived revision metadata on copy (`publishedRevision`,
-    // `source.publishedRevision`, `behaviorTrust[].acknowledgedRevision` → 0),
-    // so the committed destination is loadable as a whole and satisfies the
-    // accepted §18.9.2 rule 4 (`publishedRevision <= scene.revision`).
     const projectResult = validateProjectV3(dstProject, dstScene, dstEnvelope['content']);
     expect(projectResult.ok, JSON.stringify(projectResult)).toBe(true);
     const asset = (dstEnvelope['content'] as { assets: { versions: { publishedRevision: number }[] }[] }).assets[0];
     expect(asset?.versions[0]?.publishedRevision).toBe(0);
+    // The v2 source scene is no longer loadable (known scene versions [3, 4]).
+    const srcScene = srcEnvelope['scene'] as Record<string, unknown>;
+    expect(srcScene['schemaVersion']).toBe(2);
+    const refused = validateSceneV3(srcScene);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.errors.map((e) => e.code)).toEqual(['schema_version_unsupported']);
   });
 
-  it('migrateSceneV3 is identity on a v3 scene and canonical/digest stable', () => {
-    const dstScene = dstEnvelope['scene'] as unknown;
-    const first = migrateSceneV3(dstScene);
+  it('the destination scene is canonical/digest stable under normalizeSceneV3', () => {
+    const first = normalizeSceneV3(dstEnvelope['scene']);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    const second = migrateSceneV3(first.normalized);
+    const second = normalizeSceneV3(first.normalized);
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.normalized).toEqual(first.normalized);
@@ -252,18 +236,6 @@ describe('packet 44 — migration fixtures: pure v2→v3 scene conversion', () =
     }
   });
 
-  it('refuses a v1 source non-destructively with no_migration_path', () => {
-    const v1 = { schemaVersion: 1, sceneId: 'scene-main', revision: 0, entities: [] };
-    const before = JSON.stringify(v1);
-    const refused = migrateSceneV3(v1);
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) {
-      expect(refused.errors[0]!.code).toBe('no_migration_path');
-      expect(refused.errors[0]!.path).toBe('/schemaVersion');
-    }
-    expect(JSON.stringify(v1)).toBe(before);
-  });
-
   it('reads the interrupted-copy case (workspace-owned resume/suppression)', () => {
     const marker = JSON.parse(m3ContractFixtureText('migration/interrupted-copy/marker.json')) as Record<string, unknown>;
     const copyCase = JSON.parse(m3ContractFixtureText('migration/interrupted-copy/case.json')) as Record<string, unknown>;
@@ -271,9 +243,6 @@ describe('packet 44 — migration fixtures: pure v2→v3 scene conversion', () =
     expect(marker['newVersion']).toBe(3);
     expect(marker['type']).toBe('migration-copy');
     const expectBlock = copyCase['expect'] as Record<string, unknown>;
-    // `migration_resume_required`, marker phases and default-envelope
-    // suppression are the workspace copy operator's (workspace.md §16.5/§16.6,
-    // packet 46); the model layer contributes only migrateSceneV3.
     expect(expectBlock['startupScan']).toBe('migration_resume_required');
     expect(expectBlock['defaultEnvelopeSuppressed']).toBe(true);
     expect(migrationFiles.length).toBe(6);
@@ -332,9 +301,19 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
   });
 
   it('unknown scene versions are refused with schema_version_unsupported', () => {
-    const res = validateSceneV3({ schemaVersion: 4, sceneId: 'scene-main', revision: 0, entities: [] });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.errors[0]!.code).toBe('schema_version_unsupported');
+    // Known scene versions are [3, 4]: 1/2 (the removed M1/M2 scenes) and 5 are unknown.
+    for (const sv of [1, 2, 5]) {
+      const res = validateSceneV3({ schemaVersion: sv, sceneId: 'scene-main', revision: 0, entities: [] });
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.errors.map((e) => e.code)).toEqual(['schema_version_unsupported']);
+        expect(res.errors[0]!.knownVersions).toEqual([3, 4]);
+      }
+    }
+    // A known v4 scene is not a v3 scene: one field_value at /schemaVersion.
+    const v4 = validateSceneV3({ schemaVersion: 4, sceneId: 'scene-main', revision: 0, entities: [] });
+    expect(v4.ok).toBe(false);
+    if (!v4.ok) expect(v4.errors.map((e) => [e.code, e.path])).toEqual([['field_value', '/schemaVersion']]);
   });
 
   it('parseSceneV3 rejects non-UTF-8 bytes (pass-1 strictness preserved)', () => {

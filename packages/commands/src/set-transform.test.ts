@@ -7,19 +7,18 @@
 
 import { describe, expect, it } from 'vitest';
 import { serializeCanonical } from '@thirdlight/project-model';
-import type { Entity, Scene, TransformComponent } from '@thirdlight/project-model';
+import type { EntityV3, SceneV4, TransformComponent } from '@thirdlight/project-model';
 
 import {
   applyMutation,
-  createCommandState,
   type CommandState,
   type MutationSuccess,
   type SetTransformChange,
 } from './index';
-import { boxEntity, cameraEntity, req, scene, snapshot, at } from './test-scene';
+import { boxEntity, cameraEntity, req, scene, snapshot, at, v4State } from './test-scene';
 import { bytesEqual } from './test-fixtures';
 
-const BASE: Scene = scene(
+const BASE: SceneV4 = scene(
   0,
   [
     cameraEntity(),
@@ -27,7 +26,7 @@ const BASE: Scene = scene(
   ],
 );
 
-function sceneBytes(s: Scene): Uint8Array {
+function sceneBytes(s: unknown): Uint8Array {
   const r = serializeCanonical(s);
   if (!r.ok) throw new Error('canonical serialization failed');
   return r.bytes;
@@ -41,7 +40,7 @@ function ok(r: ReturnType<typeof applyMutation>): MutationSuccess {
 describe('setTransform — replacement semantics (§8.2)', () => {
   it('replaces the whole provided field; absent fields are unchanged', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', {
         entityId: 'box-0001',
         transform: { position: [0.5, 0, 0] },
@@ -66,14 +65,14 @@ describe('setTransform — replacement semantics (§8.2)', () => {
     expect(s.history).toEqual({ undoDepth: 1, redoDepth: 0 });
     // The stored scene carries the replacement.
     const st = r.ok ? r.state : (null as never);
-    const ent = st.scene.entities.find((e) => e.id === 'box-0001') as Entity;
+    const ent = st.scene.entities.find((e) => e.id === 'box-0001') as EntityV3;
     expect(ent.components.transform.position).toEqual([0.5, 0, 0]);
     expect(ent.components.transform.rotation).toEqual([0.7, 0, 0, 0.714142842854285]);
   });
 
   it('changedFields lists replaced fields in canonical order (position, rotation, scale) regardless of request order', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', {
         entityId: 'box-0001',
         transform: {
@@ -88,7 +87,7 @@ describe('setTransform — replacement semantics (§8.2)', () => {
 
   it('all three fields ⇒ all three in changedFields', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', {
         entityId: 'box-0001',
         transform: { position: [1, 1, 1], rotation: [0, 0, 0, 1], scale: [3, 3, 3] },
@@ -101,7 +100,7 @@ describe('setTransform — replacement semantics (§8.2)', () => {
   it('quaternion values are preserved exactly (never renormalized at the command layer)', () => {
     const q: TransformComponent['rotation'] = [0.7071067811865476, 0, 0, 0.7071067811865476];
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', { entityId: 'box-0001', transform: { rotation: q } }),
     );
     const ch = ok(r).change as SetTransformChange;
@@ -110,7 +109,7 @@ describe('setTransform — replacement semantics (§8.2)', () => {
 
   it('quaternion within the 1e-4 norm tolerance is accepted', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', { entityId: 'box-0001', transform: { rotation: [0.99999, 0, 0, 0] } }),
     );
     expect(r.ok).toBe(true);
@@ -119,7 +118,7 @@ describe('setTransform — replacement semantics (§8.2)', () => {
 
 describe('setTransform — no_change (§6.5)', () => {
   it('setting the current values ⇒ no_change (pinned payload), no revision, no record', () => {
-    const st = createCommandState(BASE);
+    const st = v4State(BASE);
     const before = sceneBytes(st.scene);
     const beforeHistory = JSON.stringify(st.history);
     const r = applyMutation(
@@ -138,8 +137,8 @@ describe('setTransform — no_change (§6.5)', () => {
       error: {
         code: 'no_change',
         cls: 'validation',
-        message: 'request would not change the scene',
-        hint: 'the scene already matches the requested values; nothing was recorded',
+        // v4: the whole-state check (scene and content bytes), no hint.
+        message: 'the resulting scene and content are byte-identical to the current state',
       },
     });
     expect(bytesEqual(sceneBytes(st.scene), before)).toBe(true);
@@ -150,7 +149,7 @@ describe('setTransform — no_change (§6.5)', () => {
   it('negative zero is normalized by canonical serialization ⇒ no_change', () => {
     // box-0001 sits at [0, 0, 0]; setting position to [-0, 0, 0] produces
     // the same canonical bytes (the model normalizes -0 to 0) ⇒ no_change.
-    const st = createCommandState(scene(0, [cameraEntity(), boxEntity('box-0001')]));
+    const st = v4State(scene(0, [cameraEntity(), boxEntity('box-0001')]));
     const before = sceneBytes(st.scene);
     const r = applyMutation(
       st,
@@ -164,7 +163,7 @@ describe('setTransform — no_change (§6.5)', () => {
 
 describe('setTransform — failures leave inputs unchanged', () => {
   it('result-scene quaternion failure ⇒ structured details; scene bytes and history untouched', () => {
-    const st = createCommandState(BASE);
+    const st = v4State(BASE);
     const before = sceneBytes(st.scene);
     const beforeHistory = JSON.stringify(st.history);
     const r = applyMutation(
@@ -183,7 +182,7 @@ describe('setTransform — failures leave inputs unchanged', () => {
   });
 
   it('nonexistent entity ⇒ entity_not_found (pinned shape); input unmutated', () => {
-    const st = createCommandState(BASE);
+    const st = v4State(BASE);
     const snap = snapshot(st);
     const requestId = 'req-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
     const r = applyMutation(
@@ -209,7 +208,7 @@ describe('setTransform — failures leave inputs unchanged', () => {
 
   it('empty transform object ⇒ field_value (pinned in §3.1)', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', { entityId: 'box-0001', transform: {} }),
     );
     if (r.ok) throw new Error('should have failed');
@@ -223,7 +222,7 @@ describe('setTransform — failures leave inputs unchanged', () => {
 describe('setTransform — the resulting scene re-validation is the uniform pipeline', () => {
   it('out-of-range position ⇒ number_out_of_range detail at the entity path', () => {
     const r = applyMutation(
-      createCommandState(BASE),
+      v4State(BASE),
       req('setTransform', { entityId: 'box-0001', transform: { position: [2000000, 0, 0] } }),
     );
     if (r.ok) throw new Error('should have failed');
@@ -233,7 +232,7 @@ describe('setTransform — the resulting scene re-validation is the uniform pipe
   });
 
   it('a successful edit followed by undo restores the exact pre-edit bytes (inverse value)', () => {
-    const st0 = createCommandState(BASE);
+    const st0 = v4State(BASE);
     const r1 = applyMutation(
       st0,
       req('setTransform', { entityId: 'box-0001', transform: { position: [9, 9, 9] } }),

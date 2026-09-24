@@ -2,9 +2,9 @@
  * Captured immutable content view — project-model.md §19.
  *
  * `captureContent(scene, content, { projectId, revision })` is the single pure
- * derivation of the view (sessions.md §17.1; workspace.md §16.6 item 4). It
- * accepts the accepted v2 scene/content pair and the v3 pair: the v3 closure
- * adds `components.modelAnimation` references (pinning the binding's recorded
+ * derivation of the view (sessions.md §17.1; workspace.md §16.6 item 4) over
+ * a v3 scene/content pair (the v2 pair was removed in phase 9.3): the v3
+ * closure adds `components.modelAnimation` references (pinning the binding's recorded
  * version explicitly) and the non-null `content.game` cue / checkpoint
  * `activation.cueAssetId` references; the view shape and `contentVersion` stay
  * unchanged (§19.1/§16.6).
@@ -15,20 +15,12 @@
 
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { fail, fieldValue, isPlainObject, withFound } from './validate';
-import { ID_RE_V2, validateSceneV2 } from './scene-v2';
-import { validateContent, validateContentV3 } from './content';
+import { ID_RE_V2 } from './components';
+import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
 import { flowAssetRefs, type GameFlow } from './flow';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
-import type {
-  CapturedAsset,
-  CapturedContent,
-  ContentCatalog,
-  EntityV2,
-  ImportRecipe,
-  PropertyValue,
-  SceneV2,
-} from './types-v2';
+import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
 
 function tag(errors: readonly ModelErrorV2[], document: 'scene' | 'content'): ModelErrorV2[] {
@@ -60,7 +52,7 @@ function view(
   return { ...withoutDigest, contentDigest: digest };
 }
 
-// ---- v2 closure (§19.2 steps 1–2, accepted) ---------------------------------
+// ---- closure helpers (§19.2 steps 1–2) ----------------------------------------
 
 function declaredAssetRefKeys(content: ContentCatalog): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
@@ -68,26 +60,6 @@ function declaredAssetRefKeys(content: ContentCatalog): Map<string, Set<string>>
     out.set(b.behaviorId, new Set(b.declaration.properties.filter((p) => p.type === 'assetRef').map((p) => p.key)));
   }
   return out;
-}
-
-function collectAssetRefsV2(scene: SceneV2, content: ContentCatalog): Set<string> {
-  const refs = new Set<string>();
-  const declared = declaredAssetRefKeys(content);
-  const addBehavior = (behaviorId: string, values: Record<string, PropertyValue>): void => {
-    const keys = declared.get(behaviorId);
-    if (!keys) return;
-    for (const k of keys) {
-      const v = values[k];
-      if (typeof v === 'string') refs.add(v);
-    }
-  };
-  const addEntity = (e: EntityV2): void => {
-    if (e.components.model) refs.add(e.components.model.asset.assetId);
-    if (e.components.behavior) addBehavior(e.components.behavior.behaviorId, e.components.behavior.values);
-  };
-  for (const e of scene.entities) addEntity(e);
-  for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as EntityV2);
-  return refs;
 }
 
 // ---- v3 closure (§19.2 step 1 v3 additions; workspace.md §16.6 item 4) -------
@@ -176,53 +148,20 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
 
 /**
  * §19.2 `captureContent(scene, content, { projectId, revision })`: the pure
- * captured immutable content view for a v2 or v3 pair.
+ * captured immutable content view for a v3 pair.
  */
 export function captureContent(
   scene: unknown,
   content: unknown,
   ctx: { projectId: string; revision: number },
 ): ModelResultV2<CapturedContent> {
-  const sceneObj = isPlainObject(scene) ? scene : null;
-  const isV3 = sceneObj !== null && sceneObj['schemaVersion'] === 3;
   const ctxErrors = checkCtx(ctx);
   if (ctxErrors.length > 0) return fail(ctxErrors);
-
-  if (isV3) {
-    const s = validateSceneV3(scene);
-    if (!s.ok) return fail(tag(s.errors, 'scene'));
-    const c = validateContentV3(content);
-    if (!c.ok) return fail(tag(c.errors, 'content'));
-    return captureV3(s.normalized as SceneV3, c.normalized as ContentCatalogV3, ctx);
-  }
-
-  const s = validateSceneV2(scene);
+  const s = validateSceneV3(scene);
   if (!s.ok) return fail(tag(s.errors, 'scene'));
-  const c = validateContent(content);
+  const c = validateContentV3(content);
   if (!c.ok) return fail(tag(c.errors, 'content'));
-  const cc = c.normalized as ContentCatalog;
-  const byId = new Map(cc.assets.map((a) => [a.assetId, a]));
-  const errors: ModelErrorV2[] = [];
-  const assets: CapturedAsset[] = [];
-  for (const assetId of [...collectAssetRefsV2(s.normalized as SceneV2, cc)].sort()) {
-    const record = byId.get(assetId);
-    if (!record) {
-      errors.push(
-        withFound({ code: 'asset_reference_missing', path: '', document: 'scene', message: 'a captured scene reference resolves to no catalog record', expected: 'an existing assetId in content.assets' }, assetId),
-      );
-      continue;
-    }
-    const version = record.versions.find((v) => v.version === record.currentVersion) ?? record.versions[record.versions.length - 1]!;
-    assets.push({
-      assetId,
-      version: version.version,
-      sourceDigest: version.sourceDigest,
-      sourceByteLength: version.sourceByteLength,
-      importRecipe: version.importRecipe,
-    });
-  }
-  if (errors.length > 0) return fail(errors);
-  return { ok: true, normalized: view(assets, ctx) };
+  return captureV3(s.normalized as SceneV3, c.normalized as ContentCatalogV3, ctx);
 }
 
 function captureV3(

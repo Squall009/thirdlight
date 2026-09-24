@@ -2,39 +2,25 @@
  * Packet 46 — committed storage fixtures executed end to end.
  *
  * Runs the committed fixture checker (positive + corruption control) as a real
- * process, then drives the real workspace service over the committed on-disk
- * states: the v3 project loads and writes, and `migrateProjectCopyV3` on the
- * committed v2 source produces the contracts `expected-v3-destination` bytes
- * while the source tree stays byte-identical.
+ * process, then drives the real workspace service over the committed v3
+ * project: it opens (upgraded in place to storage v4), writes and replays a
+ * lost ack.
+ *
+ * The `migrateProjectCopyV3` case (v2 source → contracts destination) was
+ * removed with the operator (phase 9.3 step B); the original suite is archived
+ * at archive/removed-v1-v2/tests/integration/m3-storage/.
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openWorkspaceService } from '@thirdlight/workspace';
 
-import { REPO_ROOT, fileBytes, makeRoot, seedProject, sha256Hex } from '../../../packages/workspace/tests/helpers';
+import { REPO_ROOT, makeRoot, seedProject } from '../../../packages/workspace/tests/helpers';
 
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
-const CONTRACTS = join(REPO_ROOT, 'fixtures', 'm3', 'contracts');
-const COURIER = 'ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc';
 const CREATED_AT = '2026-09-19T10:00:00Z';
-
-function hashTree(dir: string): string {
-  const walk = (d: string): string[] => {
-    const out: string[] = [];
-    for (const n of readdirSync(d).sort()) {
-      const p = join(d, n);
-      if (statSync(p).isDirectory()) out.push(...walk(p));
-      else out.push(p);
-    }
-    return out;
-  };
-  return walk(dir)
-    .map((p) => `${p.slice(dir.length + 1)}:${sha256Hex(fileBytes(p))}`)
-    .join('\n');
-}
 
 describe('packet 46 — committed storage fixtures', () => {
   it('the fixture checker passes and its corruption control detects every corruption', () => {
@@ -53,6 +39,9 @@ describe('packet 46 — committed storage fixtures', () => {
     const svc = openWorkspaceService({ root, utcNow: () => CREATED_AT });
     const q = svc.query({ op: 'queryProject', projectId: 'demo-0003' }) as { ok: boolean; revision: number };
     expect(q.ok).toBe(true);
+    // The open upgraded the v3 project in place to storage v4.
+    const content = JSON.parse(readFileSync(join(root, 'projects', 'demo-0003', 'content.json'), 'utf8')) as { storageVersion: number };
+    expect(content.storageVersion).toBe(4);
     const r = svc.runCommand({
       op: 'setGameConfig',
       projectId: 'demo-0003',
@@ -72,38 +61,6 @@ describe('packet 46 — committed storage fixtures', () => {
     }) as { ok: boolean; duplicated?: boolean };
     expect(replay.ok).toBe(true);
     expect(replay.duplicated).toBe(true);
-    svc.dispose();
-  });
-
-  it('migrates the committed v2 source to the contracts destination, source byte-identical', () => {
-    const root = makeRoot('m3int-mig');
-    const sourceDir = seedProject(root, join(STORAGE, 'project-v2-demo-0002'), 'demo-0002');
-    mkdirSync(join(sourceDir, 'sources', 'sha256'), { recursive: true });
-    writeFileSync(
-      join(sourceDir, 'sources', 'sha256', COURIER),
-      fileBytes(join(CONTRACTS, 'source-preimages', 'courier.glb')),
-    );
-    const before = hashTree(sourceDir);
-    const svc = openWorkspaceService({ root, utcNow: () => CREATED_AT });
-    const res = svc.migrateProjectCopyV3('demo-0002', 'demo-0003');
-    expect(res.ok, JSON.stringify(res)).toBe(true);
-    if (!res.ok) return;
-    expect(res.blobsCopied).toBe(1);
-    expect(res.sourceVersion).toBe(2);
-    expect(res.newVersion).toBe(3);
-    const destDir = join(root, 'projects', 'demo-0003');
-    expect(
-      Buffer.compare(
-        readFileSync(join(destDir, 'scenes', 'main.json')),
-        readFileSync(join(CONTRACTS, 'migration', 'expected-v3-destination', 'envelope.json')),
-      ),
-    ).toBe(0);
-    expect(hashTree(sourceDir)).toBe(before);
-    // A refused second migration also leaves the source byte-identical.
-    const again = svc.migrateProjectCopyV3('demo-0002', 'demo-0003');
-    expect(again.ok).toBe(false);
-    if (!again.ok) expect(again.error.code).toBe('migration_destination_exists');
-    expect(hashTree(sourceDir)).toBe(before);
     svc.dispose();
   });
 });

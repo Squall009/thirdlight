@@ -7,9 +7,9 @@
  * `property_declaration_incompatible`, `reference_missing`,
  * `asset_reference_missing`) with the carried fields packet 16's fixtures pin.
  * The model remains the authority for the *document* rules: every candidate
- * content block is still re-validated by `validateContent`/`validateProjectV2`
- * after application, so these checks are the op-level front door, not a second
- * validator.
+ * content block is still re-validated by the v3/v4 content and project
+ * validators after application, so these checks are the op-level front
+ * door, not a second validator.
  *
  * Property shape (project-model §20.5): seven types, canonical field order
  * `key, label, type, default, min, max, step, maxLength, values, bounds`.

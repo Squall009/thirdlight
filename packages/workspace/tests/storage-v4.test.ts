@@ -26,7 +26,7 @@ const PROJECT_ID = 'demo-0003';
 const SELF = { backendId: 'tb-' + 'c'.repeat(32), pid: 6300 };
 
 function open(root: string): WorkspaceService {
-  return openWorkspaceService({ root, utcNow: () => '2026-09-23T10:00:00Z', storageV4: true, ...SELF });
+  return openWorkspaceService({ root, utcNow: () => '2026-09-23T10:00:00Z', ...SELF });
 }
 
 let n = 0;

@@ -47,13 +47,10 @@ import type {
   SceneDocument,
 } from '@thirdlight/commands';
 import type {
-  ContentCatalog,
-  ContentCatalogV3,
   Manifest,
-  Scene,
-  SceneV2,
   SceneV3,
   SceneV4,
+  ContentCatalogV3,
   ContentCatalogV4,
   ModelErrorV3,
 } from '@thirdlight/project-model';
@@ -61,24 +58,13 @@ import {
   composeV4,
   INSTANCE_FLOATS,
   normalizeManifest,
-  normalizeScene,
   parseDocumentBytes,
-  serializeCanonical,
-  validateManifest,
   validateProjectV3,
 } from '@thirdlight/project-model';
 
-import {
-  buildEnvelopeBytes,
-  buildEnvelopeBytesV3,
-  ID_RE,
-  mutationOpsForStorageVersion,
-  validateEnvelope,
-  type RetryRecord,
-} from './envelope';
+import { ID_RE, validateEnvelope, type RetryRecord } from './envelope';
 import {
   authoritativeBytes,
-  captureContentView,
   cleanupStages,
   contentIntegrity,
   DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
@@ -107,7 +93,6 @@ import {
   type BlobReadResult,
   type SourceBlobReadRequest,
   type SourceBlobReadResult,
-  type CaptureViewResult,
   type CapturedV3ReadResult,
   type ContentConfig,
   type ContentContext,
@@ -118,14 +103,6 @@ import {
   type StageRequest,
   type StageResult,
 } from './content-store';
-import {
-  initialEnvelopeBytesV3,
-  migrateProjectCopy,
-  migrateProjectCopyV3,
-  readMigrationMarker,
-  type MigrationResult,
-  type MigrationResultV3,
-} from './migration';
 import { prepareBehaviorSource, preparedFactsOf, type PrepareBehaviorSourceRequest } from './behavior';
 import {
   externalChangeUnreadable,
@@ -152,7 +129,16 @@ import {
   type WriteOps,
 } from './write';
 import { deepFreeze } from './isolate';
-import { isV4Layout, listLeftoverTempsV4, loadV4, writeTransaction, type V4State } from './store-v4';
+import {
+  defaultProjectFilesV4,
+  isV4Layout,
+  listLeftoverTempsV4,
+  loadV4,
+  projectFilesFromV3,
+  writeTransaction,
+  type ProjectFilesV4,
+  type V4State,
+} from './store-v4';
 import { changedFiles, checkExternalV4, detectExternalChangeV4, publishV4 } from './session-v4';
 import {
   DEFAULT_PROCESS_MARKER,
@@ -166,12 +152,9 @@ import {
 import {
   acceptExternal,
   discardExternal,
-  defaultScene,
-  detectExternalChange,
   ensureSession,
   ENGINE_VERSION,
-  envelopeBytesFor,
-  loadProjectDir,
+  loadEnvelopeV3,
   pendingInfo,
   releaseProject,
   releaseOnShutdown,
@@ -182,6 +165,7 @@ import {
   serveQuery,
   setPendingUnreadable,
   takeover,
+  validateAnyManifest,
   type Core,
   type ProjectSession,
   verifyChildDir,
@@ -200,8 +184,10 @@ import type {
   WorkspaceServiceConfig,
 } from './types';
 
-/** The M1 scene path inside a project (project-model §7.1). */
+/** The envelope of a storage v3 project (read and upgraded on open). */
 const SCENE_REL = join('scenes', 'main.json');
+/** A migration-copy marker left by an earlier version (the copy operators were removed in phase 9.3). */
+const MIGRATION_MARKER_REL = join('.thirdlight', 'migration.json');
 
 /** The session as the content-store operations need it. */
 function contentCtx(s: ProjectSession): ContentContext {
@@ -216,21 +202,6 @@ function contentCtx(s: ProjectSession): ContentContext {
     gameFolder: s.gameFolder ?? null,
     ...(s.v4 ? { scenes: [...s.v4.scenes.values()] } : {}),
   };
-}
-
-/**
- * The session's canonical envelope bytes at its storageVersion
- * (§4.4/§4.5/§16.3). One construction shared with the release rewrite, the
- * resident external-state resolution and the migration copy — there is no
- * second envelope writer.
- */
-function sessionEnvelopeBytes(
-  s: ProjectSession,
-  scene: Scene | SceneV2 | SceneV3,
-  content: ContentCatalog | ContentCatalogV3 | null,
-  records: readonly RetryRecord[],
-): Uint8Array {
-  return envelopeBytesFor(s.storageVersion as 1 | 2 | 3, s.projectId, scene, content as ContentCatalog | ContentCatalogV3 | null, records);
 }
 
 /**
@@ -301,7 +272,6 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
     utcNow: config.utcNow ?? (() => utcSecond()),
     ops: config.ops ?? defaultOps,
     sessions: new Map(),
-    storageV4: config.storageV4 === true,
     content: {
       maxSourceBytesPerProject: config.maxSourceBytesPerProject ?? DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
       deviceSpaceReserveBytes: config.deviceSpaceReserveBytes ?? DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
@@ -425,139 +395,15 @@ function buildService(core: Core): WorkspaceService {
       }));
     }
 
-    // Phase 12 (c): a v4 project (one file per scene) has its own write path.
-    if (s.storageVersion === 4 && s.v4 !== null && s.v4 !== undefined) return runCommandV4(s, request, D);
-
-    // Steps 4–6 — revision check, validation + pure application, no-change
-    // check (the pure layer; the input state is never mutated). The v2
-    // pipeline wires the envelope's content block and the manifest as the
-    // three-block validation inputs (commands.md §6.1 step 5; C21-1).
-    const commandState: CommandState<SceneDocument> =
-      s.content === null
-        ? { scene: s.scene!, history: s.history }
-        : {
-            scene: s.scene!,
-            content: s.content as unknown as ContentDocument,
-            manifest: s.manifest,
-            history: s.history,
-          };
-    // Packet 33: the prepared digest-bound behavior-source facts (a derived
-    // cache) and whether a preparer is registered. The command reads ONLY
-    // these facts for a source publication; they are never request input.
-    if (core.content.behaviorCompiler !== undefined) {
-      commandState.behaviorPreparerRegistered = true;
+    // Steps 4–9 — a v4 project (one file per scene).
+    if (s.v4 === null || s.v4 === undefined) {
+      return failRequest(request, projectUnavailable(s.blocked?.reason ?? 'envelope_invalid', null, s.blocked?.errors ?? []));
     }
-    if (s.preparedSources.size > 0) {
-      commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
-    }
-    // A project can only accept ops its storage version can durably record
-    // (otherwise the write succeeds and the next load rejects the envelope).
-    const op = (request as { op?: unknown }).op;
-    if (typeof op === 'string' && !mutationOpsForStorageVersion(s.storageVersion).includes(op)) {
-      return failRequest(
-        request,
-        invalidRequest(
-          '/op',
-          op,
-          `an op supported by storageVersion ${s.storageVersion}`,
-          `this project (storageVersion ${s.storageVersion}) does not support ${op}`,
-          'migrate the project to the current storage version',
-        ),
-      );
-    }
-    const outcome = applyMutation(commandState, request);
-    if (!outcome.ok) return outcome.result;
-
-    // Step 5/commit-time verification (workspace.md §13.3.2 step 4): a
-    // content publication verifies that the referenced authoritative blob
-    // exists and matches its digest — fail closed BEFORE any state change.
-    // The quota pre-flight is re-checked under the lock (step 3).
-    if (s.storageVersion !== 1 && s.content !== null) {
-      const ref = publishedBlobRef(outcome.result);
-      if (ref !== null) {
-        // A version referenced in place is verified against the game-folder file.
-        const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
-        if (!v.ok) return failRequest(request, v.error);
-        // A converted model: its original (FBX) must be there with the recorded bytes.
-        if (ref.convertedFrom !== undefined) {
-          const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
-          if (!o.ok) return failRequest(request, o.error);
-        }
-        const used = authoritativeBytes(s.dir);
-        if (used > core.content.maxSourceBytesPerProject) {
-          return failRequest(
-            request,
-            contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0),
-          );
-        }
-      }
-    }
-
-    // Step 7 — durability write. The new envelope carries BOTH the new
-    // scene (revision+1) and the new record (one atomic replacement —
-    // commands.md §7.2: no window where the revision advanced but the
-    // record is missing). D is non-null (step 0's gate + step 2's check),
-    // so the record's digest is always a real digest (R11: no `D!`).
-    const newRecord: RetryRecord = {
-      requestId: envelopeRequestId(request)!,
-      digest: D,
-      appliedRevision: outcome.result.revision,
-      result: outcome.result,
-    };
-    const records = appendRecord(s.records, newRecord);
-    const envBytes = sessionEnvelopeBytes(
-      s,
-      outcome.state.scene as Scene | SceneV2 | SceneV3,
-      (outcome.state.content ?? s.content) as ContentCatalog | ContentCatalogV3 | null,
-      records,
-    );
-    const res = writeAtomic({
-      dir: s.sceneDir, // R7: the VERIFIED scenes directory (no re-join)
-      target: join(s.sceneDir, 'main.json'),
-      bytes: envBytes,
-      allowedPreHashes: [s.lastWrittenHash],
-      previousHash: s.lastWrittenHash,
-      ops: core.ops,
-    });
-    if (res.unreadable) {
-      // §7.2 step 1: a non-ENOENT read failure — the on-disk bytes are
-      // UNKNOWN, never absent. No snapshot is taken (nothing was read):
-      // the pending change records the unknown state and the triggering
-      // mutation fails external_change_unreadable (§11). No state, no
-      // record, no revision change.
-      setPendingUnreadable(s);
-      return failRequest(request, externalChangeUnreadable(pid));
-    }
-    if (res.external) {
-      // A foreign writer won (pre-write check or the verification read):
-      // snapshot + pause (the §7.2 protocol — the step-2 snapshot is
-      // taken/retried by the same detection call); the triggering command
-      // fails; no state, no record, no revision change.
-      const pc = detectExternalChange(core, s, res.external);
-      return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
-    }
-    if (res.failed) {
-      if (res.failed.onDiskState === 'previous') {
-        // In-memory state unchanged, no record exists: retrying the same
-        // request re-executes the command fresh (commands.md §7.3).
-        return failRequest(request, writeFailed('previous', res.failed.errno));
-      }
-      // new-undurable: the rename took effect (on-disk == intended) but
-      // the directory flush failed. Advance the in-memory state (with its
-      // record) so the running system is self-consistent; the ack is still
-      // `ok: false` — a success ack is never sent for a failed write.
-      publish(s, outcome.state, records, envBytes);
-      return failRequest(request, writeFailed('new-undurable', res.failed.errno));
-    }
-
-    // Step 8 — publish (only after step 7's verification passed).
-    publish(s, outcome.state, records, envBytes);
-    // Step 9 — acknowledge.
-    return outcome.result;
+    return runCommandV4(s, request, D);
   }
 
   /**
-   * Phase 12 (c): steps 4–9 for a v4 project. The command runs on the one
+   * Steps 4–9 for a v4 project. The command runs on the one
    * scene it touches (found from its entity ids, or `args.sceneId` for a
    * create), with the other scenes' ids reserved; the resulting whole project
    * is checked against the cross-scene rules; only the changed files are
@@ -683,34 +529,6 @@ function buildService(core: Core): WorkspaceService {
     return outcome.result;
   }
 
-  /**
-   * Step 8 — publish the acknowledged state atomically (the same snapshot:
-   * scene, history, record map, envelope bytes + hash). In one synchronous
-   * sequence there is no window in which a query could observe a
-   * half-updated state (commands.md §10).
-   */
-  function publish(
-    s: ProjectSession,
-    newState: {
-      scene: SceneDocument;
-      content?: ContentCatalog | ContentCatalogV3 | null;
-      history: HistoryState;
-    },
-    records: RetryRecord[],
-    envBytes: Uint8Array,
-  ): void {
-    s.scene = newState.scene;
-    if (s.storageVersion !== 1 && newState.content !== undefined) s.content = newState.content;
-    s.revision = newState.scene.revision;
-    s.records = records;
-    const m = new Map<string, RetryRecord>();
-    for (const r of records) m.set(r.requestId, r);
-    s.recordMap = m;
-    s.envelopeBytes = envBytes;
-    s.lastWrittenHash = sha256Hex(envBytes);
-    s.history = newState.history;
-  }
-
   // ---- queries --------------------------------------------------------------
 
   /** Public `query` (R10): results expose the published scene entities,
@@ -787,41 +605,15 @@ function buildService(core: Core): WorkspaceService {
     }
     // 'failed' = the directory (partially) exists concurrently: converge.
     if (partial !== 'failed') {
-      const manifest: Manifest = {
-        schemaVersion: 1,
-        engineVersion: ENGINE_VERSION,
-        id: projectId,
-        name,
-        createdAt: core.utcNow(),
-        scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
-      };
-      const manRes = serializeCanonical(manifest);
-      if (!manRes.ok) return { ok: false, error: projectExistsInvalid([]) };
-      const mres = writeAtomic({
-        dir,
-        target: join(dir, 'project.json'),
-        bytes: manRes.bytes,
-        allowedPreHashes: [],
-        previousHash: null,
-        ops: core.ops,
-      });
-      if (mres.external) return convergeExisting(projectId);
-      if (mres.failed) {
-        return { ok: false, error: writeFailed(mres.failed.onDiskState, mres.failed.errno) };
-      }
-      // The initial envelope: the default scene at revision 0, current storage version.
-      const envRes = writeAtomic({
-        dir: join(dir, 'scenes'),
-        target: join(dir, SCENE_REL),
-        bytes: initialEnvelopeBytesV3(projectId, defaultScene()),
-        allowedPreHashes: null, // must not exist
-        previousHash: null,
-        ops: core.ops,
-      });
-      if (envRes.external) return convergeExisting(projectId);
-      if (envRes.failed) {
-        return { ok: false, error: writeFailed(envRes.failed.onDiskState, envRes.failed.errno) };
-      }
+      // The v4 project files (§8.3 creation write sequence, extended to v4):
+      // project.json, the scene file, then content.json — its presence makes
+      // the directory a v4 project; a crash before it leaves an interrupted
+      // creation the startup scan completes deterministically.
+      const built = defaultProjectFilesV4(projectId, name, core.utcNow(), ENGINE_VERSION);
+      if (!built.ok) return { ok: false, error: projectExistsInvalid([]) };
+      const w = writeNewProjectFiles(core, dir, built.files);
+      if (w.kind === 'external') return convergeExisting(projectId);
+      if (w.kind === 'failed') return { ok: false, error: writeFailed(w.onDiskState, w.errno) };
       // Claim ownership (§6.3) and load in memory.
       const o = ensureSession(core, projectId);
       if (o.kind === 'open') return { ok: true, created: true, revision: 0 };
@@ -848,9 +640,10 @@ function buildService(core: Core): WorkspaceService {
 
   /**
    * Create a NEW project from a template/sample: the source scene and content
-   * (validated as a v3 project, revision reset to 0) plus the bytes of every
-   * blob the content references. Blobs are written first, then the manifest
-   * and the envelope, so a crash leaves at most an incomplete project the
+   * (validated as a v3 project, revision reset to 0, converted to v4 exactly
+   * like the automatic upgrade) plus the bytes of every blob the content
+   * references. Blobs are written first, then project.json, the scene file
+   * and content.json, so a crash leaves at most an incomplete project the
    * startup scan completes or reports. An existing project id is refused.
    */
   function createProjectFrom(projectId: string, name: string, source: ProjectSource): CreateProjectResult {
@@ -902,26 +695,19 @@ function buildService(core: Core): WorkspaceService {
       if (bytes === undefined || sha256Hex(bytes) !== digest) return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
     }
 
+    const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, project.normalized.content as ContentCatalogV3);
+    if (!built.ok) {
+      return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
+    }
     if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
-    const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 3, revision: 0, scene: null, content: null };
+    const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 4, revision: 0, scene: null, content: null };
     for (const digest of needed) {
       const bytes = source.blobs.get(digest)!;
       const put = publishBlob(core, ctx, { digest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
       if (!put.ok) return { ok: false, error: put.error };
     }
-    const manBytes = serializeCanonical(man.normalized);
-    if (!manBytes.ok) return { ok: false, error: writeFailed('previous', undefined) };
-    const mres = writeAtomic({ dir, target: join(dir, 'project.json'), bytes: manBytes.bytes, allowedPreHashes: [], previousHash: null, ops: core.ops });
-    if (mres.failed || mres.external) return { ok: false, error: writeFailed(mres.failed?.onDiskState ?? 'previous', mres.failed?.errno) };
-    const eres = writeAtomic({
-      dir: join(dir, 'scenes'),
-      target: join(dir, SCENE_REL),
-      bytes: buildEnvelopeBytesV3(projectId, project.normalized.scene, project.normalized.content, []),
-      allowedPreHashes: null,
-      previousHash: null,
-      ops: core.ops,
-    });
-    if (eres.failed || eres.external) return { ok: false, error: writeFailed(eres.failed?.onDiskState ?? 'previous', eres.failed?.errno) };
+    const w = writeNewProjectFiles(core, dir, built.files);
+    if (w.kind !== 'ok') return { ok: false, error: writeFailed(w.kind === 'failed' ? w.onDiskState : 'previous', w.kind === 'failed' ? w.errno : undefined) };
     const o = ensureSession(core, projectId);
     if (o.kind !== 'open') return { ok: false, error: projectExistsInvalid([]) };
     return { ok: true, created: true, revision: 0 };
@@ -962,13 +748,13 @@ function buildService(core: Core): WorkspaceService {
         if (!parsed.ok) {
           details.push({ code: parsed.error.code, path: parsed.error.path, message: parsed.error.message });
         } else {
-          const v = validateManifest(parsed.value);
+          const v = validateAnyManifest(parsed.value);
           if (!v.ok) {
             for (const e of v.errors.slice(0, 10)) {
               details.push({ code: e.code, path: e.path, message: e.message });
             }
           } else {
-            manifest = v.normalized;
+            manifest = v.manifest;
           }
         }
       } catch {
@@ -986,11 +772,12 @@ function buildService(core: Core): WorkspaceService {
       return { ok: false, error: projectExistsInvalid(details) };
     }
 
-    // The §4.3 envelope load — the same loader as the query path, without
-    // the session/ownership acquisition around it.
+    // A storage v3 project (upgraded to v4 when opened): the §4.3/§16.4
+    // envelope load — the same loader as the open path, without the
+    // session/ownership acquisition around it (and without the upgrade).
     // R15/R7: read-only probe; the caller's containment gate verified the
     // project directory (the scenes child is read here, never written).
-    const l = loadProjectDir(core, join(dir, 'scenes'), projectId, manifest);
+    const l = loadEnvelopeV3(core, join(dir, 'scenes'), projectId, manifest);
     if (l.kind === 'loaded') return { ok: true, created: false, revision: l.scene.revision };
     const envDetails: LoadDetail[] =
       l.kind === 'envelope-missing'
@@ -999,8 +786,8 @@ function buildService(core: Core): WorkspaceService {
               code: 'envelope_invalid',
               path: '',
               message:
-                'scenes/main.json is missing (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
-              expected: 'a loadable authoring-state envelope',
+                'the project has no content.json (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
+              expected: 'a loadable project (content.json and its scene files)',
             },
           ]
         : [...l.errors];
@@ -1241,19 +1028,8 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `captureContentView` (project-model §19/workspace.md §11): pure capture. */
-  function captureContentViewOp(projectId: string): CaptureViewResult {
-    return deepFreeze(
-      withOpenSession<CaptureViewResult>(
-        projectId,
-        (s) => captureContentView(contentCtx(s)),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `readCapturedV3` (packet 58, delivery.md §2.6): the M3 single
-   *  acknowledged envelope read (scene + content halves). Pure read. */
+  /** `readCapturedV3` (packet 58, delivery.md §2.6): the single
+   *  acknowledged project read (scenes + content). Pure read. */
   function readCapturedV3Op(projectId: string): CapturedV3ReadResult {
     return deepFreeze(
       withOpenSession<CapturedV3ReadResult>(
@@ -1264,43 +1040,17 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `migrateProjectCopy` (workspace.md §14): explicit operator migration. */
-  function migrateProjectCopyOp(sourceProjectId: string, newProjectId: string): MigrationResult {
-    return deepFreeze(migrateProjectCopy(core, sourceProjectId, newProjectId));
-  }
-
   /**
-   * `migrateProjectCopyV3` (workspace.md §16.5/§16.8): the explicit v2→v3
-   * operator. Reads the v2 source, writes a new v3 destination
-   * destination-first/authoritative-last with a resumable four-phase marker;
-   * the source is never claimed, released or written.
-   */
-  function migrateProjectCopyV3Op(sourceProjectId: string, newProjectId: string): MigrationResultV3 {
-    return deepFreeze(migrateProjectCopyV3(core, sourceProjectId, newProjectId));
-  }
-
-  /**
-   * Compare an open project's envelope on disk with the last bytes this
-   * backend wrote. A difference is an external change: it is snapshotted,
-   * validated and writes pause until it is accepted or discarded — the same
-   * handling the write path applies, but without waiting for a write.
+   * Compare an open project's files on disk with the last bytes this backend
+   * wrote. A difference is an external change: it is snapshotted, validated
+   * and writes pause until it is accepted or discarded — the same handling
+   * the write path applies, but without waiting for a write.
    */
   function checkExternal(projectId: string): { ok: true; pending: boolean } | { ok: false } {
     const s = core.sessions.get(projectId);
     if (s === undefined || s.mode !== 'open') return { ok: false };
     if (s.pendingChange !== null) return { ok: true, pending: true };
-    // Phase 12 (c): a v4 project checks each of its files.
-    if (s.storageVersion === 4) return checkExternalV4(core, s);
-    let bytes: Uint8Array;
-    try {
-      bytes = core.ops.readFile(join(s.sceneDir, 'main.json'));
-    } catch {
-      return { ok: true, pending: false }; // unreadable/missing: the next write reports it
-    }
-    const hash = sha256Hex(bytes);
-    if (hash === s.lastWrittenHash) return { ok: true, pending: false };
-    detectExternalChange(core, s, { bytes, hash });
-    return { ok: true, pending: true };
+    return checkExternalV4(core, s);
   }
 
   function scan(): ScanReport {
@@ -1526,10 +1276,7 @@ function buildService(core: Core): WorkspaceService {
     readStage: readStageOp,
     readSourceBlob: readSourceBlobOp,
     contentIntegrity: contentIntegrityOp,
-    captureContentView: captureContentViewOp,
     readCapturedV3: readCapturedV3Op,
-    migrateProjectCopy: migrateProjectCopyOp,
-    migrateProjectCopyV3: migrateProjectCopyV3Op,
     prepareBehaviorSource: prepareBehaviorSourceOp,
     scan,
     dispose,
@@ -1627,31 +1374,27 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
   if (stale) entry.staleOwnership = true;
 
-  // Interrupted migration destination (workspace.md §10/§14.3/§16.5.3): a
-  // valid `.thirdlight/migration.json` marker with no envelope suppresses
-  // the §8.3 default-envelope completion — auto-completing would create an
-  // empty default project and destroy the migration intent. This is checked
-  // BEFORE the manifest: a crash between the marker write and step 3 leaves a
-  // marker-only destination (no manifest), which must still be reported as
-  // an interrupted migration destination, never as an orphan. Reported;
-  // resumable or deletable.
+  // An interrupted migration copy made by an earlier version (workspace.md
+  // §10/§14.3/§16.5.3; the copy operators were removed in phase 9.3): a
+  // `.thirdlight/migration.json` marker with no project files suppresses the
+  // §8.3 completion — auto-completing would create an empty default project
+  // over the copy. Checked BEFORE the manifest (a marker-only destination has
+  // no manifest yet). Reported; the operator deletes the directory.
+  const contentExists = isV4Layout(core.ops, dir);
   const envelopeExists = core.ops.fileExists(join(dir, SCENE_REL));
-  const migrationMarker = readMigrationMarker(dir);
-  if (migrationMarker !== null && !envelopeExists) {
+  if (!contentExists && !envelopeExists && core.ops.fileExists(join(dir, MIGRATION_MARKER_REL))) {
     entry.kind = 'project';
     entry.loadable = false;
     entry.code = 'migration_resume_required';
     entry.migration = 'resume_required';
-    entry.migrationPhase = migrationMarker.phase;
-    const resumeOp = migrationMarker.storageVersion === 3 ? 'migrateProjectCopyV3' : 'migrateProjectCopy';
     entry.note = stale
-      ? `interrupted migration destination (phase ${migrationMarker.phase}); stale ownership reported; resume ${resumeOp} or delete the directory`
-      : `interrupted migration destination (phase ${migrationMarker.phase}) — never auto-completed; resume ${resumeOp} or delete the directory`;
+      ? 'interrupted migration copy left by an earlier version (the copy operators were removed); stale ownership reported; delete the directory'
+      : 'interrupted migration copy left by an earlier version (the copy operators were removed) — never auto-completed; delete the directory';
     return entry;
   }
 
-  // Phase 12 (c): a v4 project (one file per scene).
-  if (isV4Layout(core.ops, dir)) {
+  // A v4 project (one file per scene).
+  if (contentExists) {
     entry.kind = 'project';
     const l = loadV4(core.ops, dir, name);
     if (l.kind === 'loaded') {
@@ -1667,7 +1410,8 @@ function scanEntry(core: Core, name: string): ScanEntry {
     return entry;
   }
 
-  // Manifest.
+  // Manifest: a v4 manifest (schemaVersion 2) of an interrupted creation, or
+  // the v1 manifest of a storage v3 project.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
     entry.note = stale
@@ -1676,11 +1420,13 @@ function scanEntry(core: Core, name: string): ScanEntry {
     return entry;
   }
   let manifest: Manifest | null = null;
+  let manifestVersion: unknown = null;
   try {
     const parsed = parseDocumentBytes(core.ops.readFile(manPath));
     if (parsed.ok) {
-      const v = validateManifest(parsed.value);
-      if (v.ok) manifest = v.normalized;
+      manifestVersion = (parsed.value as { schemaVersion?: unknown } | null)?.schemaVersion ?? null;
+      const v = validateAnyManifest(parsed.value);
+      if (v.ok) manifest = v.manifest;
     }
   } catch {
     // unreadable manifest
@@ -1700,13 +1446,24 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
 
   if (!envelopeExists) {
-    // R7 (2026-09-18 review): the completion write is the scan's ONLY
-    // write and it goes through the scenes directory — a PRESENT scenes
-    // dir that escapes the data root is kept for the operator, never
-    // completed through a symlink. (An ABSENT scenes dir keeps the
-    // pre-fix path: the write attempt fails and the state is kept.)
+    entry.kind = 'project';
+    if (manifestVersion !== 2) {
+      // A v3 manifest without its envelope: a creation interrupted by an
+      // earlier version (it wrote storage v3). This version writes new
+      // projects as v4 only, so it is kept for the operator.
+      entry.completion = 'kept';
+      entry.loadable = false;
+      entry.code = 'envelope_invalid';
+      entry.note = stale
+        ? 'interrupted creation by an earlier version (a v3 manifest without scenes/main.json; kept — delete the directory and create the project again); stale ownership reported'
+        : 'interrupted creation by an earlier version (a v3 manifest without scenes/main.json; kept — delete the directory and create the project again)';
+      return entry;
+    }
+    // R7 (2026-09-18 review): the completion writes go through the scenes
+    // directory — a PRESENT scenes dir that escapes the data root is kept for
+    // the operator, never completed through a symlink. (An ABSENT scenes dir
+    // keeps the pre-fix path: the write attempt fails and the state is kept.)
     if (verifyChildDir(core, name, 'scenes').kind === 'escape') {
-      entry.kind = 'project';
       entry.completion = 'kept';
       entry.loadable = false;
       entry.code = 'envelope_invalid';
@@ -1717,7 +1474,6 @@ function scanEntry(core: Core, name: string): ScanEntry {
     }
     // Interrupted creation: the scan's only sanctioned write — the
     // deterministic §8.3 completion.
-    entry.kind = 'project';
     const completed = completeInterruptedCreation(core, dir, name, manifest);
     entry.completion = completed ? 'completed' : 'kept';
     entry.loadable = completed;
@@ -1727,6 +1483,9 @@ function scanEntry(core: Core, name: string): ScanEntry {
       : `interrupted creation (${entry.completion})`;
     return entry;
   }
+  // A storage v3 project: loadable when its envelope loads (it is upgraded to
+  // v4 when it is opened; the scan writes nothing). A storage v1/v2 envelope
+  // is reported `storage_version_unsupported`.
   entry.kind = 'project';
   let envBytes: Uint8Array | null = null;
   try {
@@ -1761,15 +1520,18 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
   entry.loadable = true;
   entry.note = stale
-    ? 'complete; stale ownership reported (no action — takeover is explicit)'
-    : 'complete (opens on demand)';
+    ? 'complete (storage v3, upgraded to v4 when opened); stale ownership reported (no action — takeover is explicit)'
+    : 'complete (storage v3, upgraded to v4 when opened)';
   return entry;
 }
 
 /**
- * The deterministic §8.3 completion for a manifest without an envelope:
- * write the initial envelope — a pure function of the manifest (the
- * default scene at revision 0) — via W.
+ * The deterministic §8.3 completion of a v4 project whose creation stopped
+ * after `project.json`: the missing default scene file and `content.json` —
+ * a pure function of the manifest (the default project at revision 0) — are
+ * written via W, content.json last. A file already present is never
+ * overwritten (it was written before the crash, or by someone else); the
+ * project is loadable when the resulting files load.
  */
 function completeInterruptedCreation(
   core: Core,
@@ -1777,33 +1539,57 @@ function completeInterruptedCreation(
   projectId: string,
   manifest: Manifest,
 ): boolean {
-  const norm = normalizeScene({ ...defaultScene(), sceneId: manifest.scenes[0].id });
-  if (!norm.ok) return false;
-  const bytes = initialEnvelopeBytesV3(projectId, norm.normalized);
-  const res = writeAtomic({
-    dir: join(dir, 'scenes'),
-    target: join(dir, SCENE_REL),
-    bytes,
-    allowedPreHashes: null, // must stay absent
-    previousHash: null,
-    ops: core.ops,
-  });
-  if (res.ok) return true;
-  if (res.external) {
-    // It appeared concurrently: keep it (never overwrite a foreign write);
-    // loadable only if it actually loads.
-    let foreign: Uint8Array | null = null;
-    try {
-      foreign = core.ops.readFile(join(dir, SCENE_REL));
-    } catch {
-      foreign = null;
-    }
-    if (foreign === null) return false;
-    const e2 = validateEnvelope(foreign, projectId);
-    return e2.ok && manifest.scenes[0].id === e2.scene.sceneId && manifest.id === projectId;
+  const built = defaultProjectFilesV4(projectId, manifest.name, manifest.createdAt, manifest.engineVersion);
+  if (!built.ok) return false;
+  for (const f of [built.files.scene, built.files.content]) {
+    const target = join(dir, f.rel);
+    if (core.ops.fileExists(target)) continue;
+    const res = writeAtomic({
+      dir: dirname(target),
+      target,
+      bytes: f.bytes as Uint8Array,
+      allowedPreHashes: null, // must stay absent
+      previousHash: null,
+      ops: core.ops,
+    });
+    if (res.ok) continue;
+    // Appeared concurrently: kept (never overwrite a foreign write); the load below decides.
+    if (res.external) continue;
+    if (res.failed && res.failed.onDiskState === 'new-undurable') continue; // on disk; durability unproven
+    return false; // "previous" / unreadable: still absent — kept for the operator
   }
-  if (res.failed && res.failed.onDiskState === 'new-undurable') return true; // on disk; durability unproven
-  return false; // "previous": still absent — kept for the operator
+  return loadV4(core.ops, dir, projectId).kind === 'loaded';
+}
+
+/**
+ * Write a new project's files (§8.3 creation sequence, v4): `project.json`,
+ * the scene file, then `content.json` — its presence makes the directory a
+ * v4 project, so a crash before it leaves an interrupted creation the startup
+ * scan completes. A scene/content file that already exists is an external
+ * appearance (a concurrent creator).
+ */
+function writeNewProjectFiles(
+  core: Core,
+  dir: string,
+  files: ProjectFilesV4,
+): { kind: 'ok' } | { kind: 'external' } | { kind: 'failed'; onDiskState: 'previous' | 'new-undurable'; errno: string | undefined } {
+  for (const f of [files.manifest, files.scene, files.content]) {
+    const target = join(dir, f.rel);
+    const res = writeAtomic({
+      dir: dirname(target),
+      target,
+      bytes: f.bytes as Uint8Array,
+      // The manifest takes no pre-write check (races are handled by the reload,
+      // §8.3); the scene and content files must not exist yet.
+      allowedPreHashes: f === files.manifest ? [] : null,
+      previousHash: null,
+      ops: core.ops,
+    });
+    if (res.external) return { kind: 'external' };
+    if (res.failed) return { kind: 'failed', onDiskState: res.failed.onDiskState, errno: res.failed.errno };
+    if (res.unreadable) return { kind: 'failed', onDiskState: 'previous', errno: res.unreadable.errno };
+  }
+  return { kind: 'ok' };
 }
 
 // ---- request envelope helpers ----------------------------------------------------------
@@ -2146,15 +1932,4 @@ function createDirectories(dir: string, ops: WriteOps): 'ok' | 'failed' | 'error
     }
   }
   return 'ok';
-}
-
-/** Append a record and evict the oldest to stay ≤ 128 (commands.md §7.1). */
-function appendRecord(
-  existing: readonly RetryRecord[],
-  rec: RetryRecord,
-): RetryRecord[] {
-  const out = [...existing, rec];
-  const RETENTION = 128;
-  while (out.length > RETENTION) out.shift();
-  return out;
 }

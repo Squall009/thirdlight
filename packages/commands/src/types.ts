@@ -29,8 +29,7 @@ import type {
   BehaviorRecord,
   BehaviorTrust,
   ContentCatalog,
-  Entity,
-  EntityV2,
+  EntityV3,
   GameConfig,
   TagDefinition,
   SceneIndexEntry,
@@ -42,8 +41,6 @@ import type {
   PrefabDefinition,
   PropertyDeclaration,
   PropertyValue,
-  Scene,
-  SceneV2,
   SceneV3,
   SettingsMap,
   TransformComponent,
@@ -385,7 +382,7 @@ export interface SetLightingChange {
 /** `pasteEntities` change data: the created entities, parents first. */
 export interface PasteEntitiesChange {
   type: 'pasteEntities';
-  entities: Entity[];
+  entities: EntityV3[];
 }
 
 /** `setAssetOptions` change data: the whole asset record before and after. */
@@ -514,7 +511,7 @@ export interface InstantiatePrefabEntry {
   /** The pre-insertion `entities` length plus this entry's document-order offset. */
   index: number;
   /** The full created entity value (canonical). */
-  entity: EntityV2;
+  entity: EntityV3;
 }
 
 /** `instantiatePrefab` change data (commands.md §5.3/§8.7.6). */
@@ -533,9 +530,9 @@ export interface CreateEntityChange {
   type: 'createEntity';
   id: string;
   /** The full created entity value (canonical, defaults filled). */
-  entity: Entity;
+  entity: EntityV3;
   /** A folder created with children: the children, in insertion order after `entity`. */
-  children?: Entity[];
+  children?: EntityV3[];
 }
 
 export interface SetTransformChange {
@@ -615,7 +612,7 @@ export interface RestoreSubtreeChange {
   type: 'restoreSubtree';
   rootId: string;
   /** Restored entity values in pre-deletion array order, root first. */
-  entities: readonly Entity[];
+  entities: readonly EntityV3[];
 }
 
 /** Structured change data (§5.3). A client projection updates from this alone. */
@@ -694,7 +691,7 @@ export interface RestoreSubtreeEntry {
   /** The entity's pre-deletion array index. */
   index: number;
   /** The full entity value. */
-  entity: Entity;
+  entity: EntityV3;
 }
 
 export interface RestoreSubtreeInverse {
@@ -912,12 +909,12 @@ export interface HistoryDepths {
 // ---- command state --------------------------------------------------------------
 
 /**
- * A scene document the command layer can carry: the M1 standalone interchange
- * scene (schemaVersion 1), the embedded M2 scene (schemaVersion 2) or the v3
- * scene (schemaVersion 3).
+ * A scene document the command layer can carry: a v4 scene (one of a
+ * project's scene files — what the workspace edits) or a v3 scene (edited
+ * the same way; kept for the v3 test corpus and the v3 → v4 upgrade path).
+ * The M1/M2 scenes were removed in phase 9.3.
  */
-/** Phase 12 (c): a v4 scene (one of a project's scene files) is edited like a v3 scene. */
-export type SceneDocument = Scene | SceneV2 | SceneV3 | SceneV4;
+export type SceneDocument = SceneV3 | SceneV4;
 
 /**
  * The per-project in-memory state the pure apply function operates on.
@@ -925,15 +922,13 @@ export type SceneDocument = Scene | SceneV2 | SceneV3 | SceneV4;
  * workspace service (packet 07) guarantees this at load and after every
  * published mutation; the command layer re-validates only RESULT documents.
  *
- * `content` is the envelope's M2 `content` block (project-model §18). It is
- * absent for an M1 (schemaVersion 1) state, where it is treated as the empty
- * catalog; M2 content/property ops read and write it. `manifest` is the v1
- * manifest when the caller has one: with it, a v2 result is validated by the
- * three-block `validateProjectV2` (project-model §13.1); without it the command
- * layer validates the v2 scene and content separately and relies on each op's
- * explicit reference checks (documented in handoff 21).
+ * `content` is the project's content block (project-model §18/§23.4; for a v4
+ * project the whole project's block). When absent it is treated as the empty
+ * v3 catalog. `manifest` is the v1 manifest of a v3 state when the caller
+ * has one: with it, a v3 result is validated by the three-block
+ * `validateProjectV3` (project-model §13.2).
  */
-export interface CommandState<S extends SceneDocument = Scene> {
+export interface CommandState<S extends SceneDocument = SceneDocument> {
   scene: S;
   /**
    * Phase 12 (c): in a v4 project `scene` is the one scene an edit touches;
@@ -1323,7 +1318,7 @@ export type MutationResult = MutationSuccess | MutationFailure;
  * never mutated); on failure the input state is left unchanged and no new
  * state is returned.
  */
-export type ApplyOutcome<S extends SceneDocument = Scene> =
+export type ApplyOutcome<S extends SceneDocument = SceneDocument> =
   | { ok: true; result: MutationSuccess; state: CommandState<S> }
   | { ok: false; result: MutationFailure };
 // ---- content queries (commands.md §4/§5.6, packet 21 non-prefab subset) -----------
@@ -1423,5 +1418,5 @@ export interface EntitiesQueryResult {
   total: number;
   offset: number;
   limit: number;
-  entities: readonly (Entity | EntityV2 | SceneV3['entities'][number])[];
+  entities: readonly SceneV3['entities'][number][];
 }

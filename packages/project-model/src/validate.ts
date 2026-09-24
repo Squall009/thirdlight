@@ -1,24 +1,20 @@
 /**
- * Value validation — project-model.md §12.3 passes 2–4 and §13.
+ * Shared value validation — project-model.md §12.3 passes 2–4 and §13.
  *
- * `validate*` is a pure check over in-memory values starting at pass 2:
- * it re-checks ALL value rules, including finiteness (parsed values are
- * not inherently safe — §12.7). Errors are collected, not fail-on-first:
- * independent violations in one document are all reported, in a
- * deterministic order: schema fields in §7–§10 order, entities in array
- * order, then cross-entity checks (references, cycles, order, camera
- * count, depth), then unknown fields in source order.
+ * Holds the manifest (schemaVersion 1, the manifest of a storage-v3
+ * project, still read by the automatic v3 → v4 upgrade), the shared field
+ * helpers, the hierarchy cycle/depth checks and the component
+ * canonicalizers the v3/v4 scene validators build on. The M1 standalone
+ * scene model (schemaVersion 1) was removed in phase 9.3.
  *
- * Success returns the CANONICAL document (§12.2) — the same value
- * `normalize*` produces; in M1 validation and normalization are one pass.
- * Pure and total: never reads/writes the filesystem, never throws on
- * malformed data. `found` values are always bounded and JSON-safe so an
- * error payload serialized to text never emits NaN/Infinity tokens
- * (§12.7 R5).
+ * Errors are collected, not fail-on-first, in a deterministic order.
+ * Success returns the CANONICAL document (§12.2). Pure and total: never
+ * reads/writes the filesystem, never throws on malformed data. `found`
+ * values are always bounded and JSON-safe so an error payload serialized to
+ * text never emits NaN/Infinity tokens (§12.7 R5).
  */
 
 import {
-  INTERCHANGE_SCENE_VERSIONS,
   SCHEMA_VERSIONS_BY_DOCUMENT,
   type ModelError,
   type ModelErrorV2,
@@ -30,10 +26,7 @@ type AnyError = ModelError | ModelErrorV2;
 import type {
   BoxComponent,
   CameraComponent,
-  Entity,
-  EntityComponents,
   Manifest,
-  Scene,
   TransformComponent,
   Vec3,
   Quat,
@@ -44,12 +37,10 @@ import type {
 export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/; // §6
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/; // §7.2
-const COLOR_RE = /^#[0-9a-fA-F]{6}$/; // §10.2
 const M1_SCENE_PATH = 'scenes/main.json'; // §3/§5.3/§7.1
 const QUATERNION_TOLERANCE = 1e-4; // §10.1
 export const MAX_LEN = 1e6; // §10.1/§10.2/§10.3 length bound (meters)
 export const MAX_REVISION = Number.MAX_SAFE_INTEGER; // §6 (2^53 - 1)
-const MAX_ENTITIES = 1024; // §10.4
 const MAX_DEPTH = 32; // §10.4 (root = 1)
 export const NAME_MIN = 1;
 export const NAME_MAX = 128;
@@ -62,18 +53,6 @@ export const KNOWN_MANIFEST_FIELDS = new Set([
   'createdAt',
   'scenes',
 ]);
-const KNOWN_SCENE_FIELDS = new Set([
-  'schemaVersion',
-  'sceneId',
-  'revision',
-  'entities',
-]);
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'components']);
-const KNOWN_COMPONENTS = new Set(['transform', 'box', 'camera']); // §10
-const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
-const KNOWN_BOX_FIELDS = new Set(['size', 'material']);
-const KNOWN_MATERIAL_FIELDS = new Set(['color']);
-const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -460,206 +439,6 @@ export function checkQuaternion(v: unknown, path: string, errors: AnyError[]): v
   }
 }
 
-// ---- components (§10) --------------------------------------------------------
-
-export function validateTransform(t: unknown, path: string, errors: AnyError[]): void {
-  if (!isPlainObject(t)) {
-    errors.push(fieldType(path, t, 'object'));
-    return;
-  }
-  // Canonical field order: position, rotation, scale (§10.1).
-  checkVector(t['position'], `${path}/position`, 3, { absMax: MAX_LEN }, `each |v| <= ${MAX_LEN} meters`, errors);
-  checkQuaternion(t['rotation'], `${path}/rotation`, errors);
-  checkVector(t['scale'], `${path}/scale`, 3, { positive: true, absMax: MAX_LEN }, `each 0 < v <= ${MAX_LEN}`, errors);
-  for (const k of Object.keys(t)) {
-    if (!KNOWN_TRANSFORM_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'position, rotation, scale'));
-  }
-}
-
-export function validateBox(b: unknown, path: string, errors: AnyError[]): void {
-  if (!isPlainObject(b)) {
-    errors.push(fieldType(path, b, 'object'));
-    return;
-  }
-  checkVector(b['size'], `${path}/size`, 3, { positive: true, absMax: MAX_LEN }, `each 0 < v <= ${MAX_LEN} meters`, errors);
-  const mat = b['material'];
-  if (mat !== undefined) {
-    if (!isPlainObject(mat)) {
-      errors.push(fieldType(`${path}/material`, mat, 'object'));
-    } else {
-      const color = mat['color'];
-      if (color !== undefined) {
-        if (typeof color !== 'string') {
-          errors.push(fieldType(`${path}/material/color`, color, 'string'));
-        } else if (!COLOR_RE.test(color)) {
-          errors.push(
-            fieldValue(`${path}/material/color`, color, '#rrggbb (6 hex digits)', 'material color must be #rrggbb (case-insensitive; canonical form is lowercase)'),
-          );
-        }
-      }
-      for (const k of Object.keys(mat)) {
-        if (!KNOWN_MATERIAL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/material/${pointerSegment(k)}`, k, 'color'));
-      }
-    }
-  }
-  for (const k of Object.keys(b)) {
-    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material'));
-  }
-}
-
-export function validateCamera(c: unknown, path: string, errors: AnyError[]): void {
-  if (!isPlainObject(c)) {
-    errors.push(fieldType(path, c, 'object'));
-    return;
-  }
-  // Canonical field order: type, fovY, near, far (§10.3). All numeric
-  // fields are optional with §10.3 defaults — absent is skipped here and
-  // filled on normalize (§12.2 rule 1).
-  const type = c['type'];
-  if (type !== undefined) {
-    if (typeof type !== 'string') {
-      errors.push(fieldType(`${path}/type`, type, 'string'));
-    } else if (type !== 'perspective') {
-      errors.push(fieldValue(`${path}/type`, type, '"perspective" (only M1 value)', 'camera type must be "perspective"'));
-    }
-  }
-  if (c['fovY'] !== undefined) {
-    checkFiniteNumber(c['fovY'], `${path}/fovY`, { positive: true, maxExcl: 180 }, '0 < v < 180 degrees', errors);
-  }
-  const near = c['near'];
-  if (near !== undefined) {
-    checkFiniteNumber(near, `${path}/near`, { positive: true, absMax: MAX_LEN }, `0 < v <= ${MAX_LEN} meters`, errors);
-  }
-  // `far > near`: compare against the effective near (validated value, or
-  // the §10.3 default when near is absent/invalid).
-  const effectiveNear = typeof near === 'number' && Number.isFinite(near) ? (near as number) : 0.1;
-  if (c['far'] !== undefined) {
-    checkFiniteNumber(c['far'], `${path}/far`, { minExcl: effectiveNear, absMax: MAX_LEN }, `near < v <= ${MAX_LEN} meters`, errors);
-  }
-  for (const k of Object.keys(c)) {
-    if (!KNOWN_CAMERA_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, fovY, near, far'));
-  }
-}
-
-/**
- * §9 component registry and combinations. Unknown components report
- * `component_unknown` (listing the known types) with NO field-level
- * validation of their contents. `transform` is required; `box` and
- * `camera` conflict. Field validation of every present KNOWN component is
- * collected independently (a conflicting combination does not suppress the
- * field errors of either component).
- */
-export function validateComponents(comps: Record<string, unknown>, path: string, errors: AnyError[]): void {
-  for (const k of Object.keys(comps)) {
-    if (!KNOWN_COMPONENTS.has(k)) {
-      errors.push(
-        withFound(
-          {
-            code: 'component_unknown',
-            path: `${path}/${pointerSegment(k)}`,
-            message: 'component is not in the M1 registry',
-            expected: 'known component types: transform, box, camera',
-            hint: 'adding a component type requires a new schemaVersion (project-model.md §10)',
-          },
-          k,
-        ),
-      );
-    }
-  }
-  if (comps['transform'] === undefined) {
-    errors.push({
-      code: 'component_missing',
-      path: `${path}/transform`,
-      message: 'every entity requires the transform component',
-      expected: 'transform present',
-    });
-  }
-  const hasBox = comps['box'] !== undefined;
-  const hasCam = comps['camera'] !== undefined;
-  if (hasBox && hasCam) {
-    errors.push(
-      withFound(
-        {
-          code: 'component_conflict',
-          path,
-          message: 'box and camera are mutually exclusive on one entity',
-          expected: 'at most one of box, camera',
-        },
-        ['box', 'camera'],
-      ),
-    );
-  }
-  if (comps['transform'] !== undefined) validateTransform(comps['transform'], `${path}/transform`, errors);
-  if (hasBox) validateBox(comps['box'], `${path}/box`, errors);
-  if (hasCam) validateCamera(comps['camera'], `${path}/camera`, errors);
-}
-
-// ---- entity (§9) --------------------------------------------------------------
-
-function validateEntity(
-  e: unknown,
-  idx: number,
-  errors: AnyError[],
-  idFirstIndex: Map<string, number>,
-): void {
-  const base = `/entities/${idx}`;
-  if (!isPlainObject(e)) {
-    errors.push(fieldType(base, e, 'object'));
-    return;
-  }
-  const id = e['id'];
-  if (id === undefined) {
-    errors.push(fieldMissing(`${base}/id`, 'id'));
-  } else if (typeof id !== 'string') {
-    errors.push(fieldType(`${base}/id`, id, 'string'));
-  } else {
-    if (!ID_RE.test(id)) errors.push(idInvalid(`${base}/id`, id));
-    const first = idFirstIndex.get(id);
-    if (first === undefined) {
-      idFirstIndex.set(id, idx);
-    } else {
-      // First occurrence wins; the error points at the later occurrence
-      // (§12.3 duplicate-ID reporting).
-      errors.push(
-        withFound(
-          {
-            code: 'id_duplicate',
-            path: `${base}/id`,
-            message: 'entity id is already used by an earlier entity (first occurrence wins)',
-            expected: 'a unique entity id within the scene',
-          },
-          id,
-        ),
-      );
-    }
-  }
-  const name = e['name'];
-  if (name !== undefined) {
-    if (typeof name !== 'string') {
-      errors.push(fieldType(`${base}/name`, name, 'string'));
-    } else if (!isValidName(name)) {
-      errors.push(
-        fieldValue(`${base}/name`, name, `string, ${NAME_MIN}-${NAME_MAX} chars, no control characters`, 'entity name must be 1-128 characters without control characters'),
-      );
-    }
-  }
-  const pid = e['parentId'];
-  if (pid !== undefined && pid !== null && typeof pid !== 'string') {
-    errors.push(fieldType(`${base}/parentId`, pid, 'string or null'));
-  }
-  const comps = e['components'];
-  if (comps === undefined) {
-    errors.push(fieldMissing(`${base}/components`, 'components'));
-  } else if (!isPlainObject(comps)) {
-    errors.push(fieldType(`${base}/components`, comps, 'object'));
-  } else {
-    validateComponents(comps, `${base}/components`, errors);
-  }
-  for (const k of Object.keys(e)) {
-    if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, components'));
-  }
-}
-
 // ---- cross-entity checks (§11, §10.3, §10.4) ----------------------------------
 
 /**
@@ -925,151 +704,12 @@ export function normalizeManifest(doc: unknown): ModelResult<Manifest> {
   return validateManifest(doc);
 }
 
-// ---- scene (§8) -----------------------------------------------------------------
-
-function validateSceneValue(
-  doc: Record<string, unknown>,
-): { errors: ModelError[]; doc?: Scene } {
-  const errors: ModelError[] = [];
-  // sceneId (§5.1)
-  const sceneId = doc['sceneId'];
-  if (sceneId === undefined) {
-    errors.push(fieldMissing('/sceneId', 'sceneId'));
-  } else if (typeof sceneId !== 'string') {
-    errors.push(fieldType('/sceneId', sceneId, 'string'));
-  } else if (!ID_RE.test(sceneId)) {
-    errors.push(idInvalid('/sceneId', sceneId));
-  }
-  // revision (§6)
-  const revision = doc['revision'];
-  if (revision === undefined) {
-    errors.push(fieldMissing('/revision', 'revision'));
-  } else if (typeof revision !== 'number') {
-    errors.push(fieldType('/revision', revision, 'integer'));
-  } else if (!Number.isSafeInteger(revision) || revision < 0 || revision > MAX_REVISION) {
-    errors.push(
-      withFound(
-        {
-          code: 'revision_invalid',
-          path: '/revision',
-          message: 'revision must be an integer in [0, 2^53-1]',
-          expected: `integer in [0, ${MAX_REVISION}]`,
-        },
-        revision,
-      ),
-    );
-  }
-  // entities (§8.1)
-  const ents = doc['entities'];
-  let entities: unknown[] | null = null;
-  if (ents === undefined) {
-    errors.push(fieldMissing('/entities', 'entities'));
-  } else if (!Array.isArray(ents)) {
-    errors.push(fieldType('/entities', ents, 'array'));
-  } else {
-    entities = ents;
-    if (ents.length > MAX_ENTITIES) {
-      errors.push(
-        withFound(
-          {
-            code: 'limits_exceeded',
-            path: '/entities',
-            message: `scene exceeds the M1 entity limit of ${MAX_ENTITIES}`,
-            limit: 'entities',
-            expected: `<= ${MAX_ENTITIES} entities`,
-          },
-          ents.length,
-        ),
-      );
-    }
-  }
-  if (entities !== null) {
-    const idFirstIndex = new Map<string, number>();
-    for (let idx = 0; idx < entities.length; idx++) {
-      validateEntity(entities[idx], idx, errors, idFirstIndex);
-    }
-    // Cross-entity: references (§11.2).
-    for (let idx = 0; idx < entities.length; idx++) {
-      const e = entities[idx];
-      if (!isPlainObject(e)) continue;
-      const pid = e['parentId'];
-      if (typeof pid === 'string' && !idFirstIndex.has(pid)) {
-        errors.push(
-          withFound(
-            {
-              code: 'reference_missing',
-              path: `/entities/${idx}/parentId`,
-              message: 'parentId does not reference an existing entity in this scene',
-              found: undefined,
-              expected: 'an existing entity id, or null/absent (root)',
-            },
-            pid,
-          ),
-        );
-      }
-    }
-    // Cross-entity: cycles (§11.2 normative algorithm).
-    checkHierarchyCycles(entities, idFirstIndex, errors);
-    // Cross-entity: parent-before-child order (§11.1).
-    for (let idx = 0; idx < entities.length; idx++) {
-      const e = entities[idx];
-      if (!isPlainObject(e)) continue;
-      const pid = e['parentId'];
-      if (typeof pid !== 'string') continue;
-      const pidx = idFirstIndex.get(pid);
-      if (pidx === undefined) continue; // missing reference reported separately
-      if (pidx >= idx) {
-        errors.push(
-          withFound(
-            {
-              code: 'order_parent_before_child',
-              path: `/entities/${idx}/parentId`,
-              message: 'an entity must appear before its parent in the entities array',
-              expected: 'parent index < child index (parent-before-child order)',
-            },
-            pid,
-          ),
-        );
-      }
-    }
-    // Cross-entity: exactly one camera (§10.3).
-    let cameras = 0;
-    for (const e of entities) {
-      if (isPlainObject(e) && isPlainObject(e['components']) && e['components']['camera'] !== undefined) {
-        cameras += 1;
-      }
-    }
-    if (cameras !== 1) {
-      errors.push(
-        withFound(
-          {
-            code: 'camera_count_invalid',
-            path: '',
-            message: 'the scene must contain exactly one entity carrying the camera component',
-            expected: 'exactly 1 camera',
-          },
-          cameras,
-        ),
-      );
-    }
-    // Cross-entity: depth limit (§10.4).
-    checkDepthLimit(entities, idFirstIndex, errors);
-  }
-  // Unknown top-level fields (§8.1 strict) — always checked, independent of
-  // the entity-level errors collected above.
-  for (const k of Object.keys(doc)) {
-    if (!KNOWN_SCENE_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, sceneId, revision, entities'));
-  }
-  if (errors.length > 0) return { errors };
-  return { errors, doc: canonicalScene(doc, entities as unknown[]) };
-}
-
 /**
- * Canonical scene (§12.2) from a fully validated scene value. Builds a NEW
- * object graph (never mutates the input): defaults filled, negative zero
- * converted to zero, color lowercased, fixed key order, entities order
- * preserved, quaternions preserved verbatim (no renormalization, no
- * sign-flip, §12.2 rules 2/5).
+ * Canonical component values (§12.2) for the v3/v4 scene canonicalizers.
+ * Each builds a NEW object (never mutates the input): defaults filled,
+ * negative zero converted to zero, color lowercased, fixed key order,
+ * quaternions preserved verbatim (no renormalization, no sign-flip, §12.2
+ * rules 2/5).
  */
 export function canonNum(v: unknown): number {
   const n = v as number; // validated finite number
@@ -1118,96 +758,4 @@ export function canonicalCamera(c: unknown): CameraComponent {
     near: canonOptNumber(o['near'], 0.1),
     far: canonOptNumber(o['far'], 100),
   };
-}
-
-function canonicalEntity(e: Record<string, unknown>): Entity {
-  const comps = e['components'] as Record<string, unknown>;
-  const components: EntityComponents = {
-    transform: canonicalTransform(comps['transform']),
-  };
-  if (comps['box'] !== undefined) components.box = canonicalBox(comps['box']);
-  if (comps['camera'] !== undefined) components.camera = canonicalCamera(comps['camera']);
-  // Fixed entity key order (§12.2 rule 4): id, name?, parentId?, components.
-  const name = e['name'];
-  const pid = e['parentId'];
-  return {
-    id: e['id'] as string,
-    ...(typeof name === 'string' ? { name } : {}),
-    ...(typeof pid === 'string' ? { parentId: pid } : {}),
-    components,
-  };
-}
-
-function canonicalScene(doc: Record<string, unknown>, ents: unknown[]): Scene {
-  return {
-    schemaVersion: 1,
-    sceneId: doc['sceneId'] as string,
-    revision: canonNum(doc['revision']),
-    entities: (ents as Record<string, unknown>[]).map(canonicalEntity),
-  };
-}
-
-export function validateScene(doc: unknown): ModelResult<Scene> {
-  if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  // §8: a STANDALONE interchange scene file remains schemaVersion 1. The v2
-  // embedded scene is validated by validateSceneV2 (packet 20). The M1
-  // fixture/behavior contract (`invalid/unsupported-version.json`) pins that
-  // the interchange entry point rejects a standalone version-2 scene with a
-  // single schema_version_unsupported.
-  if (!isKnownVersion(doc['schemaVersion'], INTERCHANGE_SCENE_VERSIONS)) {
-    return fail([
-      schemaVersionUnsupported(
-        doc['schemaVersion'],
-        INTERCHANGE_SCENE_VERSIONS,
-        'standalone interchange scene files are schemaVersion 1',
-      ),
-    ]);
-  }
-  const { errors, doc: canonical } = validateSceneValue(doc);
-  if (errors.length > 0) return fail(errors);
-  return { ok: true, normalized: canonical as Scene };
-}
-
-/** §12.1: validate, then return the new canonical document (§12.2). */
-export function normalizeScene(doc: unknown): ModelResult<Scene> {
-  return validateScene(doc);
-}
-
-// ---- cross-document (§13) ---------------------------------------------------------
-
-/**
- * Project-level validation (§13): both single-document validations first
- * (manifest then scene order); project-level errors carry the `document`
- * discriminator. Cross-document checks run only when BOTH documents pass;
- * an unknown version produces exactly one error for that document while
- * independent errors in the other document are still returned.
- */
-export function validateProject(
-  manifest: unknown,
-  scene: unknown,
-): ModelResult<{ manifest: Manifest; scene: Scene }> {
-  const m = validateManifest(manifest);
-  const s = validateScene(scene);
-  const errors: ModelError[] = [];
-  if (!m.ok) for (const e of m.errors) errors.push({ ...e, document: 'manifest' });
-  if (!s.ok) for (const e of s.errors) errors.push({ ...e, document: 'scene' });
-  if (!m.ok || !s.ok) return fail(errors);
-  const mm = m.normalized;
-  const ss = s.normalized;
-  if (mm.scenes[0].id !== ss.sceneId) {
-    errors.push(
-      withFound(
-        {
-          code: 'manifest_scene_mismatch',
-          path: '/scenes/0/id',
-          document: 'manifest',
-          message: 'manifest scenes[0].id does not equal the scene document sceneId',
-          expected: 'scene document sceneId',
-        },
-        mm.scenes[0].id,
-      ),
-    );
-    return fail(errors);
-  }
-  return { ok: true, normalized: { manifest: mm, scene: ss } };
 }

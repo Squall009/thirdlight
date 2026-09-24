@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Projection, type FullState, type MutationApplied } from './projection';
-import type { Entity, Vec3, Quat } from '@thirdlight/project-model';
+import type { EntityV3 as Entity, Vec3, Quat } from '@thirdlight/project-model';
 
 function ent(id: string, parentId: string | null = null, pos: Vec3 = [0, 0, 0]): Entity {
   return {

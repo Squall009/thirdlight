@@ -9,11 +9,9 @@
  * extended to the full accepted §12.6 stable set and the version knowledge
  * becomes per-document (`SCHEMA_VERSIONS_BY_DOCUMENT`; the accepted contract
  * names this value `KNOWN_VERSIONS` too). `KNOWN_VERSIONS` keeps its
- * historical name as the same per-document value. The M1 standalone
- * interchange validators (`validateScene`/`parseScene`) stay pinned to
- * schemaVersion 1 (§8: "a standalone interchange file remains schemaVersion
- * 1"); the v2 embedded scene is validated by `validateSceneV2` and
- * `validateProjectV2`.
+ * historical name as the same per-document value. The M1/M2 scene
+ * validators were removed in phase 9.3; the error shapes keep their
+ * versioned names (`ModelErrorV2`/`V3`) because the v3/v4 validators use them.
  */
 
 /** Exact limit names carried by a `limits_exceeded` error (§12.6). */
@@ -167,20 +165,19 @@ export const ERROR_CODES = [
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /**
- * The logical `schemaVersion` known for each document type (§6). The manifest
- * stays `1`; the scene gains `2` in M2. `KNOWN_VERSIONS` is the accepted
- * contract's historical name for this same value (§12.1).
+ * The logical `schemaVersion` known for each document type (§6): the v3
+ * project manifest (`1`; the v4 manifest `2` has its own validator) and the
+ * v3/v4 scenes (the v1/v2 scene models were removed in phase 9.3).
+ * `KNOWN_VERSIONS` is the accepted contract's historical name for this same
+ * value (§12.1).
  */
 export const SCHEMA_VERSIONS_BY_DOCUMENT = {
   manifest: [1],
-  scene: [1, 2, 3],
+  scene: [3, 4],
 } as const;
 
 /** Accepted contract §12.1 name for the per-document known-version structure. */
 export const KNOWN_VERSIONS = SCHEMA_VERSIONS_BY_DOCUMENT;
-
-/** The standalone interchange scene document is `schemaVersion` 1 (§8). */
-export const INTERCHANGE_SCENE_VERSIONS = [1] as const;
 
 /** One validation error (§12.5 shape, M1-compatible). */
 export interface ModelError {

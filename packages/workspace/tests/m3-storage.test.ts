@@ -1,14 +1,25 @@
 /**
- * Packet 46 — durable v3 state on the real filesystem (workspace.md §16).
+ * Durable project state on the real filesystem (workspace.md §16), ported to
+ * storage v4 in phase 9.3 step B (the v3 single-envelope write path is gone;
+ * the storage v3 originals are archived under archive/removed-v1-v2/workspace).
  *
- * - the committed packet-39 v3 envelope fixtures load through the workspace
- *   v3 branch (§16.4) and rebuild byte-identically;
- * - a real v3 command writes the six-key v3 envelope through the same `W` and
- *   the same ack timing as v2 (§5.3), and a lost-ack retry replays;
- * - the v3 envelope stays the ONLY mutable authoritative file (no `game.json`/
- *   `settings.json` side-car);
- * - a controlled write fault and an external change keep the accepted
- *   classification/refusal semantics for v3.
+ * - the committed packet-39 v3 envelope fixtures still load through the v3
+ *   reader (the input of the v3 → v4 upgrade) in canonical form, and every
+ *   invalid one is refused with its recorded code;
+ * - a real game-config command writes content.json through `W` (the retry
+ *   record in the same file), acks only after the durable write, and a
+ *   lost-ack retry replays without a rewrite, also after a restart;
+ * - the project files stay content.json + scenes/<id>.json + project.json (no
+ *   `game.json`/`settings.json` side-car);
+ * - a controlled write fault and an external change of content.json keep the
+ *   accepted classification/refusal semantics;
+ * - content reads over an upgraded v3 media project: typed prepared-media
+ *   facts and copy-safe verified bytes.
+ *
+ * Related v4 coverage relied on (not duplicated here): scene-file retry
+ * replay after a restart (dedup-retry.test.ts), scene-file write faults
+ * (write-fault.test.ts), scene-file external changes (external-change.test.ts,
+ * storage-v4.test.ts), the v3 → v4 upgrade on open (storage-v4.test.ts).
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -23,26 +34,30 @@ import {
   type WorkspaceService,
   type WriteOps,
 } from '@thirdlight/workspace';
-import { buildEnvelopeBytesV3 } from '../src/envelope';
 
-import { REPO_ROOT, fileBytes, makeRoot, seedProject, sha256Hex } from './helpers';
+import { REPO_ROOT, fileBytes, makeRoot, seedProject, seedV3Project, sha256Hex } from './helpers';
 
 const CONTRACTS = join(REPO_ROOT, 'fixtures', 'm3', 'contracts');
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const PROJECT_ID = 'demo-0003';
 const CREATED_AT = '2026-09-19T10:00:00Z';
 const SELF = { backendId: 'tb-' + 'a'.repeat(32), pid: 6100 };
+const COURIER_DIGEST = 'ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc';
 
 function open(root: string, extra: Record<string, unknown> = {}): WorkspaceService {
   return openWorkspaceService({ root, utcNow: () => CREATED_AT, ...extra });
 }
 
+/** The v3 Beacon Reach project (revision 3), upgraded to v4 when opened. */
 function seedV3(root: string): string {
   return seedProject(root, join(STORAGE, 'project-v3-demo-0003'), PROJECT_ID);
 }
 
-function envelopeOf(root: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(root, 'projects', PROJECT_ID, 'scenes', 'main.json'), 'utf8')) as Record<string, unknown>;
+function contentPath(root: string): string {
+  return join(root, 'projects', PROJECT_ID, 'content.json');
+}
+function scenePath(root: string): string {
+  return join(root, 'projects', PROJECT_ID, 'scenes', 'scene-main.json');
 }
 
 function editTitle(n: number, revision: number, title: string) {
@@ -56,8 +71,15 @@ function editTitle(n: number, revision: number, title: string) {
   };
 }
 
-describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
-  it('loads every committed valid v3 envelope and rebuilds it byte-identically', async () => {
+/** Open (claim + upgrade) the project and return its revision. */
+function openedRevision(svc: WorkspaceService): number {
+  const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
+  expect(q.ok, JSON.stringify(q)).toBe(true);
+  return q.revision;
+}
+
+describe('packet 46 — the v3 envelope reader (input of the v4 upgrade)', () => {
+  it('loads every committed valid v3 envelope in canonical form', async () => {
     const { validateEnvelope } = await import('../src/envelope');
     const dir = join(CONTRACTS, 'envelope', 'valid');
     const files = readdirSync(dir);
@@ -67,9 +89,16 @@ describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
       const raw = JSON.parse(new TextDecoder().decode(bytes)) as { projectId: string };
       const res = validateEnvelope(bytes, raw.projectId);
       expect(res.ok, `${f}: ${JSON.stringify((res as { reason?: string }).reason)}`).toBe(true);
-      if (!res.ok || res.storageVersion !== 3) continue;
-      const rebuilt = buildEnvelopeBytesV3(raw.projectId, res.scene, res.content, res.records);
-      expect(Buffer.compare(Buffer.from(rebuilt), Buffer.from(bytes)), f).toBe(0);
+      if (!res.ok) continue;
+      expect(res.storageVersion).toBe(3);
+      // The normalized values re-serialize to the committed bytes (the
+      // six-key v3 envelope layout).
+      const rebuilt = JSON.stringify(
+        { storageVersion: 3, type: 'authoring-state', projectId: raw.projectId, scene: res.scene, content: res.content, retry: { retention: 128, records: res.records } },
+        null,
+        2,
+      ) + '\n';
+      expect(rebuilt, f).toBe(new TextDecoder().decode(bytes));
     }
   });
 
@@ -88,8 +117,13 @@ describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
         scene?: { sceneId?: string };
       };
       const pid = raw.projectId ?? PROJECT_ID;
-      const want = idx.fixtures[`envelope/invalid/${f}`]?.expect.result;
-      expect(want, f).toBeDefined();
+      const recorded = idx.fixtures[`envelope/invalid/${f}`]?.expect.result;
+      expect(recorded, f).toBeDefined();
+      // Phase 9.3: a storageVersion 2 envelope is refused as
+      // storage_version_unsupported before the §16.2 combination check (the
+      // v2 reader is gone), so the scene-3/storage-2 combination fixture now
+      // stops at the storage version. The fixture bytes are unchanged.
+      const want = f === 'combination-scene3-storage2.json' ? 'storage_version_unsupported' : recorded;
       const env = validateEnvelope(bytes, pid);
       if (env.ok) {
         // A cross-block failure needs the manifest holder (the session path).
@@ -112,29 +146,10 @@ describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
 
   it('refuses a v3 project whose cross-block game/cue references dangle at open', () => {
     const root = makeRoot('m3store-cross');
-    const dir = join(root, 'projects', PROJECT_ID);
-    mkdirSync(join(dir, 'scenes'), { recursive: true });
-    writeFileSync(
-      join(dir, 'project.json'),
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          engineVersion: '0.1.0',
-          id: PROJECT_ID,
-          name: 'Beacon Reach',
-          createdAt: CREATED_AT,
-          scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
-        },
-        null,
-        2,
-      ) + '\n',
-    );
     // A committed invalid v3 envelope (a dangling game cue) in a real project
     // layout: the session loader's §16.4 step-5 cross-block check must refuse.
-    writeFileSync(
-      join(dir, 'scenes', 'main.json'),
-      fileBytes(join(CONTRACTS, 'envelope', 'invalid', 'cue-unresolved.json')),
-    );
+    const dir = seedV3Project(root, PROJECT_ID, fileBytes(join(CONTRACTS, 'envelope', 'invalid', 'cue-unresolved.json')));
+    const before = fileBytes(join(dir, 'scenes', 'main.json'));
     const svc = open(root, SELF);
     const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as {
       ok: boolean;
@@ -142,6 +157,9 @@ describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
     };
     expect(q.ok).toBe(false);
     expect(q.error?.reason).toBe('asset_reference_missing');
+    // Refused, not upgraded: the v3 envelope is untouched and no v4 file appeared.
+    expect(Buffer.compare(Buffer.from(before), readFileSync(join(dir, 'scenes', 'main.json')))).toBe(0);
+    expect(existsSync(join(dir, 'content.json'))).toBe(false);
     svc.dispose();
   });
 
@@ -163,14 +181,13 @@ describe('packet 46 — the v3 envelope pipeline (workspace.md §16.4)', () => {
   });
 });
 
-describe('packet 46 — durable v3 write (workspace.md §5.3/§16.3)', () => {
-  it('acks a v3 edit only after the durable six-key envelope write, and replays a lost-ack retry', () => {
+describe('durable content.json write (workspace.md §5.3; storage v4)', () => {
+  it('acks a game-config edit only after the durable content.json write, and replays a lost-ack retry', () => {
     const root = makeRoot('m3store-write');
     seedV3(root);
     const svc = open(root, SELF);
-    const q0 = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
-    expect(q0.ok).toBe(true);
-    expect(q0.revision).toBe(3);
+    expect(openedRevision(svc)).toBe(3);
+    const sceneBefore = readFileSync(scenePath(root));
 
     const r = svc.runCommand(editTitle(1, 3, 'Beacon Reach II')) as MutationResult;
     expect(r.ok, JSON.stringify(r)).toBe(true);
@@ -178,70 +195,69 @@ describe('packet 46 — durable v3 write (workspace.md §5.3/§16.3)', () => {
     expect(r.revision).toBe(4);
     expect(r.duplicated).toBe(false);
 
-    // The acked state is durable and canonical: the six-key v3 envelope.
-    const envPath = join(root, 'projects', PROJECT_ID, 'scenes', 'main.json');
-    const onDisk = JSON.parse(readFileSync(envPath, 'utf8')) as Record<string, unknown>;
-    expect(onDisk['storageVersion']).toBe(3);
-    expect(Object.keys(onDisk)).toEqual(['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry']);
-    expect(Object.keys(onDisk['content'] as object)).toEqual([
-      'assets',
-      'prefabs',
-      'behaviors',
-      'settings',
-      'behaviorTrust',
-      'game',
-    ]);
+    // The acked state is durable and canonical: the v4 content file carries
+    // the new game config and the retry record; the scene file is not written
+    // (only the files a transaction changes are written).
+    const onDisk = JSON.parse(readFileSync(contentPath(root), 'utf8')) as Record<string, unknown>;
+    expect(Object.keys(onDisk)).toEqual(['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry']);
+    expect(onDisk['storageVersion']).toBe(4);
+    expect(onDisk['type']).toBe('project-content');
+    expect(onDisk['revision']).toBe(4);
     const retry = onDisk['retry'] as { records: { requestId: string; appliedRevision: number }[] };
     expect(retry.records.length).toBe(1);
     expect(retry.records[0]!.requestId).toBe('req-' + String(1).padStart(32, '0'));
     expect(retry.records[0]!.appliedRevision).toBe(4);
-    const game = (onDisk['content'] as { game: { title: string } }).game;
-    expect(game.title).toBe('Beacon Reach II');
+    expect((onDisk['content'] as { game: { title: string } }).game.title).toBe('Beacon Reach II');
+    expect(Buffer.compare(sceneBefore, readFileSync(scenePath(root)))).toBe(0);
 
     // A lost-ack retry with the same requestId replays durably (no rewrite).
-    const before = readFileSync(envPath);
+    const before = readFileSync(contentPath(root));
     const again = svc.runCommand(editTitle(1, 3, 'Beacon Reach II')) as MutationResult;
     expect(again.ok).toBe(true);
     if (again.ok) {
       expect(again.duplicated).toBe(true);
       expect(again.revision).toBe(4);
     }
-    expect(Buffer.compare(before, readFileSync(envPath))).toBe(0);
+    expect(Buffer.compare(before, readFileSync(contentPath(root)))).toBe(0);
 
-    // A fresh open (same backend identity) loads the v3 state.
+    // A fresh open (same backend identity) loads the state, and the durable
+    // record in content.json still answers the retry.
     svc.dispose();
     const svc2 = open(root, SELF);
-    const q1 = svc2.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
-    expect(q1.ok).toBe(true);
-    expect(q1.revision).toBe(4);
+    expect(openedRevision(svc2)).toBe(4);
+    const replay = svc2.runCommand(editTitle(1, 3, 'Beacon Reach II')) as MutationResult;
+    expect(replay.ok).toBe(true);
+    if (replay.ok) {
+      expect(replay.duplicated).toBe(true);
+      expect(replay.revision).toBe(4);
+    }
+    expect(Buffer.compare(before, readFileSync(contentPath(root)))).toBe(0);
     svc2.dispose();
   });
 
-  it('keeps the envelope the only mutable authoritative file (no side-car)', () => {
+  it('keeps the v4 project files the only mutable authoritative files (no side-car)', () => {
     const root = makeRoot('m3store-sidecar');
     seedV3(root);
     const svc = open(root, SELF);
     const r = svc.runCommand(editTitle(2, 3, 'One File')) as MutationResult;
     expect(r.ok, JSON.stringify(r)).toBe(true);
     const dir = join(root, 'projects', PROJECT_ID);
-    for (const rel of ['game.json', 'settings.json', 'scene.json', 'content.json']) {
+    for (const rel of ['game.json', 'settings.json', 'scene.json', join('scenes', 'main.json')]) {
       expect(existsSync(join(dir, rel)), rel).toBe(false);
     }
-    // The only mutable authoring file is scenes/main.json.
-    const top = readdirSync(dir).sort();
-    expect(top).toEqual(['.thirdlight', 'project.json', 'scenes']);
+    expect(readdirSync(dir).sort()).toEqual(['.thirdlight', 'content.json', 'project.json', 'scenes']);
+    expect(readdirSync(join(dir, 'scenes'))).toEqual(['scene-main.json']);
     svc.dispose();
   });
 
-  it('classifies a controlled write fault as write_failed{previous} and leaves the v3 state unchanged', () => {
+  it('classifies a controlled write fault as write_failed{previous} and leaves content.json unchanged', () => {
     const root = makeRoot('m3store-fault');
     seedV3(root);
-    // Healthy open first (claim), then a faulted same-identity service.
+    // Healthy open first (claim + upgrade), then a faulted same-identity service.
     const healthy = open(root, SELF);
-    expect((healthy.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean }).ok).toBe(true);
+    expect(openedRevision(healthy)).toBe(3);
     healthy.dispose();
-    const envPath = join(root, 'projects', PROJECT_ID, 'scenes', 'main.json');
-    const before = readFileSync(envPath);
+    const before = readFileSync(contentPath(root));
     const faulty: WriteOps = {
       ...defaultWriteOps,
       writeAll: () => {
@@ -257,177 +273,125 @@ describe('packet 46 — durable v3 write (workspace.md §5.3/§16.3)', () => {
       expect(r.error.code).toBe('write_failed');
       expect((r.error as { onDiskState?: string }).onDiskState).toBe('previous');
     }
-    expect(Buffer.compare(before, readFileSync(envPath))).toBe(0);
+    expect(Buffer.compare(before, readFileSync(contentPath(root)))).toBe(0);
     const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
     expect(q.ok).toBe(true);
     expect(q.revision).toBe(3);
     svc.dispose();
   });
 
-  it('pauses on an external v3 modification and accepts the operator resolution', () => {
+  it('pauses on an external content.json modification and accepts the operator resolution', () => {
     const root = makeRoot('m3store-ext');
     seedV3(root);
     const svc = open(root, SELF);
     // Load the project first (the external-change protocol is about a change
     // AFTER this backend loaded the state, workspace.md §5.2/§7.2).
-    const q0 = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
-    expect(q0.ok).toBe(true);
-    expect(q0.revision).toBe(3);
-    const envPath = join(root, 'projects', PROJECT_ID, 'scenes', 'main.json');
-    const foreign = JSON.parse(readFileSync(envPath, 'utf8')) as {
-      scene: { revision: number };
+    expect(openedRevision(svc)).toBe(3);
+    const foreign = JSON.parse(readFileSync(contentPath(root), 'utf8')) as {
       content: { game: { title: string } };
     };
-    foreign.scene.revision = 4;
     foreign.content.game.title = 'Hand edited';
-    writeFileSync(envPath, JSON.stringify(foreign, null, 2) + '\n');
+    writeFileSync(contentPath(root), JSON.stringify(foreign, null, 2) + '\n');
 
     const r = svc.runCommand(editTitle(4, 3, 'Nope')) as MutationResult;
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('external_change_unresolved');
-    expect(svc.acceptExternalState(PROJECT_ID).ok).toBe(true);
-    const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { ok: boolean; revision: number };
-    expect(q.ok).toBe(true);
-    expect(q.revision).toBe(4);
-    const onDisk = envelopeOf(root);
-    expect((onDisk['content'] as { game: { title: string } }).game.title).toBe('Hand edited');
+    const acc = svc.acceptExternalState(PROJECT_ID);
+    expect(acc.ok, JSON.stringify(acc)).toBe(true);
+    const g = svc.query({ op: 'queryGameConfig', projectId: PROJECT_ID }) as { ok: boolean; game: { title: string } };
+    expect(g.ok).toBe(true);
+    expect(g.game.title).toBe('Hand edited');
+    const onDisk = JSON.parse(readFileSync(contentPath(root), 'utf8')) as { content: { game: { title: string } }; retry: { records: unknown[] } };
+    expect(onDisk.content.game.title).toBe('Hand edited');
+    expect(onDisk.retry.records).toEqual([]);
+    // Editing continues from the accepted state.
+    const rev = openedRevision(svc);
+    const next = svc.runCommand(editTitle(5, rev, 'After accept')) as MutationResult;
+    expect(next.ok, JSON.stringify(next)).toBe(true);
+    svc.dispose();
+  });
+
+  it('discards an external content.json modification back to the last known good bytes', () => {
+    const root = makeRoot('m3store-ext-discard');
+    seedV3(root);
+    const svc = open(root, SELF);
+    expect(openedRevision(svc)).toBe(3);
+    const lkg = readFileSync(contentPath(root));
+    const foreign = JSON.parse(lkg.toString('utf8')) as { content: { game: { title: string } } };
+    foreign.content.game.title = 'Hand edited';
+    writeFileSync(contentPath(root), JSON.stringify(foreign, null, 2) + '\n');
+    const r = svc.runCommand(editTitle(6, 3, 'Nope')) as MutationResult;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('external_change_unresolved');
+    const disc = svc.discardExternalState(PROJECT_ID);
+    expect(disc.ok, JSON.stringify(disc)).toBe(true);
+    if (disc.ok) expect(disc.revision).toBe(3);
+    expect(Buffer.compare(lkg, readFileSync(contentPath(root)))).toBe(0);
+    const g = svc.query({ op: 'queryGameConfig', projectId: PROJECT_ID }) as { ok: boolean; game: { title: string } };
+    expect(g.game.title).toBe('Beacon Reach');
     svc.dispose();
   });
 });
 
-describe('packet 46 — v3 content reads (workspace.md §16.6)', () => {
-  it('reports typed prepared-media facts for a v3 catalog and returns copy-safe verified bytes', async () => {
-    const { validateEnvelope } = await import('../src/envelope');
+describe('packet 46 — content reads over an upgraded v3 media project (workspace.md §16.6)', () => {
+  it('reports typed prepared-media facts and returns copy-safe verified bytes', async () => {
     const { preparedMediaFacts } = await import('../src/content-store');
     const root = makeRoot('m3store-facts');
-    seedV3(root);
+    // The committed v3 media project (a model and an audio asset) with its
+    // source blobs; it is upgraded to v4 on open.
+    const dir = seedV3Project(root, PROJECT_ID, fileBytes(join(CONTRACTS, 'envelope', 'valid', 'demo-0003-media-v3.json')));
+    mkdirSync(join(dir, 'sources', 'sha256'), { recursive: true });
+    const courier = fileBytes(join(CONTRACTS, 'source-preimages', 'courier.glb'));
+    const wav = fileBytes(join(CONTRACTS, 'source-preimages', 'cue-start.wav'));
+    expect(sha256Hex(courier)).toBe(COURIER_DIGEST);
+    writeFileSync(join(dir, 'sources', 'sha256', COURIER_DIGEST), courier);
+    writeFileSync(join(dir, 'sources', 'sha256', sha256Hex(wav)), wav);
     const svc = open(root, SELF);
-    // Migrate the v2 source to obtain a v3 project with a real model asset.
-    const v2 = join(root, 'projects', 'demo-0002');
-    mkdirSync(join(v2, 'sources', 'sha256'), { recursive: true });
-    mkdirSync(join(v2, 'scenes'), { recursive: true });
-    writeFileSync(join(v2, 'project.json'), fileBytes(join(STORAGE, 'project-v2-demo-0002', 'project.json')));
-    writeFileSync(join(v2, 'scenes', 'main.json'), fileBytes(join(STORAGE, 'project-v2-demo-0002', 'scenes', 'main.json')));
-    const digest = 'ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc';
-    writeFileSync(
-      join(v2, 'sources', 'sha256', digest),
-      fileBytes(join(CONTRACTS, 'source-preimages', 'courier.glb')),
-    );
-    const mig = svc.migrateProjectCopyV3('demo-0002', 'demo-0004');
-    expect(mig.ok, JSON.stringify(mig)).toBe(true);
+    expect(openedRevision(svc)).toBe(5);
+    expect(existsSync(join(dir, 'content.json'))).toBe(true);
 
-    const integrity = svc.contentIntegrity('demo-0004');
+    const integrity = svc.contentIntegrity(PROJECT_ID);
     expect(integrity.ok, JSON.stringify(integrity)).toBe(true);
-    const read = svc.readBlob('demo-0004', { assetId: 'asset-model-courier', version: 1 });
+    if (integrity.ok) expect(integrity.summary).toMatchObject({ total: 2, ok: 2, missing: 0, corrupt: 0, orphanBlobs: 0 });
+    const read = svc.readBlob(PROJECT_ID, { assetId: 'asset-model-courier', version: 1 });
     expect(read.ok, JSON.stringify(read)).toBe(true);
     if (read.ok) {
       expect(read.verified).toBe(true);
-      expect(sha256Hex(read.bytes)).toBe(digest);
+      expect(sha256Hex(read.bytes)).toBe(COURIER_DIGEST);
       expect(read.byteLength).toBe(47);
       // The returned bytes are an independent copy: mutating them cannot
       // change a later read (copy-safe immutable byte read).
       read.bytes[0] = 0;
     }
-    const read2 = svc.readBlob('demo-0004', { assetId: 'asset-model-courier', version: 1 });
+    const read2 = svc.readBlob(PROJECT_ID, { assetId: 'asset-model-courier', version: 1 });
     expect(read2.ok).toBe(true);
-    if (read2.ok) {
-      expect(read2.bytes[0]).toBe(fileBytes(join(CONTRACTS, 'source-preimages', 'courier.glb'))[0]);
-    }
+    if (read2.ok) expect(read2.bytes[0]).toBe(courier[0]);
 
-    // The typed prepared-media facts (model kind).
-    const envBytes = fileBytes(join(root, 'projects', 'demo-0004', 'scenes', 'main.json'));
-    const env = validateEnvelope(envBytes, 'demo-0004');
-    expect(env.ok, JSON.stringify(env)).toBe(true);
-    if (env.ok && env.storageVersion === 3) {
-      const ctx = {
-        projectId: 'demo-0004',
-        dir: join(root, 'projects', 'demo-0004'),
-        thirdlightDir: join(root, 'projects', 'demo-0004', '.thirdlight'),
-        storageVersion: 3 as const,
-        revision: env.scene.revision,
-        scene: env.scene,
-        content: env.content,
-      };
-      const facts = preparedMediaFacts(ctx, 'asset-model-courier', 1);
-      expect(facts.ok, JSON.stringify(facts)).toBe(true);
-      if (facts.ok) {
-        expect(facts.facts.kind).toBe('model');
-        expect(facts.facts.sourceDigest).toBe(digest);
-        expect(facts.facts.sourceByteLength).toBe(47);
-        expect(facts.facts.importRecipe.profile).toBe('gltf-glb');
-      }
-      const missing = preparedMediaFacts(ctx, 'asset-model-courier', 9);
-      expect(missing.ok).toBe(false);
-      if (!missing.ok) expect(missing.error.code).toBe('asset_version_not_found');
+    // The typed prepared-media facts over the upgraded (v4) catalog.
+    const doc = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { revision: number; content: never };
+    const ctx = {
+      projectId: PROJECT_ID,
+      dir,
+      thirdlightDir: join(dir, '.thirdlight'),
+      storageVersion: 4 as const,
+      revision: doc.revision,
+      scene: null,
+      content: doc.content,
+    };
+    const facts = preparedMediaFacts(ctx, 'asset-model-courier', 1);
+    expect(facts.ok, JSON.stringify(facts)).toBe(true);
+    if (facts.ok) {
+      expect(facts.facts.kind).toBe('model');
+      expect(facts.facts.sourceDigest).toBe(COURIER_DIGEST);
+      expect(facts.facts.sourceByteLength).toBe(47);
+      expect(facts.facts.importRecipe.profile).toBe('gltf-glb');
     }
-
-    // The audio kind discriminator is typed from the committed media fixture.
-    const mediaBytes = fileBytes(join(CONTRACTS, 'envelope', 'valid', 'demo-0003-media-v3.json'));
-    const media = validateEnvelope(mediaBytes, 'demo-0003');
-    expect(media.ok, JSON.stringify(media)).toBe(true);
-    if (media.ok && media.storageVersion === 3) {
-      const ctx = {
-        projectId: 'demo-0003',
-        dir: root,
-        thirdlightDir: root,
-        storageVersion: 3 as const,
-        revision: media.scene.revision,
-        scene: media.scene,
-        content: media.content,
-      };
-      const audio = preparedMediaFacts(ctx, 'asset-audio-cue-start', 1);
-      expect(audio.ok, JSON.stringify(audio)).toBe(true);
-      if (audio.ok) expect(audio.facts.kind).toBe('audio');
-    }
-
-    const view = svc.captureContentView('demo-0004');
-    expect(view.ok, JSON.stringify(view)).toBe(true);
-    if (view.ok) {
-      // The v2 source's asset record is unreferenced by any entity, so the v3
-      // captured closure is empty (the view is a closure over scene/game
-      // references, not the whole catalog).
-      expect(view.view.assets.length).toBe(0);
-    }
-    svc.dispose();
-  });
-
-  it('captures a v3 view over modelAnimation and game cue references', () => {
-    const root = makeRoot('m3store-view');
-    const dir = join(root, 'projects', PROJECT_ID);
-    mkdirSync(join(dir, 'scenes'), { recursive: true });
-    writeFileSync(
-      join(dir, 'project.json'),
-      JSON.stringify(
-        {
-          schemaVersion: 1,
-          engineVersion: '0.1.0',
-          id: PROJECT_ID,
-          name: 'Beacon Reach',
-          createdAt: CREATED_AT,
-          scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-    writeFileSync(
-      join(dir, 'scenes', 'main.json'),
-      fileBytes(join(CONTRACTS, 'envelope', 'valid', 'demo-0003-media-v3.json')),
-    );
-    const svc = open(root, SELF);
-    const view = svc.captureContentView(PROJECT_ID);
-    expect(view.ok, JSON.stringify(view)).toBe(true);
-    if (view.ok) {
-      // modelAnimation pins the model asset's recorded version; the game cues
-      // reference the audio asset.
-      const ids = view.view.assets.map((a) => a.assetId).sort();
-      expect(ids).toEqual(['asset-audio-cue-start', 'asset-model-courier']);
-      const model = view.view.assets.find((a) => a.assetId === 'asset-model-courier')!;
-      expect(model.version).toBe(1);
-      expect(model.sourceDigest).toBe(
-        'ec535bb2ebcdecb508d7ea0372fe1562d547a9dd0fd5498d1d55c3e61ba44ecc',
-      );
-    }
+    const missing = preparedMediaFacts(ctx, 'asset-model-courier', 9);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe('asset_version_not_found');
+    const audio = preparedMediaFacts(ctx, 'asset-audio-cue-start', 1);
+    expect(audio.ok, JSON.stringify(audio)).toBe(true);
+    if (audio.ok) expect(audio.facts.kind).toBe('audio');
     svc.dispose();
   });
 });

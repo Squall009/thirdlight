@@ -18,7 +18,7 @@ import {
 import { entityNotFound, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { componentsRecord, deepClone, gateResultState, type OpOutcome } from './ops';
-import type { EntityV2 } from '@thirdlight/project-model';
+import type { EntityV3 } from '@thirdlight/project-model';
 import type {
   ApplySurfacePresetArgs,
   ApplySurfacePresetChange,
@@ -35,8 +35,8 @@ export function applyApplySurfacePreset(
   const catalog = contentOf(input.content);
   const index = input.scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
-  const entity = input.scene.entities[index] as EntityV2;
-  const components = componentsRecord(entity as unknown as EntityV2);
+  const entity = input.scene.entities[index] as EntityV3;
+  const components = componentsRecord(entity as unknown as EntityV3);
   if (components['box'] === undefined && components['model'] === undefined) {
     return {
       ok: false,
@@ -54,7 +54,7 @@ export function applyApplySurfacePreset(
   const next = deepClone(SURFACE_PRESETS[args.preset]);
   const cloned = deepClone(entity);
   (cloned as unknown as { components: Record<string, unknown> }).components = {
-    ...componentsRecord(cloned as unknown as EntityV2),
+    ...componentsRecord(cloned as unknown as EntityV3),
     surface: next,
   };
   const nextEntities = [...input.scene.entities];
@@ -66,8 +66,8 @@ export function applyApplySurfacePreset(
     catalog,
   );
   if (!gate.ok) return gate;
-  const canonicalEntity = gate.scene.entities[index] as EntityV2;
-  const canonicalNext = deepClone(componentsRecord(canonicalEntity as unknown as EntityV2)['surface']);
+  const canonicalEntity = gate.scene.entities[index] as EntityV3;
+  const canonicalNext = deepClone(componentsRecord(canonicalEntity as unknown as EntityV3)['surface']);
   const change: ApplySurfacePresetChange = {
     type: 'applySurfacePreset',
     id: args.entityId,
@@ -102,21 +102,8 @@ export function applyApplySurfacePreset(
  */
 export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpOutcome {
   const catalog = contentOf(input.content);
-  const sceneVersion = (input.scene as { schemaVersion?: unknown }).schemaVersion;
   // Phase 12 (c): a v4 project's game block is configVersion 2 (no level/killY).
-  const gameVersion: 1 | 2 = sceneVersion === 4 ? 2 : 1;
-  const isV3 = sceneVersion === 3 || sceneVersion === 4;
-  if (!isV3) {
-    return {
-      ok: false,
-      error: fieldValue(
-        '/args/game',
-        args.game,
-        'content.game is a v3 (schemaVersion 3) feature',
-        'content.game can only be written on a schemaVersion 3 scene',
-      ),
-    };
-  }
+  const gameVersion: 1 | 2 = input.scene.schemaVersion === 4 ? 2 : 1;
   const previous = (catalog?.game ?? null) as GameConfig | null;
   const raw = args.game;
 

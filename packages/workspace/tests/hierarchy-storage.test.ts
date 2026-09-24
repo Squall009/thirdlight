@@ -1,7 +1,8 @@
 /**
  * Phase 12 — folders, flags and `moveEntities` are durable on the real
  * filesystem: the folder and flags are stored on the entities in the scene
- * envelope (no side file), the retry records of every new change shape reload,
+ * file (storage v4; the v3 fixture is upgraded on open; no side file), the
+ * tag registry in content.json, the retry records of every new change shape reload,
  * and a fresh open (a restart) sees the same scene. Undo after reload is not
  * promised (charter §6), so the reload check is the state and the records.
  */
@@ -63,17 +64,20 @@ describe('phase 12 — hierarchy edits on disk', () => {
     rev = run(svc, rev, 'updateEntity', { entityId: folderId, tags: ['loot'] }).revision;
 
     const projectDir = join(root, 'projects', PROJECT_ID);
-    const env = JSON.parse(readFileSync(join(projectDir, 'scenes', 'main.json'), 'utf8')) as {
+    const env = JSON.parse(readFileSync(join(projectDir, 'scenes', 'scene-main.json'), 'utf8')) as {
       scene: { entities: { id: string; parentId?: string; locked?: boolean; static?: boolean; components: Record<string, unknown> }[] };
     };
     const f = env.scene.entities.find((e) => e.id === folderId)!;
     expect(f).toEqual({ id: folderId, name: 'Props', locked: true, static: true, tags: 2, components: { folder: {} } });
-    expect((env as unknown as { content: { tags: unknown } }).content.tags).toEqual([{ bit: 0, name: 'prop' }, { bit: 1, name: 'loot' }]);
+    // The tag registry lives in content.json (storage v4).
+    const content = JSON.parse(readFileSync(join(projectDir, 'content.json'), 'utf8')) as { content: { tags: unknown } };
+    expect(content.content.tags).toEqual([{ bit: 0, name: 'prop' }, { bit: 1, name: 'loot' }]);
     const b = env.scene.entities.find((e) => e.id === boxId)!;
     expect(b.parentId).toBe(folderId);
     expect((b.components['transform'] as { position: number[] }).position).toEqual([4, 1, 0]);
-    // No side file: the scene envelope and the manifest are the only project files.
-    expect(readdirSync(join(projectDir, 'scenes'))).toEqual(['main.json']);
+    // No side file: the one scene file, content.json and the manifest are the only project files.
+    expect(readdirSync(join(projectDir, 'scenes'))).toEqual(['scene-main.json']);
+    expect(readdirSync(projectDir).filter((n) => n !== '.thirdlight').sort()).toEqual(['content.json', 'project.json', 'scenes']);
 
     svc.dispose();
     const svc2 = open(root);

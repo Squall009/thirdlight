@@ -599,9 +599,9 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
     addPkg(root, 'protocol', {
       files: {
         'src/bad.ts':
-          "import { validateProject } from '@thirdlight/project-model';\n" +
+          "import { validateProjectV4 } from '@thirdlight/project-model';\n" +
           "import { apply } from '@thirdlight/commands';\n" +
-          "export const x = [validateProject, apply];\n",
+          "export const x = [validateProjectV4, apply];\n",
         'src/good.ts':
           "import type { Project } from '@thirdlight/project-model';\n" +
           "import type { Envelope } from '@thirdlight/commands';\n" +

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ContentProjection } from './content-projection';
 import { Projection, type ProjectedEntity } from './projection';
-import type { AssetRecord, Entity } from '@thirdlight/project-model';
+import type { AssetRecord, EntityV3 as Entity } from '@thirdlight/project-model';
 import type { AssetSummary } from '@thirdlight/commands';
 
 const DIGEST_V1 = 'a'.repeat(64);

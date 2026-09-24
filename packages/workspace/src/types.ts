@@ -20,7 +20,7 @@ import type {
   MutationResult,
   MutationSuccess,
 } from '@thirdlight/commands';
-import type { Entity, GameConfig, Manifest } from '@thirdlight/project-model';
+import type { EntityV3, GameConfig, Manifest } from '@thirdlight/project-model';
 import type { LoadDetail } from './errors';
 
 import type { UnavailableReason } from './errors';
@@ -31,7 +31,6 @@ import type {
   BlobReadResult,
   SourceBlobReadRequest,
   SourceBlobReadResult,
-  CaptureViewResult,
   CapturedV3ReadResult,
   ContentIntegrityResult,
   ConversionSourceResult,
@@ -44,7 +43,6 @@ import type {
   StageRequest,
   StageResult,
 } from './content-store';
-import type { MigrationResult, MigrationResultV3 } from './migration';
 import type {
   PrepareBehaviorSourceRequest,
   PrepareBehaviorSourceResult,
@@ -125,12 +123,6 @@ export interface WorkspaceServiceConfig {
    * workspace holds only its type.
    */
   behaviorCompiler?: import('@thirdlight/behavior-build').BehaviorCompiler;
-  /**
-   * Phase 12 (c): the v4 product mode — new projects are created in storage
-   * v4 (one file per scene) and a v3 project is upgraded to v4 when it is
-   * opened. Off by default, so the v1–v3 storage behaviour stays testable.
-   */
-  storageV4?: boolean;
 }
 
 // ---- pending external change (workspace.md §7.2) -------------------------------
@@ -181,7 +173,7 @@ export interface QueryEntityResult {
   projectId: string;
   revision: number;
   /** The full entity value. */
-  entity: Entity;
+  entity: EntityV3;
   /** Ancestor IDs root-first, excluding the entity itself. */
   parentChain: readonly string[];
   /** Direct children in document order. */
@@ -189,7 +181,7 @@ export interface QueryEntityResult {
   /** Phase 12 (b): the entity's tags by name, own and effective (own + folders above). */
   tagNames: { own: string[]; effective: string[] };
   /** Present only when `includeSubtree` is true. */
-  subtree?: { count: number; entities: readonly Entity[] };
+  subtree?: { count: number; entities: readonly EntityV3[] };
 }
 
 export interface QueryEntitiesResult {
@@ -200,7 +192,7 @@ export interface QueryEntitiesResult {
   offset: number;
   limit: number;
   /** The page in document order (full entity values). */
-  entities: readonly Entity[];
+  entities: readonly EntityV3[];
 }
 
 /** `queryGameConfig` (commands.md §3.1.11 / authoring §A6): the full normalized
@@ -297,14 +289,14 @@ export interface ScanEntry {
    * completion could not be written (the state is retained for the operator).
    */
   completion?: 'completed' | 'kept';
-  /** A valid migration marker with no envelope: reported, never auto-completed
-   * (workspace.md §10/§14.3). Resumable via `migrateProjectCopy` or deletable. */
+  /** A migration marker (`.thirdlight/migration.json`) with no project files:
+   * the interrupted destination of a migration copy made by an earlier
+   * version (the copy operators were removed in phase 9.3). Reported, never
+   * auto-completed; delete the directory. */
   migration?: 'resume_required';
-  /** The migration marker's last completed phase (informational). */
-  migrationPhase?: string;
   /** A stale (dead-pid) ownership record was reported (no action taken). */
   staleOwnership?: boolean;
-  /** Leftover `.main.json.tmp-*` files (NOT cleaned by the scan). */
+  /** Leftover temps of the project files (NOT cleaned by the scan). */
   leftoverTemps?: number;
   /** Bounded human note (safe for logs). */
   note?: string;
@@ -396,23 +388,11 @@ export interface WorkspaceService {
   readSourceBlob(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult;
   /** `contentIntegrity` — bounded integrity report (workspace.md §13.5). */
   contentIntegrity(projectId: string): ContentIntegrityResult;
-  /** `captureContentView` — the pure captured immutable content view
-   * (project-model §19). */
-  captureContentView(projectId: string): CaptureViewResult;
-  /** `readCapturedV3` — the M3 single acknowledged envelope read (scene +
-   *  content halves) for the shared closure builder (packet 58, delivery.md
-   *  §2.6). A `storageVersion` 1/2 project is `version_combination_unsupported`.
+  /** `readCapturedV3` — the single acknowledged project read (the merged
+   *  start scene, every scene and the content block) for the shared closure
+   *  builder (packet 58, delivery.md §2.6).
    */
   readCapturedV3(projectId: string): CapturedV3ReadResult;
-  /** `migrateProjectCopy` — explicit operator M1 → M2 migration (workspace.md §14). */
-  migrateProjectCopy(sourceProjectId: string, newProjectId: string): MigrationResult;
-  /**
-   * `migrateProjectCopyV3` — explicit operator v2 → v3 copy (workspace.md
-   * §16.5/§16.8): a new destination identity, the source carried verbatim
-   * except the derived revision metadata reset, a resumable marker; the v2
-   * source is retained byte-for-byte.
-   */
-  migrateProjectCopyV3(sourceProjectId: string, newProjectId: string): MigrationResultV3;
   /**
    * `prepareBehaviorSource` — the behavior-source preparation layer (packet 33;
    * project-model.md §22.4.1, workspace.md §13.3.1): resolve the stage / accept

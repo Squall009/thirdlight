@@ -15,7 +15,7 @@ import type {
   AssetRecord,
   BehaviorComponent,
   BehaviorRecord,
-  EntityV2,
+  EntityV3,
   ModelErrorV3,
   PropertyValue,
   SceneV3,
@@ -141,13 +141,12 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   // required (args); on reimport a supplied kind must equal the record's.
   if (args.mode === 'create') {
     if (existing !== null) return { ok: false, error: assetIdDuplicate(args.assetId) };
-    // §3.1.1: on a v3 state the kind is required (the discriminator is
-    // immutable at create); a v2 state defaults to `model` (accepted M2
-    // fixtures create model records without it — handoff 45 CC-45-4).
-    if (args.kind === undefined && ((input.scene as { schemaVersion?: unknown }).schemaVersion === 3 || (input.scene as { schemaVersion?: unknown }).schemaVersion === 4)) {
+    // §3.1.1: the kind is required on create (the discriminator is
+    // immutable at create).
+    if (args.kind === undefined) {
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
-    const kind = args.kind ?? 'model';
+    const kind = args.kind;
     const limit = kind === 'audio' ? 16 : kind === 'texture' ? 256 : kind === 'music' ? 64 : 128;
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
     if (count + 1 > limit) {
@@ -558,7 +557,7 @@ export function applySetBehaviorProperties(
   const catalog = contentOf(input.content);
   const index = input.scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
-  const entity = input.scene.entities[index] as EntityV2;
+  const entity = input.scene.entities[index] as EntityV3;
   if ((entity.components as { camera?: unknown }).camera !== undefined) {
     return {
       ok: false,
@@ -615,7 +614,7 @@ export function applySetBehaviorProperties(
   else components['behavior'] = next;
   const newEntity = { ...cloned, components };
   const nextEntities = [...input.scene.entities];
-  nextEntities[index] = newEntity as unknown as EntityV2;
+  nextEntities[index] = newEntity as unknown as EntityV3;
   const resultScene = { ...input.scene, revision: input.scene.revision + 1, entities: nextEntities };
 
   const gate = gateResultState(
@@ -663,19 +662,19 @@ function isV3Component(component: string): component is V3OwnedComponent {
 }
 
 /** The entity value with `component` set to `value`; `null` removes the key. */
-function withComponent(entity: EntityV2, component: string, value: unknown): EntityV2 {
+function withComponent(entity: EntityV3, component: string, value: unknown): EntityV3 {
   const cloned = deepClone(entity);
   const components = { ...componentsRecord(cloned) };
   if (value === null) delete components[component];
   else components[component] = deepClone(value);
-  return { ...cloned, components } as unknown as EntityV2;
+  return { ...cloned, components } as unknown as EntityV3;
 }
 
 export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOutcome {
   const catalog = contentOf(input.content);
   const index = input.scene.entities.findIndex((e) => e.id === args.entityId);
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
-  const entity = input.scene.entities[index] as EntityV2;
+  const entity = input.scene.entities[index] as EntityV3;
   const components = componentsRecord(entity);
   const currentComponent = components[args.component];
   const removable = componentIsRemovable(args.component);
@@ -689,8 +688,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   if (args.value === null) {
     // §23.6 rule 2 (authoring §A4.2): a component removal that would dangle a
     // `content.game`/checkpoint reference is refused before application.
-    const isV3Scene = (input.scene as { schemaVersion?: unknown }).schemaVersion === 3 || (input.scene as { schemaVersion?: unknown }).schemaVersion === 4;
-    if (isV3Scene && isV3Component(args.component)) {
+    if (isV3Component(args.component)) {
       // §23.6 rule 2: only the removal that owns the reference dangles it —
       // `playerSpawn` ⇒ game.spawnId/checkpoint safeSpawnId, `controller` ⇒
       // game.playerId, `cameraFollow` ⇒ game.cameraId. The other v3
@@ -797,7 +795,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     catalog,
   );
   if (!gate.ok) return gate;
-  const canonicalEntity = gate.scene.entities[index] as EntityV2;
+  const canonicalEntity = gate.scene.entities[index] as EntityV3;
   const next = deepClone(componentsRecord(canonicalEntity)[args.component]);
   const change: SetComponentChange = {
     type: 'setComponent',

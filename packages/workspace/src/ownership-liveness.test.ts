@@ -265,7 +265,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
 
     chmodSync(recPath(root), 0o000);
-    const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
 
     // On-demand open (query): REFUSED — the record's state is unknown ⇒
     // the §6.2 conservative rule resolves it to live ⇒ no claim (a claim
@@ -305,7 +305,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
 
     chmodSync(recPath(root), 0o000);
-    const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
 
     const e = queryErr(b);
     expect(e).not.toBeNull(); // pre-fix: e === null (the open SUCCEEDED)
@@ -334,7 +334,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
 
     chmodSync(thirdlightDir(root), 0o000);
-    const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
     const e = queryErr(b);
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
@@ -362,7 +362,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
     chmodSync(join(procRoot, String(A_PID)), 0o000);
 
-    const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
     const e = queryErr(b);
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
@@ -543,7 +543,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
       const procRoot = join(root, 'proc');
       writeProcEntry(procRoot, A_PID, now + 500); // startMs = openedAtMs + 500
 
-      const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+      const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
       const recBefore = readFileSync(recPath(root));
       const e = queryErr(b);
       expect(e).not.toBeNull();
@@ -581,7 +581,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
       const procRoot = join(root, 'proc');
       writeProcEntry(procRoot, A_PID, now + 1500); // startMs = openedAtMs + 1500
 
-      const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+      const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
       // Conclusive reuse ⇒ dead ⇒ reclaimed automatically.
       expect(queryErr(b)).toBeNull();
       b.dispose();
@@ -607,7 +607,7 @@ describe('T4: scan — an unreadable ownership record is never reported stale (w
     rmSync(join(procRoot, String(A_PID)), { recursive: true, force: true });
 
     chmodSync(recPath(root), 0o000);
-    const svc = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const svc = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
     let report = svc.scan();
     let entry = report.entries.find((x) => x.projectId === PROJECT);
     expect(entry).toBeDefined();
@@ -641,7 +641,7 @@ describe('T5: §11 line 934 — unreadable-record refusal carries holder: strict
     const procRoot = join(root, 'proc');
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
     chmodSync(recPath(root), 0o000);
-    const b = openWorkspaceService({ root, storageV4: true, backendId: B_ID, pid: B_PID, procRoot });
+    const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
 
     // Surface 1 — the query envelope `project_unavailable {
     // reason: "ownership_conflict" }`: the `holder` field is PRESENT and

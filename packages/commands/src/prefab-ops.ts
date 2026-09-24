@@ -20,7 +20,7 @@ import type {
   BehaviorComponent,
   ContentCatalog,
   DeclaredProperty,
-  EntityV2,
+  EntityV3,
   PrefabComponentsV2,
   PrefabDefinition,
   PrefabEntity,
@@ -165,7 +165,7 @@ function subtreeInDocumentOrder(scene: SceneDocument, rootId: string): string[] 
 
 /** §8.6.3: the first external `entityRef` value in the closure, or null. */
 function findExternalReference(
-  closure: readonly EntityV2[],
+  closure: readonly EntityV3[],
   closureSet: ReadonlySet<string>,
   catalog: ContentCatalog,
 ): { localId: string; key: string; entityId: string } | null {
@@ -191,7 +191,7 @@ function findExternalReference(
   return null;
 }
 
-function cloneTransform(t: EntityV2['components']['transform']): Record<string, number[]> {
+function cloneTransform(t: EntityV3['components']['transform']): Record<string, number[]> {
   return {
     position: [...t.position],
     rotation: [...t.rotation],
@@ -226,14 +226,14 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
   }
   // step 4: sourceEntityId resolves.
   const indexById = new Map(scene.entities.map((e) => [e.id, e]));
-  const source = indexById.get(args.sourceEntityId) as EntityV2 | undefined;
+  const source = indexById.get(args.sourceEntityId) as EntityV3 | undefined;
   if (source === undefined) return { ok: false, error: entityNotFound(args.sourceEntityId) };
 
   // step 5: subtree closure in scene document order (parent before child).
   const closureIds = subtreeInDocumentOrder(scene, args.sourceEntityId);
   if (closureIds === null) return { ok: false, error: entityNotFound(args.sourceEntityId) };
   const closureSet = new Set(closureIds);
-  const closure = closureIds.map((id) => indexById.get(id) as EntityV2);
+  const closure = closureIds.map((id) => indexById.get(id) as EntityV3);
 
   // step 6: forbidden capture contents (camera, nested instance, external ref).
   for (const e of closure) {
@@ -504,7 +504,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
 
   const canonicalEntries: InstantiatePrefabEntry[] = built.map((b) => ({
     index: b.index,
-    entity: deepClone(gate.scene.entities[b.index] as EntityV2),
+    entity: deepClone(gate.scene.entities[b.index] as EntityV3),
   }));
   const mappingList = definition.entities.map((de) => ({
     localId: de.localId,

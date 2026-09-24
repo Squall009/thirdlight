@@ -333,7 +333,7 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
   it('released claim: the owner created + released first ⇒ exactly one winner at epoch 1; the superseded claim-0 residue is unlinked', async () => {
     const root = makeRoot('released');
     // The owner (a real service in this process) creates + releases first.
-    const owner = openWorkspaceService({ root, storageV4: true, backendId: OWNER_ID });
+    const owner = openWorkspaceService({ root, backendId: OWNER_ID });
     expect(owner.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
     expect(owner.releaseWorkspace(PROJECT)).toEqual({ ok: true, revision: 0, retryCleared: true });
     // Group E2 (R4, 2026-09-18 review) amended workspace.md §9 step 1:
@@ -484,7 +484,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
 
     // The next claim ⇒ claim_inconsistent (the documented stuck state:
     // the orphan's content is unparseable; nothing is claimed).
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: PROJECT }) as {
       ok: boolean;
       error?: { code: string; reason?: string; holder?: unknown; details?: { code: string; path: string }[] };
@@ -510,7 +510,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
     // Operator step: remove the orphan claim file; the re-issued open
     // succeeds.
     unlinkSync(claimPath(root, 0));
-    const svc2 = openWorkspaceService({ root, storageV4: true });
+    const svc2 = openWorkspaceService({ root });
     const q2 = svc2.query({ op: 'queryProject', projectId: PROJECT }) as { ok: boolean };
     expect(q2.ok).toBe(true);
     const m2 = svc2.runCommand({
@@ -541,7 +541,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
 
     // The next claim reclaims (the holder is proven dead under the §6.2
     // rules — /proc/<pid> is gone) and succeeds without an operator step.
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: PROJECT }) as { ok: boolean };
     expect(q.ok).toBe(true);
     // The claim file is now the reclaimer's stamp (rewritten + fsynced).
@@ -583,7 +583,7 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
     expect(stamp?.pid).toBe(ex.pid);
 
     // The next claim reclaims (the holder is proven dead) and succeeds.
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: PROJECT }) as { ok: boolean };
     expect(q.ok).toBe(true);
     const rec = readRec(root);

@@ -75,7 +75,7 @@ describe('scenario 01 — retry after lost ack', () => {
     const root = makeRoot(base);
     const dir = seedScenario(root, base);
     const before = fileBytes(join(dir, SCENE_FILE));
-    const svc = openWorkspaceService({ root, storageV4: true });
+    const svc = openWorkspaceService({ root });
     runAll(svc, base);
     // The retry answered at pipeline step 2 (dedup): no write happened.
     expect(Buffer.from(fileBytes(join(dir, SCENE_FILE))).equals(Buffer.from(before))).toBe(true);
@@ -90,7 +90,7 @@ for (const base of ['02-request-id-reused', '03-stale-revision', '04-invalid-no-
     it('replays the pinned messages and disk state', () => {
       const root = makeRoot(base);
       const dir = seedScenario(root, base);
-      const svc = openWorkspaceService({ root, storageV4: true });
+      const svc = openWorkspaceService({ root });
       runAll(svc, base);
       expect(compareAuthoringDisk(dir, scenarioDir(base, 'disk-after'))).toEqual([]);
       svc.dispose();
@@ -108,7 +108,6 @@ for (const base of ['06-crash-before-replace', '07-crash-after-replace'] as cons
       const procRoot = buildFakeProc(root, { 4242: 'dead' });
       const svc = openWorkspaceService({
         root,
-        storageV4: true,
         ...BACKEND_C,
         procRoot,
         utcNow: () => '2026-09-17T09:45:00Z',
@@ -132,7 +131,6 @@ describe('scenario 08 — unexpected external modification', () => {
 
     const svc = openWorkspaceService({
       root,
-      storageV4: true,
       backendId: OWNER_A.backendId,
       pid: OWNER_A.pid,
       stamp: () => '20260917T101500Z',
@@ -168,7 +166,6 @@ describe('scenario 09 — second-backend ownership', () => {
     const procRoot = buildFakeProc(root, { 5000: 'live' });
     const svc = openWorkspaceService({
       root,
-      storageV4: true,
       backendId: BACKEND_B.backendId,
       pid: BACKEND_B.pid,
       procRoot,
