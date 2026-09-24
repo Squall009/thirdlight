@@ -105,6 +105,13 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that ' +
       'field, null removes an optional one; on an object without the component a complete value adds it; value null removes the ' +
       'component — every owned component, box/camera/model included; model {piece: name|null} changes the piece), setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
+      'instantiatePrefab. Script properties: publishBehavior {behaviorId, displayName, mode: declaration-create|declaration-update, declaration: {properties: [{key, label, ' +
+      'type: number|boolean|string|enum|vec3|entityRef|assetRef, default, min?, max?, step?, maxLength?, values? (enum), bounds? (vec3), visibility?: public|private (default public), ' +
+      'group?, header?, tooltip?}]}}; public properties are shown in the Inspector of every object with the script and set per object with setBehaviorProperties ' +
+      '{entityId, behaviorId, values}; private ones are not shown and not settable (property_private): the script always reads the default. A script may declare ' +
+      'its properties in its src/index.ts instead (export const properties = {speed: property.number(3, {min: 0, group: "Movement"}), secret: property.private.number(1)}): ' +
+      'the compiler derives the declaration from the code, which wins over a JSON declaration sent with the source. ' +
+      'Prefabs: ' +
       'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
       'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2). Scenes: createScene {name, sceneId?}, ' +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
@@ -343,7 +350,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only). timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -351,6 +358,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         playSessionId: { type: 'string' },
         timeoutMs: { type: 'integer', minimum: 250, maximum: 15000 },
+        entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`' },
       },
       required: ['playSessionId'],
       additionalProperties: false,
@@ -852,6 +860,10 @@ async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise
   if (a.timeoutMs !== undefined) {
     if (!isInt(a.timeoutMs) || a.timeoutMs < 250 || a.timeoutMs > 15000) return toolError('timeoutMs must be an integer 250–15000');
     body.timeoutMs = a.timeoutMs;
+  }
+  if (a.entityId !== undefined) {
+    if (typeof a.entityId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a.entityId)) return toolError('entityId must be an entity id');
+    body.entityId = a.entityId;
   }
   const res = await ctx.client.gameObserve(ctx.projectId, a.playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);

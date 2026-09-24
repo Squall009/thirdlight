@@ -39,7 +39,7 @@ import {
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
@@ -3544,6 +3544,21 @@ class RuntimeInstance implements Runtime {
       }
     }
     return { stall, penetration };
+  }
+
+  /**
+   * Phase 15.4: the property values every behavior instance on `entityId`
+   * reads (public and private) — read-only, for the Play debug view.
+   */
+  behaviorProperties(entityId: string): BehaviorPropertyView[] {
+    const out: BehaviorPropertyView[] = [];
+    for (const entry of this.entries) {
+      const probe = entry.instance as { behaviorProperties?: (id: string) => BehaviorPropertyView | null };
+      if (typeof probe.behaviorProperties !== 'function') continue;
+      const view = probe.behaviorProperties(entityId);
+      if (view !== null) out.push(view);
+    }
+    return out;
   }
 
   /** Cumulative behavior log totals the host instances report (§14.8.1). */

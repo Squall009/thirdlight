@@ -228,7 +228,23 @@ export interface DeclaredProperty {
   maxLength?: number;
   values?: string[];
   bounds?: PropertyBounds;
+  /**
+   * Phase 15.4: who may see and set the property. `public` (the default; the
+   * canonical form omits it) is shown in the Inspector of every object
+   * carrying the behavior and overridable per object; `private` is neither
+   * shown nor overridable — the script always reads `default`.
+   */
+  visibility?: PropertyVisibility;
+  /** Phase 15.4: the Inspector section the property is listed in (1–64 characters). */
+  group?: string;
+  /** Phase 15.4: a heading shown above the property in the Inspector (1–64 characters). */
+  header?: string;
+  /** Phase 15.4: the hover help of the property's field (1–256 characters). */
+  tooltip?: string;
 }
+
+/** Phase 15.4: declared-property visibility (Unity-like public/private). */
+export type PropertyVisibility = 'public' | 'private';
 
 export interface PropertyDeclaration {
   properties: DeclaredProperty[];
@@ -296,6 +312,13 @@ export interface BehaviorSourceRecord {
    * them, so Play and the export ran every script without its owners.
    */
   ownedTransforms?: string[];
+  /**
+   * Phase 15.4: `true` when the source declares its properties in code
+   * (`export const properties = { … }` in src/index.ts) and the compiler
+   * derived the record's declaration from it; absent otherwise (older
+   * records stay byte-identical). Editors show such a declaration read-only.
+   */
+  declaredInCode?: true;
   publishedRevision: number;
 }
 

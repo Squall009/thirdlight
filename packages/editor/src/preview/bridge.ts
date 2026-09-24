@@ -163,9 +163,10 @@ export class Bridge {
   }
 
   /** Request a game observation (editor side, §20.1). */
-  requestGameObserve(playSessionId: string, relayId: string): void {
+  requestGameObserve(playSessionId: string, relayId: string, entityId?: string): void {
     if (this.direction !== 'editor') throw new Error('requestGameObserve is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId });
+    // Phase 15.4: `entityId` adds that entity's script property values.
+    this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId, ...(entityId !== undefined ? { entityId } : {}) });
   }
 
   /** Reply to a game control/observe request (preview side). */

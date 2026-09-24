@@ -61,7 +61,11 @@ export interface CompileDiagnostic {
 export interface BehaviorCompileInput {
   /** ID syntax (project-model.md §5.1). */
   readonly behaviorId: string;
-  /** The digest-bound declaration the publication will assert. */
+  /**
+   * The digest-bound declaration the publication will assert. Phase 15.4:
+   * ignored when src/index.ts declares its properties in code (the derived
+   * declaration is used; it may then be `{ properties: [] }`).
+   */
   readonly declaration: { readonly properties: readonly DeclaredProperty[] };
   /** The exact canonical source-graph container bytes. */
   readonly containerBytes: Uint8Array;
@@ -89,6 +93,8 @@ export interface BehaviorManifest {
   ownedTransforms: string[];
   enginePins: { id: string; version: string; apiVersion: number }[];
   declaration: { properties: DeclaredProperty[] };
+  /** Phase 15.4: `true` when the declaration was derived from `export const properties` (absent otherwise). */
+  declaredInCode?: true;
   apiVersion: number;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
   outputDigest: string;
@@ -180,6 +186,8 @@ export interface PreparedBehaviorSource {
   ownedTransforms: string[];
   /** The canonical declaration the manifest was compiled with. */
   declaration: { properties: DeclaredProperty[] };
+  /** Phase 15.4: the declaration was derived from the code (absent otherwise). */
+  declaredInCode?: true;
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };

@@ -200,6 +200,7 @@ function preparedSourceFromCompile(compiled: BehaviorCompileSuccess): PreparedBe
     requiredModules: [...m.requiredModules],
     ownedTransforms: [...m.ownedTransforms],
     declaration: { properties: m.declaration.properties.map((p) => ({ ...p })) },
+    ...(m.declaredInCode === true ? { declaredInCode: true as const } : {}),
     declarationDigest: compiled.declarationDigest,
     recipeDigest: compiled.recipeDigest,
     compiler: { ...m.compiler },

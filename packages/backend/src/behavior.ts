@@ -72,7 +72,9 @@ export async function publishBehaviorSource(
       behaviorId: request.behaviorId,
       displayName: request.displayName,
       mode: 'source',
-      declaration: request.declaration,
+      // Phase 15.4: the prepared declaration — the request's, or the one the
+      // compiler derived from `export const properties` (code wins).
+      declaration: prepared.prepared.declaration,
       source: {
         sourceDigest: prepared.prepared.sourceDigest,
         sourceByteLength: prepared.prepared.sourceByteLength,

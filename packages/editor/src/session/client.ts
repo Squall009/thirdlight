@@ -1328,11 +1328,36 @@ export class SessionClient {
       declaration: PropertyDeclaration;
       sourceDigest: string;
       sourceByteLength: number;
+      /** Phase 15.4: the stage holding the bytes — prepared (compiled) and published by the backend route. */
+      stageId?: string;
     },
     expectedRevision: number,
     requestId?: string,
   ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
-    return this.command('publishBehavior', planPublishSource(args), expectedRevision, requestId);
+    if (args.stageId === undefined) return this.command('publishBehavior', planPublishSource(args), expectedRevision, requestId);
+    // Phase 15.4: the preparation route compiles the staged source (deriving
+    // the declaration when the code declares `export const properties`) and
+    // runs the same `publishBehavior{mode:"source"}` command.
+    try {
+      const res = await this.request<{ ok: true; revision: number }>(`/projects/${this.cfg.projectId}/content/behaviors/source`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          stageId: args.stageId,
+          behaviorId: args.behaviorId,
+          displayName: args.displayName,
+          declaration: args.declaration,
+          expectedRevision,
+          requestId: requestId ?? makeRequestId(),
+        }),
+      });
+      return { ok: true, revision: res.revision };
+    } catch (e) {
+      const body = (e as { body?: { error?: { code?: string; message?: string; diagnostics?: { message?: string }[] } } }).body;
+      const err = body?.error;
+      const detail = err?.diagnostics?.[0]?.message;
+      return { ok: false, response: { ok: false, code: err?.code ?? 'internal', message: detail ?? err?.message ?? 'the source was not published' } };
+    }
   }
 
   /** The observed trust digests (from the projection; advanced by changes only). */

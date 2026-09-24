@@ -786,7 +786,9 @@ export function createBackend(
       sendError(res, sessionError('field_value', 'validation', 'displayName must be a 1–128 character string', { path: '/displayName' }));
       return;
     }
-    if (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration)) {
+    // Phase 15.4: optional when the source declares its properties in code
+    // (`export const properties`); a declaration sent along is then ignored.
+    if (declaration !== undefined && (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration))) {
       sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
       return;
     }
@@ -804,7 +806,7 @@ export function createBackend(
       ...(typeof stageId === 'string' ? { stageId } : {}),
       behaviorId,
       displayName,
-      declaration: declaration as never,
+      declaration: (declaration ?? { properties: [] }) as never,
       expectedRevision,
       requestId,
       origin: session !== undefined ? { kind: 'browser', clientId: session.sessionId } : { kind: 'admin', clientId: 'operator' },
@@ -815,6 +817,9 @@ export function createBackend(
         behaviorId,
         sourceDigest: outcome.prepared.sourceDigest,
         outputDigest: outcome.prepared.outputDigest,
+        // Phase 15.4: the published declaration and where it came from.
+        declaration: outcome.prepared.declaration,
+        ...(outcome.prepared.declaredInCode === true ? { declaredInCode: true } : {}),
         revision: outcome.result.revision,
         requestId,
       });

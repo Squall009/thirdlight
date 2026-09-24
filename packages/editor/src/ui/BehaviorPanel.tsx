@@ -12,9 +12,9 @@
  *  - source bytes are **staged** (non-authoritative) and published through the
  *    ordinary `publishBehavior{mode:"source"}` command; the panel displays the
  *    bounded compile/publication error verbatim instead of faking a build;
- *  - a bounded declaration-create form publishes a new declared-property
- *    schema through the ordinary command path, so the property controls and
- *    the source publication have a schema to bind to.
+ *  - phase 15.4: a declaration editor (`DeclarationEditor`: every property
+ *    type, visibility, groups, headers, tooltips) creates or updates the
+ *    declared-property schema through the ordinary command path.
  *
  * Display + intent only: every action is an ordinary typed command issued by
  * the app through the single session client.
@@ -28,6 +28,7 @@ import {
   type BehaviorPublicationState,
 } from '../session/behavior-publication';
 import type { BehaviorDeclarationView } from '../session/prefab-projection';
+import { DeclarationEditor, type DeclarationSave } from './DeclarationEditor';
 
 export interface BehaviorPanelProps {
   behaviors: readonly BehaviorDeclarationView[];
@@ -37,21 +38,13 @@ export interface BehaviorPanelProps {
   /** The active isolated play (`null` when nothing is playing). */
   activePlay: { snapshotId: string; revision: number } | null;
   error: { code: string; message: string } | null;
-  /** New-behavior declaration draft. */
-  newBehaviorId: string;
-  newDisplayName: string;
-  newPropertyKey: string;
-  newPropertyDefault: string;
-  onSelect: (behaviorId: string) => void;
+  onSelect: (behaviorId: string | null) => void;
   onSourceDraft: (text: string) => void;
   onStage: () => void;
   onAcknowledge: (sourceDigest: string) => void;
   onPublishSource: () => void;
-  onNewBehaviorId: (value: string) => void;
-  onNewDisplayName: (value: string) => void;
-  onNewPropertyKey: (value: string) => void;
-  onNewPropertyDefault: (value: string) => void;
-  onCreateDeclaration: () => void;
+  /** Phase 15.4: create or update a declaration (one publishBehavior command). */
+  onSaveDeclaration: (save: DeclarationSave) => Promise<boolean>;
 }
 
 export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
@@ -92,6 +85,18 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
         ))}
         {p.behaviors.length === 0 && <li className="tl-row tl-row--empty">no published behaviors</li>}
       </ul>
+      <div className="tl-behaviors__row">
+        <button className="tl-btn tl-btn--small" onClick={() => p.onSelect(null)} title="Declare a new behavior">
+          + New behavior
+        </button>
+      </div>
+      {/* Phase 15.4: keyed by the behavior so a selection re-seeds the drafts. */}
+      <DeclarationEditor
+        key={selected !== null ? `${selected.behaviorId}@${selected.publishedRevision}` : 'new'}
+        behavior={selected}
+        error={p.error}
+        onSave={p.onSaveDeclaration}
+      />
       </div>
 
       <div className="tl-behaviors__side">
@@ -101,24 +106,6 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
           <div className="tl-prop__caption" title={selected.behaviorId}>
             {selected.displayName} — {selected.behaviorId}
           </div>
-          <table className="tl-behaviors__props">
-            <thead>
-              <tr>
-                <th>key</th>
-                <th>type</th>
-                <th>default</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selected.declaration.properties.map((prop) => (
-                <tr key={prop.key}>
-                  <td>{prop.key}</td>
-                  <td>{prop.type}</td>
-                  <td>{JSON.stringify(prop.default)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
           <div className="tl-prop__caption">
             source: {selected.source?.sourceDigest ?? 'declaration only'} ·{' '}
             {selected.source === null ? 'executes nothing' : acknowledged ? 'acknowledged' : 'NOT acknowledged'}
@@ -191,26 +178,6 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
           {p.publication.error.code}: {p.publication.error.message}
         </div>
       )}
-      {p.error && (
-        <div className="tl-prop__error" title={p.error.message}>
-          {p.error.code}: {p.error.message}
-        </div>
-      )}
-
-      <div className="tl-behaviors__new">
-        <div className="tl-prop__caption">New behavior declaration (typed command; no source evaluator)</div>
-        <div className="tl-behaviors__row">
-          <input className="tl-prop__input" value={p.newBehaviorId} placeholder="behavior-0100" onChange={(e) => p.onNewBehaviorId(e.target.value)} />
-          <input className="tl-prop__input" value={p.newDisplayName} placeholder="display name" onChange={(e) => p.onNewDisplayName(e.target.value)} />
-        </div>
-        <div className="tl-behaviors__row">
-          <input className="tl-prop__input" value={p.newPropertyKey} placeholder="property key (speed)" onChange={(e) => p.onNewPropertyKey(e.target.value)} />
-          <input className="tl-prop__input" value={p.newPropertyDefault} placeholder="default (3.5)" onChange={(e) => p.onNewPropertyDefault(e.target.value)} />
-          <button className="tl-btn tl-btn--small" onClick={p.onCreateDeclaration}>
-            create declaration
-          </button>
-        </div>
-      </div>
 
       <div className="tl-prop__caption">
         active play: {p.activePlay ? `${p.activePlay.snapshotId} @ r${p.activePlay.revision}` : 'none'} — a staged edit or a

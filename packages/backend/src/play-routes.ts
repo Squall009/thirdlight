@@ -679,7 +679,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     if (found === null) return;
     const { rec, owner } = found;
     const relayId = `relay-${hex(16)}`;
-    const payload = makeGameObserveRequest(relayId, parsedReq.request.timeoutMs);
+    const payload = makeGameObserveRequest(relayId, parsedReq.request.timeoutMs, parsedReq.request.entityId);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'observe', relayId, payload, parsedReq.request.timeoutMs);
     if (outcome.ok) {
       sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_observe');
