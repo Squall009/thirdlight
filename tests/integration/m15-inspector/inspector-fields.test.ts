@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DESCRIPTORS, validateContentV4, validateSceneV4, type FieldDescriptor, type ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
-import { addEntries, componentPatch, firstReference, seedsOf, visibleFields, widgetFor, type FieldPath } from '@thirdlight/editor/descriptor-fields';
+import { addEntries, componentPatch, firstReference, normalize, seedsOf, visibleFields, widgetFor, type FieldPath } from '@thirdlight/editor/descriptor-fields';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -53,6 +53,11 @@ function nudge(f: FieldDescriptor, current: unknown): unknown {
   switch (f.type) {
     case 'number':
     case 'int': {
+      if (f.type === 'int' && f.values !== undefined && f.values.length > 1) {
+        // A choice of numbers (the step rate): another allowed value.
+        const now = current ?? f.default;
+        return f.values.find((v) => v !== now);
+      }
       const step = f.type === 'int' ? 1 : f.step ?? 0.1;
       const c = typeof current === 'number' ? current : typeof f.default === 'number' ? f.default : f.min ?? 0;
       let n = c + step;
@@ -175,6 +180,59 @@ describe('the generic Inspector over the real registry', () => {
     // The edits reached the fields a designer tunes.
     for (const k of ['box.size', 'camera.fovY', 'camera.near', 'camera.far', 'light.type', 'light.intensity', 'trigger.shape', 'enemy.patrol', 'controller.capsule.radius', 'fogVolume.density', 'cameraFollow.deadZone.x', 'gameZone.role'])
       expect(edited, k).toContain(k);
+  });
+});
+
+describe('content blocks edited from their descriptors (15.3 fields included)', () => {
+  it('edits every settings field in one setSettings each, undoable', () => {
+    const desc = DESCRIPTORS.content.find((b) => b.key === 'settings')!.value as ObjectFieldDescriptor;
+    const s = fresh();
+    const edited: string[] = [];
+    for (const f of desc.fields) {
+      const next = nudge(f, (s.content as Any).settings?.[f.key]);
+      expect(next, f.key).not.toBeUndefined();
+      const r = run(s, 'setSettings', { settings: { [f.key]: next } });
+      expect(r.ok, `${f.key} = ${JSON.stringify(next)}: ${JSON.stringify(r.result.error ?? r.result)}`).toBe(true);
+      expect((r.state.content as Any).settings[f.key], f.key).toBe(next);
+      const undone = must(r.state, 'undo', {}, `undo ${f.key}`);
+      expect((undone.content as Any).settings, `${f.key} undo`).toEqual((s.content as Any).settings);
+      edited.push(f.key);
+    }
+    for (const k of ['gravity_y', 'fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s']) expect(edited, k).toContain(k);
+  });
+
+  it('edits every number field of the v4 game block (session timing included) in one setGameConfig each', () => {
+    const desc = DESCRIPTORS.content.find((b) => b.key === 'game')!.value as ObjectFieldDescriptor;
+    let s = fresh();
+    // A complete block: the descriptor's starting values and a player, the camera and a spawn.
+    s = must(s, 'createEntity', { kind: 'group', name: 'Spawn', components: { playerSpawn: {} } }, 'create a spawn');
+    const spawnId = String(s.scene.entities.find((e: Any) => e.components.playerSpawn !== undefined).id);
+    const player = run(s, 'createEntity', { kind: 'group', name: 'Player', components: { controller: {} } });
+    expect(player.ok, JSON.stringify(player.result)).toBe(true);
+    s = player.state;
+    const playerId = String(player.result.createdId);
+    s = must(s, 'setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } }, 'camera follow');
+    let game = (s.content as Any).game;
+    if (game === null || game === undefined) {
+      const block = normalize(desc, { playerId, cameraId: 'cam-main', spawnId });
+      const created = run(s, 'setGameConfig', { game: block });
+      expect(created.ok, JSON.stringify(created.result.error ?? created.result)).toBe(true);
+      s = created.state;
+      game = (s.content as Any).game;
+    }
+    const edited: string[] = [];
+    for (const f of visibleFields({ desc, value: game })) {
+      if (f.readOnly === true || (f.type !== 'number' && f.type !== 'int')) continue;
+      const before = (s.content as Any).game;
+      const patch = componentPatch(desc, before, [f.key], nudge(f, before[f.key]), {});
+      expect(patch, f.key).not.toBeNull();
+      const r = run(s, 'setGameConfig', { game: patch });
+      expect(r.ok, `${f.key}: ${JSON.stringify(r.result.error ?? r.result)}`).toBe(true);
+      const undone = must(r.state, 'undo', {}, `undo ${f.key}`);
+      expect((undone.content as Any).game, `${f.key} undo`).toEqual(before);
+      edited.push(f.key);
+    }
+    for (const k of ['respawnDelay', 'dropThroughTime', 'settleTime']) expect(edited, k).toContain(k);
   });
 });
 

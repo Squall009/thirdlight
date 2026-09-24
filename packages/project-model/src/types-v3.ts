@@ -121,6 +121,10 @@ export interface CameraFollowComponent {
   smoothing: number;
   /** Required in v3; optional in v4 (absent: the camera follows anywhere). */
   bounds?: { minX: number; maxX: number; minY: number; maxY: number };
+  /** Phase 15.3 (v4): metres in front of the player plane (absent: where the camera is placed). */
+  distance?: number;
+  /** Phase 15.3 (v4): the per-axis speed cap while smoothing, m/s (absent: 480). */
+  maxSpeed?: number;
 }
 
 /** §23.3.4 one directional key light or one ambient fill. */
@@ -413,6 +417,12 @@ export interface GameConfig {
     death: CueRef;
     goal: CueRef;
   };
+  /** Phase 15.3 (v4 only): seconds between a death and the respawn (absent: 0.25). */
+  respawnDelay?: number;
+  /** Phase 15.3 (v4 only): seconds a one-way platform ignores the player dropping through it (absent: 0.125). */
+  dropThroughTime?: number;
+  /** Phase 15.3 (v4 only): seconds the world settles before the first frame (absent: 0.1). */
+  settleTime?: number;
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */

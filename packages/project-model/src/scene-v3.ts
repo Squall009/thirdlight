@@ -126,6 +126,17 @@ export const MAX_EXIT_SCENES = 16;
 export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
+/** Phase 15.3 (v4): the follow distance and the speed cap. */
+const KNOWN_CAMERA_FOLLOW_FIELDS_V4 = new Set(['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed']);
+/**
+ * Phase 15.3: the follow camera's tuning. `distance` has no fixed default:
+ * absent, the camera keeps the distance it is placed at (its authored z
+ * minus the player's). `maxSpeed` caps how fast the smoothed camera moves
+ * per axis — 480 m/s is the old 4 m per step at 120 Hz (a safety bound, far
+ * above any follow speed, so smoothing alone shapes the motion).
+ */
+export const CAMERA_FOLLOW_DEFAULTS = Object.freeze({ maxSpeed: 480 });
+export const CAMERA_FOLLOW_LIMITS = Object.freeze({ distance: { min: 0.1, max: 1000 }, maxSpeed: { min: 0.1, max: 100000 } });
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
 const KNOWN_BOUNDS_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
 const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow']);
@@ -413,8 +424,18 @@ export function validateCameraFollowComponent(c: unknown, path: string, errors: 
       if (!KNOWN_BOUNDS_FIELDS.has(k)) errors.push(unexpectedField(`${path}/bounds/${pointerSegment(k)}`, k, 'minX, maxX, minY, maxY'));
     }
   }
+  const known = version === 4 ? KNOWN_CAMERA_FOLLOW_FIELDS_V4 : KNOWN_CAMERA_FOLLOW_FIELDS;
   for (const k of Object.keys(c)) {
-    if (!KNOWN_CAMERA_FOLLOW_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'deadZone, smoothing, bounds'));
+    if (!known.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...known].join(', ')));
+  }
+  if (version === 4) {
+    for (const k of ['distance', 'maxSpeed'] as const) {
+      const v = c[k];
+      const lim = CAMERA_FOLLOW_LIMITS[k];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max)) {
+        errors.push(fieldValue(`${path}/${k}`, v, `a number ${lim.min}-${lim.max}`, `cameraFollow ${k} must be ${lim.min}-${lim.max}`));
+      }
+    }
   }
 }
 
@@ -983,6 +1004,9 @@ function canonicalCameraFollow(c: unknown): CameraFollowComponent {
           },
         }
       : {}),
+    // Phase 15.3 (v4): the tuning comes last (an existing component keeps its exact canonical bytes).
+    ...(o['distance'] !== undefined ? { distance: canonNum(o['distance']) } : {}),
+    ...(o['maxSpeed'] !== undefined ? { maxSpeed: canonNum(o['maxSpeed']) } : {}),
   };
 }
 

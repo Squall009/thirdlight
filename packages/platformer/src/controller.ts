@@ -11,8 +11,10 @@
  * writes a transform at all.
  *
  * Step algorithm: `platformer.md` §7 (normative exact order A–K) plus the
- * grounding classification of `physics.md` §8 items 1–4. Every window,
- * threshold and constant is an integer-step counter or a contract constant.
+ * grounding classification of `physics.md` §8 items 1–4. Every window is an
+ * integer-step counter; phase 15.3: the acceleration, deceleration, windows
+ * and jump-release factor are the player's `controller` data (absent: the
+ * packet-32 values, so recorded replays are unchanged).
  *
  * Gate I repair R-I-2 (`runtime.md` §14.5, C34-3): the controller phase's input
  * is the **effective frame** `{ stepIndex, moveX: ctx.intents.move ??
@@ -36,7 +38,50 @@ import type {
   SimulationModuleSpec,
   SimulationPhaseModule,
 } from '@thirdlight/runtime';
-import { CONTROLLER_CONSTANTS, PLATFORMER_MODULE_ID } from './constants';
+import { CONTROLLER_CONSTANTS, CONTROLLER_DEFAULT_SECONDS, PLATFORMER_MODULE_ID } from './constants';
+
+/**
+ * Phase 15.3: the per-step tuning the algorithm reads — the player's
+ * `controller` data at the module's step rate (windows in whole steps).
+ */
+export interface ControllerStepTuning {
+  readonly moveAccel: number;
+  readonly moveDecel: number;
+  readonly coyoteSteps: number;
+  readonly jumpBufferSteps: number;
+  readonly jumpReleaseFactor: number;
+}
+
+/** The defaults (exactly the packet-32 constants: 120 Hz windows). */
+export const DEFAULT_STEP_TUNING: ControllerStepTuning = Object.freeze({
+  moveAccel: CONTROLLER_CONSTANTS.moveAccel,
+  moveDecel: CONTROLLER_CONSTANTS.moveDecel,
+  coyoteSteps: CONTROLLER_CONSTANTS.coyoteSteps,
+  jumpBufferSteps: CONTROLLER_CONSTANTS.jumpBufferSteps,
+  jumpReleaseFactor: CONTROLLER_CONSTANTS.jumpReleaseFactor,
+});
+
+/**
+ * Phase 15.3: the step tuning a `controller` component describes at
+ * `fixedStepHz` (each absent field at its default; a window in seconds
+ * becomes the nearest whole number of steps — 0.05 s is 6 steps at 120 Hz,
+ * 3 at 60 Hz). The project model validated the ranges; a non-finite value
+ * (a direct caller) falls back to the default.
+ */
+export function controllerStepTuning(controller: unknown, fixedStepHz: number): ControllerStepTuning {
+  const c = (typeof controller === 'object' && controller !== null ? controller : {}) as Record<string, unknown>;
+  const num = (k: string, d: number): number => {
+    const v = c[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : d;
+  };
+  return Object.freeze({
+    moveAccel: num('acceleration', CONTROLLER_CONSTANTS.moveAccel),
+    moveDecel: num('deceleration', CONTROLLER_CONSTANTS.moveDecel),
+    coyoteSteps: Math.max(0, Math.round(num('coyoteTime', CONTROLLER_DEFAULT_SECONDS.coyoteTime) * fixedStepHz)),
+    jumpBufferSteps: Math.max(0, Math.round(num('jumpBuffer', CONTROLLER_DEFAULT_SECONDS.jumpBuffer) * fixedStepHz)),
+    jumpReleaseFactor: num('jumpRelease', CONTROLLER_CONSTANTS.jumpReleaseFactor),
+  });
+}
 
 /**
  * Ground-contact classification tolerance (`physics.md` §7/§8: compares
@@ -79,13 +124,13 @@ export function approach(v: number, target: number, up: number, down: number): n
   return v;
 }
 
-/** Create the state at the authored character transform (`platformer.md` §4). */
-export function createControllerState(charX: number, charY: number): ControllerState {
+/** Create the state at the authored character transform (`platformer.md` §4); the coyote window starts full. */
+export function createControllerState(charX: number, charY: number, coyoteSteps: number = CONTROLLER_CONSTANTS.coyoteSteps): ControllerState {
   return {
     vx: 0,
     vy: 0,
     airborne: false,
-    coyote: CONTROLLER_CONSTANTS.coyoteSteps,
+    coyote: coyoteSteps,
     buffer: 0,
     jumpStarted: false,
     prevResult: undefined,
@@ -186,14 +231,15 @@ export function controllerStep(
   tanMinSlopeSlide: number,
   physics: PhysicsStepClient,
   bounce?: number,
+  tuning: ControllerStepTuning = DEFAULT_STEP_TUNING,
 ): void {
   const p = state.prevResult;
   const groundedPrev = isGrounded(p, cosMaxSlopeClimb);
 
   // A. jump press edge refreshes the buffer window.
-  if (frame.jump === 'pressed') state.buffer = CONTROLLER_CONSTANTS.jumpBufferSteps;
+  if (frame.jump === 'pressed') state.buffer = tuning.jumpBufferSteps;
   // B. a grounded step refreshes the coyote window.
-  if (groundedPrev) state.coyote = CONTROLLER_CONSTANTS.coyoteSteps;
+  if (groundedPrev) state.coyote = tuning.coyoteSteps;
   // C. one jump start per press: grounded or inside coyote, never airborne.
   if (state.buffer > 0 && (groundedPrev || state.coyote > 0) && !state.airborne) {
     state.vy = settings.jump_velocity;
@@ -218,7 +264,7 @@ export function controllerStep(
   if (p !== undefined && p.contacts.head === true && state.vy > 0) state.vy = 0;
   // F. variable height: a release while ascending halves vy exactly once.
   if (frame.jump === 'released' && state.airborne) {
-    if (state.vy > 0) state.vy = state.vy * CONTROLLER_CONSTANTS.jumpReleaseFactor;
+    if (state.vy > 0) state.vy = state.vy * tuning.jumpReleaseFactor;
     state.airborne = false;
   }
   // G. landing classification (a grounded step with non-positive vy).
@@ -236,8 +282,8 @@ export function controllerStep(
   state.vx = approach(
     state.vx,
     target,
-    CONTROLLER_CONSTANTS.moveAccel * dt,
-    CONTROLLER_CONSTANTS.moveDecel * dt,
+    tuning.moveAccel * dt,
+    tuning.moveDecel * dt,
   );
   // I. stage the requested delta (the only mutation this module performs).
   physics.stageCharacterMove(charId, { x: state.vx * dt, y: state.vy * dt });
@@ -280,7 +326,9 @@ export function createControllerModule(
   const cosMaxSlopeClimb = Math.cos((cfg.settings.max_slope_climb_deg * Math.PI) / 180);
   const cosMinSlopeSlide = Math.cos((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
   const tanMinSlopeSlide = Math.tan((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
-  const state = createControllerState(transform.position[0], transform.position[1]);
+  // Phase 15.3: the player's tuning (its controller data, else the defaults).
+  const tuning = controllerStepTuning((entity?.components as { controller?: unknown } | undefined)?.controller, cfg.fixedStepHz);
+  const state = createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps);
 
   return {
     transformOwners: [charId],
@@ -325,6 +373,7 @@ export function createControllerModule(
           tanMinSlopeSlide,
           ctx.physics,
           ctx.intents.bounce,
+          tuning,
         );
         return;
       }

@@ -25,19 +25,18 @@
  */
 import type { ActionFrame } from './actions';
 import type { PhysicsPort, Vec2 } from './ports';
-import type { EntityV3 } from '@thirdlight/project-model';
-import type { PlayerCapsule, TransformState, TriggerEventRecord } from './types';
+import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
+import type { ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal } from './scene-set';
 
-const STOMP_BOUNCE = 9;
-const HIT_BOUNCE = 5;
-const DEFAULT_INVULNERABLE = 1;
-/** A knockback pushes for this long, easing out. */
-const KNOCKBACK_SECONDS = 0.25;
-/** A defeated enemy squashes (feet anchored) for this long, then disappears. */
-const DEFEAT_SECONDS = 0.3;
-/** A chasing enemy notices a player within this height of its feet. */
-const CHASE_HEIGHT = 2;
+/**
+ * Phase 15.3: every tuning value below is the component's data (health,
+ * enemy, mover, pickup); `BLOCK_DEFAULTS` are the values used when a field is
+ * absent — the constants every project played with before (replays stay
+ * valid), except a pickup without a size, which now collects over its
+ * model's recorded bounds (else 1 x 1 m) instead of 0.8 x 0.8 m.
+ */
+const D = BLOCK_DEFAULTS;
 
 type Vec3 = [number, number, number];
 
@@ -60,6 +59,8 @@ interface Mover {
   pos: Vec3;
   /** The box collider's half extents (a mover without one never pushes). */
   half: Vec2 | null;
+  /** Phase 15.3: the most it pushes a player per step (its `maxPush` m/s over the step rate). */
+  pushStep: number;
 }
 
 interface Box {
@@ -111,7 +112,16 @@ interface Enemy {
   health: number;
   defeated: boolean;
   chase: number;
-  /** Steps left of the defeat squash (0: none running). */
+  /** Phase 15.3: the enemy's tuning (its data, else the defaults). */
+  chaseHeight: number;
+  stompBounce: number;
+  stompTolerance: number;
+  defeat: 'none' | 'squash' | 'fade';
+  /** Steps the squash or fade takes (at least 1). */
+  defeatSteps: number;
+  wallProbe: number;
+  ledgeProbe: number;
+  /** Steps left of the defeat squash or fade (0: none running). */
   squash: number;
   /** The authored Y scale (the squash scales it). */
   scaleY: number;
@@ -140,6 +150,10 @@ export interface BlocksHost {
   playCue?(assetId: string): void;
   /** The animator of an entity (or of one of its children), for parameters. */
   animator(entityId: string): { set(name: string, v: number | boolean): boolean; trigger(name: string): boolean } | null;
+  /** Phase 15.3: the gap the player's controller keeps from the world (its `skin`; default 0.01 m). */
+  readonly playerSkin?: number;
+  /** Phase 15.3: a model asset's recorded bounds (from the asset's import metrics), or null. */
+  modelBounds?(assetId: string): ModelBounds | null;
 }
 
 /** A box collider's half extents, or null for another shape. */
@@ -148,8 +162,8 @@ function boxHalf(col: Record<string, unknown> | undefined): Vec2 | null {
   return shape?.type === 'box' && typeof shape.hx === 'number' && typeof shape.hy === 'number' ? { x: shape.hx, y: shape.hy } : null;
 }
 
-/** The gap kept between a pushing mover and the player (the controller's skin plus a margin). */
-const PUSH_SKIN = 0.011;
+/** The margin a pushing mover keeps beyond the controller's skin (0.01 + 0.001 = the old 0.011 m gap). */
+const PUSH_MARGIN = 0.001;
 
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -166,7 +180,11 @@ export class GameplayBlocks {
   /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
   private readonly facers = new Map<string, { right: number; left: number; rate: number; yaw: number; lastX: number | null }>();
   private readonly counters = new Map<string, number>();
-  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number } | null = null;
+  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number; hitBounce: number; knockbackSteps: number } | null = null;
+  /** Phase 15.3: fading entities (a defeated enemy with `defeat: "fade"`): id -> opacity 0-1. */
+  private readonly opacity = new Map<string, number>();
+  /** The gap a pushing mover keeps from the player (the controller's skin plus a margin). */
+  private readonly pushSkin: number;
   /** A hit's push: m/s along X, steps left. */
   private knock = { v: 0, steps: 0, total: 0 };
   private signalsNow = new Set<string>();
@@ -186,11 +204,34 @@ export class GameplayBlocks {
   ) {
     const c = host.playerCapsule;
     this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
+    this.pushSkin = (host.playerSkin ?? 0.01) + PUSH_MARGIN;
     this.add(entities);
+  }
+
+  /**
+   * Phase 15.3: a pickup's collect area without a `size` — its model's
+   * recorded bounds (its own model, else a direct child's; width x height
+   * scaled by the transforms), else the neutral 1 x 1 m.
+   */
+  private pickupSizeOf(e: EntityV3, childModels: Map<string, { assetId: string; scale: readonly number[] }>): [number, number] {
+    const own = (e.components as { model?: { asset?: { assetId?: string } } }).model?.asset?.assetId;
+    const pick = own !== undefined ? { assetId: own, scale: [1, 1, 1] as readonly number[] } : childModels.get(e.id);
+    const b = pick !== undefined ? (this.host.modelBounds?.(pick.assetId) ?? null) : null;
+    if (pick === undefined || b === null) return [D.pickupSize[0], D.pickupSize[1]];
+    const s = e.components.transform.scale;
+    const w = Math.abs((b.max[0] - b.min[0]) * (s[0] ?? 1) * (pick.scale[0] ?? 1));
+    const h = Math.abs((b.max[1] - b.min[1]) * (s[1] ?? 1) * (pick.scale[1] ?? 1));
+    return w > 0 && h > 0 ? [w, h] : [D.pickupSize[0], D.pickupSize[1]];
   }
 
   /** Entities of a loaded scene. */
   add(entities: readonly EntityV3[]): void {
+    // Phase 15.3: the first model child of each entity (a pickup's visual is often a child).
+    const childModels = new Map<string, { assetId: string; scale: readonly number[] }>();
+    for (const e of entities) {
+      const assetId = (e.components as { model?: { asset?: { assetId?: string } } }).model?.asset?.assetId;
+      if (e.parentId !== undefined && assetId !== undefined && !childModels.has(e.parentId)) childModels.set(e.parentId, { assetId, scale: e.components.transform?.scale ?? [1, 1, 1] });
+    }
     for (const e of entities) {
       if (e.parentId !== undefined) this.parents.set(e.id, e.parentId);
       const c = e.components as unknown as Record<string, Record<string, unknown> | undefined>;
@@ -235,6 +276,7 @@ export class GameplayBlocks {
           done: false,
           pos: [...base],
           half: boxHalf(col),
+          pushStep: num(m['maxPush'], D.maxPush) / this.host.hz,
         });
       }
       const t = c['trigger'];
@@ -261,7 +303,7 @@ export class GameplayBlocks {
       }
       const pk = c['pickup'];
       if (pk !== undefined) {
-        const size = (pk['size'] as number[] | undefined) ?? [0.8, 0.8];
+        const size = (pk['size'] as number[] | undefined) ?? this.pickupSizeOf(e, childModels);
         this.pickups.set(e.id, {
           id: e.id,
           half: { x: size[0]! / 2, y: size[1]! / 2 },
@@ -293,6 +335,13 @@ export class GameplayBlocks {
           health,
           defeated: false,
           chase: num(en['chase'], 0),
+          chaseHeight: num(en['chaseHeight'], D.chaseHeight),
+          stompBounce: num(en['stompBounce'], D.stompBounce),
+          stompTolerance: num(en['stompTolerance'], D.stompTolerance),
+          defeat: en['defeat'] === 'none' || en['defeat'] === 'fade' ? (en['defeat'] as 'none' | 'fade') : 'squash',
+          defeatSteps: Math.max(1, Math.round(num(en['defeatTime'], D.defeatTime) * this.host.hz)),
+          wallProbe: num(en['wallProbe'], D.wallProbe),
+          ledgeProbe: num(en['ledgeProbe'], D.ledgeProbe),
           squash: 0,
           scaleY: e.components.transform.scale[1] ?? 1,
         });
@@ -301,7 +350,16 @@ export class GameplayBlocks {
       if (h !== undefined && e.id === this.host.playerId) {
         const max = num(h['max'], 3);
         const start = Math.min(max, num(h['start'], max));
-        this.health = { max, start, current: start, invulnerable: num(h['invulnerableSeconds'], DEFAULT_INVULNERABLE), invulnerableUntil: -1, knockback: num(h['knockback'], 0) };
+        this.health = {
+          max,
+          start,
+          current: start,
+          invulnerable: num(h['invulnerableSeconds'], D.invulnerableSeconds),
+          invulnerableUntil: -1,
+          knockback: num(h['knockback'], 0),
+          hitBounce: num(h['hitBounce'], D.hitBounce),
+          knockbackSteps: Math.max(1, Math.round(num(h['knockbackTime'], D.knockbackTime) * this.host.hz)),
+        };
       }
     }
   }
@@ -317,6 +375,7 @@ export class GameplayBlocks {
       this.oneWay.delete(id);
       this.hazardDamage.delete(id);
       this.hidden.delete(id);
+      this.opacity.delete(id);
       this.parents.delete(id);
       this.facers.delete(id);
     }
@@ -337,6 +396,7 @@ export class GameplayBlocks {
       this.writeTransform(e.id, e.start);
     }
     this.hidden.clear();
+    this.opacity.clear();
     this.counters.clear();
     if (this.health !== null) Object.assign(this.health, { current: this.health.start, invulnerableUntil: -1 });
     this.knock = { v: 0, steps: 0, total: 0 };
@@ -371,6 +431,11 @@ export class GameplayBlocks {
 
   hiddenEntities(): ReadonlySet<string> {
     return this.hidden;
+  }
+
+  /** Phase 15.3: entities fading out (id -> opacity 0-1); the renderer applies it. */
+  entityOpacity(): ReadonlyMap<string, number> {
+    return this.opacity;
   }
 
   countersView(): Record<string, number> {
@@ -476,14 +541,14 @@ export class GameplayBlocks {
       if (player === null || m.half === null) return;
       const px = player.x + this.pc.ox + pushed.x;
       const py = player.y + this.pc.oy + pushed.y;
-      const ox = m.half.x + this.pc.hw + PUSH_SKIN - Math.abs(px - m.pos[0]);
-      const oy = m.half.y + this.pc.hh + PUSH_SKIN - Math.abs(py - m.pos[1]);
+      const ox = m.half.x + this.pc.hw + this.pushSkin - Math.abs(px - m.pos[0]);
+      const oy = m.half.y + this.pc.hh + this.pushSkin - Math.abs(py - m.pos[1]);
       if (ox <= 0 || oy <= 0) return;
       const dx = m.pos[0] - before[0];
       const dy = m.pos[1] - before[1];
       const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + m.half.y;
-      if (oy <= ox && !sideways) pushed.y += Math.min(0.5, oy) * (py >= m.pos[1] ? 1 : -1);
-      else pushed.x += Math.min(0.5, ox) * (px >= m.pos[0] ? 1 : -1);
+      if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (py >= m.pos[1] ? 1 : -1);
+      else pushed.x += Math.min(m.pushStep, ox) * (px >= m.pos[0] ? 1 : -1);
     };
     for (const m of this.movers.values()) {
       const before: Vec3 = [...m.pos];
@@ -494,7 +559,7 @@ export class GameplayBlocks {
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
       else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
     }
-    // A hit's knockback: a horizontal push that eases out over KNOCKBACK_SECONDS.
+    // A hit's knockback: a horizontal push that eases out over the health's knockback time.
     if (this.knock.steps > 0) {
       pushed.x += (this.knock.v * dt * this.knock.steps) / this.knock.total;
       this.knock.steps -= 1;
@@ -612,14 +677,16 @@ export class GameplayBlocks {
       const at = this.worldOf(e.id)!;
       const top = at[1] + 2 * e.half.y;
       const feetBefore = player.y + this.pc.oy - delta.y - this.pc.hh;
-      if (e.stompable && delta.y < 0 && feetBefore >= top - 0.2) {
+      if (e.stompable && delta.y < 0 && feetBefore >= top - e.stompTolerance) {
         e.health -= 1;
-        this.pendingBounce = STOMP_BOUNCE;
+        this.pendingBounce = e.stompBounce;
         const anim = this.host.animator(e.id);
         anim?.trigger('hurt');
         if (e.health <= 0) {
           e.defeated = true;
-          e.squash = Math.max(1, Math.round(DEFEAT_SECONDS * this.host.hz));
+          // Phase 15.3: squash or fade over its defeat time; `none`: gone at once.
+          if (e.defeat === 'none') this.hidden.add(e.id);
+          else e.squash = e.defeatSteps;
           anim?.set('defeated', true);
           this.host.animator(e.id)?.set('attacking', false);
           this.addCounter('defeated', 1);
@@ -634,12 +701,16 @@ export class GameplayBlocks {
     const player = this.host.player();
     for (const e of this.enemies.values()) {
       if (e.defeated) {
-        // The defeat: squash toward the feet, then gone.
+        // The defeat: squash toward the feet (or fade out), then gone.
         if (e.squash > 0) {
           e.squash -= 1;
-          const total = Math.max(1, Math.round(DEFEAT_SECONDS * this.host.hz));
-          this.writeSquash(e.id, e.scaleY * (0.15 + (0.85 * e.squash) / total));
-          if (e.squash === 0) this.hidden.add(e.id);
+          const total = e.defeatSteps;
+          if (e.defeat === 'fade') this.opacity.set(e.id, e.squash / total);
+          else this.writeSquash(e.id, e.scaleY * (0.15 + (0.85 * e.squash) / total));
+          if (e.squash === 0) {
+            this.hidden.add(e.id);
+            this.opacity.delete(e.id);
+          }
         }
         continue;
       }
@@ -648,7 +719,7 @@ export class GameplayBlocks {
       if (e.chase > 0 && player !== null) {
         const dx = player.x + this.pc.ox - e.x;
         const feet = player.y + this.pc.oy - this.pc.hh;
-        if (Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= CHASE_HEIGHT && Math.abs(dx) > 0.05) {
+        if (Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= e.chaseHeight && Math.abs(dx) > 0.05) {
           e.dir = dx > 0 ? 1 : -1;
           chasing = true;
         }
@@ -667,8 +738,9 @@ export class GameplayBlocks {
       } else if (this.host.physics?.raycast !== undefined) {
         const y = e.start[1];
         const front = e.x + e.dir * e.half.x;
-        const wall = this.host.physics.raycast({ x: e.x, y: y + e.half.y }, { x: e.dir, y: 0 }, e.half.x + Math.abs(step) + 0.05);
-        const floor = this.host.physics.raycast({ x: front + e.dir * 0.05, y: y + 0.1 }, { x: 0, y: -1 }, 0.4);
+        // Phase 15.3: the probe distances are the enemy's data (defaults 0.05 m ahead, 0.4 m down).
+        const wall = this.host.physics.raycast({ x: e.x, y: y + e.half.y }, { x: e.dir, y: 0 }, e.half.x + Math.abs(step) + e.wallProbe);
+        const floor = this.host.physics.raycast({ x: front + e.dir * e.wallProbe, y: y + 0.1 }, { x: 0, y: -1 }, e.ledgeProbe);
         if (wall !== null || floor === null) {
           e.dir = e.dir === 1 ? -1 : 1;
           next = e.x;
@@ -695,10 +767,10 @@ export class GameplayBlocks {
       this.host.kill();
       return 'dead';
     }
-    this.pendingBounce = HIT_BOUNCE;
+    this.pendingBounce = this.health.hitBounce;
     const player = this.host.player();
     if (this.health.knockback > 0 && fromX !== undefined && player !== null) {
-      const total = Math.max(1, Math.round(KNOCKBACK_SECONDS * this.host.hz));
+      const total = this.health.knockbackSteps;
       // Twice the speed at the start, easing to zero: the mean is `knockback`.
       this.knock = { v: 2 * this.health.knockback * (player.x >= fromX ? 1 : -1), steps: total, total };
     }

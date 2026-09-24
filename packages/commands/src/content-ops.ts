@@ -650,7 +650,8 @@ const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset', 'piece'],
   collider: ['shape'],
-  controller: ['capsule'],
+  // Phase 14.0 / 15.3: the capsule, then the movement tuning (all optional; `null` goes back to the default).
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   ...COMPONENT_FIELD_ORDER_V3,
 };
 
@@ -768,7 +769,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
       // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay') || (args.component === 'controller' && f === 'capsule') || (args.component === 'model' && f === 'piece'))) delete candidate[f];
+      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && f === 'oneWay') || args.component === 'controller' || (args.component === 'model' && f === 'piece'))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }

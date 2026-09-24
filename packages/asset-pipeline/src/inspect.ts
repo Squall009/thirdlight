@@ -2695,6 +2695,7 @@ class Inspector {
         animationChannels += animation['channels'].length;
       }
     }
+    const bounds = this.computeBounds();
     return {
       nodes: this.collection('nodes').length,
       meshes: this.collection('meshes').length,
@@ -2709,7 +2710,84 @@ class Inspector {
       clipDurationMs: this.clipDurationMs,
       decodedGeometryBytes: decodedGeometry,
       decodedImageBytes: this.imageDecodedBytes,
+      // Phase 15.3: the model's bounds (what the runtime uses for a pickup without a size).
+      ...(bounds !== null ? { bounds } : {}),
     };
+  }
+
+  /**
+   * Phase 15.3: the axis-aligned box of the default scene's meshes in model
+   * space (metres, node transforms applied) — from each POSITION accessor's
+   * `min`/`max` (required by glTF; normalized integers dequantized), so no
+   * vertex is read. `<piece>_COL` collision nodes are left out (never drawn).
+   * Rounded to the micrometre; null when there is no geometry (an
+   * animation-only file) or it lies beyond the model's length bound.
+   */
+  private computeBounds(): { min: [number, number, number]; max: [number, number, number] } | null {
+    const nodes = this.collection('nodes');
+    const meshes = this.collection('meshes');
+    const accessors = this.collection('accessors');
+    const scenes = this.collection('scenes');
+    const sceneIndex = asIndex(this.json['scene']) ?? 0;
+    const scene = scenes[sceneIndex];
+    if (!isPlainObject(scene) || !Array.isArray(scene['nodes'])) return null;
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    const dequantize = (v: number, componentType: unknown, normalized: boolean): number => {
+      if (!normalized) return v;
+      if (componentType === 5120) return Math.max(v / 127, -1);
+      if (componentType === 5121) return v / 255;
+      if (componentType === 5122) return Math.max(v / 32767, -1);
+      if (componentType === 5123) return v / 65535;
+      return v;
+    };
+    const visit = (index: number, parent: readonly number[], depth: number): void => {
+      const node = nodes[index];
+      if (!isPlainObject(node) || depth > 64) return;
+      if (typeof node['name'] === 'string' && /_COL$/.test(node['name'])) return;
+      const world = mat4Multiply(parent, nodeMatrix(node));
+      const meshIndex = asIndex(node['mesh']);
+      const mesh = meshIndex !== null ? meshes[meshIndex] : undefined;
+      if (isPlainObject(mesh) && Array.isArray(mesh['primitives'])) {
+        for (const primitive of mesh['primitives']) {
+          const attrs = isPlainObject(primitive) ? primitive['attributes'] : undefined;
+          const pos = isPlainObject(attrs) ? asIndex(attrs['POSITION']) : null;
+          const acc = pos !== null ? accessors[pos] : undefined;
+          if (!isPlainObject(acc) || !Array.isArray(acc['min']) || !Array.isArray(acc['max']) || acc['min'].length < 3 || acc['max'].length < 3) continue;
+          const normalized = acc['normalized'] === true;
+          const mn = (acc['min'] as unknown[]).slice(0, 3).map((v) => dequantize(Number(v), acc['componentType'], normalized));
+          const mx = (acc['max'] as unknown[]).slice(0, 3).map((v) => dequantize(Number(v), acc['componentType'], normalized));
+          if (![...mn, ...mx].every(Number.isFinite)) continue;
+          for (let corner = 0; corner < 8; corner++) {
+            const x = corner & 1 ? mx[0]! : mn[0]!;
+            const y = corner & 2 ? mx[1]! : mn[1]!;
+            const z = corner & 4 ? mx[2]! : mn[2]!;
+            for (let axis = 0; axis < 3; axis++) {
+              const w = world[axis]! * x + world[4 + axis]! * y + world[8 + axis]! * z + world[12 + axis]!;
+              if (w < lo[axis]!) lo[axis] = w;
+              if (w > hi[axis]!) hi[axis] = w;
+            }
+          }
+        }
+      }
+      if (Array.isArray(node['children'])) for (const c of node['children']) {
+        const ci = asIndex(c);
+        if (ci !== null) visit(ci, world, depth + 1);
+      }
+    };
+    for (const n of scene['nodes'] as unknown[]) {
+      const ni = asIndex(n);
+      if (ni !== null) visit(ni, IDENTITY_4, 0);
+    }
+    const round = (v: number): number => {
+      const r = Math.round(v * 1e6) / 1e6;
+      return r === 0 ? 0 : r;
+    };
+    if (!lo.every(Number.isFinite) || !hi.every(Number.isFinite)) return null;
+    const min = lo.map(round) as [number, number, number];
+    const max = hi.map(round) as [number, number, number];
+    if ([...min, ...max].some((v) => Math.abs(v) > 1e6)) return null;
+    return { min, max };
   }
 }
 
@@ -2750,6 +2828,37 @@ function accessorBufferViewReferences(
 }
 
 /** §18.6/§18.7.2 step 15: compare metrics with every cap, in table order. */
+/** Phase 15.3: the column-major 4x4 identity (glTF matrices are column-major). */
+const IDENTITY_4: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+/** Phase 15.3: a node's local matrix — its `matrix`, else translation × rotation × scale. */
+function nodeMatrix(node: Record<string, unknown>): number[] {
+  const m = node['matrix'];
+  if (Array.isArray(m) && m.length === 16 && m.every((v) => typeof v === 'number' && Number.isFinite(v))) return [...(m as number[])];
+  const t = Array.isArray(node['translation']) ? (node['translation'] as number[]) : [0, 0, 0];
+  const r = Array.isArray(node['rotation']) ? (node['rotation'] as number[]) : [0, 0, 0, 1];
+  const s = Array.isArray(node['scale']) ? (node['scale'] as number[]) : [1, 1, 1];
+  const [x, y, z, w] = [r[0] ?? 0, r[1] ?? 0, r[2] ?? 0, r[3] ?? 1];
+  const [sx, sy, sz] = [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1];
+  return [
+    (1 - 2 * (y * y + z * z)) * sx, 2 * (x * y + z * w) * sx, 2 * (x * z - y * w) * sx, 0,
+    2 * (x * y - z * w) * sy, (1 - 2 * (x * x + z * z)) * sy, 2 * (y * z + x * w) * sy, 0,
+    2 * (x * z + y * w) * sz, 2 * (y * z - x * w) * sz, (1 - 2 * (x * x + y * y)) * sz, 0,
+    t[0] ?? 0, t[1] ?? 0, t[2] ?? 0, 1,
+  ];
+}
+
+/** Phase 15.3: `a × b` for column-major 4x4 matrices. */
+function mat4Multiply(a: readonly number[], b: readonly number[]): number[] {
+  const out = new Array<number>(16).fill(0);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let v = 0;
+    for (let k = 0; k < 4; k++) v += a[k * 4 + r]! * b[c * 4 + k]!;
+    out[c * 4 + r] = v;
+  }
+  return out;
+}
+
 function checkMetricCaps(metrics: AssetMetrics, imageDecodedBytes: number): ImportDiagnostic[] {
   const out: ImportDiagnostic[] = [];
   const cap = (name: ImportLimitName, value: number, limit: number, message: string): void => {

@@ -190,7 +190,7 @@ function filler(len: number): string {
   return 'a'.repeat(len);
 }
 
-function probeNumberRange(ctx: Ctx, root: J, objPtr: string, key: string, d: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean; nonZero?: boolean }, isInt: boolean, errAt: string, dpath: string): void {
+function probeNumberRange(ctx: Ctx, root: J, objPtr: string, key: string, d: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean; nonZero?: boolean; values?: readonly number[] }, isInt: boolean, errAt: string, dpath: string): void {
   const ptr = `${objPtr}/${key}`;
   if (d.min !== undefined) {
     if (d.minExclusive) {
@@ -210,6 +210,16 @@ function probeNumberRange(ctx: Ctx, root: J, objPtr: string, key: string, d: { m
     expectErr(ctx, withValue(root, objPtr, key, d.max + (isInt ? 1 : eps(d.max) * 1000), dpath), errAt, `above max ${d.max}`);
   }
   if (d.nonZero) expectErr(ctx, withValue(root, objPtr, key, 0, dpath), errAt, '0 (non-zero)');
+  // Phase 15.3: a choice of numbers — each accepted, a whole number between two refused.
+  if (d.values !== undefined) {
+    for (const v of d.values) expectOk(ctx, withValue(root, objPtr, key, v, dpath), errAt, `value ${v}`);
+    for (let v = (d.min ?? d.values[0]!) + 1; v < (d.max ?? d.values[d.values.length - 1]!); v++) {
+      if (!d.values.includes(v)) {
+        expectErr(ctx, withValue(root, objPtr, key, v, dpath), errAt, `${v} (not one of ${d.values.join(', ')})`);
+        break;
+      }
+    }
+  }
   if (isInt && d.min !== undefined && d.max !== undefined && d.max - d.min >= 1) expectErr(ctx, withValue(root, objPtr, key, d.min + 0.5, dpath), errAt, 'a fraction');
   void ptr;
 }
@@ -433,9 +443,9 @@ const COMPONENT_BASES: Record<string, J[]> = {
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10 }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   collider: [{ shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true }, { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } }],
-  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] } }],
+  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
-  cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 } }],
+  cameraFollow: [{ deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2, bounds: { minX: -50, maxX: 50, minY: -10, maxY: 20 }, distance: 10, maxSpeed: 100 }],
   light: LIGHTS,
   gameZone: [
     { role: 'hazard', size: [2, 1], damage: 1 },
@@ -444,19 +454,19 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { role: 'exit', size: [1.5, 2.5], load: ['scene-b'], unload: ['scene-c'], spawnId: 'spawn-0001' },
   ],
   playerSpawn: [{}],
-  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go' }],
+  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
   trigger: [
     { shape: 'box', size: [2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }],
-  health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2 }],
+  health: [{ max: 5, start: 3, invulnerableSeconds: 1, knockback: 2, knockbackTime: 0.4, hitBounce: 3 }],
   pickup: [
     { kind: 'coin', value: 1, size: [1, 1], respawn: 'death', cue: 'cue-a' },
     { kind: 'custom', value: 2, counter: 'stars' },
   ],
   enemy: [
-    { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3 },
+    { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6 },
     { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 },
   ],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }],
@@ -604,7 +614,7 @@ function runAllProbes(): void {
   // the entity's own fields
   probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, locked: true, static: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
   // content blocks
-  const game = { configVersion: 2, title: 'Title', objective: 'Objective', instructions: 'Instructions', playerId: 'player-1', cameraId: 'camera-1', spawnId: 'spawn-1', cues: { start: 'cue-a', jump: null, checkpoint: null, death: null, goal: null } };
+  const game = { configVersion: 2, title: 'Title', objective: 'Objective', instructions: 'Instructions', playerId: 'player-1', cameraId: 'camera-1', spawnId: 'spawn-1', cues: { start: 'cue-a', jump: null, checkpoint: null, death: null, goal: null }, respawnDelay: 0.5, dropThroughTime: 0.2, settleTime: 0.05 };
   probe('game', (g) => errorsOf((e) => validateGameConfig(g, '', e, 2)), game, '', block('game'), 'game:');
   probe('flow', (f) => errorsOf((e) => validateFlow(f, '', e)), FLOW_BASE, '', block('flow'), 'flow:');
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
@@ -612,7 +622,7 @@ function runAllProbes(): void {
   MATERIAL_BASES.forEach((b, i) => probe(`materials[${i}]`, (v) => errorsOf((e) => validateMaterials(v, '', e)), b, '', block('materials'), 'materials:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, clipsFor: MODEL_ASSET['assetId'] };
@@ -659,6 +669,7 @@ function fits(d: FieldDescriptor, v: unknown): string | null {
       if (n.min !== undefined && (n.minExclusive ? v <= n.min : v < n.min)) return `below ${n.min}`;
       if (n.max !== undefined && (n.maxExclusive ? v >= n.max : v > n.max)) return `above ${n.max}`;
       if (n.nonZero && v === 0) return 'zero';
+      if (d.type === 'int' && d.values !== undefined && !d.values.includes(v)) return `not one of ${d.values.join(', ')}`;
       return null;
     }
     case 'bool':

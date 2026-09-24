@@ -109,7 +109,9 @@ export function migrateModelAnimations(scenes: readonly SceneV4[], content: Cont
       byKey.set(key, id);
       const model = next.content.assets.find((a) => a.assetId === b.assetId)?.displayName ?? b.assetId;
       const clip = (i: number) => ({ assetId: b.assetId, clip: clips[i]!.name, duration: clips[i]!.duration });
-      const fade = LEGACY_CROSSFADE_SECONDS;
+      // Phase 15.3: the project's animation blend time when it sets one (else the old 0.2 s).
+      const set = (next.content.settings as Record<string, unknown> | undefined)?.['animation_crossfade_s'];
+      const fade = typeof set === 'number' && Number.isFinite(set) ? set : LEGACY_CROSSFADE_SECONDS;
       const controller: AnimatorController = {
         controllerId: id,
         name: `Idle/run/airborne (${model})`.slice(0, 128),

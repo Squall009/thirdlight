@@ -20,6 +20,8 @@
  *   action sampling and fail-stop with no rollback.
  */
 import {
+  GAME_TIMING_DEFAULTS,
+  controllerTuningOf,
   resolveGameplaySettings,
   type CheckpointActivationAppearance,
   type EntityV3,
@@ -99,6 +101,7 @@ import {
   type InterpolatedState,
   type InterpolatedTransform,
   type ModuleConfig,
+  type ModelBounds,
   type MotionSegment,
   type ModuleResetContext,
   type PlayerMotion,
@@ -129,8 +132,27 @@ const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
 /** runtime.md §5 (normative M1 constant). */
 export const MAX_CATCHUP_STEPS = 8;
-/** runtime.md §3.2 (M2 settle pre-roll). */
+/**
+ * runtime.md §3.2 (M2 settle pre-roll) at 120 Hz — phase 15.3: the default
+ * of the game block's `settleTime` (0.1 s), converted at the step rate.
+ */
 export const SETTLE_PREROLL_STEPS = 12;
+/** Phase 9.9: steps a one-way platform lets the player drop through at 120 Hz — phase 15.3: the default of `dropThroughTime` (0.125 s). */
+export const DROP_THROUGH_STEPS = 15;
+
+/**
+ * Phase 15.3: the game block's session timing in whole steps at `hz` (each
+ * absent field at its default; 120 Hz gives exactly the old step counts).
+ */
+export function sessionTimingSteps(game: GameConfig | null | undefined, hz: number): { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number } {
+  const g = (game ?? {}) as Partial<GameConfig>;
+  const steps = (v: number | undefined, d: number, min: number): number => Math.max(min, Math.round((typeof v === 'number' && Number.isFinite(v) ? v : d) * hz));
+  return {
+    settleSteps: steps(g.settleTime, GAME_TIMING_DEFAULTS.settleTime, 0),
+    dropThroughSteps: steps(g.dropThroughTime, GAME_TIMING_DEFAULTS.dropThroughTime, 1),
+    respawnDelaySteps: steps(g.respawnDelay, GAME_TIMING_DEFAULTS.respawnDelay, 0),
+  };
+}
 /** runtime.md §8: the error ring keeps the last 32 entries. */
 const MAX_ERROR_ENTRIES = 32;
 /**
@@ -997,6 +1019,7 @@ export function instantiateRuntime(
     isM2,
     isM3,
     gameContent,
+    timing: sessionTimingSteps(game, hz),
     actions,
     physics,
     settings: resolvedSettings,
@@ -1013,6 +1036,7 @@ export function instantiateRuntime(
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
+    modelBounds: snap.modelBounds,
   });
   return { ok: true, runtime: rt };
 }
@@ -1048,6 +1072,8 @@ interface RuntimeArgs {
   isM3: boolean;
   /** The frozen gameplay-content projection (M3 sets), else `null`. */
   gameContent: GameContent | null;
+  /** Phase 15.3: the game block's session timing in steps (the defaults without one). */
+  timing: { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number };
   actions: ActionSource;
   physics?: PhysicsPort;
   settings: GameplaySettings;
@@ -1066,6 +1092,8 @@ interface RuntimeArgs {
   initialEntities: readonly EntityV3[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs: readonly PrefabDefinition[];
+  /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
+  modelBounds: Readonly<Record<string, ModelBounds>>;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1151,6 +1179,8 @@ class RuntimeInstance implements Runtime {
   private inputSamples = 0;
   private physicsSteps = 0;
   private settleSteps = 0;
+  /** Phase 15.3: the game block's session timing in steps. */
+  private readonly timing: { settleSteps: number; dropThroughSteps: number; respawnDelaySteps: number };
   private failedModuleId?: string;
   private failedPhase?: SimulationPhase;
   private failedStepIndex?: number;
@@ -1298,8 +1328,9 @@ class RuntimeInstance implements Runtime {
     this.isM2 = args.isM2;
     this.isM3 = args.isM3;
     this.gameContent = args.gameContent;
+    this.timing = args.timing;
     if (args.isM3 && args.gameContent !== null) {
-      this.session = new GameSession(args.snapshotId);
+      this.session = new GameSession(args.snapshotId, args.timing.respawnDelaySteps);
       this.playerEntityId = args.gameContent.player.entityId;
       this.viewport = Object.freeze({ width: 0, height: 0, aspect: DEFAULT_ASPECT });
       // gameplay.md §6 (game-view fixture note): awaitingStart/won have no
@@ -1371,6 +1402,9 @@ class RuntimeInstance implements Runtime {
         playerId: this.playerEntityId,
         // Phase 14.0: the player's own capsule (the default without game content).
         playerCapsule: args.gameContent?.player.capsule ?? playerCapsuleOf(undefined),
+        // Phase 15.3: the player's skin (a pushing mover keeps it) and the models' recorded bounds.
+        playerSkin: controllerTuningOf(args.initialEntities.find((e) => e.id === (args.gameContent?.player.entityId ?? args.controllerEntityId))?.components.controller).skin,
+        modelBounds: (assetId: string) => args.modelBounds[assetId] ?? null,
         player: () => {
           const t = rt.curr.get(rt.playerEntityId);
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
@@ -1567,6 +1601,11 @@ class RuntimeInstance implements Runtime {
 
   get isPaused(): boolean {
     return this.paused;
+  }
+
+  /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`): id -> opacity. */
+  entityOpacity(): ReadonlyMap<string, number> {
+    return this.blocks?.entityOpacity() ?? new Map();
   }
 
   /** Phase 9.9: entities collected or defeated (the renderer hides them). */
@@ -1912,13 +1951,13 @@ class RuntimeInstance implements Runtime {
   private runFrame(t: number): void {
     this.frameCount += 1; // §5 frame updates, including zero-step frames
     if (this.needsPreroll) {
-      // §3.2 settle pre-roll: exactly SETTLE_PREROLL_STEPS steps with
-      // neutral frames, no input sampling, no wall time; the anchor is
-      // installed at this frame's simTime afterwards.
+      // §3.2 settle pre-roll: exactly `settleTime` of steps (default
+      // SETTLE_PREROLL_STEPS) with neutral frames, no input sampling, no wall
+      // time; the anchor is installed at this frame's simTime afterwards.
       this.needsPreroll = false;
       this.prerollDone = true;
-      this.settleSteps = SETTLE_PREROLL_STEPS;
-      for (let i = 0; i < SETTLE_PREROLL_STEPS; i += 1) {
+      this.settleSteps = this.timing.settleSteps;
+      for (let i = 0; i < this.timing.settleSteps; i += 1) {
         if (!this.stepOnceM2(neutralFrame(this.stepIndex))) return; // failed
       }
       this.anchor = { wall: t, simTime: this.simTime };
@@ -2051,7 +2090,7 @@ class RuntimeInstance implements Runtime {
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
     this.spawnRefusalLogged = false;
-    if (this.isM3 && this.executedSteps >= SETTLE_PREROLL_STEPS) {
+    if (this.isM3 && this.executedSteps >= this.timing.settleSteps) {
       if (!this.runLevelSwitch()) return false;
       if (!this.runResetBarrier(ordinal)) return false;
       if (!this.runTransfer(ordinal)) return false;
@@ -2086,7 +2125,7 @@ class RuntimeInstance implements Runtime {
       (action.actions?.['navigate']?.y ?? 0) < -0.5 &&
       this.blocks?.isOneWay(this.lastCharacterResult?.groundEntityId ?? null) === true
     ) {
-      this.physics?.dropThrough?.(15);
+      this.physics?.dropThrough?.(this.timing.dropThroughSteps);
       action = { ...action, jump: 'none' };
     }
     const backup = cloneCurr(this.curr);

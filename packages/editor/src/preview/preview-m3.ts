@@ -60,9 +60,8 @@
  * browser render walkthrough is the tests/browser suite (packet-38 baseline
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
-import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { playerCapsuleOf, resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -266,6 +265,8 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
   return {
     assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
+    // Phase 15.3: the project's idle/run/airborne blend time.
+    ...(manifest.settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: manifest.settings.animation_crossfade_s } : {}),
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
       const buf = bytes.get(`${assetId}@${version}`);
       if (buf === undefined) return Promise.reject(new PreviewM3Error('models_asset_unresolved', 'assets', `no wrapper-verified bytes for ${assetId} v${version}`));
@@ -282,6 +283,7 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
 function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
   const statics: RapierStaticColliderSpec[] = [];
   let character: RapierPhysicsInitConfig['character'] | null = null;
+  let tuning = playerPhysicsOf(undefined);
   for (const entity of snapshot.scene.entities) {
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
@@ -301,6 +303,8 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     if (components['controller'] !== undefined) {
       // Phase 14.0: the player's own capsule (its controller's, else the default).
       const capsule = playerCapsuleOf(components['controller']);
+      // Phase 15.3: its skin, ground snap and autostep (else the defaults).
+      tuning = playerPhysicsOf(components['controller']);
       character = {
         x: position[0] ?? 0,
         y: position[1] ?? 0,
@@ -317,13 +321,15 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
   return {
     character,
     statics,
-    solver: { hz: 120, gravityY: settings.gravity_y },
+    // Phase 15.3: the project's step rate and the player's controller tuning.
+    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
     controller: {
-      offsetSkin: CONTROLLER_CONSTANTS.offsetSkin,
-      groundSnap: CONTROLLER_CONSTANTS.groundSnap,
+      offsetSkin: tuning.offsetSkin,
+      groundSnap: tuning.groundSnap,
       maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
       minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: false,
+      autostep: tuning.autostep,
+      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
     },
   };
 }
@@ -388,7 +394,10 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withAnimators0 = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
   // Phase 14.1: the prefabs scripts spawn (from the verified manifest).
   const withAnimators = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
-  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withAnimators, scenes: catalog.rows } : withAnimators);
+  // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
+  const modelBounds = modelBoundsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const withBounds = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
+  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   // 3. The wrapper's read phase (L2): every declared asset read ONCE and
   //    re-hashed to its manifest sourceDigest (the adapter never receives
@@ -428,7 +437,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
     configure: (c: InputConfigLike) => browserInput.configure(c),
   };
-  const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
+  // Phase 15.3: the project's sound voice count (absent: 8).
+  const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
   const assetPathsById: Record<string, string> = {};
   for (const asset of manifest.assets) assetPathsById[asset.assetId] = asset.path;
 

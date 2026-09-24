@@ -271,7 +271,18 @@ describe('gameplay settings resolution (§21.5)', () => {
       'max_fall_speed',
       'max_slope_climb_deg',
       'min_slope_slide_deg',
+      // Phase 15.3: optional engine settings (resolved only when set).
+      'fixed_step_hz',
+      'audio_voices',
+      'music_fade_s',
+      'animation_crossfade_s',
     ]);
+    // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
+    const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });
+    expect(engine.ok && Object.keys(engine.normalized)).toEqual(['gravity_y', 'run_speed', 'jump_velocity', 'max_fall_speed', 'max_slope_climb_deg', 'min_slope_slide_deg', 'fixed_step_hz', 'audio_voices']);
+    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }]) {
+      expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
+    }
   });
 
   it('rejects an unknown key and the slope cross-check', () => {

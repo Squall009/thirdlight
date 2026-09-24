@@ -275,6 +275,36 @@ describe('packet 53 — the role controller (real three@0.186.0 mixers, real GLB
     resource.dispose();
   });
 
+  it('phase 15.3: the blend time is the project\'s animation_crossfade_s (0.5 s here; 0 s cuts)', async () => {
+    const resource = await prepareResource(CLIP_NAMES);
+    const make = (seconds: number) => {
+      const { host, view } = hostView();
+      const made = resource.createInstance();
+      if (!made.ok) throw new Error('expected an instance');
+      const c = createAnimationRoleController(made.instance, view, seconds);
+      if (!c.ok) throw new Error('expected a controller');
+      expect(c.controller.setRoles(ROLES, 1)).toEqual({ ok: true });
+      host.step = 1;
+      steps(c.controller, 1); // idle at full weight
+      host.motion = { speed: 1.2, grounded: true };
+      return c.controller;
+    };
+    const slow = make(0.5);
+    steps(slow, 30); // 0.25 s into a 0.5 s blend
+    expect(slow.state().blending).toBe(true);
+    expect(slow.state().weights.run).toBeCloseTo(crossfadeIncomingWeight(30 * DT, 0.5), 6);
+    steps(slow, 31);
+    expect(slow.state().blending).toBe(false);
+    expect(slow.state().weights.run).toBeGreaterThan(1 - 1e-6);
+    const cut = make(0);
+    steps(cut, 1);
+    expect(cut.state().blending).toBe(false);
+    expect(cut.state().role).toBe('run');
+    expect(cut.state().weights.run).toBeGreaterThan(1 - 1e-6);
+    expect(cut.state().weights.idle).toBeLessThan(1e-6);
+    resource.dispose();
+  });
+
   it('a role change while blending retargets the fade (the previous incoming becomes the outgoing)', async () => {
     const resource = await prepareResource(CLIP_NAMES);
     const { host, view } = hostView();

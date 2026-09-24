@@ -95,6 +95,15 @@ export function applyApplySurfacePreset(
 }
 
 /**
+ * The changed fields of a whole-block create/remove: every base field (the
+ * §23.4 list, as before) plus the phase 15.3 timing fields the block carries.
+ */
+function wholeBlockFields(block: GameConfig): string[] {
+  const timing = new Set<string>(['respawnDelay', 'dropThroughTime', 'settleTime']);
+  return GAME_CONFIG_FIELDS.filter((f) => !timing.has(f) || (block as unknown as Record<string, unknown>)[f] !== undefined);
+}
+
+/**
  * §8.14/authoring §A3.4: create (block absent + complete value), partial edit
  * (block present + non-empty object) or remove (`null`). The block's
  * references are resolved by the resulting-state gate (§23.5), never silently
@@ -124,7 +133,7 @@ export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpO
       type: 'setGameConfig',
       previous,
       next: null,
-      changedFields: [...GAME_CONFIG_FIELDS],
+      changedFields: wholeBlockFields(previous),
     };
     return {
       ok: true,
@@ -146,7 +155,7 @@ export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpO
     validateGameConfig(raw, '/args/game', errors, gameVersion);
     if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };
     next = deepClone(raw) as unknown as GameConfig;
-    changedFields = [...GAME_CONFIG_FIELDS];
+    changedFields = wholeBlockFields(next);
   } else {
     const partial = raw as Record<string, unknown>;
     const keys = Object.keys(partial);
@@ -174,6 +183,8 @@ export function applySetGameConfig(input: OpInput, args: SetGameConfigArgs): OpO
       };
     }
     next = { ...deepClone(previous), ...deepClone(partial) } as unknown as GameConfig;
+    // Phase 15.3: `null` removes an optional timing field (back to the engine default).
+    for (const k of ['respawnDelay', 'dropThroughTime', 'settleTime'] as const) if ((next as unknown as Record<string, unknown>)[k] === null) delete (next as unknown as Record<string, unknown>)[k];
     const errors: ModelErrorV3[] = [];
     validateGameConfig(next, '/args/game', errors, gameVersion);
     if (errors.length > 0) return { ok: false, error: gameConfigError(errors[0] as ModelErrorV3) };

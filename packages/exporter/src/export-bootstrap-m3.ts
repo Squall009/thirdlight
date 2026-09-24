@@ -41,7 +41,6 @@
  */
 import { sha256HexAsync } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
@@ -61,7 +60,7 @@ import {
 import { createSceneAdapter, decodeTexture, environmentHasLook } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { playerCapsuleOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 interface ExportManifestV2 {
@@ -137,6 +136,7 @@ function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown
 function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
   const statics: RapierStaticColliderSpec[] = [];
   let character: RapierPhysicsInitConfig['character'] | null = null;
+  let tuning = playerPhysicsOf(undefined);
   for (const entity of snapshot.scene.entities) {
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
@@ -156,6 +156,8 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     if (components['controller'] !== undefined) {
       // Phase 14.0: the player's own capsule (its controller's, else the default).
       const capsule = playerCapsuleOf(components['controller']);
+      // Phase 15.3: its skin, ground snap and autostep (else the defaults).
+      tuning = playerPhysicsOf(components['controller']);
       character = {
         x: position[0] ?? 0,
         y: position[1] ?? 0,
@@ -172,13 +174,15 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
   return {
     character,
     statics,
-    solver: { hz: 120, gravityY: settings.gravity_y },
+    // Phase 15.3: the project's step rate and the player's controller tuning.
+    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
     controller: {
-      offsetSkin: CONTROLLER_CONSTANTS.offsetSkin,
-      groundSnap: CONTROLLER_CONSTANTS.groundSnap,
+      offsetSkin: tuning.offsetSkin,
+      groundSnap: tuning.groundSnap,
       maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
       minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: false,
+      autostep: tuning.autostep,
+      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
     },
   };
 }
@@ -225,6 +229,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   const catalog = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
   // Phase 12: the scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
+  const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
     projectId: manifest.projectId,
@@ -237,6 +242,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(manifest.animators !== undefined ? { animators: manifest.animators } : {}),
     // Phase 14.1: the prefabs scripts spawn (bound by the buildId).
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
+    // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
+    ...(modelBounds !== undefined ? { modelBounds } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
@@ -262,6 +269,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     models = {
       assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
+      // Phase 15.3: the project's idle/run/airborne blend time.
+      ...(settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: settings.animation_crossfade_s } : {}),
       resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => {
         const buf = assetBytesByKey.get(`${assetId}@${version}`);
         if (buf === undefined) return Promise.reject(new Error(`no wrapper-verified bytes for ${assetId} v${version}`));
@@ -287,7 +296,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
   const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
   focusGameSurface(canvas);
-  const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
+  // Phase 15.3: the project's sound voice count (absent: 8).
+  const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
   const assetPathsById: Record<string, string> = {};
   for (const asset of manifest.assets ?? []) assetPathsById[asset.assetId] = asset.path;
 

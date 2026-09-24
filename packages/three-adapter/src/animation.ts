@@ -35,12 +35,15 @@ import { adapterError, type AdapterError } from './errors';
 import { roleControllerAttachError, trackRoleController, untrackRoleController } from './visual';
 import type { ModelInstance } from './visual';
 
-// ---- Contract constants (presentation.md §41.3.6/§41.7.1 — fixed, not authored) ----
+// ---- Constants (presentation.md §41.3.6/§41.7.1; phase 15.3: the crossfade is the default of the project's `animation_crossfade_s`, the rest are fixed) ----
 
 /** Rule 3: `run` iff committed `speed > RUN_SPEED_EPS` m/s. */
 export const RUN_SPEED_EPS = 0.05;
 
-/** Rule 4 / §41.7.1: the bounded crossfade duration (seconds). */
+/**
+ * Rule 4 / §41.7.1: the bounded crossfade duration (seconds) — phase 15.3:
+ * the default of the project's `animation_crossfade_s` setting.
+ */
 export const ANIMATION_CROSSFADE_SECONDS = 0.2;
 
 /** Rule 2: `update(deltaSeconds)` accepts `0 ≤ deltaSeconds ≤ 0.25`. */
@@ -215,10 +218,13 @@ export function validateAnimationRoles(
 export function createAnimationRoleController(
   instance: ModelInstance,
   view: () => AnimationRoleView,
+  crossfadeSeconds: number = ANIMATION_CROSSFADE_SECONDS,
 ): { readonly ok: true; readonly controller: AnimationRoleController } | { readonly ok: false; readonly error: AdapterError } {
   const bad = roleControllerAttachError(instance);
   if (bad !== null) return { ok: false, error: bad };
-  const controller = createRoleController(instance, view);
+  // Phase 15.3: the project's blend time (0–2 s; a bad value falls back to the default).
+  const fade = Number.isFinite(crossfadeSeconds) && crossfadeSeconds >= 0 && crossfadeSeconds <= 2 ? crossfadeSeconds : ANIMATION_CROSSFADE_SECONDS;
+  const controller = createRoleController(instance, view, fade);
   trackRoleController(instance, controller);
   return { ok: true, controller };
 }
@@ -226,6 +232,7 @@ export function createAnimationRoleController(
 function createRoleController(
   instance: ModelInstance,
   view: () => AnimationRoleView,
+  crossfade: number,
 ): AnimationRoleController {
   let mixer: THREE.AnimationMixer | null = null;
   let actions: Partial<Record<AnimationRoleName, THREE.AnimationAction>> = {};
@@ -341,18 +348,26 @@ function createRoleController(
           current = target;
           fadeRemaining = 0;
         } else if (target !== current) {
-          // Rule 4: one bounded crossfade (0.2 s, warp = false). A change
-          // while blending retargets the fade: the previous incoming action
-          // becomes the outgoing one (`crossFadeTo` schedules it from its
-          // current weight).
+          // Rule 4: one bounded crossfade (the project's blend time, default
+          // 0.2 s, warp = false). A change while blending retargets the fade:
+          // the previous incoming action becomes the outgoing one
+          // (`crossFadeTo` schedules it from its current weight). A 0 s blend
+          // is a cut.
           const outgoing = actions[current];
           const incoming = actions[target];
           if (outgoing !== undefined && incoming !== undefined) {
-            outgoing.crossFadeTo(incoming, ANIMATION_CROSSFADE_SECONDS, false);
-            incoming.play();
+            if (crossfade > 0) {
+              outgoing.crossFadeTo(incoming, crossfade, false);
+              incoming.play();
+            } else {
+              outgoing.stop();
+              incoming.reset();
+              incoming.setEffectiveWeight(1);
+              incoming.play();
+            }
           }
           current = target;
-          fadeRemaining = ANIMATION_CROSSFADE_SECONDS;
+          fadeRemaining = crossfade;
         }
         m.update(deltaSeconds);
         if (fadeRemaining > 0) fadeRemaining = Math.max(0, fadeRemaining - deltaSeconds);
