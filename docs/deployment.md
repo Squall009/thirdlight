@@ -662,6 +662,11 @@ one-way platforms in a softer green), and gameplay paths and areas. A mover's
 waypoints are white handles: drag one to move that stop (one undo step;
 snapping applies).
 
+Inspector → Gameplay → **Face movement** on a model under the player or an
+enemy turns it to face where its parent goes (a yaw for moving right and for
+moving left, reached over a short turn time); it keeps its facing while the
+parent stands still.
+
 ## Upgrade
 
 ```sh

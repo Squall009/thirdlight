@@ -469,6 +469,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
   audioSource: ['assetId', 'volume', 'range'],
+  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once'],
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'invulnerableSeconds'],
@@ -499,6 +500,7 @@ const OWNED: readonly OwnedComponent[] = [
   'pickup',
   'enemy',
   'audioSource',
+  'faceMovement',
 ];
 const REMOVABLE: readonly OwnedComponent[] = [
   'collider',
@@ -520,6 +522,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'pickup',
   'enemy',
   'audioSource',
+  'faceMovement',
 ];
 /** The two field-less markers whose ADD value is exactly `{}`. */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
@@ -687,7 +690,8 @@ export function validateSetComponentArgs(
     component === 'health' ||
     component === 'pickup' ||
     component === 'enemy' ||
-    component === 'audioSource'
+    component === 'audioSource' ||
+    component === 'faceMovement'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

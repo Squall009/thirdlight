@@ -32,9 +32,10 @@ export const BLOCK_DEFAULTS: Record<BlockName, Value> = {
   pickup: { kind: 'coin', value: 1 },
   enemy: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 },
   audioSource: { assetId: '', volume: 0.8, range: 12 },
+  faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.12 },
 };
 
-const TITLES: Record<BlockName, string> = { mover: 'Mover (moving platform)', trigger: 'Trigger', switch: 'Switch', health: 'Health', pickup: 'Pickup', enemy: 'Enemy', audioSource: 'Audio source (loops, louder nearby)' };
+const TITLES: Record<BlockName, string> = { mover: 'Mover (moving platform)', trigger: 'Trigger', switch: 'Switch', health: 'Health', pickup: 'Pickup', enemy: 'Enemy', audioSource: 'Audio source (loops, louder nearby)', faceMovement: 'Face movement (turns with its parent)' };
 
 /** A text field that commits on Enter or blur when it changed (the backend refuses invalid values). */
 function Field(p: { label: string; aria: string; value: string; onCommit: (raw: string) => void; title?: string }): JSX.Element {
@@ -59,7 +60,7 @@ const nums = (raw: string): number[] => raw.split(/[\s,]+/).filter((s) => s !== 
 const vec2Text = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : '');
 
 export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: Props): JSX.Element {
-  const missing = (['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy', 'audioSource'] as const).filter((n) => blocks[n] === undefined && (n !== 'audioSource' || sounds.length > 0));
+  const missing = (['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const).filter((n) => blocks[n] === undefined && (n !== 'audioSource' || sounds.length > 0));
   const set = (n: string, patch: Value): void => onSave(n, patch);
   const num = (n: BlockName, key: string, label: string, integer = false): JSX.Element => (
     <Field
@@ -153,6 +154,8 @@ export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: 
           num(n, 'volume', 'volume (0–1)'),
           num(n, 'range', 'heard within (m)'),
         ];
+      case 'faceMovement':
+        return [num(n, 'yawRight', 'turn when moving right (°)'), num(n, 'yawLeft', 'turn when moving left (°)'), num(n, 'turnSeconds', 'turn time (s)')];
       default:
         return [];
     }

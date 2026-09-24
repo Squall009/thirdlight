@@ -202,6 +202,26 @@ export function validateAudioSourceComponent(value: unknown, path: string, error
 
 export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceComponent => ({ assetId: c.assetId, volume: c.volume, range: c.range });
 
+/**
+ * Phase 9.13: a model that turns to face where its parent is going (the
+ * player's model, a boar under its enemy): yaw (degrees about +Y) when the
+ * parent moves right or left, reached over `turnSeconds`.
+ */
+export interface FaceMovementComponent {
+  yawRight: number;
+  yawLeft: number;
+  turnSeconds?: number;
+}
+
+export function validateFaceMovementComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'faceMovement is an object', value);
+  fields(value, ['yawRight', 'yawLeft', 'turnSeconds'], ['yawRight', 'yawLeft'], path, errors);
+  for (const k of ['yawRight', 'yawLeft'] as const) if (value[k] !== undefined && !num(value[k], -360, 360)) err(errors, 'field_value', `${path}/${k}`, `${k} is −360–360 degrees`, value[k]);
+  if (value['turnSeconds'] !== undefined && !num(value['turnSeconds'], 0, 5)) err(errors, 'field_value', `${path}/turnSeconds`, 'turnSeconds is 0–5', value['turnSeconds']);
+}
+
+export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementComponent => ({ yawRight: c.yawRight, yawLeft: c.yawLeft, ...(c.turnSeconds !== undefined ? { turnSeconds: c.turnSeconds } : {}) });
+
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'] },
   trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once'] },
@@ -210,6 +230,7 @@ export const BLOCK_COMPONENTS = {
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: ['kind', 'value', 'counter', 'size', 'respawn'] },
   enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'] },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: ['assetId', 'volume', 'range'] },
+  faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: ['yawRight', 'yawLeft', 'turnSeconds'] },
 } as const;
 export type BlockComponentName = keyof typeof BLOCK_COMPONENTS;
 export const BLOCK_COMPONENT_NAMES = Object.keys(BLOCK_COMPONENTS) as BlockComponentName[];

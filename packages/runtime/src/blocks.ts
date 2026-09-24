@@ -135,6 +135,8 @@ export class GameplayBlocks {
   private readonly hazardDamage = new Map<string, number>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
+  /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
+  private readonly facers = new Map<string, { right: number; left: number; rate: number; yaw: number; lastX: number | null }>();
   private readonly counters = new Map<string, number>();
   private health: { max: number; current: number; invulnerable: number; invulnerableUntil: number } | null = null;
   private signalsNow = new Set<string>();
@@ -160,6 +162,14 @@ export class GameplayBlocks {
       if (zone !== undefined && zone['role'] === 'hazard' && typeof zone['damage'] === 'number') this.hazardDamage.set(e.id, zone['damage'] as number);
       const col = c['collider'];
       if (col !== undefined && col['oneWay'] === true) this.oneWay.add(e.id);
+      const face = c['faceMovement'];
+      if (face !== undefined && e.parentId !== undefined) {
+        const right = (num(face['yawRight'], 90) * Math.PI) / 180;
+        const left = (num(face['yawLeft'], -90) * Math.PI) / 180;
+        const turn = num(face['turnSeconds'], 0.12);
+        const q = e.components.transform.rotation;
+        this.facers.set(e.id, { right, left, rate: turn > 0 ? Math.abs(right - left) / turn : Infinity, yaw: 2 * Math.atan2(q[1] ?? 0, q[3] ?? 1), lastX: null });
+      }
       const m = c['mover'];
       if (m !== undefined) {
         const base: Vec3 = [p[0], p[1], p[2]];
@@ -254,6 +264,7 @@ export class GameplayBlocks {
       this.hazardDamage.delete(id);
       this.hidden.delete(id);
       this.parents.delete(id);
+      this.facers.delete(id);
     }
   }
 
@@ -456,6 +467,7 @@ export class GameplayBlocks {
   afterPhysics(frame: ActionFrame, playing: boolean): void {
     const dt = 1 / this.host.hz;
     this.moveEnemies(dt);
+    this.turnFacers(dt);
     const player = this.host.player();
     if (player === null || !playing) return;
     const overlaps = (id: string, half: Vec2, feetAnchored = false): boolean => {
@@ -585,6 +597,29 @@ export class GameplayBlocks {
   }
 
   /** World position by summing the parent chain (the runtime's hierarchy has no rotation here). */
+  /** Phase 9.13: each facing model turns toward its parent's horizontal motion (it keeps its yaw while the parent stands). */
+  private turnFacers(dt: number): void {
+    for (const [id, f] of this.facers) {
+      const parent = this.parents.get(id);
+      const at = parent !== undefined ? this.worldOf(parent) : null;
+      if (at === null) continue;
+      const dx = f.lastX === null ? 0 : at[0] - f.lastX;
+      f.lastX = at[0];
+      const target = dx > 1e-4 ? f.right : dx < -1e-4 ? f.left : null;
+      if (target !== null && target !== f.yaw) {
+        const step = f.rate * dt;
+        f.yaw = Math.abs(target - f.yaw) <= step ? target : f.yaw + Math.sign(target - f.yaw) * step;
+      }
+      const t = this.host.curr.get(id);
+      if (t !== undefined) {
+        t.rotation[0] = 0;
+        t.rotation[1] = Math.sin(f.yaw / 2);
+        t.rotation[2] = 0;
+        t.rotation[3] = Math.cos(f.yaw / 2);
+      }
+    }
+  }
+
   private worldOf(id: string): Vec3 | null {
     const t = this.host.curr.get(id);
     if (t === undefined) return null;

@@ -56,6 +56,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 9.9: gameplay building blocks.
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
   audioSource: ['assetId', 'volume', 'range'],
+  faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once'],
   switch: ['mode', 'signal', 'size', 'once'],
   health: ['max', 'invulnerableSeconds'],
@@ -107,6 +108,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'pickup',
   'enemy',
   'audioSource',
+  'faceMovement',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -196,6 +198,7 @@ export function validateV3ComponentValue(
     case 'pickup':
     case 'enemy':
     case 'audioSource':
+    case 'faceMovement':
       BLOCK_COMPONENTS[component].validate(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);
       break;
     case 'light':

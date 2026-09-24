@@ -225,4 +225,31 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
     L.tick(360);
     expect(L.view().deathCount).toBeGreaterThanOrEqual(1);
   });
+
+  it('phase 9.13: a model child faces where its parent goes (the player, a patrolling enemy)', async () => {
+    const yawOf = (L: Any, id: string): number => {
+      const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
+      return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
+    };
+    const L = await level(
+      [0, 0.91],
+      [
+        { id: 'look-0001', parentId: 'player-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } },
+        box('enemy-0001', 12, 0, { enemy: { patrol: 'points', range: [-1, 1], speed: 2, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 } }),
+        { id: 'snout-0001', parentId: 'enemy-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } },
+      ],
+      (s) => ({ moveX: s < 100 ? 1 : -1, jump: 'none' }),
+    );
+    L.tick(60);
+    expect(yawOf(L, 'look-0001')).toBeCloseTo(90, 3);
+    L.tick(80);
+    expect(yawOf(L, 'look-0001')).toBeCloseTo(-90, 3);
+    // The enemy turns at each end of its patrol: both directions are seen.
+    const seen = new Set<number>();
+    for (let i = 0; i < 180; i++) {
+      L.tick();
+      seen.add(Math.round(yawOf(L, 'snout-0001')));
+    }
+    expect(seen.has(90) && seen.has(-90)).toBe(true);
+  });
 });

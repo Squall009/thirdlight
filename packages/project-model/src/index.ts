@@ -320,6 +320,7 @@ export {
   type BlockComponentName,
   type EnemyComponent,
   type AudioSourceComponent,
+  type FaceMovementComponent,
   type HealthComponent,
   type MoverComponent,
   type PickupComponent,
