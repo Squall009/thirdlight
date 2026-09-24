@@ -30,7 +30,7 @@ describe('game flow', () => {
   it('accepts a full flow; canonical form is stable; the assets it names', () => {
     expect(errorsOf(FLOW)).toEqual([]);
     expect(canonicalFlow(JSON.parse(JSON.stringify(FLOW)) as GameFlow)).toEqual(FLOW);
-    expect(flowAssetRefs(FLOW)).toEqual({ music: ['music-a', 'music-t'], textures: ['logo-tex'] });
+    expect(flowAssetRefs(FLOW)).toEqual({ music: ['music-a', 'music-t'], textures: ['logo-tex'], menuSounds: [], ambience: [] });
     expect(errorsOf({ levels: [{ id: 'l1', name: 'One', scenes: ['s'], spawnId: 'sp' }] })).toEqual([]);
   });
 
@@ -75,5 +75,34 @@ describe('game flow', () => {
     expect(codes({ timeBonus: { targetSeconds: 0, perSecond: 1 } })).toEqual(['field_value /flow/score/timeBonus/targetSeconds']);
     expect(codes({ timeBonus: { targetSeconds: 60, perSecond: -1 } })).toEqual(['field_value /flow/score/timeBonus/perSecond']);
     expect(codes({ timeBonus: { targetSeconds: 60 } })).toEqual(['field_value /flow/score/timeBonus/perSecond']);
+  });
+
+  it('phase 14.5: title background scene and pan, menu sounds, ui volume, level ambience', () => {
+    const f = {
+      ...FLOW,
+      levels: [{ ...FLOW.levels[0]!, ambience: ['wind', 'birds'] }, { ...FLOW.levels[1]!, ambience: ['wind'] }],
+      title: { ...FLOW.title, scene: 'scene-title', pan: { distance: -6, seconds: 25 } },
+      volumes: { music: 0.7, sfx: 1, ui: 0.5 },
+      sounds: { back: 'snd-back', move: 'snd-move' },
+    } as GameFlow;
+    expect(errorsOf(f)).toEqual([]);
+    const canon = canonicalFlow(JSON.parse(JSON.stringify(f)) as GameFlow);
+    expect(canon).toEqual(f);
+    expect(Object.keys(canon.sounds!)).toEqual(['move', 'back']);
+    expect(flowAssetRefs(f)).toMatchObject({ menuSounds: ['snd-move', 'snd-back'], ambience: ['wind', 'birds'] });
+    // Absent: none of the new keys (existing projects stay byte-identical).
+    const plain = canonicalFlow(FLOW);
+    expect('sounds' in plain || 'ui' in plain.volumes! || 'scene' in plain.title! || 'ambience' in plain.levels[0]!).toBe(false);
+    const codes = (v: Partial<GameFlow> | Record<string, unknown>): string[] => errorsOf({ ...FLOW, ...v }).map((e) => `${e.code} ${e.path}`);
+    expect(codes({ title: { pan: { distance: 0, seconds: 10 } } })).toEqual(['field_value /flow/title/pan/distance']);
+    expect(codes({ title: { pan: { distance: 500, seconds: 10 } } })).toEqual(['field_value /flow/title/pan/distance']);
+    expect(codes({ title: { pan: { distance: 3, seconds: 1 } } })).toEqual(['field_value /flow/title/pan/seconds']);
+    expect(codes({ title: { scene: '' } })).toEqual(['field_value /flow/title/scene']);
+    expect(codes({ volumes: { music: 1, sfx: 1, ui: 3 } })).toEqual(['field_value /flow/volumes/ui']);
+    expect(codes({ sounds: { beep: 'x' } })).toEqual(['field_unexpected /flow/sounds/beep']);
+    expect(codes({ sounds: { move: '' } })).toEqual(['field_value /flow/sounds/move']);
+    expect(codes({ levels: [{ ...FLOW.levels[0]!, ambience: [] }] })).toEqual(['field_value /flow/levels/0/ambience']);
+    expect(codes({ levels: [{ ...FLOW.levels[0]!, ambience: ['a', 'a'] }] })).toEqual(['field_value /flow/levels/0/ambience']);
+    expect(codes({ levels: [{ ...FLOW.levels[0]!, ambience: ['a', 'b', 'c', 'd', 'e'] }] })).toEqual(['field_value /flow/levels/0/ambience']);
   });
 });

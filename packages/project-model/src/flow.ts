@@ -29,7 +29,31 @@ export interface FlowLevel {
    * project's part; post merges per effect). Absent: the project environment.
    */
   environment?: LevelEnvironment;
+  /**
+   * Phase 14.5: sounds looped on the sound-effects bus while the level plays
+   * (wind, birds, a hum; audio or music assets, 1–4, played together).
+   */
+  ambience?: string[];
 }
+
+/** Phase 14.5: the title screen's slow camera pan — sideways (x) by `distance` metres over `seconds`, then back. */
+export interface TitlePan {
+  distance: number;
+  seconds: number;
+}
+
+/** Phase 14.5: the sounds the menus make (audio assets; each optional). */
+export interface MenuSounds {
+  /** The selection moves or a value changes. */
+  move?: string;
+  /** An item is chosen. */
+  confirm?: string;
+  /** Back out of a menu (or cancel a rebinding). */
+  back?: string;
+}
+
+export const MAX_LEVEL_AMBIENCE = 4;
+export const MENU_SOUND_KINDS = ['move', 'confirm', 'back'] as const;
 
 export const HUD_PRESETS = ['classic', 'minimal', 'corners'] as const;
 export const UI_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
@@ -39,12 +63,26 @@ export interface GameFlow {
   /** Lives per game; absent: unlimited (a death only respawns). */
   lives?: { start: number; max: number };
   /** A title screen before the first level (absent: the game starts on a key press). */
-  title?: { subtitle?: string; music?: string };
+  title?: {
+    subtitle?: string;
+    music?: string;
+    /**
+     * Phase 14.5: the scene seen behind the title menu (absent: the first
+     * level's start, as before). Loaded like a level scene while the title
+     * shows; the game camera looks at it as it would at a player standing at
+     * its first player spawn (else the middle of its objects).
+     */
+    scene?: string;
+    /** Phase 14.5: a slow sideways camera pan behind the title menu. */
+    pan?: TitlePan;
+  };
   hud?: { preset: (typeof HUD_PRESETS)[number]; timer?: boolean };
   ui?: { font: (typeof UI_FONTS)[number]; accent: string; panel: string; text: string; logo?: string };
   texts?: { levelComplete?: string; gameOver?: string; credits?: string };
-  /** Default volumes (0–1) before the player changes them in Settings. */
-  volumes?: { music: number; sfx: number };
+  /** Default volumes (0–1) before the player changes them in Settings (phase 14.5: `ui`, the menu sounds, default 1). */
+  volumes?: { music: number; sfx: number; ui?: number };
+  /** Phase 14.5: the menu sounds (played on the `ui` bus). */
+  sounds?: MenuSounds;
   /** Phase 14.3: score rules (absent: no score is shown or kept). */
   score?: FlowScore;
 }
@@ -66,6 +104,8 @@ export const MAX_SCORE_COUNTERS = 32;
 export const MAX_SCORE_POINTS = 1_000_000;
 
 export const MAX_FLOW_LEVELS = 32;
+/** Phase 14.5: the farthest a title pan travels (m). */
+export const MAX_TITLE_PAN_DISTANCE = 100;
 export const MAX_LEVEL_SCENES = 16;
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -87,7 +127,7 @@ const unit = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v
 /** The shape of a flow block (references are checked by the project validator). */
 export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) return err(errors, 'field_type', path, 'flow is an object', value);
-  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes', 'score'], path, errors);
+  only(value, ['levels', 'lives', 'title', 'hud', 'ui', 'texts', 'volumes', 'score', 'sounds'], path, errors);
   const levels = value['levels'];
   if (!Array.isArray(levels) || levels.length < 1 || levels.length > MAX_FLOW_LEVELS) {
     err(errors, 'field_value', `${path}/levels`, `levels is a list of 1–${MAX_FLOW_LEVELS} levels`, Array.isArray(levels) ? levels.length : levels);
@@ -96,7 +136,7 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
     levels.forEach((l, i) => {
       const p = `${path}/levels/${i}`;
       if (!isObj(l)) return err(errors, 'field_type', p, 'a level is an object', l);
-      only(l, ['id', 'name', 'scenes', 'spawnId', 'music', 'environment'], p, errors);
+      only(l, ['id', 'name', 'scenes', 'spawnId', 'music', 'environment', 'ambience'], p, errors);
       if (typeof l['id'] !== 'string' || !ID_RE.test(l['id'])) err(errors, 'field_value', `${p}/id`, 'a level id is 1–64 letters, digits, _ or -', l['id']);
       else if (ids.has(l['id'])) err(errors, 'id_duplicate', `${p}/id`, 'level ids are unique', l['id']);
       else ids.add(l['id']);
@@ -108,6 +148,10 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
       if (typeof l['spawnId'] !== 'string' || l['spawnId'].length === 0 || l['spawnId'].length > 128) err(errors, 'field_value', `${p}/spawnId`, 'a level names its player spawn', l['spawnId']);
       if (l['music'] !== undefined && (typeof l['music'] !== 'string' || l['music'].length === 0)) err(errors, 'field_value', `${p}/music`, 'music names a music asset', l['music']);
       if (l['environment'] !== undefined) validateLevelEnvironment(l['environment'], `${p}/environment`, errors);
+      const amb = l['ambience'];
+      if (amb !== undefined && (!Array.isArray(amb) || amb.length < 1 || amb.length > MAX_LEVEL_AMBIENCE || !amb.every((a) => typeof a === 'string' && a.length > 0 && a.length <= 128) || new Set(amb).size !== amb.length)) {
+        err(errors, 'field_value', `${p}/ambience`, `ambience is a list of 1–${MAX_LEVEL_AMBIENCE} distinct audio or music assets`, amb);
+      }
     });
   }
   const lives = value['lives'];
@@ -121,9 +165,21 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
   }
   const title = value['title'];
   if (title !== undefined) {
-    if (!isObj(title)) err(errors, 'field_type', `${path}/title`, 'title is { subtitle?, music? }', title);
+    if (!isObj(title)) err(errors, 'field_type', `${path}/title`, 'title is { subtitle?, music?, scene?, pan? }', title);
     else {
-      only(title, ['subtitle', 'music'], `${path}/title`, errors);
+      only(title, ['subtitle', 'music', 'scene', 'pan'], `${path}/title`, errors);
+      if (title['scene'] !== undefined && (typeof title['scene'] !== 'string' || title['scene'].length === 0 || title['scene'].length > 128)) err(errors, 'field_value', `${path}/title/scene`, 'the title background names a scene', title['scene']);
+      const pan = title['pan'];
+      if (pan !== undefined) {
+        if (!isObj(pan)) err(errors, 'field_type', `${path}/title/pan`, 'pan is { distance, seconds }', pan);
+        else {
+          only(pan, ['distance', 'seconds'], `${path}/title/pan`, errors);
+          const d = pan['distance'];
+          if (typeof d !== 'number' || !Number.isFinite(d) || d === 0 || Math.abs(d) > MAX_TITLE_PAN_DISTANCE) err(errors, 'field_value', `${path}/title/pan/distance`, `the pan distance is −${MAX_TITLE_PAN_DISTANCE}–${MAX_TITLE_PAN_DISTANCE} m, not 0`, d);
+          const t = pan['seconds'];
+          if (typeof t !== 'number' || !Number.isFinite(t) || t < 2 || t > 600) err(errors, 'field_value', `${path}/title/pan/seconds`, 'the pan takes 2–600 seconds each way', t);
+        }
+      }
       if (title['subtitle'] !== undefined && !text(title['subtitle'], 160)) err(errors, 'field_value', `${path}/title/subtitle`, 'the subtitle is at most 160 characters', title['subtitle']);
       if (title['music'] !== undefined && (typeof title['music'] !== 'string' || title['music'].length === 0)) err(errors, 'field_value', `${path}/title/music`, 'music names a music asset', title['music']);
     }
@@ -158,15 +214,24 @@ export function validateFlow(value: unknown, path: string, errors: ModelErrorV2[
   }
   const volumes = value['volumes'];
   if (volumes !== undefined) {
-    if (!isObj(volumes)) err(errors, 'field_type', `${path}/volumes`, 'volumes is { music, sfx }', volumes);
+    if (!isObj(volumes)) err(errors, 'field_type', `${path}/volumes`, 'volumes is { music, sfx, ui? }', volumes);
     else {
-      only(volumes, ['music', 'sfx'], `${path}/volumes`, errors);
+      only(volumes, ['music', 'sfx', 'ui'], `${path}/volumes`, errors);
+      if (volumes['ui'] !== undefined && !unit(volumes['ui'])) err(errors, 'field_value', `${path}/volumes/ui`, 'the menu sound volume is 0–1', volumes['ui']);
       if (!unit(volumes['music'])) err(errors, 'field_value', `${path}/volumes/music`, 'the music volume is 0–1', volumes['music']);
       if (!unit(volumes['sfx'])) err(errors, 'field_value', `${path}/volumes/sfx`, 'the sound volume is 0–1', volumes['sfx']);
     }
   }
   const score = value['score'];
   if (score !== undefined) validateScore(score, `${path}/score`, errors);
+  const sounds = value['sounds'];
+  if (sounds !== undefined) {
+    if (!isObj(sounds)) err(errors, 'field_type', `${path}/sounds`, 'sounds is { move?, confirm?, back? }', sounds);
+    else {
+      only(sounds, MENU_SOUND_KINDS, `${path}/sounds`, errors);
+      for (const k of MENU_SOUND_KINDS) if (sounds[k] !== undefined && (typeof sounds[k] !== 'string' || (sounds[k] as string).length === 0 || (sounds[k] as string).length > 128)) err(errors, 'field_value', `${path}/sounds/${k}`, 'a menu sound names an audio asset', sounds[k]);
+    }
+  }
 }
 
 const COUNTER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
@@ -200,29 +265,55 @@ function validateScore(score: unknown, path: string, errors: ModelErrorV2[]): vo
   }
 }
 
-/** Every asset the flow names (music, the logo, the levels' sky images and LUTs), for capture and export. */
-export function flowAssetRefs(flow: GameFlow): { music: string[]; textures: string[] } {
+/**
+ * Every asset the flow names (music, the logo, the levels' sky images and
+ * LUTs; phase 14.5: the menu sounds and the levels' ambience), for capture
+ * and export. `menuSounds` must be audio assets, `ambience` audio or music.
+ */
+export function flowAssetRefs(flow: GameFlow): { music: string[]; textures: string[]; menuSounds: string[]; ambience: string[] } {
   const music = new Set<string>();
   for (const l of flow.levels) if (l.music !== undefined) music.add(l.music);
   if (flow.title?.music !== undefined) music.add(flow.title.music);
   const textures = new Set<string>();
   if (flow.ui?.logo !== undefined) textures.add(flow.ui.logo);
   for (const l of flow.levels) if (l.environment !== undefined) for (const id of environmentTextureRefs(l.environment)) textures.add(id);
-  return { music: [...music], textures: [...textures] };
+  const menuSounds = new Set<string>();
+  for (const k of MENU_SOUND_KINDS) if (flow.sounds?.[k] !== undefined) menuSounds.add(flow.sounds[k]!);
+  const ambience = new Set<string>();
+  for (const l of flow.levels) for (const id of l.ambience ?? []) ambience.add(id);
+  return { music: [...music], textures: [...textures], menuSounds: [...menuSounds], ambience: [...ambience] };
 }
 
 export function canonicalFlow(f: GameFlow): GameFlow {
   return {
-    levels: f.levels.map((l) => ({ id: l.id, name: l.name, scenes: [...l.scenes], spawnId: l.spawnId, ...(l.music !== undefined ? { music: l.music } : {}), ...(l.environment !== undefined ? { environment: canonicalLevelEnvironment(l.environment) } : {}) })),
+    levels: f.levels.map((l) => ({
+      id: l.id,
+      name: l.name,
+      scenes: [...l.scenes],
+      spawnId: l.spawnId,
+      ...(l.music !== undefined ? { music: l.music } : {}),
+      ...(l.environment !== undefined ? { environment: canonicalLevelEnvironment(l.environment) } : {}),
+      ...(l.ambience !== undefined ? { ambience: [...l.ambience] } : {}),
+    })),
     ...(f.lives !== undefined ? { lives: { start: f.lives.start, max: f.lives.max } } : {}),
-    ...(f.title !== undefined ? { title: { ...(f.title.subtitle !== undefined ? { subtitle: f.title.subtitle } : {}), ...(f.title.music !== undefined ? { music: f.title.music } : {}) } } : {}),
+    ...(f.title !== undefined
+      ? {
+          title: {
+            ...(f.title.subtitle !== undefined ? { subtitle: f.title.subtitle } : {}),
+            ...(f.title.music !== undefined ? { music: f.title.music } : {}),
+            ...(f.title.scene !== undefined ? { scene: f.title.scene } : {}),
+            ...(f.title.pan !== undefined ? { pan: { distance: f.title.pan.distance, seconds: f.title.pan.seconds } } : {}),
+          },
+        }
+      : {}),
     ...(f.hud !== undefined ? { hud: { preset: f.hud.preset, ...(f.hud.timer !== undefined ? { timer: f.hud.timer } : {}) } } : {}),
     ...(f.ui !== undefined ? { ui: { font: f.ui.font, accent: f.ui.accent, panel: f.ui.panel, text: f.ui.text, ...(f.ui.logo !== undefined ? { logo: f.ui.logo } : {}) } } : {}),
     ...(f.texts !== undefined
       ? { texts: { ...(f.texts.levelComplete !== undefined ? { levelComplete: f.texts.levelComplete } : {}), ...(f.texts.gameOver !== undefined ? { gameOver: f.texts.gameOver } : {}), ...(f.texts.credits !== undefined ? { credits: f.texts.credits } : {}) } }
       : {}),
-    ...(f.volumes !== undefined ? { volumes: { music: f.volumes.music, sfx: f.volumes.sfx } } : {}),
+    ...(f.volumes !== undefined ? { volumes: { music: f.volumes.music, sfx: f.volumes.sfx, ...(f.volumes.ui !== undefined ? { ui: f.volumes.ui } : {}) } } : {}),
     ...(f.score !== undefined ? { score: canonicalScore(f.score) } : {}),
+    ...(f.sounds !== undefined ? { sounds: Object.fromEntries(MENU_SOUND_KINDS.filter((k) => f.sounds![k] !== undefined).map((k) => [k, f.sounds![k]!])) as MenuSounds } : {}),
   };
 }
 

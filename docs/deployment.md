@@ -558,8 +558,11 @@ pad A), `cancel` (Backspace, pad B), `navigate` (arrows/WASD, stick). "+ key"
 listens for the next key (an axis asks for two or four keys), "+ pad" for
 the next gamepad button; × removes a binding; new actions can be added. The
 first edit makes the controls the project's own; "Reset to defaults" goes
-back. The platformer moves and jumps with the `move` and `jump` keys (its
-gamepad controls stay the standard ones). Scripts read
+back. The platformer moves and jumps with the `move` and `jump` bindings:
+their keys, and their pad buttons and stick axis (`jump`'s pad buttons,
+`move`'s button pair and axis; a part with no pad binding of its kind keeps
+the standard layout — A jumps, D-pad and left stick move). Players rebind
+the pad in the game's Settings (see Game flow). Scripts read
 `ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
 `.released(name)`; the actions are part of the recorded input, so replays
 match. MCP: `setInput {input}` through `tl_command`; `tl_input_exercise`
@@ -626,13 +629,33 @@ then:
 - **HUD and menus**: layout (classic, minimal, corners), a level timer, the
   menu font, colours and an optional logo (a texture asset), the *Level
   complete* / *Game over* texts and credits for the end screen, default
-  music and sound volumes.
+  music, sound and menu-sound volumes.
+- **Title screen background**: *the first level's start* (as before) or any
+  scene of the project. The chosen scene is loaded while the title shows
+  (like a level scene: it may not hold the camera, the player or lights —
+  the start scenes' lights shine on it) and unloaded when a level starts;
+  the game camera frames its first player spawn (else the middle of its
+  objects) the way it frames the player, so keep it away from the levels'
+  space. *Slow camera pan* slides the camera sideways by the given metres
+  over the given seconds and back (default 4 m, 20 s; works with either
+  background).
+- **Menu sounds**: an audio asset each for *move* (the selection or a value
+  changes), *confirm* (an item is chosen) and *back* (leaving a menu, a
+  cancelled rebinding). They play on their own `ui` sound bus; the game's
+  Settings then offer *Menu sounds volume*.
+- **Ambience** per level: up to four audio or music assets looped together
+  on the sound-effects bus while the level plays (and while it is paused);
+  they stop on the title, *Level complete*, *Game over* and end screens.
 
 In the game: Esc (or the pad's Start) pauses — *Resume*, *Restart level*,
 *Settings*, *Quit to title*. Arrow keys / W-S / D-pad move through a menu,
 Enter or pad A chooses, left/right change a volume. **Settings** has music
-and sound volume, quality (low/medium/high) and the jump/attack/interact
-keys (choose one, press the new key). Reaching a goal shows *Level
+and sound volume (and the menu-sound volume when the game has menu sounds),
+quality (low/medium/high), the jump/attack/interact keys (choose one, press
+the new key) and the pad buttons for jump, attack, interact, move left and
+move right (choose one, press the new button on the pad; Esc cancels). A
+rebound pad button replaces that action's pad button (the keys stay); the
+platformer jumps and moves with it at once. Reaching a goal shows *Level
 complete* (time, counters, deaths) and goes on to the next level; after the
 last one the end screen shows the totals and credits.
 
@@ -640,8 +663,11 @@ last one the end screen shows the totals and credits.
 16 MB (import them like other assets; a long WAV can be imported with kind
 `music` through MCP). Music starts with the first key press or click (the
 browser's sound rule), loops, and crossfades between the title and the
-levels. `tl_game_observe` reports `flow` (screen, level, lives, music, its
-volume) and `loops` (each audio source's current gain).
+levels. `tl_game_observe` reports `flow` (screen, level, lives, music, the
+volumes, `menuSounds` {played, last}, `ambience`, the rebound `pad`
+buttons), `loops` (each audio source's current gain; a level's ambience as
+`ambience:<n>`) and, while the title shows, `titleView` (its scene and the
+camera's offset).
 
 Inspector → Gameplay → **Audio source** loops an audio or music asset where
 the object is: full volume within a quarter of its range, fading to silent
@@ -660,7 +686,8 @@ and three **slots** (pause menu → *Save game*). The title screen offers
 level and checkpoint with the lives, health, counters, collected pickups and
 defeated enemies it had, and with the scripts' saved values
 (`ctx.save.get/set/remove/keys`, at most 64 keys of 4 KB JSON each).
-Settings (volumes, quality, rebound keys) are saved as soon as they change.
+Settings (volumes, quality, rebound keys and pad buttons) are saved as soon
+as they change.
 Each save is versioned, checksummed and at most 64 KB; a damaged one is
 named on the title screen and ignored. Play keeps its saves apart from
 exported games (and each project apart from the others); **Game flow →

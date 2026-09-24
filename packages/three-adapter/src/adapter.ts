@@ -165,6 +165,12 @@ export interface SceneAdapter {
    * level has a look) and the `materials` option for wind.
    */
   setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
+  /**
+   * Phase 14.5: draw the camera moved by an offset (m) from where the game
+   * puts it — the title screen's background scene and pan; null = none.
+   * Presentation only (the simulation's camera does not move).
+   */
+  setCameraOffset?(offset: readonly [number, number, number] | null): void;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
@@ -276,6 +282,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** Phase 9.5: the environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
+  // Phase 14.5: the camera offset (title background/pan), and what was last
+  // added so a camera the sync did not move this frame is not moved twice.
+  let cameraOffset: [number, number, number] | null = null;
+  let appliedOffset: { offset: [number, number, number]; at: [number, number, number] } | null = null;
   /** Phase 14.4: the playing level's look (null: the project environment). */
   let environmentLayer: EnvironmentLayerLike | null = null;
   /** What the renderer draws: the project environment with the level's look over it (null when nothing is drawn, as without an environment). */
@@ -791,6 +801,20 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
 
+  /** Phase 14.5: after the transform sync, move the drawn camera by the offset. */
+  function applyCameraOffset(): void {
+    if (camera === null) return;
+    const p = camera.position;
+    if (appliedOffset !== null && p.x === appliedOffset.at[0] && p.y === appliedOffset.at[1] && p.z === appliedOffset.at[2]) {
+      // Not synced this frame: take the last offset back off first.
+      p.set(p.x - appliedOffset.offset[0], p.y - appliedOffset.offset[1], p.z - appliedOffset.offset[2]);
+    }
+    appliedOffset = null;
+    if (cameraOffset === null) return;
+    p.set(p.x + cameraOffset[0], p.y + cameraOffset[1], p.z + cameraOffset[2]);
+    appliedOffset = { offset: [...cameraOffset], at: [p.x, p.y, p.z] };
+  }
+
   function renderFrame(): { ok: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: false, error: adapterError('adapter_disposed', 'adapter is disposed') };
     if (contextLost) {
@@ -819,6 +843,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const obj = objects.get(tr.id);
       if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
     }
+    applyCameraOffset();
     syncCheckpointLook();
     // Phase 9.9: collected pickups and defeated enemies disappear (and come back on a replay).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
@@ -1073,6 +1098,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     setQuality(level: QualityLevel): void {
       playerQuality = level;
       environmentRenderer?.setQuality(level);
+    },
+    setCameraOffset(offset: readonly [number, number, number] | null): void {
+      cameraOffset = offset !== null && offset.every((v) => Number.isFinite(v)) ? [offset[0], offset[1], offset[2]] : null;
     },
     setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
       if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;

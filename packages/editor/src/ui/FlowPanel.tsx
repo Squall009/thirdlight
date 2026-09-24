@@ -2,7 +2,8 @@
  * Phase 9.10: the Game window — the game flow in one place: the levels in
  * order (the scenes each loads, the spawn it starts at, its music), lives,
  * the title screen, the HUD layout, the menu look, menu texts, default
- * volumes and (phase 14.3) the score rules. Every edit is one `setFlow` with
+ * volumes, (phase 14.3) the score rules and (phase 14.5) the menu sounds,
+ * each level's ambience and the title background and pan. Every edit is one `setFlow` with
  * the whole flow (text fields commit on Enter or when they lose focus);
  * "Remove game flow" goes back to one level with unlimited lives and no
  * title screen.
@@ -10,7 +11,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { FlowLevel, FlowScore, GameFlow } from '@thirdlight/project-model';
+import type { FlowLevel, FlowScore, GameFlow, MenuSounds } from '@thirdlight/project-model';
 
 interface Props {
   flow: GameFlow | null;
@@ -19,6 +20,8 @@ interface Props {
   /** Player spawns the editor knows (open scenes), with their scene. */
   spawns: readonly { id: string; name: string; sceneId: string | null }[];
   music: readonly { assetId: string; displayName: string }[];
+  /** Phase 14.5: the project's audio (sound) assets — menu sounds and ambience. */
+  sounds?: readonly { assetId: string; displayName: string }[];
   textures: readonly { assetId: string; displayName: string }[];
   /** The game block's spawn (the first level starts there by default). */
   gameSpawnId: string | null;
@@ -140,6 +143,37 @@ function ScoreSection(p: { score: FlowScore | undefined; counters: readonly stri
   );
 }
 
+/** Phase 14.5: a new title pan — 4 m out and back over 20 s each way: a slow drift at human scale. */
+const DEFAULT_TITLE_PAN = { distance: 4, seconds: 20 };
+const MENU_SOUND_LABELS: Record<keyof MenuSounds, string> = { move: 'move', confirm: 'confirm', back: 'back' };
+
+/** Phase 14.5: a level's ambience — up to four sounds looped while it plays. */
+function Ambience(p: { index: number; ambience: readonly string[]; options: readonly { assetId: string; displayName: string }[]; onChange: (ambience: string[]) => void }): JSX.Element {
+  const name = (id: string): string => p.options.find((o) => o.assetId === id)?.displayName ?? id;
+  const free = p.options.filter((o) => !p.ambience.includes(o.assetId));
+  return (
+    <div className="tl-animator__row" aria-label={`level ${p.index + 1} ambience`}>
+      <span className="tl-field__label">ambience</span>
+      {p.ambience.length === 0 && <span className="tl-hint">none</span>}
+      {p.ambience.map((id) => (
+        <button key={id} type="button" className="tl-button" aria-label={`level ${p.index + 1} stop ambience ${name(id)}`} title="remove from the ambience" onClick={() => p.onChange(p.ambience.filter((x) => x !== id))}>
+          {name(id)} ✕
+        </button>
+      ))}
+      {p.ambience.length < 4 && free.length > 0 && (
+        <select className="tl-input" aria-label={`level ${p.index + 1} add ambience`} value="" onChange={(e) => e.target.value !== '' && p.onChange([...p.ambience, e.target.value])}>
+          <option value="">+ add a looping sound</option>
+          {free.map((o) => (
+            <option key={o.assetId} value={o.assetId}>
+              {o.displayName}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 const nextLevelId = (levels: readonly FlowLevel[]): string => {
   for (let i = levels.length + 1; ; i++) if (!levels.some((l) => l.id === `level-${i}`)) return `level-${i}`;
 };
@@ -171,7 +205,26 @@ export function FlowPanel(p: Props): JSX.Element {
   const save = (patch: Partial<GameFlow>): void => p.onSave({ ...f, ...patch });
   const setLevel = (i: number, patch: Partial<FlowLevel>): void => {
     const levels = f.levels.map((l, j) => (j === i ? { ...l, ...patch } : l));
-    save({ levels: levels.map((l) => (l.music === undefined || l.music === '' ? (({ music: _m, ...rest }) => rest)(l) : l)) as FlowLevel[] });
+    const tidy = (l: FlowLevel): FlowLevel => {
+      let out = l.music === undefined || l.music === '' ? (({ music: _m, ...rest }) => rest)(l) : l;
+      if (out.ambience !== undefined && out.ambience.length === 0) out = (({ ambience: _a, ...rest }) => rest)(out);
+      return out as FlowLevel;
+    };
+    save({ levels: levels.map(tidy) });
+  };
+  const soundOptions = p.sounds ?? [];
+  const ambienceOptions = [...soundOptions, ...p.music];
+  const title = f.title ?? {};
+  const setTitle = (patch: Partial<NonNullable<GameFlow['title']>>): void => {
+    const next = { ...title, ...patch } as Record<string, unknown>;
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    save({ title: next as NonNullable<GameFlow['title']> });
+  };
+  const setSound = (k: keyof MenuSounds, id: string): void => {
+    const next: Record<string, string> = { ...(f.sounds ?? {}) };
+    if (id === '') delete next[k];
+    else next[k] = id;
+    p.onSave(Object.keys(next).length > 0 ? { ...f, sounds: next as MenuSounds } : (({ sounds: _s, ...rest }) => rest)(f));
   };
   const move = (i: number, d: number): void => {
     const levels = [...f.levels];
@@ -256,6 +309,7 @@ export function FlowPanel(p: Props): JSX.Element {
                 <span className="tl-hint">open this level's scenes in the Hierarchy to choose a spawn in them</span>
               )}
             </div>
+            <Ambience index={i} ambience={l.ambience ?? []} options={ambienceOptions} onChange={(ambience) => setLevel(i, { ambience })} />
           </li>
         ))}
       </ol>
@@ -293,11 +347,11 @@ export function FlowPanel(p: Props): JSX.Element {
       <div className="tl-animator__row">
         <label className="tl-field">
           <span className="tl-field__label">subtitle</span>
-          <Text label="title subtitle" wide value={f.title?.subtitle ?? ''} onCommit={(v) => save({ title: { ...(f.title ?? {}), ...(v !== '' ? { subtitle: v } : { subtitle: undefined }) } })} />
+          <Text label="title subtitle" wide value={f.title?.subtitle ?? ''} onCommit={(v) => setTitle({ subtitle: v !== '' ? v : undefined })} />
         </label>
         <label className="tl-field">
           <span className="tl-field__label">music</span>
-          <select className="tl-input" aria-label="title music" value={f.title?.music ?? ''} onChange={(e) => save({ title: { ...(f.title?.subtitle !== undefined ? { subtitle: f.title.subtitle } : {}), ...(e.target.value !== '' ? { music: e.target.value } : {}) } })}>
+          <select className="tl-input" aria-label="title music" value={f.title?.music ?? ''} onChange={(e) => setTitle({ music: e.target.value !== '' ? e.target.value : undefined })}>
             <option value="">— none —</option>
             {p.music.map((m) => (
               <option key={m.assetId} value={m.assetId}>
@@ -306,7 +360,35 @@ export function FlowPanel(p: Props): JSX.Element {
             ))}
           </select>
         </label>
+        <label className="tl-field">
+          <span className="tl-field__label">background</span>
+          <select className="tl-input" aria-label="title background scene" value={title.scene ?? ''} onChange={(e) => setTitle({ scene: e.target.value !== '' ? e.target.value : undefined })}>
+            <option value="">— the first level's start —</option>
+            {p.scenes.map((sc) => (
+              <option key={sc.sceneId} value={sc.sceneId}>
+                {sc.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tl-flag">
+          <input type="checkbox" aria-label="title camera pan" checked={title.pan !== undefined} onChange={(e) => setTitle({ pan: e.target.checked ? { ...DEFAULT_TITLE_PAN } : undefined })} />
+          slow camera pan
+        </label>
+        {title.pan !== undefined && (
+          <>
+            <label className="tl-field">
+              <span className="tl-field__label">pan metres (sideways)</span>
+              <Text label="title pan distance" value={String(title.pan.distance)} onCommit={(v) => Number(v) !== 0 && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= 100 && setTitle({ pan: { ...title.pan!, distance: Number(v) } })} />
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">seconds each way</span>
+              <Text label="title pan seconds" value={String(title.pan.seconds)} onCommit={(v) => Number(v) >= 2 && Number(v) <= 600 && setTitle({ pan: { ...title.pan!, seconds: Number(v) } })} />
+            </label>
+          </>
+        )}
       </div>
+      {title.scene !== undefined && <p className="tl-hint">The camera frames the background scene's first player spawn (else its middle) as it frames the player; keep the scene apart from the levels.</p>}
 
       <div className="tl-panel__title">HUD and menus</div>
       <div className="tl-animator__row">
@@ -365,25 +447,45 @@ export function FlowPanel(p: Props): JSX.Element {
         <Text label="credits" area value={f.texts?.credits ?? ''} onCommit={(v) => save({ texts: { ...(f.texts ?? {}), credits: v === '' ? undefined : v } })} />
       </label>
 
+      <div className="tl-panel__title">Menu sounds</div>
+      <div className="tl-animator__row">
+        {(['move', 'confirm', 'back'] as const).map((k) => (
+          <label className="tl-field" key={k}>
+            <span className="tl-field__label">{MENU_SOUND_LABELS[k]}</span>
+            <select className="tl-input" aria-label={`menu sound ${k}`} value={f.sounds?.[k] ?? ''} onChange={(e) => setSound(k, e.target.value)}>
+              <option value="">— none —</option>
+              {soundOptions.map((o) => (
+                <option key={o.assetId} value={o.assetId}>
+                  {o.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+
       <ScoreSection score={f.score} counters={p.counters ?? []} onChange={(score) => p.onSave(score !== undefined ? { ...f, score } : (({ score: _s, ...rest }) => rest)(f))} />
 
       <div className="tl-panel__title">Default volumes</div>
       <div className="tl-animator__row">
-        {(['music', 'sfx'] as const).map((k) => (
-          <label className="tl-field" key={k}>
-            <span className="tl-field__label">{k === 'music' ? 'music' : 'sound effects'}</span>
-            <input
-              type="range"
-              aria-label={`default ${k} volume`}
-              min={0}
-              max={1}
-              step={0.1}
-              defaultValue={f.volumes?.[k] ?? (k === 'music' ? 0.8 : 1)}
-              onPointerUp={(e) => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, [k]: Number((e.target as HTMLInputElement).value) } })}
-              onKeyUp={(e) => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, [k]: Number((e.target as HTMLInputElement).value) } })}
-            />
-          </label>
-        ))}
+        {(['music', 'sfx', 'ui'] as const).map((k) => {
+          const commit = (v: number): void => save({ volumes: { music: f.volumes?.music ?? 0.8, sfx: f.volumes?.sfx ?? 1, ...(f.volumes?.ui !== undefined ? { ui: f.volumes.ui } : {}), [k]: v } });
+          return (
+            <label className="tl-field" key={k}>
+              <span className="tl-field__label">{k === 'music' ? 'music' : k === 'sfx' ? 'sound effects' : 'menu sounds'}</span>
+              <input
+                type="range"
+                aria-label={`default ${k} volume`}
+                min={0}
+                max={1}
+                step={0.1}
+                defaultValue={f.volumes?.[k] ?? (k === 'music' ? 0.8 : 1)}
+                onPointerUp={(e) => commit(Number((e.target as HTMLInputElement).value))}
+                onKeyUp={(e) => commit(Number((e.target as HTMLInputElement).value))}
+              />
+            </label>
+          );
+        })}
       </div>
       <div className="tl-panel__title">Saves</div>
       <p className="tl-hint">Players have three save slots and an autosave (at checkpoints and at the start of each level); Play keeps its own saves, apart from exported games.</p>

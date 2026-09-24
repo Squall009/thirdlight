@@ -48,6 +48,10 @@ export interface SaveSettings {
   quality: 'low' | 'medium' | 'high';
   /** Rebound keys by action name. */
   keys: Record<string, string>;
+  /** Phase 14.5: the menu-sound volume (absent: the game's default). */
+  ui?: number;
+  /** Phase 14.5: rebound pad buttons by action name (`left`/`right`: the move buttons). */
+  pad?: Record<string, number>;
 }
 
 export type SlotState = { state: 'ok'; doc: SaveDocument } | { state: 'empty' } | { state: 'damaged'; reason: string };
@@ -121,6 +125,10 @@ export function createSaveStore(storage: SaveStorage, namespace: string): SaveSt
           sfx: unit(s.sfx, 1),
           quality: s.quality === 'low' || s.quality === 'medium' ? s.quality : 'high',
           keys: typeof s.keys === 'object' && s.keys !== null ? Object.fromEntries(Object.entries(s.keys).filter(([k, v]) => /^[A-Za-z_]\w{0,31}$/.test(k) && typeof v === 'string' && /^[A-Za-z0-9]{1,32}$/.test(v))) : {},
+          ...(typeof s.ui === 'number' && s.ui >= 0 && s.ui <= 1 ? { ui: s.ui } : {}),
+          ...(typeof s.pad === 'object' && s.pad !== null && !Array.isArray(s.pad)
+            ? { pad: Object.fromEntries(Object.entries(s.pad).filter(([k, v]) => /^[A-Za-z_]\w{0,31}$/.test(k) && typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 31)) }
+            : {}),
         };
       } catch {
         return null;

@@ -258,6 +258,21 @@ describe('runtime scene set (phase 12 c)', () => {
     expect(rock?.position).toEqual([42, 11, 0]);
   });
 
+  it('phase 14.5: a paused game still applies scene loads and unloads (no step runs)', () => {
+    const h = harness();
+    h.rt.setPaused!(true);
+    const steps = (h.rt.getDiagnostics() as { diagnostics: { stepIndex?: number } }).diagnostics.stepIndex;
+    expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
+    h.serve();
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('loaded');
+    expect(h.ids()).toContain('box-rock');
+    expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
+    h.tick();
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
+    expect((h.rt.getDiagnostics() as { diagnostics: { stepIndex?: number } }).diagnostics.stepIndex).toBe(steps);
+  });
+
   it('an exit zone loads its scene and moves the player to its spawn; a replay returns to the start scenes', () => {
     // The exit sits on the start spawn, so the player is inside it once the run starts.
     const h = harness({ exitAt: [3, 1] });

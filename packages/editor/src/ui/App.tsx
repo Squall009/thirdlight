@@ -3172,6 +3172,7 @@ function EditorApp(): JSX.Element {
               scenes={[...(sceneHeaders ?? []).map((h) => ({ sceneId: h.sceneId, name: h.name, start: h.start, open: true })), ...closedScenes.map((cs) => ({ ...cs, start: false, open: false }))]}
               spawns={entities.filter((e) => e.playerSpawn === true).map((e) => ({ id: e.id, name: e.name, sceneId: e.sceneId ?? null }))}
               music={assets.filter((a) => a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
+              sounds={assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               gameSpawnId={gameConfig?.spawnId ?? null}
               counters={scoreCounterNames(entities)}

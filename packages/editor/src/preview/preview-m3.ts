@@ -420,6 +420,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     // Phase 9.10: the game flow's menus and rebinding.
     sampleUi: () => browserInput.sampleUi(),
     captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
+    // Phase 14.5: pad rebinding in the settings.
+    capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
     configure: (c: InputConfigLike) => browserInput.configure(c),
   };
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined });
@@ -466,6 +468,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
     setLevelEnvironment: (environment) => adapterRef.current?.setEnvironmentLayer?.(environment as EnvironmentLayerLike | null),
+    // Phase 14.5: the title screen's background scene and camera pan.
+    setCameraOffset: (offset) => adapterRef.current?.setCameraOffset?.(offset),
     // Phase 9.11: saves in this browser's localStorage (Play and exported games keep separate ones).
     ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}` } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
@@ -725,6 +729,8 @@ export function bootstrapPreviewM3(): void {
       // Phase 9.10: the game flow (screen, level, lives, music, volumes).
       ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
+      // Phase 14.5: the title background and the camera's offset behind the title menu.
+      ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
     };
   };
 
