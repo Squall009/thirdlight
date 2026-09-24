@@ -13,6 +13,10 @@
  */
 import type { ReactNode } from 'react';
 
+import type { GraphDocument } from '@thirdlight/project-model';
+
+import { GraphEditor } from '../../graph/GraphEditor';
+import type { GraphKindDef, GraphOp } from '../../graph/model';
 import type { DocRef } from '../../session/workspace-tabs';
 import { AnimatorPanel, type AnimatorPanelProps } from '../AnimatorPanel';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
@@ -26,6 +30,17 @@ export interface WorkspaceHost {
   behavior: BehaviorPanelProps;
   /** Phase 16.3: the script editor's data and actions (all behaviors share them). */
   script: Omit<ScriptDocumentProps, 'behaviorId' | 'behavior'>;
+  /** Phase 16.1: standalone graph documents, their kinds and the graph edit path. */
+  graph: {
+    graphs: readonly GraphDocument[];
+    kinds: Readonly<Record<string, GraphKindDef>>;
+    /** Sends `graphEdit` ops for a standalone graph (queued; resolves with a refusal or null). */
+    onEdit: (graphId: string, ops: GraphOp[]) => Promise<string | null>;
+    /** The graph editor's selection (the Graph inspector in the right dock shows it). */
+    onSelection: (ids: readonly string[]) => void;
+    /** A node to frame and focus (e.g. from the Problems tab). */
+    focus: { id: string; nonce: number } | null;
+  };
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -73,8 +88,41 @@ const scriptKind: DocumentKind = {
   ),
 };
 
+/** A small node-graph glyph (three linked boxes) for graph tabs. */
+const GRAPH_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M5 4h4M5 4l5 8" stroke="#8fb4ff" stroke-width="1.5" fill="none"/><rect x="1" y="2" width="5" height="4" rx="1" fill="#8fb4ff"/><rect x="9" y="2" width="6" height="4" rx="1" fill="#f2b544"/><rect x="9" y="10" width="6" height="4" rx="1" fill="#7ed491"/></svg>',
+  );
+
+const graphKind: DocumentKind = {
+  kind: 'graph',
+  label: 'Graph',
+  icon: GRAPH_ICON,
+  name: (id, host) => host.graph.graphs.find((g) => g.graphId === id)?.name ?? id,
+  // Phase 16.1: a standalone graph document in the generic graph editor.
+  // Keyed by the graph so view state (pan, zoom, selection) is per graph.
+  render: (id, host) => {
+    const g = host.graph.graphs.find((x) => x.graphId === id);
+    if (g === undefined) return <p className="tl-hint">The graph "{id}" is not in this project (it may still be loading).</p>;
+    const k = host.graph.kinds[g.kind];
+    if (k === undefined) return <p className="tl-hint">This editor does not know the graph kind "{g.kind}".</p>;
+    return (
+      <GraphEditor
+        key={id}
+        kind={k}
+        owner={{ kind: 'graph', id }}
+        graph={g.graph}
+        onEdit={(ops) => host.graph.onEdit(id, ops)}
+        onSelection={host.graph.onSelection}
+        focus={host.graph.focus}
+      />
+    );
+  },
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

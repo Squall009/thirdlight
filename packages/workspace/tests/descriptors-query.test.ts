@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { DESCRIPTORS } from '@thirdlight/project-model';
+import { DESCRIPTORS, GRAPH_KINDS } from '@thirdlight/project-model';
 import { openWorkspaceService } from '@thirdlight/workspace';
 
 import { REPO_ROOT, makeRoot, seedProject } from './helpers';
@@ -31,8 +31,12 @@ describe('descriptor registry over queryGameConfig (phase 15.0)', () => {
     const withDescriptors = svc.query({ op: 'queryGameConfig', projectId: PROJECT_ID, args: { descriptors: true } }) as unknown as Record<string, unknown>;
     expect(withDescriptors['ok']).toBe(true);
     expect(withDescriptors['descriptors']).toEqual(JSON.parse(JSON.stringify(DESCRIPTORS)));
+    // Phase 16.1: the graph kinds' catalogues travel with the descriptors.
+    expect(withDescriptors['graphKinds']).toEqual(JSON.parse(JSON.stringify(GRAPH_KINDS)));
+    expect(plain['graphKinds']).toBeUndefined();
+    expect(plain['graphs']).toEqual([]);
     // everything else is the same answer
-    const { descriptors: _d, ...rest } = withDescriptors;
+    const { descriptors: _d, graphKinds: _k, ...rest } = withDescriptors;
     expect(rest).toEqual(plain);
     const bad = svc.query({ op: 'queryGameConfig', projectId: PROJECT_ID, args: { descriptors: 'yes' } }) as unknown as { ok: boolean; error: { code: string; path: string } };
     expect(bad.ok).toBe(false);
