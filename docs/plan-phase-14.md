@@ -252,7 +252,7 @@ Play shows the player walking under a low ceiling afterwards.
 | 14.6 animation layers, animation-only GLBs, modelAnimation migration | done 2026-09-24 | 521ac23 |
 | 14.7 physics fixes (gate lift, one-way spawn) | done 2026-09-24 | 1e34895 |
 | 14.8 replayed ack sceneId | done 2026-09-24 | e7c2405 |
-| 14.9 Sprout pass | todo | |
+| 14.9 Sprout pass | done 2026-09-24 | 879d221 (Sprout ddb21a4, 3ecda54, acd1cd9) |
 | 14.10 wrap-up | todo | |
 
 ## 6. Decision log
