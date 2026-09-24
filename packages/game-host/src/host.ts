@@ -133,6 +133,8 @@ export interface GameHostObservation {
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
   /** Phase 9.10, additive: the game flow (screen, level, lives, music, volumes). */
   readonly flow?: FlowObservation;
+  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain). */
+  readonly loops?: Readonly<Record<string, number>>;
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -197,6 +199,8 @@ export interface GameHostConfig {
   readonly flow?: FlowConfigLike;
   /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] };
+  /** Phase 9.10: each declared asset's kind (the host registers every audio cue for scripts and audio sources). */
+  readonly assetKinds?: Readonly<Record<string, string>>;
   /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
 }
@@ -466,6 +470,59 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
+  /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
+  let sourcesRevision = -1;
+  let sources: { id: string; assetId: string; volume: number; range: number }[] = [];
+  const liveLoops = new Set<string>();
+  const musicAsked = new Set<string>();
+  const serviceAudioSources = (rt: Runtime): void => {
+    if (config.audio.setLoop === undefined) return;
+    const set = rt.sceneSet?.();
+    const revision = set?.revision ?? 0;
+    if (revision !== sourcesRevision) {
+      sourcesRevision = revision;
+      const entities = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
+      sources = [];
+      for (const e of entities) {
+        const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number } }).audioSource;
+        if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range });
+      }
+      // A music-kind source needs its bytes registered (once).
+      for (const s of sources) {
+        if (config.assetKinds?.[s.assetId] !== 'music' || musicAsked.has(s.assetId)) continue;
+        musicAsked.add(s.assetId);
+        const path = config.assetPaths?.[s.assetId];
+        if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
+          void config.readArtifact(path)
+            .then((buffer) => {
+              if (!disposed) config.audio.registerMusic?.(s.assetId, new Uint8Array(buffer));
+            })
+            .catch(() => undefined);
+        }
+      }
+    }
+    const state = rt.getInterpolatedState();
+    const transforms = state.ok ? state.state.transforms : [];
+    const playerId = config.snapshot.game?.playerId;
+    const player = transforms.find((t) => t.id === playerId);
+    const seen = new Set<string>();
+    for (const s of sources) {
+      const t = transforms.find((x) => x.id === s.id);
+      if (t === undefined) continue;
+      const dx = player !== undefined ? Math.abs(t.position[0]! - player.position[0]!) : 0;
+      const near = s.range / 4;
+      const gain = s.volume * Math.max(0, Math.min(1, 1 - (dx - near) / Math.max(1e-6, s.range - near)));
+      config.audio.setLoop(s.id, s.assetId, gain);
+      seen.add(s.id);
+      liveLoops.add(s.id);
+    }
+    for (const id of [...liveLoops]) {
+      if (seen.has(id)) continue;
+      config.audio.setLoop(id, null, 0);
+      liveLoops.delete(id);
+    }
+  };
+
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
@@ -544,6 +601,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       lastCheckpointStep = null;
     }
     previousGrounded = view.playerMotion.grounded;
+    // Phase 9.10: the sounds scripts played, and the audio sources' loops.
+    for (const req of runtime.takeAudioRequests?.() ?? []) config.audio.playSound?.(req.assetId, req.volume);
+    serviceAudioSources(runtime);
     if (hud !== null) {
       const state = buildHudState(view.state, view.deathCount, view.checkpointActive, lastCheckpointStep);
       hud.update(flowCtl !== null ? { ...state, flowLine: flowCtl.hudLine() } : state);
@@ -749,8 +809,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // diagnostic). The host stays fetch-free: `readArtifact` is injected.
     if (config.assetPaths !== undefined) {
       const registered = new Set<string>();
-      for (const kind of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {
-        const assetId = cues[kind];
+      // Phase 9.10: every audio asset, not only the game's cues (scripts and audio sources play them too).
+      const soundIds = [
+        ...(['start', 'jump', 'checkpoint', 'death', 'goal'] as const).map((k) => cues[k]),
+        ...Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id),
+      ];
+      for (const assetId of soundIds) {
         if (assetId === null || registered.has(assetId)) continue;
         const path = config.assetPaths[assetId];
         if (typeof path !== 'string' || path.length === 0) continue;
@@ -795,6 +859,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical', // the local shell; the relay's exclusive test mode is packet 59
         ...scenesObservation(runtime),
         ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
+        ...(liveLoops.size > 0 && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
       },
     };
   };

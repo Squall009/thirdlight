@@ -64,7 +64,7 @@ async function holdUntil(page: Page, flow: Locator, key: string, screen: string,
 }
 
 /** The whole run from the title screen to the end screen (Play and the export alike). */
-async function playThrough(page: Page, flow: Locator, musicGain: () => Promise<number>): Promise<void> {
+async function playThrough(page: Page, flow: Locator, musicGain: () => Promise<number>, inLevel1?: () => Promise<void>): Promise<void> {
   await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 20_000 });
   await expect(flow).toContainText('Two tiny levels');
   if (process.env['TL_FLOW_SHOTS'] !== undefined) await page.screenshot({ path: join(process.env['TL_FLOW_SHOTS'], `title-${Date.now()}.png`) });
@@ -75,6 +75,7 @@ async function playThrough(page: Page, flow: Locator, musicGain: () => Promise<n
   // The key press unlocked sound: the level's Ogg music decodes and loops.
   await expect(flow).toHaveAttribute('data-music-playing', 'true', { timeout: 15_000 });
   await page.waitForTimeout(600); // the level's scene settles in
+  await inLevel1?.();
 
   // Into the lava until both lives are gone.
   await holdUntil(page, flow, 'a', 'gameOver');
@@ -132,11 +133,21 @@ test('two levels through the title screen, game over, pause and music volume —
   await publish.click();
   await expect(page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'chord' })).toContainText('music', { timeout: 10_000 });
 
+  // An audio source by Level A's spawn (the imported track, heard within 10 m).
+  const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } }))['assets'] as { assetId: string; kind: string }[];
+  const music = assets.find((x) => x.kind === 'music')!.assetId;
+  await cmd('createEntity', { sceneId: 'scene-a', kind: 'group', name: 'Brook', transform: { position: [201, 0.5, 0] }, components: { audioSource: { assetId: music, volume: 0.7, range: 10 } } });
+
   // Open the level scenes (their spawns become choosable).
   for (const name of ['Level A', 'Level B']) {
     await page.getByLabel('open scene', { exact: true }).selectOption({ label: name });
     await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: `${name} spawn` })).toHaveCount(1);
   }
+
+  // The Inspector shows the audio source (sound, volume, range).
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Brook' }).click();
+  await expect(page.getByLabel('audioSource assetId', { exact: true })).toHaveValue(music);
+  await expect(page.getByLabel('audioSource range', { exact: true })).toHaveValue('10');
 
   // The Game window: two levels, two lives, a subtitle, the music, credits.
   await page.getByRole('tab', { name: 'Game flow', exact: true }).click();
@@ -190,7 +201,10 @@ test('two levels through the title screen, game over, pause and music volume —
   await expect.poll(async () => (await observe())['ok'], { timeout: 30_000 }).toBe(true);
   const frame = page.frameLocator('iframe.tl-app__preview-frame');
   await page.locator('iframe.tl-app__preview-frame').click();
-  await playThrough(page, frame.locator('.tl-flow'), async () => ((await observe())['flow'] as { music: { gain: number } }).music.gain);
+  await playThrough(page, frame.locator('.tl-flow'), async () => ((await observe())['flow'] as { music: { gain: number } }).music.gain, async () => {
+    // Level 1, by the brook: its loop plays at (nearly) full volume.
+    await expect.poll(async () => Object.values(((await observe())['loops'] ?? {}) as Record<string, number>)[0] ?? 0, { timeout: 10_000 }).toBeGreaterThan(0.6);
+  });
   expect(((await observe())['flow'] as { screen: string }).screen).toBe('finished');
 
   // The export, served statically with the backend stopped.

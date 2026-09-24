@@ -625,7 +625,13 @@ last one the end screen shows the totals and credits.
 `music` through MCP). Music starts with the first key press or click (the
 browser's sound rule), loops, and crossfades between the title and the
 levels. `tl_game_observe` reports `flow` (screen, level, lives, music, its
-volume). MCP: `setFlow {flow}` through `tl_command`; with a flow,
+volume) and `loops` (each audio source's current gain).
+
+Inspector → Gameplay → **Audio source** loops an audio or music asset where
+the object is: full volume within a quarter of its range, fading to silent
+at the range (measured along X from the player); the Scene view draws both
+distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
+(an audio asset; it is presentation only and never changes the game). MCP: `setFlow {flow}` through `tl_command`; with a flow,
 `tl_game_control` *start* begins a new game and *replay* restarts the
 level. Settings last until the page is reloaded (saving them is phase 9.11).
 

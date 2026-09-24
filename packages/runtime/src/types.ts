@@ -528,6 +528,13 @@ export interface StepContext {
   readonly signals?: BehaviorSignals;
   /** Phase 9.9: the run's counters and the player's health. */
   readonly game?: BehaviorGameState;
+  /** Phase 9.10: play a sound (an audio asset) — presentation only, never part of the simulation. */
+  readonly audio?: BehaviorAudio;
+}
+
+/** Phase 9.10: `ctx.audio`. */
+export interface BehaviorAudio {
+  play(assetId: string, options?: { volume?: number }): void;
 }
 
 /** Phase 9.9: `ctx.signals`. */
@@ -636,6 +643,8 @@ export interface Runtime {
   readonly isPaused?: boolean;
   /** Phase 9.9: entities collected or defeated (the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;
+  /** Phase 9.10: the sounds scripts played since the last call. */
+  takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */

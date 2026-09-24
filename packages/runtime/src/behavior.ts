@@ -530,6 +530,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           // Phase 9.9: signals and the run's counters.
           ...(ctx.signals !== undefined ? { signals: ctx.signals } : {}),
           ...(ctx.game !== undefined ? { game: ctx.game } : {}),
+          // Phase 9.10: sounds (played by the host; the simulation never waits on them).
+          ...(ctx.audio !== undefined ? { audio: ctx.audio } : {}),
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });

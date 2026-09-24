@@ -47,7 +47,7 @@ const ZONE_COLORS: Record<ZoneRole, number> = {
 };
 const SPAWN_COLOR = 0xffc857;
 /** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/enemy/pickup areas). */
-const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, enemy: 0xb05aff, pickup: 0xf2c230 } as const;
+const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, enemy: 0xb05aff, pickup: 0xf2c230, audioSource: 0x7fe0a0 } as const;
 const CAMERA_FOLLOW_COLOR = 0x9aa7ff;
 /** The z=0 game plane (the 2D side-view game coordinates are XY). */
 const GAME_PLANE = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -269,6 +269,12 @@ export class ZoneOverlay {
       for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
         const size = (b[k] as { size?: number[] } | undefined)?.size;
         if (size !== undefined) this.blocks.add(rect(x, y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
+      }
+      // Phase 9.10: an audio source's hearing range along X (full volume in the inner quarter).
+      const sound = b.audioSource as { range?: number } | undefined;
+      if (sound?.range !== undefined) {
+        this.blocks.add(rect(x, y, sound.range * 2, 0.4, BLOCK_COLORS.audioSource));
+        this.blocks.add(rect(x, y, sound.range / 2, 0.4, BLOCK_COLORS.audioSource));
       }
       const range = (b.enemy as { range?: number[] } | undefined)?.range;
       if (range !== undefined) {

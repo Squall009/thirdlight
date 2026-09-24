@@ -562,7 +562,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.7 rigs + Animator + Sprout clips | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.7"; Sprout 33e92d9 (clips, not pushed) |
 | 9.8 input actions + Input window | done 2026-09-24 (owner look pending) | see git log "9.7/9.8" |
 | 9.9 physics + gameplay building blocks | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.9" |
-| 9.10 game flow, menus, HUD, audio | in progress (flow, menus, music done; audio sources + ctx.audio next) | see git log "9.10" |
+| 9.10 game flow, menus, HUD, audio | done 2026-09-24 (owner look pending; gaps in §6) | see git log "9.10" |
 | 9.11 save system | todo | |
 | 9.12 placeholders, icons, gizmos | todo | |
 | 9.13 Sprout demo levels | todo | |
@@ -687,3 +687,10 @@ Add one dated line per decision taken during the run (what, why).
   their styles use a constructed stylesheet because the Play page's CSP
   refuses inline <style>. Music is its own asset kind (the ≤ 2 s mono WAV
   cue rules stay). Player settings are in memory until 9.11 saves them.
+  Audio sources are 2D loops whose gain follows the player's X distance
+  (no stereo panning); `ctx.audio.play` plays audio (cue) assets through
+  the sfx bus after the step. Not built: score rules (counters are the
+  score), a separate ambience list per level (use audio sources), a
+  UI-sounds bus, gamepad rebinding in the settings screen (keys only), and
+  a title background scene other than level 1's start (the title shows the
+  game as it stands).

@@ -269,7 +269,8 @@ export type V3OwnedComponent =
   | 'switch'
   | 'health'
   | 'pickup'
-  | 'enemy';
+  | 'enemy'
+  | 'audioSource';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

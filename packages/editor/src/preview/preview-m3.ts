@@ -459,6 +459,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     ...((manifest as unknown as { flow?: FlowConfigLike }).flow !== undefined ? { flow: (manifest as unknown as { flow: FlowConfigLike }).flow } : {}),
     inputConfig: structuredClone(manifest.input ?? DEFAULT_INPUT_CONFIG) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
+    assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
   };
   const host = createGameHost(config);
   // Play has no page gesture wiring of its own: the first key or click in the
@@ -714,6 +715,7 @@ export function bootstrapPreviewM3(): void {
       ...gameCounters(h.host.runtime),
       // Phase 9.10: the game flow (screen, level, lives, music, volumes).
       ...(obs.observation.flow !== undefined ? { flow: structuredClone(obs.observation.flow) } : {}),
+      ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
     };
   };
 

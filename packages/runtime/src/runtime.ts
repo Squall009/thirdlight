@@ -1233,6 +1233,15 @@ class RuntimeInstance implements Runtime {
     },
     health: (): { current: number; max: number } | null => this.blocks?.healthView() ?? null,
   });
+  /** Phase 9.10: sounds scripts asked for since the host last took them (bounded). */
+  private audioQueue: { assetId: string; volume: number; stepIndex: number }[] = [];
+  private readonly audioControl = Object.freeze({
+    play: (assetId: string, options?: { volume?: number }): void => {
+      if (typeof assetId !== 'string' || assetId.length === 0 || assetId.length > 128 || this.audioQueue.length >= 16) return;
+      const v = Number(options?.volume ?? 1);
+      this.audioQueue.push({ assetId, volume: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1, stepIndex: this.stepIndex });
+    },
+  });
   /** Exit zones the player is inside (entry is edge-triggered). */
   private exitsInside = new Set<string>();
   /** An exit's spawn: the player moves there once `waitFor` are loaded. */
@@ -1490,6 +1499,13 @@ class RuntimeInstance implements Runtime {
     this.sceneSetCache = null;
     session.submit(session.runState === 'awaitingStart' ? 'start' : 'replay');
     return true;
+  }
+
+  /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
+  takeAudioRequests(): { assetId: string; volume: number; stepIndex: number }[] {
+    const out = this.audioQueue;
+    this.audioQueue = [];
+    return out;
   }
 
   /** Phase 9.10: pause or resume the simulation (frames still render and reach onFrame). */
@@ -2857,6 +2873,7 @@ class RuntimeInstance implements Runtime {
           animatorEvents: this.animatorEvents,
           signals: this.signalControl,
           game: this.gameControl,
+          audio: this.audioControl,
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {

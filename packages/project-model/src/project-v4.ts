@@ -216,6 +216,17 @@ export function composeV4(
     });
   }
 
+  // Phase 9.10: an audio source plays an audio or music asset of this project.
+  const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, a.kind]));
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const src = (e.components as { audioSource?: { assetId: string } }).audioSource;
+      if (src !== undefined && soundKinds.get(src.assetId) !== 'audio' && soundKinds.get(src.assetId) !== 'music') {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio or music asset of this project', expected: 'an audio or music assetId' }, src.assetId)));
+      }
+    });
+  }
+
   // Phase 9.7: an animator names a controller of this project.
   const controllerIds = new Set((content.animators ?? []).map((c) => c.controllerId));
   for (const s of scenes) {

@@ -213,6 +213,12 @@ export interface GameAudioOwner {
   volumes?(): Readonly<Record<AudioBus, number>>;
   /** Phase 9.10: the wanted track, whether it sounds, and the music bus gain node's value. */
   musicStatus?(): { readonly assetId: string | null; readonly playing: boolean; readonly gain: number };
+  /** Phase 9.10: a one-shot sound (a registered cue) at a volume (a script's ctx.audio.play). */
+  playSound?(assetId: string, volume: number): boolean;
+  /** Phase 9.10: a looping emitter (an audio source) at a gain; null stops it. */
+  setLoop?(key: string, assetId: string | null, gain: number): void;
+  /** Phase 9.10: the live loops (key → gain), for observation. */
+  loops?(): Readonly<Record<string, number>>;
 }
 
 export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAudioOwner {
@@ -267,6 +273,53 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     g.gain.cancelScheduledValues?.(now);
     g.gain.setValueAtTime?.(g.gain.value, now);
     g.gain.linearRampToValueAtTime(to, now + seconds);
+  }
+
+  // Phase 9.10: looping emitters (audio sources) by key.
+  const loopVoices = new Map<string, { assetId: string; source: BufferSourceLike; gain: GainNodeLike }>();
+  const loopGains = new Map<string, number>();
+
+  /** The decoded buffer of a registered cue or music asset (music decodes on demand). */
+  function bufferOf(assetId: string): AudioBufferLike | null {
+    const cue = assets.get(assetId);
+    if (cue?.state === 'ready') return cue.buffer;
+    if (cue?.state === 'pending' && context !== null && !muted) startDecode(assetId);
+    const m = music.get(assetId);
+    if (m !== undefined) {
+      if (m.buffer !== null) return m.buffer;
+      if (!m.decoding && !m.failed && context !== null) {
+        m.decoding = true;
+        let p: Promise<AudioBufferLike>;
+        try {
+          p = context.decodeAudioData(m.bytes.slice().buffer);
+        } catch (err) {
+          p = Promise.reject(err);
+        }
+        p.then(
+          (b) => {
+            m.buffer = b;
+            m.decoding = false;
+          },
+          () => {
+            m.decoding = false;
+            m.failed = true;
+          },
+        );
+      }
+    }
+    return null;
+  }
+
+  function stopLoop(key: string): void {
+    const v = loopVoices.get(key);
+    if (v === undefined) return;
+    loopVoices.delete(key);
+    try {
+      v.source.stop();
+    } catch {
+      // already stopped
+    }
+    v.gain.disconnect?.();
   }
 
   function stopTrack(fadeSeconds: number): void {
@@ -662,6 +715,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       epoch += 1; // every in-flight decode is stale (rule 5)
       stopAllVoices();
       stopTrack(0);
+      for (const key of [...loopVoices.keys()]) stopLoop(key);
       music.clear();
       if (context) {
         // Rule 8: close exactly the contexts THIS owner created, once.
@@ -709,6 +763,65 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     volumes() {
       return { ...volumes };
+    },
+
+    playSound(assetId, volume) {
+      if (disposed || muted || context === null || !unlocked || context.state === 'closed') return false;
+      if (voices.size >= AUDIO_MAX_VOICES) {
+        diag('voice_cap', assetId, `sound ${assetId} dropped: ${AUDIO_MAX_VOICES} voices busy`);
+        return false;
+      }
+      const buffer = bufferOf(assetId);
+      if (buffer === null) return false;
+      const ctx = context;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = Math.max(0, Math.min(1, volume));
+      source.connect(gain);
+      gain.connect(ensureBuses(ctx).sfx);
+      const voice: Voice = { source, assetId, ended: false, released: false };
+      source.onended = () => {
+        voice.ended = true;
+        releaseVoice(voice);
+      };
+      source.start();
+      voices.add(voice);
+      return true;
+    },
+
+    setLoop(key, assetId, gain) {
+      if (disposed) return;
+      const g = Math.max(0, Math.min(1, Number.isFinite(gain) ? gain : 0));
+      if (assetId === null) {
+        stopLoop(key);
+        loopGains.delete(key);
+        return;
+      }
+      loopGains.set(key, g);
+      const live = loopVoices.get(key);
+      if (live !== undefined && live.assetId === assetId) {
+        live.gain.gain.value = g;
+        return;
+      }
+      stopLoop(key);
+      if (context === null || !unlocked || loopVoices.size >= 16) return;
+      const buffer = bufferOf(assetId);
+      if (buffer === null) return; // decoding: the next frame's call starts it
+      const ctx = context;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = g;
+      source.connect(gainNode);
+      gainNode.connect(ensureBuses(ctx).sfx);
+      source.start();
+      loopVoices.set(key, { assetId, source, gain: gainNode });
+    },
+
+    loops() {
+      return Object.fromEntries([...loopVoices.entries()].map(([k, v]) => [k, v.gain.gain.value]));
     },
 
     musicStatus() {

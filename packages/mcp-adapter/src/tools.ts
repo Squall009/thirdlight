@@ -136,8 +136,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the player; startOn makes a door); trigger {size: [w, h], signal, once?}; switch {mode: interact|stand, signal, size, once?}; ' +
       'health {max, invulnerableSeconds?} (on the player); pickup {kind: coin|gem|heart|life|key|custom, value, counter? (custom), size?, ' +
       'respawn?: never|death}; enemy {patrol: points|edges, range? [left, right] (points), speed, size, contactDamage, stompable, ' +
-      'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life). ' +
-      'Scripts use ctx.signals.emit/on(name) and ctx.game.counter/add/health(). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
+      'health}; collider {oneWay: true} (jump up through, Down+Jump drops); gameZone hazard {damage?} (health instead of a life); audioSource ' +
+      '{assetId (audio or music), volume 0-1, range m} loops louder as the player comes near (along X). ' +
+      'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health() and ctx.audio.play(audioAssetId, {volume?}). Game flow: setFlow {flow: {levels: [{id, name, scenes: [sceneId], ' +
       'spawnId, music?: musicAssetId}], lives?: {start, max}, title?: {subtitle?, music?}, hud?: {preset: classic|minimal|corners, timer?}, ' +
       'ui?: {font: sans|serif|mono|rounded, accent, panel, text: #rrggbb, logo?: textureAssetId}, texts?: {levelComplete?, gameOver?, credits?}, ' +
       'volumes?: {music, sfx}} | null} (every level must load the player\'s and camera\'s scenes; with a flow tl_game_control start = new game, ' +

@@ -182,6 +182,26 @@ export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
 });
 
 /** Every block component, with its validator and canonical form (v4 scenes). */
+/** Phase 9.10: a sound that loops where the entity is, louder as the player comes near (along X). */
+export interface AudioSourceComponent {
+  /** An audio (cue) or music asset. */
+  assetId: string;
+  /** 0–1 at full volume. */
+  volume: number;
+  /** Heard within this many meters (full volume within a quarter of it). */
+  range: number;
+}
+
+export function validateAudioSourceComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'audioSource is an object', value);
+  fields(value, ['assetId', 'volume', 'range'], ['assetId', 'volume', 'range'], path, errors);
+  if (value['assetId'] !== undefined && (typeof value['assetId'] !== 'string' || value['assetId'].length === 0 || value['assetId'].length > 128)) err(errors, 'field_value', `${path}/assetId`, 'assetId names an audio or music asset', value['assetId']);
+  if (value['volume'] !== undefined && !num(value['volume'], 0, 1)) err(errors, 'field_value', `${path}/volume`, 'volume is 0–1', value['volume']);
+  if (value['range'] !== undefined && !num(value['range'], 0.5, 500)) err(errors, 'field_value', `${path}/range`, 'range is 0.5–500 m', value['range']);
+}
+
+export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceComponent => ({ assetId: c.assetId, volume: c.volume, range: c.range });
+
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'] },
   trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once'] },
@@ -189,6 +209,7 @@ export const BLOCK_COMPONENTS = {
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: ['max', 'invulnerableSeconds'] },
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: ['kind', 'value', 'counter', 'size', 'respawn'] },
   enemy: { validate: validateEnemyComponent, canonical: canonicalEnemy, fields: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health'] },
+  audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: ['assetId', 'volume', 'range'] },
 } as const;
 export type BlockComponentName = keyof typeof BLOCK_COMPONENTS;
 export const BLOCK_COMPONENT_NAMES = Object.keys(BLOCK_COMPONENTS) as BlockComponentName[];

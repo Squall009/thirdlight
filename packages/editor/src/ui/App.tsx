@@ -3140,6 +3140,7 @@ function EditorApp(): JSX.Element {
                 collider={selected.collider}
                 hazard={selected.gameZone?.role === 'hazard' ? selected.gameZone : null}
                 onSave={(component, value) => void saveBlock(selected.id, component, value)}
+                sounds={assets.filter((a) => a.kind === 'audio' || a.kind === 'music').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               />
             )}
             </>

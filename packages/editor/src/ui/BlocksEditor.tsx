@@ -20,6 +20,8 @@ interface Props {
   hazard?: { damage?: number } | null;
   /** One component edit: a partial value, or null to remove the component. */
   onSave: (component: string, value: Value | null) => void;
+  /** Phase 9.10: the audio and music assets an audio source can play. */
+  sounds?: readonly { assetId: string; displayName: string }[];
 }
 
 export const BLOCK_DEFAULTS: Record<BlockName, Value> = {
@@ -29,9 +31,10 @@ export const BLOCK_DEFAULTS: Record<BlockName, Value> = {
   health: { max: 3, invulnerableSeconds: 1 },
   pickup: { kind: 'coin', value: 1 },
   enemy: { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 1 },
+  audioSource: { assetId: '', volume: 0.8, range: 12 },
 };
 
-const TITLES: Record<BlockName, string> = { mover: 'Mover (moving platform)', trigger: 'Trigger', switch: 'Switch', health: 'Health', pickup: 'Pickup', enemy: 'Enemy' };
+const TITLES: Record<BlockName, string> = { mover: 'Mover (moving platform)', trigger: 'Trigger', switch: 'Switch', health: 'Health', pickup: 'Pickup', enemy: 'Enemy', audioSource: 'Audio source (loops, louder nearby)' };
 
 /** A text field that commits on Enter or blur when it changed (the backend refuses invalid values). */
 function Field(p: { label: string; aria: string; value: string; onCommit: (raw: string) => void; title?: string }): JSX.Element {
@@ -55,8 +58,8 @@ function Field(p: { label: string; aria: string; value: string; onCommit: (raw: 
 const nums = (raw: string): number[] => raw.split(/[\s,]+/).filter((s) => s !== '').map(Number);
 const vec2Text = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : '');
 
-export function BlocksEditor({ blocks, collider, hazard, onSave }: Props): JSX.Element {
-  const missing = (['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy'] as const).filter((n) => blocks[n] === undefined);
+export function BlocksEditor({ blocks, collider, hazard, onSave, sounds = [] }: Props): JSX.Element {
+  const missing = (['mover', 'trigger', 'switch', 'health', 'pickup', 'enemy', 'audioSource'] as const).filter((n) => blocks[n] === undefined && (n !== 'audioSource' || sounds.length > 0));
   const set = (n: string, patch: Value): void => onSave(n, patch);
   const num = (n: BlockName, key: string, label: string, integer = false): JSX.Element => (
     <Field
@@ -134,6 +137,24 @@ export function BlocksEditor({ blocks, collider, hazard, onSave }: Props): JSX.E
           num(n, 'health', 'hits to defeat', true),
           flag(n, 'stompable', 'defeated by jumping on it'),
         ];
+      case 'audioSource':
+        return [
+          <label className="tl-field" key="assetId">
+            <span className="tl-field__label">sound</span>
+            <select className="tl-input" aria-label="audioSource assetId" value={String(v['assetId'] ?? '')} onChange={(e) => set(n, { assetId: e.target.value })}>
+              {!sounds.some((s) => s.assetId === v['assetId']) && <option value={String(v['assetId'] ?? '')}>{String(v['assetId'] ?? '')}</option>}
+              {sounds.map((s) => (
+                <option key={s.assetId} value={s.assetId}>
+                  {s.displayName}
+                </option>
+              ))}
+            </select>
+          </label>,
+          num(n, 'volume', 'volume (0–1)'),
+          num(n, 'range', 'heard within (m)'),
+        ];
+      default:
+        return [];
     }
   };
   return (
@@ -171,7 +192,8 @@ export function BlocksEditor({ blocks, collider, hazard, onSave }: Props): JSX.E
           value=""
           onChange={(e) => {
             const n = e.target.value as BlockName;
-            if (n in BLOCK_DEFAULTS) onSave(n, BLOCK_DEFAULTS[n]);
+            if (n === 'audioSource') onSave(n, { ...BLOCK_DEFAULTS.audioSource, assetId: sounds[0]!.assetId });
+            else if (n in BLOCK_DEFAULTS) onSave(n, BLOCK_DEFAULTS[n]);
           }}
         >
           <option value="">+ Add gameplay component…</option>

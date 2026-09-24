@@ -175,6 +175,7 @@ const CREATE_COMPONENTS: readonly string[] = [
   'health',
   'pickup',
   'enemy',
+  'audioSource',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

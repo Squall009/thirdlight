@@ -129,6 +129,9 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     // Phase 12 (c): an instance set places one model.
     const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
     if (instances) setRef(instances.asset.assetId);
+    // Phase 9.10: an audio source's sound.
+    const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
+    if (source) setRef(source.assetId);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);

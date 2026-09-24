@@ -319,6 +319,7 @@ export {
   SWITCH_MODES,
   type BlockComponentName,
   type EnemyComponent,
+  type AudioSourceComponent,
   type HealthComponent,
   type MoverComponent,
   type PickupComponent,
