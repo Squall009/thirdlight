@@ -46,7 +46,7 @@ import {
 import { sha256Hex } from './digest';
 import { RETRY_RETENTION, validateRetryBlock, type RetryRecord } from './envelope';
 import { snapshotForeignBytes } from './recovery';
-import type { LoadDetail, UnavailableReason } from './errors';
+import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
 
 export const CONTENT_REL = 'content.json';
@@ -136,8 +136,8 @@ function readJson(ops: WriteOps, path: string): { ok: true; value: Record<string
 }
 
 function checkFileKeys(doc: Record<string, unknown>, keys: readonly string[], type: string, projectId: string, label: string): LoadDetail | null {
-  for (const k of keys) if (!(k in doc)) return { code: 'envelope_invalid', path: `/${k}`, message: `${label}: required key '${k}' is missing`, expected: keys.join(', ') };
-  for (const k of Object.keys(doc)) if (!keys.includes(k)) return { code: 'envelope_invalid', path: `/${k}`, message: `${label}: unknown key '${k}'`, expected: keys.join(', ') };
+  for (const k of keys) if (!(k in doc)) return { code: 'envelope_invalid', path: `/${pointerSegment(k)}`, message: `${label}: required key '${k}' is missing`, expected: keys.join(', ') };
+  for (const k of Object.keys(doc)) if (!keys.includes(k)) return { code: 'envelope_invalid', path: `/${pointerSegment(k)}`, message: `${label}: unknown key '${k}'`, expected: keys.join(', ') };
   if (doc['storageVersion'] !== 4) return { code: 'storage_version_unsupported', path: '/storageVersion', message: `${label}: storageVersion must be 4`, expected: '4' };
   if (doc['type'] !== type) return { code: 'envelope_invalid', path: '/type', message: `${label}: type must be "${type}"`, expected: type };
   if (doc['projectId'] !== projectId) return { code: 'envelope_invalid', path: '/projectId', message: `${label}: projectId must equal the project directory name`, expected: projectId };
@@ -439,13 +439,20 @@ export function writeTransaction(
 
 // ---- external changes --------------------------------------------------------------
 
+/** One project file compared with what this backend last wrote (null: unchanged). */
+export function changedFile(ops: WriteOps, dir: string, rel: string, known: KnownFile | undefined): { rel: string; bytes: Uint8Array; hash: string } | { rel: string; unreadable: true } | null {
+  const pc = preCheck(ops, dir, rel, known);
+  if (pc === null) return null;
+  if ('external' in pc) return pc.external;
+  if ('unreadable' in pc) return { rel, unreadable: true };
+  return null;
+}
+
 /** The first project file that differs from what this backend last wrote (or null). */
 export function firstChangedFile(ops: WriteOps, dir: string, state: V4State): { rel: string; bytes: Uint8Array; hash: string } | { rel: string; unreadable: true } | null {
   for (const [rel, known] of state.files) {
-    const pc = preCheck(ops, dir, rel, known);
-    if (pc === null) continue;
-    if ('external' in pc) return pc.external;
-    if ('unreadable' in pc) return { rel, unreadable: true };
+    const c = changedFile(ops, dir, rel, known);
+    if (c !== null) return c;
   }
   return null;
 }

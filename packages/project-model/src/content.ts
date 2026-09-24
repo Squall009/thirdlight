@@ -1346,10 +1346,6 @@ function validateSettings(settings: unknown, path: string, errors: ModelErrorV2[
 // ---- trust (§22.5) ------------------------------------------------------------
 
 function validateTrust(trust: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (trust === undefined) {
-    errors.push(fieldMissing(path, 'behaviorTrust'));
-    return;
-  }
   if (!isPlainObject(trust)) {
     errors.push(fieldType(path, trust, 'object'));
     return;
@@ -1914,7 +1910,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   const settings = doc['settings'];
   if (settings !== undefined) validateSettings(settings, '/settings', errors);
 
-  validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
+  // A missing behaviorTrust is reported once, by the required-key check above.
+  if (doc['behaviorTrust'] !== undefined) validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
 
   const game = doc['game'];
   if (game !== undefined && game !== null) validateGameConfig(game, '/game', errors, version === 4 ? 2 : 1);

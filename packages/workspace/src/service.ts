@@ -139,7 +139,7 @@ import {
   type ProjectFilesV4,
   type V4State,
 } from './store-v4';
-import { changedFiles, checkExternalV4, detectExternalChangeV4, publishV4 } from './session-v4';
+import { changedFiles, checkExternalV4, detectExternalChangeV4, publishV4, setPendingUnreadableV4 } from './session-v4';
 import {
   DEFAULT_PROCESS_MARKER,
   DEFAULT_PROC_ROOT,
@@ -163,7 +163,6 @@ import {
   refreshRegistration,
   resolveContained,
   serveQuery,
-  setPendingUnreadable,
   takeover,
   validateAnyManifest,
   type Core,
@@ -508,7 +507,7 @@ function buildService(core: Core): WorkspaceService {
     const nextState: V4State = { manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.files, fileRecords: plan.fileRecords };
     if (!res.ok) {
       if ('unreadable' in res) {
-        setPendingUnreadable(s);
+        setPendingUnreadableV4(s, res.unreadable.rel);
         return failRequest(request, externalChangeUnreadable(s.projectId));
       }
       if ('external' in res) {

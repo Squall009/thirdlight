@@ -796,4 +796,6 @@ Add one dated line per decision taken during the run (what, why).
   while releasing is reported `write_failed` instead of `ownership_conflict`;
   `store-v4.ts` `checkFileKeys` does not escape JSON-pointer segments; a
   replayed v4 ack has no `sceneId`; `instantiatePrefab` keeps the 1024-entity
-  cap in v4 scenes (create/paste allow 16384).
+  cap in v4 scenes (create/paste allow 16384). Follow-up: all fixed except the
+  replayed ack without `sceneId` (a record-format change, left); also a missing
+  `behaviorTrust` is now reported once.

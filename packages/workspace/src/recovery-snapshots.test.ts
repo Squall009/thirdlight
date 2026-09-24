@@ -44,14 +44,10 @@
  *     name.
  *
  * Ported to storage v4 (phase 9.3 step B): the cases run on a v4
- * project's `scenes/scene-main.json`. The legacy §7.3 "re-read, re-run the
+ * project's `scenes/scene-main.json`. The §7.3 "re-read, re-run the
  * detection and proceed in the SAME call" once the snapshot can be taken
- * (old case 3, and the second half of old case 4) is not what v4 does:
- * acceptExternalV4/discardExternalV4 refuse any non-"ok" pending state with
- * external_change_evidence_missing without re-reading, so those assertions
- * are archived in archive/removed-v1-v2/workspace/recovery-snapshots.test.ts
- * (see the phase 9.3 report: a snapshot_failed pause cannot be resolved
- * without a restart). The §7.4 exemption cases (R16) hold for v4 as is.
+ * (cases 3 and 4) holds for v4 too (session-v4.ts rereadForResolutionV4,
+ * the 9.3 step B follow-up). The §7.4 exemption cases (R16) hold as is.
  *
  * Real filesystem, unprivileged host user (case 4 uses a REAL
  * chmod-0500 `.thirdlight/recovery` directory — a real EACCES). Data
@@ -350,7 +346,90 @@ describe('2026-09-18 review group D (R3, R16) regressions', () => {
     }
   });
 
-  it('4. R3 with a REAL EACCES (chmod 0500 recovery dir): mutation fails with snapshot_failed, accept and discard refused, nothing written, no snapshot', () => {
+  it('3. R3 retry after disk recovery proceeds in the SAME call: fault cleared ⇒ discard re-reads, the detection re-runs (snapshot now durable) and resolves: LKG restored exactly, exactly one snapshot (foreign sha8, foreign bytes), unpaused, subsequent mutation succeeds', () => {
+    const root = makeRoot('r3c');
+    try {
+      const flag: { on: boolean } = { on: false };
+      const s = openProject(root, { ops: enospcRecoveryOps(flag) });
+      expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
+      const scene = scenePath(root);
+      const lkgBytes = readFileSync(scene);
+      const foreign = foreignValidEnvelope(lkgBytes);
+      const foreignHash = sha256Hex(foreign);
+      writeFileSync(scene, foreign);
+      flag.on = true;
+      const m = s.runCommand(request(1));
+      expect(m.ok).toBe(false);
+      expect(unresolvedError(m)['snapshotState']).toBe('snapshot_failed');
+      // Both resolutions are refused while the seam faults (case 2's
+      // state): the pending + pause persist.
+      expect(s.acceptExternalState(PROJECT).ok).toBe(false);
+      expect(s.discardExternalState(PROJECT).ok).toBe(false);
+
+      // The disk recovers (the seam stops faulting); the foreign bytes are
+      // still on disk: the §7.3 re-read is readable ⇒ the §7.2 detection
+      // re-runs (the snapshot is now durable) ⇒ the discard proceeds in
+      // the SAME call (no restart needed).
+      flag.on = false;
+      const d2 = s.discardExternalState(PROJECT);
+      expect(d2).toEqual({ ok: true, revision: 1, historyReset: true });
+
+      // The scene file is the LKG bytes EXACTLY; the project is unpaused.
+      expect(bytesEqual(readFileSync(scene), lkgBytes)).toBe(true);
+      expect(queryWs(s).writePaused).toBe(false);
+
+      // Exactly one snapshot: the one taken on the retry (foreign sha8,
+      // foreign bytes byte-for-byte).
+      const snaps = recoverySnaps(root);
+      expect(snaps).toEqual([snapshotName(foreignHash)]);
+      expect(bytesEqual(readFileSync(join(recoveryDir(root), snaps[0]!)), foreign)).toBe(true);
+
+      // A subsequent mutation succeeds (the project is fully unblocked).
+      const m3 = s.runCommand(request(1));
+      expect(m3.ok).toBe(true);
+      expect((m3 as { revision: number }).revision).toBe(2);
+    } finally {
+      dropRoot(root);
+    }
+  });
+
+  it('3b. R3 the re-read sees OTHER foreign bytes while snapshot_failed ⇒ the protocol re-fires on them (external_change_unresolved, new hash, durable snapshot); the next discard resolves', () => {
+    const root = makeRoot('r3c2');
+    try {
+      const flag: { on: boolean } = { on: false };
+      const s = openProject(root, { ops: enospcRecoveryOps(flag) });
+      expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
+      const scene = scenePath(root);
+      const lkgBytes = readFileSync(scene);
+      const foreign = foreignValidEnvelope(lkgBytes);
+      writeFileSync(scene, foreign);
+      flag.on = true;
+      expect(unresolvedError(s.runCommand(request(1)))['snapshotState']).toBe('snapshot_failed');
+      flag.on = false;
+      // A second foreign edit lands before the operator resolves.
+      const foreign2 = new TextEncoder().encode(new TextDecoder().decode(foreign).replace('(foreign edit)', '(second edit)'));
+      const foreign2Hash = sha256Hex(foreign2);
+      writeFileSync(scene, foreign2);
+      const a = s.acceptExternalState(PROJECT);
+      expect(a.ok).toBe(false);
+      const e = (a as unknown as { ok: false; error: Record<string, unknown> }).error;
+      expect(e['code']).toBe('external_change_unresolved');
+      expect((e['pendingChange'] as Record<string, unknown>)['snapshotState']).toBe('ok');
+      expect((e['pendingChange'] as Record<string, unknown>)['externalHash']).toBe(foreign2Hash);
+      expect(bytesEqual(readFileSync(scene), foreign2)).toBe(true);
+      expect(recoverySnaps(root)).toEqual([snapshotName(foreign2Hash)]);
+      const ws = queryWs(s);
+      expect(ws.snapshotState).toBe('ok');
+      expect(ws.externalHash).toBe(foreign2Hash);
+      // The re-issued resolution now works on the snapshotted bytes.
+      expect(s.discardExternalState(PROJECT)).toEqual({ ok: true, revision: 1, historyReset: true });
+      expect(bytesEqual(readFileSync(scene), lkgBytes)).toBe(true);
+    } finally {
+      dropRoot(root);
+    }
+  });
+
+  it('4. R3 with a REAL EACCES (chmod 0500 recovery dir): mutation fails with snapshot_failed, accept and discard refused, nothing written, no snapshot; chmod restored ⇒ accept proceeds in the SAME call', () => {
     const root = makeRoot('r3d');
     try {
       const s = openProject(root);
@@ -402,6 +481,30 @@ describe('2026-09-18 review group D (R3, R16) regressions', () => {
       } finally {
         chmodSync(recDir, 0o755); // restore before cleanup
       }
+
+      // Restored: accept again ⇒ the §7.3 re-read is readable, the
+      // detection re-runs (the snapshot is now durable) and the accept
+      // proceeds in the SAME call: the external revision becomes the
+      // running revision, the retry records are cleared, nothing pending.
+      const a2 = s.acceptExternalState(PROJECT);
+      expect(a2).toEqual({ ok: true, revision: 1, historyReset: true, retryCleared: true });
+      const doc = JSON.parse(new TextDecoder().decode(readFileSync(scene))) as {
+        projectId: string;
+        scene: { revision: number; entities: { id: string; name: string }[] };
+        retry: { records: unknown[] };
+      };
+      expect(doc.projectId).toBe(PROJECT);
+      expect(doc.scene.revision).toBe(1);
+      expect(doc.scene.entities[0]!.name).toBe('Main Camera (foreign edit)');
+      expect(doc.retry.records).toEqual([]);
+      expect(queryWs(s).writePaused).toBe(false);
+      // The snapshot is retained: exactly one, the foreign bytes.
+      const snaps = recoverySnaps(root);
+      expect(snaps).toEqual([snapshotName(foreignHash)]);
+      expect(bytesEqual(readFileSync(join(recDir, snaps[0]!)), foreign)).toBe(true);
+      const m3 = s.runCommand(request(1));
+      expect(m3.ok).toBe(true);
+      expect((m3 as { revision: number }).revision).toBe(2);
     } finally {
       try {
         chmodSync(recoveryDir(root), 0o755);

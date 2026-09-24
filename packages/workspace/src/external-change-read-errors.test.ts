@@ -46,11 +46,8 @@
  *
  * Ported to storage v4 (phase 9.3 step B): the session-level cases run on
  * a v4 project's `scenes/scene-main.json` (a createEntity writes only that
- * file, with one W). The legacy §7.3 re-read-and-proceed of case 2 is not
- * what v4 does (acceptExternalV4/discardExternalV4 refuse any non-"ok"
- * pending state with external_change_evidence_missing, without a re-read);
- * the legacy case is archived in
- * archive/removed-v1-v2/workspace/external-change-read-errors.test.ts.
+ * file, with one W). Case 2's §7.3 re-read-and-proceed holds for v4 too
+ * (session-v4.ts rereadForResolutionV4, the 9.3 step B follow-up).
  *
  * Real filesystem, unprivileged (chmod 000 is a REAL EACCES — the
  * review's repro ran exactly this way). Data roots are disposable
@@ -251,12 +248,13 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
     }
   });
 
-  it('2. R1 no resolution over unreadable bytes: accept and discard are refused while the pending state is unreadable; nothing is written, the pause persists', () => {
+  it('2. R1 no resolution over unreadable bytes; the §7.3 re-read then re-establishes from the real bytes and proceeds in the same call', () => {
     const root = makeRoot('r1b');
     try {
       const s = openProject(root);
       expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
       const scene = join(root, SCENE_REL);
+      const lkgBytes = readFileSync(scene);
       writeFileSync(scene, FOREIGN);
       chmodSync(scene, 0o000);
       const before = recoverySnaps(root);
@@ -266,21 +264,19 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
         'external_change_unreadable',
       );
 
-      // Refused while unreadable: NOTHING is written — the file is still
-      // 000 (unreadable), no snapshot was taken, still paused + pending.
-      // v4 (session-v4.ts acceptExternalV4/discardExternalV4): any pending
-      // state other than "ok" is answered external_change_evidence_missing
-      // without re-reading the file (the legacy path answered
-      // external_change_unreadable and re-read; see the phase 9.3 report).
+      // Refused while unreadable: each resolution re-reads the file, finds
+      // it still unreadable and answers external_change_unreadable. NOTHING
+      // is written — the file is still 000, no snapshot was taken, still
+      // paused + pending.
       const d1 = s.discardExternalState(PROJECT);
       expect(d1.ok).toBe(false);
       expect((d1 as { ok: false; error: { code: string } }).error.code).toBe(
-        'external_change_evidence_missing',
+        'external_change_unreadable',
       );
       const a1 = s.acceptExternalState(PROJECT);
       expect(a1.ok).toBe(false);
       expect((a1 as { ok: false; error: { code: string } }).error.code).toBe(
-        'external_change_evidence_missing',
+        'external_change_unreadable',
       );
       expect(isReadable(scene)).toBe(false); // still 000
       expect(recoverySnaps(root)).toEqual(before); // no snapshot of unknown bytes
@@ -294,10 +290,72 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       const m2 = s.runCommand(request(1));
       expect((m2 as { error: { code: string } }).error.code).toBe('external_change_unreadable');
 
-      // The foreign bytes are byte-identical (never overwritten).
+      // The same foreign bytes now readable (644): the §7.3 re-read
+      // re-establishes the pending change from the REAL bytes (durable
+      // snapshot) and the discard proceeds in the SAME call.
       chmodSync(scene, 0o644);
+      const d2 = s.discardExternalState(PROJECT);
+      expect(d2).toEqual({ ok: true, revision: 1, historyReset: true });
+
+      // The scene file is the LKG bytes EXACTLY; the project is unpaused.
+      expect(bytesEqual(readFileSync(scene), lkgBytes)).toBe(true);
+      expect(
+        (s.query({ op: 'queryProject', projectId: PROJECT }) as {
+          workspace: { writePaused: boolean };
+        }).workspace.writePaused,
+      ).toBe(false);
+
+      // The recovery dir holds EXACTLY ONE snapshot: the real foreign
+      // bytes, named with their sha8.
+      const snaps = recoverySnaps(root);
+      expect(snaps).toEqual([`scene-${PINNED_STAMP}-${FOREIGN_HASH.slice(0, 8)}.json`]);
+      const recDir = join(root, 'projects', PROJECT, '.thirdlight', 'recovery');
+      expect(bytesEqual(readFileSync(join(recDir, snaps[0]!)), FOREIGN)).toBe(true);
+
+      // A subsequent mutation succeeds (the project is fully unblocked).
+      const m3 = s.runCommand(request(1));
+      expect(m3.ok).toBe(true);
+      expect((m3 as { revision: number }).revision).toBe(2);
+    } finally {
+      try {
+        chmodSync(join(root, SCENE_REL), 0o644);
+      } catch {
+        // already restored (or gone)
+      }
+      dropRoot(root);
+    }
+  });
+
+  it('2b. R1 accept after an unreadable pause: once readable, the re-read re-establishes the pending change and the accept runs its own checks (invalid foreign bytes ⇒ external_change_invalid, pause kept)', () => {
+    const root = makeRoot('r1b2');
+    try {
+      const s = openProject(root);
+      expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
+      const scene = join(root, SCENE_REL);
+      writeFileSync(scene, FOREIGN);
+      chmodSync(scene, 0o000);
+      expect((s.runCommand(request(1)) as { error: { code: string } }).error.code).toBe('external_change_unreadable');
+      chmodSync(scene, 0o644);
+      const a = s.acceptExternalState(PROJECT);
+      expect(a.ok).toBe(false);
+      // Never external_change_evidence_missing for a readable file: the
+      // snapshot is now durable and the (invalid) foreign bytes are judged.
+      expect((a as { ok: false; error: { code: string } }).error.code).toBe('external_change_invalid');
+      const ws = (s.query({ op: 'queryProject', projectId: PROJECT }) as { workspace: {
+        writePaused: boolean;
+        pendingChange: { snapshotState: string; externalHash: string | null };
+      } }).workspace;
+      expect(ws.writePaused).toBe(true);
+      expect(ws.pendingChange.snapshotState).toBe('ok');
+      expect(ws.pendingChange.externalHash).toBe(FOREIGN_HASH);
+      expect(recoverySnaps(root)).toEqual([`scene-${PINNED_STAMP}-${FOREIGN_HASH.slice(0, 8)}.json`]);
       expect(bytesEqual(readFileSync(scene), FOREIGN)).toBe(true);
     } finally {
+      try {
+        chmodSync(join(root, SCENE_REL), 0o644);
+      } catch {
+        // already restored (or gone)
+      }
       dropRoot(root);
     }
   });
