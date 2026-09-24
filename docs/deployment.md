@@ -576,7 +576,9 @@ under Gameplay ("+ Add gameplay component"):
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box collider it carries the player standing on it and
-  pushes a player it moves into. The Scene view draws its path.
+  pushes a player it moves into. A mover rising beside or under the player
+  (a gate opening, a pillar) pushes the player aside, never up: only a player
+  above it rides it up. The Scene view draws its path.
 - **Trigger** — an area that sends a signal when the player enters it
   (and, if set, another one when the player leaves it).
 - **Switch** — `interact` (the interact action while inside) or `stand`
@@ -594,7 +596,8 @@ under Gameplay ("+ Add gameplay component"):
   a player that near (still inside its range / not off a ledge); its
   Animator gets `speed`, `attacking` (chasing), `hurt` and `defeated`.
 - A collider's **one-way** flag: jump up through it, land on it from above,
-  Down + Jump drops through. A hazard zone's **damage** takes health instead
+  Down + Jump drops through. A spawn or checkpoint inside one is not
+  blocked (the player drops to what is below). A hazard zone's **damage** takes health instead
   of a life.
 
 The HUD shows the counters and health ("Coins 2 · Health 3/3").

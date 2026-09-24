@@ -435,14 +435,21 @@ export class GameplayBlocks {
     // correct beyond its contracted bound).
     const player = this.host.player();
     const pushed = { x: 0, y: 0 };
-    const push = (m: Mover): void => {
+    // Phase 14.7: a mover moving mostly upward pushes a player beside or
+    // under it (the capsule's centre below the mover's top) out sideways, away
+    // from the mover, never up — a rising gate or pillar does not lift a
+    // player pressing against it; only a player above it is scooped up.
+    const push = (m: Mover, before: Vec3): void => {
       if (player === null || m.half === null) return;
       const px = player.x + this.pc.ox + pushed.x;
       const py = player.y + this.pc.oy + pushed.y;
       const ox = m.half.x + this.pc.hw + PUSH_SKIN - Math.abs(px - m.pos[0]);
       const oy = m.half.y + this.pc.hh + PUSH_SKIN - Math.abs(py - m.pos[1]);
       if (ox <= 0 || oy <= 0) return;
-      if (oy <= ox) pushed.y += Math.min(0.5, oy) * (py >= m.pos[1] ? 1 : -1);
+      const dx = m.pos[0] - before[0];
+      const dy = m.pos[1] - before[1];
+      const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + m.half.y;
+      if (oy <= ox && !sideways) pushed.y += Math.min(0.5, oy) * (py >= m.pos[1] ? 1 : -1);
       else pushed.x += Math.min(0.5, ox) * (px >= m.pos[0] ? 1 : -1);
     };
     for (const m of this.movers.values()) {
@@ -452,7 +459,7 @@ export class GameplayBlocks {
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: 0 });
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
-      else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m);
+      else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
     }
     // A hit's knockback: a horizontal push that eases out over KNOCKBACK_SECONDS.
     if (this.knock.steps > 0) {
