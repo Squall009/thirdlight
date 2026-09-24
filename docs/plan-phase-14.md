@@ -243,7 +243,7 @@ Play shows the player walking under a low ceiling afterwards.
 
 | Item | Status | Commits |
 |---|---|---|
-| 14.0 character collider + handle editing | todo | |
+| 14.0 character collider + handle editing | done 2026-09-24 | 81dea18 |
 | 14.1 spawn / destroy | todo | |
 | 14.2 timers, sensors | todo | |
 | 14.3 score rules | todo | |
