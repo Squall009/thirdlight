@@ -101,7 +101,7 @@ there. Read `docs/roadmap.md` (principles) first.
 | Item | Status | Commits |
 |---|---|---|
 | 16.0 centre workspace tabs | done 2026-09-24 | 2eb1761 |
-| 16.1 graph framework | todo | |
+| 16.1 graph framework | done 2026-09-24 | 078d519, d6a13cf |
 | 16.2 Animator on the framework | todo | |
 | 16.3 script editor tab | done 2026-09-24 | f152953 |
 | 16.4 wrap-up | todo | |
