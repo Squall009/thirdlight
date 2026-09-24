@@ -62,6 +62,11 @@ export interface BackendConfig {
    */
   headless?: { enabled: boolean; libs?: string; idleMs: number };
   /**
+   * Phase 9.6: the final light bake's host (`user@host` over ssh, or `local`),
+   * its Blender and the time limit (absent = no final bake; see bake.ts).
+   */
+  bake?: { host: string; blender: string; timeoutMs: number };
+  /**
    * Optional. Comma-separated IPv4 ranges whose requests count as the owner
    * without a token (THIRDLIGHT_TRUSTED_NETWORKS), for a single-user install
    * that is only reachable on the owner's network. See trusted.ts.
@@ -90,7 +95,7 @@ export function parseBackendConfig(value: unknown):
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
     'engineRoot', 'blenderPath', 'trustedNetworks', 'trustedProxies',
-    'tokens', 'timeouts', 'headless',
+    'tokens', 'timeouts', 'headless', 'bake',
   ]);
   for (const k of Object.keys(obj)) {
     if (!allowed.has(k)) {
@@ -220,6 +225,16 @@ export function parseBackendConfig(value: unknown):
   if (exportRoot.v !== undefined) config.exportRoot = exportRoot.v;
   if (engineRoot.v !== undefined) config.engineRoot = engineRoot.v;
   if (blenderPath.v !== undefined) config.blenderPath = blenderPath.v;
+  if (obj.bake !== undefined) {
+    const b = obj.bake as { host?: unknown; blender?: unknown; timeoutMs?: unknown } | null;
+    if (typeof b !== 'object' || b === null || typeof b.host !== 'string' || b.host === '' || typeof b.blender !== 'string' || b.blender === '' || typeof b.timeoutMs !== 'number' || !(b.timeoutMs > 0)) {
+      return { ok: false, error: sessionError('field_value', 'validation', 'bake must be { host: string, blender: string, timeoutMs: number > 0 }', { path: '/bake' }) };
+    }
+    if (!/^(local|[A-Za-z0-9._-]+@[A-Za-z0-9.:-]+|[A-Za-z0-9.-]+)$/.test(b.host)) {
+      return { ok: false, error: sessionError('field_value', 'validation', 'bake.host is local, host or user@host', { path: '/bake/host' }) };
+    }
+    config.bake = { host: b.host, blender: b.blender, timeoutMs: b.timeoutMs };
+  }
   if (obj.headless !== undefined) {
     const h = obj.headless as { enabled?: unknown; libs?: unknown; idleMs?: unknown } | null;
     if (typeof h !== 'object' || h === null || typeof h.enabled !== 'boolean' || (h.libs !== undefined && typeof h.libs !== 'string') || typeof h.idleMs !== 'number' || !(h.idleMs > 0)) {

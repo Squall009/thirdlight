@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -119,7 +119,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. setEnvironment {environment: {wind: ' +
-      '{direction: [x, z], strength, gust, gustFrequency, turbulence}}} (the foliage shader bends by COLOR_0.r). Returns the new revision on success, ' +
+      '{direction: [x, z], strength, gust, gustFrequency, turbulence}}} (the foliage shader bends by COLOR_0.r). setLighting {sceneId, ' +
+      'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
     inputSchema: {

@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type EnvironmentConfig, type MaterialDef } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -131,6 +131,7 @@ const OPS: readonly MutationOp[] = [
   'setMaterial',
   'deleteMaterial',
   'setEnvironment',
+  'setLighting',
   'createScene',
   'renameScene',
   'deleteScene',
@@ -165,7 +166,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, createScene, renameScene, deleteScene, setStartScenes',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, createScene, renameScene, deleteScene, setStartScenes',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1142,6 +1143,7 @@ export type ValidatedOpArgs =
   | { op: 'setMaterial'; args: { material: MaterialDef } }
   | { op: 'deleteMaterial'; args: { materialId: string } }
   | { op: 'setEnvironment'; args: { environment: EnvironmentConfig } }
+  | { op: 'setLighting'; args: { sceneId: string; lighting: LightingBake | null } }
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs };
 
 export type ArgsValidation =
@@ -1201,6 +1203,14 @@ export function validateOpArgs(
       if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteMaterial' ? 'string (materialId)' : 'object') };
       }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setLighting': {
+      for (const k of Object.keys(args)) if (k !== 'sceneId' && k !== 'lighting') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, lighting') };
+      if (args['sceneId'] === undefined) return { ok: false, error: fieldMissing('/args/sceneId', 'sceneId') };
+      if (typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (sceneId)') };
+      if (args['lighting'] === undefined) return { ok: false, error: fieldMissing('/args/lighting', 'lighting') };
+      if (args['lighting'] !== null && !isPlainObject(args['lighting'])) return { ok: false, error: fieldType('/args/lighting', args['lighting'], 'object (a bake) or null') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'pasteEntities': {

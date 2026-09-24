@@ -148,3 +148,16 @@ export {
   type QualityLevel,
   type SkyLike,
 } from './environment';
+// Phase 9.6: lightmaps (runtime application; the editor's baker uses the same UV1 layout).
+export {
+  addBoxLightmapUv,
+  applyLightmap,
+  boxLightmapSize,
+  createLightmapSet,
+  lightmappedMaterial,
+  lightmapTexture,
+  refreshLightmappedMaterial,
+  type LightingBakeLike,
+  type LightmapSet,
+} from './lightmaps';
+export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';

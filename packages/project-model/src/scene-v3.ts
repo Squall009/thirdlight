@@ -18,6 +18,7 @@
  * result, never throws, never reads files.
  */
 
+import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, type FogVolumeComponent } from './materials';
 import {
   canonicalBox,
@@ -120,7 +121,7 @@ const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activa
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
@@ -807,6 +808,10 @@ function validateEntityComponentsV3(
   }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
+  if (comps['animator'] !== undefined) {
+    validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
+    if (comps['model'] === undefined) errors.push(componentMissing(`${path}/animator`, 'model', 'an animator sits only on an entity with a model'));
+  }
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
 
@@ -1049,6 +1054,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
   if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
   if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
+  if (comps['animator'] !== undefined) components.animator = canonicalAnimatorComponent(comps['animator'] as AnimatorComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
     components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };

@@ -309,6 +309,42 @@ export {
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
+// Phase 9.7: animator controllers.
+export {
+  ANIMATOR_CONDITION_OPS,
+  ANIMATOR_PARAMETER_TYPES,
+  animatorAssetIds,
+  canonicalAnimatorController,
+  canonicalAnimators,
+  MAX_ANIMATORS,
+  validateAnimatorComponent,
+  validateAnimatorController,
+  validateAnimators,
+  type AnimatorClipRef,
+  type AnimatorComponent,
+  type AnimatorCondition,
+  type AnimatorConditionOp,
+  type AnimatorController,
+  type AnimatorEvent,
+  type AnimatorMotion,
+  type AnimatorParameter,
+  type AnimatorParameterType,
+  type AnimatorState,
+  type AnimatorTransition,
+} from './animator';
+// Phase 9.6: baked lighting.
+export {
+  canonicalLighting,
+  LIGHTMAP_SOURCES,
+  MAX_LIGHTMAP_ATLASES,
+  MAX_LIGHTMAP_ENTRIES,
+  MAX_BAKED_LIGHTS,
+  validateLighting,
+  validateLightingBake,
+  type LightingBake,
+  type LightingEntry,
+  type LightingMap,
+} from './lighting';
 // Phase 9.4: materials, material mappings and the environment (wind).
 export {
   canonicalEnvironment,

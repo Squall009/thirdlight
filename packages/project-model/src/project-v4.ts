@@ -191,6 +191,17 @@ export function composeV4(
     if (goals < 1) errors.push(projectError('/game', 'zone_goal_missing', 'content.game requires at least one goal zone in the project', '>= 1 goal zone', { document: 'content' } as never));
   }
 
+  // Phase 9.7: an animator names a controller of this project.
+  const controllerIds = new Set((content.animators ?? []).map((c) => c.controllerId));
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const a = e.components.animator;
+      if (a !== undefined && !controllerIds.has(a.controller)) {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/animator/controller`, message: 'the animator names no controller of this project', expected: 'a controllerId in content.animators' }, a.controller)));
+      }
+    });
+  }
+
   // Phase 9.4: an object's material mapping names project materials.
   const materialIds = new Set((content.materials ?? []).map((m) => m.materialId));
   for (const s of scenes) {

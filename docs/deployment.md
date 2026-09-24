@@ -498,6 +498,32 @@ node tools/backup.mjs restore ~/thirdlight/backups/my-game-20260922T120000Z --fo
 node tools/project.mjs register ~/projects/my-game-restored
 ```
 
+## Baked lighting
+
+The Lighting tab bakes lightmaps for the active scene's static objects
+(Inspector → Static; boxes, and models with a second UV set) from the lights
+set to **baked** (direct + bounce; no longer realtime once baked) or
+**mixed** (realtime direct light, baked bounce light). The atlases become
+texture assets named `lightmap <scene> <n>`; a re-bake adds versions to them.
+
+- **Bake preview** runs in the browser: direct light and sky occlusion from
+  baked lights, no bounce. Seconds for a small scene.
+- **Bake final** sends the scene to Blender Cycles on the bake host:
+  `THIRDLIGHT_BAKE_HOST` is `user@host` (the backend copies the scene there
+  with `scp` and runs Blender over `ssh`, so the service user needs a key
+  login without a passphrase) or `local`; `THIRDLIGHT_BAKE_BLENDER` is Blender
+  on that host; `THIRDLIGHT_BAKE_TIMEOUT_MINUTES` stops a bake (default 60).
+  Cycles uses OptiX when the GPU has 4 GB free, else the CPU; the result is
+  denoised. One bake runs at a time. Without a bake host the button explains
+  what to set. This install bakes on the RTX 5090 workstation (see the
+  systemd unit).
+
+A bake whose static objects or baked/mixed lights changed since is shown as
+stale; it is still used until it is baked again or cleared (Clear bake). A
+scene with a bake cannot be deleted until the bake is cleared. MCP can clear
+a bake (`setLighting {sceneId, lighting: null}`); bakes are made in an
+editor (the headless one works too).
+
 ## Upgrade
 
 ```sh

@@ -16,7 +16,7 @@
  * (unit-tested in Node); this module is the thin transport that drives them.
  */
 
-import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
+import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -288,6 +288,8 @@ export class SessionClient {
   /** Phase 9.4: the project materials and the environment (from queryGameConfig, then changes). */
   private materials: MaterialDef[] = [];
   private environment: EnvironmentConfig | null = null;
+  /** Phase 9.6: each scene's bake (from queryGameConfig, then setLighting changes). */
+  private lighting: Record<string, LightingBake> = {};
   /**
    * Phase 12 (c): the scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
@@ -492,6 +494,8 @@ export class SessionClient {
         this.materials = Array.isArray(mats) ? structuredClone(mats) : [];
         const env = (g as { environment?: EnvironmentConfig | null }).environment;
         this.environment = env !== undefined && env !== null ? structuredClone(env) : null;
+        const lighting = (g as { lighting?: Record<string, LightingBake> | null }).lighting;
+        this.lighting = lighting !== undefined && lighting !== null ? structuredClone(lighting) : {};
       }
     } catch {
       // A missing game page is resolved by the next full state; it never
@@ -672,6 +676,9 @@ export class SessionClient {
         this.materials = structuredClone(change.next);
       } else if (change.type === 'setEnvironment') {
         this.environment = change.next === null ? null : structuredClone(change.next);
+      } else if (change.type === 'setLighting') {
+        if (change.next === null) delete this.lighting[change.sceneId];
+        else this.lighting[change.sceneId] = structuredClone(change.next);
       }
       this.save = 'saved';
       this.cb.onSceneChanged();
@@ -1000,6 +1007,11 @@ export class SessionClient {
     return this.environment === null ? null : structuredClone(this.environment);
   }
 
+  /** Phase 9.6: each scene's bake. */
+  getLighting(): Record<string, LightingBake> {
+    return structuredClone(this.lighting);
+  }
+
   getSettings(): Record<string, unknown> | null {
     return this.settings === null ? null : { ...this.settings };
   }
@@ -1014,7 +1026,8 @@ export class SessionClient {
         `/projects/${this.cfg.projectId}/commands`,
         { op: 'queryGameConfig', projectId: this.cfg.projectId, args: {} },
       );
-      return { ok: true, revision: r.revision, game: r.game };
+      // The v4 extras (tags, scenes, materials, environment, lighting) ride along.
+      return { ...r, ok: true, revision: r.revision, game: r.game };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }
@@ -1349,6 +1362,59 @@ export class SessionClient {
     if (res.status === 204 || res.status === 404) return null;
     if (!res.ok) throw new Error(`thumbnail read failed (HTTP ${res.status})`);
     return res.blob();
+  }
+
+  // ---- Phase 9.6: the final light bake (Blender on the bake host) --------------
+
+  /** Whether the backend has a bake host. */
+  async bakeHostStatus(): Promise<{ ok: true; host: string } | { ok: false; message: string }> {
+    try {
+      return await this.request<{ ok: true; host: string } | { ok: false; message: string }>(`/projects/${this.cfg.projectId}/content/bake/host`, { method: 'GET' });
+    } catch (e) {
+      return { ok: false, message: this.describeError(e).message };
+    }
+  }
+
+  /** Start a bake with a bake package (see backend bake.ts). */
+  async startBake(pkg: Uint8Array): Promise<{ ok: true; jobId: string } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; jobId: string }>(`/projects/${this.cfg.projectId}/content/bake/jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: pkg as unknown as BodyInit,
+      });
+      return { ok: true, jobId: r.jobId };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  async bakeJob(jobId: string): Promise<{ ok: true; job: { state: string; progress: { done: number; total: number }; message: string | null; atlases: number; millis: number | null; device: string | null } } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; job: { state: string; progress: { done: number; total: number }; message: string | null; atlases: number; millis: number | null; device: string | null } }>(
+        `/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}`,
+        { method: 'GET' },
+      );
+      return { ok: true, job: r.job };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  async bakeAtlas(jobId: string, index: number): Promise<Uint8Array> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}/atlases/${index}`, {
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+    });
+    if (!res.ok) throw new Error(`lightmap ${index} could not be read (HTTP ${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  async cancelBake(jobId: string): Promise<void> {
+    try {
+      await this.request(`/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}`, { method: 'DELETE' });
+    } catch {
+      // the job may already be over
+    }
   }
 
   /** Store a rendered tile thumbnail (PNG) in the backend's cache. */

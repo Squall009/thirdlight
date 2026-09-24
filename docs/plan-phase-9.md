@@ -558,7 +558,7 @@ Done when: unit tests per component in runtime; e2e builds a small level
 | 9.3 one schema version (phase 8 rest) | deferred to after 9.13 (see §6) | |
 | 9.4 textures, materials, wind | done 2026-09-24 (Sprout assignment moves to 9.13) | 6d85730, 5e0e231, see git log "9.4c" |
 | 9.5 lights, environment, sky, fog, post | done 2026-09-24 (owner look pending) | d0c1dee (9.5a), see git log "9.5b"; Sprout 17f8758 (skies, not pushed) |
-| 9.6 light baking | todo | |
+| 9.6 light baking | done 2026-09-24 (owner look pending) | see git log "9.6"; Sprout kit bake on the 5090: 9 pieces, 512 samples, OptiX, 4.4 s round trip |
 | 9.7 rigs + Animator + Sprout clips | todo | |
 | 9.8 input actions + Input window | todo | |
 | 9.9 physics + gameplay building blocks | todo | |
@@ -614,3 +614,23 @@ Add one dated line per decision taken during the run (what, why).
   sky script records each horizon and remaps it to the middle row; the lower
   half is a flat ground colour. The skies are committed in Sprout but not
   pushed (pushing Sprout was not permitted); they get imported with 9.13.
+- 2026-09-24 (9.6): bakes live in `content.lighting[sceneId]` (the plan
+  allowed it; no scene-file field), with `bakedLights` (the lights a bake
+  holds). A baked light stays realtime until a bake holds it (then it is
+  not realtime); baked ambient/hemisphere lights stay realtime for dynamic
+  objects and lightmapped surfaces ignore them. Meshes without UV1 are not
+  auto-unwrapped (the runtime could not map them): they only cast shadows
+  and the bake message counts them; boxes get a generated UV1. Each object's
+  UV1 bounding box (not the unit square) maps onto its rectangle, so kit
+  pieces sharing one UV1 atlas keep their resolution. Both bakers start in
+  the editor: the browser builds the Blender package from the meshes it has
+  loaded, the backend only ships it (ssh/scp) and returns PNGs, and the
+  editor publishes the atlases like the preview (so N+1 undo steps, not
+  one). The Cycles script lives in the backend bundle
+  (`cycles-bake-script.ts`), not `tools/bake/`. Bounce light uses a neutral
+  80 % grey, not the objects' colours; point/spot `range` cut-offs are not
+  modelled in Cycles. Lightmaps are 8-bit sRGB PNG scaled by `range`
+  (default 4), with anisotropic filtering (grazing side-view cameras).
+  A stale bake is shown in the Lighting window (not as a Problems entry).
+  Found on the way: the editor dropped tags/materials/environment after a
+  reload (`queryGameConfig` returned only the game block) — fixed.

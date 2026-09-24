@@ -412,6 +412,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         startScenes: [...state.content.startScenes],
         materials: JSON.parse(JSON.stringify(state.content.materials ?? [])) as unknown,
         environment: state.content.environment !== undefined ? (JSON.parse(JSON.stringify(state.content.environment)) as unknown) : null,
+        lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
       } as unknown as QueryResult;
     }
     return result as unknown as QueryResult;

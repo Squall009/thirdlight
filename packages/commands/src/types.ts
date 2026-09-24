@@ -50,6 +50,7 @@ import type {
   TrustEntry,
   SceneV4,
   EnvironmentConfig,
+  LightingBake,
   MaterialDef,
 } from '@thirdlight/project-model';
 
@@ -98,6 +99,7 @@ export type V3MutationOp =
   | 'setMaterial'
   | 'deleteMaterial'
   | 'setEnvironment'
+  | 'setLighting'
   // phase 12 (c): the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
@@ -331,6 +333,14 @@ export interface SetEnvironmentChange {
   type: 'setEnvironment';
   previous: EnvironmentConfig | null;
   next: EnvironmentConfig | null;
+}
+
+/** Phase 9.6: `setLighting` change data — one scene's bake (null = none). */
+export interface SetLightingChange {
+  type: 'setLighting';
+  sceneId: string;
+  previous: LightingBake | null;
+  next: LightingBake | null;
 }
 
 /** `pasteEntities` change data: the created entities, parents first. */
@@ -593,6 +603,7 @@ export type ChangeData =
   | PasteEntitiesChange
   | SetMaterialsChange
   | SetEnvironmentChange
+  | SetLightingChange
   | SetSceneIndexChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
@@ -617,6 +628,7 @@ export type ForwardChange =
   | PasteEntitiesChange
   | SetMaterialsChange
   | SetEnvironmentChange
+  | SetLightingChange
   | SetSceneIndexChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
@@ -732,6 +744,13 @@ export interface SetEnvironmentInverse {
   restore: EnvironmentConfig | null;
 }
 
+/** Undo of `setLighting`: restore the scene's previous bake (null = none). */
+export interface SetLightingInverse {
+  kind: 'setLighting';
+  sceneId: string;
+  restore: LightingBake | null;
+}
+
 /** Undo of a `pasteEntities`: remove the created entities. */
 export interface RemoveEntitiesInverse {
   kind: 'removeEntities';
@@ -760,6 +779,7 @@ export interface SetSceneIndexInverse {
 export type InverseSpec =
   | SetMaterialsInverse
   | SetEnvironmentInverse
+  | SetLightingInverse
   | RemoveEntitiesInverse
   | SetAssetOptionsInverse
   | SetSceneIndexInverse

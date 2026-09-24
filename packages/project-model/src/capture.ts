@@ -140,6 +140,15 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
   for (const id of env?.sky?.cube ?? []) setRef(id);
   if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
+  // Phase 9.7: the models an animator controller takes clips from.
+  for (const c of (content as { animators?: { states: { motion: { kind: string; clip?: { assetId: string }; children?: { clip: { assetId: string } }[] } }[] }[] }).animators ?? []) {
+    for (const s of c.states) {
+      if (s.motion.clip !== undefined) setRef(s.motion.clip.assetId);
+      for (const k of s.motion.children ?? []) setRef(k.clip.assetId);
+    }
+  }
+  // Phase 9.6: the lightmap atlases of every scene's bake.
+  for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[] }> }).lighting ?? {})) for (const id of bake.atlases) setRef(id);
   const game = content.game;
   if (game !== null) {
     for (const k of ['start', 'jump', 'checkpoint', 'death', 'goal'] as const) {

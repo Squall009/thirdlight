@@ -21,6 +21,10 @@ Environment=NODE_ENV=production
 # playwright-core). This LXC has no browser libraries: point at an extracted
 # tree (delete the line on hosts with `npx playwright install-deps chromium`).
 Environment=THIRDLIGHT_BROWSER_LIBS=/home/dadmin/projects/visionary/.browser-libs/root/usr/lib/x86_64-linux-gnu
+# Phase 9.6: final light bakes run Blender Cycles on the RTX 5090 workstation
+# (ssh/scp as this user; delete both lines to disable the final bake).
+Environment=THIRDLIGHT_BAKE_HOST=dadmin@10.0.10.145
+Environment=THIRDLIGHT_BAKE_BLENDER=/opt/blender/5.2.2/blender
 
 [Install]
 WantedBy=multi-user.target

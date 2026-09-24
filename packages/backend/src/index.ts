@@ -27,6 +27,9 @@
  *   THIRDLIGHT_HEADLESS           optional; `off` = never open a headless editor for MCP play
  *   THIRDLIGHT_BROWSER_LIBS       optional; an extracted library tree for Chromium (hosts without browser libraries)
  *   THIRDLIGHT_HEADLESS_IDLE_SECONDS optional; close an idle headless editor after this long (default 300)
+ *   THIRDLIGHT_BAKE_HOST          optional; the final light bake's host: user@host (ssh/scp) or local
+ *   THIRDLIGHT_BAKE_BLENDER       optional; Blender on the bake host (default: blender)
+ *   THIRDLIGHT_BAKE_TIMEOUT_MINUTES optional; stop a bake after this long (default 60)
  */
 import { parseBackendConfig, type BackendTokenEntry } from './config';
 import { createBackend } from './backend';
@@ -66,6 +69,9 @@ const config = parseBackendConfig({
   exportRoot: env.THIRDLIGHT_EXPORT_ROOT,
   engineRoot: env.THIRDLIGHT_ENGINE_ROOT,
   blenderPath: env.THIRDLIGHT_BLENDER,
+  ...(env.THIRDLIGHT_BAKE_HOST !== undefined && env.THIRDLIGHT_BAKE_HOST !== ''
+    ? { bake: { host: env.THIRDLIGHT_BAKE_HOST, blender: env.THIRDLIGHT_BAKE_BLENDER ?? 'blender', timeoutMs: Math.max(1, Number(env.THIRDLIGHT_BAKE_TIMEOUT_MINUTES ?? 60) || 60) * 60_000 } }
+    : {}),
   trustedNetworks: env.THIRDLIGHT_TRUSTED_NETWORKS,
   trustedProxies: env.THIRDLIGHT_TRUSTED_PROXIES,
   tokens,

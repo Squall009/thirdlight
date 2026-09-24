@@ -6,22 +6,31 @@
  * asset still uses it — the resulting-state check reports the reference);
  * `setEnvironment {environment}` replaces the environment block. Each is one
  * undo; the change records carry the whole block before and after.
+ *
+ * Phase 9.6: `setLighting {sceneId, lighting}` sets or clears one scene's
+ * bake (`content.lighting[sceneId]`); the change carries that bake before and
+ * after.
  */
 
-import { canonicalEnvironment, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
+import { canonicalEnvironment, canonicalLighting, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetEnvironmentChange, SetMaterialsChange } from './types';
+import type { ContentDocument, SetEnvironmentChange, SetLightingChange, SetMaterialsChange } from './types';
 
-type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig };
+type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake> };
 
 function modelError(e: ModelErrorV2, prefix: string): CommandError {
   return { code: e.code, cls: 'validation', path: `${prefix}${e.path ?? ''}`, message: e.message, ...(e.found !== undefined ? { found: e.found } : {}), ...(e.expected !== undefined ? { expected: e.expected } : {}) } as unknown as CommandError;
 }
 
-function commit(input: OpInput, next: WithMaterials, change: SetMaterialsChange | SetEnvironmentChange, inverse: { kind: 'setMaterials'; restore: MaterialDef[] } | { kind: 'setEnvironment'; restore: EnvironmentConfig | null }): OpOutcome {
+function commit(
+  input: OpInput,
+  next: WithMaterials,
+  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange,
+  inverse: { kind: 'setMaterials'; restore: MaterialDef[] } | { kind: 'setEnvironment'; restore: EnvironmentConfig | null } | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null },
+): OpOutcome {
   const catalog = contentOf(input.content);
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
   const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, next);
@@ -65,6 +74,23 @@ export function applySetEnvironment(input: OpInput, args: { environment: Environ
   return commit(input, { ...catalog, environment: next }, { type: 'setEnvironment', previous, next }, { kind: 'setEnvironment', restore: previous });
 }
 
+export function applySetLighting(input: OpInput, args: { sceneId: string; lighting: LightingBake | null }): OpOutcome {
+  const catalog = contentOf(input.content) as WithMaterials;
+  let next: LightingBake | null = null;
+  if (args.lighting !== null) {
+    const errors: ModelErrorV2[] = [];
+    validateLightingBake(args.lighting, '', errors);
+    if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/lighting') };
+    next = canonicalLighting({ [args.sceneId]: args.lighting })[args.sceneId]!;
+  }
+  const previous = catalog.lighting?.[args.sceneId] !== undefined ? deepClone(catalog.lighting[args.sceneId]!) : null;
+  if (previous === null && next === null) {
+    return { ok: false, error: fieldValue('/args/lighting', null, 'a bake', 'this scene has no bake to clear') };
+  }
+  // Unknown scenes and non-texture atlases are refused by the resulting-state check.
+  return commit(input, withLighting(catalog, args.sceneId, next) as WithMaterials, { type: 'setLighting', sceneId: args.sceneId, previous, next }, { kind: 'setLighting', sceneId: args.sceneId, restore: previous });
+}
+
 /** Restore a materials list or an environment block (undo/redo of the ops above). */
 export function withMaterials(content: ContentDocument, list: MaterialDef[]): ContentDocument {
   const c = { ...(content as WithMaterials) };
@@ -77,5 +103,15 @@ export function withEnvironment(content: ContentDocument, env: EnvironmentConfig
   const c = { ...(content as WithMaterials) };
   if (env !== null) c.environment = deepClone(env);
   else delete c.environment;
+  return c;
+}
+
+export function withLighting(content: ContentDocument, sceneId: string, bake: LightingBake | null): ContentDocument {
+  const c = { ...(content as WithMaterials) };
+  const map = { ...(c.lighting ?? {}) };
+  if (bake !== null) map[sceneId] = deepClone(bake);
+  else delete map[sceneId];
+  if (Object.keys(map).length > 0) c.lighting = map;
+  else delete c.lighting;
   return c;
 }

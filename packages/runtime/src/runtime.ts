@@ -54,6 +54,7 @@ import { DuplicateMoveError, PhaseViolationError, frozenContext, phaseScopedStat
 import { lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
+import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import {
   DEFAULT_ASPECT,
   GameSession,
@@ -74,6 +75,9 @@ import {
 import {
   SIM_REGISTRY_BRAND,
   SIMULATION_PHASE_ORDER,
+  type AnimatorEventRecord,
+  type BehaviorAnimatorControl,
+  type BehaviorAnimatorHandle,
   type BehaviorSceneControl,
   type CameraInfo,
   type DiagnosticErrorEntry,
@@ -1023,6 +1027,8 @@ export function instantiateRuntime(
     sceneRows,
     startBatches,
     liveTags,
+    animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
+    initialEntities: scene.entities as unknown as readonly EntityV3[],
   });
   return { ok: true, runtime: rt };
 }
@@ -1071,6 +1077,9 @@ interface RuntimeArgs {
   sceneRows: readonly RuntimeSceneRow[] | null;
   startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
   liveTags: LiveTagIndex | null;
+  /** Phase 9.7: the controllers, and the snapshot scene's entities (their `animator` components). */
+  animatorControllers: readonly AnimatorControllerLike[];
+  initialEntities: readonly EntityV3[];
 }
 
 /** Phase 12 (c): one loaded scene inside the runtime. */
@@ -1193,6 +1202,14 @@ class RuntimeInstance implements Runtime {
   private sceneRevision = 0;
   private sceneSetCache: SceneSetView | null = null;
   private readonly liveTags: LiveTagIndex | null;
+  // ---- Phase 9.7: animators ----
+  private readonly animatorControllers = new Map<string, AnimatorControllerLike>();
+  private readonly animatorMachines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
+  /** Parent ids of the loaded entities (the player's model may be a child of the player). */
+  private readonly parentOf = new Map<string, string>();
+  private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
+  private animatorWasGrounded = true;
+  private readonly animatorControl: BehaviorAnimatorControl;
   /** Exit zones the player is inside (entry is edge-triggered). */
   private exitsInside = new Set<string>();
   /** An exit's spawn: the player moves there once `waitFor` are loaded. */
@@ -1277,6 +1294,95 @@ class RuntimeInstance implements Runtime {
       this.rebuildGameContent();
     }
     this.sceneControl = this.buildSceneControl();
+    for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
+    this.addAnimators(args.initialEntities);
+    this.animatorControl = Object.freeze({
+      of: (entityId: string): BehaviorAnimatorHandle | null => {
+        const rec = this.animatorMachines.get(String(entityId));
+        if (rec === undefined) return null;
+        const m = rec.machine;
+        return Object.freeze({
+          set: (name: string, value: number | boolean) => m.set(String(name), value),
+          trigger: (name: string) => m.trigger(String(name)),
+          get: (name: string) => m.get(String(name)),
+          state: () => m.stateName(),
+        });
+      },
+    });
+  }
+
+  // ---- Phase 9.7: animators -------------------------------------------------
+
+  /** Start an animator for every entity of these that has one (and whose controller exists). */
+  private addAnimators(entities: readonly EntityV3[]): void {
+    for (const e of entities) {
+      if (e.parentId !== undefined) this.parentOf.set(e.id, e.parentId);
+      const a = (e.components as { animator?: { controller: string; parameters?: Record<string, number | boolean> } }).animator;
+      if (a === undefined) continue;
+      const controller = this.animatorControllers.get(a.controller);
+      if (controller === undefined) continue;
+      this.animatorMachines.set(e.id, { machine: new AnimatorMachine(controller, a.parameters ?? {}), entity: e });
+    }
+  }
+
+  private removeAnimators(ids: ReadonlySet<string>): void {
+    for (const id of ids) {
+      this.animatorMachines.delete(id);
+      this.parentOf.delete(id);
+    }
+  }
+
+  /** Back to the entry states (a replay or a new run). */
+  private resetAnimators(): void {
+    const entities = [...this.animatorMachines.values()].map((r) => r.entity);
+    this.animatorMachines.clear();
+    this.addAnimators(entities);
+    this.animatorEvents = Object.freeze([]);
+    this.animatorWasGrounded = true;
+  }
+
+  private isPlayerOrChild(id: string): boolean {
+    if (this.playerEntityId === '') return false;
+    let cur: string | undefined = id;
+    for (let depth = 0; cur !== undefined && depth < 64; depth++) {
+      if (cur === this.playerEntityId) return true;
+      cur = this.parentOf.get(cur);
+    }
+    return false;
+  }
+
+  /**
+   * Advance every animator by one fixed step. The player's animators get
+   * `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
+   * trigger from the committed motion, when their controller has them.
+   */
+  private stepAnimators(): void {
+    if (this.animatorMachines.size === 0) return;
+    const seg = this.lastSegments.get(this.playerEntityId);
+    const vx = seg !== undefined ? (seg.to.x - seg.from.x) * this.hz : 0;
+    const vy = seg !== undefined ? (seg.to.y - seg.from.y) * this.hz : 0;
+    const grounded = this.playerMotion.grounded;
+    const landed = grounded && !this.animatorWasGrounded;
+    this.animatorWasGrounded = grounded;
+    const fired: AnimatorEventRecord[] = [];
+    const dt = 1 / this.hz;
+    for (const [id, { machine }] of this.animatorMachines) {
+      if (this.isPlayerOrChild(id)) {
+        machine.set('speed', Math.abs(vx));
+        machine.set('grounded', grounded);
+        machine.set('velocityY', vy);
+        if (landed) machine.trigger('landed');
+      }
+      for (const e of machine.step(dt)) fired.push(Object.freeze({ entityId: id, name: e.name, clip: e.clip, stepIndex: this.stepIndex }));
+    }
+    this.animatorEvents = Object.freeze(fired);
+  }
+
+  /** Phase 9.7: every loaded animator's pose (the renderer plays these). */
+  animatorPoses(): ReadonlyMap<string, AnimatorPose> {
+    const out = new Map<string, AnimatorPose>();
+    for (const [id, { machine }] of this.animatorMachines) out.set(id, machine.pose());
+    return out;
   }
 
   start(): { ok: true } | { ok: false; error: RuntimeError } {
@@ -1793,6 +1899,7 @@ class RuntimeInstance implements Runtime {
       this.recordMotionSegments(backup);
       this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
     }
+    this.stepAnimators();
     // Phase 12 (c): the step's scene requests commit with it; exit zones are
     // checked on the committed motion.
     if (this.stepSceneOps.length > 0) {
@@ -2022,6 +2129,8 @@ class RuntimeInstance implements Runtime {
       speed: 0,
       grounded: true,
     });
+    // Phase 9.7: a replay or a new run starts the animators over.
+    if (reset === 'replay' || reset === 'start') this.resetAnimators();
 
     return true;
   }
@@ -2345,6 +2454,7 @@ class RuntimeInstance implements Runtime {
     this.entityCount = this.order.length;
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
+    this.addAnimators(frozen as unknown as readonly EntityV3[]);
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
     this.rebuildGameContent();
@@ -2401,6 +2511,7 @@ class RuntimeInstance implements Runtime {
       this.session.clearCheckpoint();
     }
     if (this.pendingTransfer !== null && ids.has(this.pendingTransfer.spawnId)) this.pendingTransfer = null;
+    this.removeAnimators(ids);
     this.batches.delete(sceneId);
     this.setSceneStatus(sceneId, 'unloaded');
     this.sceneRevision += 1;
@@ -2578,6 +2689,8 @@ class RuntimeInstance implements Runtime {
           // port, present iff this runtime is M3-enabled.
           ...(this.sessionPort !== null ? { gameplay: this.sessionPort } : {}),
           ...(this.sceneRows !== null ? { scenes: this.sceneControl } : {}),
+          animators: this.animatorControl,
+          animatorEvents: this.animatorEvents,
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {

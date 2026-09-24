@@ -27,6 +27,7 @@
  * backend), never a throw.
  */
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
+import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
@@ -94,6 +95,11 @@ export interface SceneAdapterOptions {
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
     /** A player's quality setting (null = the environment's). */
     readonly quality?: QualityLevel | null;
+  };
+  /** Phase 9.6: the scenes' bakes (lightmaps; the manifest's `lighting`). */
+  lighting?: {
+    readonly bakes: Readonly<Record<string, LightingBakeLike>>;
+    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
 }
 
@@ -219,6 +225,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
+  /** Phase 9.6: lightmaps of the baked static objects; the lights a bake holds are not realtime. */
+  const lightmaps: LightmapSet | null =
+    opts.lighting !== undefined && Object.keys(opts.lighting.bakes).length > 0
+      ? createLightmapSet(opts.lighting.bakes, opts.lighting.loadTexture, (ids) =>
+          ids.some((id) => {
+            const t = (entityDocs.get(id)?.components as { light?: { type?: string } } | undefined)?.light?.type;
+            return t === 'ambient' || t === 'hemisphere';
+          }),
+        )
+      : null;
+  /** A light that stays out of realtime rendering: held by a bake (ambient/hemisphere always stay). */
+  const bakedAway = (id: string | undefined, l: { type: string; mode?: string }): boolean =>
+    l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
   /** Phase 9.5: the environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
   const fogVolumeIds = new Set<string>();
@@ -238,10 +257,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   /** Phase 9.5: point/spot lights casting shadows (the shadow map is enabled for them). */
   let localShadowLights = 0;
-  /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise; baked lights are not realtime). */
-  const localLightOf = (e: { components: unknown }): THREE.Light | null => {
+  /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
+  const localLightOf = (e: { id?: string; components: unknown }): THREE.Light | null => {
     const l = (e.components as { light?: { type: string; color: string; intensity: number; range?: number; decay?: number; angle?: number; penumbra?: number; direction?: readonly number[]; groundColor?: string; castShadow?: boolean; mode?: string } }).light;
-    if (l === undefined || l.mode === 'baked') return null;
+    if (l === undefined || bakedAway(e.id, l)) return null;
     const colour = new THREE.Color(l.color);
     if (l.type === 'hemisphere') return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
     if (l.type === 'point') {
@@ -288,7 +307,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     for (const e of sceneDoc.entities) {
       const l = (e.components as { light?: AuthoredLight }).light;
       // Phase 9.5: point/spot/hemisphere lights are built per entity (realizeEntity).
-      if (l && (l.type === 'directional' || l.type === 'ambient') && (l as { mode?: string }).mode !== 'baked') authoredLights.push(l);
+      if (l && (l.type === 'directional' || l.type === 'ambient') && !bakedAway(e.id, l as { type: string; mode?: string })) authoredLights.push(l);
     }
   }
   const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
@@ -333,6 +352,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // Box primitive: unit-axis geometry sized by `size`; the
       // transform's `scale` multiplies on top per frame (§6).
       const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
+      addBoxLightmapUv(geometry);
       // §41.2.3 (packet 52): an entity carrying `surface` gets ONE
       // material instance created per entity placement — owned by that
       // entity's mesh instance (value-level independence; the per-placement
@@ -370,6 +390,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
     if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials));
+    if (box) lightmaps?.apply(e.id, obj);
     entityDocs.set(e.id, e);
     if (own.geometries.length > 0) entityResources.set(e.id, own);
     const parent = e.parentId ? objects.get(e.parentId) : undefined;
@@ -377,6 +398,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
   };
   const releaseEntity = (id: string): void => {
+    lightmaps?.release(id);
     fogVolumeIds.delete(id);
     materialUndo.get(id)?.();
     materialUndo.delete(id);
@@ -506,6 +528,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,
+      ...(lightmaps !== null ? { onAttached: (entityId: string, root: THREE.Object3D) => lightmaps.apply(entityId, root) } : {}),
     });
     if (result.ok === true) {
       realization = result.realization;
@@ -694,6 +717,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const live = new Set(set.batches.map((b) => b.sceneId));
     for (const [sceneId, ids] of [...realizedScenes]) {
       if (live.has(sceneId)) continue;
+      for (const id of ids) lightmaps?.release(id);
       realization?.removeEntities(ids);
       if (shownCheckpoint !== null && ids.has(shownCheckpoint)) shownCheckpoint = null;
       // Children before parents (reverse document order).
@@ -926,6 +950,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    lightmaps?.dispose();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
     // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization

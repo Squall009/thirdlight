@@ -202,6 +202,8 @@ export interface ModelsRealizationContext {
   readonly entityMaterials?: (entityId: string) => Readonly<Record<string, string>> | null;
   /** Phase 12 (c): more entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
+  /** Phase 9.6: a model instance is attached to its entity (lightmaps go on here). */
+  readonly onAttached?: (entityId: string, root: THREE.Object3D) => void;
   /** The entity holders (the adapter's `objects` map entries); `null` when
    * the entity has no holder (defensive: the entity is skipped). */
   readonly holderFor: (entityId: string) => THREE.Object3D | null;
@@ -552,6 +554,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       };
       attached.set(entityId, rec);
       rec.undoMaterials = applyMaterials(entityId, assetId, instance.root);
+      ctx.onAttached?.(entityId, instance.root);
       // The committed mapping's stage 5–6 re-check (§41.3.6 rule 7; L6):
       // a mismatching mapping is the hard `animation_role_unresolved` —
       // the model renders statically at its committed transform, one

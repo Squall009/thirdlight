@@ -522,6 +522,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           tags,
           world,
           ...(ctx.scenes !== undefined ? { scenes: ctx.scenes } : {}),
+          // Phase 9.7: animators (`ctx.animator(id)?.set(...)`) and last step's clip events.
+          ...(ctx.animators !== undefined ? { animator: ctx.animators.of, events: ctx.animatorEvents ?? [] } : {}),
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });

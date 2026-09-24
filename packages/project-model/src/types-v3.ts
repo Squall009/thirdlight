@@ -15,6 +15,8 @@
  * the `audio` discriminator) — see §23.3.6/§23.3.7.
  */
 
+import type { AnimatorComponent, AnimatorController } from './animator';
+import type { LightingMap } from './lighting';
 import type { EnvironmentConfig, FogVolumeComponent, MaterialDef } from './materials';
 import type {
   AssetMetrics,
@@ -178,6 +180,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   materials?: Record<string, string>;
   /** Phase 9.5, v4 only: a box of fog around the entity. */
   fogVolume?: FogVolumeComponent;
+  /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
+  animator?: AnimatorComponent;
   gameZone?: GameZoneComponent;
   playerSpawn?: PlayerSpawnComponent;
   cameraFollow?: CameraFollowComponent;
@@ -418,6 +422,10 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   materials?: MaterialDef[];
   /** Phase 9.4: the environment (global wind; sky/fog/post in 9.5). */
   environment?: EnvironmentConfig;
+  /** Phase 9.6: baked lighting per scene (absent = no bakes). */
+  lighting?: LightingMap;
+  /** Phase 9.7: animator controllers (absent = none). */
+  animators?: AnimatorController[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

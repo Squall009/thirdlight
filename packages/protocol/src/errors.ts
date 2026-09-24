@@ -51,6 +51,11 @@ export const ERROR_CODES = [
   // FBX import (headless Blender conversion).
   'converter_unavailable',
   'conversion_failed',
+  // Phase 9.6: the final light bake (Blender on the bake host).
+  'bake_unavailable',
+  'bake_busy',
+  'bake_package_invalid',
+  'bake_not_found',
   'path_rejected',
   'asset_not_found',
   'asset_version_not_found',

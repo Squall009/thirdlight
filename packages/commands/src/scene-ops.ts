@@ -101,6 +101,10 @@ export function applySceneIndexOp(input: OpInput, args: SceneIndexArgs): OpOutco
   if (index === null || input.scene.schemaVersion !== 4) return { ok: false, error: notV4() };
   const next = nextIndex(index, args);
   if ('error' in next) return { ok: false, error: next.error };
+  // Phase 9.6: a scene's bake goes first (one undo each, nothing dropped silently).
+  if (args.op === 'deleteScene' && (catalog as { lighting?: Record<string, unknown> }).lighting?.[args.sceneId] !== undefined) {
+    return { ok: false, error: fieldValue('/args/sceneId', args.sceneId, 'a scene without baked lighting', 'this scene has baked lighting; clear it first (Lighting window or setLighting {sceneId, lighting: null})') };
+  }
   const nextContent = { ...catalog, scenes: next.scenes, startScenes: next.startScenes } as ContentDocument;
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
   const gate = gateResultState({ scene: input.scene, content: catalog }, resultScene, nextContent);

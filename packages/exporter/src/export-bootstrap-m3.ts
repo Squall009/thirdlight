@@ -58,7 +58,7 @@ import {
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
@@ -80,6 +80,8 @@ interface ExportManifestV2 {
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
   environment?: EnvironmentLike & { wind?: WindLike };
+  /** Phase 9.6: the scenes' bakes. */
+  lighting?: Record<string, LightingBakeLike>;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -114,7 +116,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -300,6 +302,19 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
           ? {
               environment: {
                 value: manifest.environment,
+                loadTexture: (assetId: string) => {
+                  const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
+                  const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;
+                  return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
+                },
+              },
+            }
+          : {}),
+        // Phase 9.6: lightmaps (atlases from the verified bytes).
+        ...(manifest.lighting !== undefined
+          ? {
+              lighting: {
+                bakes: manifest.lighting,
                 loadTexture: (assetId: string) => {
                   const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
                   const buf = row !== undefined ? assetBytesByKey.get(`${row.assetId}@${row.version}`) : undefined;

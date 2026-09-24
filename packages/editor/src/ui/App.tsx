@@ -81,8 +81,8 @@ import { Viewport } from '../viewport/viewport';
 import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
-import { createMaterialLibrary, type EnvironmentLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
-import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
+import { createMaterialLibrary, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary } from '@thirdlight/three-adapter';
+import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -92,6 +92,8 @@ import { StatusBar } from './StatusBar';
 import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
+import { LightingPanel } from './LightingPanel';
+import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { FogVolumeEditor, LightEditor } from './LightEditor';
 import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel } from './BehaviorPanel';
@@ -295,10 +297,18 @@ function EditorApp(): JSX.Element {
   const materialLibraryRef = useRef<MaterialLibrary | null>(null);
   const materialsKeyRef = useRef('');
   const environmentKeyRef = useRef('');
+  const lightingKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
   /** Phase 9.4: the project materials and the environment, for the panels. */
   const [materials, setMaterials] = useState<MaterialDef[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
+  const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
+  // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
+  const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
+  const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
+  const [bakeMessage, setBakeMessage] = useState<string | null>(null);
+  const [bakeHost, setBakeHost] = useState<string | null>('checking the bake host…');
+  const bakeAbortRef = useRef<AbortController | null>(null);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
   const [materialError, setMaterialError] = useState<string | null>(null);
   /** The material names of the selected object's model file (for the mapping editor). */
@@ -437,6 +447,14 @@ function EditorApp(): JSX.Element {
     if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
       environmentKeyRef.current = envKey;
       viewportRef.current?.setEnvironment(env === null ? null : (env as unknown as EnvironmentLike), loadTextureRef.current);
+    }
+    // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
+    const lighting = c.getLighting();
+    setLighting(lighting);
+    const lightingKey = JSON.stringify(lighting);
+    if (lightingKey !== lightingKeyRef.current && loadTextureRef.current !== null) {
+      lightingKeyRef.current = lightingKey;
+      viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
     setUi((s) => ({ ...s, revision: c.projection.revision }));
   }, []);
@@ -635,7 +653,10 @@ function EditorApp(): JSX.Element {
         if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return null;
         return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
       },
-      onChanged: () => viewport.requestRender(),
+      onChanged: () => {
+        viewport.refreshLightmaps();
+        viewport.requestRender();
+      },
       parentFor: (entityId) => viewport.objectFor(entityId),
       resolveBuffer: (digest) => client.instanceBufferBytes(digest),
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
@@ -2046,6 +2067,74 @@ function EditorApp(): JSX.Element {
     setMaterialError(err);
     if (err === null) setSelectedMaterialId(null);
   }, []);
+  const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
+  const bakePreview = useCallback(async () => {
+    const c = clientRef.current;
+    const v = viewportRef.current;
+    if (!c || !v || activeScene === null) return;
+    if (v.getLighting() !== 'game') v.setLighting('game');
+    const abort = new AbortController();
+    bakeAbortRef.current = abort;
+    setBakeMessage(null);
+    setBakeBusy({ text: 'preparing…', fraction: 0 });
+    const r = await runBrowserBake({
+      client: c,
+      viewport: v,
+      sceneId: activeScene.sceneId,
+      sceneName: activeScene.name,
+      settings: bakeSettings,
+      onProgress: (text, fraction) => setBakeBusy({ text, fraction }),
+      signal: abort.signal,
+    });
+    bakeAbortRef.current = null;
+    setBakeBusy(null);
+    if (!r.ok) setBakeMessage(`Bake failed: ${r.message}`);
+    else {
+      setBakeMessage(`Baked ${r.bake.entries.length} objects in ${(r.millis / 1000).toFixed(1)} s${r.skipped.length > 0 ? `; ${r.skipped.length} static object(s) have no lightmap UV (UV1) and only cast shadows` : ''}.`);
+      await c.fullResync();
+      refreshEntities();
+    }
+  }, [activeScene, bakeSettings, refreshEntities]);
+  const bakeFinal = useCallback(async () => {
+    const c = clientRef.current;
+    const v = viewportRef.current;
+    if (!c || !v || activeScene === null) return;
+    const abort = new AbortController();
+    bakeAbortRef.current = abort;
+    setBakeMessage(null);
+    setBakeBusy({ text: 'preparing…', fraction: 0 });
+    const r = await runBlenderBake({
+      client: c,
+      viewport: v,
+      sceneId: activeScene.sceneId,
+      sceneName: activeScene.name,
+      settings: bakeSettings,
+      onProgress: (text, fraction) => setBakeBusy({ text, fraction }),
+      signal: abort.signal,
+    });
+    bakeAbortRef.current = null;
+    setBakeBusy(null);
+    if (!r.ok) setBakeMessage(`Final bake failed: ${r.message}`);
+    else {
+      setBakeMessage(
+        `Final bake of ${r.bake.entries.length} objects done in ${(r.millis / 1000).toFixed(0)} s${r.device !== undefined ? ` (${r.device})` : ''}${r.skipped.length > 0 ? `; ${r.skipped.length} static object(s) have no lightmap UV (UV1) and only cast shadows` : ''}.`,
+      );
+      await c.fullResync();
+      refreshEntities();
+    }
+  }, [activeScene, bakeSettings, refreshEntities]);
+  const clearBake = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c || activeScene === null) return;
+    const err = refusal(await c.command('setLighting', { sceneId: activeScene.sceneId, lighting: null }, c.projection.revision));
+    setBakeMessage(err === null ? 'The bake was cleared.' : `Clear failed: ${err}`);
+  }, [activeScene]);
+  useEffect(() => {
+    if (bottomTab !== 'lighting') return;
+    const c = clientRef.current;
+    if (!c) return;
+    void c.bakeHostStatus().then((st) => setBakeHost(st.ok ? null : st.message));
+  }, [bottomTab]);
   const saveEnvironment = useCallback(async (env: EnvironmentConfig) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2837,6 +2926,26 @@ function EditorApp(): JSX.Element {
               error={materialError}
             />
           )}
+          {bottomTab === 'lighting' && (
+            activeScene === null ? (
+              <p className="tl-hint">Lighting bakes need a project with scenes (storage v4).</p>
+            ) : (
+              <LightingPanel
+                sceneName={activeScene.name}
+                bake={lighting[activeScene.sceneId] ?? null}
+                stale={lighting[activeScene.sceneId] !== undefined && bakeIsStale(lighting[activeScene.sceneId]!, (clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === activeScene.sceneId))}
+                settings={bakeSettings}
+                onSettings={setBakeSettings}
+                busy={bakeBusy}
+                finalUnavailable={bakeHost}
+                message={bakeMessage}
+                onBakePreview={() => void bakePreview()}
+                onBakeFinal={() => void bakeFinal()}
+                onCancel={() => bakeAbortRef.current?.abort()}
+                onClear={() => void clearBake()}
+              />
+            )
+          )}
           {bottomTab === 'tags' && (
             <TagsPanel
               tags={tags}
@@ -3078,12 +3187,13 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
   { id: 'materials', label: 'Materials' },
   { id: 'environment', label: 'Environment' },
+  { id: 'lighting', label: 'Lighting' },
   { id: 'prefabs', label: 'Prefabs' },
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },

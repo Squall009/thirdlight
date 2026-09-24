@@ -11,6 +11,7 @@
  * `PhysicsStepClient`).
  */
 import type {
+  AnimatorController,
   CameraFollowComponent,
   CheckpointActivationAppearance,
   EntityV3,
@@ -78,6 +79,8 @@ export interface RuntimeSnapshot {
    * whole snapshot scene is one fixed scene and the scene API is unavailable.
    */
   scenes?: readonly RuntimeSceneRow[];
+  /** Phase 9.7, v4 only, optional: the project's animator controllers (`content.animators`). */
+  animators?: readonly AnimatorController[];
 }
 
 /** Phase 12 (c): one scene of the project as the runtime knows it. */
@@ -517,6 +520,35 @@ export interface StepContext {
   readonly gameplay?: GameSessionPort;
   /** Phase 12 (c): the scene API (v4 snapshots with a scene catalog). */
   readonly scenes?: BehaviorSceneControl;
+  /** Phase 9.7: the animators of the loaded entities (`ctx.animator(id)` in scripts). */
+  readonly animators?: BehaviorAnimatorControl;
+  /** Phase 9.7: the clip events of the previous step (`ctx.events` in scripts). */
+  readonly animatorEvents?: readonly AnimatorEventRecord[];
+}
+
+/** Phase 9.7: one entity's animator, as a script sees it. */
+export interface BehaviorAnimatorHandle {
+  /** Set a float/int/bool parameter; false for an unknown name or a wrong type. */
+  set(name: string, value: number | boolean): boolean;
+  /** Set a trigger (it resets when a transition uses it). */
+  trigger(name: string): boolean;
+  get(name: string): number | boolean | undefined;
+  /** The current state's name. */
+  state(): string;
+}
+
+export interface BehaviorAnimatorControl {
+  /** The entity's animator, or null when it has none (or is not loaded). */
+  of(entityId: string): BehaviorAnimatorHandle | null;
+}
+
+/** Phase 9.7: a clip event an animator passed. */
+export interface AnimatorEventRecord {
+  readonly entityId: string;
+  readonly name: string;
+  readonly clip: string;
+  /** The step in which the clip passed the event. */
+  readonly stepIndex: number;
 }
 
 /**

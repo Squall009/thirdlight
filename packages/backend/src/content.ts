@@ -61,6 +61,7 @@ import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
+import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
 
 // ---- error surfacing (workspace/command codes → session-layer shape) ----------
 
@@ -532,6 +533,8 @@ export interface ContentRouteDeps {
   fbx?: FbxConverter;
   /** The asset thumbnail cache (absent: thumbnail routes answer 404). */
   thumbnails?: ThumbnailCache;
+  /** Phase 9.6: the final light bake (absent: the bake routes answer "unavailable"). */
+  bakes?: BakeService;
 }
 
 /** Where an FBX to convert comes from: a game-folder file or an upload stage. */
@@ -641,6 +644,16 @@ export class ContentRoutes {
     if (n === 7 && parts[5] === 'buffers') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.bufferBytes(req, res, projectId, parts[6] ?? '');
+      return true;
+    }
+    // Phase 9.6: the final light bake —
+    //   GET    …/content/bake/host                      is a bake host configured?
+    //   POST   …/content/bake/jobs                      start (body: the bake package)
+    //   GET    …/content/bake/jobs/:jobId               progress / outcome
+    //   GET    …/content/bake/jobs/:jobId/atlases/:i    one lightmap PNG
+    //   DELETE …/content/bake/jobs/:jobId               cancel
+    if (n >= 7 && parts[5] === 'bake') {
+      await this.bakeRoute(req, res, projectId, method, parts.slice(6));
       return true;
     }
     // GET|PUT /api/v1/projects/:projectId/content/thumbnails/:digest?piece= (the tile preview cache)
@@ -1147,6 +1160,52 @@ export class ContentRoutes {
     res.setHeader('cache-control', CONTENT_ASSET_BYTES_CACHE);
     res.statusCode = 200;
     res.end(read.bytes);
+  }
+
+  // ---- the final light bake (phase 9.6) ------------------------------------------
+
+  private async bakeRoute(req: IncomingMessage, res: ServerResponse, projectId: string, method: string, rest: string[]): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, method !== 'GET');
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const bakes = this.deps.bakes;
+    const unavailable = (): void => this.deps.sendError(res, sessionError('bake_unavailable', 'unavailable', 'this backend has no bake host'), 503);
+    if (rest.length === 1 && rest[0] === 'host') {
+      if (method !== 'GET') return void this.methodNotAllowed(res, 'GET');
+      const st = bakes?.status() ?? { ok: false as const, message: 'this backend has no bake host' };
+      return this.deps.sendJson(res, 200, st.ok ? { ok: true, host: st.host } : { ok: false, message: st.message });
+    }
+    if (rest.length === 1 && rest[0] === 'jobs') {
+      if (method !== 'POST') return void this.methodNotAllowed(res, 'POST');
+      if (bakes === undefined) return unavailable();
+      const bytes = await this.readBounded(req, res, BAKE_PACKAGE_BYTES_MAX, 'invalid_request');
+      if (bytes === null) return;
+      const started = bakes.start(projectId, bytes);
+      if (!started.ok) return this.deps.sendError(res, sessionError(started.code as 'bake_busy' | 'bake_unavailable' | 'bake_package_invalid', started.code === 'bake_busy' ? 'conflict' : 'validation', started.message), started.code === 'bake_busy' ? 409 : started.code === 'bake_unavailable' ? 503 : 400);
+      return this.deps.sendJson(res, 202, { ok: true, jobId: started.jobId });
+    }
+    const jobId = rest[1] ?? '';
+    if (rest[0] !== 'jobs' || !/^bake-[0-9a-f]{16}$/.test(jobId) || bakes === undefined) {
+      return this.deps.sendError(res, sessionError('bake_not_found', 'not_found', 'no such bake job'), 404);
+    }
+    if (rest.length === 2) {
+      if (method === 'DELETE') return this.deps.sendJson(res, 200, { ok: bakes.cancel(projectId, jobId) });
+      if (method !== 'GET') return void this.methodNotAllowed(res, 'GET, DELETE');
+      const view = bakes.job(projectId, jobId);
+      if (view === null) return this.deps.sendError(res, sessionError('bake_not_found', 'not_found', 'no such bake job'), 404);
+      return this.deps.sendJson(res, 200, { ok: true, job: view });
+    }
+    if (rest.length === 4 && rest[2] === 'atlases' && /^\d{1,2}$/.test(rest[3] ?? '')) {
+      if (method !== 'GET') return void this.methodNotAllowed(res, 'GET');
+      const png = bakes.atlas(projectId, jobId, Number(rest[3]));
+      if (png === null) return this.deps.sendError(res, sessionError('bake_not_found', 'not_found', 'no such lightmap (is the bake done?)'), 404);
+      res.setHeader('content-type', 'image/png');
+      res.setHeader('content-length', String(png.byteLength));
+      res.setHeader('cache-control', 'no-store');
+      res.statusCode = 200;
+      res.end(png);
+      return;
+    }
+    return this.deps.sendError(res, sessionError('bake_not_found', 'not_found', 'no such bake route'), 404);
   }
 
   // ---- asset thumbnails (a cache in the data root) ----------------------------

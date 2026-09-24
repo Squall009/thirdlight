@@ -262,4 +262,17 @@ export {
   type GameControlRequest,
   type GameObserveRequest,
   type GameRunState,
-} from './m3';
+} from './m3';// Phase 9.6: light baking shared by the editor and the backend.
+export {
+  bakeHashes,
+  bakeLightMode,
+  hash16,
+  isBakeStatic,
+  LIGHTMAP_MAX_ATLAS,
+  LIGHTMAP_MAX_ATLASES,
+  packLightmaps,
+  type BakeHashEntity,
+  type LightmapItem,
+  type LightmapPacking,
+  type LightmapPlacement,
+} from './bake';

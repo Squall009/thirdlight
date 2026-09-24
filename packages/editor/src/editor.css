@@ -600,3 +600,12 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-btn--danger { color: #ff8a80; }
 .tl-environment .tl-field { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px; }
 .tl-environment__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; overflow: auto; }
+
+/* Phase 9.6: the Lighting window. */
+.tl-lighting__status { margin: 6px 0; font-size: 12px; }
+.tl-lighting__stale { color: #f2b544; }
+.tl-lighting__actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.tl-lighting__progress { position: relative; height: 18px; border-radius: 3px; background: #1d2330; overflow: hidden; font-size: 11px; line-height: 18px; }
+.tl-lighting__progress span { position: relative; padding-left: 6px; }
+.tl-lighting__bar { position: absolute; inset: 0 auto 0 0; background: #2f5ea8; }
+.tl-lighting__message { font-size: 12px; margin: 6px 0; }

@@ -29,6 +29,7 @@ import { publishBehaviorSource } from './behavior';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createFbxConverter } from './fbx';
 import { createThumbnailCache } from './thumbnails';
+import { createBakeService } from './bake';
 import { isTrustedRequest, parseCidrList } from './trusted';
 import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
@@ -270,6 +271,12 @@ export function createBackend(
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
     fbx: createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') }),
     thumbnails: createThumbnailCache(config.dataRoot),
+    bakes: createBakeService({
+      ...(config.bake !== undefined ? { host: config.bake.host } : {}),
+      blender: config.bake?.blender ?? 'blender',
+      timeoutMs: config.bake?.timeoutMs ?? 3_600_000,
+      workRoot: join(config.dataRoot, 'cache', 'bakes'),
+    }),
   });
 
 

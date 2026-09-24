@@ -80,7 +80,7 @@ import {
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, focusGameSurface } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { RelayActionSource } from './relay-input';
@@ -104,6 +104,8 @@ export interface PreviewManifestV2 {
   /** Phase 9.4: project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
   environment?: EnvironmentLike & { wind?: WindLike };
+  /** Phase 9.6: the scenes' bakes. */
+  lighting?: Record<string, LightingBakeLike>;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
@@ -331,7 +333,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -745,8 +747,8 @@ export function bootstrapPreviewM3(): void {
 bootstrapPreviewM3();
 
 /** Phase 9.4: the adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment'] } {
-  if (manifest.materials === undefined && manifest.environment === undefined) return {};
+function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, ArrayBuffer>): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting'] } {
+  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return {};
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
     const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
     const buf = row !== undefined ? bytes.get(`${row.assetId}@${row.version}`) : undefined;
@@ -755,6 +757,7 @@ function materialsOptionOf(manifest: PreviewManifestV2, bytes: Map<string, Array
   const env = manifest.environment;
   return {
     ...(env !== undefined && (env.sky !== undefined || env.fog !== undefined || env.post !== undefined || env.quality !== undefined) ? { environment: { value: env, loadTexture } } : {}),
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
     materials: {
       defs: manifest.materials ?? [],
       wind: manifest.environment?.wind ?? null,

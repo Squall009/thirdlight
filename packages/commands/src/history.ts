@@ -23,8 +23,8 @@
  * (§9.4, defensive).
  */
 
-import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
-import { withEnvironment, withMaterials } from './material-ops';
+import type { EnvironmentConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import { withEnvironment, withLighting, withMaterials } from './material-ops';
 import type {
   BehaviorComponent,
   BehaviorRecord,
@@ -505,6 +505,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setLighting') {
+    const before = ((content as { lighting?: Record<string, LightingBake> }).lighting ?? {})[inv.sceneId] ?? null;
+    const change: ChangeData = { type: 'setLighting', sceneId: inv.sceneId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withLighting(content, inv.sceneId, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'removeEntities') {
     const gone = new Set(inv.ids);
     if (!inv.ids.every((id) => scene.entities.some((e) => e.id === id))) return { ok: false, error: historyInvalid(entry.requestId) };
@@ -865,6 +871,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setLighting') {
+    const before = ((content as { lighting?: Record<string, LightingBake> }).lighting ?? {})[f.sceneId] ?? null;
+    const change: ChangeData = { type: 'setLighting', sceneId: f.sceneId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withLighting(content, f.sceneId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'pasteEntities') {

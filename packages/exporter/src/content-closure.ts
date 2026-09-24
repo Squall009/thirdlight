@@ -22,7 +22,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
+import type { EnvironmentConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
 import { captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -432,6 +432,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
     ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined ? { materials: (input.content as { materials: MaterialDef[] }).materials } : {}),
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
+    // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
+    ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
     media,
     moduleIds,

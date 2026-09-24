@@ -11,6 +11,8 @@
  * §4.3).
  */
 
+import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
+import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
 import { utf8Encode } from './sha256';
 import {
@@ -1871,8 +1873,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2005,6 +2007,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   // Phase 9.4 (v4): project materials, the asset default mappings and the environment.
   if (doc['materials'] !== undefined) validateMaterials(doc['materials'], '/materials', errors);
   if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
+  if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
+  if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (version === 4) validateMaterialReferences(doc, errors);
 
   if (errors.length > 0) return { errors };
@@ -2118,6 +2122,10 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     // Phase 9.4: present only when there are materials / environment settings.
     ...((c as ContentCatalogV4).materials !== undefined && (c as ContentCatalogV4).materials!.length > 0 ? { materials: canonicalMaterials((c as ContentCatalogV4).materials!) } : {}),
     ...((c as ContentCatalogV4).environment !== undefined ? { environment: canonicalEnvironment((c as ContentCatalogV4).environment!) } : {}),
+    // Phase 9.7: present only when there are controllers.
+    ...((c as ContentCatalogV4).animators !== undefined && (c as ContentCatalogV4).animators!.length > 0 ? { animators: canonicalAnimators((c as ContentCatalogV4).animators!) } : {}),
+    // Phase 9.6: present only when a scene has a bake.
+    ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
 }
 
@@ -2153,6 +2161,27 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
     for (const [p, id] of refs) {
       if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
+  }
+  // Phase 9.7: a controller's clips come from model assets of this project.
+  if (Array.isArray(doc['animators'])) {
+    (doc['animators'] as unknown[]).forEach((c, i) => {
+      if (!isPlainObject(c) || !Array.isArray(c['states'])) return;
+      for (const id of animatorAssetIds(c as unknown as AnimatorController)) {
+        if (kindOf.get(id) !== 'model') errors.push(withFound({ code: 'asset_reference_missing', path: `/animators/${i}/states`, message: 'an animator clip must come from a model asset of this project', expected: 'a model assetId' }, id));
+      }
+    });
+  }
+  // Phase 9.6: a bake belongs to a scene of the index; its atlases are texture assets.
+  const lighting = doc['lighting'];
+  if (isPlainObject(lighting)) {
+    const sceneIds = new Set(Array.isArray(doc['scenes']) ? (doc['scenes'] as unknown[]).map((e) => (isPlainObject(e) ? e['sceneId'] : undefined)) : []);
+    for (const [sceneId, bake] of Object.entries(lighting)) {
+      if (!sceneIds.has(sceneId)) errors.push(withFound({ code: 'reference_missing', reason: 'scene', path: `/lighting/${pointerSegment(sceneId)}`, message: 'a bake belongs to a scene of this project', expected: 'a sceneId of content.scenes' }, sceneId));
+      if (!isPlainObject(bake) || !Array.isArray(bake['atlases'])) continue;
+      bake['atlases'].forEach((id, i) => {
+        if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/atlases/${i}`, message: 'a lightmap atlas must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      });
     }
   }
   assets.forEach((a, i) => {

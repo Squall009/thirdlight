@@ -11,7 +11,20 @@
  * Browser-only: uses the DOM (canvas, events) + WebGL via three.js.
  */
 
-import { createEnvironmentRenderer, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type MaterialLibrary } from '@thirdlight/three-adapter';
+import {
+  addBoxLightmapUv,
+  createEnvironmentRenderer,
+  lightmappedMaterial,
+  lightmapTexture,
+  refreshLightmappedMaterial,
+  type BakeLightInput,
+  type BakeMeshInput,
+  type EnvironmentLike,
+  type EnvironmentRenderer,
+  type FogVolumeLike,
+  type LightingBakeLike,
+  type MaterialLibrary,
+} from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -173,6 +186,233 @@ export class Viewport {
     this.models = models;
   }
 
+  // ---- Phase 9.6: lightmaps ----------------------------------------------------
+  /** The last synced entities (the bake reads them). */
+  private projected: readonly ProjectedEntity[] = [];
+  private lightmapEntries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[] }>();
+  private bakedLightIds = new Set<string>();
+  private loadAtlas: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
+  private atlasTextures = new Map<string, THREE.Texture | null | 'loading'>();
+  /** Per entity: its lightmap texture and the lightmapped copy of each original material. */
+  private lightmapCopies = new Map<string, { map: THREE.Texture; atlas: THREE.Texture; copies: Map<THREE.Material, THREE.Material | null> }>();
+  private lightmapSwapped: { mesh: THREE.Mesh; original: THREE.Material | THREE.Material[]; copy: THREE.Material | THREE.Material[] }[] = [];
+
+  /** The project's bakes (sceneId → bake); null clears them. */
+  setLightmaps(bakes: Readonly<Record<string, LightingBakeLike>> | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
+    this.unapplyLightmaps();
+    for (const rec of this.lightmapCopies.values()) {
+      rec.map.dispose();
+      for (const c of rec.copies.values()) c?.dispose();
+    }
+    this.lightmapCopies.clear();
+    this.lightmapEntries.clear();
+    this.bakedLightIds.clear();
+    for (const bake of Object.values(bakes ?? {})) {
+      for (const id of bake.bakedLights) this.bakedLightIds.add(id);
+      for (const e of bake.entries) {
+        const atlas = bake.atlases[e.atlas];
+        if (atlas === undefined) continue;
+        this.lightmapEntries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
+      }
+    }
+    // A re-bake publishes new versions of the same atlas assets: load them all again.
+    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
+    this.atlasTextures.clear();
+    this.loadAtlas = loadTexture;
+    // The light set changes with the bakes (held lights leave realtime).
+    for (const [id, have] of [...this.sceneLights]) {
+      have.parent.remove(have.light);
+      have.light.dispose();
+      this.sceneLights.delete(id);
+    }
+    this.syncSceneLights(this.projected);
+    this.applyLightmaps();
+    this.render();
+  }
+
+  private unapplyLightmaps(): void {
+    for (const s of this.lightmapSwapped) if (s.mesh.material === s.copy) s.mesh.material = s.original;
+    this.lightmapSwapped = [];
+  }
+
+  /** Swap the lightmapped copies in (game lighting only); cheap when nothing changed. */
+  private applyLightmaps(): void {
+    if (this.lighting !== 'game' || this.lightmapEntries.size === 0) return;
+    const ambientBaked = (bake: LightingBakeLike): boolean =>
+      bake.bakedLights.some((id) => {
+        const t = this.projected.find((e) => e.id === id)?.light?.type;
+        return t === 'ambient' || t === 'hemisphere';
+      });
+    for (const [entityId, entry] of this.lightmapEntries) {
+      const atlas = this.atlasTexture(entry.atlas);
+      if (atlas === null) continue;
+      const root = this.models?.instanceFor(entityId) ?? this.meshes.get(entityId) ?? null;
+      if (root === null) continue;
+      let rec = this.lightmapCopies.get(entityId);
+      if (rec !== undefined && rec.atlas !== atlas) {
+        rec.map.dispose();
+        for (const c of rec.copies.values()) c?.dispose();
+        rec = undefined;
+      }
+      if (rec === undefined) {
+        rec = { map: lightmapTexture(atlas, entry.scaleOffset), atlas, copies: new Map() };
+        this.lightmapCopies.set(entityId, rec);
+      }
+      const r = rec;
+      const ignoreAmbient = ambientBaked(entry.bake);
+      const visit = (o: THREE.Object3D): void => {
+        // Another entity's node below this one keeps its own lightmap.
+        const owner = (o as { entityId?: string }).entityId;
+        if (o !== root && owner !== undefined && owner !== entityId) return;
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh === true && mesh.geometry.getAttribute('uv1') !== undefined) {
+          const original = mesh.material;
+          const list = Array.isArray(original) ? original : [original];
+          const copies = list.map((m) => {
+            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient));
+            const c = r.copies.get(m) ?? null;
+            if (c !== null) refreshLightmappedMaterial(c, m);
+            return c ?? m;
+          });
+          if (copies.some((c, i) => c !== list[i])) {
+            const copy = Array.isArray(original) ? copies : copies[0]!;
+            mesh.material = copy;
+            this.lightmapSwapped.push({ mesh, original, copy });
+          }
+        }
+        for (const c of o.children) visit(c);
+      };
+      visit(root);
+    }
+  }
+
+  private atlasTexture(assetId: string): THREE.Texture | null {
+    const have = this.atlasTextures.get(assetId);
+    if (have === 'loading') return null;
+    if (have !== undefined) return have;
+    const load = this.loadAtlas;
+    if (load === null) return null;
+    this.atlasTextures.set(assetId, 'loading');
+    void load(assetId)
+      .catch(() => null)
+      .then((t) => {
+        if (this.atlasTextures.get(assetId) !== 'loading') {
+          t?.dispose();
+          return;
+        }
+        this.atlasTextures.set(assetId, t);
+        this.unapplyLightmaps();
+        this.applyLightmaps();
+        this.requestRender();
+      });
+    return null;
+  }
+
+  /** A model instance arrived or left: its lightmap goes on (the viewport re-renders anyway). */
+  refreshLightmaps(): void {
+    this.unapplyLightmaps();
+    this.applyLightmaps();
+  }
+
+  /**
+   * What a bake of these entities needs, in world space: each static object's
+   * meshes (with UV1: a lightmap target; without: a shadow caster only) and
+   * the baked lights. Models use their most detailed level.
+   */
+  bakeInputs(entityIds: ReadonlySet<string>): {
+    targets: { entityId: string; meshes: BakeMeshInput[]; area: number; box: { size: readonly number[]; scale: readonly number[] } | null }[];
+    occluders: BakeMeshInput[];
+    missingUv: string[];
+    lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[];
+  } {
+    this.unapplyLightmaps();
+    this.scene.updateMatrixWorld(true);
+    const targets: { entityId: string; meshes: BakeMeshInput[]; area: number; box: { size: readonly number[]; scale: readonly number[] } | null }[] = [];
+    const occluders: BakeMeshInput[] = [];
+    const missingUv: string[] = [];
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const worldArea = (g: THREE.BufferGeometry, m: THREE.Matrix4): number => {
+      const pos = g.getAttribute('position');
+      const index = g.getIndex();
+      const n = index !== null ? index.count : pos.count;
+      let area = 0;
+      for (let i = 0; i + 2 < n; i += 3) {
+        const i0 = index !== null ? index.getX(i) : i;
+        const i1 = index !== null ? index.getX(i + 1) : i + 1;
+        const i2 = index !== null ? index.getX(i + 2) : i + 2;
+        a.fromBufferAttribute(pos, i0).applyMatrix4(m);
+        b.fromBufferAttribute(pos, i1).applyMatrix4(m);
+        c.fromBufferAttribute(pos, i2).applyMatrix4(m);
+        area += b.sub(a).cross(c.sub(a)).length() / 2;
+      }
+      return area;
+    };
+    for (const e of this.projected) {
+      if (!entityIds.has(e.id)) continue;
+      const root = e.kind === 'model' ? this.models?.instanceFor(e.id) ?? null : e.kind === 'box' ? this.meshes.get(e.id) ?? null : null;
+      if (root === null) continue;
+      const meshes: BakeMeshInput[] = [];
+      let noUv = false;
+      let area = 0;
+      const visit = (o: THREE.Object3D): void => {
+        const owner = (o as { entityId?: string }).entityId;
+        if (o !== root && owner !== undefined && owner !== e.id) return;
+        // Only the most detailed level of a LOD takes part.
+        if ((o as THREE.LOD).isLOD === true) {
+          const first = (o as THREE.LOD).levels[0]?.object;
+          if (first !== undefined) visit(first);
+          return;
+        }
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh === true && (mesh as THREE.SkinnedMesh).isSkinnedMesh !== true) {
+          const m = { geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() };
+          if (mesh.geometry.getAttribute('uv1') !== undefined) {
+            meshes.push(m);
+            area += worldArea(mesh.geometry, mesh.matrixWorld);
+          } else {
+            occluders.push(m);
+            noUv = true;
+          }
+        }
+        for (const ch of o.children) visit(ch);
+      };
+      visit(root);
+      if (noUv && meshes.length === 0) missingUv.push(e.id);
+      if (meshes.length > 0) targets.push({ entityId: e.id, meshes, area, box: e.kind === 'box' ? { size: e.box?.size ?? [1, 1, 1], scale: e.scale } : null });
+    }
+    const lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[] = [];
+    for (const e of this.projected) {
+      const l = e.light;
+      if (l === undefined || e.active === false || (l.mode !== 'baked' && l.mode !== 'mixed')) continue;
+      const node = this.meshes.get(e.id);
+      const p = new THREE.Vector3();
+      node?.getWorldPosition(p);
+      let direction = l.direction as readonly [number, number, number] | undefined;
+      if (l.type === 'spot' && node !== undefined && l.direction !== undefined) {
+        const d = new THREE.Vector3(...l.direction).applyQuaternion(node.getWorldQuaternion(new THREE.Quaternion())).normalize();
+        direction = [d.x, d.y, d.z];
+      }
+      lights.push({
+        entityId: e.id,
+        mode: l.mode,
+        type: l.type,
+        color: l.color,
+        intensity: l.intensity,
+        position: [p.x, p.y, p.z],
+        ...(direction !== undefined ? { direction } : {}),
+        ...(l.range !== undefined ? { range: l.range } : {}),
+        ...(l.decay !== undefined ? { decay: l.decay } : {}),
+        ...(l.angle !== undefined ? { angle: l.angle } : {}),
+        ...(l.penumbra !== undefined ? { penumbra: l.penumbra } : {}),
+        ...(l.groundColor !== undefined ? { groundColor: l.groundColor } : {}),
+      });
+    }
+    this.applyLightmaps();
+    return { targets, occluders, missingUv, lights };
+  }
+
   /**
    * Phase 9.5: "editor" lighting is a fixed key + fill; "game" lighting uses
    * the scene's own lights (what Play shows). Automatic until chosen: game
@@ -191,6 +431,8 @@ export class Viewport {
     return this.lighting;
   }
   private applyLighting(): void {
+    this.unapplyLightmaps();
+    this.applyLightmaps();
     this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
@@ -200,7 +442,8 @@ export class Viewport {
     const seen = new Set<string>();
     for (const e of entities) {
       const l = e.light;
-      if (l === undefined || l.mode === 'baked') continue;
+      // Phase 9.6: a light a bake holds is not realtime (ambient/hemisphere stay for dynamic objects).
+      if (l === undefined || (l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && this.bakedLightIds.has(e.id))) continue;
       seen.add(e.id);
       const key = JSON.stringify(l);
       const group = this.meshes.get(e.id);
@@ -395,6 +638,9 @@ export class Viewport {
 
   /** Sync the entity set from the projection (add/remove/update meshes). */
   syncEntities(entities: ProjectedEntity[]): void {
+    // Phase 9.6: the original materials are in place while the rest of the sync runs.
+    this.unapplyLightmaps();
+    this.projected = entities;
     this.hierarchyFlags = effectiveFlagsOf(entities);
     this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
     const seen = new Set<string>();
@@ -438,6 +684,7 @@ export class Viewport {
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
     this.zones.sync(entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false));
+    this.applyLightmaps();
     // A selection that became locked or a folder loses its gizmo.
     if (this.selectedId !== null && !this.draggingGizmo) this.setSelected(this.selectedId);
     this.render();
@@ -465,10 +712,9 @@ export class Viewport {
       // editor viewport (the play renderer realizes the full material from the
       // same component; the editor shows the copied color only).
       const size = e.box?.size ?? [1, 1, 1];
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(size[0], size[1], size[2]),
-        new THREE.MeshLambertMaterial({ color: boxColor(e) }),
-      );
+      const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+      addBoxLightmapUv(geometry);
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: boxColor(e) }));
       mesh.userData.boxSize = size.join(',');
       mesh.name = e.id;
       (mesh as { entityId?: string }).entityId = e.id;
@@ -564,6 +810,7 @@ export class Viewport {
       if (mesh.userData.boxSize !== size.join(',')) {
         mesh.geometry.dispose();
         mesh.geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+        addBoxLightmapUv(mesh.geometry);
         mesh.userData.boxSize = size.join(',');
       }
     }
