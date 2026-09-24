@@ -10,8 +10,8 @@
  *
  * Imports `@thirdlight/runtime` **types only** (dependencies.md §4.1).
  */
-import type { GameZoneRole, Vec2 } from '@thirdlight/runtime';
-import { CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS, ZONE_OVERLAP_EPS } from './constants';
+import type { GameZoneRole, PlayerCapsule, Vec2 } from '@thirdlight/runtime';
+import { ZONE_OVERLAP_EPS } from './constants';
 
 /** The closed-form classification of one segment against one zone. */
 export interface ZoneTest {
@@ -31,19 +31,24 @@ export interface ZoneTest {
  * The swept upright-capsule vs axis-aligned XY rectangle predicate
  * (`gameplay.md` §4.2, normative closed form).
  *
- * `from`/`to` are capsule **centres**; `zone` is the frozen
- * `GameZoneSpec`-shaped geometry (`center` + half-extents). The `d²`
- * comparison against `(R − EPS)²` is the hot path; `d` and the components are
- * reported for the fixtures and diagnostics.
+ * `from`/`to` are the player's positions (entity origins); the capsule
+ * (phase 14.0: the player's own) is centred at each plus `capsule.offset`.
+ * `zone` is the frozen `GameZoneSpec`-shaped geometry (`center` +
+ * half-extents). The `d²` comparison against `(R − EPS)²` is the hot path;
+ * `d` and the components are reported for the fixtures and diagnostics.
  */
-export function zoneOverlap(from: Vec2, to: Vec2, zone: ZoneGeometry): ZoneTest {
+export function zoneOverlap(from: Vec2, to: Vec2, zone: ZoneGeometry, capsule: PlayerCapsule): ZoneTest {
   // The swept centre-line set is exactly the rectangle
   // [rx0, rx1] × [ry0, ry1] (§4.2 derivation), extended by the capsule's
   // centre-line half height in Y.
-  const rx0 = Math.min(from.x, to.x);
-  const rx1 = Math.max(from.x, to.x);
-  const ry0 = Math.min(from.y, to.y) - CAPSULE_HALF_HEIGHT;
-  const ry1 = Math.max(from.y, to.y) + CAPSULE_HALF_HEIGHT;
+  const fx = from.x + capsule.offset.x;
+  const tx = to.x + capsule.offset.x;
+  const fy = from.y + capsule.offset.y;
+  const ty = to.y + capsule.offset.y;
+  const rx0 = Math.min(fx, tx);
+  const rx1 = Math.max(fx, tx);
+  const ry0 = Math.min(fy, ty) - capsule.halfHeight;
+  const ry1 = Math.max(fy, ty) + capsule.halfHeight;
   const zx0 = zone.center.x - zone.half.x;
   const zx1 = zone.center.x + zone.half.x;
   const zy0 = zone.center.y - zone.half.y;
@@ -51,9 +56,9 @@ export function zoneOverlap(from: Vec2, to: Vec2, zone: ZoneGeometry): ZoneTest 
   const dx = Math.max(0, rx0 - zx1, zx0 - rx1);
   const dy = Math.max(0, ry0 - zy1, zy0 - ry1);
   const d2 = dx * dx + dy * dy;
-  const limit = CAPSULE_RADIUS - ZONE_OVERLAP_EPS;
+  const limit = capsule.radius - ZONE_OVERLAP_EPS;
   const overlap = d2 < limit * limit;
-  const tangent = !overlap && d2 <= (CAPSULE_RADIUS + ZONE_OVERLAP_EPS) * (CAPSULE_RADIUS + ZONE_OVERLAP_EPS);
+  const tangent = !overlap && d2 <= (capsule.radius + ZONE_OVERLAP_EPS) * (capsule.radius + ZONE_OVERLAP_EPS);
   const d = Math.sqrt(d2);
   return {
     dx,
@@ -96,9 +101,11 @@ export interface StepZonesInput {
   readonly zones: readonly GameZoneRect[];
   /** `content.game.killY` — the strict fall threshold. */
   readonly killY: number;
-  /** The last completed motion segment's capsule centres. */
+  /** The last completed motion segment (the player's positions). */
   readonly from: Vec2;
   readonly to: Vec2;
+  /** Phase 14.0: the player's capsule (`GameContent.player.capsule`). */
+  readonly capsule: PlayerCapsule;
 }
 
 function byEntityId(a: GameZoneRect, b: GameZoneRect): number {
@@ -120,7 +127,7 @@ function byEntityId(a: GameZoneRect, b: GameZoneRect): number {
  */
 export function stepZones(input: StepZonesInput): ZoneDecision {
   const zones = [...input.zones].sort(byEntityId);
-  const tests = zones.map((zone) => ({ zone, hit: zoneOverlap(input.from, input.to, zone) }));
+  const tests = zones.map((zone) => ({ zone, hit: zoneOverlap(input.from, input.to, zone, input.capsule) }));
   const overlapping = (role: GameZoneRole): (typeof tests)[number][] =>
     tests.filter((t) => t.zone.role === role && t.hit.overlap);
 

@@ -62,7 +62,7 @@
  */
 import { CONTROLLER_CONSTANTS } from '@thirdlight/platformer';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { playerCapsuleOf, resolveSnapshotHierarchy, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
 import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
@@ -297,9 +297,14 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
       });
     }
     if (components['controller'] !== undefined) {
+      // Phase 14.0: the player's own capsule (its controller's, else the default).
+      const capsule = playerCapsuleOf(components['controller']);
       character = {
         x: position[0] ?? 0,
         y: position[1] ?? 0,
+        radius: capsule.radius,
+        halfHeight: capsule.halfHeight,
+        offset: { x: capsule.offset.x, y: capsule.offset.y },
         parentId: (entity as { parentId?: string | null }).parentId ?? null,
         rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
         scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],

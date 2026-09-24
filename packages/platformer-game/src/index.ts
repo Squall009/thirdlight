@@ -15,8 +15,6 @@
  * export bundles and in the Node test harness.
  */
 export {
-  CAPSULE_HALF_HEIGHT,
-  CAPSULE_RADIUS,
   GAME_ZONE_ROLES,
   PLATFORMER_GAME_CAMERA_MODULE_ID,
   PLATFORMER_GAME_MODULE_ID,

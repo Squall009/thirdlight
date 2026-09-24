@@ -20,15 +20,14 @@ import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, Stati
 
 import {
   AUTOSTEP_DISABLED,
-  CAPSULE_HALF_HEIGHT,
-  CAPSULE_RADIUS,
-  CAPSULE_TOTAL_HALF,
   CLEARANCE_PENETRATION_EPS,
   CLEARANCE_RAY_EPS,
   CLEARANCE_SUPPORT_PROBE,
   CONTROLLER_OFFSET_SKIN,
   FIXED_HZ,
   GROUND_NORMAL_TOLERANCE,
+  DEFAULT_CAPSULE_HALF_HEIGHT,
+  DEFAULT_CAPSULE_RADIUS,
   GROUND_SNAP_DISTANCE,
   PHYSICS_IMPLEMENTATION,
 } from './constants';
@@ -66,6 +65,29 @@ function finiteNumber(v: unknown): v is number {
 }
 
 /**
+ * Phase 14.0: the character capsule of an init config — the player's own
+ * (`character.radius`/`halfHeight`/`offset`), else the default shape.
+ * `offset` is where the capsule's centre sits relative to the character
+ * position the runtime works with (the entity origin): every position the
+ * port takes or reports stays the entity origin, the collider sits at
+ * origin + offset.
+ */
+interface CapsuleShape {
+  radius: number;
+  halfHeight: number;
+  offset: Vec2;
+}
+
+function capsuleOf(config: RapierPhysicsInitConfig): CapsuleShape {
+  const c = config.character;
+  return {
+    radius: c.radius ?? DEFAULT_CAPSULE_RADIUS,
+    halfHeight: c.halfHeight ?? DEFAULT_CAPSULE_HALF_HEIGHT,
+    offset: c.offset !== undefined ? { x: c.offset.x, y: c.offset.y } : { x: 0, y: 0 },
+  };
+}
+
+/**
  * Validate the whole init config before any WASM/world work. Contract
  * constants (physics.md §7) are enforced, not silently defaulted: `hz` 120,
  * `offsetSkin` 0.01, `groundSnap` 0.1, autostep disabled, and finite slope
@@ -81,6 +103,17 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
   const characterCheck = validateControllerTransform(config.character);
   if (!characterCheck.ok) {
     return { reason: characterCheck.reason, message: characterCheck.detail };
+  }
+  // Phase 14.0: the character's capsule (optional; the default when absent).
+  const ch = config.character;
+  if (ch.radius !== undefined && (!finiteNumber(ch.radius) || ch.radius <= 0 || ch.radius > 1e3)) {
+    return { reason: 'invalid_config', message: 'character.radius must be a finite number in (0, 1000]' };
+  }
+  if (ch.halfHeight !== undefined && (!finiteNumber(ch.halfHeight) || ch.halfHeight < 0 || ch.halfHeight > 1e3)) {
+    return { reason: 'invalid_config', message: 'character.halfHeight must be a finite number in [0, 1000]' };
+  }
+  if (ch.offset !== undefined && !isFinite2(ch.offset)) {
+    return { reason: 'invalid_config', message: 'character.offset must be a finite { x, y }' };
   }
   const solver = config.solver;
   if (typeof solver !== 'object' || solver === null) {
@@ -256,13 +289,17 @@ function createAdapter(
   const kinematicAt = new Map<string, Vec2>();
   let kinematicMoved = 0;
   let dropSteps = 0;
-  const feetOffset = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
+  // Phase 14.0: the player's capsule; the collider sits at the character position + offset.
+  const cap = capsuleOf(config);
+  const off = cap.offset;
+  const feetOffset = cap.halfHeight + cap.radius;
+  const at2 = (p: Vec2): Vec2 => ({ x: p.x + off.x, y: p.y + off.y });
   const groundUnder = (at: Vec2): string | null => {
-    const hit = world.castRay(new RAPIER.Ray({ x: at.x, y: at.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
+    const hit = world.castRay(new RAPIER.Ray({ x: at.x + off.x, y: at.y + off.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
     return hit === null ? null : (colliderInfo.get(hit.collider.handle)?.entityId ?? null);
   };
   const floorNormalUnder = (at: Vec2): Vec2 | null => {
-    const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: at.x, y: at.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
+    const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: at.x + off.x, y: at.y + off.y - feetOffset + 0.05 }, { x: 0, y: -1 }), 0.2, true, undefined, undefined, characterCollider);
     if (hit === null) return null;
     const len = Math.hypot(hit.normal.x, hit.normal.y);
     return len > 0 ? { x: hit.normal.x / len, y: hit.normal.y / len } : null;
@@ -324,7 +361,7 @@ function createAdapter(
    *   not a block). `penetration` is the deepest overlap (the minimum escape
    *   distance, `-distance`).
    * - **no_support** — nothing to stand on: a per-collider downward ray from
-   *   the capsule's lowest point (`center.y − CAPSULE_TOTAL_HALF`) finds no
+   *   the capsule's lowest point (`centre.y − (halfHeight + radius)`) finds no
    *   static collider within `CLEARANCE_SUPPORT_PROBE`. Per-collider ray casts
    *   are narrow-phase only (no broadphase), so the probe is valid even before
    *   the first `world.step()`.
@@ -334,13 +371,14 @@ function createAdapter(
    * is skipped by identity) — it never reads or moves the live character.
    */
   function computeClearance(center: Vec2): CharacterClearanceResult {
-    const capsule = new RAPIER.Capsule(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS);
+    const capsule = new RAPIER.Capsule(cap.halfHeight, cap.radius);
+    const c = at2(center);
     // 1. blocked: the deepest capsule-vs-static overlap.
     let blocked = false;
     let maxPenetration = 0;
     world.colliders.forEach((collider) => {
       if (collider === characterCollider) return; // the probe is against statics only
-      const contact = collider.contactShape(capsule, { x: center.x, y: center.y }, 0, 0);
+      const contact = collider.contactShape(capsule, { x: c.x, y: c.y }, 0, 0);
       if (contact !== null && contact.distance < -CLEARANCE_PENETRATION_EPS) {
         blocked = true;
         const pen = -contact.distance;
@@ -352,7 +390,7 @@ function createAdapter(
     }
     // 2. no_support: a downward ray from the capsule's lowest point.
     const ray = new RAPIER.Ray(
-      { x: center.x, y: center.y - CAPSULE_TOTAL_HALF + CLEARANCE_RAY_EPS },
+      { x: c.x, y: c.y - feetOffset + CLEARANCE_RAY_EPS },
       { x: 0, y: -1 },
     );
     let supportNormal: Vec2 | null = null;
@@ -409,7 +447,7 @@ function createAdapter(
       // Phase 9.9: a one-way collider only counts when the feet are on or above
       // its top and the character is not rising (and not while dropping through).
       const rising = commandedY > 1e-9;
-      const feet = before.y - feetOffset;
+      const feet = before.y + off.y - feetOffset;
       // The predicate runs inside Rapier's query (a callback from WASM): it
       // must not call back into the world, so the platform tops are read first.
       const oneWayTops = new Map<number, number>();
@@ -539,7 +577,7 @@ function createAdapter(
 
       // Apply the correction and run the pipeline update exactly once (no
       // dynamic bodies: this is the broad/narrow-phase update).
-      characterCollider.setTranslation(next);
+      characterCollider.setTranslation(at2(next));
       // Phase 9.9: the movers move after the character's sweep (the runtime
       // already added the carried platform's motion to the requested move).
       kinematicMoved = 0;
@@ -622,7 +660,7 @@ function createAdapter(
       assertLive('reset');
       if (!isFinite2(next)) throw resetError('reset position must be a finite { x, y }');
       position = { x: next.x, y: next.y };
-      characterCollider.setTranslation(position);
+      characterCollider.setTranslation(at2(position));
       world.step();
       staged = null;
       grounded = false;
@@ -659,7 +697,7 @@ function createAdapter(
       const clearance = computeClearance(center);
       staged = null;
       position = { x: center.x, y: center.y };
-      characterCollider.setTranslation(position);
+      characterCollider.setTranslation(at2(position));
       world.step();
       grounded = false;
       retainedSupport = { x: 0, y: 1 };
@@ -778,10 +816,12 @@ export async function createPhysicsPort(
     // PARENTLESS character collider (normative trap): created with no parent
     // rigid body and moved with `setTranslation`. Parenting it would make the
     // solver re-sync the collider toward the body and break this loop.
+    // Phase 14.0: the player's capsule, centred at the character position + offset.
+    const cap = capsuleOf(config);
     const characterCollider = world.createCollider(
-      RAPIER.ColliderDesc.capsule(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS).setTranslation(
-        config.character.x,
-        config.character.y,
+      RAPIER.ColliderDesc.capsule(cap.halfHeight, cap.radius).setTranslation(
+        config.character.x + cap.offset.x,
+        config.character.y + cap.offset.y,
       ),
     );
     const controller = world.createCharacterController(CONTROLLER_OFFSET_SKIN);

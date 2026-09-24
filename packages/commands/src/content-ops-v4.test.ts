@@ -536,6 +536,30 @@ describe('setComponent (commands.md §8.10)', () => {
     ).toBe('no_change');
   });
 
+  it('phase 14.0: sets, validates, clears and undoes the controller capsule', () => {
+    const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'controller', value: {} }));
+    const controllerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { controller?: unknown }).controller;
+    expect(controllerOf(added.state)).toEqual({});
+    const capsule = { radius: 0.25, height: 1, offset: [0, -0.4] };
+    const set = ok(mutation(added.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { capsule } }));
+    expect(controllerOf(set.state)).toEqual({ capsule });
+    const change = set.result.change as unknown as { previous: unknown; next: unknown; changedFields: string[] };
+    expect(change).toMatchObject({ previous: {}, next: { capsule }, changedFields: ['capsule'] });
+    // The model's ranges hold (a height under two radii, an unknown field).
+    expect(failCode(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { capsule: { radius: 0.5, height: 0.6 } } }))).toBe('field_value');
+    expect(failCode(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { speed: 2 } }))).toBe('field_unexpected');
+    expect(failCode(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { capsule: 'small' } }))).toBe('field_type');
+    expect(failCode(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { capsule } }))).toBe('no_change');
+    // One undo restores the default (no capsule); redo brings it back.
+    const undone = ok(mutation(set.state, 'undo', {}));
+    expect(controllerOf(undone.state)).toEqual({});
+    const redone = ok(mutation(undone.state, 'redo', {}));
+    expect(controllerOf(redone.state)).toEqual({ capsule });
+    // null goes back to the default capsule.
+    const cleared = ok(mutation(redone.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { capsule: null } }));
+    expect(controllerOf(cleared.state)).toEqual({});
+  });
+
   it('edits camera fields and rejects a model asset that does not resolve', () => {
     const state = baseState();
     const r = ok(mutation(state, 'setComponent', { entityId: 'cam-main', component: 'camera', value: { fovY: 45 } }));

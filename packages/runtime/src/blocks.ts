@@ -21,11 +21,9 @@
 import type { ActionFrame } from './actions';
 import type { PhysicsPort, Vec2 } from './ports';
 import type { EntityV3 } from '@thirdlight/project-model';
-import type { TransformState } from './types';
+import type { PlayerCapsule, TransformState } from './types';
+import { capsuleHalfTotal } from './scene-set';
 
-/** The player capsule the blocks test against (physics-rapier constants). */
-const PLAYER_HALF_W = 0.3;
-const PLAYER_HALF_H = 0.9;
 const STOMP_BOUNCE = 9;
 const HIT_BOUNCE = 5;
 const DEFAULT_INVULNERABLE = 1;
@@ -115,7 +113,13 @@ export interface BlocksHost {
   readonly physics: PhysicsPort | undefined;
   readonly curr: Map<string, TransformState>;
   readonly playerId: string;
-  /** The player's committed position (capsule centre), or null. */
+  /**
+   * Phase 14.0: the player's capsule. The blocks test its bounding box: half
+   * width `radius`, half height `halfHeight + radius`, centred at the
+   * player's position plus `offset`.
+   */
+  readonly playerCapsule: PlayerCapsule;
+  /** The player's committed position (the entity origin), or null. */
   player(): Vec2 | null;
   /** The player's motion in the last step (m per step). */
   playerDelta(): Vec2;
@@ -161,11 +165,15 @@ export class GameplayBlocks {
   private pendingBounce: number | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
   private step = 0;
+  /** Phase 14.0: the player capsule's box — centre offset from the player's position, half width, half height. */
+  private readonly pc: { ox: number; oy: number; hw: number; hh: number };
 
   constructor(
     private readonly host: BlocksHost,
     entities: readonly EntityV3[],
   ) {
+    const c = host.playerCapsule;
+    this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
     this.add(entities);
   }
 
@@ -429,10 +437,10 @@ export class GameplayBlocks {
     const pushed = { x: 0, y: 0 };
     const push = (m: Mover): void => {
       if (player === null || m.half === null) return;
-      const px = player.x + pushed.x;
-      const py = player.y + pushed.y;
-      const ox = m.half.x + PLAYER_HALF_W + PUSH_SKIN - Math.abs(px - m.pos[0]);
-      const oy = m.half.y + PLAYER_HALF_H + PUSH_SKIN - Math.abs(py - m.pos[1]);
+      const px = player.x + this.pc.ox + pushed.x;
+      const py = player.y + this.pc.oy + pushed.y;
+      const ox = m.half.x + this.pc.hw + PUSH_SKIN - Math.abs(px - m.pos[0]);
+      const oy = m.half.y + this.pc.hh + PUSH_SKIN - Math.abs(py - m.pos[1]);
       if (ox <= 0 || oy <= 0) return;
       if (oy <= ox) pushed.y += Math.min(0.5, oy) * (py >= m.pos[1] ? 1 : -1);
       else pushed.x += Math.min(0.5, ox) * (px >= m.pos[0] ? 1 : -1);
@@ -510,7 +518,7 @@ export class GameplayBlocks {
       const at = this.worldOf(id);
       if (at === null) return false;
       const cy = feetAnchored ? at[1] + half.y : at[1];
-      return Math.abs(player.x - at[0]) < half.x + PLAYER_HALF_W && Math.abs(player.y - cy) < half.y + PLAYER_HALF_H;
+      return Math.abs(player.x + this.pc.ox - at[0]) < half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - cy) < half.y + this.pc.hh;
     };
     for (const t of this.triggers.values()) {
       const inside = overlaps(t.id, t.half);
@@ -548,7 +556,7 @@ export class GameplayBlocks {
       if (e.defeated || !overlaps(e.id, e.half, true)) continue;
       const at = this.worldOf(e.id)!;
       const top = at[1] + 2 * e.half.y;
-      const feetBefore = player.y - delta.y - PLAYER_HALF_H;
+      const feetBefore = player.y + this.pc.oy - delta.y - this.pc.hh;
       if (e.stompable && delta.y < 0 && feetBefore >= top - 0.2) {
         e.health -= 1;
         this.pendingBounce = STOMP_BOUNCE;
@@ -583,8 +591,8 @@ export class GameplayBlocks {
       // Chase: turn toward a player in range (the patrol limits below still hold).
       let chasing = false;
       if (e.chase > 0 && player !== null) {
-        const dx = player.x - e.x;
-        const feet = player.y - PLAYER_HALF_H;
+        const dx = player.x + this.pc.ox - e.x;
+        const feet = player.y + this.pc.oy - this.pc.hh;
         if (Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= CHASE_HEIGHT && Math.abs(dx) > 0.05) {
           e.dir = dx > 0 ? 1 : -1;
           chasing = true;

@@ -29,7 +29,7 @@ describe('zone overlay gameplay helpers', () => {
     expect([pos.getX(1), pos.getY(1)]).toEqual([2, 4]);
     expect(h.count).toBe(1 + 3 + 1 + 1 + 1); // path + a dot per stop (3), switch area, enemy area + range
     overlay.sync([entity('plate', { switch: { mode: 'stand', signal: 'open', size: [1, 1] } })]);
-    expect(overlay.blockHelpers()).toEqual({ moverPaths: [], count: 1, colliders: 0 });
+    expect(overlay.blockHelpers()).toEqual({ moverPaths: [], count: 1, colliders: 0, capsules: 0, sizeHandles: 0 });
     overlay.dispose();
   });
 
@@ -58,6 +58,46 @@ describe('zone overlay gameplay helpers', () => {
     expect([path.geometry.getAttribute('position').getX(1), path.geometry.getAttribute('position').getY(1)]).toEqual([3, 1]);
     overlay.setGizmos({ colliders: false, gameplay: false });
     expect(overlay.pickWaypoint(sx, sy)).toBeNull(); // hidden helpers are not handles
+    overlay.dispose();
+  });
+
+  it('phase 14.0: the player capsule outline is drawn and picked; the selected entity gets size handles that drag', () => {
+    const scene = new THREE.Scene();
+    const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 1000 }) } as unknown as HTMLCanvasElement;
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+    camera.position.set(0, 0, 10);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    const overlay = new ZoneOverlay(scene, camera, canvas);
+    const player = { ...entity('player', undefined), position: [0, 0, 0], controller: true } as ProjectedEntity;
+    const plate = { ...entity('plate', { trigger: { size: [2, 2], signal: 's' } }), position: [3, 0, 0] } as ProjectedEntity;
+    overlay.sync([player, plate]);
+    expect(overlay.blockHelpers()).toMatchObject({ capsules: 1, sizeHandles: 0 });
+    expect(scene.getObjectByName('capsule-outline:player')).toBeDefined();
+    const screen = (x: number, y: number): [number, number] => {
+      const p = new THREE.Vector3(x, y, 0.03).project(camera);
+      return [((p.x + 1) / 2) * 1000, ((1 - p.y) / 2) * 1000];
+    };
+    // On the outline (the right side, x = 0.3), inside it, and far away.
+    expect(overlay.capsuleAt(...screen(0.3, 0))).toEqual({ entityId: 'player', onOutline: true });
+    expect(overlay.capsuleAt(...screen(0, 0))).toEqual({ entityId: 'player', onOutline: false });
+    expect(overlay.capsuleAt(...screen(2, 2))).toBeNull();
+    // Selected: two handles; the top one drags the height (feet kept), snapped.
+    overlay.setSelected('player');
+    expect(overlay.blockHelpers().sizeHandles).toBe(2);
+    const top = overlay.sizeHandleClientPoints().find((h) => h.handle === 'top')!;
+    expect(top.component).toBe('controller');
+    const ref = overlay.pickSizeHandle(top.x, top.y);
+    expect(ref).toEqual({ entityId: 'player', shapeIndex: 0, handle: 'top' });
+    const next = overlay.previewSize(ref!, { x: 0, y: 0.12 }, true)!;
+    expect(next.half.y).toBeCloseTo(0.5, 9); // top at 0.1 from the feet at −0.9: height 1.0
+    expect(next.center.y).toBeCloseTo(-0.4, 9);
+    overlay.endSizePreview();
+    // A trigger's handles; hidden collider outlines are not clickable.
+    overlay.setSelected('plate');
+    expect(overlay.sizeHandleClientPoints().map((h) => `${h.component}:${h.handle}`)).toEqual(['trigger:top', 'trigger:side']);
+    overlay.setGizmos({ colliders: false, gameplay: true });
+    expect(overlay.capsuleAt(...screen(0.3, 0))).toBeNull();
     overlay.dispose();
   });
 });

@@ -4,10 +4,10 @@
  * root offset of a load, the live tag index that follows loads and unloads,
  * and the exit-zone entry test. No I/O, no three.js.
  */
-import { resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { controllerCapsuleOf, resolveSceneHierarchy, validateSceneV4, type CheckpointActivationAppearance, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { StaticColliderSpec, Vec2 } from './ports';
-import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec } from './types';
+import type { BehaviorTagQuery, GameZoneRole, GameZoneSpec, PlayerCapsule } from './types';
 
 /** What one scene adds to the running game. */
 export interface SceneContribution {
@@ -81,6 +81,27 @@ export function offsetEntities(entities: readonly EntityV3[], at: readonly [numb
 /** Ascending entity-id codepoint order (the zone projection order). */
 export function byEntityId(a: { entityId: string }, b: { entityId: string }): number {
   return a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0;
+}
+
+/** Round to the nanometre (keeps a derived length equal to the constant it replaced: 1.8 / 2 − 0.3 is exactly 0.6). */
+const nano = (v: number): number => Math.round(v * 1e9) / 1e9;
+
+/**
+ * Phase 14.0: the player capsule a `controller` component describes (the
+ * project-model default when it carries none), in the runtime's form.
+ */
+export function playerCapsuleOf(controller: unknown): PlayerCapsule {
+  const c = controllerCapsuleOf(controller);
+  return Object.freeze({
+    radius: c.radius,
+    halfHeight: Math.max(0, nano(c.height / 2 - c.radius)),
+    offset: Object.freeze({ x: c.offset[0], y: c.offset[1] }),
+  });
+}
+
+/** Phase 14.0: the capsule's half extent along Y (end caps included), nanometre-rounded (0.9 for the default). */
+export function capsuleHalfTotal(capsule: PlayerCapsule): number {
+  return nano(capsule.halfHeight + capsule.radius);
 }
 
 /**

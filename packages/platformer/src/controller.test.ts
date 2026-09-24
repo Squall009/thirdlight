@@ -111,8 +111,6 @@ describe('contract constants (dependencies.md §3 platformer row)', () => {
   it('exposes the module id and the platformer.md §12 constants', () => {
     expect(PLATFORMER_MODULE_ID).toBe('thirdlight.platformer:controller');
     expect(CONTROLLER_CONSTANTS).toEqual({
-      capsuleRadius: 0.3,
-      capsuleHalfHeight: 0.6,
       offsetSkin: 0.01,
       groundSnap: 0.1,
       autostep: false,

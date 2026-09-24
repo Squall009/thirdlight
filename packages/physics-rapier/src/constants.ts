@@ -16,22 +16,21 @@ export const PHYSICS_IMPLEMENTATION = 'rapier2d-compat@0.20.0' as const;
 /** Fixed solver timestep (runtime.md §5: 120 Hz). */
 export const FIXED_HZ = 120 as const;
 
-/** Character capsule: radius 0.3 m, half-height 0.6 m (total height 1.8 m). */
-export const CAPSULE_RADIUS = 0.3 as const;
-export const CAPSULE_HALF_HEIGHT = 0.6 as const;
+/**
+ * Phase 14.0: the character capsule is the player's data (`controller.capsule`,
+ * handed over as `character.radius`/`halfHeight`/`offset` in the init config).
+ * These are only the fallback when a caller passes no capsule — the
+ * project-model default (radius 0.3 m, centre-line half-height 0.6 m: 1.8 m
+ * tall, an adult human), so an old caller gets the shape it always had.
+ */
+export const DEFAULT_CAPSULE_RADIUS = 0.3 as const;
+export const DEFAULT_CAPSULE_HALF_HEIGHT = 0.6 as const;
 
 /** Character controller gap kept between the capsule and the world. */
 export const CONTROLLER_OFFSET_SKIN = 0.01 as const;
 
 /** `enableSnapToGround(distance)` — the maximum ground snap applied per step. */
 export const GROUND_SNAP_DISTANCE = 0.1 as const;
-
-/**
- * The capsule's total half-height along Y (gameplay.md §5.2 clearance probe):
- * the cylinder half-height plus the end-sphere radius. The capsule centre's
- * lowest point is `center.y − (CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS)`.
- */
-export const CAPSULE_TOTAL_HALF = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 
 /**
  * The clearance probe's penetration epsilon (gameplay.md §5.2): a

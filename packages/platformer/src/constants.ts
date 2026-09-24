@@ -14,11 +14,11 @@ export const PLATFORMER_MODULE_ID = 'thirdlight.platformer:controller' as const;
 
 /**
  * Every contract constant the controller algorithm uses (`platformer.md`
- * §12). `autostep` is `false`: M2 never climbs stairs automatically.
+ * §12). `autostep` is `false`: M2 never climbs stairs automatically. The
+ * capsule is not here: since phase 14.0 it is the player's data
+ * (`controller.capsule`), handed to the physics port by the host.
  */
 export const CONTROLLER_CONSTANTS: Readonly<{
-  capsuleRadius: 0.3;
-  capsuleHalfHeight: 0.6;
   offsetSkin: 0.01;
   groundSnap: 0.1;
   autostep: false;
@@ -29,8 +29,6 @@ export const CONTROLLER_CONSTANTS: Readonly<{
   jumpReleaseFactor: 0.5;
   settlePreRollSteps: 12;
 }> = Object.freeze({
-  capsuleRadius: 0.3,
-  capsuleHalfHeight: 0.6,
   offsetSkin: 0.01,
   groundSnap: 0.1,
   autostep: false,

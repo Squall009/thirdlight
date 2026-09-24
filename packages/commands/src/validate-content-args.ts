@@ -456,7 +456,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset'],
   collider: ['shape', 'oneWay'],
-  controller: [],
+  controller: ['capsule'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: [],
   cameraFollow: ['deadZone', 'smoothing', 'bounds'],
@@ -524,7 +524,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'audioSource',
   'faceMovement',
 ];
-/** The two field-less markers whose ADD value is exactly `{}`. */
+/** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 const COMPONENT_EXPECTED =
@@ -670,7 +670,14 @@ export function validateSetComponentArgs(
     }
     // Deeper shape rules (ranges, convexity, vertex caps) are the model's,
     // re-checked by the resulting-document validation (`collider_shape_invalid`).
-  } else if (component === 'controller' || component === 'playerSpawn') {
+  } else if (component === 'controller') {
+    // Phase 14.0: `capsule` (an object, or null to go back to the default);
+    // its values are the model's (re-checked by the resulting-document validation).
+    const capsule = value['capsule'];
+    if (capsule !== undefined && capsule !== null && !isPlainObject(capsule)) {
+      return { ok: false, error: fieldType('/args/value/capsule', capsule, 'object { radius, height, offset? } or null') };
+    }
+  } else if (component === 'playerSpawn') {
     for (const key of keys) {
       return { ok: false, error: fieldUnexpected(`/args/value/${key}`, key, `(none — the ${component} marker has no fields)`) };
     }

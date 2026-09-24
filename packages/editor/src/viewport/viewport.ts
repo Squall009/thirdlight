@@ -31,7 +31,8 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import { clampScale, SNAP_ROTATE_RAD, SNAP_SCALE, SNAP_TRANSLATE_M } from '../session/snapping';
-import { ZoneOverlay, type ZoneTool } from './zone-overlay';
+import { ZoneOverlay, type SizeHandleRef, type ZoneTool } from './zone-overlay';
+import { sizeEdit, type SizeShape } from '../session/size-handles';
 import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import type { ModelInstances } from './model-instances';
 
@@ -57,6 +58,8 @@ export interface ViewportCallbacks {
   onZoneGestureCancel: () => void;
   /** Phase 9.12: a mover waypoint handle was dragged and dropped (its new offset from the mover). */
   onWaypointMoved?: (entityId: string, index: number, offset: [number, number, number]) => void;
+  /** Phase 14.0: a size handle was dragged and dropped — the component value to store (one setComponent). */
+  onSizeHandleMoved?: (entityId: string, component: string, value: Record<string, unknown>) => void;
 }
 
 const GROUND_SIZE = 20;
@@ -521,6 +524,30 @@ export class Viewport {
     return this.meshes.get(id) ?? null;
   }
 
+  /**
+   * Phase 14.0 ("Fit to model"): the bounding box of the models drawn for
+   * an entity — its own model and its children's — relative to the entity's
+   * world position, or null when none is loaded.
+   */
+  modelBounds(entityId: string): { min: number[]; max: number[] } | null {
+    const node = this.meshes.get(entityId);
+    if (node === undefined || this.models === null) return null;
+    this.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    const visit = (o: THREE.Object3D): void => {
+      const id = (o as { entityId?: string }).entityId;
+      if (id !== undefined && this.meshes.get(id) === o) {
+        const holder = this.models!.instanceFor(id);
+        if (holder) box.expandByObject(holder, true);
+      }
+      for (const c of o.children) visit(c);
+    };
+    visit(node);
+    if (box.isEmpty()) return null;
+    const at = node.getWorldPosition(new THREE.Vector3());
+    return { min: [box.min.x - at.x, box.min.y - at.y, box.min.z - at.z], max: [box.max.x - at.x, box.max.y - at.y, box.max.z - at.z] };
+  }
+
   /** Where the camera is looking (new entities spawn here). */
   focusPoint(): [number, number, number] {
     const t = this.orbit.target;
@@ -580,6 +607,8 @@ export class Viewport {
     this.renderQueued = true;
     requestAnimationFrame(() => {
       this.renderQueued = false;
+      // Phase 14.0: where the size handles are on screen (tests drag them).
+      this.root.setAttribute('data-size-handles', JSON.stringify(this.zones.sizeHandleClientPoints()));
       if (this.environment !== null && this.lighting === 'game') {
         this.environment.setFogVolumes(this.fogVolumesNow());
         this.environment.render(this.camera);
@@ -796,6 +825,7 @@ export class Viewport {
     const c = this.zones.blockHelpers();
     this.root.setAttribute('data-collider-outlines', String(c.colliders));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
+    this.root.setAttribute('data-capsule-outlines', String(c.capsules));
     this.root.setAttribute('data-gizmos', (Object.keys(this.gizmos) as (keyof typeof this.gizmos)[]).filter((k) => this.gizmos[k]).join(' '));
   }
 
@@ -939,6 +969,17 @@ export class Viewport {
 
   /** Pick the entity under a pointer position (client coords in the canvas). */
   private pick(clientX: number, clientY: number): string | null {
+    // Phase 14.0: the player's capsule outline selects the player (before
+    // whatever model is drawn over it); inside the outline it does when
+    // nothing else is hit.
+    const capsule = this.zones.capsuleAt(clientX, clientY);
+    const capsuleId = capsule !== null && (this.hierarchyFlags.get(capsule.entityId) === undefined || (this.hierarchyFlags.get(capsule.entityId)!.active && !this.hierarchyFlags.get(capsule.entityId)!.locked)) ? capsule.entityId : null;
+    if (capsuleId !== null && capsule!.onOutline) return capsuleId;
+    const hit = this.pickMesh(clientX, clientY);
+    return hit ?? capsuleId;
+  }
+
+  private pickMesh(clientX: number, clientY: number): string | null {
     const rect = this.root.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -985,9 +1026,21 @@ export class Viewport {
   /** Phase 9.12: an in-flight waypoint handle drag (the last previewed offset). */
   private waypointDrag: { entityId: string; index: number; offset: [number, number, number] | null } | null = null;
 
+  /** Phase 14.0: an in-flight size handle drag (the last previewed shape). */
+  private sizeDrag: { ref: SizeHandleRef; shape: SizeShape | null } | null = null;
+
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
+    // Phase 14.0: a size handle of the selected entity drags that size (one command on release).
+    const sh = this.zones.activeTool === null ? this.zones.pickSizeHandle(e.clientX, e.clientY) : null;
+    if (sh !== null) {
+      e.stopImmediatePropagation();
+      this.sizeDrag = { ref: sh, shape: null };
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
+      return;
+    }
     // Phase 9.12: a mover's waypoint handle drags that waypoint (one command on release).
     const wp = this.zones.activeTool === null ? this.zones.pickWaypoint(e.clientX, e.clientY) : null;
     if (wp !== null) {
@@ -1012,6 +1065,15 @@ export class Viewport {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.sizeDrag !== null) {
+      e.stopImmediatePropagation();
+      const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
+      if (hit !== null) {
+        this.sizeDrag.shape = this.zones.previewSize(this.sizeDrag.ref, hit, this.snapping());
+        this.requestRender();
+      }
+      return;
+    }
     if (this.waypointDrag !== null) {
       e.stopImmediatePropagation();
       const hit = this.zones.screenToGamePlane(e.clientX, e.clientY);
@@ -1036,6 +1098,19 @@ export class Viewport {
   private onPointerUp = (e: PointerEvent): void => {
     const down = this.downAt;
     this.downAt = null;
+    if (this.sizeDrag !== null) {
+      e.stopImmediatePropagation();
+      const drag = this.sizeDrag;
+      this.sizeDrag = null;
+      this.orbit.enabled = true;
+      this.zones.endSizePreview();
+      this.requestRender();
+      if (drag.shape !== null) {
+        const edit = sizeEdit(drag.shape);
+        this.cb.onSizeHandleMoved?.(drag.ref.entityId, edit.component, edit.value);
+      }
+      return;
+    }
     if (this.waypointDrag !== null) {
       e.stopImmediatePropagation();
       const drag = this.waypointDrag;

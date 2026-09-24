@@ -61,7 +61,7 @@ import {
 import { createSceneAdapter, decodeTexture } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { playerCapsuleOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 interface ExportManifestV2 {
@@ -152,9 +152,14 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
       });
     }
     if (components['controller'] !== undefined) {
+      // Phase 14.0: the player's own capsule (its controller's, else the default).
+      const capsule = playerCapsuleOf(components['controller']);
       character = {
         x: position[0] ?? 0,
         y: position[1] ?? 0,
+        radius: capsule.radius,
+        halfHeight: capsule.halfHeight,
+        offset: { x: capsule.offset.x, y: capsule.offset.y },
         parentId: (entity as { parentId?: string | null }).parentId ?? null,
         rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
         scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],

@@ -337,13 +337,89 @@ export function validateColliderComponent(c: unknown, path: string, errors: Mode
   }
 }
 
-export function validateControllerComponent(c: unknown, path: string, errors: ModelErrorV2[]): void {
+/**
+ * Phase 14.0: the default character capsule when a controller carries none —
+ * 0.3 m radius and 1.8 m total height (an adult human standing: about 0.6 m
+ * across the shoulders, 1.8 m tall), centred on the entity. Every project
+ * made before the capsule became data plays with exactly this shape.
+ */
+export const DEFAULT_CONTROLLER_CAPSULE: Readonly<{ radius: number; height: number; offset: readonly [number, number] }> = Object.freeze({
+  radius: 0.3,
+  height: 1.8,
+  offset: Object.freeze([0, 0]) as readonly [number, number],
+});
+
+/** Phase 14.0: the capsule ranges (m) — far beyond any character, small enough to keep the solver sane. */
+export const CAPSULE_LIMITS = Object.freeze({ minRadius: 0.05, maxRadius: 5, minHeight: 0.1, maxHeight: 20, maxOffset: 5 });
+
+/** Phase 14.0: the capsule a controller component describes (the default when it has none). */
+export function controllerCapsuleOf(controller: unknown): { radius: number; height: number; offset: [number, number] } {
+  const c = isPlainObject(controller) ? controller['capsule'] : undefined;
+  if (!isPlainObject(c)) return { radius: DEFAULT_CONTROLLER_CAPSULE.radius, height: DEFAULT_CONTROLLER_CAPSULE.height, offset: [0, 0] };
+  const o = Array.isArray(c['offset']) ? (c['offset'] as unknown[]) : [0, 0];
+  const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  return {
+    radius: num(c['radius'], DEFAULT_CONTROLLER_CAPSULE.radius),
+    height: num(c['height'], DEFAULT_CONTROLLER_CAPSULE.height),
+    offset: [num(o[0], 0), num(o[1], 0)],
+  };
+}
+
+/** Phase 14.0: the canonical controller, rebuilt field by field (the capsule's radius, height and optional offset). */
+export function canonicalController(controller: unknown): { capsule?: { radius: number; height: number; offset?: [number, number] } } {
+  const c = isPlainObject(controller) ? controller['capsule'] : undefined;
+  if (!isPlainObject(c)) return {};
+  const o = c['offset'];
+  return {
+    capsule: {
+      radius: c['radius'] as number,
+      height: c['height'] as number,
+      ...(Array.isArray(o) ? { offset: [o[0] as number, o[1] as number] as [number, number] } : {}),
+    },
+  };
+}
+
+export function validateControllerComponent(c: unknown, path: string, errors: ModelErrorV2[], version: 2 | 3 | 4 = 2): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
   }
   for (const k of Object.keys(c)) {
-    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, '{} (no fields in M2)'));
+    if (k === 'capsule' && version === 4) continue;
+    errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'capsule' : '{} (no fields before v4)'));
+  }
+  const capsule = c['capsule'];
+  if (capsule === undefined || version !== 4) return;
+  const cp = `${path}/capsule`;
+  if (!isPlainObject(capsule)) {
+    errors.push(fieldType(cp, capsule, 'object { radius, height, offset? }'));
+    return;
+  }
+  for (const k of Object.keys(capsule)) {
+    if (k !== 'radius' && k !== 'height' && k !== 'offset') errors.push(unexpectedField(`${cp}/${pointerSegment(k)}`, k, 'radius, height, offset'));
+  }
+  const L = CAPSULE_LIMITS;
+  const range = (key: 'radius' | 'height', min: number, max: number): number | null => {
+    const v = capsule[key];
+    if (v === undefined) {
+      errors.push(fieldMissing(`${cp}/${key}`, key));
+      return null;
+    }
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) {
+      errors.push(fieldValue(`${cp}/${key}`, v, `a number ${min}-${max} (m)`, `capsule ${key} must be ${min}-${max} m`));
+      return null;
+    }
+    return v;
+  };
+  const radius = range('radius', L.minRadius, L.maxRadius);
+  const height = range('height', L.minHeight, L.maxHeight);
+  if (radius !== null && height !== null && height < 2 * radius) {
+    errors.push(fieldValue(`${cp}/height`, height, `>= 2 x radius (${2 * radius})`, 'the capsule height includes both end caps, so it is at least twice the radius'));
+  }
+  const offset = capsule['offset'];
+  if (offset !== undefined) {
+    const ok = Array.isArray(offset) && offset.length === 2 && offset.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= L.maxOffset);
+    if (!ok) errors.push(fieldValue(`${cp}/offset`, offset, `[x, y], each within ±${L.maxOffset} m`, 'capsule offset is [x, y] in metres from the entity origin'));
   }
 }
 

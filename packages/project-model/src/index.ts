@@ -61,6 +61,7 @@ export type {
   ColliderPolygonShape,
   ColliderShape,
   ContentCatalog,
+  ControllerCapsule,
   ControllerComponent,
   DeclaredProperty,
   EntityComponentsV2,
@@ -81,6 +82,8 @@ export type {
   TrustEntry,
 } from './types-v2';
 
+// Phase 14.0: the character capsule (default, limits, resolved form).
+export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
