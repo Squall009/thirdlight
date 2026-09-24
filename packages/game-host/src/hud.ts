@@ -16,6 +16,8 @@
  * bounded channel the keyboard/gamepad menu uses), never the runtime.
  */
 
+import { DEFAULT_PROMPT_INPUT, hudPrompts } from './bindings';
+
 /** The minimal structural node surface the HUD writes (real DOM nodes satisfy it). */
 export interface HostDomNode {
   appendChild(child: HostDomNode): void;
@@ -64,20 +66,21 @@ export interface Hud {
   dispose(): void;
 }
 
-/** The prompt text per run state (local shell; the relay page reuses it). */
-export const HUD_PROMPTS: Readonly<Record<HudState['state'], string>> = Object.freeze({
-  awaitingStart: 'Press Enter or Space (or the controller confirm) to start',
-  playing: 'A/D or the controller to move, Space or the controller confirm to jump, M to mute',
-  respawning: 'Respawning…',
-  won: 'You win — press Enter or Space (or the controller confirm) to replay',
-  failed: 'The run failed — reload to try again',
-});
+/**
+ * The prompt text per run state for a project without its own input actions
+ * (the engine's default actions, keyboard). Phase 15.5: a running game passes
+ * `prompts` to `createHud` — the project's actions with the player's saved
+ * rebinding, for the device in use (`hudPrompts`).
+ */
+export const HUD_PROMPTS: Readonly<Record<HudState['state'], string>> = Object.freeze(hudPrompts(DEFAULT_PROMPT_INPUT, 'keyboard'));
 
 export function createHud(dom: HostDom, config: {
   readonly onStart: () => void;
   readonly onMuteToggle: () => void;
   /** Phase 9.10: a game flow's HUD layout (absent: the classic HUD with its Start button). */
   readonly preset?: 'classic' | 'minimal' | 'corners';
+  /** Phase 15.5: the prompts for the current bindings and device (read on every update; absent: `HUD_PROMPTS`). */
+  readonly prompts?: () => Readonly<Record<HudState['state'], string>>;
 }): Hud {
   const disposers: Array<() => void> = [];
   const text = (node: HostDomNode, value: string): void => {
@@ -155,7 +158,8 @@ export function createHud(dom: HostDom, config: {
         text(instructionsNode, state.instructions);
         lastInstructions = state.instructions;
       }
-      text(promptNode, HUD_PROMPTS[state.state] ?? HUD_PROMPTS.playing);
+      const prompts = config.prompts?.() ?? HUD_PROMPTS;
+      text(promptNode, prompts[state.state] ?? prompts.playing);
       const checkpoint = state.checkpointActive && state.checkpointStep !== null
         ? ` (checkpoint @ step ${state.checkpointStep} active)`
         : '';

@@ -64,7 +64,8 @@ import {
 import type { MenuSample } from '@thirdlight/input';
 import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
-import { createFlowController, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
+import { DEFAULT_PROMPT_INPUT, hudPrompts, withSavedBindings, type InputConfigLike } from './bindings';
+import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
 import { createSaveStore, type SaveStorage } from './save';
 
 /** delivery.md §3.1. */
@@ -103,6 +104,8 @@ export interface HostInputOwner {
   /** Phase 14.5: the next pad button pressed (the settings screen's pad rebinding). */
   capturePadButton?(onButton: (button: number | null) => void): () => void;
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
+  /** Phase 15.5: the device the player used last (the classic HUD names its bindings; absent: keyboard). */
+  activeDevice?(): 'keyboard' | 'gamepad';
 }
 
 /** The host's structural render-adapter surface (the three-adapter
@@ -427,6 +430,19 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let mounted = false;
   let runtime: Runtime | null = null;
   let hud: Hud | null = null;
+  /**
+   * Phase 15.5: the bindings the game runs with — the project's actions, then
+   * the player's saved rebinding (applied by the flow's settings, or below for
+   * a game without a flow), then any rebinding made while playing. The classic
+   * HUD's prompts name these.
+   */
+  let promptInput: InputConfigLike = config.inputConfig ?? DEFAULT_PROMPT_INPUT;
+  let promptCache: { input: InputConfigLike; device: 'keyboard' | 'gamepad'; prompts: ReturnType<typeof hudPrompts> } | null = null;
+  const currentPrompts = (): ReturnType<typeof hudPrompts> => {
+    const device = config.input.activeDevice?.() ?? 'keyboard';
+    if (promptCache === null || promptCache.input !== promptInput || promptCache.device !== device) promptCache = { input: promptInput, device, prompts: hudPrompts(promptInput, device) };
+    return promptCache.prompts;
+  };
   let flowCtl: FlowController | null = null;
   let adapter: HostRenderAdapter | null = null;
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
@@ -818,8 +834,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
     const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };
     const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
+    if (flow === undefined && config.inputConfig !== undefined && config.saveStorage !== undefined && config.saveNamespace !== undefined) {
+      // Phase 15.5: the player's saved rebinding holds in a game without a flow too (the flow applies it through its settings).
+      const saved = createSaveStore(config.saveStorage, config.saveNamespace).readSettings();
+      const rebound = withSavedBindings(config.inputConfig, saved, REBINDABLE, PAD_REBINDABLE);
+      if (rebound !== config.inputConfig && config.input.configure !== undefined) {
+        config.input.configure(rebound as { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] });
+        promptInput = rebound;
+      }
+    }
     hud = createHud(dom, {
       ...(flow !== undefined ? { preset: flow.hud?.preset ?? 'classic' } : {}),
+      prompts: currentPrompts,
       onStart: () => {
         const c = control('start');
         if (c.ok === false) console.warn('[game-host] Start button rejected', c.error.code);
@@ -857,7 +883,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
         input: {
           ...(config.input.captureKey !== undefined ? { captureKey: (cb: (code: string | null) => void) => config.input.captureKey!(cb) } : {}),
           ...(config.input.capturePadButton !== undefined ? { capturePadButton: (cb: (button: number | null) => void) => config.input.capturePadButton!(cb) } : {}),
-          ...(config.input.configure !== undefined ? { configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => config.input.configure!(c) } : {}),
+          ...(config.input.configure !== undefined
+            ? {
+                configure: (c: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }) => {
+                  config.input.configure!(c);
+                  promptInput = c;
+                },
+              }
+            : {}),
           ...(config.inputConfig !== undefined ? { config: config.inputConfig } : {}),
         },
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),

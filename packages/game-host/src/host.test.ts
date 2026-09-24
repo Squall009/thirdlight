@@ -31,6 +31,7 @@ import {
   type HostRenderAdapter,
 } from './host';
 import { createHud, type HudState, type HostDom, type HostDomNode } from "./hud";
+import { createSaveStore } from './save';
 
 // ---------------------------------------------------------------------------
 // The structural fake DOM (records every surface the HUD writes).
@@ -441,7 +442,7 @@ describe('mount and the host-owned HUD (B04/B15)', () => {
     expect(texts).toContain('<img src=x onerror=alert(1)> M3 Host'); // the malicious title, literal
     expect(texts).toContain('Reach the goal');
     expect(texts).toContain('A/D move. Space jumps. M mutes.');
-    expect(texts).toContain('Press Enter or Space (or the controller confirm) to start');
+    expect(texts).toContain('Press Enter or Space to start');
     host.dispose();
   });
 
@@ -558,6 +559,50 @@ describe('the menu/control channel between frames (B04/B08, C4/C5)', () => {
     tick(); // the boundary applies the start; the frame then services the confirm — now in play
     expect(input.consumed.value).toBe(0); // no menu action happened in play
     expect(view(host).state).toBe('playing');
+    host.dispose();
+  });
+
+  it('phase 15.5: the classic HUD prompt names the project bindings with the player\'s saved rebinding, and the pad in use', () => {
+    const { host: h0, config } = harness();
+    h0.dispose();
+    const data = new Map<string, string>();
+    const storage = { get: (k: string) => data.get(k) ?? null, set: (k: string, v: string) => void data.set(k, v), remove: (k: string) => void data.delete(k) };
+    createSaveStore(storage, 'g').writeSettings({ music: 1, sfx: 1, quality: 'high', keys: { jump: 'KeyK' }, pad: { jump: 2 } });
+    const configured: unknown[] = [];
+    let device: 'keyboard' | 'gamepad' = 'keyboard';
+    const inputConfig = {
+      actions: [
+        { name: 'move', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyJ', positive: 'KeyL' }] },
+        { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }] },
+      ],
+    };
+    const container = new FakeNode();
+    const host = createGameHost({
+      ...config,
+      container,
+      inputConfig,
+      saveStorage: storage,
+      saveNamespace: 'g',
+      input: { ...config.input, configure: (c) => void configured.push(c), activeDevice: () => device },
+    });
+    host.mount();
+    host.control('start');
+    let t = 0;
+    const tick = (): void => {
+      const r = host.runtime.tick(t);
+      t += 1 / 60;
+      if (!r.ok) throw new Error('tick failed');
+    };
+    tick();
+    tick();
+    expect(view(host).state).toBe('playing');
+    const texts = (): string[] => (container.children[0] as FakeNode).every().map((n) => n.textContent);
+    // The saved rebinding reaches the input owner and the prompt (K, not the project's Space).
+    expect(configured).toHaveLength(1);
+    expect(texts()).toContain('J/L to move, K to jump, M to mute');
+    device = 'gamepad';
+    tick();
+    expect(texts()).toContain('D-pad left/D-pad right or the left stick to move, X to jump');
     host.dispose();
   });
 
@@ -751,7 +796,7 @@ describe('the HUD module (delivery.md §3.1 HUD rules)', () => {
     expect(all.map((n) => n.textContent)).toContain('<b>title</b>'); // literal
     hud.update({ ...base, state: 'won', deathCount: 2, checkpointActive: true, checkpointStep: 41 });
     const texts = (hud.root as FakeNode).every().map((n) => n.textContent);
-    expect(texts).toContain('You win — press Enter or Space (or the controller confirm) to replay');
+    expect(texts).toContain('You win — press Enter or Space to replay');
     expect(texts.some((t) => t.includes('Deaths: 2'))).toBe(true);
     expect(texts.some((t) => t.includes('checkpoint @ step 41 active'))).toBe(true);
     hud.dispose();

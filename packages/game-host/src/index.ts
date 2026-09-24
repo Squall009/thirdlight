@@ -102,3 +102,4 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
   type ManifestSceneRow,
   type SceneCatalogIo,
 } from './scene-catalog';
+export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';

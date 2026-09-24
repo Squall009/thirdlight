@@ -168,6 +168,8 @@ export function attachBrowserInput(
    * Returns a cancel function.
    */
   capturePadButton(onButton: (button: number | null) => void): () => void;
+  /** Phase 15.5: the device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
+  activeDevice(): 'keyboard' | 'gamepad';
 } {
   const globalWindow =
     typeof globalThis === 'object'
@@ -224,6 +226,8 @@ export function attachBrowserInput(
   const isMappedCode = (code: unknown): code is string =>
     typeof code === 'string' && (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code));
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
+  /** Phase 15.5: the device used last (keyboard until a pad button or stick moves). */
+  let lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
 
   let detached = false;
   let unavailableState: { reason: 'gamepad' | 'environment'; message: string } | null = null;
@@ -430,6 +434,7 @@ export function attachBrowserInput(
     if (detached) return;
     const e = event as unknown as KeyboardEventLike;
     if (isEditableTarget(e.target)) return; // typing in the inspector must not move the character
+    lastDevice = 'keyboard';
     const code = String(e.code ?? '');
     if (padCapture !== null && code === 'Escape' && e.repeat !== true) {
       // Phase 14.5: Escape cancels a pad rebinding.
@@ -581,6 +586,7 @@ export function attachBrowserInput(
         const list = pollGamepads();
         active = pickActiveGamepad(list);
         lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
+        if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) lastDevice = 'gamepad';
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
         active = null;
@@ -669,6 +675,9 @@ export function attachBrowserInput(
      */
     sampleMenu(): MenuSample {
       return menu.sample();
+    },
+    activeDevice(): 'keyboard' | 'gamepad' {
+      return lastDevice;
     },
     /** The host consumed a confirm sample: the held press now needs a release. */
     markConfirmConsumed(): void {
