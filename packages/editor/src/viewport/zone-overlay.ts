@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import type { ProjectedEntity } from '../session/projection';
 import type { ZonePose } from '../session/zone-gesture';
 import type { ZoneRole } from '../session/gameplay';
-import { capsuleDistance, handlePoint, outlinePoints, resizeShape, sizeShapesOf, type SizeHandle, type SizeShape } from '../session/size-handles';
+import { capsuleDistance, handlePoint, handlesOf, outlinePoints, resizeShape, sizeShapesOf, type SizeHandle, type SizeShape } from '../session/size-handles';
 
 /** Phase 14.0: a size handle under the pointer (which shape of which entity, which handle). */
 export interface SizeHandleRef {
@@ -342,6 +342,14 @@ export class ZoneOverlay {
         }
         this.moverPaths.set(e.id, { origin: new THREE.Vector3(x, y, z), waypoints: mover.waypoints.map((w) => [N(w[0]), N(w[1]), N(w[2])]), loop: mover.mode === 'loop', line, dots });
       }
+      // Phase 14.2: a circle trigger's outline (dashed, in the trigger colour).
+      const trig = b.trigger as { shape?: string; radius?: number } | undefined;
+      if (trig?.shape === 'circle' && typeof trig.radius === 'number') {
+        const pts = outlinePoints({ kind: 'circle', center: { x, y }, half: { x: trig.radius, y: trig.radius } } as SizeShape, 24).map((p) => new THREE.Vector3(p.x, p.y, 0.02));
+        const circle = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: BLOCK_COLORS.trigger, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
+        circle.name = `trigger-circle:${e.id}`;
+        this.blocks.add(circle);
+      }
       for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
         const size = (b[k] as { size?: number[] } | undefined)?.size;
         // An enemy's box stands on its position (its feet), as the runtime tests it (phase 14.0 fix).
@@ -417,7 +425,7 @@ export class ZoneOverlay {
     return true;
   }
 
-  /** Rebuild the selected entity's size handles (two per shape: top and side). */
+  /** Rebuild the selected entity's size handles (top and side; a circle only its radius handle). */
   private updateSizeHandles(): void {
     for (const c of [...this.sizeHandles.children]) {
       this.sizeHandles.remove(c);
@@ -429,7 +437,7 @@ export class ZoneOverlay {
     this.sizeShapes = sizeShapesOf(e);
     this.sizeZ = N(e.position[2]) + 0.04;
     this.sizeShapes.forEach((shape, shapeIndex) => {
-      for (const handle of ['top', 'side'] as const) {
+      for (const handle of handlesOf(shape)) {
         const p = handlePoint(shape, handle);
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), new THREE.MeshBasicMaterial({ color: SIZE_HANDLE_COLOR, depthTest: false }));
         mesh.position.set(p.x, p.y, this.sizeZ);

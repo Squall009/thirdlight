@@ -552,6 +552,50 @@ export interface StepContext {
   readonly save?: BehaviorSave;
   /** Phase 14.1: spawn prefab copies into the running game and destroy them. */
   readonly spawner?: BehaviorSpawnControl;
+  /**
+   * Phase 14.2: the triggers the player entered or left in the previous step
+   * (every trigger; the behavior host gives each script those it owns, in
+   * `ctx.events`).
+   */
+  readonly triggerEvents?: readonly TriggerEventRecord[];
+}
+
+/**
+ * Phase 14.2: one `ctx.events` entry for a trigger a script owns — the player
+ * entered (`enter`) or left (`exit`) it in `stepIndex` (scripts see it in the
+ * next step, like signals). A script owns the triggers on its own entity, on
+ * the entity's descendants, and those named by its entityRef properties.
+ */
+export interface TriggerEventRecord {
+  readonly type: 'enter' | 'exit';
+  /** The trigger's entity id. */
+  readonly trigger: string;
+  readonly stepIndex: number;
+}
+
+/**
+ * Phase 14.2: `ctx.timers` — named timers of one script instance, counted in
+ * fixed steps (deterministic: `seconds × fixedStepHz` rounded, at least one
+ * step). At most `MAX_TIMERS_PER_INSTANCE` (64) run per instance; a new run
+ * (start, replay, a level switch) clears them.
+ */
+export interface BehaviorTimers {
+  /**
+   * Fire once, `seconds` from this step. Returns `false` (and changes
+   * nothing) when a one-shot timer of that name and length is already
+   * running — a script may call it every step; a different length restarts it.
+   */
+  after(name: string, seconds: number): boolean;
+  /**
+   * Fire every `seconds`, the first time `seconds` from this step. Returns
+   * `false` (and changes nothing) when a repeating timer of that name and
+   * period is already running.
+   */
+  every(name: string, seconds: number): boolean;
+  /** True in the step the timer fires (in every phase of that step). */
+  fired(name: string): boolean;
+  /** Stop a timer; `false` when none of that name was running. */
+  cancel(name: string): boolean;
 }
 
 /**

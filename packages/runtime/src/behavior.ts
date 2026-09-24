@@ -37,6 +37,7 @@ import type {
 import type { ActionFrame } from './actions';
 import { clipMessage } from './errors';
 import { LiveTagIndex } from './scene-set';
+import { InstanceTimers, TimerCallError } from './timers';
 import {
   BEHAVIOR_LOG_CODE,
   BEHAVIOR_LOG_LEVELS,
@@ -58,6 +59,7 @@ import type {
   SimulationPhase,
   SimulationPhaseModule,
   StepContext,
+  TriggerEventRecord,
 } from './types';
 
 /** The declared-property value map fed to one behavior instance (§14.3). */
@@ -341,6 +343,10 @@ interface BehaviorInstance {
   stepIntents: number;
   /** Committed channels in `counterStep` (`move`/`jump`/`t:<id>:<axis>`). */
   committed: Set<string>;
+  /** Phase 14.2: `ctx.timers` of this instance. */
+  timers: InstanceTimers;
+  /** Phase 14.2: this step's `ctx.events` (built once per step, shared by its phases). */
+  events: { step: number; list: readonly unknown[] } | null;
 }
 
 /**
@@ -387,6 +393,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const cameraIds = new Set<string>();
       const physicsIds = new Set<string>();
       const components = new Map<string, { behaviorId?: string; values?: Record<string, unknown> }>();
+      // Phase 14.2: the hierarchy of the loaded entities (a script owns the triggers below its entity).
+      const parentOf = new Map<string, string>();
+      for (const e of snapshot.scene.entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
       for (const e of snapshot.scene.entities) {
         const c = (e.components as { camera?: unknown; collider?: unknown; controller?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
         if (c.camera !== undefined) cameraIds.add(e.id);
@@ -456,7 +465,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Set() };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Set(), timers: new InstanceTimers(cfg.fixedStepHz), events: null };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -479,6 +488,31 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           instance.stepIntents = 0;
           instance.committed.clear();
         }
+        // Phase 14.2: the timers due in this step fire (once per step, whatever the phases).
+        instance.timers.begin(stepIndex);
+      };
+
+      /**
+       * Phase 14.2: the triggers an instance owns — one on its own entity, on
+       * a descendant of it, or named by one of its entityRef properties.
+       */
+      const entityRefKeys = declaration.properties.filter((p) => p.type === 'entityRef').map((p) => p.key);
+      const ownsTrigger = (instance: BehaviorInstance, triggerId: string): boolean => {
+        let cur: string | undefined = triggerId;
+        for (let depth = 0; cur !== undefined && depth < 64; depth++) {
+          if (cur === instance.entityId) return true;
+          cur = parentOf.get(cur);
+        }
+        return entityRefKeys.some((k) => instance.properties[k] === triggerId);
+      };
+      /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers. */
+      const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly unknown[] => {
+        if (instance.events !== null && instance.events.step === ctx.stepIndex) return instance.events.list;
+        const clips = ctx.animatorEvents ?? [];
+        const owned = (ctx.triggerEvents ?? []).filter((t: TriggerEventRecord) => ownsTrigger(instance, t.trigger));
+        const list = owned.length === 0 ? clips : Object.freeze([...clips, ...owned]);
+        instance.events = { step: ctx.stepIndex, list };
+        return list;
       };
 
       /** A listed entity, or (with "@self") the instance's own entity. */
@@ -555,8 +589,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           ...(ctx.scenes !== undefined ? { scenes: ctx.scenes } : {}),
           // Phase 9.8: the step's input actions by name.
           input: inputView(ctx.action),
-          // Phase 9.7: animators (`ctx.animator(id)?.set(...)`) and last step's clip events.
-          ...(ctx.animators !== undefined ? { animator: ctx.animators.of, events: ctx.animatorEvents ?? [] } : {}),
+          // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
+          // events and (phase 14.2) the owned triggers' enter/exit events.
+          ...(ctx.animators !== undefined ? { animator: ctx.animators.of } : {}),
+          ...(ctx.animators !== undefined || ctx.triggerEvents !== undefined ? { events: eventsFor(instance, ctx) } : {}),
+          // Phase 14.2: named step-counted timers of this instance.
+          timers: instance.timers.api,
           // Phase 9.9: signals and the run's counters.
           ...(ctx.signals !== undefined ? { signals: ctx.signals } : {}),
           ...(ctx.game !== undefined ? { game: ctx.game } : {}),
@@ -575,6 +613,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
             throw e;
+          }
+          if (e instanceof TimerCallError) {
+            throw new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`);
           }
           if (e instanceof FrozenPreparedError) {
             throw new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`);
@@ -595,6 +636,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         get transformOwners(): readonly string[] {
           return owners;
         },
+        /** Phase 14.2: a new run (start, replay, a level switch) clears every instance's timers. */
+        reset(rctx): void {
+          if (rctx.reason !== 'start' && rctx.reason !== 'replay') return;
+          for (const instance of instances) {
+            instance.timers.clear();
+            instance.events = null;
+          }
+        },
         step(phase: SimulationPhase, ctx: StepContext): void {
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
@@ -607,6 +656,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           // Phase 12 (c): new carriers get their instance (document order of
           // the loaded scene); owners that just appeared are checked.
           const added = new Set<string>();
+          for (const e of entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
           for (const e of entities) {
             const c = e.components as { camera?: unknown; collider?: unknown; controller?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } };
             if (c.camera !== undefined) cameraIds.add(e.id);
@@ -642,6 +692,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             entityIds.delete(id);
             cameraIds.delete(id);
             physicsIds.delete(id);
+            parentOf.delete(id);
           }
           refreshOwners();
         },

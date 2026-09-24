@@ -4,7 +4,8 @@
  * - `mover`: the entity moves along waypoints (offsets from where it is
  *   placed); with a collider it is a moving platform that carries the player.
  *   `startOn` makes it wait for a signal (a door: `mode: "once"`).
- * - `trigger`: a box that emits a signal when the player enters it.
+ * - `trigger`: a box (or, phase 14.2, a circle) that emits a signal when the
+ *   player enters it (`mode: "stay"`: every step while the player is inside).
  * - `switch`: a lever/button (`interact` + the interact action) or a pressure
  *   plate (`stand`) that emits a signal.
  * - `health`: the player's health; hazard zones with `damage` take some,
@@ -22,6 +23,11 @@ export const SWITCH_MODES = ['interact', 'stand'] as const;
 export const PICKUP_KINDS = ['coin', 'gem', 'heart', 'life', 'key', 'custom'] as const;
 export const PICKUP_RESPAWN = ['never', 'death'] as const;
 export const ENEMY_PATROLS = ['points', 'edges'] as const;
+/** Phase 14.2: a trigger's area (absent: box) and when it emits (absent: enter). */
+export const TRIGGER_SHAPES = ['box', 'circle'] as const;
+export const TRIGGER_MODES = ['enter', 'stay'] as const;
+/** Phase 14.2: a circle trigger's radius range (m) — the same extent a box trigger may have (0.05–500 m across). */
+export const TRIGGER_RADIUS = { min: 0.025, max: 250 } as const;
 
 export interface MoverComponent {
   /** Offsets from the placed position (the start is [0, 0, 0], not listed). */
@@ -37,11 +43,18 @@ export interface MoverComponent {
 }
 
 export interface TriggerComponent {
-  size: [number, number];
+  /** A box's [w, h] (required for a box, refused for a circle). */
+  size?: [number, number];
   signal: string;
   once?: boolean;
-  /** Emitted when the player leaves the box. */
+  /** Emitted when the player leaves the area. */
   exitSignal?: string;
+  /** Phase 14.2: the area's shape (absent: box). */
+  shape?: (typeof TRIGGER_SHAPES)[number];
+  /** Phase 14.2: a circle's radius in meters (required for a circle, refused for a box). */
+  radius?: number;
+  /** Phase 14.2: `enter` (absent) emits once per entry, `stay` every step while the player is inside. */
+  mode?: (typeof TRIGGER_MODES)[number];
 }
 
 export interface SwitchComponent {
@@ -116,9 +129,15 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
 
 export function validateTriggerComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'trigger is an object', value);
-  fields(value, ['size', 'signal', 'once', 'exitSignal'], ['size', 'signal'], path, errors);
+  const circle = value['shape'] === 'circle';
+  fields(value, ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'], circle ? ['radius', 'signal'] : ['size', 'signal'], path, errors);
   if (value['exitSignal'] !== undefined && (typeof value['exitSignal'] !== 'string' || !NAME_RE.test(value['exitSignal']))) err(errors, 'field_value', `${path}/exitSignal`, 'exitSignal is a name', value['exitSignal']);
-  if (value['size'] !== undefined && !vec2(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
+  if (value['shape'] !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(value['shape'])) err(errors, 'field_value', `${path}/shape`, 'shape is box or circle', value['shape']);
+  if (circle && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, 'a circle trigger has a radius, not a size', value['size']);
+  if (!circle && value['radius'] !== undefined) err(errors, 'field_unexpected', `${path}/radius`, 'only a circle trigger has a radius (set shape to circle)', value['radius']);
+  if (value['size'] !== undefined && !circle && !vec2(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
+  if (value['radius'] !== undefined && circle && !num(value['radius'], TRIGGER_RADIUS.min, TRIGGER_RADIUS.max)) err(errors, 'field_value', `${path}/radius`, `radius is ${TRIGGER_RADIUS.min}–${TRIGGER_RADIUS.max} m`, value['radius']);
+  if (value['mode'] !== undefined && !(TRIGGER_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is enter or stay', value['mode']);
   if (value['signal'] !== undefined && (typeof value['signal'] !== 'string' || !NAME_RE.test(value['signal']))) err(errors, 'field_value', `${path}/signal`, 'signal is a name', value['signal']);
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
 }
@@ -177,7 +196,16 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
   ...(c.easing !== undefined ? { easing: c.easing } : {}),
   ...(c.startOn !== undefined ? { startOn: c.startOn } : {}),
 });
-export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({ size: copy2(c.size), signal: c.signal, ...(c.once !== undefined ? { once: c.once } : {}), ...(c.exitSignal !== undefined ? { exitSignal: c.exitSignal } : {}) });
+// Phase 14.2: the new fields come last (an existing trigger keeps its exact canonical bytes).
+export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
+  ...(c.size !== undefined ? { size: copy2(c.size) } : {}),
+  signal: c.signal,
+  ...(c.once !== undefined ? { once: c.once } : {}),
+  ...(c.exitSignal !== undefined ? { exitSignal: c.exitSignal } : {}),
+  ...(c.shape !== undefined ? { shape: c.shape } : {}),
+  ...(c.radius !== undefined ? { radius: c.radius } : {}),
+  ...(c.mode !== undefined ? { mode: c.mode } : {}),
+});
 export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}) });
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
   max: c.max,
@@ -247,7 +275,7 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
 
 export const BLOCK_COMPONENTS = {
   mover: { validate: validateMoverComponent, canonical: canonicalMover, fields: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'] },
-  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal'] },
+  trigger: { validate: validateTriggerComponent, canonical: canonicalTrigger, fields: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'] },
   switch: { validate: validateSwitchComponent, canonical: canonicalSwitch, fields: ['mode', 'signal', 'size', 'once'] },
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: ['max', 'start', 'invulnerableSeconds', 'knockback'] },
   pickup: { validate: validatePickupComponent, canonical: canonicalPickup, fields: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'] },

@@ -316,3 +316,19 @@ describe('gameplay blocks: the 9.9 wrap-up additions', () => {
     expect(L.pos('door-0001')[1]).toBeGreaterThan(5);
   });
 });
+
+describe('gameplay blocks: phase 14.2 circle triggers', () => {
+  it('a circle trigger opens a door when the player walks into it (not while passing below it)', async () => {
+    // A circle 2.9 m up with radius 0.5 (bottom at 2.4 m): the default capsule
+    // (top at 1.81 m when standing) passes below it; the low one is walked through.
+    const high = box('trig-0001', 3, 2.9, { trigger: { shape: 'circle', radius: 0.5, signal: 'hi' } });
+    const low = box('trig-0002', 6, 1, { trigger: { shape: 'circle', radius: 0.4, signal: 'lo' } });
+    const doorHi = box('door-0001', 14, 2, { box: { size: [0.6, 4, 2], material: { color: '#553311' } }, collider: { shape: { type: 'box', hx: 0.3, hy: 2 } }, mover: { waypoints: [[0, 4, 0]], speed: 8, mode: 'once', startOn: 'hi' } });
+    const doorLo = box('door-0002', 12, 2, { box: { size: [0.6, 4, 2], material: { color: '#553311' } }, collider: { shape: { type: 'box', hx: 0.3, hy: 2 } }, mover: { waypoints: [[0, 4, 0]], speed: 8, mode: 'once', startOn: 'lo' } });
+    const L = await level([0, 0.91], [high, low, doorHi, doorLo], () => ({ moveX: 1, jump: 'none' }));
+    L.tick(240);
+    expect(L.pos('player-0001')[0]).toBeGreaterThan(7);
+    expect(L.pos('door-0002')[1]).toBeGreaterThan(5); // walked through the low circle: open
+    expect(L.pos('door-0001')[1]).toBeCloseTo(2, 3); // passed below the high one: shut
+  });
+});
