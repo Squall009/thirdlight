@@ -607,6 +607,43 @@ and `ctx.physics.raycast(origin, direction, maxDistance)`,
 entities whose colliders overlap, never the player; 32 queries per step in
 all).
 
+### Spawning prefabs from scripts
+
+A script can put copies of a project prefab into the running game (never
+into the project): projectiles, dropped coins, falling crates, enemies from
+a spawner. Make the prefab as usual (select an object → Prefabs → create);
+in a v4 project a prefab now keeps the object's collider (on its root),
+surface, materials, animator and gameplay blocks (mover, trigger, switch,
+pickup, enemy, audio source, face movement), so a copy collides, is
+collected, patrols or flies like the original. The player controller and
+level wiring (camera, lights, zones, spawn markers) never go into a prefab.
+
+- `ctx.spawn(prefabId, { position, rotation?, scale? })` — `position` is
+  `[x, y]` (the root keeps the prefab's own z) or `[x, y, z]`; `rotation` a
+  quaternion `[x, y, z, w]`, `scale` a number or `[x, y, z]` (a prefab with
+  a collider turns about Z only and keeps scale 1). It returns the new root
+  id (`spawn-1`, `spawn-2`, … counted per run) at once; the copy appears at
+  the next step. Children keep their places under the root, and a script
+  property that names an object of the prefab points at the copy's object.
+- `ctx.destroy(id)` removes a spawned object and its children at the next
+  step (`false` if it is already gone). Objects placed in the editor cannot
+  be destroyed; hide them with `ctx.game.setVisible`.
+- Engine limits: 64 spawns per step and 1024 spawned objects alive; past
+  them `ctx.spawn` returns `null` and the runtime diagnostics record one
+  `spawn_refused` line. An unknown prefab or bad options stop the game with
+  the script error, like a bad `ctx.scenes` call.
+- A new run (start, replay, the next level) removes every spawned object.
+  Scripts keep running before the run starts, so spawn once the game is
+  playing (or spawn again when your object is gone). Saves never keep
+  spawned objects.
+- A spawned object's own script runs, but it cannot move its object with
+  transform intents (those need the object listed in `ownedTransforms`
+  when the script is published); give it a mover (or make it an enemy)
+  to move it.
+
+`tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
+and the export carry the project's prefabs with the game.
+
 ## Game flow, menus and music
 
 Bottom dock → **Game flow** turns a scene into a game with levels (v4

@@ -760,6 +760,34 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
       realization?.addEntities(modelRefsOf(entities));
     }
+    syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
+  }
+
+  // --- Phase 14.1: spawned prefab copies (ctx.spawn / ctx.destroy) ------------
+  /** The realized spawned entities: id → the runtime's (frozen) entity object. */
+  const realizedSpawned = new Map<string, unknown>();
+  function syncSpawned(spawned: readonly unknown[]): void {
+    const live = new Map<string, unknown>();
+    for (const e of spawned) live.set((e as { id: string }).id, e);
+    // Gone, or the same id spawned again in a new run (a new object): release, children first.
+    const gone = [...realizedSpawned].filter(([id, e]) => live.get(id) !== e).map(([id]) => id);
+    if (gone.length > 0) {
+      const ids = new Set(gone);
+      realization?.removeEntities(ids);
+      for (const id of gone.reverse()) {
+        releaseEntity(id);
+        realizedSpawned.delete(id);
+        hiddenIds.delete(id);
+        if (shownCheckpoint === id) shownCheckpoint = null;
+      }
+    }
+    const added = spawned.filter((e) => !realizedSpawned.has((e as { id: string }).id)) as unknown as (typeof opts.snapshot.scene.entities)[number][];
+    if (added.length === 0) return;
+    for (const e of added) {
+      realizeEntity(e);
+      realizedSpawned.set(e.id, e);
+    }
+    realization?.addEntities(modelRefsOf(added));
   }
 
   /** v4: the shadow square follows the camera, snapped to whole shadow texels (no shimmer). */

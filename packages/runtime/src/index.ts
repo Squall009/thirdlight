@@ -177,4 +177,7 @@ export { capsuleHalfTotal, playerCapsuleOf, sceneEntitiesFromDocument } from './
 // Phase 9.7/9.8: animators and ctx.input.
 export { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 export { inputView, type BehaviorInputView } from './behavior';
+// Phase 14.1: ctx.spawn / ctx.destroy (prefab copies in the running game).
+export { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions, type SpawnOptions, type SpawnPlacement } from './spawn';
+export type { BehaviorSpawnControl } from './types';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorSave, RunRestore, RunSaveState } from './types';

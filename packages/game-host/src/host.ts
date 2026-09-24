@@ -487,7 +487,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const revision = set?.revision ?? 0;
     if (revision !== sourcesRevision) {
       sourcesRevision = revision;
-      const entities = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
+      const loaded = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
+      // Phase 14.1: a spawned copy's audio source plays too.
+      const entities = [...loaded, ...((set?.spawned ?? []) as unknown as typeof loaded)];
       sources = [];
       for (const e of entities) {
         const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number } }).audioSource;

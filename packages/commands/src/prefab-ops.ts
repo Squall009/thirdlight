@@ -26,6 +26,7 @@ import type {
   PrefabEntity,
   PropertyValue,
 } from '@thirdlight/project-model';
+import { PREFAB_V4_COMPONENTS } from '@thirdlight/project-model';
 
 import {
   entityNotFound,
@@ -264,9 +265,12 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
   }
   // A definition entity may carry transform/model/box/behavior only (§20.2):
   // collider/controller are not part of the definition vocabulary in M2 and
-  // are rejected rather than silently dropped.
+  // are rejected rather than silently dropped. Phase 14.1: a v4 definition
+  // also keeps the gameplay components (`PREFAB_V4_COMPONENTS`, a collider
+  // included) so a spawned or placed copy collides and plays like the source.
+  const v4 = scene.schemaVersion === 4;
   for (const e of closure) {
-    for (const component of ['collider', 'controller'] as const) {
+    for (const component of (v4 ? ['controller'] : ['collider', 'controller']) as readonly ('collider' | 'controller')[]) {
       if ((e.components as unknown as Record<string, unknown>)[component] !== undefined) {
         return {
           ok: false,
@@ -290,6 +294,12 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
     if (e.components.model !== undefined) components.model = deepClone(e.components.model);
     if (e.components.box !== undefined) components.box = deepClone(e.components.box);
     if (e.components.behavior !== undefined) components.behavior = deepClone(e.components.behavior);
+    if (v4) {
+      const source = e.components as unknown as Record<string, unknown>;
+      for (const name of PREFAB_V4_COMPONENTS) {
+        if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
+      }
+    }
     const parentLocalId =
       e.parentId !== undefined && closureSet.has(e.parentId) ? e.parentId : undefined;
     return {
@@ -381,6 +391,9 @@ function buildInstanceEntity(
   components['transform'] = t;
   if (de.components.model !== undefined) components['model'] = deepClone(de.components.model);
   if (de.components.box !== undefined) components['box'] = deepClone(de.components.box);
+  // Phase 14.1: the v4 gameplay components travel with the copy.
+  const source = de.components as unknown as Record<string, unknown>;
+  for (const name of PREFAB_V4_COMPONENTS) if (source[name] !== undefined) components[name] = deepClone(source[name]);
   const recorded = de.components.behavior;
   if (recorded !== undefined) {
     const declaration = declarations.get(recorded.behaviorId);

@@ -17,6 +17,7 @@ import type {
   TransformComponent,
   Vec3,
 } from './types';
+import type { EntityComponentsV3 } from './types-v3';
 
 // ---- components (§10.5–§10.8, §21) ------------------------------------------
 
@@ -207,12 +208,31 @@ export interface PropertyDeclaration {
   properties: DeclaredProperty[];
 }
 
-/** Definition-entity component subset (§20.2): transform, model, box, behavior only. */
-export interface PrefabComponentsV2 {
+/**
+ * Definition-entity component subset (§20.2): transform, model, box, behavior;
+ * phase 14.1 (v4 content only): the gameplay components a spawned or placed
+ * copy carries too (`PREFAB_V4_COMPONENTS`).
+ */
+export interface PrefabComponentsV2 extends PrefabComponentsV4Extra {
   transform: TransformComponent;
   model?: ModelComponent;
   box?: BoxComponent;
   behavior?: BehaviorComponent;
+}
+
+/** Phase 14.1: the v4-only prefab components (same shapes as on a scene entity). */
+export interface PrefabComponentsV4Extra {
+  collider?: EntityComponentsV3['collider'];
+  surface?: EntityComponentsV3['surface'];
+  materials?: EntityComponentsV3['materials'];
+  animator?: EntityComponentsV3['animator'];
+  mover?: EntityComponentsV3['mover'];
+  trigger?: EntityComponentsV3['trigger'];
+  switch?: EntityComponentsV3['switch'];
+  pickup?: EntityComponentsV3['pickup'];
+  enemy?: EntityComponentsV3['enemy'];
+  audioSource?: { assetId: string; volume: number; range: number };
+  faceMovement?: { yawRight: number; yawLeft: number; turnSeconds?: number };
 }
 
 export interface PrefabEntity {

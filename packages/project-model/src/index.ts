@@ -73,6 +73,7 @@ export type {
   PrefabDefinition,
   PrefabEntity,
   PrefabProvenanceComponent,
+  PrefabComponentsV4Extra,
   PropertyBounds,
   PropertyDeclaration,
   PropertyType,
@@ -273,6 +274,8 @@ export {
 } from './project-v4';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, canonicalGame, MAX_SCENES } from './content';
+// Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
+export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {
   GAME_ZONE_ROLES_V4,
   INSTANCE_FLOATS,

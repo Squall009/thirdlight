@@ -86,6 +86,8 @@ interface ExportManifestV2 {
   lighting?: Record<string, LightingBakeLike>;
   /** Phase 9.7: the animator controllers. */
   animators?: unknown[];
+  /** Phase 14.1: the prefab definitions scripts spawn. */
+  prefabs?: unknown[];
   /** Phase 9.8: the input actions. */
   input?: InputConfigLike;
   /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
@@ -122,7 +124,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -233,6 +235,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(catalog !== null ? { scenes: catalog.rows } : {}),
     // Phase 9.7: the animator controllers (bound by the buildId).
     ...(manifest.animators !== undefined ? { animators: manifest.animators } : {}),
+    // Phase 14.1: the prefabs scripts spawn (bound by the buildId).
+    ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
   } as unknown as RuntimeSnapshot);
 
   // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when

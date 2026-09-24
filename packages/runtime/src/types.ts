@@ -18,6 +18,7 @@ import type {
   GameConfig,
   GameplaySettings as ModelGameplaySettings,
   GameZoneRole,
+  PrefabDefinition,
   Quat,
   ResolvedSceneV3,
   TagDefinition,
@@ -76,6 +77,8 @@ export interface RuntimeSnapshot {
   scenes?: readonly RuntimeSceneRow[];
   /** Phase 9.7, v4 only, optional: the project's animator controllers (`content.animators`). */
   animators?: readonly AnimatorController[];
+  /** Phase 14.1, v4 only, optional: the project's prefab definitions (`ctx.spawn`). */
+  prefabs?: readonly PrefabDefinition[];
 }
 
 /** Phase 12 (c): one scene of the project as the runtime knows it. */
@@ -128,6 +131,12 @@ export interface SceneSetView {
   readonly revision: number;
   readonly batches: readonly LoadedSceneBatch[];
   readonly status: Readonly<Record<string, SceneStatus>>;
+  /**
+   * Phase 14.1: the live spawned entities (`ctx.spawn`), in spawn order
+   * (parents before children), frozen. An id may come back in a later run
+   * as a new object: renderers compare the objects, not only the ids.
+   */
+  readonly spawned: readonly EntityV3[];
 }
 
 /** Phase 12 (c): a load the host must fetch (`takeSceneRequests`). */
@@ -541,6 +550,32 @@ export interface StepContext {
   readonly audio?: BehaviorAudio;
   /** Phase 9.11: values kept in the player's save. */
   readonly save?: BehaviorSave;
+  /** Phase 14.1: spawn prefab copies into the running game and destroy them. */
+  readonly spawner?: BehaviorSpawnControl;
+}
+
+/**
+ * Phase 14.1: `ctx.spawn` / `ctx.destroy` in scripts. A spawn is requested
+ * during a step and appears at the next step boundary (deterministic: in
+ * request order); the id is returned at once. A new run removes every
+ * spawned entity; saves never keep them.
+ */
+export interface BehaviorSpawnControl {
+  /**
+   * Copy the project prefab `prefabId` into the running game with its root at
+   * `options.position` (`[x, y]` keeps the root's authored z, or `[x, y, z]`),
+   * optional `rotation` (quaternion `[x, y, z, w]`) and `scale` (number or
+   * `[x, y, z]`). Returns the new root id (`spawn-<n>`), or `null` when an
+   * engine limit refuses it (64 spawns per step, 1024 live spawned entities).
+   * An unknown prefab or bad options throw.
+   */
+  spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }): string | null;
+  /**
+   * Remove a spawned entity and its children at the next step boundary.
+   * `false` when it is already gone (or queued). An authored entity throws:
+   * hide it with `ctx.game.setVisible` instead.
+   */
+  destroy(entityId: string): boolean;
 }
 
 /** Phase 9.11: what a save keeps of a run, and what a load restores. */

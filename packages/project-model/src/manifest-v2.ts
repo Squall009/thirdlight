@@ -37,7 +37,7 @@ import { canonicalLighting, validateLighting, type LightingMap } from './lightin
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateSceneV3, validateSceneV4 } from './scene-v3';
-import { validateContentV3, validateContentV4, resolveGameplaySettings, validateTagRegistry } from './content';
+import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
@@ -48,7 +48,7 @@ import type {
   SceneV3,
   TagDefinition,
 } from './types-v3';
-import type { GameplaySettings } from './types-v2';
+import type { GameplaySettings, PrefabDefinition } from './types-v2';
 import {
   buildOptionsRecordBytes,
   M2_ENGINE_PINS,
@@ -75,7 +75,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -97,6 +97,7 @@ export const MANIFEST_KEYS_V2 = [
   'environment',
   'lighting',
   'animators',
+  'prefabs',
   'input',
   'flow',
   'scenes',
@@ -239,6 +240,8 @@ export interface RuntimeContentManifestV2 {
   game: GameConfig | null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
+  /** Phase 14.1: the prefab definitions scripts spawn. */
+  prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
   scenes?: ManifestSceneRow[];
   /** Phase 12 (c): instance-set buffers. */
@@ -532,6 +535,8 @@ export interface CaptureManifestV2Input {
   lighting?: LightingMap;
   /** Phase 9.7: the animator controllers (only when there are some). */
   animators?: readonly AnimatorController[];
+  /** Phase 14.1: the prefab definitions scripts spawn (only when there are some). */
+  prefabs?: readonly PrefabDefinition[];
   /** Phase 9.8: the project's input actions (only when it has its own). */
   input?: InputConfig;
   /** Phase 9.10: the game flow (only when the project has one). */
@@ -646,6 +651,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
+    ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
     ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
     ...(input.flow !== undefined ? { flow: canonicalFlow(input.flow) } : {}),
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
@@ -747,12 +753,13 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
+  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
     if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors);
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
     if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
     if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
+    if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (d['flow'] !== undefined) validateFlow(d['flow'], '/flow', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'materials/environment/lighting are not valid', 'field_value') };

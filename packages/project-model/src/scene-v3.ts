@@ -1006,7 +1006,7 @@ function canonicalLight(c: unknown): LightComponent {
   return out;
 }
 
-function canonicalSurface(c: unknown): SurfaceComponent {
+export function canonicalSurface(c: unknown): SurfaceComponent {
   const o = c as Record<string, unknown>;
   return {
     color: typeof o['color'] === 'string' ? o['color'].toLowerCase() : SURFACE_DEFAULTS.color,

@@ -262,6 +262,22 @@ export function composeV4(
     });
   }
 
+  // Phase 14.1: a prefab's gameplay components name project things too.
+  (content.prefabs ?? []).forEach((d, di) => {
+    d.entities.forEach((e, ei) => {
+      const p = `/prefabs/${di}/entities/${ei}/components`;
+      const c = e.components;
+      const bad = (path: string, code: string, message: string, expected: string, found: unknown): void => {
+        errors.push(projectError(`${p}/${path}`, code as ModelErrorV3['code'], message, expected, { document: 'content' } as never, found));
+      };
+      if (c.animator !== undefined && !controllerIds.has(c.animator.controller)) bad('animator/controller', 'reference_missing', 'the animator names no controller of this project', 'a controllerId in content.animators', c.animator.controller);
+      for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
+      if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
+      const cue = (c.pickup as { cue?: string } | undefined)?.cue;
+      if (cue !== undefined && soundKinds.get(cue) !== 'audio') bad('pickup/cue', 'asset_reference_missing', 'a pickup cue plays an audio asset of this project', 'an audio assetId', cue);
+    });
+  });
+
   // Exit zones.
   for (const s of scenes) {
     s.entities.forEach((e, i) => {

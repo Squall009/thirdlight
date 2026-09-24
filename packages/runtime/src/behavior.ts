@@ -539,6 +539,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           ...(ctx.audio !== undefined ? { audio: ctx.audio } : {}),
           // Phase 9.11: values kept in the player's save.
           ...(ctx.save !== undefined ? { save: ctx.save } : {}),
+          // Phase 14.1: prefab copies in the running game.
+          ...(ctx.spawner !== undefined ? { spawn: ctx.spawner.spawn, destroy: ctx.spawner.destroy } : {}),
           emit: emitFor(instance, ctx, phase),
           log: logFor(instance),
         });

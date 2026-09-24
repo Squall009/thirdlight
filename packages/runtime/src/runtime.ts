@@ -25,6 +25,7 @@ import {
   type EntityV3,
   type GameConfig,
   type GameZoneRole,
+  type PrefabDefinition,
 } from '@thirdlight/project-model';
 import {
   NEUTRAL_ACTION_SOURCE,
@@ -56,6 +57,7 @@ import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { GameplayBlocks } from './blocks';
+import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import {
   DEFAULT_ASPECT,
   GameSession,
@@ -80,6 +82,7 @@ import {
   type BehaviorAnimatorControl,
   type BehaviorAnimatorHandle,
   type BehaviorSceneControl,
+  type BehaviorSpawnControl,
   type CameraInfo,
   type DiagnosticErrorEntry,
   type GameContent,
@@ -1009,6 +1012,7 @@ export function instantiateRuntime(
     liveTags,
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
+    prefabs: snap.prefabs,
   });
   return { ok: true, runtime: rt };
 }
@@ -1060,7 +1064,12 @@ interface RuntimeArgs {
   /** Phase 9.7: the controllers, and the snapshot scene's entities (their `animator` components). */
   animatorControllers: readonly AnimatorControllerLike[];
   initialEntities: readonly EntityV3[];
+  /** Phase 14.1: the prefab definitions scripts spawn. */
+  prefabs: readonly PrefabDefinition[];
 }
+
+/** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
+type SpawnOp = { op: 'spawn'; entities: readonly EntityV3[] } | { op: 'destroy'; entityId: string };
 
 /** Phase 12 (c): one loaded scene inside the runtime. */
 interface SceneBatchState {
@@ -1258,6 +1267,21 @@ class RuntimeInstance implements Runtime {
   /** Entities that are never unloaded with their scene (camera, player, start spawn, lights). */
   private readonly pinnedIds: ReadonlySet<string>;
   private readonly sceneControl: BehaviorSceneControl;
+  // ---- Phase 14.1: spawned prefab copies ----
+  private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
+  /** The live spawned entities, in spawn order (parents before children). */
+  private readonly spawnedEntities = new Map<string, EntityV3>();
+  /** Spawns and destroys waiting for the next step boundary. */
+  private spawnOps: SpawnOp[] = [];
+  /** Ids handed out to spawns that are not live yet. */
+  private readonly reservedSpawnIds = new Set<string>();
+  /** Destroys queued (so a second destroy of the same id reports false). */
+  private readonly pendingDestroys = new Set<string>();
+  /** The last `spawn-<n>` number handed out in this run. */
+  private spawnSerial = 0;
+  private spawnsThisStep = 0;
+  private spawnRefusalLogged = false;
+  private readonly spawnControl: BehaviorSpawnControl;
 
   constructor(args: RuntimeArgs) {
     this.stateName = 'instantiated';
@@ -1333,6 +1357,8 @@ class RuntimeInstance implements Runtime {
       this.rebuildGameContent();
     }
     this.sceneControl = this.buildSceneControl();
+    this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
+    this.spawnControl = this.buildSpawnControl();
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
@@ -1522,7 +1548,9 @@ class RuntimeInstance implements Runtime {
   /** Phase 9.11: what a save keeps of the current run. */
   runState(): RunSaveState {
     const b = this.blocks?.snapshotRun() ?? { counters: {}, collected: [], defeated: [], health: null };
-    return { checkpointId: this.session?.checkpointTotal ?? null, ...b, values: Object.fromEntries(this.saveStore) };
+    // Phase 14.1: saves never keep spawned entities (a new run has none).
+    const authored = (ids: string[]): string[] => ids.filter((id) => !this.spawnedEntities.has(id));
+    return { checkpointId: this.session?.checkpointTotal ?? null, ...b, collected: authored(b.collected), defeated: authored(b.defeated), values: Object.fromEntries(this.saveStore) };
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -1777,6 +1805,7 @@ class RuntimeInstance implements Runtime {
         revision: this.sceneRevision,
         batches: Object.freeze([...this.batches.values()].map((b) => Object.freeze({ sceneId: b.sceneId, start: b.start, entities: b.entities }))),
         status: Object.freeze(Object.fromEntries(this.sceneStatus)),
+        spawned: Object.freeze([...this.spawnedEntities.values()]),
       });
     }
     return this.sceneSetCache;
@@ -2014,6 +2043,10 @@ class RuntimeInstance implements Runtime {
     // Phase 12 (c): scene unloads/loads take effect at the boundary, before
     // the run bookkeeping (a respawn may land in a scene that just loaded).
     if (!this.applySceneOps()) return false;
+    // Phase 14.1: the spawns and destroys the last step requested, in order.
+    if (!this.applySpawnOps()) return false;
+    this.spawnsThisStep = 0;
+    this.spawnRefusalLogged = false;
     if (this.isM3 && this.executedSteps >= SETTLE_PREROLL_STEPS) {
       if (!this.runLevelSwitch()) return false;
       if (!this.runResetBarrier(ordinal)) return false;
@@ -2147,6 +2180,8 @@ class RuntimeInstance implements Runtime {
     const session = this.session;
     if (session === null) return true;
     const outcome = session.boundary(ordinal);
+    // Phase 14.1: a new run starts without spawned entities (ids count from 1 again).
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
@@ -2651,7 +2686,20 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    const ids = new Set<string>();
+    const ids = new Set(frozen.map((e) => e.id));
+    this.attachEntities(frozen);
+    this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
+    this.setSceneStatus(sceneId, 'loaded');
+    this.sceneRevision += 1;
+    this.rebuildGameContent();
+    return this.notifyLoaded(frozen);
+  }
+
+  /**
+   * Put resolved, frozen entities into the simulation: state, draw order,
+   * tags, animators and gameplay blocks (a loaded scene, a spawned copy).
+   */
+  private attachEntities(frozen: readonly EntityV3[]): void {
     for (const e of frozen) {
       const t = e.components.transform;
       const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
@@ -2663,17 +2711,16 @@ class RuntimeInstance implements Runtime {
       this.prev.set(e.id, cloneTransform(t));
       this.curr.set(e.id, cloneTransform(t));
       this.committed?.set(e.id, cloneTransform(t));
-      ids.add(e.id);
     }
     this.order = [...this.order, ...frozen.map((e) => e.id)];
     this.entityCount = this.order.length;
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
-    this.batches.set(sceneId, { sceneId, start, entities: frozen, ids, contribution });
-    this.addAnimators(frozen as unknown as readonly EntityV3[]);
-    this.blocks?.add(frozen as unknown as readonly EntityV3[]);
-    this.setSceneStatus(sceneId, 'loaded');
-    this.sceneRevision += 1;
-    this.rebuildGameContent();
+    this.addAnimators(frozen);
+    this.blocks?.add(frozen);
+  }
+
+  /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
+  private notifyLoaded(frozen: readonly EntityV3[]): boolean {
     for (const entry of this.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneLoaded !== 'function') continue;
@@ -2689,25 +2736,22 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Remove one scene and release what belongs to it. */
-  private removeBatch(sceneId: string): void {
-    const batch = this.batches.get(sceneId);
-    if (batch === undefined) return;
-    const ids = batch.ids;
+  /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
+  private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
     for (const entry of this.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
       try {
         instance.sceneUnloaded(ids);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release scene "${sceneId}": ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
       }
     }
-    if (batch.contribution.colliders.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
+    if (colliderIds.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
       try {
-        this.physics.removeStaticColliders(batch.contribution.colliders.map((c) => c.entityId));
+        this.physics.removeStaticColliders(colliderIds);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of scene "${sceneId}" failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
       }
     }
     for (const id of ids) {
@@ -2721,18 +2765,163 @@ class RuntimeInstance implements Runtime {
     this.order = this.order.filter((id) => !ids.has(id));
     this.entityCount = this.order.length;
     this.liveTags?.remove(ids);
+    this.removeAnimators(ids);
+    this.blocks?.remove(ids);
+  }
+
+  /** Remove one scene and release what belongs to it. */
+  private removeBatch(sceneId: string): void {
+    const batch = this.batches.get(sceneId);
+    if (batch === undefined) return;
+    const ids = batch.ids;
+    this.detachEntities(ids, batch.contribution.colliders.map((c) => c.entityId), `scene "${sceneId}"`);
     // A checkpoint in the unloaded scene no longer counts (death respawns at
     // the start spawn); a pending exit transfer into it is dropped.
     if (this.session !== null && this.session.checkpointTotal !== null && ids.has(this.session.checkpointTotal)) {
       this.session.clearCheckpoint();
     }
     if (this.pendingTransfer !== null && ids.has(this.pendingTransfer.spawnId)) this.pendingTransfer = null;
-    this.removeAnimators(ids);
-    this.blocks?.remove(ids);
     this.batches.delete(sceneId);
     this.setSceneStatus(sceneId, 'unloaded');
     this.sceneRevision += 1;
     this.rebuildGameContent();
+  }
+
+  // ---- Phase 14.1: spawned prefab copies ------------------------------------
+
+  /** `ctx.spawn` / `ctx.destroy`: requests queue with the step; ids are handed out at once. */
+  private buildSpawnControl(): BehaviorSpawnControl {
+    const rt = this;
+    const refuse = (reason: string, message: string): never => {
+      throw new BehaviorHostError('module_error', reason, message);
+    };
+    return Object.freeze({
+      spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }): string | null {
+        const def = typeof prefabId === 'string' ? rt.prefabs.get(prefabId) : undefined;
+        if (def === undefined) {
+          const known = [...rt.prefabs.keys()].slice(0, 8).join(', ') || 'none in this game';
+          return refuse('behavior_spawn_invalid', `ctx.spawn: unknown prefab ${JSON.stringify(String(prefabId))} (known: ${known})`);
+        }
+        const parsed = parseSpawnOptions(def, options);
+        if (!parsed.ok) return refuse('behavior_spawn_invalid', `ctx.spawn("${def.prefabId}"): ${parsed.message}`);
+        const live = rt.spawnedEntities.size + rt.reservedSpawnIds.size;
+        if (rt.spawnsThisStep >= MAX_SPAWNS_PER_STEP || live + def.entities.length > MAX_LIVE_SPAWNED) {
+          rt.logSpawnRefusal(rt.spawnsThisStep >= MAX_SPAWNS_PER_STEP
+            ? `ctx.spawn("${def.prefabId}") refused: at most ${MAX_SPAWNS_PER_STEP} spawns per step`
+            : `ctx.spawn("${def.prefabId}") refused: at most ${MAX_LIVE_SPAWNED} spawned entities alive (destroy some)`);
+          return null;
+        }
+        rt.spawnsThisStep += 1;
+        const ids = def.entities.map(() => rt.allocateSpawnId());
+        rt.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, ids, parsed.placement) });
+        return ids[0]!;
+      },
+      destroy(entityId: string): boolean {
+        if (typeof entityId !== 'string') return refuse('behavior_destroy_invalid', 'ctx.destroy: entityId must be a string');
+        if (rt.spawnedEntities.has(entityId) || rt.reservedSpawnIds.has(entityId)) {
+          if (rt.pendingDestroys.has(entityId)) return false;
+          rt.pendingDestroys.add(entityId);
+          rt.spawnOps.push({ op: 'destroy', entityId });
+          return true;
+        }
+        if (rt.curr.has(entityId)) {
+          return refuse('behavior_destroy_refused', `ctx.destroy: "${entityId}" is not a spawned entity (authored entities stay; hide one with ctx.game.setVisible)`);
+        }
+        return false;
+      },
+    });
+  }
+
+  /** The next free `spawn-<n>` id of this run (skipping any id already in the game). */
+  private allocateSpawnId(): string {
+    for (;;) {
+      this.spawnSerial += 1;
+      const id = `${SPAWN_ID_PREFIX}${this.spawnSerial}`;
+      if (!this.entities.has(id) && !this.reservedSpawnIds.has(id)) {
+        this.reservedSpawnIds.add(id);
+        return id;
+      }
+    }
+  }
+
+  /** One `spawn_refused` diagnostic per step (a runaway loop does not flood the ring). */
+  private logSpawnRefusal(message: string): void {
+    if (this.spawnRefusalLogged) return;
+    this.spawnRefusalLogged = true;
+    this.recordError({ code: 'spawn_refused', message: clipMessage(message), stepIndex: this.stepIndex });
+  }
+
+  /** The queued spawns and destroys, in request order. Returns false after a fail-stop. */
+  private applySpawnOps(): boolean {
+    if (this.spawnOps.length === 0) return true;
+    const ops = this.spawnOps;
+    this.spawnOps = [];
+    for (const op of ops) {
+      if (op.op === 'destroy') {
+        this.pendingDestroys.delete(op.entityId);
+        this.removeSpawned(op.entityId);
+        continue;
+      }
+      for (const e of op.entities) this.reservedSpawnIds.delete(e.id);
+      if (!this.addSpawned(op.entities)) return false;
+    }
+    return true;
+  }
+
+  /** Add one spawned copy (colliders, state, blocks, scripts). Returns false after a fail-stop. */
+  private addSpawned(entities: readonly EntityV3[]): boolean {
+    const root = entities[0]!;
+    const clash = entities.find((e) => this.entities.has(e.id));
+    if (clash !== undefined) {
+      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.stepIndex });
+      return true;
+    }
+    const frozen = deepFreeze(entities.map((e) => structuredClone(e)));
+    const colliders = sceneContribution(frozen).colliders;
+    if (colliders.length > 0 && this.physics !== undefined) {
+      if (typeof this.physics.addStaticColliders !== 'function') {
+        this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: the physics port cannot add colliders`), stepIndex: this.stepIndex });
+        return true;
+      }
+      try {
+        this.physics.addStaticColliders(colliders);
+      } catch (e) {
+        this.failStop('physics_port_error', 'spawn_colliders', `adding the colliders of spawn "${root.id}" failed: ${messageOf(e)}`, this.stepIndex);
+        return false;
+      }
+    }
+    this.attachEntities(frozen);
+    for (const e of frozen) this.spawnedEntities.set(e.id, e);
+    this.sceneRevision += 1;
+    this.sceneSetCache = null;
+    return this.notifyLoaded(frozen);
+  }
+
+  /** Remove a spawned entity and every spawned entity below it. */
+  private removeSpawned(entityId: string): void {
+    if (!this.spawnedEntities.has(entityId)) return;
+    const ids = new Set<string>([entityId]);
+    // Spawn order puts parents before children: one pass collects the subtree.
+    for (const e of this.spawnedEntities.values()) if (e.parentId !== undefined && ids.has(e.parentId)) ids.add(e.id);
+    this.removeSpawnedIds(ids);
+  }
+
+  private removeSpawnedIds(ids: ReadonlySet<string>): void {
+    if (ids.size === 0) return;
+    const colliderIds = [...ids].filter((id) => (this.spawnedEntities.get(id)?.components as { collider?: unknown } | undefined)?.collider !== undefined);
+    this.detachEntities(ids, colliderIds, `spawned "${[...ids][0]}"`);
+    for (const id of ids) this.spawnedEntities.delete(id);
+    this.sceneRevision += 1;
+    this.sceneSetCache = null;
+  }
+
+  /** A new run: every spawned entity goes, pending requests are dropped, ids count from 1 again. */
+  private clearSpawned(): void {
+    this.removeSpawnedIds(new Set(this.spawnedEntities.keys()));
+    this.spawnOps = [];
+    this.reservedSpawnIds.clear();
+    this.pendingDestroys.clear();
+    this.spawnSerial = 0;
   }
 
   /** A replay starts from the start scenes again: others unloaded, unloaded start scenes restored. */
@@ -2915,6 +3104,7 @@ class RuntimeInstance implements Runtime {
           game: this.gameControl,
           audio: this.audioControl,
           save: this.saveControl,
+          spawner: this.spawnControl,
         });
         (entry.instance as SimulationPhaseModule).step(phase, ctx);
       } else {
