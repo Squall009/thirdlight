@@ -224,6 +224,8 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     if (!r.ok) throw new Error(`retry failed: ${JSON.stringify(r)}`);
     expect(r.duplicated).toBe(true);
     expect(r.revision).toBe(6);
+    // Phase 14.8: the replay is the live acknowledgement, the edited scene included.
+    expect(r.sceneId).toBe('scene-main');
     expect(readFileSync(envPath).equals(frozen)).toBe(true);
     svc.dispose();
   }, 30000);

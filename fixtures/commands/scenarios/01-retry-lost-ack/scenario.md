@@ -26,7 +26,7 @@ atomic replacement. The success acknowledgement was lost in transit.
    (same `expectedRevision 4`, same `requestId`).
 2. `out`: the recorded result R5, returned with `duplicated: true`,
    `revision: 5`, the full `change` (setTransform, previous/next,
-   `changedFields: ["rotation"]`).
+   `changedFields: ["rotation"]`) and `sceneId: "scene-main"` (last key).
 
 ## Expected observations
 
@@ -43,12 +43,15 @@ atomic replacement. The success acknowledgement was lost in transit.
 ## Storage v4 notes
 
 - The live acknowledgement of A5 carried `sceneId: "scene-main"` (a v4
-  project names the scene a command edited). The retry record stores the
-  commands.md §5.1 payload **without** it, so the replay has no `sceneId`.
-  That is the current product behavior, pinned here; a client that needs
-  the scene of a replayed create finds it from the entity (queryEntity
-  reports `sceneId`). Carrying `sceneId` in records would change the record
-  format (the v4 record validator refuses unknown result keys).
+  project names the scene a command edited). The scene file's retry block
+  is record version 2 (`recordVersion: 2`, phase 14.8): record R5 stores
+  that acknowledgement, `sceneId` included, so the replay is the live
+  acknowledgement with `duplicated: true` — a client filing a replayed
+  create needs no extra query.
+- A retry block without `recordVersion` (record version 1, written before
+  phase 14.8) is still read: its records hold the commands.md §5.1 payload
+  without `sceneId` and replay without it
+  (`packages/workspace/tests/dedup-retry.test.ts`).
 
 ## Notes
 

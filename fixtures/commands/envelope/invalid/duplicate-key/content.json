@@ -24,6 +24,7 @@
     ]
   },
   "retry": {
+    "recordVersion": 2,
     "retention": 128,
     "records": []
   }

@@ -501,7 +501,11 @@ function buildService(core: Core): WorkspaceService {
         hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera, player and lights)',
       } as unknown as CommandError);
     }
-    const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: outcome.result };
+    // Phase 12 (c): the acknowledgement names the edited scene (the editor
+    // files new entities under it); a scene-index change names none. Phase
+    // 14.8: the record stores that acknowledgement, so a replay carries it.
+    const ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
+    const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
     const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
     const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, plan.writes);
     const nextState: V4State = { manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.files, fileRecords: plan.fileRecords };
@@ -521,11 +525,7 @@ function buildService(core: Core): WorkspaceService {
     }
     publishV4(s, nextState);
     s.history = outcome.state.history;
-    // Phase 12 (c): name the edited scene (the editor files new entities under it).
-    if (outcome.result.ok && outcome.result.change.type !== 'setSceneIndex') {
-      return { ...outcome.result, sceneId: carrierId };
-    }
-    return outcome.result;
+    return ack;
   }
 
   // ---- queries --------------------------------------------------------------

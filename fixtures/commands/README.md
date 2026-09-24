@@ -14,6 +14,7 @@ content.json            { storageVersion 4, type "project-content", projectId,
                           revision, content, retry }
 scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
                           scene (schemaVersion 4), retry }
+retry                   { recordVersion 2, retention 128, records }
 ```
 
 The project revision is the highest `revision` of its files; a transaction
@@ -63,10 +64,14 @@ Scenario conventions:
   "projectId" }`). Crash/restart steps are narrative in `scenario.md`, not
   messages.
 - A live acknowledgement of a v4 project names the edited scene (`sceneId`,
-  the last key). The retry record stores the §5.1 payload without it, so an
-  identical retry replays the record (`duplicated: true`) **without**
-  `sceneId`. The pure commands layer returns the payload without `sceneId`
-  too (the workspace appends it).
+  the last key; absent for a scene-index change). Every retry block carries
+  `recordVersion: 2` (phase 14.8): the record stores that acknowledgement,
+  so an identical retry replays it (`duplicated: true`) **with** the same
+  `sceneId`. A block without `recordVersion` (version 1, written before
+  phase 14.8) holds records without `sceneId`; the workspace still reads it
+  (those records replay without `sceneId`) and writes version 2 from the
+  next change of that file on. The pure commands layer returns the payload
+  without `sceneId` (the workspace appends it).
 - File bytes are canonical: UTF-8, LF, 2-space indent, one trailing
   newline, fixed key order.
 - Every retry record's `digest` is a **real SHA-256** over the digest-

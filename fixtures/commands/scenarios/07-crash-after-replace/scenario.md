@@ -26,8 +26,8 @@ project automatically (lockEpoch 1); the rev-7 project loads.
 2. `in`: the client retries A7 byte-identically (`expectedRevision: 6` —
    stale). `out`: the **recorded result replayed**: `revision: 7`,
    `createdId: "box-0004"`, `duplicated: true`, the original `change`
-   (createEntity box-0004), the original depths (7, 0), and no `sceneId`
-   (records keep the §5.1 payload; see scenario 01).
+   (createEntity box-0004), the original depths (7, 0), and the acked
+   `sceneId: "scene-main"` (record version 2 stores it; see scenario 01).
 
 ## Expected observations
 
