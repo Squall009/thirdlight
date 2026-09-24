@@ -175,7 +175,7 @@ fixtures (`platformer/src/constants.ts`, `physics-rapier/src/constants.ts`).
 | 15.1 generic Inspector | done 2026-09-24 | 97aa0c6 |
 | 15.2 Scene handles, instance copies | todo | |
 | 15.3 tuning values as data | done 2026-09-24 | c5d9d53, c69f144 |
-| 15.4 script property visibility | todo | |
+| 15.4 script property visibility | done 2026-09-24 | 7a1adf6, 359016a |
 | 15.5 defaults audit | todo | |
 | 15.6 wrap-up | todo | |
 
@@ -221,6 +221,7 @@ fixtures (`platformer/src/constants.ts`, `physics-rapier/src/constants.ts`).
 - 2026-09-24 (15.4): code declarations: `export const properties = { key: property[.public|.private].<type>(default, options?) }` in src/index.ts, read statically by a small literal parser in `behavior-build/src/declare.ts` (no evaluation; any other shape is `behavior_source_invalid`/`properties` with the position), then the statement is rewritten to plain data (key → declared property) before bundling so no `property` helper is needed at run time. Precedence: **code wins** — a JSON declaration sent with the source is ignored and the prepared (derived) declaration is what the publication asserts (the source route's `declaration` is optional); the manifest, prepared facts and the stored source record carry `declaredInCode: true`, and a JSON `declaration-update` of such a record is refused (`behavior_declaration_mismatch`, reason `declared_in_code`) — so declaration and code cannot drift. Only the entry file is read; a source still publishes into an existing record.
 - 2026-09-24 (15.4): the Play debug view reads the values from the running game: `tl.game.observe` (bridge), the observe HTTP body and the WS relay frame take an optional `entityId`; the preview answers `behaviors: { entityId, scripts: [{ behaviorId, properties: [{ key, label, type, visibility, value }] }] }` from the runtime's new read-only `behaviorProperties(entityId)` (≤ 8 scripts, strings clipped to 64 characters to stay in the 16 KiB bound). The editor polls it twice a second over the bridge (its own relay ids, not forwarded to the backend); `tl_game_observe {entityId}` returns the same block. Values are the instance's materialized values (constant for a run: scripts cannot write properties).
 - 2026-09-24 (15.4): the Behaviors tab's one-property form is replaced by `DeclarationEditor` (all seven types, visibility, group/header/tooltip, type limits, add/remove/reorder; one `publishBehavior`); the Inspector's behavior section (`PropertyControls.tsx`) shows public properties only, ungrouped first then one foldable section per group, headers and tooltips. The editor's "publish source" now goes through the source route with the stage (prepare + the same command) so a code declaration can be published from the editor.
+- 2026-09-24 (run): 15.3 and 15.4 were built in parallel with 15.1 and merged before 15.2 (which needs the descriptor-driven Inspector and the tuning fields to exist); items were started in order, only the merge order differs.
 
 ## 7. Appendix: where the hard-coded values live (survey 2026-09-24; lines drift)
 
@@ -251,4 +252,3 @@ fixtures (`platformer/src/constants.ts`, `physics-rapier/src/constants.ts`).
 - Stick dead zone 0.2: `input/src/types.ts:28`, `input/src/actions.ts:52`.
 - Editor dock/tabs: `editor/src/ui/App.tsx` (`centerTab` state, `BOTTOM_TABS`),
   `editor/src/ui/layout.ts` (dock sizes).
-- 2026-09-24 (run): 15.3 and 15.4 were built in parallel with 15.1 and merged before 15.2 (which needs the descriptor-driven Inspector and the tuning fields to exist); items were started in order, only the merge order differs.
