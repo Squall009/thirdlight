@@ -383,6 +383,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+      ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
     });
   }
 

@@ -88,11 +88,31 @@ export interface ControllerCapsule {
 }
 
 /**
- * §10.8/§21.1 the player controller. Its only field is the optional capsule
- * (phase 14.0, v4); absent = `DEFAULT_CONTROLLER_CAPSULE`.
+ * §10.8/§21.1 the player controller: the optional capsule (phase 14.0, v4;
+ * absent = `DEFAULT_CONTROLLER_CAPSULE`) and, phase 15.3 (v4), the optional
+ * movement tuning (absent = `DEFAULT_CONTROLLER_TUNING`, the values every
+ * project played with before they became data).
  */
 export interface ControllerComponent {
   capsule?: ControllerCapsule;
+  /** m/s² toward the commanded run speed. */
+  acceleration?: number;
+  /** m/s² toward a slower (or zero) commanded speed. */
+  deceleration?: number;
+  /** Seconds after leaving an edge in which a jump still starts. */
+  coyoteTime?: number;
+  /** Seconds a jump press is remembered before landing. */
+  jumpBuffer?: number;
+  /** Upward speed kept when the jump is released early (0–1). */
+  jumpRelease?: number;
+  /** Metres the character is pulled down onto ground below it each step. */
+  groundSnap?: number;
+  /** Metres of gap the character keeps from the world. */
+  skin?: number;
+  /** Climbs steps up to `autostepHeight` without jumping. */
+  autostep?: boolean;
+  /** Metres: the highest step autostep climbs. */
+  autostepHeight?: number;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */
@@ -132,6 +152,12 @@ export interface AssetMetrics {
   clipDurationMs: number;
   decodedGeometryBytes: number;
   decodedImageBytes: number;
+  /**
+   * Phase 15.3: the axis-aligned box of the model's vertices in its own space
+   * (metres, node transforms applied), recorded at import; absent for
+   * versions imported before.
+   */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
 /** The original a converted asset version was made from. */
@@ -303,6 +329,11 @@ export interface GameplaySettings {
   max_fall_speed: number;
   max_slope_climb_deg: number;
   min_slope_slide_deg: number;
+  /** Phase 15.3: engine settings, present only when the project sets them (absent: the engine default). */
+  fixed_step_hz?: number;
+  audio_voices?: number;
+  music_fade_s?: number;
+  animation_crossfade_s?: number;
 }
 
 // ---- content block and captured view (§18/§19) ---------------------------------

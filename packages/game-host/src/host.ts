@@ -792,6 +792,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       actions: config.input,
       ...(config.physics !== undefined ? { physics: config.physics } : {}),
       settings: config.settings,
+      // Phase 15.3: the project's step rate (absent: the runtime's 120 Hz).
+      ...(config.settings.fixed_step_hz !== undefined ? { fixedStepHz: config.settings.fixed_step_hz } : {}),
       onFrame: hostFrame,
     });
     if (res.ok === false) {
@@ -861,6 +863,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.setQuality !== undefined ? { setQuality: config.setQuality } : {}),
         ...(config.setLevelEnvironment !== undefined ? { setLevelEnvironment: config.setLevelEnvironment } : {}),
         ...(config.saveStorage !== undefined && config.saveNamespace !== undefined ? { save: createSaveStore(config.saveStorage, config.saveNamespace) } : {}),
+        // Phase 15.3: the project's music crossfade.
+        ...(config.settings.music_fade_s !== undefined ? { musicFade: config.settings.music_fade_s } : {}),
       });
       // The menu logo: the texture's own bytes as an object URL (no fetch).
       const logo = flow.ui?.logo;

@@ -1,10 +1,11 @@
 /**
- * Contract constants shared by the adapter and its tests (physics.md §6/§7/§8,
- * project-model §10.7/§21.6, decision 0002 §1.2). These are **contract
- * constants, not settings**: changing one changes replay semantics and the
- * frozen packet-14 course evidence, so they are not parameters of
- * `createPhysicsPort` (which only carries the resolved gameplay settings:
- * gravity, and the two slope angles).
+ * Constants shared by the adapter and its tests (physics.md §6/§7/§8,
+ * project-model §10.7/§21.6, decision 0002 §1.2). Phase 15.3: the step rate,
+ * skin, ground snap and autostep became data (the project's `fixed_step_hz`,
+ * the player's `controller` tuning) handed to `createPhysicsPort`; the values
+ * here are their defaults — the ones the frozen traces were made with, so a
+ * project that sets none replays exactly. The rest are engine limits and
+ * numeric tolerances.
  */
 
 /** The approved physics pin (dependencies.md §7; decision 0002 §1.2 item 1). */
@@ -13,8 +14,10 @@ export const RAPIER_PIN = '0.20.0' as const;
 /** The value of `PhysicsPort.implementation` for this adapter. */
 export const PHYSICS_IMPLEMENTATION = 'rapier2d-compat@0.20.0' as const;
 
-/** Fixed solver timestep (runtime.md §5: 120 Hz). */
+/** Fixed solver timestep (runtime.md §5: 120 Hz) — phase 15.3: the default of the project's `fixed_step_hz`. */
 export const FIXED_HZ = 120 as const;
+/** Phase 15.3: the step rates a project may choose (`fixed_step_hz`). */
+export const FIXED_HZ_CHOICES: readonly number[] = [60, 120, 240];
 
 /**
  * Phase 14.0: the character capsule is the player's data (`controller.capsule`,
@@ -26,10 +29,10 @@ export const FIXED_HZ = 120 as const;
 export const DEFAULT_CAPSULE_RADIUS = 0.3 as const;
 export const DEFAULT_CAPSULE_HALF_HEIGHT = 0.6 as const;
 
-/** Character controller gap kept between the capsule and the world. */
+/** Character controller gap kept between the capsule and the world (phase 15.3: the default of `controller.skin`). */
 export const CONTROLLER_OFFSET_SKIN = 0.01 as const;
 
-/** `enableSnapToGround(distance)` — the maximum ground snap applied per step. */
+/** `enableSnapToGround(distance)` — the maximum ground snap applied per step (phase 15.3: the default of `controller.groundSnap`). */
 export const GROUND_SNAP_DISTANCE = 0.1 as const;
 
 /**
@@ -63,7 +66,7 @@ export const ONE_WAY_LANDING_TOLERANCE = 0.06 as const;
 /** Ground-contact classification tolerance (physics.md §7, §8). */
 export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
 
-/** Autostep is a contract constant: disabled (no automatic stair climbing). */
+/** Autostep is off by default (phase 15.3: `controller.autostep` turns it on). */
 export const AUTOSTEP_DISABLED = false as const;
 
 /** Collider shape limits (project-model §10.7/§21.3). */

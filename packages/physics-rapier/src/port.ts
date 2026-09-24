@@ -19,16 +19,13 @@ import * as RAPIER from '@dimforge/rapier2d-compat';
 import type { CharacterClearanceResult, CharacterMoveResult, OverlapShape, StaticColliderSpec, Vec2 } from '@thirdlight/runtime';
 
 import {
-  AUTOSTEP_DISABLED,
   CLEARANCE_PENETRATION_EPS,
   CLEARANCE_RAY_EPS,
   CLEARANCE_SUPPORT_PROBE,
-  CONTROLLER_OFFSET_SKIN,
-  FIXED_HZ,
+  FIXED_HZ_CHOICES,
   GROUND_NORMAL_TOLERANCE,
   DEFAULT_CAPSULE_HALF_HEIGHT,
   DEFAULT_CAPSULE_RADIUS,
-  GROUND_SNAP_DISTANCE,
   ONE_WAY_LANDING_TOLERANCE,
   PHYSICS_IMPLEMENTATION,
 } from './constants';
@@ -89,10 +86,10 @@ function capsuleOf(config: RapierPhysicsInitConfig): CapsuleShape {
 }
 
 /**
- * Validate the whole init config before any WASM/world work. Contract
- * constants (physics.md §7) are enforced, not silently defaulted: `hz` 120,
- * `offsetSkin` 0.01, `groundSnap` 0.1, autostep disabled, and finite slope
- * angles from the resolved settings.
+ * Validate the whole init config before any WASM/world work. Nothing is
+ * silently defaulted: `hz` is one of the project step rates (60/120/240),
+ * the skin, ground snap and autostep (phase 15.3: the player's data) are in
+ * their ranges, and the slope angles from the resolved settings are finite.
  */
 function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
   if (typeof config !== 'object' || config === null) {
@@ -120,8 +117,8 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
   if (typeof solver !== 'object' || solver === null) {
     return { reason: 'invalid_config', message: 'solver config is required' };
   }
-  if (solver.hz !== FIXED_HZ) {
-    return { reason: 'invalid_config', message: `solver.hz must be ${FIXED_HZ} (contract constant)` };
+  if (!FIXED_HZ_CHOICES.includes(solver.hz)) {
+    return { reason: 'invalid_config', message: `solver.hz must be one of ${FIXED_HZ_CHOICES.join(', ')}` };
   }
   if (!finiteNumber(solver.gravityY)) {
     return { reason: 'invalid_config', message: 'solver.gravityY must be a finite number' };
@@ -130,20 +127,20 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
   if (typeof cc !== 'object' || cc === null) {
     return { reason: 'invalid_config', message: 'controller config is required' };
   }
-  if (cc.offsetSkin !== CONTROLLER_OFFSET_SKIN) {
-    return {
-      reason: 'invalid_config',
-      message: `controller.offsetSkin must be ${CONTROLLER_OFFSET_SKIN} (contract constant)`,
-    };
+  if (!finiteNumber(cc.offsetSkin) || cc.offsetSkin < 0.001 || cc.offsetSkin > 0.1) {
+    return { reason: 'invalid_config', message: 'controller.offsetSkin must be a finite number in [0.001, 0.1] m' };
   }
-  if (cc.groundSnap !== GROUND_SNAP_DISTANCE) {
-    return {
-      reason: 'invalid_config',
-      message: `controller.groundSnap must be ${GROUND_SNAP_DISTANCE} (contract constant)`,
-    };
+  if (!finiteNumber(cc.groundSnap) || cc.groundSnap < 0 || cc.groundSnap > 1) {
+    return { reason: 'invalid_config', message: 'controller.groundSnap must be a finite number in [0, 1] m' };
   }
-  if (cc.autostep !== AUTOSTEP_DISABLED) {
-    return { reason: 'invalid_config', message: 'controller.autostep must be false (contract constant)' };
+  if (typeof cc.autostep !== 'boolean') {
+    return { reason: 'invalid_config', message: 'controller.autostep must be true or false' };
+  }
+  if (cc.autostep && (!finiteNumber(cc.autostepHeight) || cc.autostepHeight < 0.01 || cc.autostepHeight > 2)) {
+    return { reason: 'invalid_config', message: 'controller.autostep needs autostepHeight, a finite number in [0.01, 2] m' };
+  }
+  if (cc.autostepMinWidth !== undefined && (!finiteNumber(cc.autostepMinWidth) || cc.autostepMinWidth <= 0 || cc.autostepMinWidth > 10)) {
+    return { reason: 'invalid_config', message: 'controller.autostepMinWidth must be a finite number in (0, 10] m' };
   }
   if (
     !finiteNumber(cc.maxSlopeClimbRad) ||
@@ -307,6 +304,9 @@ function createAdapter(
   };
   const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
   const snapDistance = config.controller.groundSnap;
+  // Phase 15.3: the skin (the correction bound's ground-offset part) and the autostep lift.
+  const skin = config.controller.offsetSkin;
+  const stepLift = config.controller.autostep ? (config.controller.autostepHeight ?? 0.25) : 0;
   // The authoritative character position is kept as a double here. Rapier
   // WASM stores collider translations as 32-bit floats, so the reported
   // `position`/`applied` are derived from this double (never from
@@ -582,7 +582,7 @@ function createAdapter(
       // runtime gives a `snapped` result (0.11 m). An airborne character can
       // never report it. Recorded as contract-change request C31-2.
       const verticalExtra = movement.y - commandedY;
-      const bound = snapDistance + CONTROLLER_OFFSET_SKIN + 1e-6;
+      const bound = snapDistance + skin + 1e-6;
       const snapped =
         rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= bound;
 
@@ -606,7 +606,8 @@ function createAdapter(
       // A moving platform or door that moved into the character in the last
       // world step may push it by up to that move (Phase 9.13).
       const kinematicSlack = Math.min(0.5, kinematicMoved);
-      const allowance = (snapped ? snapDistance + CONTROLLER_OFFSET_SKIN : 0.001) + kinematicSlack;
+      // Phase 15.3: an autostep lifts the character by up to the step height.
+      const allowance = (snapped ? snapDistance + skin : 0.001) + kinematicSlack + stepLift;
       if (appliedLength > requestedLength + allowance + 1e-12) {
         throw correctionError(
           `collision correction out of the contracted bound: requested ` +
@@ -864,11 +865,15 @@ export async function createPhysicsPort(
         config.character.y + cap.offset.y,
       ),
     );
-    const controller = world.createCharacterController(CONTROLLER_OFFSET_SKIN);
+    // Phase 15.3: the skin, ground snap and autostep are the player's data (defaults 0.01 m, 0.1 m, off).
+    const controller = world.createCharacterController(config.controller.offsetSkin);
     controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
     controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);
-    controller.enableSnapToGround(GROUND_SNAP_DISTANCE);
-    // Autostep stays disabled (contract constant): never enabled.
+    controller.enableSnapToGround(config.controller.groundSnap);
+    if (config.controller.autostep) {
+      // The step's top must leave room for the character (default: its radius); static bodies only.
+      controller.enableAutostep(config.controller.autostepHeight ?? 0.25, config.controller.autostepMinWidth ?? cap.radius, false);
+    }
     return { ok: true, port: createAdapter(world, characterCollider, controller, config, staticBodies, colliderInfo) };
   } catch (error) {
     world?.free();

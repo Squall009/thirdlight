@@ -59,6 +59,7 @@ import {
   type ShadowPlan,
   type ShadowReason,
 } from './lighting';
+import { createFadeTracker } from './fade';
 
 /** The runtime instance driving this scene (frame source + camera). */
 export interface SceneAdapterOptions {
@@ -257,6 +258,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       : null;
   /** Phase 9.9: entities the runtime hides (collected, defeated). */
   const hiddenIds = new Set<string>();
+  /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`), drawn at the runtime's opacity. */
+  const fades = createFadeTracker();
   /** Phase 9.7: the animator poses the runtime committed, played on the models. */
   const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
   const applyAnimatorPoses = (): void => {
@@ -899,6 +902,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         hiddenIds.add(id);
       }
     }
+    fades.apply(objects, (opts.runtime as { entityOpacity?: () => ReadonlyMap<string, number> }).entityOpacity?.());
     if (localShadowLights > 0 && owned.renderer !== null && !owned.renderer.shadowMap.enabled) {
       owned.renderer.shadowMap.enabled = true;
       owned.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -1086,6 +1090,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
     for (const rec of animatorPlayers.values()) rec.player.dispose();
+    fades.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
     materialLibrary?.dispose();

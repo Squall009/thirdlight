@@ -1182,7 +1182,7 @@
           }
         ],
         "solver": {
-          "hz": 60,
+          "hz": 90,
           "gravityY": -19.62
         },
         "controller": {
@@ -1197,7 +1197,7 @@
         "code": "physics_init_failed",
         "reason": "invalid_config"
       },
-      "note": "solver.hz is the 120 Hz contract constant"
+      "note": "solver.hz is one of the project step rates 60, 120, 240 (phase 15.3: the fixed_step_hz setting)"
     },
     {
       "id": "config-skin",
@@ -1227,7 +1227,7 @@
           "gravityY": -19.62
         },
         "controller": {
-          "offsetSkin": 0.02,
+          "offsetSkin": 0.2,
           "groundSnap": 0.1,
           "maxSlopeClimbRad": 0.785398163397,
           "minSlopeSlideRad": 0.523598775598,
@@ -1238,7 +1238,7 @@
         "code": "physics_init_failed",
         "reason": "invalid_config"
       },
-      "note": "offsetSkin 0.01 is a contract constant"
+      "note": "offsetSkin is 0.001-0.1 m (phase 15.3: the controller skin; default 0.01)"
     },
     {
       "id": "config-snap",
@@ -1269,7 +1269,7 @@
         },
         "controller": {
           "offsetSkin": 0.01,
-          "groundSnap": 0.05,
+          "groundSnap": 2,
           "maxSlopeClimbRad": 0.785398163397,
           "minSlopeSlideRad": 0.523598775598,
           "autostep": false
@@ -1279,7 +1279,7 @@
         "code": "physics_init_failed",
         "reason": "invalid_config"
       },
-      "note": "groundSnap 0.1 is a contract constant"
+      "note": "groundSnap is 0-1 m (phase 15.3: the controller ground snap; default 0.1)"
     },
     {
       "id": "config-autostep",
@@ -1320,7 +1320,7 @@
         "code": "physics_init_failed",
         "reason": "invalid_config"
       },
-      "note": "autostep is disabled by contract"
+      "note": "autostep needs autostepHeight (phase 15.3: controller.autostep is data; off by default)"
     },
     {
       "id": "config-gravity",

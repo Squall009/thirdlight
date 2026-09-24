@@ -120,6 +120,8 @@ export interface SceneAdapterModels {
    * wrapper-verified bytes (`count × 40`). Absent: instance sets stay empty.
    */
   readonly resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
+  /** Phase 15.3: the idle/run/airborne blend time (the project's `animation_crossfade_s`; absent: 0.2 s). */
+  readonly crossfadeSeconds?: number;
 }
 
 /** The bounded `models` diagnostics block (delivery.md (M4) §2.5 —
@@ -579,8 +581,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (entry !== undefined && entry.version === anim.version) {
           // Pre-commit (no committed view yet): the constant neutral motion —
           // the accepted pure selector then yields `idle` (delivery.md (M4) §2.4).
-          const controllerRes = createAnimationRoleController(instance, () =>
-            ctx.viewFor(entityId) ?? { stepIndex: 0, playerMotion: { speed: 0, grounded: true } },
+          const controllerRes = createAnimationRoleController(
+            instance,
+            () => ctx.viewFor(entityId) ?? { stepIndex: 0, playerMotion: { speed: 0, grounded: true } },
+            ctx.models.crossfadeSeconds,
           );
           if (controllerRes.ok === true) {
             const setRes = controllerRes.controller.setRoles(entry.roles, entry.version);

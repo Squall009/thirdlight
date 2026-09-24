@@ -79,6 +79,18 @@ export interface RuntimeSnapshot {
   animators?: readonly AnimatorController[];
   /** Phase 14.1, v4 only, optional: the project's prefab definitions (`ctx.spawn`). */
   prefabs?: readonly PrefabDefinition[];
+  /**
+   * Phase 15.3, v4 only, optional: model assetId -> its recorded bounds (the
+   * asset's import metrics; the runtime never loads a model). A pickup
+   * without a size collects over its model's bounds.
+   */
+  modelBounds?: Readonly<Record<string, ModelBounds>>;
+}
+
+/** Phase 15.3: a model's axis-aligned bounds in its own space (metres). */
+export interface ModelBounds {
+  readonly min: readonly [number, number, number];
+  readonly max: readonly [number, number, number];
 }
 
 /** Phase 12 (c): one scene of the project as the runtime knows it. */
@@ -756,6 +768,8 @@ export interface Runtime {
   readonly isPaused?: boolean;
   /** Phase 9.9: entities collected or defeated (the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;
+  /** Phase 15.3: entities fading out (id -> opacity 0-1; a defeated enemy with `defeat: "fade"`). */
+  entityOpacity?(): ReadonlyMap<string, number>;
   /** Phase 9.10: the sounds scripts played since the last call. */
   takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
   /** Phase 9.9: the run's counters and the player's health. */

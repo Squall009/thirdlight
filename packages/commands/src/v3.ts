@@ -44,7 +44,7 @@ import type {
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
   playerSpawn: [],
-  cameraFollow: ['deadZone', 'smoothing', 'bounds'],
+  cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
@@ -54,14 +54,14 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   // Phase 9.9: gameplay building blocks.
-  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn'],
+  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],
   audioSource: ['assetId', 'volume', 'range'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
   switch: ['mode', 'signal', 'size', 'once'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback'],
+  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -79,6 +79,10 @@ export const GAME_CONFIG_FIELDS = [
   'level',
   'killY',
   'cues',
+  // Phase 15.3 (v4): the session timing (optional; `null` in a partial edit goes back to the default).
+  'respawnDelay',
+  'dropThroughTime',
+  'settleTime',
 ] as const;
 
 /** §41.3.1 the three role keys, in canonical order. */

@@ -3,9 +3,10 @@
  * §4.2 (the swept-capsule constants), §8.2 (finite limits and defaults) and
  * the runtime.md §12.1 inventory (the module IDs).
  *
- * Every number here is a **contract constant** in the sense of accepted
- * `project-model.md` §21.6: it is not a `content.settings` key and changing
- * one changes replay semantics (and the frozen fixtures).
+ * These were **contract constants** (accepted `project-model.md` §21.6).
+ * Phase 15.3: the respawn delay is now the game block's `respawnDelay`
+ * (seconds; `respawnDelaySteps` below is its 120 Hz default, 0.25 s); the
+ * rest are engine limits and tolerances (listed in `docs/deployment.md`).
  */
 import type { GameZoneRole } from '@thirdlight/runtime';
 
@@ -31,7 +32,7 @@ export const GAME_ZONE_ROLES: readonly GameZoneRole[] = ['hazard', 'checkpoint',
  * fixtures and packets 49–51 share.
  */
 export const RUN_LIMITS = Object.freeze({
-  /** Bounded respawn delay in executed fixed steps (0.25 s at 120 Hz). */
+  /** Bounded respawn delay in executed fixed steps (0.25 s at 120 Hz) — phase 15.3: the default of `content.game.respawnDelay`. */
   respawnDelaySteps: 30,
   /** Retained `GameView` events; further events are evicted from the front. */
   maxGameEvents: 32,

@@ -57,8 +57,13 @@
  * additive read-only method).
  */
 
-/** Rule 3 — the concurrent voice cap (contract constant). */
+/**
+ * Rule 3 — the concurrent voice cap: phase 15.3, the default of the project's
+ * `audio_voices` setting (`maxVoices`), which may go up to `AUDIO_VOICE_LIMIT`.
+ */
 export const AUDIO_MAX_VOICES = 8;
+/** Phase 15.3: the engine limit on concurrent voices (`audio_voices` at most). */
+export const AUDIO_VOICE_LIMIT = 32;
 /** The bounded diagnostic ring size (drop-oldest). */
 export const AUDIO_MAX_DIAGNOSTICS = 64;
 /** The bounded per-asset registration store cap (distinct cue assets ≤ 6, §41.4.5). */
@@ -165,6 +170,8 @@ export interface GameAudioOwnerConfig {
    * silently; a later gesture may retry with a recovered environment).
    */
   readonly contextFactory?: () => AudioContextLike | null;
+  /** Phase 15.3: the project's `audio_voices` (1–32; absent: `AUDIO_MAX_VOICES`). */
+  readonly maxVoices?: number;
 }
 
 type AssetState =
@@ -229,6 +236,10 @@ export interface GameAudioOwner {
 
 export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAudioOwner {
   const factory = config.contextFactory;
+  const maxVoices =
+    typeof config.maxVoices === 'number' && Number.isFinite(config.maxVoices)
+      ? Math.max(1, Math.min(AUDIO_VOICE_LIMIT, Math.floor(config.maxVoices)))
+      : AUDIO_MAX_VOICES;
 
   let disposed = false;
   let context: AudioContextLike | null = null;
@@ -595,8 +606,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           );
           continue;
         }
-        if (voices.size >= AUDIO_MAX_VOICES) {
-          diag('voice_cap', event.assetId, `cue ${event.id} dropped: ${AUDIO_MAX_VOICES} voices busy (voice_cap — never queued)`);
+        if (voices.size >= maxVoices) {
+          diag('voice_cap', event.assetId, `cue ${event.id} dropped: ${maxVoices} voices busy (voice_cap — never queued)`);
           continue;
         }
         const source = ctx.createBufferSource();
@@ -777,8 +788,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     playSound(assetId, volume, bus = 'sfx') {
       if (disposed || muted || context === null || !unlocked || context.state === 'closed') return false;
-      if (voices.size >= AUDIO_MAX_VOICES) {
-        diag('voice_cap', assetId, `sound ${assetId} dropped: ${AUDIO_MAX_VOICES} voices busy`);
+      if (voices.size >= maxVoices) {
+        diag('voice_cap', assetId, `sound ${assetId} dropped: ${maxVoices} voices busy`);
         return false;
       }
       const buffer = bufferOf(assetId);

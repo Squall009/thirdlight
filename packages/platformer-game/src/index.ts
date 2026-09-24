@@ -25,6 +25,7 @@ export { stepZones, zoneOverlap, type GameZoneRect, type StepZonesInput, type Zo
 export { createGameSessionModule, platformerGameSessionSpec } from './session';
 export {
   CAMERA_CONSTANTS,
+  CAMERA_MAX_SPEED,
   CAMERA_SNAP_EPS,
   createGameCameraModule,
   followCamera,

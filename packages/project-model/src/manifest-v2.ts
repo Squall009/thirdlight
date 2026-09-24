@@ -167,6 +167,8 @@ export interface CapturedAssetV3 {
   materials?: Record<string, string>;
   /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** Model only (phase 15.3): the version's recorded bounds (absent for versions imported before). */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
 /** The captured v3 content view (delivery.md §2.3 `contentDigest` preimage). */
@@ -225,6 +227,8 @@ export interface ManifestAssetInputV2 {
   materials?: Record<string, string>;
   /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** Model only (phase 15.3): the version's recorded bounds (the runtime's pickups without a size read them). */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -311,6 +315,11 @@ function manifestError(code: string, message: string, reason?: string, found?: u
   };
 }
 
+/** Phase 15.3: a copy of recorded model bounds (canonical key order). */
+function boundsCopy(b: { min: readonly number[]; max: readonly number[] }): { min: [number, number, number]; max: [number, number, number] } {
+  return { min: [b.min[0]!, b.min[1]!, b.min[2]!], max: [b.max[0]!, b.max[1]!, b.max[2]!] };
+}
+
 /** The six resolved settings keys in registry order (delivery.md §2.3). */
 export const M3_SETTINGS_KEYS = [
   'gravity_y',
@@ -320,6 +329,13 @@ export const M3_SETTINGS_KEYS = [
   'max_slope_climb_deg',
   'min_slope_slide_deg',
 ] as const;
+
+/**
+ * Phase 15.3: the optional engine settings that may follow the six (only
+ * when the project sets them), in registry order — a project that never sets
+ * one keeps its exact settings block and digests.
+ */
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s'] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (delivery.md §2.3 `media`)
@@ -494,6 +510,8 @@ export function captureContentViewV3(
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
+      // Phase 15.3: a model version's recorded bounds (absent before; the digests of older captures are unchanged).
+      ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
     });
   }
   if (errors.length > 0) return fail(errors);
@@ -606,6 +624,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+      ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]
@@ -790,8 +809,14 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   const settings = d['settings'];
   if (!isPlainObject(settings)) return { ok: false, error: manifestError('manifest_invalid', 'settings must be an object', 'field_value') };
   const settingsKeys = Object.keys(settings);
-  if (settingsKeys.length !== M3_SETTINGS_KEYS.length || !settingsKeys.every((k, i) => k === M3_SETTINGS_KEYS[i])) {
-    return { ok: false, error: manifestError('manifest_invalid', 'settings must carry exactly the six registry keys in registry order', 'field_value', settingsKeys) };
+  const extraKeys = settingsKeys.slice(M3_SETTINGS_KEYS.length);
+  const optionalOrder = extraKeys.map((k) => (M3_OPTIONAL_SETTINGS_KEYS as readonly string[]).indexOf(k));
+  if (
+    settingsKeys.length < M3_SETTINGS_KEYS.length ||
+    !M3_SETTINGS_KEYS.every((k, i) => settingsKeys[i] === k) ||
+    optionalOrder.some((i, n) => i < 0 || (n > 0 && i <= optionalOrder[n - 1]!))
+  ) {
+    return { ok: false, error: manifestError('manifest_invalid', 'settings must carry the six registry keys in registry order, then only the optional engine settings the project sets, in registry order', 'field_value', settingsKeys) };
   }
   for (const k of settingsKeys) {
     if (typeof (settings as Record<string, unknown>)[k] !== 'number') {

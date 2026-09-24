@@ -560,6 +560,23 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(controllerOf(cleared.state)).toEqual({});
   });
 
+  it('phase 15.3: controller tuning is set, validated, reset with null and undone; engine settings are validated', () => {
+    const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'controller', value: {} }));
+    const controllerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { controller?: unknown }).controller;
+    const set = ok(mutation(added.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { jumpRelease: 1, coyoteTime: 0.1, autostep: true } }));
+    expect(JSON.stringify(controllerOf(set.state))).toBe('{"coyoteTime":0.1,"jumpRelease":1,"autostep":true}');
+    expect((set.result.change as unknown as { changedFields: string[] }).changedFields).toEqual(['coyoteTime', 'jumpRelease', 'autostep']);
+    expect(failCode(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { skin: 0.5 } }))).toBe('field_value');
+    const reset = ok(mutation(set.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { jumpRelease: null } }));
+    expect(controllerOf(reset.state)).toEqual({ coyoteTime: 0.1, autostep: true });
+    expect(controllerOf(ok(mutation(reset.state, 'undo', {})).state)).toEqual({ coyoteTime: 0.1, jumpRelease: 1, autostep: true });
+    // engine settings: a choice of step rates, whole voice counts
+    const hz = ok(mutation(baseState(), 'setSettings', { settings: { fixed_step_hz: 240 } }));
+    expect((hz.state.content as unknown as { settings: Record<string, number> }).settings['fixed_step_hz']).toBe(240);
+    expect(failCode(mutation(baseState(), 'setSettings', { settings: { fixed_step_hz: 100 } }))).toBe('field_value');
+    expect(failCode(mutation(baseState(), 'setSettings', { settings: { audio_voices: 2.5 } }))).toBe('field_value');
+  });
+
   it('phase 14.2: a trigger turns into a circle (radius) with stay mode in one edit, validated, undone in one step', () => {
     const triggerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { trigger?: unknown }).trigger;
     const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { size: [2, 2], signal: 'go' } }));

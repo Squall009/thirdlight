@@ -357,7 +357,8 @@ export async function exportProjectM3(
       three: readJsonStringField(ctx, ctx.threePackageJson, 'version'),
       typescript: readJsonStringField(ctx, ctx.typescriptPackageJson, 'version'),
       esbuild: esbuildVersion,
-      runtime: { fixedStepHz: 120, modules: [...closure.moduleIds] },
+      // Phase 15.3: the project's step rate (the fixed_step_hz setting; absent: 120).
+      runtime: { fixedStepHz: parsedManifest.settings.fixed_step_hz ?? 120, modules: [...closure.moduleIds] },
     },
     scene: {
       entityCount: sceneEntities.length,
