@@ -16,7 +16,8 @@ import type { ReactNode } from 'react';
 import type { GraphDocument } from '@thirdlight/project-model';
 
 import { GraphEditor } from '../../graph/GraphEditor';
-import type { GraphKindDef, GraphOp } from '../../graph/model';
+import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
+import { MaterialDocument, type MaterialDocumentProps } from '../material/MaterialDocument';
 import type { DocRef } from '../../session/workspace-tabs';
 import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
@@ -43,7 +44,11 @@ export interface WorkspaceHost {
     onSelection: (ids: readonly string[]) => void;
     /** A node to frame and focus (e.g. from the Problems tab). */
     focus: { id: string; nonce: number } | null;
+    /** Phase 18.1: sub-graph calls in a standalone graph (material functions calling functions) read their ports here. */
+    portContext: GraphContext;
   };
+  /** Phase 18.0: the props of one graph material's tab (all materials share them). */
+  material: Omit<MaterialDocumentProps, 'materialId'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -123,13 +128,28 @@ const graphKind: DocumentKind = {
         onEdit={(ops) => host.graph.onEdit(id, ops)}
         onSelection={host.graph.onSelection}
         focus={host.graph.focus}
+        portContext={host.graph.portContext}
       />
     );
   },
 };
 
+/** A small sphere glyph for material tabs. */
+const MATERIAL_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><defs><radialGradient id="g" cx="0.35" cy="0.35" r="0.7"><stop offset="0" stop-color="#ffe6a8"/><stop offset="1" stop-color="#b8742a"/></radialGradient></defs><circle cx="8" cy="8" r="6.5" fill="url(#g)"/></svg>');
+
+const materialKind: DocumentKind = {
+  kind: 'material',
+  label: 'Material',
+  icon: MATERIAL_ICON,
+  name: (id, host) => host.material.materials.find((m) => m.materialId === id)?.name ?? id,
+  // Phase 18.0: a graph material's node graph (MaterialDocument). Keyed by the material.
+  render: (id, host) => <MaterialDocument key={id} {...host.material} materialId={id} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

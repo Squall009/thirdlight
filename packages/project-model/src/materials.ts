@@ -13,6 +13,8 @@
  * defaults, like the surface presets).
  */
 import type { ModelErrorV2 } from './errors';
+import { canonicalGraphData, nodeFieldValue, validateGraphData, type GraphContext, type GraphData } from './graph';
+import { MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
@@ -106,7 +108,46 @@ export interface MaterialDef {
   shader: MaterialShader;
   params: Record<string, MaterialParamValue>;
   textures: Record<string, string>;
+  /**
+   * Phase 18.0: the exposed parameters of a graph material (read by its
+   * Parameter nodes; objects may override the public ones with the
+   * `materialParams` component). Absent = none.
+   */
+  parameters?: MaterialParameter[];
+  /**
+   * Phase 18.0: a node graph (graph kind `material`). A material with a graph
+   * is a graph material: at render time the graph replaces `shader`, `params`
+   * and `textures` (kept as the fallback until the graph compiler lands in
+   * 18.3, and for "convert back").
+   */
+  graph?: GraphData;
 }
+
+/** Phase 18.0: an exposed parameter of a graph material. */
+export interface MaterialParameter {
+  /** The name Parameter nodes and overrides use (an identifier). */
+  key: string;
+  type: MaterialParameterType;
+  /** float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none). */
+  default: number | number[] | string;
+  /** float / vec2–4: the range the value (every component) stays in. */
+  min?: number;
+  max?: number;
+  /** Like script properties (15.4): public (absent) = objects may override it; private = the material's own value only. */
+  visibility?: 'public' | 'private';
+  label?: string;
+  group?: string;
+  tooltip?: string;
+}
+
+/** Phase 18.0: the value an object stores to override a public parameter (see `MaterialParameter.default`). */
+export type MaterialParameterValue = number | number[] | string;
+
+/** Most exposed parameters of one material. */
+export const MAX_MATERIAL_PARAMETERS = 64;
+/** Phase 18.0: a parameter key — an identifier (it names the value in the graph and in overrides). */
+export const MATERIAL_PARAMETER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+const PARAM_BOUND = 1e6;
 
 /** Most materials per project. */
 export const MAX_MATERIALS = 256;
@@ -146,8 +187,115 @@ export function materialParamError(type: MaterialParamType, v: unknown): string 
   }
 }
 
+/** The port type a parameter feeds into a graph (`color` is a vec3). */
+export function materialParameterPortType(type: string): string | null {
+  if (type === 'color') return 'vec3';
+  return (MATERIAL_PARAMETER_TYPES as readonly string[]).includes(type) ? type : null;
+}
+
+/**
+ * Phase 18.1: the context a material's graph validates in — the project's
+ * standalone graphs (material-function calls) and its own parameters (the
+ * Parameter node's port type).
+ */
+export function materialGraphContext(parameters: readonly unknown[] | undefined, graphs: GraphContext | undefined): GraphContext {
+  return {
+    ...(graphs?.graph !== undefined ? { graph: graphs.graph } : {}),
+    lookup(name, value) {
+      if (name !== 'parameter') return null;
+      const p = (parameters ?? []).find((x) => isPlainObject(x) && x['key'] === value) as Record<string, unknown> | undefined;
+      return typeof p?.['type'] === 'string' ? materialParameterPortType(p['type']) : null;
+    },
+  };
+}
+
+/** One value against a parameter declaration (null = valid). */
+export function materialParameterValueError(p: Pick<MaterialParameter, 'type' | 'min' | 'max'>, v: unknown): string | null {
+  const inRange = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= PARAM_BOUND && (p.min === undefined || x >= p.min) && (p.max === undefined || x <= p.max);
+  const range = p.min !== undefined || p.max !== undefined ? ` in [${p.min ?? -PARAM_BOUND}, ${p.max ?? PARAM_BOUND}]` : '';
+  switch (p.type) {
+    case 'float':
+      return inRange(v) ? null : `a number${range}`;
+    case 'vec2':
+    case 'vec3':
+    case 'vec4': {
+      const n = Number(p.type.slice(3));
+      return Array.isArray(v) && v.length === n && v.every(inRange) ? null : `${n} numbers${range}`;
+    }
+    case 'color':
+      return typeof v === 'string' && COLOR_RE.test(v) ? null : 'a colour "#rrggbb" (lowercase hex)';
+    case 'texture':
+      return typeof v === 'string' && (v === '' || ID_RE.test(v)) ? null : 'a texture asset id (or "" for none)';
+    default:
+      return `one of ${MATERIAL_PARAMETER_TYPES.join(', ')}`;
+  }
+}
+
+const shortText = (v: unknown, max: number): boolean => typeof v === 'string' && v.length >= 1 && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
+
+/** Phase 18.0: a graph material's exposed parameters. */
+export function validateMaterialParameters(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(value) || value.length > MAX_MATERIAL_PARAMETERS) {
+    err(errors, 'field_value', path, `parameters is a list of at most ${MAX_MATERIAL_PARAMETERS}`, Array.isArray(value) ? value.length : value);
+    return;
+  }
+  const keys = new Set<string>();
+  value.forEach((p, i) => {
+    const pp = `${path}/${i}`;
+    if (!isPlainObject(p)) return err(errors, 'field_type', pp, 'a parameter is { key, type, default, min?, max?, visibility?, label?, group?, tooltip? }', p);
+    const allowed = ['key', 'type', 'default', 'min', 'max', 'visibility', 'label', 'group', 'tooltip'];
+    for (const k of Object.keys(p)) if (!allowed.includes(k)) err(errors, 'field_unexpected', `${pp}/${k}`, `unknown parameter field "${k}"`, k, allowed.join(', '));
+    const key = p['key'];
+    if (typeof key !== 'string' || !MATERIAL_PARAMETER_KEY_RE.test(key)) err(errors, 'field_value', `${pp}/key`, 'a parameter key is an identifier (a letter or _, then letters, digits or _; 1-32 characters)', key);
+    else if (keys.has(key)) err(errors, 'id_duplicate', `${pp}/key`, 'parameter keys are unique in a material', key);
+    else keys.add(key);
+    const type = p['type'];
+    if (typeof type !== 'string' || !(MATERIAL_PARAMETER_TYPES as readonly string[]).includes(type)) {
+      err(errors, 'field_value', `${pp}/type`, `type is one of ${MATERIAL_PARAMETER_TYPES.join(', ')}`, type);
+      return;
+    }
+    const numeric = type === 'float' || type.startsWith('vec');
+    for (const k of ['min', 'max'] as const) {
+      const v = p[k];
+      if (v === undefined) continue;
+      if (!numeric) err(errors, 'field_unexpected', `${pp}/${k}`, `a ${type} parameter has no ${k}`, k);
+      else if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > PARAM_BOUND) err(errors, 'field_value', `${pp}/${k}`, `${k} is a number within ±${PARAM_BOUND}`, v);
+    }
+    if (typeof p['min'] === 'number' && typeof p['max'] === 'number' && p['min'] > p['max']) err(errors, 'field_value', `${pp}/max`, 'max is at least min', p['max']);
+    if (p['default'] === undefined) err(errors, 'field_missing', `${pp}/default`, 'a parameter needs a default', undefined, 'default');
+    else {
+      const bad = materialParameterValueError({ type: type as MaterialParameterType, ...(typeof p['min'] === 'number' ? { min: p['min'] } : {}), ...(typeof p['max'] === 'number' ? { max: p['max'] } : {}) }, p['default']);
+      if (bad !== null) err(errors, 'field_value', `${pp}/default`, `the default is ${bad}`, p['default'], bad);
+    }
+    if (p['visibility'] !== undefined && p['visibility'] !== 'public' && p['visibility'] !== 'private') err(errors, 'field_value', `${pp}/visibility`, 'visibility is public or private', p['visibility']);
+    for (const [k, max] of [['label', 64], ['group', 64], ['tooltip', 256]] as const) {
+      if (p[k] !== undefined && !shortText(p[k], max)) err(errors, 'field_value', `${pp}/${k}`, `${k} is 1-${max} characters without control characters`, p[k]);
+    }
+  });
+}
+
+/**
+ * Phase 18.0: a material's graph against the material kind (catalogue, port
+ * types, cycles, the node budget) in its context, plus the material rule:
+ * every Parameter node names a declared parameter.
+ */
+export function validateMaterialGraph(material: Record<string, unknown>, path: string, errors: ModelErrorV2[], graphs?: GraphContext): void {
+  const parameters = Array.isArray(material['parameters']) ? (material['parameters'] as unknown[]) : [];
+  const before = errors.length;
+  validateGraphData(MATERIAL_GRAPH_KIND, material['graph'], `${path}/graph`, errors, materialGraphContext(parameters, graphs));
+  if (errors.length > before) return;
+  const g = material['graph'] as GraphData;
+  const keys = new Set(parameters.filter(isPlainObject).map((p) => p['key']));
+  const field = MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === 'parameter')!.fields![0]!;
+  g.nodes.forEach((n, i) => {
+    if (n.type !== 'parameter') return;
+    const key = nodeFieldValue(n, field);
+    if (!keys.has(key)) err(errors, 'reference_missing', `${path}/graph/nodes/${i}/data/key`, 'the Parameter node names no parameter of this material (declare it first)', key, [...keys].join(', ') || 'a declared parameter key');
+  });
+}
+
 /** `content.materials`: at most 256 materials, unique ids, known shader params and slots. */
-export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext): void {
   if (!Array.isArray(value)) {
     err(errors, 'field_type', path, 'materials must be an array', value, 'array of materials');
     return;
@@ -161,7 +309,7 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       return;
     }
     for (const k of Object.keys(m)) {
-      if (!['materialId', 'name', 'shader', 'params', 'textures'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph');
     }
     const id = m['materialId'];
     if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'id_invalid', `${p}/materialId`, 'materialId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', id);
@@ -196,7 +344,27 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
         else if (typeof v !== 'string' || !ID_RE.test(v)) err(errors, 'id_invalid', `${p}/textures/${k}`, 'a texture slot names a texture asset id', v);
       }
     }
+    // Phase 18.0: a graph material.
+    if (m['parameters'] !== undefined) validateMaterialParameters(m['parameters'], `${p}/parameters`, errors);
+    // Parameters without a graph are kept (inert) so a graph can be removed and added back.
+    if (m['graph'] !== undefined) validateMaterialGraph(m, p, errors, graphs);
   });
+}
+
+/** Phase 18.0: parameters in canonical form (list order kept: it is the Inspector's order). */
+export function canonicalMaterialParameters(list: readonly MaterialParameter[]): MaterialParameter[] {
+  return list.map((p) => ({
+    key: p.key,
+    type: p.type,
+    default: Array.isArray(p.default) ? [...p.default] : typeof p.default === 'string' && p.type === 'color' ? p.default.toLowerCase() : p.default,
+    ...(p.min !== undefined ? { min: p.min } : {}),
+    ...(p.max !== undefined ? { max: p.max } : {}),
+    // Public is the default and omitted (like script properties, 15.4).
+    ...(p.visibility === 'private' ? { visibility: 'private' as const } : {}),
+    ...(p.label !== undefined ? { label: p.label } : {}),
+    ...(p.group !== undefined ? { group: p.group } : {}),
+    ...(p.tooltip !== undefined ? { tooltip: p.tooltip } : {}),
+  }));
 }
 
 /** Canonical order: ascending materialId; params and textures by key. */
@@ -210,7 +378,20 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       shader: m.shader,
       params: sortKeys(Object.fromEntries(Object.entries(m.params).map(([k, v]) => [k, Array.isArray(v) ? [v[0], v[1]] as [number, number] : v]))),
       textures: sortKeys(m.textures),
+      // Phase 18.0: after the 9.4 fields, so a shader material keeps its exact bytes.
+      ...(m.parameters !== undefined && m.parameters.length > 0 ? { parameters: canonicalMaterialParameters(m.parameters) } : {}),
+      ...(m.graph !== undefined ? { graph: canonicalGraphData(m.graph) } : {}),
     }));
+}
+
+/**
+ * Phase 18.0: the materials as the runtime gets them until the graph
+ * compiler lands (18.3): without `graph` and `parameters` — the renderer
+ * draws a graph material with its shader fallback, and editor-only graph
+ * text (comments, group titles) never reaches a build.
+ */
+export function materialsForRuntime(list: readonly MaterialDef[]): MaterialDef[] {
+  return list.map(({ graph: _g, parameters: _p, ...rest }) => rest);
 }
 
 /**
@@ -553,4 +734,76 @@ export function validateFogVolumeComponent(value: unknown, path: string, errors:
 
 export function canonicalFogVolume(v: FogVolumeComponent): FogVolumeComponent {
   return { size: [v.size[0], v.size[1], v.size[2]], density: v.density, color: v.color.toLowerCase(), ...(v.falloff !== undefined ? { falloff: v.falloff } : {}), ...(v.heightFalloff !== undefined ? { heightFalloff: v.heightFalloff } : {}) };
+}
+
+// ---- phase 18.0: per-object overrides of exposed parameters -------------------------
+
+/**
+ * The `materialParams` component: overrides of graph-material parameters on
+ * one object, `{ <materialId>: { <parameter key>: value } }`. It extends the
+ * object's material mapping (the `materials` component, or its model asset's
+ * default mapping): the mapping chooses the materials, this sets their public
+ * parameters for this object only. Values are checked against the material's
+ * declarations by the project rules (`materialOverrideErrors`).
+ */
+export type MaterialParamsComponent = Record<string, Record<string, MaterialParameterValue>>;
+
+export function validateMaterialParamsComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) {
+    err(errors, 'field_type', path, 'material parameter overrides are an object { <materialId>: { <parameter>: value } }', value);
+    return;
+  }
+  const ids = Object.keys(value);
+  if (ids.length < 1 || ids.length > MAX_MATERIAL_SLOTS) err(errors, 'field_value', path, `material parameter overrides name 1-${MAX_MATERIAL_SLOTS} materials`, ids.length);
+  for (const id of ids) {
+    if (!ID_RE.test(id)) err(errors, 'id_invalid', `${path}/${id}`, 'a key is a materialId', id);
+    const o = value[id];
+    if (!isPlainObject(o) || Object.keys(o).length < 1 || Object.keys(o).length > MAX_MATERIAL_PARAMETERS) {
+      err(errors, 'field_value', `${path}/${id}`, `a material's overrides are an object of 1-${MAX_MATERIAL_PARAMETERS} parameter values`, o);
+      continue;
+    }
+    for (const [k, v] of Object.entries(o)) {
+      if (!MATERIAL_PARAMETER_KEY_RE.test(k)) err(errors, 'field_value', `${path}/${id}/${k}`, 'a parameter key is an identifier', k);
+      const ok = (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'string' || (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x)));
+      if (!ok) err(errors, 'field_type', `${path}/${id}/${k}`, 'a parameter value is a number, 2-4 numbers or a string', v);
+    }
+  }
+}
+
+export function canonicalMaterialParams(c: MaterialParamsComponent): MaterialParamsComponent {
+  return Object.fromEntries(
+    Object.keys(c)
+      .sort()
+      .map((id) => [id, Object.fromEntries(Object.keys(c[id]!).sort().map((k) => { const v = c[id]![k]!; return [k, Array.isArray(v) ? [...v] : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; }))]),
+  );
+}
+
+/**
+ * The project rule for one object's overrides: each names a graph material
+ * of the project and one of its public parameters, with a value that fits
+ * the declaration. Returns [relative path, code, message, found] tuples.
+ */
+export function materialOverrideErrors(overrides: MaterialParamsComponent, materials: readonly MaterialDef[]): { path: string; code: string; message: string; found: unknown }[] {
+  const out: { path: string; code: string; message: string; found: unknown }[] = [];
+  for (const [id, values] of Object.entries(overrides)) {
+    const m = materials.find((x) => x.materialId === id);
+    if (m === undefined) {
+      out.push({ path: `/${id}`, code: 'reference_missing', message: 'the overrides name no material of this project', found: id });
+      continue;
+    }
+    if (m.graph === undefined) {
+      out.push({ path: `/${id}`, code: 'field_value', message: 'only a graph material has parameters to override', found: id });
+      continue;
+    }
+    for (const [k, v] of Object.entries(values)) {
+      const p = (m.parameters ?? []).find((x) => x.key === k);
+      if (p === undefined) out.push({ path: `/${id}/${k}`, code: 'reference_missing', message: `material "${m.name}" has no parameter "${k}"`, found: k });
+      else if (p.visibility === 'private') out.push({ path: `/${id}/${k}`, code: 'field_value', message: `parameter "${k}" of material "${m.name}" is private: objects cannot override it`, found: k });
+      else {
+        const bad = materialParameterValueError(p, v);
+        if (bad !== null) out.push({ path: `/${id}/${k}`, code: 'field_value', message: `${k} must be ${bad}`, found: v });
+      }
+    }
+  }
+  return out;
 }

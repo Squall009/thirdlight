@@ -13,7 +13,7 @@
  */
 
 import { canonicalAnimators, canonicalFlow, canonicalInput, validateAnimatorController, validateFlow, validateInput, type AnimatorController, type GameFlow, type InputConfig } from '@thirdlight/project-model';
-import { canonicalEnvironment, canonicalLighting, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
+import { canonicalEnvironment, canonicalLighting, GRAPH_KINDS, graphDocumentsContext, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type GraphDocument, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -48,7 +48,8 @@ function commit(
 export function applySetMaterial(input: OpInput, args: { material: MaterialDef }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const errors: ModelErrorV2[] = [];
-  validateMaterials([args.material], '', errors);
+  // Phase 18.0: a graph material's calls resolve against the project's material functions.
+  validateMaterials([args.material], '', errors, graphDocumentsContext(GRAPH_KINDS, (catalog as { graphs?: GraphDocument[] }).graphs));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/material') };
   const previous = deepClone(catalog.materials ?? []);
   const next = [...previous.filter((m) => m.materialId !== args.material.materialId), deepClone(args.material)];

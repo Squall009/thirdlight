@@ -800,3 +800,11 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-graphs__meta { flex: 1; color: var(--text-dim); font-size: 12px; }
 .tl-problem__link { background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; }
 .tl-problem__link:hover { text-decoration: underline; }
+
+/* Phase 18.0: the Material tab (graph materials). */
+.tl-material-doc__note { margin: 0; font-size: 12px; }
+.tl-material-params { display: flex; flex-direction: column; gap: 6px; }
+.tl-material-params .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tl-material-param { display: grid; grid-template-columns: 1fr 70px; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); }
+.tl-material-param .tl-input { min-width: 0; }
+.tl-material-overrides { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }

@@ -20,7 +20,7 @@
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
-import { canonicalFogVolume, canonicalMaterialMapping, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, type FogVolumeComponent } from './materials';
+import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
 import {
   canonicalBox,
   canonicalCamera,
@@ -125,7 +125,8 @@ const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activa
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES];
+// Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -848,6 +849,13 @@ function validateEntityComponentsV3(
       errors.push(componentMissing(`${path}/materials`, 'model|box|instances', 'a materials component sits only on an entity with a model, a box or an instance set'));
     }
   }
+  if (comps['materialParams'] !== undefined) {
+    // Phase 18.0: overrides of the object's graph materials' public parameters.
+    validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
+    if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
+      errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances', 'material parameter overrides sit only on an entity with a model, a box or an instance set'));
+    }
+  }
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   // Phase 9.9: gameplay building blocks.
@@ -1108,6 +1116,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
   if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
   if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
+  if (comps['materialParams'] !== undefined) components.materialParams = canonicalMaterialParams(comps['materialParams'] as MaterialParamsComponent);
   if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
   if (comps['animator'] !== undefined) components.animator = canonicalAnimatorComponent(comps['animator'] as AnimatorComponent);
   for (const name of BLOCK_COMPONENT_NAMES) {

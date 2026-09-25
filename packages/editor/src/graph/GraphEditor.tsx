@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 
 import {
-  alignOps,
+  alignOps as alignOpsBase,
   boundsOf,
   commentRect,
   compatibleNodeDefs,
@@ -37,20 +37,22 @@ import {
   diagnoseGraph,
   fitView,
   fixedTypesOf,
-  groupAround,
+  groupAround as groupAroundBase,
   GROUP_HEADER,
   groupRect,
   HEADER,
   inside,
-  itemsInGroup,
+  itemsInGroup as itemsInGroupBase,
   makeIdFactory,
   nodeDefOf,
-  nodeRect,
+  nodeRect as nodeRectBase,
   nodeTitle,
   overlaps,
   pasteItems,
-  planConnection,
-  portPoint,
+  planConnection as planConnectionBase,
+  portPoint as portPointBase,
+  portsResolver,
+  staticPorts,
   portTypeColor,
   portTypeLabel,
   ROW,
@@ -63,6 +65,7 @@ import {
   GRID,
   type Alignment,
   type GraphClipboard,
+  type GraphContext,
   type GraphData,
   type GraphKindDef,
   type GraphNodeDef,
@@ -71,6 +74,7 @@ import {
   type GraphProblem,
   type GraphValue,
   type PortEnd,
+  type PortsOf,
   type Rect,
   type View,
 } from './model';
@@ -99,6 +103,12 @@ export interface GraphEditorProps {
   newNodeData?: (type: string) => Record<string, GraphValue> | undefined;
   /** Phase 16.2: a node's body was double-clicked (e.g. open a blend tree's own graph). */
   onOpenNode?: (id: string) => void;
+  /**
+   * Phase 18.1: what data-dependent ports read outside the graph — the
+   * standalone graphs a sub-graph call names and external declarations
+   * (e.g. a material's parameters). Absent = none.
+   */
+  portContext?: GraphContext;
 }
 
 /** Copy/paste between editors of the same graph kind (document tabs of one kind). */
@@ -135,8 +145,20 @@ interface Catalogue {
   active: number;
 }
 
-export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode }: GraphEditorProps): JSX.Element {
+export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext }: GraphEditorProps): JSX.Element {
   const fixedTypes = useMemo(() => fixedTypesOf(kind), [kind]);
+  // Phase 18.1: every node's resolved ports for this graph value; the geometry
+  // helpers below read the current table through a ref (callbacks keep working).
+  const portsOf = useMemo(() => portsResolver(kind, graph, portContext), [kind, graph, portContext]);
+  const portsRef = useRef<PortsOf>(portsOf);
+  portsRef.current = portsOf;
+  const portPoint = (k: GraphKindDef, n: GraphData['nodes'][number], side: 'in' | 'out', port: string, position: GraphPoint = n.position): GraphPoint => portPointBase(k, n, side, port, position, portsRef.current);
+  const nodeRect = (k: GraphKindDef, n: GraphData['nodes'][number], position: GraphPoint = n.position): Rect => nodeRectBase(k, n, position, portsRef.current);
+  const planConnection = (k: GraphKindDef, g: GraphData, a: PortEnd, b: PortEnd): ReturnType<typeof planConnectionBase> => planConnectionBase(k, g, a, b, portsRef.current);
+  const itemsInGroup = (k: GraphKindDef, g: GraphData, gr: NonNullable<GraphData['groups']>[number]): string[] => itemsInGroupBase(k, g, gr, portsRef.current);
+  const alignOps = (k: GraphKindDef, g: GraphData, ids: ReadonlySet<string>, how: Alignment, snapOn2: boolean): GraphOp | null => alignOpsBase(k, g, ids, how, snapOn2, portsRef.current);
+  const groupAround = (k: GraphKindDef, g: GraphData, ids: ReadonlySet<string>, id: string, color: string): NonNullable<GraphData['groups']>[number] | null => groupAroundBase(k, g, ids, id, color, 'Group', portsRef.current);
+  const portsOfNode = (n: GraphData['nodes'][number]): { inputs: readonly { id: string; label: string; type: string }[]; outputs: readonly { id: string; label: string; type: string }[] } => portsRef.current(n);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const miniRef = useRef<HTMLCanvasElement | null>(null);
@@ -163,7 +185,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   const [pendingPort, setPendingPort] = useState<PortEnd | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
 
-  const problems = useMemo(() => diagnoseGraph(kind, graph), [kind, graph]);
+  const problems = useMemo(() => diagnoseGraph(kind, graph, portsOf), [kind, graph, portsOf]);
   const problemsByNode = useMemo(() => {
     const m = new Map<string, GraphProblem[]>();
     for (const p of problems) if (p.nodeId !== undefined) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p]);
@@ -198,13 +220,13 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       const n = graphRef.current.nodes.find((x) => x.id === d.from.node);
       if (n !== undefined) {
         const p = portPoint(kind, n, d.from.side, d.from.port);
-        const def = nodeDefOf(kind, n.type);
-        const port = (d.from.side === 'in' ? def?.inputs : def?.outputs)?.find((x) => x.id === d.from.port);
+        const own = portsOfNode(n);
+        const port = (d.from.side === 'in' ? own.inputs : own.outputs).find((x) => x.id === d.from.port);
         wire = d.from.side === 'out' ? { from: p, to: d.at, color: portTypeColor(kind, port?.type ?? ''), ok: d.ok } : { from: d.at, to: p, color: portTypeColor(kind, port?.type ?? ''), ok: d.ok };
       }
     }
     const box = d?.mode === 'box' ? { x: Math.min(d.start[0], d.now[0]), y: Math.min(d.start[1], d.now[1]), w: Math.abs(d.now[0] - d.start[0]), h: Math.abs(d.now[1] - d.start[1]) } : null;
-    return { kind, graph: graphRef.current, view: viewRef.current, width: sizeRef.current.w, height: sizeRef.current.h, moved: movedRef.current, selected: selectionRef.current, problems: problemsByNode, wire, box, hoverEdge, ...(edgeLabels !== undefined ? { edgeLabels } : {}), ...(highlighted !== undefined ? { highlighted } : {}) };
+    return { kind, portsOf: portsRef.current, graph: graphRef.current, view: viewRef.current, width: sizeRef.current.w, height: sizeRef.current.h, moved: movedRef.current, selected: selectionRef.current, problems: problemsByNode, wire, box, hoverEdge, ...(edgeLabels !== undefined ? { edgeLabels } : {}), ...(highlighted !== undefined ? { highlighted } : {}) };
   }, [kind, problemsByNode, hoverEdge, edgeLabels, highlighted]);
 
   const draw = useCallback(() => {
@@ -288,7 +310,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     const key = `${owner.kind}:${owner.id}`;
     if (framedRef.current === key) return;
     framedRef.current = key;
-    const b = boundsOf(allRects(kind, graph));
+    const b = boundsOf(allRects(kind, graph, portsRef.current));
     if (b !== null) setView(fitView(b, sizeRef.current.w, sizeRef.current.h));
     else setView({ x: 40, y: 40, zoom: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -330,8 +352,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
         const n = { ...n0, position: pos(n0.id, n0.position) };
         const r = nodeRect(kind, n);
         if (!inside({ x: r.x - portR, y: r.y - portR, w: r.w + 2 * portR, h: r.h + 2 * portR }, p)) continue;
-        const def = nodeDefOf(kind, n.type);
-        for (const [side, list] of [['in', def?.inputs ?? []], ['out', def?.outputs ?? []]] as const) {
+        const own = portsOfNode(n);
+        for (const [side, list] of [['in', own.inputs], ['out', own.outputs]] as const) {
           for (const port of list) {
             const pt = portPoint(kind, n, side, port.id);
             if (Math.hypot(pt[0] - p[0], pt[1] - p[1]) <= portR) return { type: 'port', end: { node: n.id, port: port.id, side } };
@@ -398,7 +420,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   const frame = useCallback(
     (ids: ReadonlySet<string> | null) => {
       const g = graphRef.current;
-      const rects = ids === null || ids.size === 0 ? allRects(kind, g) : allRects(kind, g, ids);
+      const rects = ids === null || ids.size === 0 ? allRects(kind, g, portsRef.current) : allRects(kind, g, portsRef.current, ids);
       const b = boundsOf(rects);
       if (b !== null) setView(fitView(b, sizeRef.current.w, sizeRef.current.h));
     },
@@ -503,11 +525,12 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       let connectTo: { from: { node: string; port: string }; to: { node: string; port: string }; replaces: string[] } | null = null;
       if (c.from !== null) {
         const fromNode = g.nodes.find((n) => n.id === c.from!.node);
-        const fromDef = fromNode !== undefined ? nodeDefOf(kind, fromNode.type) : undefined;
-        const fromPort = (c.from.side === 'out' ? fromDef?.outputs : fromDef?.inputs)?.find((p) => p.id === c.from!.port);
+        const fromPorts = fromNode !== undefined ? portsOfNode(fromNode) : { inputs: [], outputs: [] };
+        const fromPort = (c.from.side === 'out' ? fromPorts.outputs : fromPorts.inputs).find((p) => p.id === c.from!.port);
         const match = fromPort !== undefined ? compatibleNodeDefs(kind, fromPort.type, c.from.side).find((x) => x.def.type === type) : undefined;
         if (match !== undefined) {
-          const list = c.from.side === 'out' ? def.inputs : def.outputs;
+          const fresh = staticPorts(kind, { id, type, position, ...withData }, portContext);
+          const list = c.from.side === 'out' ? fresh.inputs : fresh.outputs;
           const row = Math.max(0, list.findIndex((p) => p.id === match.port));
           // Put the new node's port under the drop point.
           position = [snap(c.at[0] - (c.from.side === 'out' ? 0 : 180), snapOn), snap(c.at[1] - HEADER - ROW / 2 - row * ROW, snapOn)];
@@ -524,7 +547,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       }
       if (await edit(ops, `added ${def.label}`)) setSelection(new Set([id]));
     },
-    [catalogue, edit, kind, setSelection, snapOn, newNodeData],
+    [catalogue, edit, kind, setSelection, snapOn, newNodeData, portContext],
   );
 
   const connect = useCallback(
@@ -909,8 +932,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     if (catalogue.from !== null) {
       const g = graphRef.current;
       const n = g.nodes.find((x) => x.id === catalogue.from!.node);
-      const d = n !== undefined ? nodeDefOf(kind, n.type) : undefined;
-      const port = (catalogue.from.side === 'out' ? d?.outputs : d?.inputs)?.find((p) => p.id === catalogue.from!.port);
+      const own = n !== undefined ? portsOfNode(n) : { inputs: [], outputs: [] };
+      const port = (catalogue.from.side === 'out' ? own.outputs : own.inputs).find((p) => p.id === catalogue.from!.port);
       only = port !== undefined ? compatibleNodeDefs(kind, port.type, catalogue.from.side).map((x) => x.def) : [];
     }
     return searchCatalogue(kind, catalogue.query, only);
@@ -1089,7 +1112,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
                 }}
               >
                 {(['in', 'out'] as const).flatMap((side) =>
-                  ((side === 'in' ? def?.inputs : def?.outputs) ?? []).map((port) => {
+                  (side === 'in' ? portsOfNode(n).inputs : portsOfNode(n).outputs).map((port) => {
                     const pt = portPoint(kind, { ...n, position: p }, side, port.id);
                     return (
                       <button
@@ -1244,10 +1267,10 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   }
 }
 
-function allRects(kind: GraphKindDef, g: GraphData, only?: ReadonlySet<string>): Rect[] {
+function allRects(kind: GraphKindDef, g: GraphData, portsOf: PortsOf, only?: ReadonlySet<string>): Rect[] {
   const keep = (id: string): boolean => only === undefined || only.has(id);
   return [
-    ...g.nodes.filter((n) => keep(n.id)).map((n) => nodeRect(kind, n)),
+    ...g.nodes.filter((n) => keep(n.id)).map((n) => nodeRectBase(kind, n, n.position, portsOf)),
     ...(g.comments ?? []).filter((c) => keep(c.id)).map((c) => commentRect(c)),
     ...(g.groups ?? []).filter((x) => keep(x.id)).map((x) => groupRect(x)),
   ];

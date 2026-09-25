@@ -115,7 +115,8 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { GraphsPanel } from '../graph/GraphsPanel';
-import { diagnoseGraph, type GraphKindDef, type GraphOp } from '../graph/model';
+import { diagnoseGraph, portsResolver, type GraphKindDef, type GraphOp } from '../graph/model';
+import { graphsPortContext, materialPortContext } from '../session/material-graph';
 import type { GraphDocument } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
@@ -305,18 +306,31 @@ function EditorApp(): JSX.Element {
     setAnimatorSelection({ ownerId: '', ids: [] });
     setAnimatorFocus(null);
   }, [activeAnimatorId]);
+  // Phase 18.1: sub-graph calls (material functions) read their ports from the project's graphs.
+  const graphsContext = useMemo(() => graphsPortContext(graphs, graphKinds), [graphs, graphKinds]);
+  // Phase 18.0: the graph material of the active centre tab (its node inspector shows in the right dock).
+  const [materialSelection, setMaterialSelection] = useState<readonly string[]>([]);
+  const [materialFocus, setMaterialFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const activeMaterialId = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'material' ? d.id : null;
+  })();
+  useEffect(() => {
+    setMaterialSelection([]);
+    setMaterialFocus(null);
+  }, [activeMaterialId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
   const graphIssues = useMemo(
     () =>
       graphs.flatMap((g) => {
         const k = graphKinds[g.kind];
         if (k === undefined) return [];
-        return diagnoseGraph(k, g.graph).map((p, i) => {
+        return diagnoseGraph(k, g.graph, portsResolver(k, g.graph, graphsContext)).map((p, i) => {
           const node = p.nodeId !== undefined ? g.graph.nodes.find((n) => n.id === p.nodeId) : undefined;
           return { key: `${g.graphId}:${i}`, graphId: g.graphId, graphName: g.name, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}), nodeLabel: node !== undefined ? (k.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null, severity: p.severity, message: p.message };
         });
       }),
-    [graphs, graphKinds],
+    [graphs, graphKinds, graphsContext],
   );
   // A graph that went away (deleted here, by MCP or undone) closes its tab.
   useEffect(() => {
@@ -611,10 +625,12 @@ function EditorApp(): JSX.Element {
     const env = c.getEnvironment();
     setMaterials(mats);
     setEnvironment(env);
-    const matsKey = JSON.stringify(mats);
+    // Phase 18.0: the renderer gets the shader part only (a graph renders with its shader until 18.3), so a graph edit never rebuilds the Scene view's materials.
+    const libMats = mats.map(({ graph: _g, parameters: _p, ...rest }) => rest);
+    const matsKey = JSON.stringify(libMats);
     if (matsKey !== materialsKeyRef.current) {
       materialsKeyRef.current = matsKey;
-      materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[]);
+      materialLibraryRef.current?.setMaterials(libMats as unknown as MaterialDefLike[]);
     }
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
@@ -2485,6 +2501,12 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure('Materials', await c.setComponent(entityId, 'materials', mapping, c.projection.revision));
   }, [reportFailure]);
+  // Phase 18.0: an object's overrides of its graph materials' public parameters (one setComponent, whole value).
+  const setEntityMaterialParams = useCallback(async (entityId: string, next: Record<string, Record<string, number | number[] | string>> | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    reportFailure('Material parameters', await c.setComponent(entityId, 'materialParams', next, c.projection.revision));
+  }, [reportFailure]);
   const setAssetMaterials = useCallback(async (assetId: string, mapping: Record<string, string> | null) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2961,6 +2983,18 @@ function EditorApp(): JSX.Element {
       onEdit: (graphId, ops) => sendGraphEdit({ kind: 'graph', id: graphId }, ops),
       onSelection: setGraphSelection,
       focus: graphFocus,
+      portContext: graphsContext,
+    },
+    material: {
+      materials,
+      kinds: graphKinds,
+      graphs,
+      textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+      onEdit: (materialId, ops) => sendGraphEdit({ kind: 'material', id: materialId }, ops),
+      onSave: (m) => void saveMaterial(m),
+      onSelection: setMaterialSelection,
+      focus: materialFocus,
+      error: materialError,
     },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
@@ -3468,6 +3502,7 @@ function EditorApp(): JSX.Element {
               onSave={(m) => void saveMaterial(m)}
               onDelete={(id) => void deleteMaterial(id)}
               error={materialError}
+              onOpen={(id) => openDocument('material', id)}
             />
           )}
           {bottomTab === 'environment' && (
@@ -3581,7 +3616,32 @@ function EditorApp(): JSX.Element {
         ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">
             <div className="tl-panel__title">Inspector</div>
-            <GraphInspector kind={graphKinds[openGraph.kind]!} graph={openGraph.graph} ids={graphSelection} onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)} />
+            <GraphInspector
+              kind={graphKinds[openGraph.kind]!}
+              graph={openGraph.graph}
+              ids={graphSelection}
+              onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)}
+              portContext={graphsContext}
+              assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+            />
+          </div>
+        ) : activeMaterialId !== null && graphKinds['material'] !== undefined && materials.find((m) => m.materialId === activeMaterialId)?.graph !== undefined ? (
+          <div className="tl-inspector" aria-label="material graph inspector">
+            <div className="tl-panel__title">Inspector</div>
+            {(() => {
+              const m = materials.find((x) => x.materialId === activeMaterialId)!;
+              return (
+                <GraphInspector
+                  kind={graphKinds['material']!}
+                  graph={m.graph!}
+                  ids={materialSelection}
+                  onEdit={(ops) => sendGraphEdit({ kind: 'material', id: m.materialId }, ops)}
+                  portContext={materialPortContext(m.parameters, graphs, graphKinds)}
+                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  empty={<div className="tl-inspector__empty">Select a node, wire, group or comment of “{m.name}”.</div>}
+                />
+              );
+            })()}
           </div>
         ) : (
         <Inspector
@@ -3651,8 +3711,16 @@ function EditorApp(): JSX.Element {
                       mapping={selected.materials ?? null}
                       materials={materials}
                       onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
+                      overrides={{
+                        value: (selected.components['materialParams'] as Record<string, Record<string, number | number[] | string>> | undefined) ?? null,
+                        inherited: selected.assetId !== undefined ? (assets.find((a) => a.assetId === selected.assetId)?.materials ?? null) : null,
+                        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+                        onChange: (next) => void setEntityMaterialParams(selected.id, next),
+                      }}
                     />
                   ),
+                  // Phase 18.0: the overrides are edited in the Materials section above.
+                  materialParams: <p className="tl-inspector__hint">Edited in the Materials section (per graph material, public parameters only).</p>,
                 }
           }
           extensions={

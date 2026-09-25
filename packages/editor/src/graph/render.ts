@@ -29,6 +29,7 @@ import {
   type GraphNode,
   type GraphPoint,
   type GraphProblem,
+  type PortsOf,
   type Rect,
   type View,
 } from './model';
@@ -51,6 +52,8 @@ export interface Scene {
   edgeLabels?: ReadonlyMap<string, string>;
   /** Phase 16.2: nodes drawn highlighted (e.g. the live preview's current state). */
   highlighted?: ReadonlySet<string>;
+  /** Phase 18.1: every node's resolved ports (data-dependent ports). */
+  portsOf: PortsOf;
 }
 
 const COLORS = {
@@ -152,16 +155,16 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
     const a = nodes.get(e.from.node);
     const b = nodes.get(e.to.node);
     if (a === undefined || b === undefined) continue;
-    const from = portPoint(kind, a, 'out', e.from.port);
-    const to = portPoint(kind, b, 'in', e.to.port);
+    const from = portPoint(kind, a, 'out', e.from.port, a.position, scene.portsOf);
+    const to = portPoint(kind, b, 'in', e.to.port, b.position, scene.portsOf);
     const reroutes = (e.reroutes ?? []).map((p, i) => scene.moved.get(`${e.id}#${i}`) ?? p);
     const xs = [from[0], to[0], ...reroutes.map((p) => p[0])];
     const ys = [from[1], to[1], ...reroutes.map((p) => p[1])];
     const bb = { x: Math.min(...xs) - 60, y: Math.min(...ys) - 60, w: Math.max(...xs) - Math.min(...xs) + 120, h: Math.max(...ys) - Math.min(...ys) + 120 };
     if (!overlaps(bb, viewRect)) continue;
-    const outDef = nodeDefOf(kind, a.type)?.outputs.find((p) => p.id === e.from.port);
+    const outDef = scene.portsOf(a).outputs.find((p) => p.id === e.from.port);
     const color = portTypeColor(kind, outDef?.type ?? '');
-    const conv = edgeConversion(kind, graph, e);
+    const conv = edgeConversion(kind, graph, e, scene.portsOf);
     const hot = scene.selected.has(e.id) || scene.hoverEdge === e.id || scene.selected.has(a.id) || scene.selected.has(b.id);
     ctx.strokeStyle = scene.selected.has(e.id) ? COLORS.select : color;
     ctx.lineWidth = (hot ? 3 : 2) * Math.max(px, 1);
@@ -212,7 +215,7 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
   const order = [...graph.nodes.filter((n) => !scene.selected.has(n.id)), ...graph.nodes.filter((n) => scene.selected.has(n.id))];
   for (const raw of order) {
     const n = nodes.get(raw.id)!;
-    const r = nodeRect(kind, n);
+    const r = nodeRect(kind, n, n.position, scene.portsOf);
     if (!overlaps(r, viewRect)) continue;
     drawNode(ctx, scene, n, r, detail, px);
   }
@@ -273,10 +276,11 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
     }
   }
   if (def === undefined) return;
-  const ports: [readonly { id: string; label: string; type: string }[], 'in' | 'out'][] = [[def.inputs, 'in'], [def.outputs, 'out']];
+  const own = scene.portsOf(n);
+  const ports: [readonly { id: string; label: string; type: string }[], 'in' | 'out'][] = [[own.inputs, 'in'], [own.outputs, 'out']];
   for (const [list, side] of ports) {
     list.forEach((p) => {
-      const pt = portPoint(kind, n, side, p.id);
+      const pt = portPoint(kind, n, side, p.id, n.position, scene.portsOf);
       ctx.fillStyle = portTypeColor(kind, p.type);
       ctx.beginPath();
       ctx.arc(pt[0], pt[1], n.collapsed === true ? 3.5 : 5, 0, Math.PI * 2);
@@ -293,7 +297,7 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
     });
   }
   if (detail && n.collapsed !== true && def.fields !== undefined) {
-    const rows = Math.max(def.inputs.length, def.outputs.length);
+    const rows = Math.max(own.inputs.length, own.outputs.length);
     shownFields(def).forEach((f, i) => {
       const v = fieldValue(n, f);
       ctx.fillStyle = COLORS.dim;
@@ -329,7 +333,7 @@ export function drawMinimap(ctx: CanvasRenderingContext2D, scene: Scene, w: numb
     ctx.fillRect(g.rect[0] * scale + ox, g.rect[1] * scale + oy, g.rect[2] * scale, g.rect[3] * scale);
   }
   for (const n of graph.nodes) {
-    const r = nodeRect(kind, n, scene.moved.get(n.id) ?? n.position);
+    const r = nodeRect(kind, n, scene.moved.get(n.id) ?? n.position, scene.portsOf);
     ctx.fillStyle = scene.selected.has(n.id) ? COLORS.select : scene.problems.has(n.id) ? '#8a5a5a' : '#5a6475';
     ctx.fillRect(r.x * scale + ox, r.y * scale + oy, Math.max(1.5, r.w * scale), Math.max(1.5, r.h * scale));
   }

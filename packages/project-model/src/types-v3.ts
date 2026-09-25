@@ -194,6 +194,8 @@ export interface ModelAnimationComponent {
 export interface EntityComponentsV3 extends EntityComponentsV2 {
   /** Phase 9.4, v4 only: source material name (or "*") → materialId. */
   materials?: Record<string, string>;
+  /** Phase 18.0, v4 only: overrides of graph-material parameters (materialId → parameter → value). */
+  materialParams?: Record<string, Record<string, number | number[] | string>>;
   /** Phase 9.5, v4 only: a box of fog around the entity. */
   fogVolume?: FogVolumeComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
