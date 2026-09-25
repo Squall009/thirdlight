@@ -117,7 +117,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'exec output (flow.sequence has several outputs); data ports carry number/boolean/string values (conversions number→string, boolean→string, boolean→number); an ' +
       'unwired data input uses the node field of the same key; no cycles (repeat with flow.for: first..last, at most 10000 iterations per step, more is a script error with ' +
       'the node id). Variables are var.number|var.boolean|var.string nodes {name (the property key), default, visibility: public|private, label?, group?, tooltip?} read and ' +
-      'written with get.<type>/set.<type> {variable}; they are the behavior\'s properties (public ones set per object with setBehaviorProperties). Publishing compiles the ' +
+      'written with var.get / var.set {variable, value? (set: the unwired value as text)} whose value port takes the variable\'s type; they are the behavior\'s properties (public ones set per object with setBehaviorProperties). Publishing compiles the ' +
       'graph to TypeScript (the same compiler, limits and trust per digest) through the editor\'s Publish (HTTP POST content/behaviors/source {graph: true, ...}); ' +
       'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
       'Prefabs: ' +
