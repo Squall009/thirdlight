@@ -109,6 +109,14 @@ const BUNDLES = [
     entry: 'packages/editor/src/preview/preview-m3.ts',
     out: 'dist/preview/preview-m3.js',
   },
+  // Phase 22.0: the Play preview's simulation worker (runtime + physics +
+  // scripts off the page's main thread), served on the preview origin as
+  // /sim-worker.js next to the decoders.
+  {
+    name: 'sim-worker',
+    entry: 'packages/editor/src/preview/sim-worker.ts',
+    out: 'dist/preview/sim-worker.js',
+  },
 ];
 
 /**

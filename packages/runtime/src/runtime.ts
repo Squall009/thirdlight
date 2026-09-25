@@ -1767,6 +1767,11 @@ class RuntimeInstance implements Runtime {
     return this.paused;
   }
 
+  /** Phase 22.0: the last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
+  get interpolationAlpha(): number {
+    return this.stateName === 'failed' ? 0 : this.lastAlpha;
+  }
+
   /**
    * Phase 19.2 (Play debugging): hold the simulation at the next step
    * boundary (true) or let it run on (false). Frames still render and reach

@@ -45,6 +45,7 @@ import {
   instantiateRuntime,
   registerSimulationModule,
   type ActionFrame,
+  type ActionSource,
   type SimulationModuleSpec,
   type GameEvent,
   type GameView,
@@ -122,6 +123,8 @@ export interface GameHostSound {
   readonly voices: number;
   readonly muted: boolean;
   readonly gesture: 'local' | 'none';
+  /** Phase 22.0, additive: sounds the owner has started (scripts' `ctx.audio`, pickup cues) per bus. */
+  readonly played?: { readonly sfx: number; readonly ui: number };
 }
 
 /** delivery.md §3.1 `GameHostObservation`. */
@@ -228,6 +231,16 @@ export interface GameHostConfig {
    * only: the simulation's camera is unchanged.
    */
   readonly setCameraOffset?: (offset: readonly [number, number, number] | null) => void;
+  /**
+   * Phase 22.0: where the simulation runs. Absent: in this page — `mount()`
+   * composes the runtime (`composeGameRuntime`) with `physics`,
+   * `behaviorModules` and `modules`. Present: the wrapper already composed
+   * it elsewhere (the simulation worker) and this factory returns the
+   * runtime the host presents (a mirror of the worker's; `onFrame` runs
+   * after each simulated frame arrives). Everything else — HUD, flow, audio,
+   * saves, the adapter — stays in this page either way.
+   */
+  readonly runtimeFactory?: (onFrame: () => void) => { readonly ok: true; readonly runtime: Runtime } | { readonly ok: false; readonly error: GameControlError };
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -303,12 +316,14 @@ export function cueEventsForView(
 export function mapSoundStatus(owner: GameAudioOwner): GameHostSound {
   const st = owner.status();
   if (st.state === 'ready') {
+    const played = owner.soundsPlayed?.();
     return {
       status: st.muted ? 'muted' : 'ready',
       unlocked: st.unlocked,
       voices: owner.liveVoices(),
       muted: st.muted,
       gesture: st.unlocked ? 'local' : 'none',
+      ...(played !== undefined ? { played } : {}),
     };
   }
   const status = st.state === 'blocked' ? 'blocked' : 'unavailable';
@@ -392,14 +407,15 @@ const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.input:
  * derived set), or the default game set when the wrapper passed none.
  */
 function selectModules(
-  config: GameHostConfig,
+  modulesIn: readonly string[] | undefined,
+  hasPhysics: boolean,
   sceneMode: boolean,
 ): { ok: true; specs: SimulationModuleSpec[] } | { ok: false; error: { code: 'host_module_unresolved'; message: string } } {
-  if (config.modules === undefined) {
+  if (modulesIn === undefined) {
     return { ok: true, specs: sceneMode ? [] : [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec] };
   }
   const specs: SimulationModuleSpec[] = [];
-  for (const id of config.modules) {
+  for (const id of modulesIn) {
     const spec = SIMULATION_SPECS[id];
     if (spec !== undefined) {
       if (!specs.includes(spec)) specs.push(spec);
@@ -407,7 +423,7 @@ function selectModules(
     }
     if (id === 'thirdlight.demo:box-motion') continue; // a runtime built-in (already registered)
     if (PORT_MODULES.has(id)) {
-      if (id === 'thirdlight.physics-rapier:2d' && config.physics === undefined) {
+      if (id === 'thirdlight.physics-rapier:2d' && !hasPhysics) {
         return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
       }
       continue;
@@ -418,6 +434,88 @@ function selectModules(
   const order = [platformerSpec, platformerGameSessionSpec, platformerGameCameraSpec];
   specs.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   return { ok: true, specs };
+}
+
+/**
+ * Phase 22.0: what the simulation needs to run — the single place the game's
+ * runtime is composed (module selection, the registry, `instantiateRuntime`,
+ * `start`). The in-page host calls it in `mount()`; the simulation worker
+ * calls it with the same inputs, so both run the same deterministic steps.
+ */
+export interface GameRuntimeArgs {
+  readonly snapshot: RuntimeSnapshot;
+  readonly settings: GameplaySettings;
+  readonly physics?: PhysicsPort;
+  readonly behaviorModules?: readonly SimulationModuleSpec[];
+  readonly modules?: readonly string[];
+  readonly actions: ActionSource;
+  readonly onFrame?: () => void;
+  /** The frame driver (absent: rAF where the environment has it, else manual). A worker passes manual: the main thread drives it. */
+  readonly driver?: { readonly kind: 'raf' | 'manual' };
+}
+
+/** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
+export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: Runtime; sceneMode: boolean } | { ok: false; error: GameControlError } {
+  const snapshot = args.snapshot;
+  const scene = snapshot.scene;
+  if (scene.schemaVersion !== 3 && scene.schemaVersion !== 4) {
+    return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
+  }
+  // Scene mode: without a game block the host plays the scene as authored
+  // (runtime built-ins only, no game session, no HUD).
+  const sceneMode = snapshot.game === null || snapshot.game === undefined;
+  // (the typed `EntityComponents` union is per-schema; the host reads the
+  // component presence structurally, as the M2 export-composition does.)
+  if (!sceneMode && !scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)) {
+    return { ok: false, error: { code: 'host_config_invalid', reason: 'controller', message: 'the scene carries no controller entity (the M3 game requires the player controller)' } };
+  }
+
+  const registry = createSimulationRegistry();
+  // The M3 module set (delivery.md §3.2: "runtime built-ins + platformer
+  // controller + platformer-game session + linked behavior modules").
+  // The registry carries the runtime built-ins (inert unless selected —
+  // the M2 export-composition pattern); the SELECTED modules are the
+  // M3 game set, plus the project's compiled behaviors.
+  for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
+  const selected = selectModules(args.modules, args.physics !== undefined, sceneMode);
+  if (!selected.ok) return selected;
+  const modules: string[] = [];
+  for (const spec of selected.specs) {
+    const r = registerSimulationModule(registry, spec.id, spec);
+    if (r.ok === false) {
+      return { ok: false, error: { code: 'host_module_registration_failed', message: `registering ${spec.id} failed: ${r.error.message}` } };
+    }
+    modules.push(spec.id);
+  }
+  for (const spec of args.behaviorModules ?? []) {
+    const r = registerSimulationModule(registry, spec.id, spec);
+    if (r.ok === false) {
+      return { ok: false, error: { code: 'host_module_registration_failed', message: `registering ${spec.id} failed: ${r.error.message}` } };
+    }
+    modules.push(spec.id);
+  }
+
+  const res = instantiateRuntime({
+    snapshot,
+    registry,
+    modules,
+    actions: args.actions,
+    ...(args.physics !== undefined ? { physics: args.physics } : {}),
+    settings: args.settings,
+    // Phase 15.3: the project's step rate (absent: the runtime's 120 Hz).
+    ...(args.settings.fixed_step_hz !== undefined ? { fixedStepHz: args.settings.fixed_step_hz } : {}),
+    ...(args.onFrame !== undefined ? { onFrame: args.onFrame } : {}),
+    ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
+  });
+  if (res.ok === false) {
+    return { ok: false, error: toControlError(res.error) };
+  }
+  const started = res.runtime.start();
+  if (started.ok === false) {
+    res.runtime.dispose();
+    return { ok: false, error: toControlError(started.error) };
+  }
+  return { ok: true, runtime: res.runtime, sceneMode };
 }
 
 export function createGameHost(config: GameHostConfig): GameHost {
@@ -783,64 +881,27 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return { ok: false, error: configError };
     }
     const snapshot = config.snapshot;
-    const scene = snapshot.scene;
-    if (scene.schemaVersion !== 3 && scene.schemaVersion !== 4) {
-      return { ok: false, error: { code: 'host_config_invalid', reason: 'game-block', message: 'the game host requires a v3 snapshot' } };
+    // Phase 22.0: the simulation runs where the wrapper chose — composed here
+    // in this page, or in a worker (the factory hands over its mirror runtime,
+    // composed by the worker with the same `composeGameRuntime`).
+    let composed: { ok: true; runtime: Runtime; sceneMode: boolean } | { ok: false; error: GameControlError };
+    if (config.runtimeFactory !== undefined) {
+      const made = config.runtimeFactory(hostFrame);
+      composed = made.ok ? { ok: true, runtime: made.runtime, sceneMode: snapshot.game === null || snapshot.game === undefined } : made;
+    } else {
+      composed = composeGameRuntime({
+        snapshot,
+        settings: config.settings,
+        ...(config.physics !== undefined ? { physics: config.physics } : {}),
+        ...(config.behaviorModules !== undefined ? { behaviorModules: config.behaviorModules } : {}),
+        ...(config.modules !== undefined ? { modules: config.modules } : {}),
+        actions: config.input,
+        onFrame: hostFrame,
+      });
     }
-    // Scene mode: without a game block the host plays the scene as authored
-    // (runtime built-ins only, no game session, no HUD).
-    const sceneMode = snapshot.game === null || snapshot.game === undefined;
-    // (the typed `EntityComponents` union is per-schema; the host reads the
-    // component presence structurally, as the M2 export-composition does.)
-    if (!sceneMode && !scene.entities.some((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)) {
-      return { ok: false, error: { code: 'host_config_invalid', reason: 'controller', message: 'the scene carries no controller entity (the M3 game requires the player controller)' } };
-    }
-
-    const registry = createSimulationRegistry();
-    // The M3 module set (delivery.md §3.2: "runtime built-ins + platformer
-    // controller + platformer-game session + linked behavior modules").
-    // The registry carries the runtime built-ins (inert unless selected —
-    // the M2 export-composition pattern); the SELECTED modules are the
-    // M3 game set, plus the project's compiled behaviors.
-    for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
-    const selected = selectModules(config, sceneMode);
-    if (!selected.ok) return selected;
-    const specs = selected.specs;
-    const modules: string[] = [];
-    for (const spec of specs) {
-      const r = registerSimulationModule(registry, spec.id, spec);
-      if (r.ok === false) {
-        return { ok: false, error: { code: 'host_module_registration_failed', message: `registering ${spec.id} failed: ${r.error.message}` } };
-      }
-      modules.push(spec.id);
-    }
-    for (const spec of config.behaviorModules ?? []) {
-      const r = registerSimulationModule(registry, spec.id, spec);
-      if (r.ok === false) {
-        return { ok: false, error: { code: 'host_module_registration_failed', message: `registering ${spec.id} failed: ${r.error.message}` } };
-      }
-      modules.push(spec.id);
-    }
-
-    const res = instantiateRuntime({
-      snapshot,
-      registry,
-      modules,
-      actions: config.input,
-      ...(config.physics !== undefined ? { physics: config.physics } : {}),
-      settings: config.settings,
-      // Phase 15.3: the project's step rate (absent: the runtime's 120 Hz).
-      ...(config.settings.fixed_step_hz !== undefined ? { fixedStepHz: config.settings.fixed_step_hz } : {}),
-      onFrame: hostFrame,
-    });
-    if (res.ok === false) {
-      return { ok: false, error: toControlError(res.error) };
-    }
-    const started = res.runtime.start();
-    if (started.ok === false) {
-      res.runtime.dispose();
-      return { ok: false, error: toControlError(started.error) };
-    }
+    if (!composed.ok) return composed;
+    const sceneMode = composed.sceneMode;
+    const res = { runtime: composed.runtime };
     runtime = res.runtime;
 
     adapter = config.adapter(res.runtime);

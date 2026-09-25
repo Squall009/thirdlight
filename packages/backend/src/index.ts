@@ -23,6 +23,7 @@
  *   THIRDLIGHT_BLENDER            optional; the Blender executable for FBX imports (default: blender on PATH)
  *   THIRDLIGHT_TRUSTED_NETWORKS   optional; IPv4 ranges (a,b,…) whose requests need no token
  *   THIRDLIGHT_TRUSTED_PROXIES    optional; reverse proxies whose X-Forwarded-For names the client
+ *   THIRDLIGHT_CROSS_ORIGIN_ISOLATION optional; `1` = COOP + COEP on the editor and preview origin (Play's simulation worker then shares memory)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
  *   THIRDLIGHT_HEADLESS           optional; `off` = never open a headless editor for MCP play
  *   THIRDLIGHT_BROWSER_LIBS       optional; an extracted library tree for Chromium (hosts without browser libraries)
@@ -74,6 +75,8 @@ const config = parseBackendConfig({
     : {}),
   trustedNetworks: env.THIRDLIGHT_TRUSTED_NETWORKS,
   trustedProxies: env.THIRDLIGHT_TRUSTED_PROXIES,
+  // Phase 22.0: COOP + COEP on the editor and the preview origin (SharedArrayBuffer for Play's simulation worker).
+  ...(env.THIRDLIGHT_CROSS_ORIGIN_ISOLATION === '1' || env.THIRDLIGHT_CROSS_ORIGIN_ISOLATION === 'true' ? { crossOriginIsolation: true } : {}),
   tokens,
   headless: {
     enabled: env.THIRDLIGHT_HEADLESS !== 'off',

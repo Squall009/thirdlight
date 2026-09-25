@@ -56,12 +56,22 @@ import {
   type ManifestSceneRow,
   type FlowConfigLike,
   browserSaveStorage,
+  browserWorkerAvailable,
+  createBrowserSimWorker,
+  resolveThreadingMode,
+  resolveTransport,
+  startRemoteSimulation,
+  threadingLogLine,
+  type RemoteSimulation,
 } from '@thirdlight/game-host';
 import { createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
+
+/** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
+const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
 
 interface ExportManifestV2 {
   manifestVersion: number;
@@ -217,14 +227,17 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // asset path is read EXACTLY ONCE (relative) and re-hashed to the manifest
   // `sourceDigest` BEFORE the runtime composes (L2 = hard failure, no
   // runtime). The model-kind bytes feed the `models` block `resolveBytes`.
+  // (Phase 22.0: the reads run below, while the simulation worker starts.)
   const assetBytesByKey = new Map<string, ArrayBuffer>();
-  for (const row of manifest.assets ?? []) {
-    const buf = await readArtifactBytes(row.path);
-    const raw = new Uint8Array(buf);
-    if (raw.byteLength !== row.sourceByteLength) throw new Error(`${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
-    if ((await sha256Hex(raw)) !== row.sourceDigest) throw new Error(`${row.assetId}: digest mismatch against the manifest sourceDigest`);
-    assetBytesByKey.set(`${row.assetId}@${row.version}`, buf);
-  }
+  const readAssets = async (): Promise<void> => {
+    for (const row of manifest.assets ?? []) {
+      const buf = await readArtifactBytes(row.path);
+      const raw = new Uint8Array(buf);
+      if (raw.byteLength !== row.sourceByteLength) throw new Error(`${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
+      if ((await sha256Hex(raw)) !== row.sourceDigest) throw new Error(`${row.assetId}: digest mismatch against the manifest sourceDigest`);
+      assetBytesByKey.set(`${row.assetId}@${row.version}`, buf);
+    }
+  };
 
   const settings = manifest.settings;
   // Phase 12 (c): the scene catalog (start scenes read once for their
@@ -284,22 +297,80 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     };
   }
 
-  // The injected physics port (physics-rapier; the manifest's resolved
-  // gravity_y drives the solver).
+  // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
   const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
-  let physics;
-  if (physicsConfig !== null) {
-    const init = await createPhysicsPort(physicsConfig);
-    if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
-    physics = init.port;
-  } else if (snapshot.game !== null) {
-    throw new Error('the game requires a player controller entity');
-  }
+  if (physicsConfig === null && snapshot.game !== null) throw new Error('the game requires a player controller entity');
   // (no game block and no controller: scene mode — the scene plays as authored)
 
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
   const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
   focusGameSurface(canvas);
+  const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
+  const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
+  const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
+
+  // Phase 22.0: the simulation runs in a worker (js/sim-worker.js next to this
+  // bundle) unless the page (?threads=off), the project (sim_thread) or the
+  // browser says otherwise; its transforms use shared memory only when the
+  // host serves the page cross-origin isolated (COOP + COEP), else messages.
+  const threading = resolveThreadingMode({ url: pageSearch(), setting: settings.sim_thread, workerAvailable: browserWorkerAvailable() });
+  let threadMode = threading.mode;
+  let threadReason = threading.reason;
+  const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
+  let remoteStart: Promise<RemoteSimulation> | null = null;
+  if (threadMode === 'worker') {
+    const worker = createBrowserSimWorker(new URL(EXPORT_SIM_WORKER_PATH, document.baseURI).href);
+    if (worker === null) {
+      threadMode = 'single';
+      threadReason = 'the browser refused to start the worker: single thread';
+    } else {
+      // The worker composes the simulation while the page reads the assets (below).
+      remoteStart = startRemoteSimulation({
+          worker,
+          init: {
+            snapshot,
+            settings,
+            physics: physicsConfig,
+            modules: moduleIds,
+            behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(r.path, document.baseURI).href])) },
+            shared: resolveTransport(globalThis as never) === 'shared',
+          },
+          input: { sample: (stepIndex) => input.sample(stepIndex), reset: (reason) => input.reset?.(reason) },
+          ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
+          driver: 'raf',
+        });
+      remoteStart.catch(() => undefined); // awaited below
+    }
+  }
+  // The wrapper's read phase (delivery.md (M4) §2.8, L2): every declared
+  // asset path is read EXACTLY ONCE (relative) and re-hashed to the manifest
+  // `sourceDigest` BEFORE the runtime composes (L2 = hard failure, no
+  // runtime). The model-kind bytes feed the `models` block `resolveBytes`.
+  try {
+    await readAssets();
+  } catch (e) {
+    void remoteStart?.then((r) => r.dispose(), () => undefined);
+    throw e;
+  }
+  let remote: RemoteSimulation | null = null;
+  if (remoteStart !== null) {
+    try {
+      remote = await remoteStart;
+    } catch (e) {
+      threadMode = 'single';
+      threadReason = `the worker could not start (${e instanceof Error ? e.message : String(e)}): single thread`;
+    }
+  }
+  console.info(threadingLogLine(threadMode, threadReason, remote?.transport ?? null, isolated));
+  (window as unknown as { __thirdlightThreading?: unknown }).__thirdlightThreading = { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated };
+
+  // The injected physics port in single-thread mode (in worker mode the worker has its own).
+  let physics;
+  if (remote === null && physicsConfig !== null) {
+    const init = await createPhysicsPort(physicsConfig);
+    if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
+    physics = init.port;
+  }
   // Phase 15.3: the project's sound voice count (absent: 8).
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
   const assetPathsById: Record<string, string> = {};
@@ -314,19 +385,17 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // settle watch below reads after the mount.
   const adapterRef: { current: SceneAdapter | null } = { current: null };
   // The project's compiled behaviors ship as behaviors/<digest>.js next to index.html.
-  const behaviorModules = await linkBehaviorModules(
-    (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [],
-    (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [],
-    (path) => import(/* @vite-ignore */ new URL(path, document.baseURI).href),
-  );
+  // In worker mode the worker links them.
+  const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ new URL(path, document.baseURI).href));
   // Phase 14.4: a level with its own look needs the environment renderer (and wind) even when the project has no environment.
   const levelLooks = ((manifest as unknown as { flow?: FlowConfigLike }).flow?.levels ?? []).some((l) => l.environment !== undefined);
   const config: GameHostConfig = {
     snapshot,
     settings,
     behaviorModules,
-    modules: (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [],
+    modules: moduleIds,
     ...(physics !== undefined ? { physics } : {}),
+    ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(canvas, {
         runtime,
@@ -413,7 +482,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   };
   const host = createGameHost(config);
   const mount = host.mount();
-  if (!mount.ok) throw new Error(`host mount failed: ${JSON.stringify(mount.error)}`);
+  if (!mount.ok) {
+    void remote?.dispose();
+    throw new Error(`host mount failed: ${JSON.stringify(mount.error)}`);
+  }
 
   // The model prepares run during `awaitingStart` and never block the menu
   // channel (delivery.md (M4) §2.8): a hard failure is a structured on-page

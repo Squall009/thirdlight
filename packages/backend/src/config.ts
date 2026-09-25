@@ -74,6 +74,14 @@ export interface BackendConfig {
   trustedNetworks?: string;
   /** Optional. Reverse proxies whose X-Forwarded-For names the client (THIRDLIGHT_TRUSTED_PROXIES). */
   trustedProxies?: string;
+  /**
+   * Phase 22.0, optional (THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1): serve the
+   * editor and the preview origin cross-origin isolated (COOP + COEP), so the
+   * Play page can use SharedArrayBuffer for the simulation worker's
+   * transforms. Off by default: Play then streams them as messages (the same
+   * results; see docs/deployment.md).
+   */
+  crossOriginIsolation?: boolean;
   tokens: BackendTokenEntry[];
   /** Test-only seam (§11.5 constants stand in production). */
   timeouts?: Partial<BackendTimeouts>;
@@ -95,7 +103,7 @@ export function parseBackendConfig(value: unknown):
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
     'engineRoot', 'blenderPath', 'trustedNetworks', 'trustedProxies',
-    'tokens', 'timeouts', 'headless', 'bake',
+    'tokens', 'timeouts', 'headless', 'bake', 'crossOriginIsolation',
   ]);
   for (const k of Object.keys(obj)) {
     if (!allowed.has(k)) {
@@ -252,6 +260,10 @@ export function parseBackendConfig(value: unknown):
       return { ok: false, error: sessionError('field_value', 'validation', `config field "${key}": ${(e as Error).message}`, { path: `/${key}` }) };
     }
     config[key] = v.v;
+  }
+  if (obj.crossOriginIsolation !== undefined) {
+    if (typeof obj.crossOriginIsolation !== 'boolean') return { ok: false, error: sessionError('field_type', 'validation', 'crossOriginIsolation must be a boolean', { path: '/crossOriginIsolation' }) };
+    if (obj.crossOriginIsolation) config.crossOriginIsolation = true;
   }
   if (Object.keys(timeouts).length > 0) config.timeouts = timeouts;
   return { ok: true, config };

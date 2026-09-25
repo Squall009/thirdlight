@@ -387,6 +387,8 @@ export interface GameplaySettings {
   animation_crossfade_s?: number;
   /** Phase 17.1: the renderer backend (0 WebGL legacy, 1 auto, 2 WebGPU, 3 WebGL 2; absent: 0). */
   render_backend?: number;
+  /** Phase 22.0: where the simulation runs in Play and the export (1 a worker, 2 the page's main thread; absent: 1). */
+  sim_thread?: number;
 }
 
 // ---- content block and captured view (§18/§19) ---------------------------------

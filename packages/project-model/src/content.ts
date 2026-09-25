@@ -1514,6 +1514,12 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // draws and the faster API is used where it exists. 0 was the archived WebGL
   // renderer ("legacy"): still valid in an older project, read as auto.
   { key: 'render_backend', type: 'number', default: 1, values: [1, 2, 3], legacyValues: [0], valueLabels: ['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Renderer', tooltip: 'Which backend draws the game and the Scene view: WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. WebGPU needs https or localhost. A page URL flag ?renderer=auto|webgpu|webgl2 overrides it.' },
+  // Phase 22.0: where the game's simulation runs (game-host SIM_THREAD_SETTING_VALUES).
+  // 1, a worker: runtime, physics and scripts run off the page's main thread, so
+  // a long step never delays a frame or an input event — every genre gains and
+  // none needs the page thread; the page falls back to it where the browser
+  // cannot start a worker. Results are the same either way (determinism).
+  { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
 ];
 
 /** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */

@@ -33,7 +33,7 @@
  * types and the approved Rapier pin only — no project-model internals, editor,
  * backend, protocol, workspace, commands, three or three-adapter edge.
  */
-export { createPhysicsPort } from './port';
+export { createPhysicsPort, physicsMemoryBytes } from './port';
 export { PHYSICS_IMPLEMENTATION, RAPIER_PIN } from './constants';
 export type {
   ColliderShapeBox,

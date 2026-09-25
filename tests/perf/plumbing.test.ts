@@ -157,6 +157,9 @@ describe('harness plumbing', () => {
     expect(d.classes).toEqual([...BENCH_CLASSES]);
     expect(d.renderers).toEqual(['legacy', 'webgl2']);
     expect(d.surfaces).toEqual(['play', 'export', 'editor', 'sim']);
+    // Phase 22.0: Play and the export in the simulation worker (the default), or also with ?threads=off.
+    expect(d.threads).toEqual(['worker']);
+    expect(parseArgs(['--threads', 'worker,off']).threads).toEqual(['worker', 'off']);
     const q = parseArgs(['--classes', 'small,large', '--renderers', 'webgpu', '--quick', '--viewport', '800x600']);
     expect(q).toMatchObject({ classes: ['small', 'large'], renderers: ['webgpu'], viewport: { width: 800, height: 600 }, recordMs: 1500 });
     expect(() => parseArgs(['--classes', 'huge'])).toThrow(/unknown huge/);

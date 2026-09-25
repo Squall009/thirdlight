@@ -31,6 +31,8 @@ export interface HarnessOptions {
   classes: BenchClass[];
   renderers: RendererName[];
   surfaces: Surface[];
+  /** Phase 22.0: where Play and the export run their simulation (worker = the default; off = ?threads=off). */
+  threads: ('worker' | 'off')[];
   seed: number;
   warmupMs: number;
   recordMs: number;
@@ -91,6 +93,7 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
     classes: list('classes', BENCH_CLASSES, BENCH_CLASSES),
     renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['legacy', 'webgl2']),
     surfaces: list('surfaces', SURFACES, SURFACES),
+    threads: list<'worker' | 'off'>('threads', ['worker', 'off'], ['worker']),
     seed: Number(get('seed') ?? DEFAULT_SEED),
     warmupMs: Number(get('warmup-ms') ?? (quick ? 500 : 1500)),
     recordMs: Number(get('record-ms') ?? (quick ? 1500 : 5000)),
@@ -117,7 +120,7 @@ export function metricsOf(report: Pick<Report, 'benchmarks' | 'calibration'>): R
       // The mean interval: SwiftShader's GPU process runs behind the page, so rendered frames come in
       // bursts (short intervals, then a long wait) and the median understates the frame time.
       const cal = (b.calibration[s.renderer] ?? report.calibration.browser[s.renderer])?.frameMs.mean;
-      const k = `${cls}.${s.surface}.${s.renderer}`;
+      const k = `${cls}.${s.surface}.${s.renderer}${s.threads === 'off' ? '.threads-off' : ''}`;
       if (s.frameMs.n > 0 && cal !== undefined && cal > 0) {
         m[`${k}.frameMean/cal`] = { value: r3(s.frameMs.mean / cal), kind: 'ratio' };
         m[`${k}.frameP95/cal`] = { value: r3(s.frameMs.p95 / cal), kind: 'ratio' };
@@ -255,19 +258,22 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
               opts.log(`perf: ${cls} ${what} (${r}) failed: ${String((e as Error).message ?? e).slice(0, 200)}`);
             }
           };
-          if (opts.surfaces.includes('play')) {
-            await attempt('play', async () => {
-              const s = await measurePlay(browser, be, 'bench', r, surf);
-              bench.surfaces.push(s);
-              opts.log(`perf: ${cls} play (${r}) frame mean ${s.frameMs.mean} ms, ${s.drawCalls.p50} draws, load ${s.loadavg[0]}`);
-            });
-          }
-          if (opts.surfaces.includes('export') && exportDir !== null) {
-            await attempt('export', async () => {
-              const s = await measureExport(browser, exportDir!, r, surf);
-              bench.surfaces.push(s);
-              opts.log(`perf: ${cls} export (${r}) first frame ${s.load['firstFrameMs']} ms, frame mean ${s.frameMs.mean} ms`);
-            });
+          const mt = (s: SurfaceResult): string => (s.mainThread !== undefined ? `, main thread ${s.mainThread.taskMsPerFrame} ms/frame (busy ${Math.round(s.mainThread.busyShare * 100)}%)` : '');
+          for (const threads of opts.threads) {
+            if (opts.surfaces.includes('play')) {
+              await attempt(`play threads=${threads}`, async () => {
+                const s = await measurePlay(browser, be, 'bench', r, surf, threads);
+                bench.surfaces.push(s);
+                opts.log(`perf: ${cls} play (${r}, threads=${threads}) frame mean ${s.frameMs.mean} ms p95 ${s.frameMs.p95} ms, ${s.drawCalls.p50} draws${mt(s)}, load ${s.loadavg[0]}`);
+              });
+            }
+            if (opts.surfaces.includes('export') && exportDir !== null) {
+              await attempt(`export threads=${threads}`, async () => {
+                const s = await measureExport(browser, exportDir!, r, surf, threads);
+                bench.surfaces.push(s);
+                opts.log(`perf: ${cls} export (${r}, threads=${threads}) first frame ${s.load['firstFrameMs']} ms, frame mean ${s.frameMs.mean} ms${mt(s)}`);
+              });
+            }
           }
           if (opts.surfaces.includes('editor')) {
             await attempt('editor', async () => {

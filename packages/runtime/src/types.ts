@@ -979,6 +979,8 @@ export interface Runtime {
   /** Phase 9.10: pause or resume the simulation (frames still render). */
   setPaused?(paused: boolean): void;
   readonly isPaused?: boolean;
+  /** Phase 22.0: the last frame's interpolation alpha (as `getInterpolatedState().state.alpha`), without building the state. */
+  readonly interpolationAlpha?: number;
   /**
    * Phase 19.2 (Play debugging): hold the simulation at a step boundary or
    * release it; while held, `debugStep` runs exactly one more step; a step

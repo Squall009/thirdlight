@@ -379,6 +379,24 @@ const BUNDLE_ENTRY_EDGES = {
     // Behavior outputs load from manifest-declared `behaviors/<digest>.js` next to index.html.
     computedDynamicImport: 'locator',
   },
+  // Phase 22.0: the exported game's simulation worker entry (`js/sim-worker.js`):
+  // the game host's worker core + physics-rapier (its WASM inlined). It
+  // imports the project's compiled scripts by the absolute URLs the page
+  // resolves from manifest-declared `behaviors/<digest>.js` paths.
+  'packages/exporter/src/export-sim-worker.ts': {
+    packages: ['physics-rapier', 'game-host'],
+    external: [],
+    node: [],
+    computedDynamicImport: 'locator',
+  },
+  // Phase 22.0: the Play preview's simulation worker entry (`dist/preview/sim-worker.js`,
+  // served on the preview origin): the same two edges; scripts load from the locator.
+  'packages/editor/src/preview/sim-worker.ts': {
+    packages: ['physics-rapier', 'game-host'],
+    external: [],
+    node: [],
+    computedDynamicImport: 'locator',
+  },
   // dependencies.md §4.2 play-preview bundle row (packet 35): the entry is
   // `editor/src/preview/**` and its graph may include protocol, runtime,
   // three-adapter (+ the GLTFLoader subpath), project-model, input, platformer

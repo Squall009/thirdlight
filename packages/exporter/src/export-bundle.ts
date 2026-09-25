@@ -86,6 +86,30 @@ export interface M2BundleFailure {
 }
 
 /**
+ * Phase 22.0 — the simulation worker bundle (`js/sim-worker.js`): the same
+ * pinned option set, entry `export-sim-worker.ts` (the game host's worker
+ * core + physics-rapier with its inlined WASM). No virtual module: the
+ * worker reads nothing itself (the page sends it the scenes and script URLs).
+ */
+export async function buildSimWorkerBundle(entry: string): Promise<M2BundleResult | M2BundleFailure> {
+  try {
+    const r = await build({
+      ...PINNED_OPTIONS,
+      entryPoints: [entry],
+      write: false,
+      metafile: true,
+      plugins: [THREE_WEBGPU_ONLY_PLUGIN as never],
+    });
+    const out = r.outputFiles?.[0]?.contents;
+    const metafile = r.metafile as { inputs: Record<string, unknown> } | undefined;
+    if (out === undefined || out.length === 0 || metafile === undefined) return { ok: false, modules: ['(no bundle output)'], message: 'the simulation worker bundle build produced no output' };
+    return { ok: true, bytes: out, metafile };
+  } catch (e) {
+    return { ok: false, modules: [e instanceof Error ? e.message.slice(0, 200) : String(e)], message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
  * Packet 58 — the M3 export bundle build (delivery.md §3, export.md §5). The
  * same pinned esbuild 0.28.2 option set as M1/M2; the entry is the M3 bootstrap
  * (`export-bootstrap-m3.ts`) and the only generated virtual module is

@@ -1390,6 +1390,8 @@ export function createBackend(
 
     // Fallback: static editor bundle. The page gets its (non-secret) config
     // injected here; access tokens are never part of any served page.
+    // Phase 22.0: cross-origin isolated when configured (Play may then share memory with its worker).
+    isolationHeaders(res);
     if (p === '/' || p === '/index.html') {
       serveEditorPage(res, trustedRequest(req));
       return;
@@ -1465,9 +1467,9 @@ export function createBackend(
   const pinWarned = new Set<string>();
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
 
-  const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml } = makeStaticRoutes({ config, sendJson });
+  const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
-  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml });
+  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders });
 
   authoringServer.on('request', (req, res) => {
     void dispatch(req, res);
