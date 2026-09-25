@@ -79,7 +79,7 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
@@ -471,6 +471,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
         snapshot,
         // Phase 17.1: the play page's ?renderer= flag (the editor passes its own on), else the project's render_backend setting.
         renderer: resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }),
+        // Phase 21.3: repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
+        batching: batchingFromUrl(pageSearch()),
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
           : {}),

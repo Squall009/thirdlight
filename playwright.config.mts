@@ -69,6 +69,8 @@ export default defineConfig({
         '**/effect-editor.e2e.ts',
         // Phase 22.1: thumbnails from a WebGPU canvas snapshot (the other editor-worker tests skip here).
         '**/editor-workers.e2e.ts',
+        // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
+        '**/rendering.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

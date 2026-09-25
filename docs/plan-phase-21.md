@@ -293,6 +293,54 @@ at 16k); the projection now hands out unchanged entities by identity and
 rest (not changed here: 17.4 owns that file). `tests/perf/baseline.json` was
 not re-recorded (a full run of every class and renderer; 21.6).
 
+#### 21.3 Rendering (2026-09-25)
+
+Harness `node tools/perf/run.mjs --classes small,medium,large --renderers
+webgl2 --surfaces play,export,editor` (WebGPURenderer on WebGL 2,
+SwiftShader), viewport 1280×720, same host shared with other agents. Before
+= main at d8b7307, report `~/.cache/thirdlight-perf/reports/213-before.json`
+(**load average 9.2 at the start, 10.6–15.4 at the measurements, 17.8 at the
+end**); after = the 21.3 branch, `213-after3.json` (**load 3.5 at the start,
+7.0–13.6 at the measurements, 12.8 at the end**). Counts are exact; times are
+CPU-rendered and noisy (compare within this host and load only; real GPU:
+owner look pending).
+
+| Before → after | small | medium | large |
+|---|---|---|---|
+| Play draw calls per frame | 72 → 31 | 1454 → 529 | 1211 → 591 |
+| Play triangles per frame | 48.8k → 25.8k | 513k → 293k | 4.82 M → 0.96 M |
+| Play frame mean (ms) | 93 → 59 | 669 → 493 | 1208 → 794 |
+| Play programs (WebGL) / heap (MiB) | 8 / 46 → 8 / 47 | 7 / 108 → 7 / 99 | 7 / 554 → 7 / 474 |
+| Export draw calls / frame mean (ms) | 61 / 275 → 28 / 199 | 1161 / 2633 → 453 / 1000 | 978 / 4683 → 580 / 969 |
+| Export first frame (ms) | 507 → 479 | 625 → 690 | 1976 → 1772 |
+| Editor draw calls per orbit frame | 140 → 52 | 2222 → 726 | 18 034 → 1457 |
+| Editor triangles per orbit frame | 25k → 13k | 262k → 142k | 4.98 M → 2.58 M |
+| Editor orbit frame mean / p95 (ms) | 61 / 100 → 67 / 50 | 179 / 1500 → 207 / 200 | 257 / 283 → 449 / 3150 |
+| Editor frames drawn while idle (3 s) | not measured → 0 | not measured → 0 | not measured → 0 |
+| Scene view sync after one `setTransform` | all entities → 1 entity | all → 1 (0.4 ms) | all (~63 ms, 21.4) → 1 (4.3 ms) |
+| `mutation.applied` → 2nd frame p50 (ms) | 25 → 25 | 109 → 74 | 17 922 → 3087 |
+| Editor heap (MiB) | 25 → 25 | 52 → 49 | 272 → 224 |
+
+Step by step (medium, `--quick` probes, report `213-probe.json`): instancing
+as first built made every instanced mesh its own shader program (400 programs,
+no Play frame inside the window — three names the uniform matrix array after
+the node below 1024 matrices); ≥ 1025 slots (vertex-attribute matrices) brought
+it back to 7 programs, Play 1454 → 529 draw calls. The first full "after" run
+(`213-after.json`) showed the large editor orbit at 1529 ms: the matrix copy
+compared float64 products with their float32 copies, so every batch was
+re-uploaded every frame; fixed (float32 compare, unit-tested), and the batcher's
+world-matrix pass replaces the renderer's own (15 000 batched boxes: 22 ms per
+frame in Node, half of it the matrix pass). The large editor's orbit mean is
+still above the old number while drawing a twelfth of the draw calls and half
+the triangles — noisy on this host (p95 3.1 s, the old run's frames came in
+bursts); owner look on a real GPU. Draw calls per class are within the budget
+now (medium 529 ≤ 600, large 591 ≤ 1500). What is left per frame at medium:
+the 400 kit props (three pieces × two LODs × 50 materials: 2–3 per key, under
+the group minimum) and their shadow-pass draws; the editor's icon sprites and
+single meshes.
+
+`tests/perf/baseline.json` was not re-recorded (21.6).
+
 ### Decision log
 
 - 2026-09-25 (21.0): budgets written per scene class for a mid-range desktop (2020-class GPU, 1920×1080, 4-core CPU) — generic sizes, not the demo; frame time is judged at p95.
@@ -337,3 +385,16 @@ not re-recorded (a full run of every class and renderer; 21.6).
 - 2026-09-25 (21.4): harness editor-ops measure main-thread latencies polled between tasks (not frames) for select/rename/scroll, because on this CPU-rendered host a 16k-object Scene-view frame takes 0.3–5 s and would swamp any frame-based number; bytes written = stat diff of the project folder (whole files rewritten) plus the `/proc` write counter.
 - 2026-09-25 (21.4): the editor Scene view (draw calls, `syncEntities` full pass, render-on-demand coalescing) is left for 21.3/17.4 — no cheap editor-side fix outside the viewport file, which 17.4 is rewriting.
 - 2026-09-25 (21.x fix): flow/inspector e2e `revision_conflict` after 17.4 — root cause: the editor advanced its projection (revision and state) only from the WS `mutation.applied`, and a Scene-view frame on the WebGPURenderer's WebGL 2 backend (SwiftShader) keeps the main thread busy long enough that Chrome runs the next input (Enter → next field) before the network tasks; the second edit went out with the old `expectedRevision` and args built from the old view (a whole-flow `setFlow` would also have undone the first edit). Bisected: passes at 15d4ad9, fails from the 17.4 merge on; 21.4 is not the cause. Fix (`editor/src/session/own-commands.ts`, `client.ts`): own commands are sent one at a time in order, each HTTP ack's change is applied at once (the WS event is then deduped by requestId), a command is rebased only over this editor's own revisions (anyone else's revision still conflicts; whole-document ops only when their args are built at send time), and the Game flow window re-applies its edit onto the current flow (`mergeDocumentEdit`). `folder-assets.e2e.ts` matched the old two-space layout of `content.json` text; it now reads the file as JSON (21.4's one-item-per-line layout).
+- 2026-09-25 (21.3): automatic instancing is a generic pass in three-adapter (`batching.ts`, `createAutoBatcher`) used by Play/export (the scene adapter) and the Scene view alike: before each frame it groups the meshes hosts marked batchable (boxes, placed model meshes) by (draw geometry, material, cast/receive shadow) and draws each group of ≥ 4 as one `THREE.InstancedMesh` whose matrices are copied from the members' world matrices; the members stay in the graph (picking, gizmo, bounds, bakes, per-object looks) on layer 30, which cameras — and the shadow cameras, which take the camera's layers — do not draw; the editor's raycaster enables it. Opt-in marking keeps helpers, gizmos, sprites, effects and the sky out. Refused per frame: hidden, transparent (sorting), skinned/morphed, several materials, a custom `onBeforeRender`, a render order, other layers, per-object graph material parameters (per-object uniforms). Why not merge static geometry or `BatchedMesh`: members must stay live objects (scripts move them, the editor edits them), and three's `BatchedMesh` still issues one draw per instance on WebGPU (and on WebGL 2 without multi-draw) — instancing is one real draw on every backend.
+- 2026-09-25 (21.3): boxes draw through one shared unit box scaled by their size (the instance matrix is the world matrix × the size; three's instancing transforms normals for non-uniform scale; box UV and UV1 do not depend on the size), and boxes with equal values share one material (counted); the source meshes keep their sized geometry for picking, bounds and bakes. Model placements of a realization share one clone per resource material (counted). Both kinds are marked `SHARED_MATERIAL_KEY`, and `setEmissiveLook` (the checkpoint glow) now copies any shared material first; fades already copied.
+- 2026-09-25 (21.3): instanced meshes get at least 1025 slots (`instanceCapacity`): below three's 64 KiB uniform-buffer limit (1024 matrices on WebGL 2 and default WebGPU) its instancing reads a uniform array named after the node (`NodeBuffer_<id>`), so every instanced mesh compiled its own program — the first medium run had 400 programs and no frame within the window; as vertex attributes all batches of one shader share a program (medium: 7 programs, as before). Cost: 64 KiB of matrices per batch. Groups need ≥ 4 members (each instanced mesh is one node build); detailed geometry (≥ 256 triangles) is grouped per 64 m cell to keep frustum culling for geometry whose vertices matter, cheap geometry (boxes) is one group per level.
+- 2026-09-25 (21.3): instance sets are split into chunks (a grid over the set's two widest axes, ~2048 copies, ≤ 64 chunks) and a model with LODs gets one `THREE.LOD` per chunk at its centre with the model's switch distances — before, every LOD level of every copy was drawn (the large class drew 4.8 M triangles). Picking maps a chunk's instance back to its copy (`copyOf`, `copyBox`); a set of one chunk keeps its exact count.
+- 2026-09-25 (21.3): material/program dedup beyond the above: three's WebGPURenderer already shares programs by generated code (the 21.0 baseline: 7 programs for 50 materials); project materials were already one object per definition; textures decode once per consumer (library, environment, lightmaps, effects) — not merged here (few textures per project so far).
+- 2026-09-25 (21.3): render on demand in the Scene view: it already drew only on `requestRender`; the App's material animation loop (an rAF every frame while the editor was open) moved into the view's frame: animated materials tick with a drawn frame and keep the view drawing only while one is animated. Left alone the view draws 0 frames (e2e `rendering`, harness `idleFrames`); three's WebGPURenderer keeps its own rAF tick (info reset, node frame) without drawing — stopping it needs private renderer state (`_animation`), not done.
+- 2026-09-25 (21.3): incremental Scene view sync (`sync-plan.ts`): the App passes `projection.takeDirty()`; the view looks at the named entities plus any whose projected object changed since its last sync (copy-on-write identity), re-derives hierarchy flags/folders only on a structural change, re-syncs the zone overlay only when a zone-relevant entity (or the selection) changed, and re-highlights only the previous and the new selection (was: a traverse of every node per sync). A setTransform at 2000 entities touches 1 entity (`data-sync`). Other callers (gesture restore, the assets effect) still sync everything.
+- 2026-09-25 (21.3): collider outlines in the Scene view are one line-segment object per colour (was one line per collider: 2000 draws at the large class); the per-entity vertex ranges are kept in `userData.outlines`.
+- 2026-09-25 (21.3): MSAA as the quality level's choice: the environment renderer already drew the low level without MSAA; now Play uses the environment renderer whenever a player quality is set (projects without an environment too), and the Scene view follows the project's level with the editor lighting as well (low: no MSAA). The samples drawn with are on the canvases (`data-msaa`, `data-tl-msaa`). No per-project MSAA switch of its own: the quality level is the one data knob (principle 2).
+- 2026-09-25 (21.3): texture compression — not done: no pinned KTX2/Basis encoder is available offline (three ships only `basis_transcoder`; no `basisu`/`toktx`/KTX-Software binary on the host, no encoder in the lockfile). Imported GLBs with KTX2 textures keep working (transcoded in the browser). Mipmaps: every decoded texture uses three's default (mipmaps, trilinear); lightmaps keep anisotropy 16.
+- 2026-09-25 (21.3): shadow cascades — not done (optional): the follow-camera shadow square is already sized by data (17.4 `shadowExtent`, `shadowMapSize`); three's `CSMShadowNode` adds one shadow render per cascade, a new data field with Inspector and handles, and new parity references — not cheap. Lightmap atlas packing — already done by the bakers (every baked object in shared atlases with a scale/offset per object); lightmapped objects keep their own material copy (their rectangle) and are drawn one by one; batching them needs the rectangle as an instance attribute in the lightmap node, not done.
+- 2026-09-25 (21.3): `?batching=off` on the editor, Play (passed on by the editor) and export URLs turns instancing off — a diagnostic comparison (the e2e compares the export's frames with and without: identical, worst channel difference 0), not a setting: instancing never changes the picture.
+- 2026-09-25 (21.3): the batcher's `update` walks the graph for the world matrices before every frame, so both hosts set `scene.matrixWorldAutoUpdate = false` (the renderer's own pass would repeat it: ~10 ms per frame at 15 000 objects in Node); matrices are compared as float32 before a batch is re-uploaded.

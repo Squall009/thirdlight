@@ -17,9 +17,12 @@
  *     transform sync), the model's internal node transforms are
  *     holder-relative;
  *   - per-instance material independence (§2.3): each attached instance
- *     owns CLONED material instances, released by the instance disposal
- *     path (the shared `PreparedVisualResource` and other instances are
- *     never touched);
+ *     draws with CLONED material instances, released by the instance
+ *     disposal path (the shared `PreparedVisualResource` is never touched).
+ *     Phase 21.3: the placements of a realization share one clone per
+ *     resource material (counted; marked shared, so a per-instance look —
+ *     the checkpoint glow, a fade — copies it first), so equal pieces can
+ *     be drawn instanced;
  *   - one `AnimationRoleController` per `modelAnimation` entity with a
  *     prepared instance (§2.4) — independent mixers/actions, no shared
  *     clock; the view provider returns the committed `playerMotion` for
@@ -63,6 +66,7 @@ import {
 } from './visual';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
+import { SHARED_MATERIAL_KEY } from './node-materials';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -382,7 +386,7 @@ export function validateModelsBlock(ctx: {
  * resource's textures (released with the resource, once); the CLONES are
  * owned by the attached instance and released by its disposal path.
  */
-function cloneInstanceMaterials(instance: ModelInstance): THREE.Material[] {
+function cloneInstanceMaterials(instance: ModelInstance, cloneOf: (m: THREE.Material) => THREE.Material): THREE.Material[] {
   const clones: THREE.Material[] = [];
   const walk = (node: THREE.Object3D): void => {
     const mesh = node as THREE.Mesh;
@@ -390,12 +394,12 @@ function cloneInstanceMaterials(instance: ModelInstance): THREE.Material[] {
       const material = mesh.material;
       if (Array.isArray(material)) {
         mesh.material = material.map((m) => {
-          const c = m.clone();
+          const c = cloneOf(m);
           clones.push(c);
           return c;
         });
       } else if (material instanceof THREE.Material) {
-        const c = material.clone();
+        const c = cloneOf(material);
         clones.push(c);
         mesh.material = c;
       }
@@ -425,6 +429,34 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const loader = ctx.loader as GlbLoaderPort;
 
   const store: VisualResourceStore = createVisualResourceStore();
+  /** Phase 21.3: one clone per resource material, shared by the placements (counted). */
+  const sharedClones = new Map<THREE.Material, { clone: THREE.Material; refs: number }>();
+  const cloneSources = new Map<THREE.Material, THREE.Material>();
+  const cloneOf = (m: THREE.Material): THREE.Material => {
+    let rec = sharedClones.get(m);
+    if (rec === undefined) {
+      const clone = m.clone();
+      clone.userData[SHARED_MATERIAL_KEY] = true;
+      rec = { clone, refs: 0 };
+      sharedClones.set(m, rec);
+      cloneSources.set(clone, m);
+    }
+    rec.refs += 1;
+    return rec.clone;
+  };
+  const releaseClone = (clone: THREE.Material): void => {
+    const source = cloneSources.get(clone);
+    const rec = source === undefined ? undefined : sharedClones.get(source);
+    if (rec === undefined || source === undefined) {
+      clone.dispose();
+      return;
+    }
+    rec.refs -= 1;
+    if (rec.refs > 0) return;
+    sharedClones.delete(source);
+    cloneSources.delete(clone);
+    clone.dispose();
+  };
   // Phase 12 (c): the entity maps grow and shrink with scene loads.
   const modelEntities = new Map(ctx.modelEntities);
   const modelAnimationEntities = new Map(ctx.modelAnimationEntities);
@@ -559,7 +591,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         continue;
       }
       const instance = created.instance;
-      const cloned = cloneInstanceMaterials(instance);
+      const cloned = cloneInstanceMaterials(instance, cloneOf);
       holder.add(instance.root);
       const rec: AttachedModel = {
         entityId,
@@ -682,7 +714,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     }
     for (const material of rec.clonedMaterials) {
       try {
-        material.dispose();
+        releaseClone(material);
       } catch {
         /* best effort */
       }

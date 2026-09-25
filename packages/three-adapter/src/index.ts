@@ -136,7 +136,7 @@ export {
   type VisualResourceStore,
   type VisualResourceStoreOptions,
 } from './visual';
-export { buildInstanceSet, INSTANCE_BUFFER_FLOATS, type BuiltInstanceSet } from './instancing';
+export { buildInstanceSet, chunkCopies, INSTANCE_BUFFER_FLOATS, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, type BuiltInstanceSet } from './instancing';
 // 2026-09-24: multi-piece GLBs (pieces, LOD groups, `_COL` colliders) and
 // vertex colours as shader data.
 export {
@@ -185,11 +185,31 @@ export {
   cloneMaterial,
   isNodeMaterial,
   SELECTION_HIGHLIGHT_EMISSIVE,
+  SHARED_MATERIAL_KEY,
   setEmissiveLook,
   setSelectionHighlight,
   toNodeMaterial,
   withoutAmbientLight,
 } from './node-materials';
+// Phase 21.3: automatic instancing of repeated objects (Play, export, the Scene view).
+export {
+  BATCH_KEY,
+  BATCHED_LAYER,
+  BATCHING_URL_PARAM,
+  batchingFromUrl,
+  batchKey,
+  batchKeyParts,
+  batchRefusal,
+  createAutoBatcher,
+  instanceCapacity,
+  MIN_INSTANCE_CAPACITY,
+  markBatchable,
+  unitBoxGeometry,
+  type AutoBatcher,
+  type AutoBatcherDiagnostics,
+  type AutoBatcherOptions,
+  type BatchHint,
+} from './batching';
 // Phase 9.5: sky, fog, fog volumes, tone mapping and the post stack.
 export {
   createEnvironmentRenderer,

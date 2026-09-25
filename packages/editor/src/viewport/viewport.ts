@@ -13,14 +13,22 @@
 
 import {
   addBoxLightmapUv,
+  BATCH_KEY,
+  BATCHED_LAYER,
+  batchingFromUrl,
+  createAutoBatcher,
   createEffectsPlayer,
   createEnvironmentRenderer,
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
   lightmappedMaterial,
   lightmapTexture,
+  pageSearch,
   refreshLightmappedMaterial,
+  SELECTION_HIGHLIGHT_EMISSIVE,
   setSelectionHighlight,
+  unitBoxGeometry,
+  type AutoBatcher,
   type BakeLightInput,
   type EffectComponentLike,
   type EffectDefLike,
@@ -48,6 +56,7 @@ import { commitValue, type HandleShape } from '../session/handles';
 import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
 import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
 import { materialOverridesOf, type ModelInstances } from './model-instances';
+import { planSync, removedIds, zoneRelevant } from './sync-plan';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -168,6 +177,24 @@ export class Viewport {
   private downAt: { x: number; y: number } | null = null;
   private renderQueued = false;
   private readonly raycaster = new THREE.Raycaster();
+  /**
+   * Phase 21.3: repeated boxes and model pieces drawn instanced. Their own
+   * meshes stay in the graph for picking, the gizmo and bounds (on the
+   * batched layer, which the raycaster enables).
+   */
+  private readonly batcher: AutoBatcher;
+  /** Phase 21.3: the unit box every box is drawn through when batched. */
+  private readonly unitBox = unitBoxGeometry(addBoxLightmapUv);
+  /** Phase 21.3: box materials shared by colour and selection (counted). */
+  private readonly boxLooks = new Map<string, { material: THREE.MeshLambertMaterial; refs: number }>();
+  /** Phase 21.3: the entity object each node was last synced from (the projection is copy-on-write). */
+  private readonly synced = new Map<string, ProjectedEntity>();
+  /** Phase 21.3: frames drawn (render on demand: none while nothing changes). */
+  private framesDrawn = 0;
+  /** Phase 21.3: the entity whose meshes carry the selection highlight. */
+  private highlightedId: string | null = null;
+  /** Phase 21.3: when animated materials started (their clock). */
+  private readonly clockStart = performance.now();
 
   constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean; renderer?: { preference: RendererPreference; source: RendererPreferenceSource } } = {}) {
     this.root = canvas;
@@ -176,6 +203,12 @@ export class Viewport {
     this.rendererChoice = options.renderer ?? { preference: DEFAULT_RENDERER_PREFERENCE, source: 'default' };
     this.rendererHandle = this.makeRenderer(canvas);
     this.scene.background = new THREE.Color(0x14161c);
+    this.batcher = createAutoBatcher(this.scene);
+    // Its update (before every frame) walks the graph for the world matrices: the renderer's own pass is left out.
+    this.scene.matrixWorldAutoUpdate = false;
+    // `?batching=off` on the editor page: every object drawn on its own (a diagnostic comparison).
+    this.batcher.setEnabled(batchingFromUrl(pageSearch()));
+    this.raycaster.layers.enable(BATCHED_LAYER);
 
     this.ground = new THREE.Mesh(
       new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
@@ -504,6 +537,7 @@ export class Viewport {
     this.unapplyLightmaps();
     this.applyLightmaps();
     this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
+    this.environment?.setQuality(this.editorQuality());
     for (const l of this.editorLights) l.visible = this.lighting === 'editor';
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false;
     this.render();
@@ -773,13 +807,31 @@ export class Viewport {
       if (renderer === null) return;
       // Phase 20.2: the effect preview steps before the frame and keeps the view drawing while it plays.
       const playing = this.stepEffects(renderer);
+      // Phase 21.3: animated materials (wind, water) tick with the frame and keep the view drawing;
+      // nothing else draws unless something asked for a frame (render on demand).
+      const lib = this.materialLibrary;
+      const animated = lib !== null && lib.animated();
+      if (animated) lib!.tick((performance.now() - this.clockStart) / 1000);
+      this.batcher.update(this.camera);
+      const info = renderer.info.render;
+      const drawsBefore = info.drawCalls;
+      const trianglesBefore = info.triangles;
       const environment = this.ensureEnvironment();
-      if (environment !== null && this.lighting === 'game') {
+      // Phase 21.3: the editor rig also draws at the project's quality level (low: no MSAA).
+      const throughEnvironment = environment !== null && (this.lighting === 'game' || this.editorQuality() !== null);
+      if (throughEnvironment) {
         environment.setFogVolumes(this.fogVolumesNow());
         environment.render(this.camera);
       } else renderer.render(this.scene, this.camera);
-      if (playing) this.requestRender();
-      else this.effectLastNow = null;
+      this.framesDrawn += 1;
+      const b = this.batcher.diagnostics();
+      this.root.setAttribute('data-frames', String(this.framesDrawn));
+      this.root.setAttribute('data-draw-calls', String(Math.max(0, info.drawCalls - drawsBefore)));
+      this.root.setAttribute('data-triangles', String(Math.max(0, info.triangles - trianglesBefore)));
+      this.root.setAttribute('data-batches', `${b.groups} ${b.batched} ${b.single}`);
+      this.root.setAttribute('data-msaa', String(throughEnvironment ? environment!.samples() : renderer.samples));
+      if (playing || animated) this.requestRender();
+      if (!playing) this.effectLastNow = null;
     });
   }
 
@@ -851,6 +903,7 @@ export class Viewport {
     env.resize(Math.max(1, this.root.clientWidth || this.root.width), Math.max(1, this.root.clientHeight || this.root.height));
     env.setKeyLightDirection(this.keyLightDirection);
     env.set(this.lighting === 'game' ? this.environmentValue : null);
+    env.setQuality(this.editorQuality());
     this.environment = env;
     return env;
   }
@@ -921,16 +974,30 @@ export class Viewport {
     return true;
   }
 
-  /** Sync the entity set from the projection (add/remove/update meshes). */
-  syncEntities(entities: ProjectedEntity[]): void {
+  /**
+   * Sync the entity set from the projection (add/remove/update meshes).
+   *
+   * Phase 21.3: incremental. With `dirty` (the projection's `takeDirty()`)
+   * only the entities it names — plus any whose projected object changed
+   * since the last sync (the projection is copy-on-write) and the ones added
+   * or removed — are rebuilt; the hierarchy flags, the zone overlay and the
+   * selection are re-derived only when something they read changed. Without
+   * it (or `dirty.all`), everything is synced as before. `data-sync` on the
+   * view element says what the last sync did.
+   */
+  syncEntities(entities: ProjectedEntity[], dirty?: { readonly all: boolean; readonly ids: ReadonlySet<string> }): void {
+    const t0 = performance.now();
     // Phase 9.6: the original materials are in place while the rest of the sync runs.
     this.unapplyLightmaps();
     this.projected = entities;
-    this.hierarchyFlags = effectiveFlagsOf(entities);
-    this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
-    const seen = new Set<string>();
-    for (const e of entities) {
-      seen.add(e.id);
+    const plan = planSync(entities, this.synced, dirty, this.selectedId);
+    const { full, changed, selectionTouched } = plan;
+    let { structural, zones } = plan;
+    if (structural) {
+      this.hierarchyFlags = effectiveFlagsOf(entities);
+      this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
+    }
+    for (const e of changed) {
       // Model entities are realized by the packet-26/27 resource path; the
       // viewport holds a hidden placeholder so picking + the gizmo keep a
       // stable target while the GLB resolves asynchronously.
@@ -949,35 +1016,57 @@ export class Viewport {
         this.updateMesh(m, e);
       }
       this.syncBoxMaterial(e, m);
+      this.synced.set(e.id, e);
     }
     // Mirror the runtime scene graph: children hang under their parent node
     // (transforms are parent-relative, as in the play renderer).
-    for (const e of entities) {
+    for (const e of changed) {
       const m = this.meshes.get(e.id);
       if (!m) continue;
       const parent = (e.parentId !== null ? this.meshes.get(e.parentId) : undefined) ?? this.scene;
       if (m.parent !== parent) parent.add(m);
     }
-    // Remove meshes whose entities are gone.
-    for (const [id, m] of this.meshes) {
-      if (!seen.has(id)) {
+    // Remove meshes whose entities are gone (after the adds the nodes equal the entities unless some left).
+    const removed = new Set(removedIds(entities, this.meshes.keys(), this.meshes.size, full));
+    if (removed.size > 0) {
+      const seen = new Set(entities.map((e) => e.id));
+      for (const id of removed) {
+        const m = this.meshes.get(id)!;
+        if (zoneRelevant(this.synced.get(id))) zones = true;
+        // Nodes of entities that stay go back to the scene (a later sync of theirs re-parents them).
+        for (const c of [...m.children]) {
+          const cid = (c as { entityId?: string }).entityId;
+          if (cid !== undefined && cid !== id && seen.has(cid) && this.meshes.get(cid) === c) this.scene.attach(c);
+        }
         this.boxMaterials.get(id)?.undo();
         this.boxMaterials.delete(id);
         m.parent?.remove(m);
         this.disposeMesh(m);
         this.meshes.delete(id);
+        this.synced.delete(id);
+        if (this.highlightedId === id) this.highlightedId = null;
         if (this.selectedId === id) this.setSelected(null);
       }
+      if (!structural) {
+        structural = true;
+        this.hierarchyFlags = effectiveFlagsOf(entities);
+        this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
+      }
     }
-    this.models?.sync(entities);
+    this.models?.sync(entities, full ? undefined : { changed: new Set(changed.map((e) => e.id)), removed });
     this.syncSceneLights(entities);
     // M3 (packet 56): the zone overlay syncs from the SAME projection pass
     // (phase 12: an inactive zone is hidden like any inactive object).
-    this.zones.sync(entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false));
+    // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
+    const shown = entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false);
+    if (zones || structural || selectionTouched) this.zones.sync(shown);
+    else this.zones.setEntities(shown);
     this.stampGizmoCounts();
     this.applyLightmaps();
     // A selection that became locked or a folder loses its gizmo.
-    if (this.selectedId !== null && !this.draggingGizmo) this.setSelected(this.selectedId);
+    if (this.selectedId !== null && !this.draggingGizmo && (selectionTouched || structural)) this.setSelected(this.selectedId);
+    const ms = Math.round((performance.now() - t0) * 100) / 100;
+    this.root.setAttribute('data-sync', JSON.stringify({ entities: entities.length, processed: changed.length, removed: removed.size, full, ms }));
     this.render();
   }
 
@@ -1031,8 +1120,11 @@ export class Viewport {
       const size = e.box?.size ?? [1, 1, 1];
       const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
       addBoxLightmapUv(geometry);
-      const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color: boxColor(e) }));
+      // Phase 21.3: boxes of one colour share a material (the selected one wears the highlighted twin),
+      // and are drawn through the unit box scaled by their size when batched.
+      const mesh = new THREE.Mesh(geometry, this.takeBoxLook(boxColor(e), this.selectedId === e.id));
       mesh.userData.boxSize = size.join(',');
+      mesh.userData[BATCH_KEY] = { geometry: this.unitBox, scale: [size[0], size[1], size[2]] };
       mesh.name = e.id;
       (mesh as { entityId?: string }).entityId = e.id;
       group.add(mesh);
@@ -1183,14 +1275,14 @@ export class Viewport {
       }
       const mesh = c as THREE.Mesh;
       if (e.kind !== 'box' || !(mesh instanceof THREE.Mesh) || mesh.userData.lightKind !== undefined) continue;
-      const own = (mesh.userData['__tlSourceMaterial'] ?? mesh.material) as THREE.MeshLambertMaterial;
-      own.color.setHex(boxColor(e));
+      this.setBoxLook(mesh, boxColor(e));
       const size = e.box?.size ?? [1, 1, 1];
       if (mesh.userData.boxSize !== size.join(',')) {
         mesh.geometry.dispose();
         mesh.geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
         addBoxLightmapUv(mesh.geometry);
         mesh.userData.boxSize = size.join(',');
+        mesh.userData[BATCH_KEY] = { geometry: this.unitBox, scale: [size[0], size[1], size[2]] };
       }
     }
   }
@@ -1209,6 +1301,8 @@ export class Viewport {
       // A project material is the library's; the mesh's own is kept aside while it is assigned.
       const mat = (mesh.userData?.['__tlSourceMaterial'] ?? (mesh as { material?: THREE.Material | THREE.Material[] }).material) as THREE.Material | THREE.Material[] | undefined;
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      // Phase 21.3: a shared box material is released (freed with its last box).
+      else if (mat !== undefined && mat.userData['tlBoxLook'] !== undefined) this.releaseBoxLook(mat);
       else if (mat) mat.dispose();
       for (const child of c.children) {
         if ((child as { entityId?: string }).entityId === own) visit(child);
@@ -1222,11 +1316,20 @@ export class Viewport {
     if (this.selectedId !== id) this.copySel = null;
     this.selectedId = id;
     this.gizmoMode = mode;
-    for (const [eid, m] of this.meshes) {
-      this.setMeshHighlight(m, eid === id);
+    // Phase 21.3: only the previous and the new selection change (not every node). Lightmapped
+    // copies come off while a box swaps to its highlighted material.
+    this.unapplyLightmaps();
+    const mark = (eid: string | null, on: boolean): void => {
+      const m = eid === null ? undefined : this.meshes.get(eid);
+      if (m === undefined) return;
+      this.setMeshHighlight(m, on);
       // Phase 15.2: a camera's real frustum shows while it is selected.
-      for (const c of m.children) if (c.userData['cameraFrustum'] !== undefined) c.visible = eid === id;
-    }
+      for (const c of m.children) if (c.userData['cameraFrustum'] !== undefined) c.visible = on;
+    };
+    if (this.highlightedId !== id) mark(this.highlightedId, false);
+    mark(id, true);
+    this.highlightedId = id;
+    this.applyLightmaps();
     const frustum = id === null ? undefined : this.meshes.get(id)?.children.find((c) => c.userData['cameraFrustum'] !== undefined);
     this.root.setAttribute('data-camera-frustum', frustum === undefined ? '' : JSON.stringify(frustum.userData['cameraFrustum']));
     // Phase 15.2: a selected copy of an instance set takes the gizmo.
@@ -1252,18 +1355,75 @@ export class Viewport {
     this.render();
   }
 
+  /** Phase 21.3: the shared box material for a colour (highlighted: the selection tint), counted. */
+  private takeBoxLook(color: number, highlighted: boolean): THREE.MeshLambertMaterial {
+    const key = `${color}|${highlighted ? 1 : 0}`;
+    let rec = this.boxLooks.get(key);
+    if (rec === undefined) {
+      const material = new THREE.MeshLambertMaterial({ color, emissive: highlighted ? SELECTION_HIGHLIGHT_EMISSIVE : 0x000000 });
+      material.userData['tlBoxLook'] = { color, highlighted, key };
+      rec = { material, refs: 0 };
+      this.boxLooks.set(key, rec);
+    }
+    rec.refs += 1;
+    return rec.material;
+  }
+
+  private releaseBoxLook(material: THREE.Material): void {
+    const key = (material.userData['tlBoxLook'] as { key: string } | undefined)?.key;
+    const rec = key === undefined ? undefined : this.boxLooks.get(key);
+    if (rec === undefined || rec.material !== material) return;
+    rec.refs -= 1;
+    if (rec.refs > 0) return;
+    this.boxLooks.delete(key!);
+    material.dispose();
+  }
+
+  /**
+   * Phase 21.3: put a box on the shared material for its colour and selection. With a
+   * project material on, the kept-aside own material is swapped (the library restores it).
+   */
+  private setBoxLook(mesh: THREE.Mesh, color: number, highlight?: boolean): void {
+    const data = mesh.userData as Record<string, unknown>;
+    const own = (data['__tlSourceMaterial'] ?? mesh.material) as THREE.Material;
+    const look = own.userData?.['tlBoxLook'] as { color: number; highlighted: boolean } | undefined;
+    // Not on a box look (a lightmapped copy is on while lightmaps are applied): left alone.
+    if (look === undefined) return;
+    const highlighted = highlight ?? look.highlighted;
+    if (look.color === color && look.highlighted === highlighted) return;
+    const next = this.takeBoxLook(color, highlighted);
+    if (data['__tlSourceMaterial'] !== undefined) data['__tlSourceMaterial'] = next;
+    else mesh.material = next;
+    this.releaseBoxLook(own);
+  }
+
   private setMeshHighlight(obj: THREE.Object3D, on: boolean): void {
-    obj.traverse((c) => {
+    // Phase 21.3: the entity's own helpers only — a child entity's node below it keeps its own
+    // state (the full pass this replaced ended the same way: each node was set for its own id).
+    const visit = (c: THREE.Object3D): void => {
+      const owner = (c as { entityId?: string }).entityId;
+      if (c !== obj && owner !== undefined && this.meshes.get(owner) === c) return;
+      this.highlightOne(c, on);
+      for (const child of c.children) visit(child);
+    };
+    visit(obj);
+  }
+
+  private highlightOne(c: THREE.Object3D, on: boolean): void {
+    {
       if (c instanceof THREE.Sprite) {
         setSpriteSelected(c, on, () => this.requestRender());
         return;
       }
-      // Only the entity's own unshared meshes (a box's material): a model's
+      // Only the entity's own meshes (a box's material): a model's
       // materials and project materials are shared by every placement.
       const mesh = c as THREE.Mesh;
       if ((mesh as { entityId?: string }).entityId === undefined || mesh.userData['__tlSourceMaterial'] !== undefined) return;
-      setSelectionHighlight(mesh.material, on);
-    });
+      // Phase 21.3: a box swaps to the highlighted twin of its shared material.
+      const look = (mesh.material as THREE.Material | undefined)?.userData?.['tlBoxLook'] as { color: number } | undefined;
+      if (look !== undefined) this.setBoxLook(mesh, look.color, on);
+      else setSelectionHighlight(mesh.material, on);
+    }
   }
 
   /** The entity under a pointer position (client coords), or null. */
@@ -1585,16 +1745,11 @@ export class Viewport {
     const sel = this.copySel;
     this.root.setAttribute('data-instance-copy', sel === null ? '' : String(sel.index));
     if (sel === null) return;
-    const box = new THREE.Box3();
-    const m = new THREE.Matrix4();
-    for (const mesh of this.models?.instanceSetMeshes(sel.entityId) ?? []) {
-      if (sel.index >= mesh.count) continue;
-      mesh.updateWorldMatrix(true, false);
-      if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
-      mesh.getMatrixAt(sel.index, m);
-      box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m.premultiply(mesh.matrixWorld)));
-    }
-    if (box.isEmpty()) return;
+    // Phase 21.3: the set is drawn in chunks; it finds the copy's own bounds.
+    const set = this.models?.instanceSet(sel.entityId) ?? null;
+    set?.group.updateWorldMatrix(true, true);
+    const box = set?.copyBox(sel.index) ?? null;
+    if (box === null) return;
     this.copyHighlight = new THREE.Box3Helper(box, 0xffe27a);
     this.copyHighlight.raycast = () => undefined;
     this.scene.add(this.copyHighlight);
@@ -1607,23 +1762,27 @@ export class Viewport {
     const rect = this.root.getBoundingClientRect();
     this.raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
     this.scene.updateMatrixWorld(true);
-    const hit = this.raycaster.intersectObjects([...meshes], false).find((h) => h.instanceId !== undefined);
-    return hit?.instanceId ?? null;
+    const set = this.models?.instanceSet(entityId) ?? null;
+    for (const h of this.raycaster.intersectObjects([...meshes], false)) {
+      if (h.instanceId === undefined) continue;
+      const copy = set?.copyOf(h.object, h.instanceId) ?? null;
+      if (copy !== null) return copy;
+    }
+    return null;
   }
 
   /** Where the copies of an instance set are on screen (the middle of each drawn copy; tests click them). */
   copyClientPoints(entityId: string): { index: number; x: number; y: number }[] {
-    const mesh = this.models?.instanceSetMeshes(entityId)[0];
-    if (mesh === undefined) return [];
+    const set = this.models?.instanceSet(entityId) ?? null;
+    if (set === null) return [];
     const rect = this.root.getBoundingClientRect();
-    mesh.updateWorldMatrix(true, false);
-    if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
-    const centre = mesh.geometry.boundingBox!.getCenter(new THREE.Vector3());
-    const m = new THREE.Matrix4();
+    set.group.updateWorldMatrix(true, true);
     const out: { index: number; x: number; y: number }[] = [];
-    for (let i = 0; i < Math.min(64, mesh.count); i++) {
-      mesh.getMatrixAt(i, m);
-      const v = centre.clone().applyMatrix4(m).applyMatrix4(mesh.matrixWorld).project(this.camera);
+    const centre = new THREE.Vector3();
+    for (let i = 0; i < Math.min(64, set.count); i++) {
+      const box = set.copyBox(i);
+      if (box === null) continue;
+      const v = box.getCenter(centre).project(this.camera);
       out.push({ index: i, x: Math.round(rect.left + ((v.x + 1) / 2) * rect.width), y: Math.round(rect.top + ((1 - v.y) / 2) * rect.height) });
     }
     return out;
@@ -1742,9 +1901,21 @@ export class Viewport {
     this.environmentValue = value;
     this.environmentSource = loadTexture;
     // Phase 17.1: built for the current renderer (null while WebGPURenderer initialises; the first frame builds it).
-    this.ensureEnvironment()?.set(this.lighting === 'game' ? value : null);
+    const env = this.ensureEnvironment();
+    env?.set(this.lighting === 'game' ? value : null);
+    env?.setQuality(this.editorQuality());
     this.requestRender();
   }
+  /**
+   * Phase 21.3: with the editor rig (no project look) the Scene view still
+   * draws at the project's quality level — MSAA is the level's choice (low:
+   * none); null in game lighting (the environment's own level applies) or
+   * when the project sets none.
+   */
+  private editorQuality(): 'low' | 'medium' | 'high' | null {
+    return this.lighting === 'editor' ? (this.environmentValue?.quality ?? null) : null;
+  }
+
   private fogVolumesNow(): FogVolumeLike[] {
     const out: FogVolumeLike[] = [];
     const p = new THREE.Vector3();
@@ -1776,6 +1947,10 @@ export class Viewport {
     this.environment?.dispose();
     this.environment = null;
     this.rendererHandle.dispose();
+    this.batcher.dispose();
+    this.unitBox.dispose();
+    for (const rec of this.boxLooks.values()) rec.material.dispose();
+    this.boxLooks.clear();
   }
 }
 

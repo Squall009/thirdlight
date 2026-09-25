@@ -54,6 +54,14 @@ export interface SurfaceResult {
   /** Play only: three's renderer.info counts from the play diagnostics. */
   three?: { geometries: number; textures: number; programs: number };
   state?: string;
+  /**
+   * Editor only (phase 21.3): the Scene view left alone after it settled —
+   * frames that drew anything (counted at the graphics API) and draw calls
+   * over the window; render on demand means both are 0.
+   */
+  idle?: { windowMs: number; framesDrawn: number; drawCalls: number; settledMs: number };
+  /** Editor only (phase 21.3): what the Scene view's last sync did (its `data-sync`) after the command round trips. */
+  lastSync?: Record<string, unknown>;
   notes: string[];
   loadavg: number[];
 }
@@ -191,6 +199,9 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
   }
 }
 
+/** Phase 21.3: how long the settled Scene view is watched for frames (ms). */
+const IDLE_WINDOW_MS = 3000;
+
 /** The editor: load to the Scene view's first frame, orbit it, and time commands while it is open. */
 export async function measureEditor(
   browser: Browser,
@@ -209,6 +220,19 @@ export async function measureEditor(
     const connectedMs = Date.now() - t0;
     const firstEpoch = await poll(async () => page.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Scene view frame');
     await new Promise((r) => setTimeout(r, opts.warmupMs));
+    // Phase 21.3: render on demand — once the view stops drawing (models, thumbnails and the
+    // environment have arrived), nothing draws while nothing changes.
+    const settleStart = Date.now();
+    let lastFrames = '';
+    for (;;) {
+      const now = await page.evaluate(() => document.querySelector('canvas.tl-viewport')?.getAttribute('data-frames') ?? '');
+      if (now === lastFrames || Date.now() - settleStart > 60_000) break;
+      lastFrames = now;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const settledMs = Date.now() - settleStart;
+    const idleSample = await record(page, { ...opts, recordMs: IDLE_WINDOW_MS });
+    const idle = { windowMs: IDLE_WINDOW_MS, framesDrawn: idleSample.frameDraws.length, drawCalls: idleSample.frameDraws.reduce((a, b) => a + b, 0), settledMs };
     // The Scene view: the largest renderer canvas.
     const box = await page.evaluate(() => {
       const c = [...document.querySelectorAll('canvas[data-tl-renderer]')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
@@ -257,10 +281,13 @@ export async function measureEditor(
     const la = await loadavg();
 
     const surface = result('editor', renderer, sample, { connectedMs, firstFrameMs: firstEpoch! - t0 }, ['heap: the whole editor page (projection, UI, Scene view)'], la);
+    surface.idle = idle;
     if (opts.commands <= 0) return { surface, commandMs: summarize([]), commandSamples: [] };
     // Phase 21.4: the Hierarchy, command round trips (the one mutation path) while the editor shows
     // the project, what each costs the editor and the disk, and one material edit.
     const ops = await measureEditorOps(page, be, be.project(projectId), { commands: opts.commands, entityId: opts.entityId, projectDir: join(be.dataRoot, 'projects', projectId), scrollMs: 1500 });
+    const sync = await page.evaluate(() => document.querySelector('canvas.tl-viewport')?.getAttribute('data-sync') ?? null);
+    if (sync !== null) surface.lastSync = JSON.parse(sync) as Record<string, unknown>;
     return { surface, commandMs: ops.command.httpMs, commandSamples: [], ops };
   } finally {
     await context.close();

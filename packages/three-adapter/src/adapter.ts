@@ -29,7 +29,8 @@ import type { MaterialFunctionLike } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { setEmissiveLook } from './node-materials';
+import { setEmissiveLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
@@ -138,6 +139,12 @@ export interface SceneAdapterOptions {
    * compute executor when the renderer draws on WebGPU, else on the CPU
    * executor. Absent: effects are not drawn.
    */
+  /**
+   * Phase 21.3: draw repeated objects (boxes, model pieces with the same
+   * geometry, material and shadow flags) instanced (default true). Off: one
+   * draw per object, as before (tests compare the two).
+   */
+  batching?: boolean;
   effects?: {
     readonly defs: readonly EffectDefLike[];
     readonly wind?: EffectsPlayerOptions['wind'];
@@ -184,6 +191,10 @@ export interface SceneAdapterDiagnostics {
   gpu?: { geometries: number; textures: number; programs: number };
   /** Phase 20.2: the effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
   effects?: EffectsDiagnostics;
+  /** Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame. */
+  batching?: AutoBatcherDiagnostics;
+  /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
+  frame?: { drawCalls: number; triangles: number };
 }
 
 export interface ScreenshotResult {
@@ -467,6 +478,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const effectEntities = new Set<string>();
   let effectsLastNow: number | null = null;
   let effectsMark = '';
+  /** Phase 21.3: the MSAA samples last stamped on the canvas. */
+  let msaaMark = -1;
+  let drawsMark = -1;
+  /** Phase 21.3: the last drawn frame's counts. */
+  const lastFrameCounts = { drawCalls: 0, triangles: 0 };
   /** Phase 21.2: the transform sync for `forEachInterpolated` (one function for the adapter's life). */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     const obj = objects.get(id);
@@ -534,27 +550,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // --- scene graph construction (fixed M1 table; read-only over the
   // --- (deep-frozen, normalized) snapshot) ---------------------------------
   /** Phase 12 (c): each entity's own GPU resources (released when its scene unloads). */
-  const entityResources = new Map<string, { geometries: THREE.BufferGeometry[]; materials: THREE.Material[] }>();
-  /** Phase 12 (c): the documents of every realized entity (the loaded scenes). */
-  const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
-  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
-    const t = e.components.transform;
-    let obj: THREE.Object3D;
-    const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[] } = { geometries: [], materials: [] };
-    const box = e.components.box;
-    const cam = e.components.camera;
-    if (box) {
-      // Box primitive: unit-axis geometry sized by `size`; the
-      // transform's `scale` multiplies on top per frame (§6).
-      const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
-      addBoxLightmapUv(geometry);
-      // §41.2.3 (packet 52): an entity carrying `surface` gets ONE
-      // material instance created per entity placement — owned by that
-      // entity's mesh instance (value-level independence; the per-placement
-      // instance is by construction). No preset lookup: the values are
-      // taken literally from the `surface` component. No `surface` ⇒ the
-      // M1 Lambert path, unchanged.
-      const surface = (e.components as { surface?: AuthoredSurface }).surface;
+  const entityResources = new Map<string, { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material }>();
+  /** Phase 21.3: the unit box every box is drawn through when batched. */
+  const unitBox = unitBoxGeometry(addBoxLightmapUv);
+  /** Phase 21.3: box materials by value (shared by every box with the same values; counted). */
+  const boxMaterials = new Map<string, { material: THREE.Material; refs: number }>();
+  const boxMaterialKeys = new Map<THREE.Material, string>();
+  const sharedBoxMaterial = (surface: AuthoredSurface | undefined, color: string): THREE.Material => {
+    const key = surface ? JSON.stringify(['s', surface.color, surface.roughness, surface.metalness, surface.emissive, surface.emissiveIntensity]) : JSON.stringify(['l', color]);
+    let rec = boxMaterials.get(key);
+    if (rec === undefined) {
       const material: THREE.Material = surface
         ? new THREE.MeshStandardMaterial({
             color: new THREE.Color(surface.color),
@@ -563,10 +568,58 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             emissive: new THREE.Color(surface.emissive),
             emissiveIntensity: surface.emissiveIntensity,
           })
-        : new THREE.MeshLambertMaterial({ color: new THREE.Color(box.material.color) });
+        : new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+      material.userData[SHARED_MATERIAL_KEY] = true;
+      rec = { material, refs: 0 };
+      boxMaterials.set(key, rec);
+      boxMaterialKeys.set(material, key);
+    }
+    rec.refs += 1;
+    return rec.material;
+  };
+  const releaseBoxMaterial = (material: THREE.Material): void => {
+    const key = boxMaterialKeys.get(material);
+    const rec = key === undefined ? undefined : boxMaterials.get(key);
+    if (rec === undefined || key === undefined) return;
+    rec.refs -= 1;
+    if (rec.refs > 0) return;
+    boxMaterials.delete(key);
+    boxMaterialKeys.delete(material);
+    material.dispose();
+  };
+  /** Phase 21.3: repeated objects drawn instanced (absent when the option turns it off). */
+  const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene);
+  // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
+  if (batcher !== null) scene.matrixWorldAutoUpdate = false;
+  /** Phase 12 (c): the documents of every realized entity (the loaded scenes). */
+  const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
+  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
+    const t = e.components.transform;
+    let obj: THREE.Object3D;
+    const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material } = { geometries: [], materials: [] };
+    const box = e.components.box;
+    const cam = e.components.camera;
+    if (box) {
+      // Box primitive: unit-axis geometry sized by `size`; the
+      // transform's `scale` multiplies on top per frame (§6).
+      const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
+      addBoxLightmapUv(geometry);
+      const surface = (e.components as { surface?: AuthoredSurface }).surface;
+      // §41.2.3 (packet 52): an entity carrying `surface` gets ONE
+      // material instance created per entity placement — owned by that
+      // entity's mesh instance (value-level independence; the per-placement
+      // instance is by construction). No preset lookup: the values are
+      // taken literally from the `surface` component. No `surface` ⇒ the
+      // M1 Lambert path, unchanged.
+      // Phase 21.3: boxes with equal values share one material (a per-object
+      // look — the checkpoint glow, a fade, a lightmap — copies it first), so
+      // they can be drawn together.
+      const material = sharedBoxMaterial(surface, box.material.color);
       own.geometries.push(geometry);
-      own.materials.push(material);
+      own.shared = material;
       obj = new THREE.Mesh(geometry, material);
+      // Phase 21.3: drawn through the one unit box scaled by the size when batched.
+      obj.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
       // Phase 17.4: boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
       applyShadowFlags(obj, shadowFlagsOf(e.components));
     } else if (cam) {
@@ -618,6 +671,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (own !== undefined) {
       for (const g of own.geometries) g.dispose();
       for (const m of own.materials) m.dispose();
+      if (own.shared !== undefined) releaseBoxMaterial(own.shared);
       entityResources.delete(id);
     }
   };
@@ -743,6 +797,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Phase 17.4: models and instance sets cast and receive the key light's shadow (their data).
         applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
+        // Phase 21.3: a model's meshes may be drawn together with other placements' (instance sets already are).
+        markBatchable(root);
         lightmaps?.apply(entityId, root);
       },
     });
@@ -761,6 +817,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let contextAttempted = false;
   /** Phase 17.1: the last frame was skipped (WebGPURenderer still initialising). */
   let lastFrameSkipped = false;
+  /** Phase 21.3: a frame was drawn (the renderer info holds its counts). */
+  let lastFrameDrawn = false;
   /** Phase 17.1: the renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1139,6 +1197,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // frame; no path, token or device string). A scene with no
     // shadow-casting light never enables `shadowMap` (rule 5: no shadow
     // map is allocated).
+    // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
+    batcher?.update(camera!);
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
       shadowProbeDone = true;
       // WebGPURenderer has no `capabilities`: WebGPU guarantees 8192² textures and WebGL 2
@@ -1164,10 +1224,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
       }
     }
+    const frameInfo = (renderer as { info?: { render?: { drawCalls: number; triangles: number } } }).info?.render ?? { drawCalls: 0, triangles: 0 };
+    const drawsBefore = frameInfo.drawCalls;
+    const trianglesBefore = frameInfo.triangles;
     try {
-      if (opts.environment !== undefined) {
+      // Phase 21.3: a player's quality level also applies without a project environment (the low
+      // level draws without MSAA), so the environment renderer draws then too.
+      if (opts.environment !== undefined || playerQuality !== null) {
         if (environmentRenderer === null) {
-          environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment.loadTexture });
+          environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
           environmentRenderer.set(effectiveEnvironment());
           if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
         }
@@ -1182,9 +1247,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       } else {
         renderer.render(scene, camera!);
       }
+      // Phase 21.3: the MSAA samples the frame was drawn with (the export has no other in-page diagnostics surface).
+      const samples = environmentRenderer !== null ? environmentRenderer.samples() : renderer.samples;
+      if (samples !== msaaMark && typeof canvasLike?.setAttribute === 'function') {
+        msaaMark = samples;
+        canvasLike.setAttribute('data-tl-msaa', String(samples));
+      }
+      // Phase 21.3: this frame's draw calls (the export's only diagnostics surface; the play diagnostics carry them too).
+      lastFrameCounts.drawCalls = Math.max(0, frameInfo.drawCalls - drawsBefore);
+      lastFrameCounts.triangles = Math.max(0, frameInfo.triangles - trianglesBefore);
+      if (lastFrameCounts.drawCalls !== drawsMark && typeof canvasLike?.setAttribute === 'function') {
+        drawsMark = lastFrameCounts.drawCalls;
+        canvasLike.setAttribute('data-tl-draws', String(drawsMark));
+      }
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
+    lastFrameDrawn = true;
     return { ok: true };
   }
 
@@ -1266,6 +1345,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     if (effects !== null && !disposed) d.effects = effects.diagnostics();
+    if (batcher !== null && !disposed && lastFrameDrawn) d.batching = batcher.diagnostics();
+    if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,
       diagnostics: d,
@@ -1314,6 +1395,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     entityResources.clear();
+    batcher?.dispose();
+    for (const rec of boxMaterials.values()) rec.material.dispose();
+    boxMaterials.clear();
+    boxMaterialKeys.clear();
+    unitBox.dispose();
     entityDocs.clear();
     for (const g of owned.geometries) {
       try { g.dispose(); } catch { /* best effort */ }

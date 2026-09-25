@@ -192,18 +192,26 @@ export function setSelectionHighlight(material: THREE.Material | THREE.Material[
 /** The key the library marks meshes with while a project material is on them. */
 const SOURCE_KEY = '__tlSourceMaterial';
 const OWN_KEY = '__tlOwnMaterial';
+/**
+ * Phase 21.3: `material.userData[SHARED_MATERIAL_KEY] = true` marks a material
+ * several objects draw with (deduplicated box materials, a model's material
+ * shared by its placements): a per-object look copies it first.
+ */
+export const SHARED_MATERIAL_KEY = '__tlSharedMaterial';
 
 /**
  * An emissive look on every mesh under `root` (the checkpoint glow), or back
  * to each material's own emissive (`look` null). A mesh wearing a shared
- * project material first gets its own copy (hooks included), so no other
- * mesh glows.
+ * project material (or a material marked shared, phase 21.3) first gets its
+ * own copy (hooks included), so no other mesh glows.
  */
 export function setEmissiveLook(root: THREE.Object3D, look: { emissive: string; emissiveIntensity: number } | null): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh === true && mesh.userData[SOURCE_KEY] !== undefined && mesh.userData[OWN_KEY] !== true && !Array.isArray(mesh.material)) {
+    const shared = mesh.userData[SOURCE_KEY] !== undefined || (mesh.material as THREE.Material | undefined)?.userData?.[SHARED_MATERIAL_KEY] === true;
+    if (mesh.isMesh === true && shared && mesh.userData[OWN_KEY] !== true && !Array.isArray(mesh.material)) {
       mesh.material = cloneMaterial(mesh.material);
+      delete mesh.material.userData[SHARED_MATERIAL_KEY];
       mesh.userData[OWN_KEY] = true;
     }
     const mat = mesh.material as EmissiveCapable | EmissiveCapable[] | undefined;
