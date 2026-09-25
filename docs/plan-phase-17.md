@@ -95,7 +95,7 @@ required feature, pin it exactly, re-run everything, and log it.
 |---|---|---|
 | 17.0 spike | done 2026-09-25 | 621d3f9, c0e123d |
 | 17.1 renderer factory | done 2026-09-25 | f989b6a |
-| 17.2 materials in TSL | todo | |
+| 17.2 materials in TSL | done 2026-09-25 | 8a2651f, 199b2cd |
 | 17.3 environment and post in TSL | todo | |
 | 17.4 switch over | todo | |
 | 17.5 wrap-up | todo | |
