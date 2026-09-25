@@ -23,19 +23,31 @@ import type { SimulationPhase } from './types';
  */
 export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' | 'respawn';
 
-/** `−1 ≤ value ≤ 1`, quantized at commit (§14.4). */
+/**
+ * `−1 ≤ value ≤ 1`, quantized at commit (§14.4).
+ * @graphNode Control move
+ * @graphPhase intent
+ */
 export interface ControlMoveIntent {
   kind: 'control_move';
   value: number;
 }
 
-/** One `JumpPhase` value (§14.4). */
+/**
+ * One `JumpPhase` value (§14.4).
+ * @graphNode Control jump
+ * @graphPhase intent
+ */
 export interface ControlJumpIntent {
   kind: 'control_jump';
   value: JumpPhase;
 }
 
-/** A position write on ONE owned entity axis set (§14.4/§14.6). */
+/**
+ * A position write on ONE owned entity axis set (§14.4/§14.6).
+ * @graphNode Move object
+ * @graphPhase transform
+ */
 export interface TransformIntent {
   kind: 'transform';
   entityId: string;
@@ -48,6 +60,8 @@ export interface TransformIntent {
  * 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual
  * (colliders keep their shape). Fields in the order kind, entityId,
  * rotation, scale; at least one of rotation and scale.
+ * @graphNode Pose object
+ * @graphPhase transform
  */
 export interface PoseIntent {
   kind: 'pose';
@@ -56,7 +70,11 @@ export interface PoseIntent {
   scale?: number | [number, number, number];
 }
 
-/** Phase 12 (c): kill the player (intent phase; ignored unless the run is playing). */
+/**
+ * Phase 12 (c): kill the player (intent phase; ignored unless the run is playing).
+ * @graphNode Respawn player
+ * @graphPhase intent
+ */
 export interface RespawnIntent {
   kind: 'respawn';
 }

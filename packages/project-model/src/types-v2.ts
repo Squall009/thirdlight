@@ -269,6 +269,8 @@ export interface PrefabComponentsV4Extra {
   materials?: EntityComponentsV3['materials'];
   /** Phase 18.0: overrides of graph-material parameters. */
   materialParams?: EntityComponentsV3['materialParams'];
+  /** Phase 20.0: a visual effect played from the entity. */
+  effect?: EntityComponentsV3['effect'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];
@@ -343,6 +345,13 @@ export interface BehaviorRecord {
    * published `source` then has `kind: 'graph'`). The game never reads it.
    */
   graph?: import('./graph').GraphData;
+  /**
+   * Phase 19.1 (v4, visual scripts only): the script's functions — graphs
+   * of kind `behavior-function`, edited with `graphEdit {owner: {kind:
+   * "behavior", id: "<behaviorId>#<functionId>"}}` (a function exists while
+   * its graph has nodes). Absent = none (sorted by id).
+   */
+  functions?: import('./behavior-graph').BehaviorFunctionRecord[];
 }
 
 export interface TrustEntry {

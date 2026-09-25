@@ -34,7 +34,7 @@
  */
 
 import { validateGraphOps, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type GameFlow, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -145,6 +145,10 @@ const OPS: readonly MutationOp[] = [
   'setGraph',
   'deleteGraph',
   'graphEdit',
+  // phase 20.0: visual effects
+  'setEffect',
+  'deleteEffect',
+  'renameEffect',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -186,7 +190,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1177,7 +1181,10 @@ export type ValidatedOpArgs =
   | { op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes'; args: SceneIndexArgs }
   | { op: 'setGraph'; args: { graph: GraphDocument } }
   | { op: 'deleteGraph'; args: { graphId: string } }
-  | { op: 'graphEdit'; args: { owner: { kind: string; id: string }; ops: GraphOp[] } };
+  | { op: 'graphEdit'; args: { owner: { kind: string; id: string }; ops: GraphOp[] } }
+  | { op: 'setEffect'; args: { effect: EffectDef } }
+  | { op: 'deleteEffect'; args: { effectId: string } }
+  | { op: 'renameEffect'; args: { effectId: string; name: string } };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1267,6 +1274,19 @@ export function validateOpArgs(
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (op === 'deleteGraph' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteGraph' ? 'string (graphId)' : 'object ({ graphId, kind, name, graph })') };
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setEffect':
+    case 'deleteEffect':
+    case 'renameEffect': {
+      const keys = op === 'setEffect' ? ['effect'] : op === 'deleteEffect' ? ['effectId'] : ['effectId', 'name'];
+      for (const k of Object.keys(args)) if (!keys.includes(k)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, keys.join(', ')) };
+      for (const k of keys) {
+        if (args[k] === undefined) return { ok: false, error: fieldMissing(`/args/${k}`, k) };
+        if (k === 'effect' ? !isPlainObject(args[k]) : typeof args[k] !== 'string') {
+          return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
+        }
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

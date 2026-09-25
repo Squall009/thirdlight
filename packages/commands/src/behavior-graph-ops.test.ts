@@ -143,3 +143,57 @@ describe('a visual-script behavior', () => {
     expect(record(renamed)?.graph).toEqual(record(s)?.graph);
   });
 });
+
+describe('phase 19.1: functions of a visual script and shared functions', () => {
+  const FN_NODES = [
+    { id: 'start', type: 'fn.entry', position: [0, 0], data: { name: 'double' } },
+    { id: 'x', type: 'fn.input', position: [0, 100], data: { name: 'x', type: 'number' } },
+    { id: 'y', type: 'fn.output', position: [300, 100], data: { name: 'y', type: 'number' } },
+  ];
+  const FN_EDGES = [{ id: 'w1', from: { node: 'x', port: 'value' }, to: { node: 'y', port: 'value' } }];
+  const fnOwner = { kind: 'behavior', id: 'vs#double' };
+
+  it('an edit that adds nodes to a new function id creates it; removing its last node removes it; undo and redo follow', () => {
+    const s0 = withScript();
+    const created = ok(s0, 'graphEdit', { owner: fnOwner, ops: [{ op: 'addNodes', nodes: FN_NODES }, { op: 'connect', edges: FN_EDGES }] });
+    expect(record(created.state)?.functions?.map((f) => f.functionId)).toEqual(['double']);
+    expect((created.change as GraphEditChange).owner).toEqual(fnOwner);
+    // The script calls it: the call's ports are the function's Input and Output.
+    const called = ok(created.state, 'graphEdit', {
+      owner,
+      ops: [
+        { op: 'addNodes', nodes: [{ id: 'call', type: 'fn.call', position: [200, 0], data: { function: 'double' } }, { id: 'log', type: 'debug.log', position: [400, 0] }] },
+        { op: 'connect', edges: [{ id: 'c1', from: { node: 'start', port: 'then' }, to: { node: 'call', port: 'in' } }, { id: 'c2', from: { node: 'call', port: 'y' }, to: { node: 'log', port: 'message' } }, { id: 'c3', from: { node: 'call', port: 'then' }, to: { node: 'log', port: 'in' } }] },
+      ],
+    });
+    // Removing the function's Output while the script uses its port is refused (the result would not validate).
+    expect(refusal(called.state, 'graphEdit', { owner: fnOwner, ops: [{ op: 'removeNodes', ids: ['y'] }] }).message).toMatch(/no output "y"|has no output/);
+    // Undo back to before the function; redo brings it back.
+    let s = ok(called.state, 'undo', {}).state;
+    s = ok(s, 'undo', {}).state;
+    expect(record(s)?.functions).toBeUndefined();
+    s = ok(s, 'redo', {}).state;
+    expect(record(s)?.functions?.[0]?.graph.nodes.map((n) => n.id)).toEqual(['start', 'x', 'y']);
+    // Removing every node removes the function.
+    const removed = ok(s, 'graphEdit', { owner: fnOwner, ops: [{ op: 'removeNodes', ids: ['start', 'x', 'y'] }] });
+    expect(record(removed.state)?.functions).toBeUndefined();
+    // A function belongs to a visual script: a TypeScript behavior (no graph) has none.
+    expect(refusal(fresh(), 'graphEdit', { owner: { kind: 'behavior', id: 'nope#f' }, ops: [{ op: 'addNodes', nodes: FN_NODES }] }).code).toBe('reference_missing');
+  });
+
+  it('a shared function is a standalone graph (behavior-library); a change that breaks a script calling it is refused, naming the script', () => {
+    let s = withScript();
+    s = ok(s, 'setGraph', { graph: { graphId: 'shared', kind: 'behavior-library', name: 'Shared', graph: { nodes: FN_NODES, edges: FN_EDGES } } }).state;
+    s = ok(s, 'graphEdit', {
+      owner,
+      ops: [
+        { op: 'addNodes', nodes: [{ id: 'lib', type: 'fn.library', position: [200, 0], data: { function: 'shared' } }, { id: 'log', type: 'debug.log', position: [400, 0] }] },
+        { op: 'connect', edges: [{ id: 'l1', from: { node: 'start', port: 'then' }, to: { node: 'lib', port: 'in' } }, { id: 'l2', from: { node: 'lib', port: 'y' }, to: { node: 'log', port: 'message' } }] },
+      ],
+    }).state;
+    const r = refusal(s, 'graphEdit', { owner: { kind: 'graph', id: 'shared' }, ops: [{ op: 'removeNodes', ids: ['y'] }] });
+    expect(r.message).toContain('script "Visual"');
+    // A visual script may declare no variable at all (phase 19.1).
+    ok(fresh(), 'publishBehavior', { behaviorId: 'bare', displayName: 'Bare', mode: 'declaration-create', declaration: { properties: [] }, graph: { nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] } });
+  });
+});

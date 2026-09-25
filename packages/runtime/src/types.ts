@@ -115,18 +115,37 @@ export interface SceneLoadOptions {
 
 /** Phase 12 (c): the scene API a behavior script reaches as `ctx.scenes`. */
 export interface BehaviorSceneControl {
-  /** Request a load; it completes at a later step boundary. Loading or loaded ⇒ no-op. */
+  /**
+   * Request a load; it completes at a later step boundary. Loading or loaded ⇒ no-op.
+   * @graphNode Load scene
+   */
   load(sceneId: string, options?: SceneLoadOptions): void;
-  /** Request an unload at the next step boundary. Unloaded ⇒ no-op. */
+  /**
+   * Request an unload at the next step boundary. Unloaded ⇒ no-op.
+   * @graphNode Unload scene
+   */
   unload(sceneId: string): void;
+  /**
+   * Where a scene is in its load cycle.
+   * @graphPure
+   * @graphNode Scene status
+   */
   status(sceneId: string): SceneStatus;
-  /** The loaded scene ids, in load order. */
+  /**
+   * The loaded scene ids, in load order.
+   * @graphPure
+   * @graphNode Loaded scenes
+   */
   loaded(): readonly string[];
 }
 
 /** Phase 12 (c): a read-only view of entity transforms (`ctx.world`). */
 export interface BehaviorWorldView {
-  /** The entity's current transform (this step so far), or `undefined` when it is not loaded. */
+  /**
+   * The entity's current transform (this step so far), or `undefined` when it is not loaded.
+   * @graphPure
+   * @graphNode Transform of
+   */
   transform(entityId: string): Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number] }> | undefined;
 }
 
@@ -571,6 +590,52 @@ export interface StepContext {
    * `ctx.events`).
    */
   readonly triggerEvents?: readonly TriggerEventRecord[];
+  /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
+  readonly messages?: BehaviorMessageControl;
+}
+
+/** Phase 19.1: one message a script sent (`ctx.messages`). */
+export interface BehaviorMessage {
+  readonly name: string;
+  /** The payload (a number, text or true/false), or null when none was sent. */
+  readonly value: number | string | boolean | null;
+  /** The entity whose script sent it. */
+  readonly from: string;
+  /** The step it was sent in (scripts see it in the next step). */
+  readonly stepIndex: number;
+}
+
+/**
+ * Phase 19.1: `ctx.messages` — named messages between scripts with an
+ * optional value, to every script or to the scripts of one entity. Like
+ * signals, a message sent in a step is seen in the next step (in send order);
+ * at most `MAX_MESSAGES_PER_STEP` (256) are sent per step and a new run
+ * clears them.
+ */
+export interface BehaviorMessages {
+  /**
+   * Send a message (name: 1–64 letters, digits or _ . : -) with an optional
+   * value (a number, text of at most 256 characters or true/false) to every
+   * script, or only to the scripts on entity `target`. `false` when it is
+   * refused (a bad name or value, or the step's limit).
+   * @graphNode Send message
+   * @graphLabel name message
+   * @graphLabel target to entity (empty: every script)
+   */
+  send(name: string, value?: number | string | boolean, target?: string): boolean;
+  /**
+   * The messages of that name sent in the previous step to every script or to this entity, in send order.
+   * @graphPure
+   * @graphNode Messages received
+   * @graphLabel name message
+   */
+  received(name: string): readonly BehaviorMessage[];
+}
+
+/** Phase 19.1: the runtime side of `ctx.messages` (the behavior host fills in sender and receiver). */
+export interface BehaviorMessageControl {
+  send(from: string, name: unknown, value: unknown, target: unknown): boolean;
+  received(to: string, name: unknown): readonly BehaviorMessage[];
 }
 
 /**
@@ -597,17 +662,32 @@ export interface BehaviorTimers {
    * Fire once, `seconds` from this step. Returns `false` (and changes
    * nothing) when a one-shot timer of that name and length is already
    * running — a script may call it every step; a different length restarts it.
+   * @graphNode Start timer
+   * @graphLabel name timer
+   * @graphDefault seconds 1
    */
   after(name: string, seconds: number): boolean;
   /**
    * Fire every `seconds`, the first time `seconds` from this step. Returns
    * `false` (and changes nothing) when a repeating timer of that name and
    * period is already running.
+   * @graphNode Start repeating timer
+   * @graphLabel name timer
+   * @graphDefault seconds 1
    */
   every(name: string, seconds: number): boolean;
-  /** True in the step the timer fires (in every phase of that step). */
+  /**
+   * True in the step the timer fires (in every phase of that step).
+   * @graphPure
+   * @graphNode Timer fired
+   * @graphLabel name timer
+   */
   fired(name: string): boolean;
-  /** Stop a timer; `false` when none of that name was running. */
+  /**
+   * Stop a timer; `false` when none of that name was running.
+   * @graphNode Cancel timer
+   * @graphLabel name timer
+   */
   cancel(name: string): boolean;
 }
 
@@ -648,41 +728,115 @@ export type RunRestore = Partial<RunSaveState>;
 
 /** Phase 9.11: `ctx.save` — values a script keeps in the player's save (≤ 64 keys, ≤ 4 KB each as JSON). */
 export interface BehaviorSave {
+  /**
+   * The value kept under `key` (undefined when there is none).
+   * @graphPure
+   * @graphNode Saved value
+   */
   get(key: string): unknown;
+  /**
+   * Keep a value under `key`; `false` when it does not fit (a bad key, 64 keys, 4 KB).
+   * @graphNode Save value
+   */
   set(key: string, value: unknown): boolean;
+  /**
+   * Forget the value under `key`.
+   * @graphNode Remove saved value
+   */
   remove(key: string): void;
+  /**
+   * The keys of the kept values.
+   * @graphPure
+   * @graphNode Saved keys
+   */
   keys(): string[];
 }
 
 /** Phase 9.10: `ctx.audio`. */
 export interface BehaviorAudio {
+  /**
+   * Play an audio asset once (volume 0–1).
+   * @graphNode Play sound
+   * @graphLabel assetId sound
+   * @graphAsset assetId audio
+   * @graphDefault volume 1
+   */
   play(assetId: string, options?: { volume?: number }): void;
 }
 
 /** Phase 9.9: `ctx.signals`. */
 export interface BehaviorSignals {
+  /**
+   * Send a named signal; switches, doors and scripts see it in the next step.
+   * @graphNode Emit signal
+   * @graphLabel name signal
+   */
   emit(name: string): void;
-  /** Emitted in the previous step (by a switch, a trigger or a script). */
+  /**
+   * Emitted in the previous step (by a switch, a trigger or a script).
+   * @graphPure
+   * @graphNode Signal received
+   * @graphLabel name signal
+   */
   on(name: string): boolean;
 }
 
 /** Phase 9.9: `ctx.game`. */
 export interface BehaviorGameState {
+  /**
+   * The current value of one of the run's counters (0 when it was never added to).
+   * @graphPure
+   * @graphNode Counter value
+   * @graphLabel name counter
+   */
   counter(name: string): number;
-  add(name: string, delta: number): void;
+  /**
+   * Add to one of the run's counters (coins, keys, anything you name); the HUD and score rules read them.
+   * @graphNode Add to counter
+   * @graphLabel name counter
+   * @graphDefault amount 1
+   */
+  add(name: string, amount: number): void;
+  /**
+   * The player's health, or null when the game has none.
+   * @graphPure
+   * @graphNode Player health
+   */
   health(): { current: number; max: number } | null;
-  /** Show or hide an entity (and its children) until the next run; it still collides and triggers. */
+  /**
+   * Show or hide an entity (and its children) until the next run; it still collides and triggers.
+   * @graphNode Set visible
+   * @graphDefault visible true
+   */
   setVisible(entityId: string, visible: boolean): void;
 }
 
 /** Phase 9.7: one entity's animator, as a script sees it. */
 export interface BehaviorAnimatorHandle {
-  /** Set a float/int/bool parameter; false for an unknown name or a wrong type. */
+  /**
+   * Set a float/int/bool parameter; false for an unknown name or a wrong type.
+   * @graphNode Set animator parameter
+   * @graphLabel name parameter
+   */
   set(name: string, value: number | boolean): boolean;
-  /** Set a trigger (it resets when a transition uses it). */
+  /**
+   * Set a trigger (it resets when a transition uses it).
+   * @graphNode Set animator trigger
+   * @graphLabel name trigger
+   */
   trigger(name: string): boolean;
+  /**
+   * A parameter's value (undefined for an unknown name).
+   * @graphPure
+   * @graphNode Animator parameter
+   * @graphLabel name parameter
+   */
   get(name: string): number | boolean | undefined;
-  /** The current state's name (of the base layer, or of override layer `layer` — 1 is the first; phase 14.6). */
+  /**
+   * The current state's name (of the base layer, or of override layer `layer` — 1 is the first; phase 14.6).
+   * @graphPure
+   * @graphNode Animator state
+   */
   state(layer?: number): string;
 }
 
@@ -707,13 +861,30 @@ export interface AnimatorEventRecord {
  * per frame beyond the first query of a given mask.
  */
 export interface BehaviorTagQuery {
-  /** The mask of the named tags (names ignore case). Throws on an unknown name. */
+  /**
+   * The mask of the named tags (names ignore case). Throws on an unknown name.
+   * @graphPure
+   * @graphNode Tag mask
+   * @graphLabel names tags (comma separated)
+   */
   mask(...names: string[]): number;
-  /** The entity's effective tag mask (0 for an unknown entity). */
+  /**
+   * The entity's effective tag mask (0 for an unknown entity).
+   * @graphPure
+   * @graphNode Tags of
+   */
   of(entityId: string): number;
-  /** Whether the entity carries any (default) or all of the mask's bits. */
+  /**
+   * Whether the entity carries any (default) or all of the mask's bits.
+   * @graphPure
+   * @graphNode Has tags
+   */
   has(entityId: string, mask: number, match?: 'any' | 'all'): boolean;
-  /** The entities carrying any (default) or all of the mask's bits, in scene order. */
+  /**
+   * The entities carrying any (default) or all of the mask's bits, in scene order.
+   * @graphPure
+   * @graphNode Find by tags
+   */
   query(mask: number, match?: 'any' | 'all'): readonly string[];
 }
 

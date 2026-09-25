@@ -323,9 +323,8 @@ describe('publishBehavior (commands.md §8.8)', () => {
   });
 
   it('validates declaration data and bounds with the contract codes', () => {
-    expect(
-      failCode(mutation(baseState(), 'publishBehavior', { ...NEW_BEHAVIOR, declaration: { properties: [] } })),
-    ).toBe('field_value');
+    // Phase 19.1: a behavior may declare no property (it was 1-32).
+    expect(mutation(baseState(), 'publishBehavior', { ...NEW_BEHAVIOR, declaration: { properties: [] } }).ok).toBe(true);
     const badDefault = {
       ...NEW_BEHAVIOR,
       declaration: { properties: [{ key: 'n', label: 'N', type: 'number', default: 5, min: 0, max: 1 }] },

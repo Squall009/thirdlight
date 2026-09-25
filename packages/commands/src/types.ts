@@ -52,6 +52,7 @@ import type {
   GameFlow,
   InputConfig,
   MaterialDef,
+  EffectDef,
   GraphData,
   GraphDocument,
   GraphOp,
@@ -115,7 +116,11 @@ export type V3MutationOp =
   // phase 16.1: graphs (standalone graph documents and the generic graph edit)
   | 'setGraph'
   | 'deleteGraph'
-  | 'graphEdit';
+  | 'graphEdit'
+  // phase 20.0: visual effects
+  | 'setEffect'
+  | 'deleteEffect'
+  | 'renameEffect';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -277,7 +282,9 @@ export type V3OwnedComponent =
   | 'audioSource'
   | 'faceMovement'
   /** Phase 18.0, v4 scenes only: overrides of graph-material parameters. */
-  | 'materialParams';
+  | 'materialParams'
+  /** Phase 20.0, v4 scenes only: a visual effect played from the entity. */
+  | 'effect';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =
@@ -403,6 +410,21 @@ export interface SetGraphChange {
   graphId: string;
   previous: GraphDocument | null;
   next: GraphDocument | null;
+}
+
+/** Phase 20.0: `setEffect`/`deleteEffect`/`renameEffect` change data: one effect before and after (null = none). */
+export interface SetEffectChange {
+  type: 'setEffect';
+  effectId: string;
+  previous: EffectDef | null;
+  next: EffectDef | null;
+}
+
+/** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
+export interface SetEffectInverse {
+  kind: 'setEffect';
+  effectId: string;
+  restore: EffectDef | null;
 }
 
 /** Undo of `setGraph`/`deleteGraph`: restore the previous document (null = remove it). */
@@ -700,7 +722,8 @@ export type ChangeData =
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
-  | SetGraphChange;
+  | SetGraphChange
+  | SetEffectChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -730,7 +753,8 @@ export type ForwardChange =
   | SetFlowChange
   | SetSceneIndexChange
   | GraphEditChange
-  | SetGraphChange;
+  | SetGraphChange
+  | SetEffectChange;
 
 // ---- inverse specs (§9.1) --------------------------------------------------------
 
@@ -898,6 +922,7 @@ export interface SetSceneIndexInverse {
 export type InverseSpec =
   | GraphEditInverse
   | SetGraphInverse
+  | SetEffectInverse
   | SetMaterialsInverse
   | SetEnvironmentInverse
   | SetLightingInverse
@@ -1319,7 +1344,26 @@ export interface DeleteGraphArgs {
   graphId: string;
 }
 
+/** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
+export interface SetEffectArgs {
+  effect: EffectDef;
+}
+
+/** Phase 20.0: `deleteEffect` removes one effect. */
+export interface DeleteEffectArgs {
+  effectId: string;
+}
+
+/** Phase 20.0: `renameEffect` changes one effect's name. */
+export interface RenameEffectArgs {
+  effectId: string;
+  name: string;
+}
+
 export type MutationArgs =
+  | SetEffectArgs
+  | DeleteEffectArgs
+  | RenameEffectArgs
   | GraphEditArgs
   | SetGraphArgs
   | DeleteGraphArgs

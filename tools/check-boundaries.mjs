@@ -93,6 +93,8 @@ export const UNITS = [
   'platformer',
   'platformer-game',
   'behavior-build',
+  // Phase 20.1: the CPU reference semantics of visual-effect graphs.
+  'effects',
   // M3 (dependencies.md §2 row, accepted at Gate K): created at packet 54
   // with the `.` audio entry (presentation.md §41.9); the delivery.md
   // §§3–5 composition part lands at packet 55.
@@ -124,6 +126,12 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'asset-pipeline': true, 'behavior-build': true },
   },
   runtime: { packages: ['project-model'], external: [], node: [] },
+  // Phase 20.1: the visual-effect evaluator (CPU reference semantics of the
+  // `effect` graph kind). Runtime-safe and pure like the runtime: the kind
+  // data and graph helpers of project-model only; no three.js, no Node
+  // built-ins. Deliberately NOT inside the runtime: effects are visual only
+  // and never part of the deterministic simulation (phase 20 decision).
+  effects: { packages: ['project-model'], external: [], node: [] },
   'three-adapter': {
     packages: ['runtime'],
     external: ['three', '@types/three'],

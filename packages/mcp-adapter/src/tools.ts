@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -113,11 +113,21 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the compiler derives the declaration from the code, which wins over a JSON declaration sent with the source. ' +
       'Visual scripts: publishBehavior {mode: "declaration-create", ..., graph: {nodes, edges}} creates a behavior whose logic is a node graph (graph kind "behavior"; ' +
       'its catalogue is in tl_content_query target="game" includeDescriptors (graphKinds.behavior)); edit it with graphEdit {owner: {kind: "behavior", id: behaviorId}, ops} ' +
-      '(below). Exec ports (type exec) carry the flow from events (event.start: the first step of the script and of every run, event.step: every step) along one wire per ' +
-      'exec output (flow.sequence has several outputs); data ports carry number/boolean/string values (conversions number→string, boolean→string, boolean→number); an ' +
-      'unwired data input uses the node field of the same key; no cycles (repeat with flow.for: first..last, at most 10000 iterations per step, more is a script error with ' +
-      'the node id). Variables are var.number|var.boolean|var.string nodes {name (the property key), default, visibility: public|private, label?, group?, tooltip?} read and ' +
-      'written with var.get / var.set {variable, value? (set: the unwired value as text)} whose value port takes the variable\'s type; they are the behavior\'s properties (public ones set per object with setBehaviorProperties). Publishing compiles the ' +
+      '(below). Exec ports (type exec) carry the flow from events along one wire per exec output (flow.sequence has several outputs). Events (field phase: intent, or ' +
+      'transform for scripts that move objects): event.start (first step of every run), event.step, event.signal {signal}, event.trigger {when: enter|exit, trigger?} (triggers ' +
+      'the script owns), event.overlap / event.raycast (a query around this object every step: enter|exit|each), event.input {action, when: pressed|released|held}, ' +
+      'event.animator {event?, entity?}, event.timer {timer}, event.message {message, type} (sent with api.messages.send). Flow: flow.branch, sequence, for, foreach, while ' +
+      '(loops: at most 10000 iterations per step in all, more is a script error with the node id), gate (enter/open/close/toggle), doonce (in/reset), delay {seconds} ' +
+      '(step-counted, a timer "vs.delay.<n>"), switch {on: text|int, case1..case6} (+ default), select. Data ports: number, boolean, string, vector [x,y,z], list and map ' +
+      '(bounded: 1024 items, 256 entries; list/map nodes return new values) with conversions number→string, boolean→string, boolean→number, number→vector, vector→string; ' +
+      'constants, maths, logic, text, vectors, random.* (a per-object deterministic sequence restarting each run). API nodes api.<ctx path> are generated from the runtime ' +
+      'typings (every ctx call: game, signals, messages, timers, physics, tags, world, scenes, input, animator, audio, save, spawn/destroy, api.emit.* intents — Move/Pose ' +
+      'object only in the transform phase, entity empty = this object, which makes the script own "@self"); an empty entity argument means this object; an unwired data ' +
+      'input uses the node field of the same key; no cycles. Variables are var.number|boolean|string|vector|entity|enum|list|map nodes {name, default, visibility: ' +
+      'public|private|local, …}: public/private ones of the property kinds are the behavior\'s properties (public ones set per object with setBehaviorProperties; a script may ' +
+      'have none), local ones live for one event run; var.get / var.set {variable, value?} take the variable\'s type. Functions: graphEdit {owner: {kind: "behavior", id: ' +
+      '"<behaviorId>#<functionId>"}} edits a script function (kind behavior-function: fn.entry, fn.input/fn.output {name, type} = the ports of fn.call {function}; created by ' +
+      'the first edit that adds nodes, removed with its last node); shared functions are setGraph {kind: "behavior-library"} called with fn.library {function}. Publishing compiles the ' +
       'graph to TypeScript (the same compiler, limits and trust per digest) through the editor\'s Publish (HTTP POST content/behaviors/source {graph: true, ...}); ' +
       'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
       'Prefabs: ' +
@@ -201,7 +211,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'transitions (connect adds one transition: exit time 1, crossfade 0.1 s; disconnect removes the pair\'s transitions; conditions and several transitions per pair ' +
       'are edited with setAnimator). A blend tree graph has the fixed OUT node and one clip node {threshold, clip, asset, duration} per child. Such an edit records the ' +
       'same setAnimators change as setAnimator (one undo step). ' +
-      'A visual script is owner kind "behavior" (owner id = behaviorId, kind behavior; the change is graphEdit with the ops, one undo step). ' +
+      'A visual script is owner kind "behavior" (owner id = behaviorId, kind behavior; "<behaviorId>#<functionId>" = one of its functions, kind behavior-function; the change is graphEdit with the ops, one undo step). ' +
+      'Visual effects (visual only, never part of the game simulation): setEffect {effect: {effectId, name, duration 0.01-3600 s (one cycle), loop, seed 0-4294967295, ' +
+      'bounds: {center: [x, y, z], size: [x, y, z]} (culling box around the origin), parameters?: [{key, type: float|vec3|color, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}], ' +
+      'systems: [{systemId, name, maxParticles 1-1048576, space: local|world, graph}] (up to 16, evaluation order)}} creates or replaces one (adding/removing a system = setEffect); ' +
+      'deleteEffect {effectId} (refused while an effect component names it); renameEffect {effectId, name}. A system graph (kind "effect", catalogue in graphKinds) has the fixed ' +
+      'context nodes spawn, initialize, update and output (a new system: those four nodes with ids = their types, no edges); each context runs a chain: connect the context\'s "then" ' +
+      'output to a block\'s "in", that block\'s "then" to the next block (spawn.rate|burst|distance|event; init.position.point|sphere|box|circle|cone|line|mesh, init.velocity, ' +
+      'init.velocity.direction, init.lifetime, init.size, init.color, init.color.gradient, init.rotation, init.mass; update.gravity|drag|wind|vortex|turbulence|attractor, ' +
+      'update.collide.plane|depth, update.size.curve, update.color.gradient, update.velocity.curve, update.kill.plane|sphere|box|speed; output.billboard|mesh|ribbon|light); ' +
+      'number/vector/colour fields of a block are also inputs of the same id fed by value nodes (value.float|vec3|color|parameter {key}|random|randomVec3|curve|gradient|attribute|time, ' +
+      'math.*). Curve fields are [t0, v0, t1, v1, …] (t 0-1 ascending), gradient fields [t, r, g, b, a, …] (0-1). Edit a system graph with graphEdit {owner: {kind: "effect", ' +
+      'id: "<effectId>/<systemId>"}, ops}. Objects play one with setComponent "effect" {effectId, playOnStart? (default true), params?: {<public key>: value}}. The effects are in ' +
+      'tl_content_query target="game" (effects); the runtime executors arrive with phase 20.2. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

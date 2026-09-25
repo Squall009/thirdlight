@@ -43,6 +43,8 @@ export interface FieldContext extends PickerData {
   readonly signals: readonly string[];
   /** Phase 15.2: each animator controller's parameters (an object's starting values are edited from this list). */
   readonly animatorParameters?: Readonly<Record<string, readonly { name: string; type: string; default?: number | boolean }[]>>;
+  /** Phase 20.0: each effect's public parameters (an object's overrides are edited from this list). */
+  readonly effectParameters?: Readonly<Record<string, readonly { key: string; type: string; default: number | number[] | string; label?: string }[]>>;
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -489,10 +491,77 @@ function AnimatorParametersWidget(p: RowProps & { aria: string; params: readonly
   );
 }
 
+/**
+ * Phase 20.0: an object's overrides of its effect's public parameters — one
+ * row per public parameter, showing the effect's default until the object
+ * sets its own (× resets it).
+ */
+function EffectParametersWidget(p: RowProps & { aria: string; params: readonly { key: string; type: string; default: number | number[] | string; label?: string }[] }): JSX.Element {
+  const stored = p.value !== null && typeof p.value === 'object' && !Array.isArray(p.value) ? (p.value as Record<string, unknown>) : {};
+  const known = new Set(p.params.map((x) => x.key));
+  return (
+    <div className="tl-desc__list" aria-label={p.aria} title={p.f.tooltip} data-field={p.f.key}>
+      <div className="tl-field__label">{fieldLabel(p.f)}</div>
+      {p.params.length === 0 && <span className="tl-inspector__hint">the effect has no public parameters</span>}
+      {p.params.map((param) => {
+        const v = stored[param.key];
+        const isDefault = v === undefined;
+        const shown = v === undefined ? param.default : v;
+        const aria = `${p.aria} ${param.key}`;
+        const set = (next: unknown): void => p.onEdit([...p.path, param.key], next);
+        return (
+          <div className={`tl-desc__row${isDefault ? ' is-default' : ''}`} key={param.key} data-field={param.key}>
+            <span className="tl-field__label">
+              {param.label ?? param.key} <span className="tl-inspector__hint">({param.type})</span>
+            </span>
+            <div className="tl-desc__control">
+              {param.type === 'color' ? (
+                <input type="color" aria-label={aria} value={String(shown)} onChange={(e) => set(e.target.value.toLowerCase())} />
+              ) : (
+                <CommitInput
+                  value={Array.isArray(shown) ? shown.map((x) => formatNumber(Number(x))).join(', ') : formatNumber(Number(shown))}
+                  aria={aria}
+                  onCommit={(raw) => {
+                    const parts = raw.split(',').map((x) => Number(x.trim()));
+                    const n = param.type === 'vec3' ? 3 : 1;
+                    if (parts.length !== n || parts.some((x) => !Number.isFinite(x))) return p.onFail(`${param.key}: ${n === 1 ? 'a number' : 'three numbers, comma separated'}`);
+                    set(n === 1 ? parts[0] : parts);
+                  }}
+                />
+              )}
+              {!isDefault && (
+                <button type="button" className="tl-btn tl-btn--small" aria-label={`reset ${aria}`} title="Back to the effect's value" onClick={() => set(undefined)}>
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {Object.keys(stored)
+        .filter((k) => !known.has(k))
+        .map((k) => (
+          <div className="tl-desc__item" key={k}>
+            <span className="tl-inspector__hint">{k}: not a public parameter of the effect</span>
+            <button type="button" className="tl-btn tl-btn--small" aria-label={`remove ${p.aria} ${k}`} onClick={() => p.onEdit([...p.path, k], undefined)}>
+              ×
+            </button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 function MapWidget(p: RowProps & { aria: string }): JSX.Element {
   const f = p.f;
   const [key, setKey] = useState('');
   if (f.type !== 'map') return <></>;
+  // Phase 20.0: an effect's parameter overrides come from its public parameters.
+  if (f.value.type === 'json' && f.value.typedBy === 'effectParameter') {
+    const effectId = p.level?.value['effectId'];
+    const params = typeof effectId === 'string' ? p.ctx.effectParameters?.[effectId] : undefined;
+    if (params !== undefined) return <EffectParametersWidget {...p} params={params} />;
+  }
   // Phase 15.2: an animator's starting values come from its controller's parameter list.
   if (f.keyRef === 'animatorParameter') {
     const controller = p.level?.value['controller'];

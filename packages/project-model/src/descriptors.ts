@@ -43,6 +43,7 @@ import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIO
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
 import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
+import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
@@ -83,7 +84,7 @@ export const ASSET_KINDS = ['model', 'audio', 'texture', 'music'] as const;
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */
-export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip';
+export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect';
 
 /** String formats (validation hints and widget choices). */
 export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName';
@@ -237,7 +238,7 @@ export interface ComponentsFieldDescriptor extends FieldBase {
 export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
-  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter';
+  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter';
 }
 
 export type FieldDescriptor =
@@ -825,6 +826,23 @@ const materialParams: ComponentDescriptor = {
   prefab: true,
 };
 
+// Phase 20.0: a visual effect played from the entity.
+const effectComponent: ComponentDescriptor = {
+  name: 'effect',
+  label: 'Effect',
+  tooltip: 'Plays a visual effect (particles) from this object. Visual only: it never changes the game simulation.',
+  category: 'Rendering',
+  value: obj('effect', 'Effect', 'The effect and this object\'s values for its public parameters.', [
+    ref('effectId', 'Effect', 'The project effect.', 'effect', { required: true }),
+    bool('playOnStart', 'Play on start', 'Starts when the scene starts (off: a trigger or script plays it).', { default: true, omitDefault: true }),
+    map('params', 'Parameters', 'Values for the effect\'s public parameters (absent: the effect\'s defaults).', 'Parameter', json('*', 'Value', 'A value of the parameter\'s type (a number, 3 numbers or "#rrggbb").', { typedBy: 'effectParameter' }), { keyFormat: 'identifier', maxEntries: EFFECT_LIMITS.parameters }),
+  ]),
+  add: { kind: 'pick', value: {}, pick: ['effectId'] },
+  handles: [],
+  excludes: [],
+  prefab: true,
+};
+
 const fogVolume: ComponentDescriptor = {
   name: 'fogVolume',
   label: 'Fog volume',
@@ -1296,6 +1314,37 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   json('graph', 'Graph', 'The node graph (graph kind "material"): nodes, wires, groups and comments, edited in the Material tab with graph edits.', { readOnly: true }),
 ]);
 
+// Phase 20.0: a visual effect (systems of particles, each a graph of kind "effect").
+const EFFECT_ITEM = obj('*', 'Effect', 'A visual effect: particle systems simulated from one origin.', [
+  str('effectId', 'Id', 'The stable effect id.', { ...ID, required: true, readOnly: true }),
+  str('name', 'Name', 'Shown in pickers and the Effects list.', { ...NAME, required: true }),
+  num('duration', 'Duration', 'One cycle of the effect (bursts and the effect time refer to it).', { required: true, min: 0.01, max: EFFECT_LIMITS.duration, step: 0.1, unit: 's', default: EFFECT_DEFAULTS.duration }),
+  bool('loop', 'Loop', 'Restart the cycle at its end (off: spawning stops and the effect ends when its particles are gone).', { required: true, default: EFFECT_DEFAULTS.loop }),
+  int('seed', 'Seed', 'The random seed: the same seed gives the same particles.', { required: true, min: 0, max: EFFECT_LIMITS.seed, default: EFFECT_DEFAULTS.seed }),
+  obj('bounds', 'Bounds', 'The culling box around the origin: the effect is skipped when this box is off screen.', [
+    vec3('center', 'Centre', 'The box centre relative to the origin.', { required: true, min: -EFFECT_LIMITS.extent, max: EFFECT_LIMITS.extent, step: 0.1, unit: 'm', default: [...EFFECT_DEFAULTS.bounds.center] }),
+    vec3('size', 'Size', 'The box size.', { required: true, min: 0, max: EFFECT_LIMITS.extent, minExclusive: true, step: 0.1, unit: 'm', default: [...EFFECT_DEFAULTS.bounds.size] }),
+  ], { required: true }),
+  list('parameters', 'Exposed parameters', `Up to ${EFFECT_LIMITS.parameters} parameters the systems read (Parameter nodes); objects may override the public ones.`, obj('*', 'Parameter', 'An exposed parameter.', [
+    str('key', 'Key', 'The name Parameter nodes and overrides use.', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
+    enm('type', 'Type', 'The value type.', EFFECT_PARAMETER_TYPES, { required: true, default: 'float' }),
+    json('default', 'Default', 'The effect\'s own value (a number, 3 numbers or "#rrggbb").', { required: true, typedBy: 'effectParameter' }),
+    num('min', 'Min', 'The lowest value, within ±1e6 (numbers and vectors).', { when: when('type', 'float', 'vec3') }),
+    num('max', 'Max', 'The highest value, within ±1e6 and at least min (numbers and vectors).', { when: when('type', 'float', 'vec3') }),
+    enm('visibility', 'Visibility', 'Public: objects may override it. Private: the effect\'s value only.', ['public', 'private'], { default: 'public', omitDefault: true }),
+    str('label', 'Label', 'Shown instead of the key.', { minLength: 1, maxLength: 64 }),
+    str('group', 'Group', 'A foldable group in the Inspector.', { minLength: 1, maxLength: 64 }),
+    str('tooltip', 'Tooltip', 'Help text.', { minLength: 1, maxLength: 256 }),
+  ]), { maxItems: EFFECT_LIMITS.parameters }),
+  list('systems', 'Systems', `Up to ${EFFECT_LIMITS.systems} particle systems, in evaluation order.`, obj('*', 'System', 'A particle system.', [
+    str('systemId', 'Id', 'The stable system id (unique in the effect).', { ...ID, required: true, readOnly: true }),
+    str('name', 'Name', 'Shown in the Effect tab.', { ...NAME, required: true }),
+    int('maxParticles', 'Max particles', 'The most living particles (executors may cap lower; the CPU fallback does).', { required: true, min: 1, max: EFFECT_LIMITS.maxParticles, default: EFFECT_DEFAULTS.maxParticles }),
+    enm('space', 'Simulation space', 'Local: particles move with the object. World: they stay where they were born.', ['local', 'world'], { required: true, default: EFFECT_DEFAULTS.space }),
+    json('graph', 'Graph', 'The system graph (graph kind "effect": Spawn, Initialize, Update and Output chains), edited in the Effect tab with graph edits.', { required: true, readOnly: true }),
+  ]), { required: true, maxItems: EFFECT_LIMITS.systems, default: [] }),
+]);
+
 const CLIP = obj('clip', 'Clip', 'A named clip of a model asset.', [
   asset('assetId', 'Model', 'The model the clip is in.', ['model'], { required: true }),
   ref('clip', 'Clip', 'The clip name.', 'clip', { required: true }),
@@ -1416,6 +1465,8 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', `Up to ${MAX_MATERIALS} materials.`, MATERIAL_ITEM, { maxItems: MAX_MATERIALS, default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
   { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', `Up to ${MAX_ANIMATORS} controllers.`, ANIMATOR_ITEM, { maxItems: MAX_ANIMATORS, default: [] }), ops: ['setAnimator', 'deleteAnimator'] },
+  // Phase 20.0: visual effects; each system's graph is edited in the Effect tab (graphEdit ops).
+  { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', `Up to ${EFFECT_LIMITS.effects} effects.`, EFFECT_ITEM, { maxItems: EFFECT_LIMITS.effects, default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
   // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
@@ -1485,6 +1536,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   box,
   materials,
   materialParams,
+  effectComponent,
   surface,
   instances,
   fogVolume,

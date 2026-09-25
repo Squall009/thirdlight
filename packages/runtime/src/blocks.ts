@@ -26,8 +26,14 @@
 import type { ActionFrame } from './actions';
 import type { PhysicsPort, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, type EntityV3 } from '@thirdlight/project-model';
-import type { ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
+import type { BehaviorMessage, ModelBounds, PlayerCapsule, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal } from './scene-set';
+
+/**
+ * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
+ * game logic sends in one step, small enough to bound the per-step lists.
+ */
+export const MAX_MESSAGES_PER_STEP = 256;
 
 /**
  * Phase 15.3: every tuning value below is the component's data (health,
@@ -192,6 +198,9 @@ export class GameplayBlocks {
   /** Phase 14.2: triggers entered/left in this step, and in the previous one (what scripts see). */
   private triggerEventsNow: TriggerEventRecord[] = [];
   private triggerEventsPrev: readonly TriggerEventRecord[] = Object.freeze([]);
+  /** Phase 19.1: script messages sent in this step, and in the previous one (what scripts see); `to` null = every script. */
+  private messagesNow: { message: BehaviorMessage; to: string | null }[] = [];
+  private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
   private pendingBounce: number | null = null;
   private carry: Vec2 = { x: 0, y: 0 };
   private step = 0;
@@ -404,6 +413,8 @@ export class GameplayBlocks {
     this.signalsPrev.clear();
     this.triggerEventsNow = [];
     this.triggerEventsPrev = Object.freeze([]);
+    this.messagesNow = [];
+    this.messagesPrev = Object.freeze([]);
     this.pendingBounce = null;
     this.carry = { x: 0, y: 0 };
   }
@@ -526,6 +537,20 @@ export class GameplayBlocks {
     return this.triggerEventsPrev;
   }
 
+  /** Phase 19.1: queue a script message for the next step; false at the step's limit. */
+  sendMessage(message: BehaviorMessage, to: string | null): boolean {
+    if (this.messagesNow.length >= MAX_MESSAGES_PER_STEP) return false;
+    this.messagesNow.push({ message: Object.freeze({ ...message }), to });
+    return true;
+  }
+
+  /** Phase 19.1: the messages of `name` sent in the previous step to every script or to `to`, in send order. */
+  messagesFor(to: string, name: string): readonly BehaviorMessage[] {
+    const out: BehaviorMessage[] = [];
+    for (const m of this.messagesPrev) if (m.message.name === name && (m.to === null || m.to === to)) out.push(m.message);
+    return Object.freeze(out);
+  }
+
   /** The upward speed to give the player this step (a stomp or a hit), once. */
   takeBounce(): number | null {
     const b = this.pendingBounce;
@@ -551,6 +576,8 @@ export class GameplayBlocks {
     this.signalsNow = new Set();
     this.triggerEventsPrev = Object.freeze(this.triggerEventsNow);
     this.triggerEventsNow = [];
+    this.messagesPrev = Object.freeze(this.messagesNow);
+    this.messagesNow = [];
     const dt = 1 / this.host.hz;
     const ground = this.host.groundEntityId();
     this.carry = { x: 0, y: 0 };

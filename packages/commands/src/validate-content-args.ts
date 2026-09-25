@@ -486,6 +486,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
+  // Phase 20.0: the effect played from the entity.
+  effect: ['effectId', 'playOnStart', 'params'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -513,6 +515,7 @@ const OWNED: readonly OwnedComponent[] = [
   'audioSource',
   'faceMovement',
   'materialParams',
+  'effect',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -541,12 +544,13 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'audioSource',
   'faceMovement',
   'materialParams',
+  'effect',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 const COMPONENT_EXPECTED =
-  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials", "materialParams"';
+  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
@@ -712,6 +716,7 @@ export function validateSetComponentArgs(
     component === 'instances' ||
     component === 'materials' ||
     component === 'materialParams' ||
+    component === 'effect' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||
