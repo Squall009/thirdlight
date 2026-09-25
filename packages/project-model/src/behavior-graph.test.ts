@@ -51,9 +51,10 @@ describe('the behavior graph kind', () => {
     expect(errors({ nodes: [n('z', 'math.compare', { op: '~' })], edges: [] }).map((e) => e.code)).toEqual(['field_value']);
   });
 
-  it('compile checks: variable names and uniqueness, at least one variable, Get/Set naming a variable, Set values, required names; unreached flow is a warning', () => {
+  it('compile checks: variable names and uniqueness, Get/Set naming a variable, Set values, required names; unreached flow is a warning', () => {
     const v = n('v', 'var.number', { name: 'count' });
-    expect(checkBehaviorGraph({ nodes: [n('s', 'event.start')], edges: [] })).toEqual([{ severity: 'error', message: expect.stringContaining('at least one variable') }]);
+    // Phase 19.1: a script without variables is fine (a behavior may declare no property).
+    expect(checkBehaviorGraph({ nodes: [n('s', 'event.start')], edges: [] })).toEqual([]);
     const p = checkBehaviorGraph({
       nodes: [v, n('v2', 'var.boolean', { name: 'count' }), n('v3', 'var.string', { name: 'Bad Name' }), n('g', 'var.get'), n('g2', 'var.get', { variable: 'ghost' }), n('g3', 'var.set', { variable: 'count', value: 'lots' }), n('e', 'api.signals.emit')],
       edges: [],

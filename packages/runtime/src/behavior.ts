@@ -56,6 +56,7 @@ import type {
   BehaviorAnimatorHandle,
   BehaviorAudio,
   BehaviorGameState,
+  BehaviorMessages,
   BehaviorSave,
   BehaviorSceneControl,
   BehaviorSignals,
@@ -83,9 +84,15 @@ export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
 
 /** What a behavior's `step(state, ctx)` receives each fixed step (once per phase it runs in). */
 export interface BehaviorContext {
-  /** The behavior's id. */
+  /**
+   * The behavior's id.
+   * @graphNode Script id
+   */
   readonly behaviorId: string;
-  /** The entity carrying this script instance. */
+  /**
+   * The entity carrying this script instance.
+   * @graphNode This object
+   */
   readonly entityId: string;
   /** The fixed step counter of the run. */
   readonly stepIndex: number;
@@ -111,25 +118,53 @@ export interface BehaviorContext {
   readonly input: BehaviorInputView;
   /** An entity's animator (`ctx.animator(id)?.set('speed', 1)`), or null when it has none. */
   readonly animator?: (entityId: string) => BehaviorAnimatorHandle | null;
-  /** Last step's clip events and the enter/exit events of the triggers this instance owns. */
+  /**
+   * Last step's clip events and the enter/exit events of the triggers this instance owns.
+   * @graphNode skip the event nodes (On trigger, On animator event) read them one by one
+   */
   readonly events?: readonly (AnimatorEventRecord | TriggerEventRecord)[];
   /** Named timers of this instance, counted in fixed steps. */
   readonly timers: BehaviorTimers;
   /** Signals (seen one step after they are emitted). */
   readonly signals?: BehaviorSignals;
+  /** Phase 19.1: messages to other scripts, with a value (seen one step after they are sent). */
+  readonly messages?: BehaviorMessages;
   /** The run's counters, the player's health and object visibility. */
   readonly game?: BehaviorGameState;
   /** Play sounds (presentation only, never part of the simulation). */
   readonly audio?: BehaviorAudio;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
-  /** Copy a project prefab into the running game; returns the new root id (or null at an engine limit). */
-  readonly spawn?: (prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }) => string | null;
-  /** Remove a spawned entity at the next step boundary. */
+  /**
+   * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
+   * @graphNode Spawn prefab
+   * @graphLabel prefabId prefab
+   */
+  readonly spawn?: (
+    prefabId: string,
+    options: {
+      /** Where the copy's root goes: [x, y] (keeping the root's authored z) or [x, y, z]. */
+      position: readonly number[];
+      /**
+       * The root's rotation as a quaternion [x, y, z, w].
+       * @graphType list
+       */
+      rotation?: readonly number[];
+      /** The root's scale: one number or [x, y, z]. */
+      scale?: number | readonly number[];
+    },
+  ) => string | null;
+  /**
+   * Remove a spawned entity at the next step boundary.
+   * @graphNode Destroy spawned
+   */
   readonly destroy?: (entityId: string) => boolean;
   /** Commit one intent (a transform/pose of an owned entity, or a gameplay intent). */
   emit(intent: BehaviorIntent): void;
-  /** Write to the play log (`'info' | 'warn' | 'error'`). */
+  /**
+   * Write to the play log (`'info' | 'warn' | 'error'`).
+   * @graphNode skip the Log node (debug.log) writes any value as text
+   */
   log(level: BehaviorLogLevel, message: string): void;
 }
 
@@ -242,7 +277,8 @@ export class BehaviorHostError extends Error {
   }
 }
 
-const GRAPH_NODE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+// Phase 19.1: a node inside a function is `fn:<functionId>/<nodeId>` or `lib:<graphId>/<nodeId>`.
+const GRAPH_NODE_ID_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
 const GRAPH_DETAIL_RE = /^[a-z_]{1,32}$/;
 
 /**
@@ -428,8 +464,9 @@ function validateDeclaration(declaration: unknown): PropertyDeclaration {
     throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration must be { properties: [] }');
   }
   const properties = declaration['properties'] as unknown[];
-  if (properties.length === 0 || properties.length > 32) {
-    throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration needs 1–32 properties');
+  // Phase 19.1: 0–32 (a script may declare no property at all).
+  if (properties.length > 32) {
+    throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration has at most 32 properties');
   }
   const seen = new Set<string>();
   for (const raw of properties) {
@@ -695,6 +732,15 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         cfg.behaviorLog?.(level, clipped);
       };
 
+      /** Phase 19.1: `ctx.messages` of one instance (it sends as, and receives for, its entity). */
+      const messagesFor = (instance: BehaviorInstance, ctx: StepContext): BehaviorMessages => {
+        const control = ctx.messages!;
+        return Object.freeze({
+          send: (name: string, value?: number | string | boolean, target?: string): boolean => control.send(instance.entityId, name, value, target),
+          received: (name: string) => control.received(instance.entityId, name),
+        });
+      };
+
       const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext, world: BehaviorWorldView): void => {
         beginInstanceStep(instance, ctx.stepIndex);
         const behaviorCtx: BehaviorContext = Object.freeze({
@@ -720,6 +766,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           timers: instance.timers.api,
           // Phase 9.9: signals and the run's counters.
           ...(ctx.signals !== undefined ? { signals: ctx.signals } : {}),
+          // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
+          ...(ctx.messages !== undefined ? { messages: messagesFor(instance, ctx) } : {}),
           ...(ctx.game !== undefined ? { game: ctx.game } : {}),
           // Phase 9.10: sounds (played by the host; the simulation never waits on them).
           ...(ctx.audio !== undefined ? { audio: ctx.audio } : {}),
@@ -983,13 +1031,40 @@ export type { BehaviorIntent, IntentSet };
  * actions in the frame, `move` and `jump` still answer from the frame.
  */
 export interface BehaviorInputView {
-  /** A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name. */
+  /**
+   * A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name.
+   * @graphPure
+   * @graphNode Input value
+   * @graphLabel name action
+   */
   value(name: string): number;
-  /** A 2D axis as [x, y] ([value, 0] for others). */
+  /**
+   * A 2D axis as [x, y] ([value, 0] for others).
+   * @graphPure
+   * @graphNode Input vector
+   * @graphLabel name action
+   */
   vector(name: string): [number, number];
+  /**
+   * Pressed in this step.
+   * @graphPure
+   * @graphNode Input pressed
+   * @graphLabel name action
+   */
   pressed(name: string): boolean;
+  /**
+   * Released in this step.
+   * @graphPure
+   * @graphNode Input released
+   * @graphLabel name action
+   */
   released(name: string): boolean;
-  /** Down this step (pressed or held). */
+  /**
+   * Down this step (pressed or held).
+   * @graphPure
+   * @graphNode Input held
+   * @graphLabel name action
+   */
   held(name: string): boolean;
 }
 

@@ -26,7 +26,13 @@
  * Phase 19.0: `behavior` — a visual script (`BehaviorRecord.graph`, kind
  * `behavior`); the change is the generic `graphEdit` with its ops, undone by
  * the inverse ops. Editing the graph does not touch the published source:
- * publishing compiles it (the behavior source route).
+ * publishing compiles it (the behavior source route). Phase 19.1: owner id
+ * `<behaviorId>#<functionId>` is one of the script's functions (kind
+ * `behavior-function`, `BehaviorRecord.functions`): a function exists while
+ * its graph has nodes — an edit that adds nodes to a new id creates it, one
+ * that removes its last node removes it (so undo and redo need nothing else).
+ * Calls resolve against the script's functions and the project's shared
+ * functions (standalone graphs of kind `behavior-library`).
  * Later phases register the effect (20) owner here with
  * the same op set.
  */
@@ -48,6 +54,9 @@ import {
   parseAnimatorOwnerId,
   type AnimatorController,
   type BehaviorRecord,
+  type BehaviorFunctionRecord,
+  BEHAVIOR_FUNCTION_ID_RE,
+  BEHAVIOR_GRAPH_LIMITS,
   behaviorGraphContext,
   validateGraphData,
   validateGraphDocument,
@@ -86,7 +95,20 @@ export interface GraphOwnerAdapter {
    * variables type its Get/Set ports, so an edit that adds a variable and
    * wires it validates against the result.
    */
-  contextOf?(content: ContentDocument, graph: GraphData): GraphContext;
+  contextOf?(content: ContentDocument, graph: GraphData, id: string): GraphContext;
+}
+
+/** Phase 19.1: `<behaviorId>` (the script) or `<behaviorId>#<functionId>` (one of its functions). */
+export function parseBehaviorOwnerId(id: string): { behaviorId: string; functionId: string | null } {
+  const i = id.indexOf('#');
+  return i < 0 ? { behaviorId: id, functionId: null } : { behaviorId: id.slice(0, i), functionId: id.slice(i + 1) };
+}
+
+/** A script's functions with one function's graph set (removed when it has no nodes), sorted by id. */
+function withFunction(list: readonly BehaviorFunctionRecord[], functionId: string, graph: GraphData): BehaviorFunctionRecord[] {
+  const rest = list.filter((f) => f.functionId !== functionId);
+  if (graph.nodes.length > 0) rest.push({ functionId, graph });
+  return rest.sort((a, b) => (a.functionId < b.functionId ? -1 : a.functionId > b.functionId ? 1 : 0));
 }
 
 /** Phase 19.0: the behavior records (a visual script keeps its graph in its record). */
@@ -150,16 +172,41 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
     },
   },
-  // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one).
+  // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one);
+  // phase 19.1: `<behaviorId>#<functionId>` — one of its functions.
   behavior: {
     read(content, id) {
-      const b = behaviorsOf(content).find((x) => x.behaviorId === id);
-      const kind = GRAPH_KINDS['behavior'];
-      return b?.graph !== undefined && kind !== undefined ? { kind, graph: b.graph, ctx: behaviorGraphContext(b.graph) } : null;
+      const target = parseBehaviorOwnerId(id);
+      const b = behaviorsOf(content).find((x) => x.behaviorId === target.behaviorId);
+      if (b?.graph === undefined) return null;
+      const graphs = (content as WithGraphs).graphs;
+      if (target.functionId === null) return { kind: GRAPH_KINDS['behavior']!, graph: b.graph, ctx: behaviorGraphContext(b.graph, { functions: b.functions, graphs }) };
+      if (!BEHAVIOR_FUNCTION_ID_RE.test(target.functionId)) return null;
+      // A function that does not exist yet reads as an empty graph: the edit that adds its nodes creates it.
+      const graph = b.functions?.find((f) => f.functionId === target.functionId)?.graph ?? { nodes: [], edges: [] };
+      return { kind: GRAPH_KINDS['behavior-function']!, graph, ctx: behaviorGraphContext(graph, { functions: b.functions, graphs, script: b.graph }) };
     },
-    contextOf: (_content, graph) => behaviorGraphContext(graph),
+    contextOf(content, graph, id) {
+      const target = parseBehaviorOwnerId(id);
+      const b = behaviorsOf(content).find((x) => x.behaviorId === target.behaviorId);
+      const graphs = (content as WithGraphs).graphs;
+      if (target.functionId === null) return behaviorGraphContext(graph, { functions: b?.functions, graphs });
+      const functions = withFunction(b?.functions ?? [], target.functionId, graph);
+      return behaviorGraphContext(graph, { functions, graphs, script: b?.graph });
+    },
     write(content, id, graph) {
-      const list = behaviorsOf(content).map((b) => (b.behaviorId === id ? { ...b, graph } : b));
+      const target = parseBehaviorOwnerId(id);
+      let refused: string | null = null;
+      const list = behaviorsOf(content).map((b) => {
+        if (b.behaviorId !== target.behaviorId) return b;
+        if (target.functionId === null) return { ...b, graph };
+        const functions = withFunction(b.functions ?? [], target.functionId, graph);
+        if (functions.length > BEHAVIOR_GRAPH_LIMITS.functions) refused = `a script has at most ${BEHAVIOR_GRAPH_LIMITS.functions} functions`;
+        const next: BehaviorRecord = { ...b, functions };
+        if (functions.length === 0) delete next.functions;
+        return next;
+      });
+      if (refused !== null) return { refused };
       return { ...content, behaviors: list } as ContentDocument;
     },
   },
@@ -178,11 +225,21 @@ function callersRefusal(content: ContentDocument, graphs: readonly GraphDocument
   validateGraphDocuments(GRAPH_KINDS, graphs, '/graphs', errors);
   const mats = (content as WithMaterials).materials ?? [];
   if (errors.length === 0 && mats.length > 0) validateMaterials(mats, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, graphs));
+  // Phase 19.1: visual scripts calling a changed shared function.
+  const scripts = behaviorsOf(content);
+  if (errors.length === 0) {
+    scripts.forEach((b, i) => {
+      if (b.graph === undefined) return;
+      validateGraphData(GRAPH_KINDS['behavior']!, b.graph, `/behaviors/${i}/graph`, errors, behaviorGraphContext(b.graph, { functions: b.functions, graphs }));
+      for (const f of b.functions ?? []) validateGraphData(GRAPH_KINDS['behavior-function']!, f.graph, `/behaviors/${i}/functions`, errors, behaviorGraphContext(f.graph, { functions: b.functions, graphs, script: b.graph }));
+    });
+  }
   if (errors.length === 0) return null;
   const e = errors[0]!;
   const m = /^\/materials\/(\d+)/.exec(e.path ?? '');
   const g = /^\/graphs\/(\d+)/.exec(e.path ?? '');
-  const who = m !== null ? `material "${mats[Number(m[1])]?.name ?? '?'}"` : g !== null ? `graph "${graphs[Number(g[1])]?.name ?? '?'}"` : 'the graphs';
+  const bh = /^\/behaviors\/(\d+)/.exec(e.path ?? '');
+  const who = m !== null ? `material "${mats[Number(m[1])]?.name ?? '?'}"` : g !== null ? `graph "${graphs[Number(g[1])]?.name ?? '?'}"` : bh !== null ? `script "${scripts[Number(bh[1])]?.displayName ?? '?'}"` : 'the graphs';
   return `${who} would break: ${e.message}`;
 }
 
@@ -206,7 +263,7 @@ export function editOwnerGraph(
   const applied = applyGraphOps(current.graph, ops);
   if (!applied.ok) return { ok: false, error: modelError(applied.error, '/args/ops') };
   const errors: ModelErrorV2[] = [];
-  validateGraphData(current.kind, applied.graph, '', errors, adapter.contextOf !== undefined ? adapter.contextOf(content, applied.graph) : current.ctx);
+  validateGraphData(current.kind, applied.graph, '', errors, adapter.contextOf !== undefined ? adapter.contextOf(content, applied.graph, owner.id) : current.ctx);
   if (errors.length > 0) {
     // The result names graph paths (/nodes/3/…); say which op list produced it.
     const e = errors[0]!;

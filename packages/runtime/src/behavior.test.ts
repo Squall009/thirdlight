@@ -566,8 +566,10 @@ describe('create-time failures (runtime.md §14.3.1/§14.6)', () => {
     const art = artifact('behavior-0001', () => {});
     const registry = createSimulationRegistry();
     expect(() =>
-      createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: art }),
+      createBehaviorModuleSpec({ declaration: { properties: 'none' } as never, artifact: art }),
     ).toThrow(BehaviorHostError);
+    // Phase 19.1: no property at all is a valid declaration.
+    expect(() => createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: art })).not.toThrow();
     const res = instantiateRuntime({
       snapshot: snapshot(sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }])),
       registry,

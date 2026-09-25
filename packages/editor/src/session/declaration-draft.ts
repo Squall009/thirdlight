@@ -111,7 +111,6 @@ function vec(text: string): [number, number, number] | null {
  */
 export function declarationOf(drafts: readonly PropertyDraft[]): { ok: true; declaration: PropertyDeclaration } | { ok: false; problem: DraftProblem } {
   const bad = (index: number, field: DraftProblem['field'], message: string): { ok: false; problem: DraftProblem } => ({ ok: false, problem: { index, field, message } });
-  if (drafts.length === 0) return bad(-1, 'properties', 'a behavior declares 1–32 properties');
   if (drafts.length > 32) return bad(-1, 'properties', 'a behavior declares at most 32 properties');
   const seen = new Set<string>();
   const out: DeclaredProperty[] = [];

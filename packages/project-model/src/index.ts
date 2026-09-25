@@ -385,27 +385,53 @@ export {
   type GraphValue,
 } from './graph';
 export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KIND, GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
-// Phase 19.0: visual scripts (the `behavior` graph kind, its node catalogue and compile checks).
+// Phase 19.0/19.1: visual scripts (the `behavior` graph kinds, their node catalogue and compile checks).
 export {
   BEHAVIOR_API_NODES,
+  BEHAVIOR_DATA_TYPES,
+  BEHAVIOR_FUNCTION_GRAPH_KIND,
+  BEHAVIOR_FUNCTION_ID_RE,
+  BEHAVIOR_FUNCTION_KIND,
   BEHAVIOR_GRAPH_KIND,
   BEHAVIOR_GRAPH_LIMITS,
+  BEHAVIOR_LIBRARY_GRAPH_KIND,
+  BEHAVIOR_LIBRARY_KIND,
   BEHAVIOR_VALUE_TYPES,
+  BEHAVIOR_VARIABLE_KINDS,
   BEHAVIOR_VARIABLE_NAME_RE,
+  DATA_TYPE_DEFAULT,
+  REQUIRED_CORE_FIELDS,
+  VARIABLE_PORT_TYPE,
   VARIABLE_PROPERTY_TYPE,
+  axesOptions,
+  behaviorApiSpec,
+  behaviorFunctionInterface,
   behaviorGraphContext,
   behaviorGraphDeclaration,
+  behaviorNodePhases,
+  behaviorOwnedTransforms,
+  behaviorScriptGraphs,
+  calleeScope,
   checkBehaviorGraph,
+  enumOptions,
+  eventPhase,
   isVariableAccess,
   parseVariableValue,
+  scopedNodeId,
   variableLabel,
   variableNodesOf,
+  variableProperty,
   variableTypeOf,
-  type BehaviorApiArg,
-  type BehaviorApiNodeSpec,
+  variableVisibility,
+  type BehaviorFunctionRecord,
   type BehaviorGraphProblem,
+  type BehaviorScriptEnv,
+  type BehaviorScriptGraph,
   type BehaviorValueType,
+  type BehaviorVariableKind,
 } from './behavior-graph';
+export { BEHAVIOR_API_SKIPPED } from './behavior-api.generated';
+export type { BehaviorApiArg, BehaviorApiNodeSpec, BehaviorApiOutput, BehaviorApiStep, BehaviorApiValue, BehaviorDataType } from './behavior-api';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).

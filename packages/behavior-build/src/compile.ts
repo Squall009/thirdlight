@@ -221,12 +221,13 @@ export async function compileBehavior(
   // Declaration bounds (project-model.md §22.4: re-checked here).
   const declaration = declaredInCode ? { properties: code.properties } : input.declaration;
   const properties = declaration.properties;
-  if (!Array.isArray(properties) || properties.length < 1) {
+  // Phase 19.1: 0–32 properties (a script may declare none).
+  if (!Array.isArray(properties)) {
     return fail('behavior_source_limits_exceeded', 'properties', {
       limit: 'properties',
-      current: Array.isArray(properties) ? properties.length : 0,
+      current: 0,
       max: limits.properties,
-      message: 'a behavior declaration must declare 1..32 properties',
+      message: 'a behavior declaration lists 0..32 properties',
     });
   }
   if (properties.length > limits.properties) {

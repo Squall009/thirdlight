@@ -193,7 +193,7 @@ const GRAPH: GraphData = {
     wire('w3', 'coins', 'then', 'go', 'in'),
     wire('w4', 'step', 'then', 'seq', 'in'),
     wire('w5', 'seq', 'then1', 'heard-branch', 'in'),
-    wire('w6', 'go-on', 'on', 'heard-branch', 'condition'),
+    wire('w6', 'go-on', 'value', 'heard-branch', 'condition'),
     wire('w7', 'heard-branch', 'true', 'heard', 'in'),
     wire('w8', 'seq', 'then2', 'set-ticks', 'in'),
     wire('w9', 'get-ticks', 'value', 'plus-one', 'a'),

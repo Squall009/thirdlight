@@ -285,7 +285,6 @@ export function readCodeDeclaration(entryText: string): CodeDeclarationResult {
       else if (r.peek() !== '}') r.fail('expected "," or "}"');
     }
     r.i++;
-    if (properties.length === 0) r.fail('export const properties declares no property', hit.start);
     return { found: true, ok: true, properties, start: hit.start, end: r.i };
   } catch (e) {
     if (!(e instanceof ParseError)) throw e;

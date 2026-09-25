@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { BEHAVIOR_GRAPH_KIND, type GraphData, type GraphNode } from '@thirdlight/project-model';
+import type { GraphData, GraphNode } from '@thirdlight/project-model';
 
 import { compileBehavior } from './compile';
 import { compileBehaviorGraph, generateGraphSource } from './graph';
@@ -65,16 +65,17 @@ describe('generateGraphSource', () => {
     expect(unnamed.ok).toBe(false);
     if (!unnamed.ok) expect(unnamed.problems).toEqual([expect.objectContaining({ nodeId: 'emit', message: expect.stringContaining('signal') })]);
     const noVar = generateGraphSource({ nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] });
-    expect(noVar.ok).toBe(false);
-    if (!noVar.ok) expect(noVar.problems[0]!.message).toContain('at least one variable');
+    // Phase 19.1: no variable is fine — the script declares no property.
+    expect(noVar.ok && noVar.declaration).toEqual({ properties: [] });
   });
 });
 
 describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () => {
   const compiler = createBehaviorCompiler();
 
-  it('compiles every starter node kind; the manifest says sourceKind graph and the declaration comes from the code', async () => {
-    // One graph using every node type of the catalogue, wired validly.
+  it('compiles the 19.0 starter nodes in one graph; the manifest says sourceKind graph and the declaration comes from the code', async () => {
+    // One graph using every 19.0 starter node type, wired validly (the whole
+    // 19.1 catalogue, one script per node type: tests/visual-script/catalogue.test.ts).
     const nodes: GraphNode[] = [
       { id: 'start', type: 'event.start', position: [0, 0] },
       { id: 'step', type: 'event.step', position: [0, 300] },
@@ -121,7 +122,7 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
       ['div', 'result', 'cmp', 'a'],
       ['gget', 'value', 'cmp', 'b'],
       ['cmp', 'result', 'and', 'a'],
-      ['on', 'on', 'and', 'b'],
+      ['on', 'value', 'and', 'b'],
       ['and', 'result', 'or', 'a'],
       ['getb', 'value', 'or', 'b'],
       ['or', 'result', 'not', 'value'],
@@ -133,8 +134,6 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
       ['cmp', 'result', 'sets', 'value'],
     ];
     const g = graph(nodes, edges);
-    const used = new Set(g.nodes.map((n) => n.type));
-    expect(BEHAVIOR_GRAPH_KIND.nodes.map((d) => d.type).filter((t) => !used.has(t))).toEqual([]);
     const r = await compileBehaviorGraph(compiler, { behaviorId: 'all-nodes', graph: g, limits: { timeoutMs: 30_000 } });
     expect(r.ok, JSON.stringify(r.ok ? null : r.failure)).toBe(true);
     if (!r.ok) return;

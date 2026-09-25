@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
+import type { GraphDocument } from '@thirdlight/project-model';
 import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDiagnosticView } from '../../session/behavior-publication';
 import { behaviorPortContext } from '../../session/behavior-graph';
 import type { BehaviorDeclarationView } from '../../session/prefab-projection';
@@ -35,6 +36,9 @@ export interface VisualScriptDocumentProps {
   behavior: BehaviorDeclarationView | null;
   /** The `behavior` graph kind (from the backend's kind table). */
   kind: GraphKindDef | undefined;
+  /** Phase 19.1: the project's standalone graphs (shared functions) and the kind table (call nodes read their ports from them). */
+  graphs: readonly GraphDocument[];
+  kinds: Readonly<Record<string, GraphKindDef>>;
   activePlay: { snapshotId: string; revision: number } | null;
   onEdit: (behaviorId: string, ops: GraphOp[]) => Promise<string | null>;
   onSelection: (ids: readonly string[]) => void;
@@ -52,9 +56,9 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
   const [state, setState] = useState<CheckState>({ status: 'idle' });
   const [publishing, setPublishing] = useState<ScriptPublishOutcome | { kind: 'working' } | null>(null);
   const seq = useRef(0);
-  const graphKey = behavior?.graph !== undefined ? JSON.stringify(behavior.graph) : '';
+  const graphKey = behavior?.graph !== undefined ? JSON.stringify([behavior.graph, behavior.functions ?? []]) : '';
   // The graph's variables type its Get/Set ports (the framework's data-dependent ports).
-  const portContext = useMemo(() => behaviorPortContext(behavior?.graph), [behavior?.graph]);
+  const portContext = useMemo(() => behaviorPortContext(behavior?.graph, { functions: behavior?.functions, graphs: p.graphs, kinds: p.kinds }), [behavior?.graph, behavior?.functions, p.graphs, p.kinds]);
 
   const runCheck = useCallback(async () => {
     const mine = ++seq.current;
