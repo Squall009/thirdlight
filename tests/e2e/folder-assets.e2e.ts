@@ -150,8 +150,12 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/props/crate.glb');
   // Referenced in place: recorded with its path, nothing copied into the project.
-  const envelope = (): string => readFileSync(join(meadow, 'thirdlight', 'content.json'), 'utf8');
-  await expect.poll(envelope).toContain('"sourcePath": "assets/props/crate.glb"');
+  // Read as JSON: the file's layout (one list item per line since phase 21.4) is not the fact under test.
+  const sourcePaths = (): string[] => {
+    const doc = JSON.parse(readFileSync(join(meadow, 'thirdlight', 'content.json'), 'utf8')) as { content: { assets: { versions: { sourcePath?: string }[] }[] } };
+    return doc.content.assets.flatMap((a) => a.versions.map((v) => v.sourcePath ?? ''));
+  };
+  await expect.poll(sourcePaths).toContain('assets/props/crate.glb');
   const blobs = join(meadow, 'thirdlight', 'sources', 'sha256');
   expect(existsSync(blobs) ? readdirSync(blobs) : []).toEqual([]);
 

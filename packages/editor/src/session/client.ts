@@ -64,6 +64,7 @@ import {
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
 import { fromWireChange } from '@thirdlight/protocol';
+import { OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
 
 export interface ClientConfig {
@@ -843,13 +844,36 @@ export class SessionClient {
    * mutates files). Retries a LOST ack with the same requestId (idempotent);
    * a revision_conflict is surfaced (and handed to the gesture for the bounded
    * auto-rebase). Returns the authoritative revision on success.
+   *
+   * Own commands go one at a time in the order they were made; each one's
+   * acked change is applied before the next is sent, and a command whose view
+   * was behind only by this editor's own edits is sent against the current
+   * revision (own-commands.ts). `args` may be a function: it is called at
+   * send time, so args derived from the client state see every earlier edit.
    */
-  async command(
+  command(
     op: string,
     args: unknown,
     expectedRevision: number,
     requestId?: string,
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
+  ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
+    const lazy = typeof args === 'function';
+    return this.ownCommands.enqueue(() => {
+      // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
+      const expected = lazy || !WHOLE_DOCUMENT_OPS.has(op) ? this.ownCommands.rebase(expectedRevision, this.projection.revision) : expectedRevision;
+      return this.sendCommand(op, lazy ? (args as () => unknown)() : args, expected, requestId, origin);
+    });
+  }
+
+  private readonly ownCommands = new OwnCommands();
+
+  private async sendCommand(
+    op: string,
+    args: unknown,
+    expectedRevision: number,
+    requestId: string | undefined,
+    origin: Origin,
   ): Promise<{ ok: true; revision: number; createdId?: string } | { ok: false; response: MutationResponse }> {
     const rid = requestId ?? makeRequestId();
     // Phase 12 (c): a new root entity goes into the active scene (with a
@@ -870,7 +894,23 @@ export class SessionClient {
       this.emit();
       outcome = await this.postCommand(env);
     }
+    if (outcome.status === 'response' && outcome.response.ok) this.applyOwnAck(rid, outcome.response);
     return this.finishCommand(outcome, expectedRevision);
+  }
+
+  /**
+   * Apply our own command's acked change now, not only when its WS
+   * `mutation.applied` arrives (that event is then a duplicate, deduped by
+   * requestId): the next command — and the panel that made this one — see
+   * the result as soon as the command resolves. Only the next revision is
+   * applied here; one past a revision we have not seen yet (someone else's
+   * edit still on its way) is left to the WS events, in order.
+   */
+  private applyOwnAck(requestId: string, r: { revision: number; change: unknown }): void {
+    this.ownCommands.recordOwnRevision(r.revision);
+    if (r.revision !== this.projection.revision + 1 || r.change === null || typeof r.change !== 'object') return;
+    const sceneId = (r as { sceneId?: unknown }).sceneId;
+    this.applyMutationApplied({ requestId, revision: r.revision, change: r.change, ...(typeof sceneId === 'string' ? { sceneId } : {}) });
   }
 
   private finishCommand(

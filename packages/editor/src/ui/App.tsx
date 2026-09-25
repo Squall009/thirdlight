@@ -21,6 +21,7 @@ import { resetLayout, useDockSizes } from './layout';
 import { MenuBar, type Menu, type MenuEntry } from './MenuBar';
 import { Dialog } from './Dialog';
 import { SessionClient, makeAssetId, type ClientUiState, type PlayStartResult } from '../session/client';
+import { mergeDocumentEdit } from '../session/own-commands';
 import type { MutationResponse } from '../session/envelope';
 import { Projection, type ProjectedEntity } from '../session/projection';
 import { draggedRoots, effectiveFlagsOf, subtreeOrder } from '../session/hierarchy';
@@ -2504,10 +2505,13 @@ function EditorApp(): JSX.Element {
   // ---- phase 9.4: materials, their assignment, the environment ---------------
   const refusal = (res: Awaited<ReturnType<SessionClient['command']>>): string | null =>
     res.ok ? null : ((res.response as { message?: string; code?: string }).message ?? (res.response as { code?: string }).code ?? 'the edit was refused');
-  const saveMaterial = useCallback(async (material: MaterialDef) => {
+  // Edits made on `base` (what the panel showed) are re-applied onto the
+  // document as it is at send time, so a quick second edit keeps the first (own-commands.ts).
+  const saveMaterial = useCallback(async (material: MaterialDef, base: MaterialDef | null) => {
     const c = clientRef.current;
     if (!c) return;
-    setMaterialError(refusal(await c.command('setMaterial', { material }, c.projection.revision)));
+    const build = (): { material: MaterialDef } => ({ material: mergeDocumentEdit(base, material, c.getMaterials().find((m) => m.materialId === material.materialId) ?? null) ?? material });
+    setMaterialError(refusal(await c.command('setMaterial', build, c.projection.revision)));
   }, []);
   const deleteMaterial = useCallback(async (materialId: string) => {
     const c = clientRef.current;
@@ -2589,22 +2593,35 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setInputError(refusal(await c.command('setInput', { input }, c.projection.revision)));
   }, []);
-  const saveFlow = useCallback(async (next: GameFlow | null) => {
+  // The panel's edit was made on `base` (the flow it showed); it is re-applied
+  // onto the flow as it is when the command is sent, so an edit made before
+  // the previous one's result arrived keeps that result (own-commands.ts).
+  const saveFlow = useCallback(async (next: GameFlow | null, base: GameFlow | null) => {
     const c = clientRef.current;
     if (!c) return;
-    setFlowError(refusal(await c.command('setFlow', { flow: next === null ? null : (JSON.parse(JSON.stringify(next)) as GameFlow) }, c.projection.revision)));
+    const build = (): { flow: GameFlow | null } => {
+      const merged = mergeDocumentEdit(base, next, c.getFlow());
+      return { flow: merged === null ? null : (JSON.parse(JSON.stringify(merged)) as GameFlow) };
+    };
+    setFlowError(refusal(await c.command('setFlow', build, c.projection.revision)));
   }, []);
   /** Phase 14.4: set or clear one level's look (one `setFlow`, one undo). */
-  const saveLevelLook = useCallback(async (levelId: string, look: LevelEnvironment | null) => {
+  const saveLevelLook = useCallback(async (levelId: string, look: LevelEnvironment | null, base: LevelEnvironment | null = null) => {
     const c = clientRef.current;
-    const current = c?.getFlow() ?? null;
-    if (!c || current === null) return;
-    const levels = current.levels.map((l) => {
-      if (l.id !== levelId) return l;
-      const { environment: _e, ...rest } = l;
-      return look === null ? rest : { ...rest, environment: look };
-    });
-    setMaterialError(refusal(await c.command('setFlow', { flow: JSON.parse(JSON.stringify({ ...current, levels })) as GameFlow }, c.projection.revision)));
+    if (!c || c.getFlow() === null) return;
+    // Built from the flow as it is when the command is sent (after any earlier edit's result).
+    const build = (): { flow: GameFlow | null } => {
+      const current = c.getFlow();
+      if (current === null) return { flow: null };
+      const levels = current.levels.map((l) => {
+        if (l.id !== levelId) return l;
+        const { environment: _e, ...rest } = l;
+        const merged = mergeDocumentEdit(base, look, l.environment ?? null);
+        return merged === null ? rest : { ...rest, environment: merged };
+      });
+      return { flow: JSON.parse(JSON.stringify({ ...current, levels })) as GameFlow };
+    };
+    setMaterialError(refusal(await c.command('setFlow', build, c.projection.revision)));
   }, []);
   // The Environment window edits the project environment again once another window is chosen.
   useEffect(() => {
@@ -2692,10 +2709,11 @@ function EditorApp(): JSX.Element {
     }
     return [...wanted].filter((n) => n !== '' && !have.has(n)).sort();
   }, []);
-  const saveEnvironment = useCallback(async (env: EnvironmentConfig) => {
+  const saveEnvironment = useCallback(async (env: EnvironmentConfig, base: EnvironmentConfig | null) => {
     const c = clientRef.current;
     if (!c) return;
-    setMaterialError(refusal(await c.command('setEnvironment', { environment: env }, c.projection.revision)));
+    const build = (): { environment: EnvironmentConfig } => ({ environment: mergeDocumentEdit(base, env, c.getEnvironment()) ?? env });
+    setMaterialError(refusal(await c.command('setEnvironment', build, c.projection.revision)));
   }, []);
   const setEntityMaterials = useCallback(async (entityId: string, mapping: Record<string, string> | null) => {
     const c = clientRef.current;
@@ -3266,7 +3284,7 @@ function EditorApp(): JSX.Element {
       graphs,
       textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
       onEdit: (materialId, ops) => sendGraphEdit({ kind: 'material', id: materialId }, ops),
-      onSave: (m) => void saveMaterial(m),
+      onSave: (m) => void saveMaterial(m, materials.find((x) => x.materialId === m.materialId) ?? null),
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
@@ -3891,7 +3909,7 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               selectedId={selectedMaterialId}
               onSelect={setSelectedMaterialId}
-              onSave={(m) => void saveMaterial(m)}
+              onSave={(m) => void saveMaterial(m, materials.find((x) => x.materialId === m.materialId) ?? null)}
               onDelete={(id) => void deleteMaterial(id)}
               error={materialError}
               onOpen={(id) => openDocument('material', id)}
@@ -3901,12 +3919,12 @@ function EditorApp(): JSX.Element {
             <EnvironmentPanel
               environment={environment}
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-              onSave={(env) => void saveEnvironment(env)}
+              onSave={(env) => void saveEnvironment(env, environment)}
               error={materialError}
               {...(() => {
                 const l = envLevelId !== null ? flow?.levels.find((x) => x.id === envLevelId) : undefined;
                 return l !== undefined
-                  ? { level: { id: l.id, name: l.name, environment: l.environment ?? null, onSave: (look: LevelEnvironment | null) => void saveLevelLook(l.id, look), onBack: () => setEnvLevelId(null) } }
+                  ? { level: { id: l.id, name: l.name, environment: l.environment ?? null, onSave: (look: LevelEnvironment | null) => void saveLevelLook(l.id, look, l.environment ?? null), onBack: () => setEnvLevelId(null) } }
                   : {};
               })()}
             />
@@ -3921,7 +3939,7 @@ function EditorApp(): JSX.Element {
               textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               gameSpawnId={gameConfig?.spawnId ?? null}
               counters={scoreCounterNames(entities)}
-              onSave={(next) => void saveFlow(next)}
+              onSave={(next) => void saveFlow(next, flow)}
               onEditLook={(levelId) => {
                 setEnvLevelId(levelId);
                 setLevelLookOn(true);
