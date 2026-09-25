@@ -72,7 +72,7 @@ Read `docs/roadmap.md` (principles) first.
 | 20.0 data | done 2026-09-25 | 7a00184 |
 | 20.1 node catalogue | done 2026-09-25 | 7a00184 |
 | 20.2 runtime executors | done 2026-09-25 | d3ac8bb |
-| 20.3 editor | todo | |
+| 20.3 editor | done 2026-09-25 | 899c0e9 |
 | 20.4 tests and wrap-up | todo | |
 
 ## 4. Decision log
