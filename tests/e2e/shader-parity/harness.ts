@@ -2,7 +2,7 @@
  * Phase 17.2: the neutral shader test scene (browser code, bundled by
  * `shader-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu|auto&case=<name>[&control=1]
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>[&control=1][&graph=1]
  *
  * Every case draws one shader type of the project material library (or one
  * per-mesh look) through the real three-adapter code — `createRenderer`,
@@ -14,7 +14,10 @@
  * here (no files, no fetch). `control=1` draws the cases without their shader
  * nodes (foliage, kit and water as plain standard materials, lightmap copies
  * keeping the ambient light) — what WebGPURenderer drew while the archived
- * onBeforeCompile hooks were silently ignored (phase 17.0).
+ * onBeforeCompile hooks were silently ignored (phase 17.0). Phase 18.2:
+ * `graph=1` draws every project material converted to a graph material by
+ * the editor's "Convert to graph" (the built-in templates) — compiled by the
+ * graph compiler (18.3), it must match the same references.
  *
  * When done, `window.__shaderCase` holds { ok, backend, reason, error? };
  * with `debug=1` on WebGPURenderer, `window.__shader` holds the generated
@@ -32,6 +35,9 @@ import {
   type MaterialDefLike,
   type RendererPreference,
 } from '@thirdlight/three-adapter';
+import type { MaterialDef } from '@thirdlight/project-model';
+
+import { convertToGraph } from '../../../packages/editor/src/session/material-graph';
 
 export const SIZE = 256;
 
@@ -39,6 +45,7 @@ const q = new URLSearchParams(location.search);
 const backend = (q.get('backend') ?? 'auto') as RendererPreference;
 const which = q.get('case') ?? 'standard';
 const control = q.get('control') === '1';
+const asGraph = q.get('graph') === '1';
 
 // ---- generated textures (sRGB colour data / linear normal data) ----------------------
 
@@ -100,13 +107,13 @@ library.tick(1.7);
 const src = (): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ name: 'src', color: '#ffffff' });
 /** The control strips the shader types that need their own nodes (what an ignored hook drew). */
 const NODE_SHADERS: readonly MaterialDefLike['shader'][] = ['foliage', 'kit', 'water'];
-const def = (materialId: string, shader: MaterialDefLike['shader'], params: MaterialDefLike['params'], textures: MaterialDefLike['textures'] = {}): MaterialDefLike => ({
-  materialId,
-  name: materialId,
-  shader: control && NODE_SHADERS.includes(shader) ? 'standard' : shader,
-  params,
-  textures,
-});
+const def = (materialId: string, shader: MaterialDefLike['shader'], params: MaterialDefLike['params'], textures: MaterialDefLike['textures'] = {}): MaterialDefLike => {
+  const d: MaterialDefLike = { materialId, name: materialId, shader: control && NODE_SHADERS.includes(shader) ? 'standard' : shader, params, textures };
+  if (!asGraph) return d;
+  const r = convertToGraph(d as unknown as MaterialDef);
+  if (!r.ok) throw new Error(`convert ${materialId}: ${r.reason}`);
+  return r.material as unknown as MaterialDefLike;
+};
 const box = (s = 1): THREE.BoxGeometry => {
   const g = new THREE.BoxGeometry(s, s, s);
   addBoxLightmapUv(g);

@@ -46,6 +46,11 @@ async function components(id: string): Promise<Record<string, unknown>> {
 const comp = (id: string, name: string) => async (): Promise<unknown> => (await components(id))[name];
 
 const inspector = (page: Page) => page.locator('.tl-inspector');
+/** The editor has seen the backend's latest revision (a busy page applies a change late; an edit sent before that is a revision conflict). */
+async function synced(page: Page): Promise<void> {
+  const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  await expect(page.locator('.tl-statusbar')).toContainText(new RegExp(`revision ${rev}(?!\\d)`));
+}
 async function field(page: Page, label: string, value: string): Promise<void> {
   const f = inspector(page).getByLabel(label, { exact: true });
   await f.fill(value);
@@ -135,13 +140,16 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await expect.poll(comp(id, 'surface')).toBeDefined();
   await field(page, 'surface roughness', '0.2');
   await expect.poll(async () => ((await comp(id, 'surface')()) as { roughness?: number }).roughness).toBe(0.2);
+  await synced(page);
   await inspector(page).getByLabel('surface preset', { exact: true }).selectOption('hazard');
   await expect.poll(async () => ((await comp(id, 'surface')()) as { roughness?: number }).roughness).not.toBe(0.2);
   await inspector(page).getByRole('button', { name: 'remove surface', exact: true }).click();
   await expect.poll(comp(id, 'surface')).toBeUndefined();
+  await synced(page);
   // Materials: the mapping editor (it knows the model's own material names) is this section's custom widget.
   await inspector(page).getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Plain' });
   await expect.poll(comp(id, 'materials')).toEqual({ '*': 'mat-plain' });
+  await synced(page);
   await inspector(page).getByRole('button', { name: 'remove materials', exact: true }).click();
   await expect.poll(comp(id, 'materials')).toBeUndefined();
   // The box itself is removable too (one command; undo brings it back).

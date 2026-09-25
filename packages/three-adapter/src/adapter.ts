@@ -25,7 +25,8 @@
  * `renderBackend: null` diagnostics value are reported (the absent
  * backend), never a throw.
  */
-import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
+import type { MaterialFunctionLike } from './material-graph';
+import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { setEmissiveLook } from './node-materials';
@@ -97,6 +98,8 @@ export interface SceneAdapterOptions {
    */
   materials?: {
     readonly defs: readonly MaterialDefLike[];
+    /** Phase 18.3: the material functions graph materials call (the manifest's). */
+    readonly functions?: readonly MaterialFunctionLike[];
     readonly wind: WindLike | null;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
@@ -243,11 +246,19 @@ function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean }
   return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
 }
 
+/** Phase 18.3: an entity's `materialParams` component (overrides of its graph materials' public parameters). */
+function materialParamsOf(components: unknown): MaterialOverridesLike | null {
+  const v = (components as { materialParams?: unknown } | undefined)?.materialParams;
+  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;
+}
+
 /** Set the shadow flags on every mesh under `root` (a model's meshes, an instance set's instanced meshes). */
 function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive: boolean }): void {
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh === true) {
-      o.castShadow = flags.cast;
+      // Phase 18.3: a graph material whose output casts no shadow keeps it off (its flag is data too).
+      if (o.userData[MATERIAL_NO_SHADOW_KEY] !== undefined) o.userData[MATERIAL_NO_SHADOW_KEY] = flags.cast;
+      else o.castShadow = flags.cast;
       o.receiveShadow = flags.receive;
     }
   });
@@ -301,7 +312,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         })
       : null;
   if (materialLibrary !== null && opts.materials !== undefined) {
-    materialLibrary.setMaterials(opts.materials.defs);
+    materialLibrary.setMaterials(opts.materials.defs, opts.materials.functions ?? []);
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
@@ -526,7 +537,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     objects.set(e.id, obj);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
-    if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials));
+    // Phase 18.3: with the object's values for its graph materials' public parameters.
+    if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials, materialParamsOf(e.components)));
     if (box) lightmaps?.apply(e.id, obj);
     entityDocs.set(e.id, e);
     if (own.geometries.length > 0) entityResources.set(e.id, own);
@@ -665,6 +677,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       modelPieces,
       materialLibrary,
       entityMaterials: (entityId: string) => (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials ?? null,
+      entityMaterialParams: (entityId: string) => materialParamsOf(entityDocs.get(entityId)?.components),
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,

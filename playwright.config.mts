@@ -58,6 +58,10 @@ export default defineConfig({
         '**/sky-texture.e2e.ts',
         '**/level-look.e2e.ts',
         '**/shadows.e2e.ts',
+        // Phase 18.3: material graphs on WebGPU.
+        '**/material-graph-render.e2e.ts',
+        '**/material-graph-play.e2e.ts',
+        '**/material-preview.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

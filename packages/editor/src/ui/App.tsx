@@ -85,7 +85,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, materialGraphProblems, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { AnimatorController, DescriptorRegistry, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
@@ -109,6 +109,7 @@ import { BehaviorPanel, type BehaviorPanelProps } from './BehaviorPanel';
 import { ActiveDocument, WorkspaceTabs, resetWorkspaces, useWorkspace } from './workspace/WorkspaceTabs';
 import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from './script/ScriptDocument';
 import type { WorkspaceHost } from './workspace/kinds';
+import type { MaterialDocumentProps } from './material/MaterialDocument';
 import { activeDoc, docKey } from '../session/workspace-tabs';
 import type { DeclarationSave } from './DeclarationEditor';
 import { PlayDebugView } from './PlayDebugView';
@@ -350,14 +351,15 @@ function EditorApp(): JSX.Element {
   const graphsContext = useMemo(() => graphsPortContext(graphs, graphKinds), [graphs, graphKinds]);
   // Phase 18.0: the graph material of the active centre tab (its node inspector shows in the right dock).
   const [materialSelection, setMaterialSelection] = useState<readonly string[]>([]);
-  const [materialFocus, setMaterialFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const [materialFocus, setMaterialFocus] = useState<{ id: string; nonce: number; materialId?: string } | null>(null);
   const activeMaterialId = (() => {
     const d = activeDoc(workspace);
     return d !== null && d.kind === 'material' ? d.id : null;
   })();
   useEffect(() => {
     setMaterialSelection([]);
-    setMaterialFocus(null);
+    // A focus request for the tab being opened (a Problems click) survives the switch.
+    setMaterialFocus((f) => (f !== null && f.materialId === activeMaterialId ? f : null));
   }, [activeMaterialId]);
   // Phase 20.0: the effect of the active centre tab (the selected node of its shown system shows in the right dock).
   const [effectSelection, setEffectSelection] = useState<readonly string[]>([]);
@@ -683,6 +685,32 @@ function EditorApp(): JSX.Element {
       }),
     [visualProblems, behaviorViews, graphKinds],
   );
+  // Phase 18.2: graph materials' problems (the kind's rules and the compiler's), for the Problems tab.
+  const materialIssues = useMemo(() => {
+    const kind = graphKinds['material'];
+    if (kind === undefined) return [];
+    const textureIds = new Set(assets.filter((a) => a.kind === 'texture').map((a) => a.assetId));
+    const functions = graphs.filter((g) => g.kind === 'material-function') as unknown as MaterialFunctionLike[];
+    return materials.flatMap((m) => {
+      if (m.graph === undefined) return [];
+      const g = m.graph;
+      const rules = diagnoseGraph(kind, g, portsResolver(kind, g, materialPortContext(m.parameters, graphs, graphKinds)));
+      const compiled = materialGraphProblems({ graph: g, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, functions, textureIds);
+      return [...rules, ...compiled].map((p, i) => {
+        const node = p.nodeId !== undefined ? g.nodes.find((n) => n.id === p.nodeId) : undefined;
+        return {
+          key: `material:${m.materialId}:${i}`,
+          graphId: m.materialId,
+          graphName: m.name,
+          ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}),
+          nodeLabel: node !== undefined ? (kind.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null,
+          severity: p.severity,
+          message: p.message,
+          materialId: m.materialId,
+        };
+      });
+    });
+  }, [materials, graphs, graphKinds, assets]);
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
   const [sourceDraft, setSourceDraft] = useState('');
@@ -785,12 +813,13 @@ function EditorApp(): JSX.Element {
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
     setEnvironment(env);
-    // Phase 18.0: the renderer gets the shader part only (a graph renders with its shader until 18.3), so a graph edit never rebuilds the Scene view's materials.
-    const libMats = mats.map(({ graph: _g, parameters: _p, ...rest }) => rest);
-    const matsKey = JSON.stringify(libMats);
+    // Phase 18.3: graph materials compile to TSL in the Scene view too (the library recompiles only when a
+    // graph's compile input changes — moving a node does not), with the material functions they call.
+    const libFunctions = c.getGraphs().filter((g) => g.kind === 'material-function');
+    const matsKey = JSON.stringify([mats, libFunctions]);
     if (matsKey !== materialsKeyRef.current) {
       materialsKeyRef.current = matsKey;
-      materialLibraryRef.current?.setMaterials(libMats as unknown as MaterialDefLike[]);
+      materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
     }
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
@@ -3288,6 +3317,16 @@ function EditorApp(): JSX.Element {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
+      // Phase 18.2: the live preview (the project environment, its models, the editor's texture bytes).
+      environment: environment as unknown as MaterialDocumentProps['environment'],
+      models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+      loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
+      loadModel: async (assetId) => {
+        const r = await modelInstancesRef.current?.prepared(assetId);
+        const made = r?.createInstance();
+        if (made === undefined || !made.ok) return null;
+        return { root: made.instance.root, dispose: () => void made.instance.dispose() };
+      },
     },
     effect: {
       effects,
@@ -3740,7 +3779,7 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length}</span> : null}
                 </button>
               ))}
             </div>
@@ -3788,9 +3827,13 @@ function EditorApp(): JSX.Element {
           )}
           {bottomTab === 'problems' && (
             <ProblemsPanel
-              graphIssues={[...graphIssues, ...scriptIssues]}
+              graphIssues={[...graphIssues, ...scriptIssues, ...materialIssues]}
               onGraphIssue={(i) => {
-                if (i.behaviorId !== undefined) {
+                if (i.materialId !== undefined) {
+                  // Phase 18.2: a graph material's problem opens its Material tab at the node.
+                  if (i.nodeId !== undefined) setMaterialFocus({ id: i.nodeId, nonce: Date.now(), materialId: i.materialId });
+                  openDocument('material', i.materialId);
+                } else if (i.behaviorId !== undefined) {
                   // Phase 19.2: a visual script's problem opens its Graph tab at the node (its function's tab inside a function).
                   workspaceDispatch({ type: 'open', doc: { kind: 'visual-script', id: i.behaviorId } });
                   if (i.nodeId !== undefined) setVisualFocus({ behaviorId: i.behaviorId, id: i.nodeId, nonce: Date.now() });

@@ -161,9 +161,25 @@ export {
   type MaterialDefLike,
   type MaterialLibrary,
   type MaterialLibraryOptions,
+  type MaterialOverridesLike,
   type MaterialShaderName,
   type WindLike,
 } from './material-library';
+// Phase 18.3: material graphs compiled to TSL (the library uses it; tests and the editor's problem list too).
+export {
+  compileMaterialGraph,
+  digestOf,
+  materialGraphCanonical,
+  materialGraphProblems,
+  resolveMaterialGraphPorts,
+  COMPILER_NODES,
+  COMPILER_FIELD_DEFAULTS,
+  type CompiledMaterialGraph,
+  type GraphProblem,
+  type MaterialFunctionLike,
+  type MaterialGraphLike,
+  type MaterialParameterLike,
+} from './material-graph';
 // Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).
 export {
   cloneMaterial,

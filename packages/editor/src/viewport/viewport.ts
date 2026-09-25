@@ -43,7 +43,7 @@ import { ZoneOverlay, type ZoneTool } from './zone-overlay';
 import { commitValue, type HandleShape } from '../session/handles';
 import { BRUSH_SPACING_M, copyAt, type CopyTransform } from '../session/instance-copies';
 import { fitSprite, iconKindFor, makeIconSprite, setSpriteSelected, type IconKind } from './icons';
-import type { ModelInstances } from './model-instances';
+import { materialOverridesOf, type ModelInstances } from './model-instances';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -563,7 +563,9 @@ export class Viewport {
   private syncBoxMaterial(e: ProjectedEntity, obj: THREE.Object3D): void {
     const lib = this.materialLibrary;
     const mapping = e.kind === 'box' ? (e.materials ?? null) : null;
-    const key = mapping === null ? '' : JSON.stringify(mapping);
+    // Phase 18.3: the object's values for its graph materials' public parameters.
+    const overrides = materialOverridesOf(e);
+    const key = mapping === null ? '' : JSON.stringify([mapping, overrides]);
     const have = this.boxMaterials.get(e.id);
     if (have !== undefined && have.key === key) return;
     have?.undo();
@@ -571,7 +573,7 @@ export class Viewport {
     if (lib === null || mapping === null) return;
     const mesh = obj.children.find((c) => (c as THREE.Mesh).isMesh && (c as { entityId?: string }).entityId === e.id);
     if (mesh === undefined) return;
-    this.boxMaterials.set(e.id, { key, undo: lib.apply(mesh, mapping) });
+    this.boxMaterials.set(e.id, { key, undo: lib.apply(mesh, mapping, overrides) });
   }
 
   /** The Object3D a gizmo/selection targets: the entity's node in the scene graph. */

@@ -35,6 +35,7 @@ import {
   type VisualResourceStore,
   type VertexColorMode,
   type MaterialLibrary,
+  type MaterialOverridesLike,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { ProjectedEntity } from '../session/projection';
@@ -189,10 +190,12 @@ export class ModelInstances {
   private syncMaterials(live: LiveInstance, e: ProjectedEntity): void {
     const lib = this.options.materialLibrary;
     const mapping = this.mappingFor(e);
-    const key = mapping === null ? '' : JSON.stringify(mapping);
+    // Phase 18.3: with the object's values for its graph materials' public parameters.
+    const overrides = materialOverridesOf(e);
+    const key = mapping === null ? '' : JSON.stringify([mapping, overrides]);
     if (live.materialsKey === key) return;
     live.undoMaterials?.();
-    live.undoMaterials = lib !== undefined && mapping !== null ? lib.apply(live.holder, mapping) : null;
+    live.undoMaterials = lib !== undefined && mapping !== null ? lib.apply(live.holder, mapping, overrides) : null;
     live.materialsKey = key;
   }
 
@@ -265,7 +268,7 @@ export class ModelInstances {
       const res = this.resources.get(ref.assetId);
       const floats = this.buffers.get(ref.buffer);
       const mapping = this.mappingFor(e);
-      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${mapping === null ? '' : JSON.stringify(mapping)}`;
+      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${mapping === null ? '' : JSON.stringify([mapping, materialOverridesOf(e)])}`;
       const current = this.sets.get(e.id);
       if (current !== undefined && current.key === key) continue;
       if (res === undefined || floats === undefined) continue;
@@ -279,7 +282,7 @@ export class ModelInstances {
       (parent ?? this.scene).add(built.group);
       if (parent === null) this.applyTransform(built.group, e);
       const lib = this.options.materialLibrary;
-      const undoMaterials = lib !== undefined && mapping !== null ? lib.apply(built.group, mapping) : null;
+      const undoMaterials = lib !== undefined && mapping !== null ? lib.apply(built.group, mapping, materialOverridesOf(e)) : null;
       this.sets.set(e.id, { key, template: created.instance, built, undoMaterials });
       this.options.onChanged?.();
     }
@@ -484,4 +487,10 @@ export class ModelInstances {
     for (const entityId of [...this.sets.keys()]) this.detachSet(entityId);
     this.store.dispose();
   }
+}
+
+/** Phase 18.3: an entity's `materialParams` component (overrides of its graph materials' public parameters). */
+export function materialOverridesOf(e: { components: Readonly<Record<string, unknown>> }): MaterialOverridesLike | null {
+  const v = e.components['materialParams'];
+  return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;
 }
