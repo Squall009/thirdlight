@@ -82,6 +82,42 @@ without concurrency hazards and without changing game results. Read
 
 ## 5. Results and decision log
 
+### 22.4 Wrap-up (2026-09-25)
+
+What runs where now:
+
+| Work | Before phase 22 | After |
+|---|---|---|
+| Game simulation (runtime, Rapier, blocks, animators, scripts) in Play and exports | page main thread | a worker by default; `?threads=off` / setting `sim_thread` for the page |
+| Transforms page ↔ simulation | — | messages; `SharedArrayBuffer` when cross-origin isolated |
+| Preview lightmap bake, thumbnail PNG encoding, graph/material diagnostics (editor) | page main thread | editor worker (`?workers=off` for the page) |
+| Rendering | page | page (the 22.2 render worker was measured and not adopted) |
+
+Before/after, from the measurements above (CPU-rendered SwiftShader host
+shared with other runs, so times are noisy; load averages are given there):
+
+| Measure | Before | After | Source |
+|---|---|---|---|
+| Simulation steps on the page's main thread in Play/export | every step | none (worker) | 22.0, by construction |
+| Step results page vs worker | — | identical digests over 1200+ steps (parity test, blocks, saves, Sprout bot) | 22.0 |
+| Page main-thread time per drawn Play frame, large | 212 / 275 ms (off) | 131 / 182 ms (worker), runs 1 / 2 | 22.0 table |
+| Page main-thread time per drawn Play frame, medium | 44 / 43 ms | 37 / 46 ms (within noise) | 22.0 table |
+| Key → player moves (Play, both modes) | within 2 frames | within 2 frames | `sim-worker.e2e.ts` |
+| Longest main-thread task during a preview bake | 785 ms | 0 ms | 22.1 table |
+| Longest main-thread task for 2 model thumbnails | 1252 ms | 0 ms | 22.1 table |
+| Long tasks for 5 edits of a 2000-node graph | 2 (55 ms) | 0 | 22.1 table |
+| Export main thread per drawn frame with a render worker (spike) | 23–111 ms | ~1 ms, no frame-rate gain, unexplained WebGPU stalls → not adopted | 22.2 table |
+| Physics WebAssembly memory | unbounded | capped at 512 MiB (`physics_memory_limit`), freed on stop | 22.3 |
+
+The phase 21 baseline (`tests/perf/baseline.json`, re-recorded in 21.6 on
+the worker default) is the reference for later threading changes; frame
+rates on this host are set by the CPU-rendered GPU process, so the real
+frame-rate effect of the worker is an owner look on a real GPU.
+`docs/deployment.md` "Simulation thread (worker)" describes the modes, the
+COOP/COEP headers for shared memory, how to force a single thread
+(`?threads=off`, `sim_thread`) and why rendering stays on the page; its
+"Performance" section describes the editor workers (`?workers=off`).
+
 ### 22.1 Editor-side workers (2026-09-25)
 
 Measured with `tests/e2e/editor-workers.e2e.ts` (Chromium, `default`

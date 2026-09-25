@@ -140,6 +140,54 @@ Effects are generated now but drawn only after 20.2.
 
 ### Results
 
+#### 21.6 Summary — before/after and the stored baseline (2026-09-25)
+
+Before = the first baseline (21.1, commit 973524f; renderer rows `legacy` /
+`webgl2`, which were two backends then); after = the re-recorded baseline
+(commit 8127a28, `node tools/perf/run.mjs --write-baseline
+tests/perf/baseline.json`, report
+`~/.cache/thirdlight-perf/reports/216-baseline.json`, every class and
+surface, WebGPURenderer on WebGL 2 over SwiftShader, 1280×720; **load
+average 3.7 at the start, 8.0 at the end**). Counts and memory are exact
+per run; times are CPU-rendered and are judged only relative to the
+baseline (real GPU: owner look pending). Details per item in the sections
+below.
+
+| Before → after | small | medium | large | script-heavy | effect-heavy |
+|---|---|---|---|---|---|
+| Play draw calls per frame | 39 → 31 | 922 → 529 | never started (21.1 finding) → 591 | 171 → 68 | 37 → 29 |
+| Editor draw calls per orbit frame (21.3 table) | 140 → 52 | 2222 → 726 | 18 034 → 1457 | — → 119 | — → 75 |
+| Editor frames drawn while idle (3 s) | not measured → 0 | → 0 | → 0 | → 0 | → 0 |
+| Editor heap (MiB) | 27.7 → 25.1 | 69.7 → 49.6 | 366 → 227 | 38.4 → 28.9 | 27.6 → 25.0 |
+| Play heap, page incl. the editor (MiB) | 47.7 → 43.4 | 127.8 → 93.9 | — → 441.6 | 67.4 → 52.3 | 47.4 → 46.0 |
+| Export heap (MiB) | → 19.3 | → 43.9 | → 206.3 | → 22.5 | → 21.7 |
+| Simulation garbage per steady step (21.2) | 236 KiB → 19 KiB | 2.64 MiB → 29 KiB | 20.8 MiB → 46 KiB | 2.15 MiB → 61 KiB | 225 KiB → 13 KiB |
+| Simulation step p50 (21.2, ms) | 0.21 → 0.13 | 1.25 → 0.17 | 16.0 → 1.36 | 4.14 → 0.63 | 0.35 → 0.07 |
+| Hierarchy row click → Inspector, p50 (21.4, ms) | 103 → 14 | 488 → 15 | 3876 → 34 | | |
+| Leaks per 50 open/close or load/unload cycles (21.5) | GPU objects and contexts grew (e.g. programs 34 → 514 on scene close/open) → all counts back to baseline, heap ≤ 2.3 MiB | | | | |
+
+GPU memory estimates rose (small Play 3.5 → 9.8 MiB) while buffers fell
+(148 → 77): each instanced batch reserves ≥ 1025 matrix slots (64 KiB, 21.3)
+and effects draw GPU particle buffers since 20.2; every class stays far below
+its GPU budget.
+
+Budgets on this host (the regression run prints every miss): met — draw
+calls (medium 529 ≤ 600, large 591 ≤ 1500), GPU memory, editor and export
+heap, idle editor frames, simulation step p95 ≤ 2 ms except large (2.05 ms,
+shared CPU); missed — frame times and first-frame times (CPU-rendered:
+owner look on a real GPU), garbage per step (the 0 B goal: a constant
+13–63 KiB per step remains — Rapier's JS glue and the scripts' own intent
+objects, see 21.2), medium command round trip p95 100.04 ms against 100 ms
+(within the host's noise; 21.4 measured 109). Large Play's heap includes the
+editor page (one renderer process); the large export alone is 206 MiB of
+its 384 MiB.
+
+The baseline now records one renderer (`webgl2`): since 17.4 `legacy` is the
+same WebGPURenderer on WebGL 2, so the harness default is `webgl2` (`legacy`
+stays accepted for re-running old reports). Compare a later run with
+`node tools/perf/run.mjs --compare tests/perf/baseline.json` or the opt-in
+`TL_PERF=1 npx vitest run tests/perf/regression.test.ts`.
+
 First baseline ("before"), 2026-09-25, commit 973524f, report
 `~/.cache/thirdlight-perf/reports/baseline-2026-09-25.json`; relative
 metrics checked in as `tests/perf/baseline.json`. Machine: i5-12600H (10
@@ -339,7 +387,7 @@ the 400 kit props (three pieces × two LODs × 50 materials: 2–3 per key, unde
 the group minimum) and their shadow-pass draws; the editor's icon sprites and
 single meshes.
 
-`tests/perf/baseline.json` was not re-recorded (21.6).
+`tests/perf/baseline.json` was not re-recorded here; 21.6 re-recorded it (see the summary above).
 
 #### 21.5 Memory (2026-09-25)
 
@@ -463,3 +511,6 @@ for a quick local run (not a leak check: the bounds are sized for 50).
 - 2026-09-25 (21.5): accepted, not fixed: three counts a node-made attribute again whenever a render object is rebuilt (a light entering the view rebuilds an instanced batch: four new attribute objects on the same GPU buffer) and never counts the old ones out — the Scene view's `attributes` count drifts without a GPU buffer leaking (the API buffer counts stay equal), so the test skips that one count; `ModelInstances` keeps a prepared model per asset for the session (a cache bounded by the project's assets); unsaved script drafts are kept per behavior (intended).
 - 2026-09-25 (21.5): three keys render contexts by attachment state, MRT id and call depth and never forgets one: a post pipeline rebuilt with SSAO (its scene pass has its own MRT node) left the old MRT's contexts and their render objects behind. The environment's pipeline dispose now releases them (`releaseMrtContexts`; unit-tested with stubs — the leak tests' projects use no SSAO, so no e2e number).
 - 2026-09-25 (21.5): the leak spec keeps the plan's 50 cycles per scenario (no trimming): its time goes to the preview scenarios, whose every cycle must draw a frame on the CPU renderer; fewer cycles would let a one-object-per-cycle leak hide inside the ±2 count tolerance. The bounds were not changed after merging main (22.1/22.2): every count came back exactly in both projects.
+- 2026-09-25 (21.6): the stored baseline was re-recorded in full on main after 21.5 (every class and surface, one renderer) instead of patching keys as 21.2 did: 21.3–21.5 changed what almost every metric counts (batches, render on demand, disposal), so a partial refresh would mix generations.
+- 2026-09-25 (21.6): the harness default renderer list is `webgl2` only — `legacy` has been the same WebGPURenderer on WebGL 2 since 17.4, so measuring both doubled the run for identical numbers; `legacy` stays accepted so old reports can be re-run.
+- 2026-09-25 (21.6, flake): `materials.e2e.ts` read zero wind motion in loaded full runs (also before 21.3). Traced with per-frame sampling of the kit's screen region: at windBend 4 and wind strength 10 the fixture's pieces (full bend weight) swing ~5 m and are out of the frame for ~2 s of each ~3.7 s sway; under load one two-screenshot measurement can take the whole 30 s poll and land twice in that phase. The Scene view kept drawing throughout (render on demand was not involved). The test now nudges windBend one step; the product is unchanged (maximum settings are allowed to be extreme).

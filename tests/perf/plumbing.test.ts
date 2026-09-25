@@ -152,10 +152,10 @@ describe('harness plumbing', () => {
     expect(m['small.sim.KiBPerStep']).toEqual({ value: 2, kind: 'memory' });
   });
 
-  it('parses the runner options (defaults: every class, legacy + webgl2, every surface)', () => {
+  it('parses the runner options (defaults: every class, webgl2, every surface)', () => {
     const d = parseArgs([]);
     expect(d.classes).toEqual([...BENCH_CLASSES]);
-    expect(d.renderers).toEqual(['legacy', 'webgl2']);
+    expect(d.renderers).toEqual(['webgl2']);
     expect(d.surfaces).toEqual(['play', 'export', 'editor', 'sim']);
     // Phase 22.0: Play and the export in the simulation worker (the default), or also with ?threads=off.
     expect(d.threads).toEqual(['worker']);

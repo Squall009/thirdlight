@@ -2,7 +2,7 @@
  * Phase 21.1: the harness command line (bundled and started by run.mjs).
  *
  *   --classes small,medium,...     benchmark classes (default: all five)
- *   --renderers legacy,webgl2      renderer backends (default: legacy,webgl2; webgpu/auto add the WebGPU flags)
+ *   --renderers webgl2,webgpu      renderer backends (default: webgl2; webgpu/auto add the WebGPU flags; legacy = webgl2 since 17.4)
  *   --surfaces play,export,editor,sim
  *   --quick                        short windows (a smoke run)
  *   --record-ms N --warmup-ms N --commands N --sim-steps N --viewport WxH --seed N

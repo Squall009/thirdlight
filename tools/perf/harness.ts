@@ -91,7 +91,7 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
   const [vw, vh] = (get('viewport') ?? '1280x720').split('x').map(Number);
   return {
     classes: list('classes', BENCH_CLASSES, BENCH_CLASSES),
-    renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['legacy', 'webgl2']),
+    renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['webgl2']), // 21.6: `legacy` is WebGPURenderer on WebGL 2 since 17.4 (kept to re-run old reports)
     surfaces: list('surfaces', SURFACES, SURFACES),
     threads: list<'worker' | 'off'>('threads', ['worker', 'off'], ['worker']),
     seed: Number(get('seed') ?? DEFAULT_SEED),

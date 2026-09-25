@@ -2033,6 +2033,13 @@ same few frames as in single-thread mode (an e2e test measures it).
 worker,off` measures Play and the export in both modes; the report adds the
 page's main-thread task time per frame (`mainThread`).
 
+**Rendering stays on the page.** A render worker (the canvas moved to an
+`OffscreenCanvas` in a worker) was built and measured in phase 22.2 and not
+adopted: on the CPU-rendered test host it freed the page's main thread but
+drew no more frames, and it showed unexplained stalls on WebGPU (numbers in
+`docs/plan-phase-22.md` §5; the spike is kept in
+`archive/spike-22-render-worker/`). Real-GPU measurements are pending.
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated
@@ -2056,13 +2063,13 @@ Playwright run):
 
 ```sh
 npm run build
-node tools/perf/run.mjs                                  # every class, legacy + webgl2 renderers
+node tools/perf/run.mjs                                  # every class, WebGPURenderer on WebGL 2
 node tools/perf/run.mjs --classes small,medium --quick   # a short smoke run
 node tools/perf/run.mjs --renderers webgpu               # WebGPURenderer on (headless) WebGPU
 node tools/perf/run.mjs --compare tests/perf/baseline.json   # exit 1 on a regression
 ```
 
-Options: `--classes`, `--renderers legacy,webgl2,webgpu,auto`, `--surfaces
+Options: `--classes`, `--renderers webgl2,webgpu,auto` (`legacy` is accepted and draws with WebGL 2, as `?renderer=legacy` does since phase 17.4), `--surfaces
 play,export,editor,sim`, `--threads worker,off` (phase 22: Play and the export in the worker and/or with `?threads=off`), `--record-ms`, `--warmup-ms`, `--commands`,
 `--sim-steps`, `--viewport WxH` (default 1280x720), `--seed`, `--keep`,
 `--out FILE`, `--write-baseline FILE`. For each class and renderer it
@@ -2072,7 +2079,7 @@ measures:
   plain static server): first-frame time, rendered-frame intervals
   (p50/p95/p99), draw calls and triangles per frame, live programs or
   pipelines, textures, buffers and an estimate of GPU memory — counted at
-  the WebGL / WebGPU API, so the legacy renderer and WebGPURenderer are
+  the WebGL / WebGPU API, so WebGL 2 and WebGPU are
   measured the same way — the JS heap after a forced collection
   (`performance.memory`; `measureUserAgentSpecificMemory` needs a
   cross-origin-isolated page and is reported unavailable), and for Play
