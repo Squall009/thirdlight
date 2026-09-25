@@ -12,6 +12,7 @@ import { useEffect, useState, type JSX, type ReactNode } from 'react';
 
 import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portsResolver, portTypeLabel, type GraphContext, type GraphData, type GraphKindDef, type GraphOp, type PortsOf } from './model';
 import type { GraphFieldDef, GraphNode, GraphValue } from '@thirdlight/project-model';
+import { CurveField, GradientField } from './CurveFields';
 
 interface Props {
   kind: GraphKindDef;
@@ -121,6 +122,19 @@ function NodeFields({ kind, graph, node, edit, portsOf, assetOptions }: { kind: 
       </label>
       {(def?.fields ?? []).map((f) => {
         const v = fieldValue(node, f);
+        // Phase 20.1: curves and gradients have their own widgets (several inputs: not inside one label).
+        if (f.type === 'curve' || f.type === 'gradient') {
+          return (
+            <div key={f.key} className="tl-field tl-field--stack">
+              <span>{f.label}</span>
+              {f.type === 'curve' ? (
+                <CurveField label={f.label} value={Array.isArray(v) ? v : []} {...(f.min !== undefined ? { min: f.min } : {})} {...(f.max !== undefined ? { max: f.max } : {})} onCommit={(n) => setField(f, n)} />
+              ) : (
+                <GradientField label={f.label} value={Array.isArray(v) ? v : []} onCommit={(n) => setField(f, n)} />
+              )}
+            </div>
+          );
+        }
         return (
           <label key={f.key} className="tl-field">
             <span>{f.label}</span>

@@ -27,8 +27,9 @@
  * `behavior`); the change is the generic `graphEdit` with its ops, undone by
  * the inverse ops. Editing the graph does not touch the published source:
  * publishing compiles it (the behavior source route).
- * Later phases register the effect (20) owner here with
- * the same op set.
+ * Phase 20.0: `effect` — one particle system's graph (`content.effects[i].systems[j].graph`,
+ * kind `effect`, owner id `<effectId>/<systemId>`); the change carries the ops,
+ * undone by the inverse ops. The effect's exposed parameters type its Parameter nodes.
  */
 import {
   animatorGraphOf,
@@ -44,6 +45,8 @@ import {
   type GraphContext,
   type MaterialDef,
   canonicalGraphDocuments,
+  effectGraphContext,
+  parseEffectSystemOwnerId,
   GRAPH_KINDS,
   parseAnimatorOwnerId,
   type AnimatorController,
@@ -61,6 +64,7 @@ import {
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { withAnimators } from './material-ops';
+import { effectsOf, withEffect } from './effect-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, ForwardChange, GraphEditChange, GraphOwner, InverseSpec, SetGraphChange } from './types';
 
@@ -148,6 +152,21 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
     record(before, after) {
       const previous = deepClone(animatorsOf(before));
       return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
+    },
+  },
+  // Phase 20.0: `<effectId>/<systemId>` — a particle system's graph.
+  effect: {
+    read(content, id) {
+      const target = parseEffectSystemOwnerId(id);
+      const e = target !== null ? effectsOf(content).find((x) => x.effectId === target.effectId) : undefined;
+      const sys = target !== null ? e?.systems.find((x) => x.systemId === target.systemId) : undefined;
+      const kind = GRAPH_KINDS['effect'];
+      return e !== undefined && sys !== undefined && kind !== undefined ? { kind, graph: sys.graph, ctx: effectGraphContext(e.parameters) } : null;
+    },
+    write(content, id, graph) {
+      const target = parseEffectSystemOwnerId(id)!;
+      const e = effectsOf(content).find((x) => x.effectId === target.effectId)!;
+      return withEffect(content, e.effectId, { ...e, systems: e.systems.map((x) => (x.systemId === target.systemId ? { ...x, graph } : x)) });
     },
   },
   // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one).

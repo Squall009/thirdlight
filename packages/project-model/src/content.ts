@@ -18,6 +18,7 @@ import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flo
 import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocumentsContext, validateGraphData, validateGraphDocuments, type GraphData, type GraphKindDef } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
 import { behaviorGraphContext } from './behavior-graph';
+import { canonicalEffectComponent, canonicalEffects, validateEffectComponent, validateEffects } from './effects';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
@@ -901,7 +902,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
  * health) stay out: a copy is never the player, the camera or level wiring.
  */
 // Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams'] as const;
+// Phase 20.0: `effect` (a copy plays its effect, e.g. a torch's flame).
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams', 'effect'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -932,6 +934,7 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
     if (comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/animator`, message: 'an animator sits only on an entity with a model', expected: 'model' });
   }
+  if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
   for (const name of PREFAB_BLOCKS) {
     if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
   }
@@ -1797,6 +1800,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
     if (x[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(x[name]);
   }
   if (x.materialParams !== undefined) components.materialParams = canonicalMaterialParams(x.materialParams);
+  if (x.effect !== undefined) components.effect = canonicalEffectComponent(x.effect);
   return {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),
@@ -2016,8 +2020,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'flow (optional)', 'graphs (optional)', 'effects (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -2163,6 +2167,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['flow'] !== undefined) validateFlow(doc['flow'], '/flow', errors);
   // Phase 16.1: standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
+  // Phase 20.0: visual effects.
+  if (doc['effects'] !== undefined) validateEffects(doc['effects'], '/effects', errors);
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
     // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
@@ -2294,6 +2300,8 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
     ...((c as ContentCatalogV4).flow !== undefined ? { flow: canonicalFlow((c as ContentCatalogV4).flow!) } : {}),
     // Phase 16.1: present only when there are standalone graphs.
     ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
+    // Phase 20.0: present only when there are effects.
+    ...((c as ContentCatalogV4).effects !== undefined && (c as ContentCatalogV4).effects!.length > 0 ? { effects: canonicalEffects((c as ContentCatalogV4).effects!) } : {}),
     // Phase 9.6: present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   };
@@ -2339,6 +2347,15 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     (doc['graphs'] as unknown[]).forEach((g, i) => {
       const k = isPlainObject(g) && typeof g['kind'] === 'string' ? GRAPH_KINDS[g['kind']] : undefined;
       if (k !== undefined && isPlainObject(g) && isPlainObject(g['graph']) && Array.isArray(g['graph']['nodes'])) graphRefs(k, g['graph'] as unknown as GraphData, `/graphs/${i}/graph`);
+    });
+  }
+  // Phase 20.1: effect system graphs name textures and models the same way.
+  if (Array.isArray(doc['effects'])) {
+    (doc['effects'] as unknown[]).forEach((e, i) => {
+      if (!isPlainObject(e) || !Array.isArray(e['systems'])) return;
+      (e['systems'] as unknown[]).forEach((sys, j) => {
+        if (isPlainObject(sys) && isPlainObject(sys['graph']) && Array.isArray(sys['graph']['nodes'])) graphRefs(GRAPH_KINDS['effect']!, sys['graph'] as unknown as GraphData, `/effects/${i}/systems/${j}/graph`);
+      });
     });
   }
   // Phase 9.5: sky images and the grading LUT are texture assets too.

@@ -560,6 +560,8 @@ export class Projection {
       // Phase 16.1: graphs are tracked by the client from the change data.
       case 'graphEdit':
       case 'setGraph':
+      // Phase 20.0: effects are tracked by the client from the change data.
+      case 'setEffect':
         return true;
       case 'setSceneIndex':
         // Phase 12 (c): the scene list and start set (files come and go with it).

@@ -163,6 +163,11 @@ export type {
   SetGraphArgs,
   DeleteGraphArgs,
   SetGraphChange,
+  SetEffectChange,
+  SetEffectInverse,
+  SetEffectArgs,
+  DeleteEffectArgs,
+  RenameEffectArgs,
   SetGraphInverse,
 } from './types';
 // Phase 16.1: graph commands (owner kinds and the shared apply used by undo/redo).

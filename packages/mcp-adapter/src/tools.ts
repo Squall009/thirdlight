@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -202,6 +202,18 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'are edited with setAnimator). A blend tree graph has the fixed OUT node and one clip node {threshold, clip, asset, duration} per child. Such an edit records the ' +
       'same setAnimators change as setAnimator (one undo step). ' +
       'A visual script is owner kind "behavior" (owner id = behaviorId, kind behavior; the change is graphEdit with the ops, one undo step). ' +
+      'Visual effects (visual only, never part of the game simulation): setEffect {effect: {effectId, name, duration 0.01-3600 s (one cycle), loop, seed 0-4294967295, ' +
+      'bounds: {center: [x, y, z], size: [x, y, z]} (culling box around the origin), parameters?: [{key, type: float|vec3|color, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}], ' +
+      'systems: [{systemId, name, maxParticles 1-1048576, space: local|world, graph}] (up to 16, evaluation order)}} creates or replaces one (adding/removing a system = setEffect); ' +
+      'deleteEffect {effectId} (refused while an effect component names it); renameEffect {effectId, name}. A system graph (kind "effect", catalogue in graphKinds) has the fixed ' +
+      'context nodes spawn, initialize, update and output (a new system: those four nodes with ids = their types, no edges); each context runs a chain: connect the context\'s "then" ' +
+      'output to a block\'s "in", that block\'s "then" to the next block (spawn.rate|burst|distance|event; init.position.point|sphere|box|circle|cone|line|mesh, init.velocity, ' +
+      'init.velocity.direction, init.lifetime, init.size, init.color, init.color.gradient, init.rotation, init.mass; update.gravity|drag|wind|vortex|turbulence|attractor, ' +
+      'update.collide.plane|depth, update.size.curve, update.color.gradient, update.velocity.curve, update.kill.plane|sphere|box|speed; output.billboard|mesh|ribbon|light); ' +
+      'number/vector/colour fields of a block are also inputs of the same id fed by value nodes (value.float|vec3|color|parameter {key}|random|randomVec3|curve|gradient|attribute|time, ' +
+      'math.*). Curve fields are [t0, v0, t1, v1, …] (t 0-1 ascending), gradient fields [t, r, g, b, a, …] (0-1). Edit a system graph with graphEdit {owner: {kind: "effect", ' +
+      'id: "<effectId>/<systemId>"}, ops}. Objects play one with setComponent "effect" {effectId, playOnStart? (default true), params?: {<public key>: value}}. The effects are in ' +
+      'tl_content_query target="game" (effects); the runtime executors arrive with phase 20.2. ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

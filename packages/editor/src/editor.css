@@ -817,3 +817,25 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-material-param { display: grid; grid-template-columns: 1fr 70px; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); }
 .tl-material-param .tl-input { min-width: 0; }
 .tl-material-overrides { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+
+/* Phase 20.1: curve and gradient field widgets (GraphInspector). */
+.tl-curve, .tl-gradient { display: flex; flex-direction: column; gap: 3px; }
+.tl-curve__plot { background: var(--panel-2, #1c1f24); border: 1px solid var(--line); border-radius: 3px; touch-action: none; }
+.tl-curve__bg { fill: transparent; }
+.tl-curve__axis { stroke: var(--line); stroke-width: 1; }
+.tl-curve__line { stroke: #8fb4ff; stroke-width: 1.5; }
+.tl-curve__key { fill: #f2b544; cursor: grab; }
+.tl-curve__row { display: flex; align-items: center; gap: 4px; }
+.tl-curve__row .tl-input--num { width: 64px; min-width: 0; }
+.tl-gradient__bar { height: 16px; border: 1px solid var(--line); border-radius: 3px; background: repeating-conic-gradient(#777 0 25%, #bbb 0 50%) 0 0 / 10px 10px; }
+.tl-gradient__bar > div { width: 100%; height: 100%; }
+
+/* Phase 20.0: the Effects list and the Effect tab. */
+.tl-effects__list { list-style: none; margin: 0; padding: 0; }
+.tl-effects__row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+.tl-effects__row.is-active { background: var(--select-bg); }
+.tl-effects__name { font-weight: 600; }
+.tl-effects__meta { flex: 1; color: var(--text-dim); font-size: 12px; }
+.tl-effect-doc__systems { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.tl-effect-doc__settings { display: grid; grid-template-columns: 110px 1fr; gap: 4px 6px; align-items: center; }
+.tl-effect-doc__settings .tl-input { min-width: 0; }

@@ -16,6 +16,7 @@
 import type { GraphKindDef } from './graph';
 import { BEHAVIOR_GRAPH_KIND } from './behavior-graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND } from './material-graph-kinds';
+import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
 
 export const TEST_GRAPH_KIND: GraphKindDef = {
   kind: 'test',
@@ -157,4 +158,6 @@ export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   // Phase 18.1: material graphs (owner kind `material`) and material functions (standalone graphs).
   [MATERIAL_GRAPH_KIND.kind]: MATERIAL_GRAPH_KIND,
   [MATERIAL_FUNCTION_GRAPH_KIND.kind]: MATERIAL_FUNCTION_GRAPH_KIND,
+  // Phase 20.1: a particle system of an effect (owner kind `effect`).
+  [EFFECT_GRAPH_KIND.kind]: EFFECT_GRAPH_KIND,
 };

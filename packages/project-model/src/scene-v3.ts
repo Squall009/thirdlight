@@ -19,6 +19,7 @@
  */
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
+import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
 import {
@@ -126,7 +127,8 @@ const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activa
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams'];
+// Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect'];
 const KNOWN_ACTIVATION_FIELDS = new Set(['emissive', 'emissiveIntensity', 'cueAssetId']);
 const KNOWN_CAMERA_FOLLOW_FIELDS = new Set(['deadZone', 'smoothing', 'bounds']);
 /** Phase 15.3 (v4): the follow distance and the speed cap. */
@@ -856,6 +858,8 @@ function validateEntityComponentsV3(
       errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances', 'material parameter overrides sit only on an entity with a model, a box or an instance set'));
     }
   }
+  // Phase 20.0: a visual effect played from the entity (any entity may carry one).
+  if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   // Phase 9.9: gameplay building blocks.
@@ -1122,6 +1126,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   for (const name of BLOCK_COMPONENT_NAMES) {
     if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
   }
+  if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
     components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };

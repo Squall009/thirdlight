@@ -17,7 +17,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef, EffectDef } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -297,6 +297,8 @@ export class SessionClient {
   /** Phase 16.1: the standalone graph documents and the registered graph kinds (from queryGameConfig, then changes). */
   private graphs: GraphDocument[] = [];
   private graphKinds: Record<string, GraphKindDef> = {};
+  /** Phase 20.0: the visual effects (from queryGameConfig, then setEffect / graphEdit changes). */
+  private effects: EffectDef[] = [];
   /** Phase 9.8: the project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
   private inputDefaults: InputConfig = { actions: [] };
@@ -529,6 +531,8 @@ export class SessionClient {
         if (settings !== undefined && settings !== null && typeof settings === 'object') this.settings = { ...settings };
         const graphs = (g as { graphs?: GraphDocument[] }).graphs;
         this.graphs = Array.isArray(graphs) ? structuredClone(graphs) : [];
+        const effects = (g as { effects?: EffectDef[] }).effects;
+        this.effects = Array.isArray(effects) ? structuredClone(effects) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;
         if (kinds !== undefined) this.graphKinds = structuredClone(kinds);
       }
@@ -727,6 +731,10 @@ export class SessionClient {
       } else if (change.type === 'setGraph') {
         const rest = this.graphs.filter((g) => g.graphId !== change.graphId);
         this.graphs = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.graphId < b.graphId ? -1 : 1));
+      } else if (change.type === 'setEffect') {
+        // Phase 20.0: one effect before/after (null = none).
+        const rest = this.effects.filter((e) => e.effectId !== change.effectId);
+        this.effects = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.effectId < b.effectId ? -1 : 1));
       } else if (change.type === 'graphEdit') {
         // Phase 16.1: advance the owner's graph from the change's ops (the
         // backend applied and validated the same ops); a copy that does not
@@ -748,6 +756,17 @@ export class SessionClient {
             return;
           }
           this.materials = this.materials.map((x) => (x === m ? { ...x, graph: next } : x));
+        } else if (change.owner.kind === 'effect') {
+          // Phase 20.0: one system's graph (owner id "<effectId>/<systemId>").
+          const [effectId, systemId] = change.owner.id.split('/');
+          const e = this.effects.find((x) => x.effectId === effectId);
+          const sys = e?.systems.find((x) => x.systemId === systemId);
+          const next = sys !== undefined ? applyGraphOpsLocal(sys.graph, change.ops) : null;
+          if (e === undefined || sys === undefined || next === null) {
+            void this.fullResync().then(() => this.cb.onSceneChanged());
+            return;
+          }
+          this.effects = this.effects.map((x) => (x === e ? { ...x, systems: x.systems.map((y) => (y === sys ? { ...y, graph: next } : y)) } : x));
         }
       } else if (change.type === 'setLighting') {
         if (change.next === null) delete this.lighting[change.sceneId];
@@ -1103,6 +1122,11 @@ export class SessionClient {
   /** Phase 16.1: the standalone graph documents (the editor treats them as read-only values). */
   getGraphs(): readonly GraphDocument[] {
     return this.graphs;
+  }
+
+  /** Phase 20.0: the visual effects (the editor treats them as read-only values). */
+  getEffects(): readonly EffectDef[] {
+    return this.effects;
   }
 
   /** Phase 16.1: the registered graph kinds (node catalogues, port types, rules), by kind id. */

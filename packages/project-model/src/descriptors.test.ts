@@ -38,6 +38,7 @@ import type { ModelErrorV2 } from './errors';
 import { validateFlow } from './flow';
 import { validateInput } from './input';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
+import { validateEffects } from './effects';
 import { V4_REGISTRY, validateSceneV4 } from './scene-v3';
 
 type J = unknown;
@@ -423,6 +424,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   box: [{ size: [1, 2, 3], material: { color: '#aabbcc' } }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
+  effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] } }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10 }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
@@ -504,6 +506,26 @@ const BINDINGS: { type: string; binding: Obj }[] = [
 ];
 const INPUT_BASES: J[] = BINDINGS.map((b) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }] }));
 
+// Phase 20.0: an effect with a parameter of every type and one system.
+const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
+const EFFECT_BASES: J[] = [
+  [
+    {
+      effectId: 'fx-a',
+      name: 'Effect',
+      duration: 3,
+      loop: false,
+      seed: 7,
+      bounds: { center: [0, 1, 0], size: [2, 2, 2] },
+      parameters: [
+        { key: 'rate', type: 'float', default: 2, min: 0, max: 10, visibility: 'private', label: 'Rate', group: 'Spawn', tooltip: 'How many.' },
+        { key: 'offset', type: 'vec3', default: [0, 1, 0], min: -5, max: 5 },
+        { key: 'tint', type: 'color', default: '#ffaa00' },
+      ],
+      systems: [{ systemId: 'sparks', name: 'Sparks', maxParticles: 500, space: 'world', graph: EFFECT_GRAPH }],
+    },
+  ],
+];
 const MATERIAL_BASES: J[] = [
   ...MATERIAL_SHADERS.map((s) => [
     { materialId: 'mat-a', name: 'Material', shader: s, params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])), textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])) },
@@ -618,6 +640,7 @@ function runAllProbes(): void {
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
   INPUT_BASES.forEach((b, i) => probe(`input[${i}]`, (v) => errorsOf((e) => validateInput(v, '', e)), b, '', block('input'), 'input:'));
   MATERIAL_BASES.forEach((b, i) => probe(`materials[${i}]`, (v) => errorsOf((e) => validateMaterials(v, '', e)), b, '', block('materials'), 'materials:'));
+  EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'enemy' }], '', block('tags'), 'tags:');
   probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1 } }), '/settings', block('settings'), 'settings:');
