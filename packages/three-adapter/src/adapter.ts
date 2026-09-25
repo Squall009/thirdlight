@@ -60,6 +60,18 @@ import {
   type ShadowReason,
 } from './lighting';
 import { createFadeTracker } from './fade';
+import {
+  createRenderer,
+  DEFAULT_RENDERER_PREFERENCE,
+  isNodeRenderer,
+  rendererMemory,
+  type AnyRenderer,
+  type RendererFactoryDeps,
+  type RendererHandle,
+  type RendererInfo,
+  type RendererPreference,
+  type RendererPreferenceSource,
+} from './renderer-factory';
 
 /** The runtime instance driving this scene (frame source + camera). */
 export interface SceneAdapterOptions {
@@ -103,15 +115,32 @@ export interface SceneAdapterOptions {
     readonly bakes: Readonly<Record<string, LightingBakeLike>>;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
+  /**
+   * Phase 17.1: which renderer backend to use and where that choice came
+   * from (the page's `?renderer=` flag, the project's `render_backend`
+   * setting, or the default — see `resolveRendererPreference`). Absent: the
+   * default (`legacy`, today's WebGL renderer).
+   */
+  renderer?: {
+    readonly preference: RendererPreference;
+    readonly source: RendererPreferenceSource;
+    /** Tests only: stubbed renderer constructors and WebGPU probe. */
+    readonly deps?: Partial<RendererFactoryDeps>;
+  };
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
  * additions are presentation.md §41.1.4 — exactly two read-only fields). */
 export interface SceneAdapterDiagnostics {
-  /** The SELECTED render backend: `"webgl2"` | `"webgl1"`, or `null` when
-   *  no backend has been selected yet (no successful render — e.g. a
-   *  non-browser environment: the contract-prescribed absent value). */
-  renderBackend: 'webgl2' | 'webgl1' | null;
+  /** The SELECTED graphics API: `"webgl2"` | `"webgl1"` (the legacy WebGL
+   *  renderer) or `"webgpu"` (phase 17.1), or `null` when no backend has been
+   *  selected yet (no successful render — e.g. a non-browser environment, or
+   *  WebGPURenderer still initialising: the contract-prescribed absent value). */
+  renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null;
+  /** Phase 17.1: the renderer choice — requested backend and its source, the
+   *  backend that draws, its state and why (absent until a renderer was
+   *  asked for, i.e. before the first render). */
+  renderer?: RendererInfo;
   /** Renderer identity string, ≤ 128 chars (null until a backend exists). */
   rendererInfo: string | null;
   canvasSize: [number, number];
@@ -197,7 +226,8 @@ interface CanvasLike {
 interface OwnedResources {
   geometries: THREE.BufferGeometry[];
   materials: THREE.Material[];
-  renderer: THREE.WebGLRenderer | null;
+  /** Phase 17.1: the renderer handle (the factory's); its renderer may be replaced after a loss. */
+  renderer: RendererHandle | null;
 }
 
 /** Phase 12 (c): the half extent (m) of the camera-following shadow square of a v4 game. */
@@ -605,10 +635,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
 
   // --- renderer state (lazy: created on the first successful render) ---
   const canvasLike = canvas as CanvasLike | null;
-  let renderBackend: 'webgl2' | 'webgl1' | null = null;
+  let renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null = null;
   let rendererInfo: string | null = null;
   let pixelRatio = 1;
   let contextAttempted = false;
+  /** Phase 17.1: the last frame was skipped (WebGPURenderer still initialising). */
+  let lastFrameSkipped = false;
+  /** Phase 17.1: the renderer choice as last seen (kept for diagnostics after dispose). */
+  let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
   let disposed = false;
   /** M4 (C64-4): the previous frame's `performance.now()` for the clamped
@@ -647,6 +681,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return [w, h];
   }
 
+  /** Phase 17.1: the renderer generation the environment renderer and shadow probe were set up for. */
+  let rendererGeneration = 0;
+
   function ensureRenderer(): AdapterError | null {
     if (disposed) return adapterError('adapter_disposed', 'adapter is disposed');
     if (owned.renderer) return null;
@@ -658,34 +695,36 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return adapterError('canvas_invalid', 'canvas argument is missing or does not expose getContext()');
     }
     contextAttempted = true;
+    const preference = opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE;
     try {
-      // One renderer path (three.js WebGL renderer; WebGL 2 first).
-      const renderer = new THREE.WebGLRenderer({
-        canvas: canvasLike as unknown as HTMLCanvasElement,
+      // Phase 17.1: the one renderer factory (legacy = the three.js WebGL renderer, WebGL 2 first).
+      const handle = createRenderer({
+        canvas: canvasLike,
+        preference,
+        source: opts.renderer?.source ?? 'default',
         antialias: opts.antialias ?? true,
         powerPreference: 'high-performance',
+        // Opaque black where nothing is drawn (what WebGLRenderer always cleared to).
+        clearColor: 0x000000,
+        clearAlpha: 1,
+        loseContextOnDispose: true,
+        ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
       });
-      owned.renderer = renderer;
+      owned.renderer = handle;
       const win = globalThis.window;
       const dpr = win && typeof win.devicePixelRatio === 'number' && win.devicePixelRatio > 0 ? win.devicePixelRatio : 1;
       pixelRatio = dpr;
-      renderer.setPixelRatio(pixelRatio);
-      renderBackend = renderer.capabilities.isWebGL2 ? 'webgl2' : 'webgl1';
+      const legacy = handle.current();
+      if (legacy === null || isNodeRenderer(legacy)) return null; // WebGPURenderer: set up when it is ready (adoptRenderer)
+      rendererGeneration = handle.generation();
+      legacy.setPixelRatio(pixelRatio);
+      renderBackend = legacy.capabilities.isWebGL2 ? 'webgl2' : 'webgl1';
       // §41.1.4 (hard, packet 52): the M3 target is WebGL 2 (baseline.md
       // §1). A WebGL-1 context for a v3 scene is the unplayable
       // `render_unsupported` case; the accepted M1/M2 webgl1 fallback is
       // unchanged for v1/v2 scenes.
       if (renderBackend === 'webgl1' && isV3) {
-        try {
-          owned.renderer.dispose();
-        } catch {
-          /* best effort */
-        }
-        try {
-          owned.renderer.forceContextLoss();
-        } catch {
-          /* best effort */
-        }
+        handle.dispose();
         owned.renderer = null;
         renderBackend = null;
         rendererInfo = null;
@@ -696,7 +735,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
       // `debug.rendererName` exists on the three.js runtime but not on the
       // pinned @types/three 0.186.0 WebGLDebug type — narrow access.
-      const dbg = renderer.debug as { rendererName?: string };
+      const dbg = legacy.debug as { rendererName?: string };
       const name = typeof dbg.rendererName === 'string' ? dbg.rendererName : '';
       rendererInfo =
         name.length > 0 ? name.slice(0, RENDERER_INFO_LIMIT) : renderBackend === 'webgl2' ? 'WebGL 2.0 (OpenGL ES 3.0)' : 'WebGL 1.0 (OpenGL ES 2.0)';
@@ -707,6 +746,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       rendererInfo = null;
       return adapterError('render_unsupported', 'WebGL context creation failed (non-browser environment or WebGL unsupported)');
     }
+  }
+
+  /**
+   * Phase 17.1: a (re)created WebGPURenderer became ready — set it up, and
+   * rebuild what held the previous renderer (the environment renderer; the
+   * shadow probe runs again).
+   */
+  function adoptRenderer(handle: RendererHandle, r: AnyRenderer): void {
+    if (handle.generation() === rendererGeneration) return;
+    rendererGeneration = handle.generation();
+    environmentRenderer?.dispose();
+    environmentRenderer = null;
+    environmentSize = null;
+    r.setPixelRatio(pixelRatio);
+    const inf = handle.info();
+    renderBackend = inf.api;
+    rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
+    if (shadowState.shadows === 'on') shadowProbeDone = false;
   }
 
   // The active checkpoint shows its authored activation look
@@ -868,6 +925,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const err = ensureRenderer();
     if (err) return { ok: false, error: err };
+    lastFrameSkipped = false;
+    const handle = owned.renderer!;
+    const hInfo = handle.info();
+    lastRendererInfo = hInfo;
+    if (hInfo.state === 'failed') {
+      return { ok: false, error: adapterError('render_unsupported', `the renderer could not start: ${hInfo.reason}`.slice(0, 256)) };
+    }
+    if (hInfo.state === 'lost') {
+      return { ok: false, error: adapterError('render_context_lost', `the frame was not rendered: ${hInfo.reason}`.slice(0, 256)) };
+    }
+    const live = handle.current();
+    if (live === null || !handle.ready()) {
+      // Phase 17.1: WebGPURenderer initialises asynchronously; frames are
+      // skipped (not an error) until it is ready.
+      lastFrameSkipped = true;
+      return { ok: true };
+    }
+    if (isNodeRenderer(live)) adoptRenderer(handle, live);
     // The runtime is the single frame driver: this runs after the step
     // update (runtime.md §6 frame ordering: step → onFrame → render).
     const st = opts.runtime.getInterpolatedState();
@@ -903,9 +978,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     fades.apply(objects, (opts.runtime as { entityOpacity?: () => ReadonlyMap<string, number> }).entityOpacity?.());
-    if (localShadowLights > 0 && owned.renderer !== null && !owned.renderer.shadowMap.enabled) {
-      owned.renderer.shadowMap.enabled = true;
-      owned.renderer.shadowMap.type = THREE.PCFShadowMap;
+    if (localShadowLights > 0 && !live.shadowMap.enabled) {
+      live.shadowMap.enabled = true;
+      live.shadowMap.type = THREE.PCFShadowMap;
     }
     if (materialLibrary !== null && materialLibrary.animated()) {
       materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
@@ -936,8 +1011,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization.update(delta);
       applyAnimatorPoses();
     }
-    const renderer = owned.renderer;
-    if (!renderer) return { ok: false, error: adapterError('render_failed', 'renderer unavailable') };
+    const renderer = live;
     // §41.1.4 shadow capability probe (packet 52): once per realized
     // scene, before the first successful v3 frame. The probe render is the
     // allocation check (`maxTextureSize ≥ SHADOW_MAP_SIZE` + the actual
@@ -949,7 +1023,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // map is allocated).
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
       shadowProbeDone = true;
-      let probeOk = renderer.capabilities.maxTextureSize >= SHADOW_PROFILE.mapSize;
+      // WebGPURenderer has no `capabilities`: WebGPU and WebGL 2 both guarantee textures far above the shadow map size.
+      const maxTexture = (renderer as { capabilities?: { maxTextureSize?: number } }).capabilities?.maxTextureSize ?? SHADOW_PROFILE.mapSize;
+      let probeOk = maxTexture >= SHADOW_PROFILE.mapSize;
       if (probeOk) {
         try {
           renderer.shadowMap.enabled = true;
@@ -1020,6 +1096,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const frame = renderFrame();
     if (!frame.ok) return { ok: false, error: frame.error };
+    if (lastFrameSkipped) return { ok: false, error: adapterError('render_failed', 'the renderer is still initialising; nothing is drawn yet') };
     if (typeof canvasLike?.toDataURL !== 'function') {
       return { ok: false, error: adapterError('screenshot_failed', 'canvas does not expose toDataURL()') };
     }
@@ -1066,6 +1143,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       pixelRatio,
       shadows: shadowState.shadows,
     };
+    const choice = owned.renderer !== null && !disposed ? owned.renderer.info() : lastRendererInfo;
+    if (choice !== null) d.renderer = choice;
     // §41.1.4: `shadowReason` is present iff `shadows === 'off'`.
     if (shadowState.shadows === 'off' && shadowState.reason !== undefined) {
       d.shadowReason = shadowState.reason;
@@ -1076,10 +1155,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (realization !== null && !disposed) {
       d.models = realization.counters();
     }
-    if (owned.renderer !== null && !disposed) {
-      const info = owned.renderer.info;
-      d.gpu = { geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs?.length ?? 0 };
-    }
+    const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
+    if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     return {
       ok: true,
       diagnostics: d,
@@ -1133,8 +1210,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       try { m.dispose(); } catch { /* best effort */ }
     }
     if (owned.renderer) {
+      lastRendererInfo = owned.renderer.info();
+      // The handle disposes the renderer (and drops the legacy WebGL context).
       try { owned.renderer.dispose(); } catch { /* best effort */ }
-      try { owned.renderer.forceContextLoss(); } catch { /* best effort */ }
     }
     owned.geometries = [];
     owned.materials = [];

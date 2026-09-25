@@ -84,7 +84,8 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type WindLike } from '@thirdlight/three-adapter';
+import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { AnimatorController, DescriptorRegistry, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
@@ -244,7 +245,13 @@ interface PlayInfo {
 
 function EditorApp(): JSX.Element {
   const cfg = useRef(readEditorConfig());
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** Phase 17.1: the Scene view's canvas lives in this host (the Viewport replaces it on a renderer backend change). */
+  const viewportHostRef = useRef<HTMLDivElement | null>(null);
+  /** Phase 17.1: the page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
+  const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));
+  /** Phase 17.1: the Scene view's renderer (backend, state, reason) and the play's, from its observation. */
+  const [sceneRenderer, setSceneRenderer] = useState<RendererInfo | null>(null);
+  const [playRenderer, setPlayRenderer] = useState<Record<string, unknown> | null>(null);
   const clientRef = useRef<SessionClient | null>(null);
   const viewportRef = useRef<Viewport | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -392,6 +399,46 @@ function EditorApp(): JSX.Element {
       }),
     [playInfo],
   );
+
+  // Phase 17.1: the play's renderer (backend, state, reason) for the Play label, from its
+  // diagnostics (every play has them; the observation needs a game).
+  const playDiagnostics = useCallback(
+    (): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const b = bridgeRef.current;
+        if (b === null || playInfo === null) {
+          resolve(null);
+          return;
+        }
+        let hex = '';
+        for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+        const relayId = `relay-${hex}`;
+        debugWaitersRef.current.set(relayId, resolve);
+        b.requestDiagnostics(playInfo.playSessionId, relayId);
+        window.setTimeout(() => {
+          if (debugWaitersRef.current.delete(relayId)) resolve(null);
+        }, 2000);
+      }),
+    [playInfo],
+  );
+  useEffect(() => {
+    if (!playing || playInfo === null) {
+      setPlayRenderer(null);
+      return;
+    }
+    let alive = true;
+    const tick = async (): Promise<void> => {
+      const d = await playDiagnostics();
+      const r = (d?.['renderer'] as { renderer?: unknown } | null | undefined)?.renderer;
+      if (alive && typeof r === 'object' && r !== null && !Array.isArray(r)) setPlayRenderer(r as Record<string, unknown>);
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [playing, playInfo, playDiagnostics]);
 
   // ---- packet 56: M3 gameplay authoring (game config / zones / camera / settings) ---
   const [gameplayTool, setGameplayTool] = useState<ZoneTool | null>(null);
@@ -672,7 +719,12 @@ function EditorApp(): JSX.Element {
     });
     clientRef.current = client;
 
-    const canvas = canvasRef.current!;
+    // Phase 17.1: the Viewport owns its canvas (a renderer backend change swaps it for a fresh one).
+    const canvas = document.createElement('canvas');
+    canvas.className = 'tl-viewport';
+    viewportHostRef.current!.replaceChildren(canvas);
+    const initialRenderer = resolveRendererPreference({ url: pageSearch() });
+    setEditorRendererChoice(initialRenderer);
     const viewport = new Viewport(canvas, {
       onPick: (id) => {
         setSelectedId(id);
@@ -822,7 +874,9 @@ function EditorApp(): JSX.Element {
       },
       onCopyTransform: (entityId, index, t) => void editCopiesRef.current.transform(entityId, index, t),
       onBrushStroke: (entityId, points) => void editCopiesRef.current.add(entityId, points),
-    }, { snapping: () => snappingRef.current && !shiftRef.current });
+      onRendererChange: (info) => setSceneRenderer(info),
+    }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
+    setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
     // Packet 27: one shared GLB realization path for placements + preview. The
     // resolver is the editor's authenticated byte read; the renderer never
@@ -894,6 +948,15 @@ function EditorApp(): JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Phase 17.1: the project's render_backend setting (under the page's ?renderer= flag) picks the
+  // Scene view's backend and the one previews and thumbnails create their renderer with.
+  const renderBackendSetting = settings?.['render_backend'];
+  useEffect(() => {
+    const choice = resolveRendererPreference({ url: pageSearch(), setting: renderBackendSetting });
+    setEditorRendererChoice(choice);
+    viewportRef.current?.setRendererChoice(choice.preference, choice.source);
+  }, [renderBackendSetting]);
 
   // A ref mirror of selectedId for the viewport callbacks (stable closure).
   const selectedIdRef = useRef<string | null>(null);
@@ -1204,6 +1267,13 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.diagnostics.result', (m) => {
       const r = m as Record<string, unknown>;
+      // Phase 17.1: the Play label's own diagnostics requests are not the backend's relays.
+      const waiter = debugWaitersRef.current.get(String(r.relayId));
+      if (waiter !== undefined) {
+        debugWaitersRef.current.delete(String(r.relayId));
+        waiter(r.ok === true && typeof r.diagnostics === 'object' && r.diagnostics !== null ? (r.diagnostics as Record<string, unknown>) : null);
+        return;
+      }
       ack({ type: 'play.diagnostics.ack', relayId: r.relayId, ...outcome(r, ['diagnostics']) });
     });
     bridge.on('tl.input.result', (m) => {
@@ -3016,9 +3086,10 @@ function EditorApp(): JSX.Element {
     return add !== undefined && (add.kind === 'menu' || add.kind === 'pick') ? (JSON.parse(JSON.stringify(add.value)) as Record<string, unknown>) : {};
   };
   // The play loads from its own content locator on the preview origin.
+  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page.
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}`
       : null;
 
   const v4Reason = 'gameplay components need a v4 project (scenes)';
@@ -3261,7 +3332,7 @@ function EditorApp(): JSX.Element {
             if (payload !== null && at !== undefined) void dropAsset(payload, at, null);
           }}
         >
-          <canvas ref={canvasRef} className="tl-viewport" />
+          <div ref={viewportHostRef} className="tl-viewport-host" />
           <ActiveDocument state={workspace} host={workspaceHost} />
           {centerTab === 'game' && !playing && (
             <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
@@ -3301,6 +3372,11 @@ function EditorApp(): JSX.Element {
                 <span>
                   play {playInfo?.snapshotId ?? ''} @ r{playInfo?.revision ?? 0}
                 </span>
+                {playRenderer !== null && (
+                  <span className="tl-app__preview-renderer" data-render-backend={String(playRenderer['backend'] ?? 'pending')} title={String(playRenderer['reason'] ?? '')}>
+                    renderer {String(playRenderer['backend'] ?? 'pending')} ({String(playRenderer['state'] ?? '')}) — {String(playRenderer['reason'] ?? '')}
+                  </span>
+                )}
               </div>
               <iframe
                 ref={playIframeRef}
@@ -3725,7 +3801,7 @@ function EditorApp(): JSX.Element {
         )}
         </div>
       </div>
-      <StatusBar state={ui} onResync={resync} />
+      <StatusBar state={ui} onResync={resync} renderer={sceneRenderer} />
       {filePicker !== null && (
         <ProjectFilePicker
           title={filePicker === 'create' ? 'Import from project folder' : 'Reimport from project folder'}

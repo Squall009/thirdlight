@@ -58,7 +58,7 @@ items in order; schema/commands → runtime/adapter/host → editor → exporter
 → tests → docs; every editor change gets a Playwright test against a real
 backend; green = the literal `build: done`, `npx vitest run --exclude
 '.claude/**' --exclude 'archive/**'` passing, the full `npx playwright
-test` passing; commit to `main`, push, `sudo systemctl restart thirdlight`;
+test` passing (both projects since 17.1: `default` and `webgpu`); commit to `main`, push, `sudo systemctl restart thirdlight`;
 tick the phase plan's progress table and one or two lines in its
 `docs/STATUS.md` row; decisions in the phase plan's decision log. Sprout:
 commit there, never push. Never print the owner token.

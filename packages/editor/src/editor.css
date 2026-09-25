@@ -71,7 +71,11 @@ button, input, select, textarea { font-family: inherit; }
 .tl-app { display: flex; flex-direction: column; height: 100vh; }
 .tl-app__body { flex: 1; display: flex; min-height: 0; }
 .tl-app__stage { flex: 1; position: relative; min-width: 0; background: var(--viewport-bg); }
+/* Phase 17.1: the Viewport owns the canvas inside this host (a renderer backend change swaps it). */
+.tl-viewport-host { position: absolute; inset: 0; }
 .tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tl-app__preview-renderer { margin-left: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-statusbar__renderer { color: var(--muted); }
 .tl-app__preview { position: absolute; inset: 0; background: var(--panel); overflow: hidden;
   display: flex; flex-direction: column; z-index: 1; }
 /* The Scene tab while playing: the game keeps running behind the viewport. */

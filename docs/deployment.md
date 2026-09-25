@@ -1337,6 +1337,48 @@ negative camera-follow dead zones and smoothing, directional/ambient light
 intensities, surface roughness/metalness/glow and checkpoint glow (they were
 accepted before although the range said `0 ≤ v`).
 
+## Renderer backends
+
+Play, the exported game, the Scene view and the asset/Animator previews get
+their renderer from one factory. Four backends:
+
+| Name | What draws | |
+|---|---|---|
+| `legacy` | three's `WebGLRenderer` (WebGL 2) | the default for now |
+| `auto` | three's `WebGPURenderer` on WebGPU when the browser gives a working adapter and device, else on its WebGL 2 backend | the default once phase 17.4 switches over |
+| `webgpu` | `WebGPURenderer` on WebGPU; where WebGPU cannot start it runs on WebGL 2 and says why | |
+| `webgl2` | `WebGPURenderer` forced onto its WebGL 2 backend | |
+
+Choose one in **Gameplay → settings → Renderer** (the `render_backend`
+project setting: 0 legacy, 1 auto, 2 WebGPU, 3 WebGL 2; MCP:
+`setSettings {render_backend: 3}`). The Scene view switches at once; the
+next Play and the next export use it. A URL flag overrides the setting for
+one page: `?renderer=legacy|auto|webgpu|webgl2` on the editor URL (the
+editor passes it on to Play) or on an exported game's `index.html`.
+
+What was chosen and why is shown in the status bar ("scene view: …", the
+reason as its tooltip), in the Play label above the game, in
+`tl_diagnostics` (the play's `renderer.renderer` block: requested backend,
+where the choice came from, the backend that draws, its state and the
+reason), in `tl_game_observe` (`renderer`) and on every render canvas
+(`data-tl-renderer`, `data-tl-renderer-state`, `data-tl-renderer-reason`).
+
+WebGPU needs a secure context: https, or `localhost`/`127.0.0.1`. An editor
+or game opened over plain http on a LAN address has no WebGPU, so `auto`
+takes WebGL 2 there (the reason says so). If the GPU device is lost the
+renderer is rebuilt on a new one (at most 3 times, then it reports `failed`:
+reload the page); a lost WebGL context is rebuilt when the browser restores
+it.
+
+Until phases 17.2–17.3 port them to TSL, `WebGPURenderer` does not draw the
+project materials' custom shading (foliage wind, kit world-aligned UVs and
+macro normal, water), post-processing, the gradient and procedural skies,
+fog volumes or the lightmap ambient hook; colour and texture skies, fog,
+lights, shadows, models, instances and tone mapping draw. The environment's
+diagnostics name what is left out. Thumbnails render with the backend the
+editor had when it drew the first one; the lightmap baker still uses WebGL.
+Real-GPU looks and frame times: owner look pending.
+
 ## Upgrade
 
 ```sh
@@ -1355,7 +1397,15 @@ Projects in an older layout are upgraded the first time they are opened
 ```sh
 npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
+npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
+npx playwright test --project=webgpu        # the renderer spec with headless WebGPU
 ```
+
+`npm run test:e2e` runs both Playwright projects: `default` (every spec,
+Chromium with WebGL 2 on SwiftShader and no WebGPU, so `auto` covers the
+WebGL 2 fallback) and `webgpu` (`tests/e2e/renderer.e2e.ts` again with
+`--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader`:
+Dawn's SwiftShader adapter).
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

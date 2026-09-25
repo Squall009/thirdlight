@@ -357,6 +357,8 @@ export interface GameplaySettings {
   audio_voices?: number;
   music_fade_s?: number;
   animation_crossfade_s?: number;
+  /** Phase 17.1: the renderer backend (0 WebGL legacy, 1 auto, 2 WebGPU, 3 WebGL 2; absent: 0). */
+  render_backend?: number;
 }
 
 // ---- content block and captured view (§18/§19) ---------------------------------

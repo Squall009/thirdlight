@@ -79,7 +79,7 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture, environmentHasLook } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
@@ -462,6 +462,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       const a = createSceneAdapter(cfg.canvas, {
         runtime,
         snapshot,
+        // Phase 17.1: the play page's ?renderer= flag (the editor passes its own on), else the project's render_backend setting.
+        renderer: resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }),
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
           : {}),
@@ -747,6 +749,8 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.loops !== undefined ? { loops: { ...obs.observation.loops } } : {}),
       // Phase 14.5: the title background and the camera's offset behind the title menu.
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
+      // Phase 17.1: the renderer backend that draws this play, and why.
+      ...rendererObservation(h),
       // Phase 15.4: the requested entity's script property values (public and private), read-only.
       ...(entityId !== undefined ? { behaviors: behaviorValues(h.host.runtime, entityId) } : {}),
     };
@@ -842,6 +846,13 @@ function behaviorValues(runtime: unknown, entityId: string): { entityId: string;
 
 /** Phase 9.7: the current state of every animator (at most 64), for tl_game_observe. */
 /** Phase 14.1: the spawned-entity block of an observation (absent without a scene set). */
+/** Phase 17.1: the adapter's renderer choice (requested backend and source, what draws, state, reason). */
+function rendererObservation(h: M3PreviewHandle): { renderer?: Record<string, unknown> } {
+  const d = h.adapter?.diagnostics();
+  const r = d !== undefined && d.ok ? d.diagnostics.renderer : undefined;
+  return r !== undefined ? { renderer: { ...r } } : {};
+}
+
 function spawnedObservation(runtime: unknown): { spawned?: { count: number; ids: string[] } } {
   const set = (runtime as { sceneSet?: () => { spawned?: readonly { id: string }[] } }).sceneSet?.();
   if (set?.spawned === undefined) return {};

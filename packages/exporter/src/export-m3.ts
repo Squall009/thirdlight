@@ -120,8 +120,12 @@ function installedPackage(ctx: ExportContext, packageJsonPath: string, id: strin
   }
 }
 
-/** The §5.4.1 binding 3 reference full-core three entry (unchanged from M1). */
-const REFERENCE_ENTRY = "import * as THREE from 'three'; console.log(THREE.REVISION);";
+/**
+ * The §5.4.1 binding 3 reference three entry: the full core plus (phase
+ * 17.1) the WebGPU renderer and TSL, which the engine links since the
+ * renderer factory (`three/webgpu`).
+ */
+const REFERENCE_ENTRY = "import * as THREE from 'three'; import * as WEBGPU from 'three/webgpu'; import * as TSL from 'three/tsl'; console.log(THREE.REVISION, WEBGPU.REVISION, Object.keys(TSL).length);";
 
 /** The pinned Rapier compat probe entry (re-measures the physics row). */
 const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort);";

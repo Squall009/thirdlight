@@ -54,6 +54,9 @@ const PINNED_OPTIONS = {
 
 const CANARY_TOKEN = 'tl-canary-authoring-token-9f3c';
 
+/** The §5.4.1 reference entry (exporter/src/export-m3.ts): three core + (phase 17.1) the WebGPU renderer and TSL. */
+const REFERENCE_ENTRY = "import * as THREE from 'three';\nimport * as WEBGPU from 'three/webgpu';\nimport * as TSL from 'three/tsl';\nconsole.log(THREE.REVISION, WEBGPU.REVISION, Object.keys(TSL).length);\n";
+
 function count(text: string, needle: string): number {
   let n = 0;
   let i = 0;
@@ -71,7 +74,8 @@ function scanText(text: string, tokenValues: readonly string[]): Record<string, 
     b: 0,
     c: count(text, '/api/v1/'),
     d: count(text, 'fetch('),
-    e: count(text, 'node:'),
+    // Phase 17.1: a Node built-in module specifier (three's node materials have `node:` object keys).
+    e: (text.match(/["'`]node:/g) ?? []).length,
     f: count(text, '__dirname') + count(text, 'process.'),
     g: count(text, '/mcp'),
     h: count(text, 'http://') + count(text, 'https://') + count(text, 'file://'),
@@ -89,19 +93,22 @@ async function buildStdin(contents: string): Promise<string> {
 
 describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60)', () => {
   it('re-verifies the §5.4.1 reference full-core three counts against the current install (binding 3)', async () => {
-    const reference = await buildStdin("import * as THREE from 'three';\nconsole.log(THREE.REVISION);\n");
+    const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
-    // The §5.4.1 recorded-exception table (pinned three@0.186.0, full core).
+    // The §5.4.1 recorded-exception table (pinned three@0.186.0, full core +
+    // phase 17.1 three/webgpu + three/tsl: +13 `process.` prose, +1 `http://`
+    // and +4 `https://` doc links; its six `node:` object keys are not
+    // module specifiers).
     expect(ref.d).toBe(3);
-    expect(ref.f).toBe(3);
-    expect(ref.h).toBe(26);
+    expect(ref.f).toBe(16);
+    expect(ref.h).toBe(31);
     expect(ref.j).toBe(3);
     expect(ref.a + ref.b + ref.c + ref.e + ref.g + ref.i).toBe(0);
   }, 60_000);
 
   it('the real M3 export bundle scans to the recorded baseline + applicable rows (game-host adds 0)', async () => {
     // The reference three counts (the recorded baseline, re-verified above).
-    const reference = await buildStdin("import * as THREE from 'three';\nconsole.log(THREE.REVISION);\n");
+    const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
 
     // The REAL M3 export bundle: the production `buildM3Bundle` over the shared

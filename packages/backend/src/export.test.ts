@@ -175,7 +175,8 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       // --- the game runs without the editor: no server/editor/MCP/credentials --
       const bundle = onDisk['js/main.js'] as string;
       expect(count(bundle, 'WebSocket')).toBe(0);
-      expect(count(bundle, 'node:')).toBe(0);
+      // Phase 17.1: no Node built-in module specifier (three's node materials have `node:` object keys).
+      expect(bundle.match(/["'`]node:/g) ?? []).toEqual([]);
       expect(count(bundle, '/api/v1/')).toBe(0);
       expect(count(bundle, 'modelcontextprotocol')).toBe(0);
       expect(count(bundle, AUTHORING_ORIGIN)).toBe(0);

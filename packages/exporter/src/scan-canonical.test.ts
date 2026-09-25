@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { scanExportFiles, THREE_RECORD } from './scan';
+import { nodeSpecifierOffsets, scanExportFiles, THREE_RECORD } from './scan';
 import { canonicalDocument, canonicalJson } from './canonical';
 
 // ---- fixtures --------------------------------------------------------------------
@@ -141,7 +141,7 @@ describe('forbidden-content scan (export.md §5.4/§5.4.1)', () => {
   });
 
   it('fails on node: / __dirname / WebSocket / /api/v1/ / file:// anywhere', () => {
-    for (const bad of ['node:fs', '__dirname', 'new WebSocket', '/api/v1/sessions', 'file:///x']) {
+    for (const bad of ["import 'node:fs'", '__dirname', 'new WebSocket', '/api/v1/sessions', 'file:///x']) {
       const report = scanExportFiles(
         [{ name: 'index.html', bytes: new TextEncoder().encode(`<i>${bad}</i>`) }],
         patterns,
@@ -151,6 +151,74 @@ describe('forbidden-content scan (export.md §5.4/§5.4.1)', () => {
       );
       expect(report.ok, bad).toBe(false);
     }
+  });
+});
+
+describe('pattern e: Node built-in module specifiers (phase 17.1)', () => {
+  const patterns = { authoringOrigin: 'http://127.0.0.1:8501', previewOrigin: 'http://127.0.0.1:8502', tokenValues: [] };
+  const identity = { version: THREE_RECORD.version, integrity: THREE_RECORD.integrity };
+  const reference = (): Uint8Array => {
+    const parts: string[] = [];
+    for (let i = 0; i < THREE_RECORD.fetch; i += 1) parts.push('fetch(');
+    for (let i = 0; i < THREE_RECORD.processDot; i += 1) parts.push('process.env.X');
+    for (let i = 0; i < THREE_RECORD.http; i += 1) parts.push('http://x');
+    for (let i = 0; i < THREE_RECORD.https; i += 1) parts.push('https://x');
+    for (let i = 0; i < THREE_RECORD.xhr; i += 1) parts.push('XMLHttpRequest');
+    return new TextEncoder().encode(parts.join('\n'));
+  };
+  const bundle = (extra: string): Uint8Array => {
+    const parts: string[] = [];
+    for (let i = 0; i < THREE_RECORD.fetch; i += 1) parts.push('fetch(');
+    parts.push('fetch("./snapshot.json")');
+    for (let i = 0; i < THREE_RECORD.processDot; i += 1) parts.push('process.env.X');
+    for (let i = 0; i < THREE_RECORD.http; i += 1) parts.push('http://x');
+    for (let i = 0; i < THREE_RECORD.https; i += 1) parts.push('https://x');
+    for (let i = 0; i < THREE_RECORD.xhr; i += 1) parts.push('XMLHttpRequest');
+    parts.push(extra);
+    return new TextEncoder().encode(parts.join('\n'));
+  };
+  const scan = (extra: string) => scanExportFiles([{ name: 'js/main.js', bytes: bundle(extra) }], patterns, 'js/main.js', identity, reference());
+
+  it('does not match object keys named node (three\'s node-material code, minified or not)', () => {
+    // The six shapes the 17.0 spike found in three/webgpu, plus minified and JSON keys.
+    const keys = [
+      'const bufferData = { node: this };',
+      'return { previousInstanceMatrix, node: createInstanceMatrixNode(mesh) };',
+      '{ previousMatricesTexture, node: createBatchingMatrixNode(batch) }',
+      'node: buffer(previousBoneMatrices, "mat4", count)',
+      'node: getBoneTextureMatrices(skeleton)',
+      'var a={node:b,type:c};',
+      '{"node":1,"nodes":[]}',
+      'fnode: 1, xnode:2',
+    ];
+    const r = scan(keys.join('\n'));
+    expect(r.binding.referenceOk).toBe(true);
+    expect(r.ok).toBe(true);
+    expect(nodeSpecifierOffsets(keys.join('\n'))).toEqual([]);
+  });
+
+  it('matches every real Node built-in module reference', () => {
+    for (const bad of [
+      "import 'node:fs';",
+      'import fs from "node:fs";',
+      "import { readFile } from 'node:fs/promises';",
+      'export * from "node:path";',
+      'const fs = require("node:fs");',
+      "const os = require( 'node:os' );",
+      'const m = await import(`node:crypto`);',
+      "import('node:child_process')",
+    ]) {
+      const r = scan(bad);
+      expect(r.ok, bad).toBe(false);
+      expect(r.hits.some((h) => h.pattern === 'node:'), bad).toBe(true);
+    }
+  });
+
+  it('fails the reference binding when the reference build itself has a node: specifier', () => {
+    const bad = new TextEncoder().encode(new TextDecoder().decode(reference()) + '\nrequire("node:fs")');
+    const r = scanExportFiles([{ name: 'js/main.js', bytes: bundle('') }], patterns, 'js/main.js', identity, bad);
+    expect(r.binding.referenceOk).toBe(false);
+    expect(r.binding.reason).toContain("'node:' module specifiers");
   });
 });
 

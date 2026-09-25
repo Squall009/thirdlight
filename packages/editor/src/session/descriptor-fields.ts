@@ -132,6 +132,15 @@ export function intChoices(f: FieldDescriptor): readonly number[] | null {
   return f.type === 'int' && f.values !== undefined && f.values.length > 0 ? f.values : null;
 }
 
+/** Phase 17.1: the option text of one allowed int value (its value label, else the number and unit). */
+export function intChoiceLabel(f: FieldDescriptor, value: number): string {
+  if (f.type === 'int' && f.values !== undefined && f.valueLabels !== undefined) {
+    const label = f.valueLabels[f.values.indexOf(value)];
+    if (label !== undefined) return label;
+  }
+  return f.unit !== undefined ? `${value} ${f.unit}` : String(value);
+}
+
 /** The visible label: the descriptor label with its unit. */
 export function fieldLabel(f: FieldDescriptor): string {
   return f.unit !== undefined ? `${f.label} (${f.unit})` : f.label;

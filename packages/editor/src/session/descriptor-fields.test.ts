@@ -9,6 +9,7 @@ import type { ComponentDescriptor, DescriptorRegistry, FieldDescriptor, ObjectFi
 import {
   addEntries,
   checkNumber,
+  intChoiceLabel,
   intChoices,
   collectSignals,
   componentOp,
@@ -111,7 +112,9 @@ describe('widgetFor', () => {
     // Phase 15.3: an int with a list of allowed values is a select (no slider).
     expect(sliderRange(f({ type: 'int', key: 'a', min: 60, max: 240, values: [60, 120, 240] }))).toBeNull();
     expect(intChoices(f({ type: 'int', key: 'a', values: [60, 120, 240] }))).toEqual([60, 120, 240]);
-    expect(intChoices(f({ type: 'int', key: 'a', min: 0, max: 10 }))).toBeNull();
+    expect(intChoices(f({ type: 'int', key: 'a', min: 0, max: 10 }))).toBeNull();    // Phase 17.1: a choice may name its values (the renderer backend).
+    expect(intChoiceLabel(f({ type: 'int', key: 'a', values: [0, 1], valueLabels: ['WebGL', 'Auto'] }), 1)).toBe('Auto');
+    expect(intChoiceLabel(f({ type: 'int', key: 'a', values: [60, 120], unit: 'Hz' }), 60)).toBe('60 Hz');
   });
 
   it('names fields by component and path', () => {

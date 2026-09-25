@@ -31,6 +31,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('environment renderer on WebGPURenderer (phase 17.1)', () => {
+  it('builds no WebGL post stack, stands the gradient horizon in for the sky and names what is left out', () => {
+    const composerRender = vi.spyOn(EffectComposer.prototype, 'render');
+    const render = vi.fn();
+    const renderer = { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, getPixelRatio: () => 1, render } as unknown as THREE.WebGLRenderer;
+    const scene = new THREE.Scene();
+    const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
+    env.set({ quality: 'high', sky: { mode: 'gradient', horizonColor: '#336699' }, post: { bloom: { enabled: true }, toneMapping: 'aces' } });
+    const camera = new THREE.PerspectiveCamera();
+    env.resize(800, 600);
+    env.render(camera);
+    expect(composerRender).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledWith(scene, camera);
+    expect((scene.background as THREE.Color).getHexString()).toBe('336699');
+    expect((renderer as unknown as { toneMapping: number }).toneMapping).toBe(THREE.ACESFilmicToneMapping);
+    const d = env.diagnostics();
+    expect(d.post).toBe(false);
+    expect(d.fallback).toContain('post-processing');
+    expect(d.fallback).toContain('the gradient sky');
+    // A colour sky and no post: nothing is left out.
+    env.set({ sky: { mode: 'color', color: '#ff0000' } });
+    env.render(camera);
+    expect(env.diagnostics().fallback).toBeNull();
+    env.dispose();
+  });
+});
+
 describe('environment renderer post stack', () => {
   it('builds the composer once across same-size frames and frees every pass on a real resize', () => {
     const composerRender = vi.spyOn(EffectComposer.prototype, 'render').mockImplementation(() => undefined);

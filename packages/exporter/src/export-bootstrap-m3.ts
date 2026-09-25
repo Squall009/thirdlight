@@ -57,7 +57,7 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture, environmentHasLook } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
@@ -327,6 +327,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       const a = createSceneAdapter(canvas, {
         runtime,
         snapshot,
+        // Phase 17.1: the page's ?renderer= flag, else the project's render_backend setting.
+        renderer: resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }),
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
