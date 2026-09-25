@@ -104,7 +104,7 @@ there. Read `docs/roadmap.md` (principles) first.
 | 16.1 graph framework | done 2026-09-24 | 078d519, d6a13cf |
 | 16.2 Animator on the framework | done 2026-09-25 | a0dc1db, 71db74b |
 | 16.3 script editor tab | done 2026-09-24 | f152953 |
-| 16.4 wrap-up | todo | |
+| 16.4 wrap-up | done 2026-09-25 | - |
 
 ## 6. Decision log
 
