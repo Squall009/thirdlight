@@ -129,7 +129,7 @@ Effects are generated now but drawn only after 20.2.
 | Item | Status | Commits |
 |---|---|---|
 | 21.0 budgets and benchmarks | done 2026-09-25 | f5f331c |
-| 21.1 harness | todo | |
+| 21.1 harness | done 2026-09-25 | f5f331c |
 | 21.2 runtime | todo | |
 | 21.3 rendering | todo | |
 | 21.4 editor and backend | todo | |
