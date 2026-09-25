@@ -55,6 +55,8 @@ export const RENDERER_URL_PARAM = 'renderer';
 export const MAX_RENDERER_RECOVERIES = 3;
 /** Engine limit: how long the WebGPU probe may take before `auto` takes WebGL 2 (a hung adapter request must not stall the page). */
 export const WEBGPU_PROBE_TIMEOUT_MS = 5000;
+/** Engine limit: the probe's patience when WebGPU was asked for explicitly (`webgpu`): a slow adapter (a busy or software GPU) should not silently turn an explicit choice into WebGL 2. */
+export const WEBGPU_FORCED_PROBE_TIMEOUT_MS = 30000;
 
 const REASON_LIMIT = 200;
 
@@ -265,7 +267,7 @@ export interface RendererFactoryDeps {
   gpu(): GpuLike | undefined;
   secureContext(): boolean;
   createNode(params: NodeRendererParams): NodeRendererLike;
-  probe(gpu: GpuLike | undefined, secureContext: boolean): Promise<WebGpuProbe>;
+  probe(gpu: GpuLike | undefined, secureContext: boolean, timeoutMs?: number): Promise<WebGpuProbe>;
 }
 
 export interface CreateRendererOptions {
@@ -314,7 +316,7 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
       ...(p.context !== undefined ? { context: p.context } : {}),
     } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]) as unknown as NodeRendererLike,
-  probe: (gpu, secure) => probeWebGpu(gpu, secure),
+  probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),
 };
 
 /**
@@ -474,7 +476,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       return;
     }
     publish({ backend: null, api: null, state: 'initialising', reason: `probing WebGPU${reasonSuffix}` });
-    void deps.probe(gpu, deps.secureContext()).then((probe) => {
+    void deps.probe(gpu, deps.secureContext(), o.preference === 'webgpu' ? WEBGPU_FORCED_PROBE_TIMEOUT_MS : WEBGPU_PROBE_TIMEOUT_MS).then((probe) => {
       if (disposed) {
         if (probe.ok) probe.device.destroy?.();
         return;

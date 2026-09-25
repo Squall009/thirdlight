@@ -16,6 +16,8 @@ import {
   createRenderer,
   decideBackend,
   MAX_RENDERER_RECOVERIES,
+  WEBGPU_FORCED_PROBE_TIMEOUT_MS,
+  WEBGPU_PROBE_TIMEOUT_MS,
   probeWebGpu,
   rendererPreferenceFromSetting,
   rendererPreferenceFromUrl,
@@ -266,6 +268,21 @@ describe('createRenderer', () => {
     expect(canvas.attrs).toMatchObject({ 'data-tl-renderer': 'webgl2', 'data-tl-renderer-state': 'ready' });
     h.dispose();
     expect(s.made[0]!.disposed).toBe(true);
+  });
+
+  it('an explicit webgpu preference gives the probe longer than auto before falling back', async () => {
+    const seen: (number | undefined)[] = [];
+    for (const preference of ['auto', 'webgpu'] as const) {
+      const s = stubDeps({ ok: false, reason: 'slow adapter' });
+      s.deps.probe = (_gpu, _secure, timeoutMs) => {
+        seen.push(timeoutMs);
+        return Promise.resolve({ ok: false, reason: 'slow adapter' });
+      };
+      createRenderer({ canvas: null, preference, source: 'setting', clearColor: 0, clearAlpha: 1, deps: s.deps });
+      await flush();
+    }
+    expect(seen).toEqual([WEBGPU_PROBE_TIMEOUT_MS, WEBGPU_FORCED_PROBE_TIMEOUT_MS]);
+    expect(WEBGPU_FORCED_PROBE_TIMEOUT_MS).toBeGreaterThan(WEBGPU_PROBE_TIMEOUT_MS);
   });
 
   it('auto: WebGPU on the probed device when it works, the WebGL 2 backend (with the reason) when not', async () => {

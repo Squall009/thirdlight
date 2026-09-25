@@ -1869,8 +1869,8 @@ three's older `WebGLRenderer` path is gone (archived in the repository under
 
 | Name | What draws | |
 |---|---|---|
-| `auto` | WebGPU when the browser gives a working adapter and device, else the WebGL 2 backend | the default |
-| `webgpu` | WebGPU; where WebGPU cannot start it runs on WebGL 2 and says why | |
+| `auto` | WebGPU when the browser gives a working adapter and device within 5 s, else the WebGL 2 backend | the default |
+| `webgpu` | WebGPU (the adapter gets up to 30 s); where WebGPU cannot start it runs on WebGL 2 and says why | |
 | `webgl2` | the WebGL 2 backend, even where WebGPU would work | |
 
 Choose one in **Gameplay → settings → Renderer** (the `render_backend`

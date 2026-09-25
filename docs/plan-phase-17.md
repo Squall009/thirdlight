@@ -172,3 +172,4 @@ Spike 17.0 results (pinned Chromium 151 headless, SwiftShader, 1280×720, rAF me
 | Sprout Meadow 1, MSAA off | 433 / 567 | 683 / 667 | 683 / 700 |
 | Micro scene (200 lit boxes + 400 instances, PCF shadows, MSAA), single run | 64 | 250 | 316 |
 | Micro scene, 20 boxes, no shadows, no MSAA, single run | 120 (load spike) | 86 | 69 |
+- 2026-09-25 (run): an explicit `webgpu` preference now gives the WebGPU probe 30 s (`auto` keeps 5 s) — on a loaded software GPU the device took over 5 s and an explicit choice silently became WebGL 2 (seen as a materials e2e flake in the webgpu project).
