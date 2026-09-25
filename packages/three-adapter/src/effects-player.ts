@@ -22,7 +22,7 @@
  */
 import * as THREE from 'three/webgpu';
 
-import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin } from '@thirdlight/effects';
+import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin, type EffectProgram } from '@thirdlight/effects';
 
 import { CpuParticleSource, createOutputRenderer, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
 import { GPU_SORT_LIMIT, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
@@ -125,15 +125,9 @@ export interface EffectsPlayer {
   dispose(): void;
 }
 
-interface Playing {
+interface Playing extends EffectPlayParts {
   effectId: string;
   def: EffectDefLike;
-  executor: 'webgpu' | 'cpu';
-  reason?: string;
-  cpu: EffectInstance | null;
-  gpu: GpuEffectExecutor | null;
-  renderers: { system: number; renderer: OutputRenderer; source: CpuParticleSource | GpuParticleSource }[];
-  group: THREE.Group;
   /** Followed object (attached plays) and the offset from it, or a fixed world position. */
   object: THREE.Object3D | null;
   offset: THREE.Vector3;
@@ -143,7 +137,6 @@ interface Playing {
   /** An entity's own component play (kept while the entity lives; restarted by its signal). */
   component: boolean;
   params: string;
-  capacity: number;
   /** GPU: living particles as last read back, and whether a read is in flight. */
   gpuLiving: number;
   gpuReading: boolean;
@@ -179,7 +172,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     if (p === undefined) {
       p = (options.loadModel?.(assetId) ?? Promise.resolve(null)).catch(() => null);
       models.set(assetId, p);
-      void p.then((root) => meshes.set(assetId, root !== null ? meshOf(root) : null));
+      void p.then((root) => meshes.set(assetId, root !== null ? effectMeshOf(root) : null));
     }
     return p;
   };
@@ -208,28 +201,23 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
 
   function create(def: EffectDefLike, params: Readonly<Record<string, number | readonly number[] | string>> | null): Playing | null {
     if (renderer === null || api === null) return null;
-    const program = compileEffect(def);
-    for (const d of program.diagnostics) if (d.severity !== 'info') problems.add(`${def.effectId}/${d.systemId}: ${d.message}`.slice(0, 200));
-    const gpuReason = api === 'webgpu' ? gpuUnsupportedReason(program) : 'the WebGL 2 backend has no compute: the CPU executor';
-    const executor: 'webgpu' | 'cpu' = api === 'webgpu' && gpuReason === null ? 'webgpu' : 'cpu';
-    const cap = executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
-    const capacity = def.systems.reduce((a, s) => a + Math.min(s.maxParticles, cap.particlesPerSystem), 0);
-    if (playing.length >= caps().instances || allocated() + capacity > caps().particlesTotal) {
+    const choice = chooseEffectExecutor(def, api);
+    for (const d of choice.program.diagnostics) if (d.severity !== 'info') problems.add(`${def.effectId}/${d.systemId}: ${d.message}`.slice(0, 200));
+    if (playing.length >= caps().instances || allocated() + choice.capacity > caps().particlesTotal) {
       refused += 1;
       return null;
     }
-    const p = params !== null ? (params as Record<string, number | number[] | string>) : undefined;
-    const group = new THREE.Group();
-    group.name = `effect ${def.effectId}`;
-    const rec: Playing = {
+    let pending = false;
+    if (choice.executor === 'cpu') {
+      const needs = shapeModels(def);
+      for (const m of needs) void loadModel(m);
+      pending = needs.some((m) => !meshes.has(m));
+    }
+    const parts = buildEffectPlay(def, params, choice, drawContext(), { ...(options.wind ? { wind: options.wind } : {}), mesh: (id) => meshes.get(id) ?? null });
+    return {
+      ...parts,
       effectId: def.effectId,
       def,
-      executor,
-      ...(api === 'webgpu' && gpuReason !== null ? { reason: gpuReason } : {}),
-      cpu: null,
-      gpu: null,
-      renderers: [],
-      group,
       object: null,
       offset: new THREE.Vector3(),
       position: new THREE.Vector3(),
@@ -237,47 +225,13 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       entityId: null,
       component: false,
       params: paramsKey(params),
-      capacity,
       gpuLiving: 0,
       gpuReading: false,
       gpuReadAt: 0,
       finished: false,
-      pending: false,
+      pending,
       hidden: false,
     };
-    const ctx = drawContext();
-    if (executor === 'webgpu') {
-      const sorted = new Set(program.systems.filter((s) => s.chains.output.some((b) => outputSorted(b))).map((s) => s.systemId));
-      const gpu = new GpuEffectExecutor(def, { capacityLimit: cap.particlesPerSystem, sortedSystems: sorted, ...(p !== undefined ? { params: p } : {}), ...(options.wind ? { wind: options.wind } : {}) });
-      rec.gpu = gpu;
-      gpu.systems.forEach((sys, i) => {
-        const src = new GpuParticleSource(sys);
-        for (const b of sys.program.chains.output) {
-          const r = createOutputRenderer(b, src, null, ctx);
-          if (r !== null) {
-            rec.renderers.push({ system: i, renderer: r, source: src });
-            if (r.object !== null) group.add(r.object);
-          }
-        }
-      });
-    } else {
-      const needs = shapeModels(def);
-      for (const m of needs) void loadModel(m);
-      rec.pending = needs.some((m) => !meshes.has(m));
-      const cpu = new EffectInstance(def, { capacityLimit: cap.particlesPerSystem, ...(p !== undefined ? { params: p } : {}), ...(options.wind ? { wind: options.wind as never } : {}), mesh: (id) => meshes.get(id) ?? null });
-      rec.cpu = cpu;
-      cpu.systems.forEach((sys, i) => {
-        const src = new CpuParticleSource(sys);
-        for (const b of sys.program.chains.output) {
-          const r = createOutputRenderer(b, src, sys, ctx);
-          if (r !== null) {
-            rec.renderers.push({ system: i, renderer: r, source: src });
-            if (r.object !== null) group.add(r.object);
-          }
-        }
-      });
-    }
-    return rec;
   }
 
   /** A play of an effect (from the pool when a finished one with the same parameters waits there). */
@@ -338,9 +292,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   }
 
   function destroy(rec: Playing): void {
-    for (const r of rec.renderers) r.renderer.dispose();
-    rec.gpu?.dispose();
-    rec.renderers.length = 0;
+    disposeEffectPlay(rec, renderer);
   }
 
   function originOf(rec: Playing, out: THREE.Matrix4): EffectOrigin {
@@ -362,7 +314,6 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   const projScreen = new THREE.Matrix4();
   const box = new THREE.Box3();
   const tmpM = new THREE.Matrix4();
-  const identity = new THREE.Matrix4();
   const eye = new THREE.Vector3();
 
   function update(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void {
@@ -391,16 +342,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       const b = rec.def.bounds;
       box.setFromCenterAndSize(new THREE.Vector3(b.center[0], b.center[1], b.center[2]), new THREE.Vector3(b.size[0], b.size[1], b.size[2])).applyMatrix4(tmpM);
       const visible = frustum.intersectsBox(box) && !rec.hidden;
-      if (rec.gpu !== null && visible) rec.gpu.sort(renderer, eye);
-      const inputOf = (system: number) => (block: CompiledNode, key: string): number[] => (rec.cpu ?? rec.gpu!.planner).outputInput(system, block, key);
-      for (const r of rec.renderers) {
-        if (r.source instanceof CpuParticleSource) {
-          const world = r.source.space === 'local';
-          r.source.fill(r.renderer.sorted, eye, world ? tmpM : null);
-        }
-        const frame: FrameInfo = { camera, originMatrix: r.source.space === 'local' ? tmpM : identity, visible, input: inputOf(r.system) };
-        r.renderer.update(frame);
-      }
+      drawEffectPlay(rec, renderer, camera, tmpM, eye, visible);
       // Finished: a one-shot whose spawning ended and whose particles are gone.
       if (rec.cpu !== null && !rec.cpu.alive) rec.finished = true;
       if (rec.gpu !== null && !rec.gpu.spawning) {
@@ -559,8 +501,104 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   return api_;
 }
 
+/** Which executor plays an effect on a backend, why (on WebGPU, when not the GPU), and the particles it allocates. */
+export interface EffectExecutorChoice {
+  readonly program: EffectProgram;
+  readonly executor: 'webgpu' | 'cpu';
+  readonly reason: string | null;
+  readonly capacity: number;
+}
+
+export function chooseEffectExecutor(def: EffectDefLike, api: 'webgpu' | 'webgl2'): EffectExecutorChoice {
+  const program = compileEffect(def);
+  const gpuReason = api === 'webgpu' ? gpuUnsupportedReason(program) : 'the WebGL 2 backend has no compute: the CPU executor';
+  const executor: 'webgpu' | 'cpu' = api === 'webgpu' && gpuReason === null ? 'webgpu' : 'cpu';
+  const cap = executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
+  const capacity = def.systems.reduce((a, s) => a + Math.min(s.maxParticles, cap.particlesPerSystem), 0);
+  return { program, executor, reason: api === 'webgpu' ? gpuReason : null, capacity };
+}
+
+/** One play's executor and draw objects (the player's plays and the Effect tab's preview). */
+export interface EffectPlayParts {
+  executor: 'webgpu' | 'cpu';
+  reason?: string;
+  cpu: EffectInstance | null;
+  gpu: GpuEffectExecutor | null;
+  renderers: { system: number; renderer: OutputRenderer; source: CpuParticleSource | GpuParticleSource }[];
+  group: THREE.Group;
+  capacity: number;
+}
+
+/** Build a play of `def` on the chosen executor: the simulation and an Output renderer per output block (under `group`). */
+export function buildEffectPlay(
+  def: EffectDefLike,
+  params: Readonly<Record<string, number | readonly number[] | string>> | null,
+  choice: EffectExecutorChoice,
+  ctx: DrawContext,
+  o: { wind?: EffectsPlayerOptions['wind']; mesh?: (assetId: string) => EffectMesh | null },
+): EffectPlayParts {
+  const p = params !== null ? (params as Record<string, number | number[] | string>) : undefined;
+  const cap = choice.executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
+  const group = new THREE.Group();
+  group.name = `effect ${def.effectId}`;
+  const parts: EffectPlayParts = { executor: choice.executor, ...(choice.reason !== null ? { reason: choice.reason } : {}), cpu: null, gpu: null, renderers: [], group, capacity: choice.capacity };
+  if (choice.executor === 'webgpu') {
+    const sorted = new Set(choice.program.systems.filter((s) => s.chains.output.some((b) => outputSorted(b))).map((s) => s.systemId));
+    const gpu = new GpuEffectExecutor(def, { capacityLimit: cap.particlesPerSystem, sortedSystems: sorted, ...(p !== undefined ? { params: p } : {}), ...(o.wind ? { wind: o.wind } : {}) });
+    parts.gpu = gpu;
+    gpu.systems.forEach((sys, i) => {
+      const src = new GpuParticleSource(sys);
+      for (const b of sys.program.chains.output) {
+        const r = createOutputRenderer(b, src, null, ctx);
+        if (r !== null) {
+          parts.renderers.push({ system: i, renderer: r, source: src });
+          if (r.object !== null) group.add(r.object);
+        }
+      }
+    });
+  } else {
+    const cpu = new EffectInstance(def, { capacityLimit: cap.particlesPerSystem, ...(p !== undefined ? { params: p } : {}), ...(o.wind ? { wind: o.wind as never } : {}), mesh: (id) => o.mesh?.(id) ?? null });
+    parts.cpu = cpu;
+    cpu.systems.forEach((sys, i) => {
+      const src = new CpuParticleSource(sys);
+      for (const b of sys.program.chains.output) {
+        const r = createOutputRenderer(b, src, sys, ctx);
+        if (r !== null) {
+          parts.renderers.push({ system: i, renderer: r, source: src });
+          if (r.object !== null) group.add(r.object);
+        }
+      }
+    });
+  }
+  return parts;
+}
+
+/** Prepare a play's draw for this frame, after its steps: GPU sort, CPU fill (back to front where sorted), each renderer's frame. */
+export function drawEffectPlay(parts: EffectPlayParts, renderer: THREE.WebGPURenderer, camera: THREE.Camera, originMatrix: THREE.Matrix4, eye: THREE.Vector3, visible: boolean): void {
+  if (parts.gpu !== null && visible) parts.gpu.sort(renderer, eye);
+  const inputOf = (system: number) => (block: CompiledNode, key: string): number[] => (parts.cpu ?? parts.gpu!.planner).outputInput(system, block, key);
+  for (const r of parts.renderers) {
+    if (r.source instanceof CpuParticleSource) {
+      const world = r.source.space === 'local';
+      r.source.fill(r.renderer.sorted, eye, world ? originMatrix : null);
+    }
+    const frame: FrameInfo = { camera, originMatrix: r.source.space === 'local' ? originMatrix : IDENTITY_MATRIX, visible, input: inputOf(r.system) };
+    r.renderer.update(frame);
+  }
+}
+
+/** Release a play's GPU buffers, geometries and materials (`renderer`: the one it ran on, which frees its compute buffers now). */
+export function disposeEffectPlay(parts: EffectPlayParts, renderer: THREE.WebGPURenderer | null): void {
+  for (const r of parts.renderers) r.renderer.dispose();
+  parts.gpu?.dispose(renderer);
+  parts.renderers.length = 0;
+  parts.group.removeFromParent();
+}
+
+const IDENTITY_MATRIX = new THREE.Matrix4();
+
 /** A model's triangles in its own space (every mesh, in the model's frame) for mesh-surface shapes. */
-function meshOf(root: THREE.Object3D): EffectMesh | null {
+export function effectMeshOf(root: THREE.Object3D): EffectMesh | null {
   const positions: number[] = [];
   const indices: number[] = [];
   root.updateMatrixWorld(true);

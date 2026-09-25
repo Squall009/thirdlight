@@ -10,8 +10,10 @@
  *   kind `effect` (owner id `<effectId>/<systemId>`); the selection shows in
  *   the right dock's Inspector (GraphInspector with curve and gradient
  *   widgets).
- * - The looping preview pane with its timeline arrives with phase 20.3 (the
- *   executors with 20.2); a note says so.
+ * - Phase 20.3: the looping preview pane (right column, `EffectPreviewPane`):
+ *   the effect on its own renderer with the executor Play would use, a
+ *   timeline (play/pause, restart, scrub), spawn counters, the frame cost and
+ *   preview-only parameter sliders; it follows every edit live.
  *
  * Browser-only (React).
  */
@@ -22,6 +24,7 @@ import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { newSystem, uniqueId } from '../../session/effect-edit';
 import { ParameterValue } from '../material/MaterialDocument';
+import { EffectPreviewPane, type EffectPreviewPaneProps } from './EffectPreviewPane';
 
 export interface EffectDocumentProps {
   effectId: string;
@@ -39,6 +42,12 @@ export interface EffectDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
+  /** Phase 20.3: the preview's environment (the project's, with its wind; null = a neutral backdrop). */
+  environment: EffectPreviewPaneProps['environment'];
+  /** A texture asset's texture (particle textures in the preview). */
+  loadTexture: EffectPreviewPaneProps['loadTexture'];
+  /** A model asset's scene (mesh particles and mesh-surface shapes in the preview). */
+  loadModel?: EffectPreviewPaneProps['loadModel'];
 }
 
 /** The system a tab shows: the chosen one while it exists (a new one may still be on its way), else the first. */
@@ -82,7 +91,7 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
         <span className="tl-hint">Effect · {fx.systems.length} system{fx.systems.length === 1 ? '' : 's'}</span>
       </div>
       <p className="tl-hint tl-material-doc__note" role="note">
-        The looping preview with its timeline arrives with the effect editor (phase 20.3), after the WebGPU and CPU executors (phase 20.2). Effects are visual only: they never change the game simulation.
+        The preview plays the effect as Play would (WebGPU compute, or the CPU executor on WebGL 2) and follows every edit. Effects are visual only: they never change the game simulation.
       </p>
       {p.error !== null && (
         <p className="tl-error" role="alert">
@@ -152,6 +161,9 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
               portContext={portContext}
             />
           )}
+        </div>
+        <div className="tl-animator-doc__preview tl-animator-doc__preview--right tl-effect-doc__preview">
+          <EffectPreviewPane effect={fx} environment={p.environment} loadTexture={p.loadTexture} {...(p.loadModel !== undefined ? { loadModel: p.loadModel } : {})} />
         </div>
       </div>
     </div>

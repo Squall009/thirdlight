@@ -1162,12 +1162,11 @@ editor backend; debugging exists in Play only.
 
 ## Visual effects (particle graphs)
 
-Effects are particle systems authored as node graphs (phase 20.0/20.1).
-They are **visual only**: nothing in an effect changes the game simulation,
-so recorded replays never depend on them. The runtime executors (WebGPU
-compute, and a CPU fallback on WebGL 2) arrive with phase 20.2 and the
-looping preview pane with 20.3: until then effects are authored and stored
-but **not drawn** in the Scene view, Play or exports.
+Effects are particle systems authored as node graphs (phase 20.0/20.1),
+run by a WebGPU compute executor or a CPU fallback on WebGL 2 (20.2) and
+previewed in their tab (20.3). They are **visual only**: nothing in an
+effect changes the game simulation, so recorded replays never depend on
+them.
 
 Bottom dock → **Effects**: type a name and press **Create effect**; the
 effect opens as an **Effect: <name>** centre tab (double-click a row or
@@ -1231,6 +1230,36 @@ an object still plays cannot be deleted). In the tab:
   (drag its keys) and a row per key (time 0–1, value; **+ key** adds one in
   the widest gap); a gradient shows a preview bar and a row per stop (time,
   colour, alpha; **+ stop**).
+- **The preview** (right column, phase 20.3) plays the effect in a looping
+  view of its own — its own renderer (the editor's backend), the project
+  environment (a dark backdrop when the project has none) and a grid at the
+  effect's origin; drag to orbit, the view frames the effect's bounds. It
+  uses the executor Play would use (WebGPU compute on the WebGPU backend
+  when the graph allows it — else the CPU executor, with the reason in the
+  status line — and the CPU executor on WebGL 2), and it follows every edit
+  (graph, settings, parameters) at once, continuing from the time it
+  showed.
+  - *Timeline*: **▶/❚❚** plays or pauses, **⟲** restarts from the seed, the
+    slider scrubs. Time runs in fixed 1/60 s steps, and a scrub
+    re-simulates from the seed up to that time (the CPU executor re-runs the
+    reference evaluator, WebGPU re-runs the compute passes), so the same
+    time always shows the same particles and counters. At the **preview
+    length** (default: two cycles of a looping effect, one cycle plus a
+    second for a one-shot; up to 60 s) the preview starts over.
+  - *Spawn counters*: per system, particles **spawned** since time 0 and
+    **living** now (on WebGPU read back from the GPU a few times a second).
+  - *Frame cost*: GPU time from timestamp queries where the device has
+    them (the WebGPU executor's compute passes and the render passes);
+    otherwise CPU time — the line says which (the CPU executor's
+    simulation is always CPU time).
+  - *Preview parameters*: a slider per float parameter (its min/max, else a
+    range around its value), three per vector, a colour picker per colour
+    — preview only, never saved (**reset** goes back to the effect's
+    values; objects set theirs in the Inspector's Effect component).
+  - Closing the tab (or switching to another) disposes the preview's
+    renderer, buffers and materials; the page's `data-tl-effect-previews`
+    attribute counts open/closed previews and closes whose renderer
+    geometry/buffer counts did not return to their baseline (`leaks`, 0).
 
 **Playing an effect:** select an object, **+ Add component → Effect** and
 pick the effect. **Play on start** (on by default) starts it with the scene;
@@ -1259,7 +1288,8 @@ game simulation never reads them back (replays do not depend on effects).
 effect of the project (the export's `manifest.json` carries them in
 `effects`; their textures and models travel with the game). The **Scene
 view** plays the selected object's effect while **Gizmos → Play selected
-effects** is on (a finished one-shot starts again; off stops it).
+effects** is on (a finished one-shot starts again; off stops it); an edit of
+the effect (in its tab or over MCP) shows there at once.
 
 **Executors and caps.** One graph, two executors:
 

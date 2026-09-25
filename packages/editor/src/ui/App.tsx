@@ -118,7 +118,7 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
-import { effectPortContext, shownSystem } from './effect/EffectDocument';
+import { effectPortContext, shownSystem, type EffectDocumentProps } from './effect/EffectDocument';
 import { newEffect, uniqueId } from '../session/effect-edit';
 import type { VisualScriptCheckResult, VisualScriptProblem } from './script/VisualScriptDocument';
 import type { DebugRequest, DebugResult } from '../preview/play-debug';
@@ -3344,6 +3344,14 @@ function EditorApp(): JSX.Element {
       onSelection: setEffectSelection,
       focus: effectFocus,
       error: effectError,
+      // Phase 20.3: the preview pane (the project environment, the editor's texture bytes, its models).
+      environment: environment as unknown as EffectDocumentProps['environment'],
+      loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
+      loadModel: async (assetId) => {
+        const r = await modelInstancesRef.current?.prepared(assetId);
+        const made = r?.createInstance();
+        return made !== undefined && made.ok ? made.instance.root : null;
+      },
     },
     visualScript: {
       kind: graphKinds['behavior'],

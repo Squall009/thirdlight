@@ -8,7 +8,7 @@
  * Inspector edits a block's number field and its curve (the curve widget);
  * a box gets the Effect component from "+ Add component" and overrides the
  * effect's public parameter; a reload keeps it all; undo takes it back step
- * by step. The preview waits for phase 20.3: the tab says so.
+ * by step. (The preview pane is covered by effect-editor.e2e.ts.)
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -79,7 +79,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   const tab = page.getByRole('tab', { name: 'Effect: Sparks' });
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-effects li[data-effect-id="sparks"]')).toContainText('0 systems');
-  await expect(page.getByRole('note')).toContainText('preview with its timeline arrives with the effect editor (phase 20.3)');
+  await expect(page.getByRole('note')).toContainText('The preview plays the effect as Play would');
 
   // "+ System": the system graph starts with the four contexts.
   await page.getByRole('button', { name: 'add system' }).click();
