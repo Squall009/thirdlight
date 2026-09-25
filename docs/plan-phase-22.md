@@ -275,7 +275,7 @@ repeat; the other columns the lower of the two repeats' values
 | large webgpu worker-co | 4, 0 | 0.7 (0 %) | (no frame in one window) | 74 (one repeat) | 841 / 1275 | 1 |
 | large webgpu worker-raf | 4, 2 | 1.6 (0.1 %) | 0.1 / 0.1 | 1689 / 1712 | 904 / 2018 | 1–2 |
 
-A first run (`results/run1-2026-09-25.log`, medium, stopped part way) measured
+A first run (`results/run1-2026-09-25.txt`, medium, stopped part way) measured
 a third pacing: the render worker drawing every frame as it arrived, as the
 page host does. It kept up on the small benchmark and failed on medium. The
 page no longer waited for a draw, so it ticked the simulation every animation
