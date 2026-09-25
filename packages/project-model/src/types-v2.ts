@@ -34,6 +34,10 @@ export interface ModelComponent {
    * the whole file.
    */
   piece?: string;
+  /** Phase 17.4: casts the directional light's realtime shadow (absent: true). */
+  castShadow?: boolean;
+  /** Phase 17.4: shows realtime shadows falling on it (absent: true). */
+  receiveShadow?: boolean;
 }
 
 /** Seven-type property value vocabulary (§20.5). */

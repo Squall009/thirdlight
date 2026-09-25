@@ -34,6 +34,27 @@ export const PINNED_OPTIONS = {
   define: { 'import.meta.url': 'location.href' },
 } as const;
 
+/**
+ * Phase 17.4: every `import … from 'three'` (the engine's and three's own
+ * addons': GLTFLoader, KTX2Loader, SkeletonUtils, …) resolves to
+ * `three/webgpu`, so a bundle links one three build — the WebGPURenderer
+ * build (`three.core.js` + `three.webgpu.js`) — and not `three.module.js`
+ * (the WebGLRenderer, its shader chunks and the WebGL PMREM, which nothing
+ * uses since the switch-over). `three/webgpu` re-exports the whole core, so
+ * every class is the same object; the seven names only `three` has
+ * (WebGLRenderer, WebGLCubeRenderTarget, WebGLUtils, ShaderChunk, ShaderLib,
+ * UniformsLib, UniformsUtils) are used by no bundled module.
+ */
+export const THREE_WEBGPU_ONLY_PLUGIN = {
+  name: 'thirdlight-three-webgpu-only',
+  setup(b: {
+    onResolve: (o: { filter: RegExp }, cb: (a: { kind: string; resolveDir: string }) => Promise<unknown>) => void;
+    resolve: (path: string, o: { kind: string; resolveDir: string }) => Promise<unknown>;
+  }): void {
+    b.onResolve({ filter: /^three$/ }, (a) => b.resolve('three/webgpu', { kind: a.kind, resolveDir: a.resolveDir }));
+  },
+};
+
 /** The virtual module specifiers (allowed graph nodes; see graph.ts). */
 export const ARTIFACTS_MODULE = 'thirdlight:export-artifacts';
 /** The generated artifacts module: declared asset paths + one relative fetch each. */
@@ -101,7 +122,7 @@ export async function buildM3Bundle(input: {
       entryPoints: [input.bootstrapEntry],
       write: false,
       metafile: true,
-      plugins: [plugin as never],
+      plugins: [plugin as never, THREE_WEBGPU_ONLY_PLUGIN as never],
     });
     const out = r.outputFiles?.[0]?.contents;
     const metafile = r.metafile as { inputs: Record<string, unknown> } | undefined;

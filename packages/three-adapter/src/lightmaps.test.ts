@@ -1,8 +1,8 @@
 /**
  * Phase 17.3: a lightmapped copy made before its project material's texture
  * arrived follows the material once the texture lands (the scene adapter
- * wires the library's `onChange` to `LightmapSet.refresh`). Both renderer
- * classes: the WebGL materials and the node materials.
+ * wires the library's `onChange` to `LightmapSet.refresh`). Node materials
+ * (the only kind since phase 17.4).
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -15,12 +15,12 @@ const settle = async (): Promise<void> => {
 };
 
 describe('lightmap set: late project textures', () => {
-  for (const nodeMaterials of [false, true]) {
-    it(`a copy made before the texture arrived gets it on refresh (${nodeMaterials ? 'node' : 'WebGL'} materials)`, async () => {
+  {
+    it('a copy made before the texture arrived gets it on refresh', async () => {
       let arrive: (t: THREE.Texture) => void = () => undefined;
       const late = new Promise<THREE.Texture>((ok) => (arrive = ok));
       let lightmaps: ReturnType<typeof createLightmapSet> | null = null;
-      const lib = createMaterialLibrary({ loadTexture: (id) => (id === 'albedo' ? late : Promise.resolve(null)), nodeMaterials, onChange: () => lightmaps?.refresh() });
+      const lib = createMaterialLibrary({ loadTexture: (id) => (id === 'albedo' ? late : Promise.resolve(null)), onChange: () => lightmaps?.refresh() });
       lib.setMaterials([{ materialId: 'm', name: 'm', shader: 'standard', params: {}, textures: { map: 'albedo' } }]);
       const geometry = new THREE.BoxGeometry();
       addBoxLightmapUv(geometry);
@@ -33,7 +33,6 @@ describe('lightmap set: late project textures', () => {
         { s: { range: 2, atlases: ['atlas'], entries: [{ entityId: 'e', atlas: 0, scaleOffset: [1, 1, 0, 0] }], bakedLights: [] } },
         async () => new THREE.Texture(),
         () => false,
-        { nodeMaterials },
       );
       lightmaps.apply('e', mesh);
       await settle();

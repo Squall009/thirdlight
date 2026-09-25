@@ -46,10 +46,10 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 15.2: a v4 spawn's facing (optional).
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  instances: ['asset', 'buffer', 'count'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow'],
   // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],

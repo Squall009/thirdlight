@@ -15,20 +15,21 @@
  * match), divided by `range`, sRGB-encoded and dilated into the padding.
  * No bounce light: that is the Blender bake's job.
  *
- * Browser-only. Phase 17.3/17.4: `renderer` picks the backend like every
- * other view (the factory's `auto | webgpu | webgl2`); WebGPURenderer on
- * WebGPU or WebGL 2 with half-float targets (blendable everywhere; float32
- * blending is an optional WebGPU feature) and the bake material as a node
- * material. The atlases are read back asynchronously
- * (`readRenderTargetPixelsAsync`, the only read WebGPURenderer has). The
- * WebGLRenderer version (float targets, a GLSL hook) is archived
- * (`archive/webgl-renderer-17/`).
+ * Browser-only (WebGL2 with float render targets).
+ *
+ * Phase 17.3: the atlases are read back asynchronously
+ * (`readRenderTargetPixelsAsync`: WebGPURenderer has no synchronous read),
+ * and `renderer` picks the renderer like every other view (the factory's
+ * backends): the legacy WebGLRenderer (float targets, the GLSL bake
+ * material) or WebGPURenderer on WebGPU / WebGL 2 (half-float targets —
+ * blendable everywhere, float32 blending is an optional WebGPU feature — and
+ * the same bake material as a node material).
  */
 import * as THREE from 'three';
 import { Fn, normalViewGeometry, uniform, uv, vec4 } from 'three/tsl';
 import { MeshLambertNodeMaterial, type WebGPURenderer } from 'three/webgpu';
 
-import { createRenderer, DEFAULT_RENDERER_PREFERENCE, type RendererPreference } from './renderer-factory';
+import { createRenderer, isNodeRenderer, type RendererHandle, type RendererPreference } from './renderer-factory';
 
 export interface BakeMeshInput {
   /** The mesh's geometry (needs `uv1`); positions in the mesh's own space. */
@@ -76,7 +77,7 @@ export interface BrowserBakeInput {
   readonly softness?: number;
   readonly onProgress?: (done: number, total: number) => void;
   readonly signal?: AbortSignal;
-  /** Phase 17.3: the renderer backend to bake with (default: the factory's default, `auto`). */
+  /** Phase 17.3: the renderer backend to bake with (default: the legacy WebGLRenderer). */
   readonly renderer?: RendererPreference;
 }
 
@@ -92,8 +93,32 @@ export type BrowserBakeResult = { ok: true; atlases: BakedAtlas[]; millis: numbe
 /** Camera layer of atlas 0's lightmap pass (atlas a uses ATLAS_LAYER0 + a; at most 16 atlases). */
 const ATLAS_LAYER0 = 8;
 
+const UV_VERTEX = /* glsl */ `
+#include <fog_vertex>
+gl_Position = vec4( ( uv1 * tlLmScale + tlLmOffset ) * 2.0 - 1.0, 0.0, 1.0 );`;
+
+/** A white Lambert material that renders a mesh into its lightmap rectangle. */
+function bakeMaterial(scaleOffset: readonly number[]): THREE.MeshLambertMaterial {
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  m.blending = THREE.AdditiveBlending;
+  m.depthTest = false;
+  m.depthWrite = false;
+  const scale = new THREE.Vector2(scaleOffset[0], scaleOffset[1]);
+  const offset = new THREE.Vector2(scaleOffset[2], scaleOffset[3]);
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms['tlLmScale'] = { value: scale };
+    shader.uniforms['tlLmOffset'] = { value: offset };
+    shader.vertexShader = `uniform vec2 tlLmScale;\nuniform vec2 tlLmOffset;\n#ifndef USE_UV1\nattribute vec2 uv1;\n#endif\n${shader.vertexShader.replace('#include <fog_vertex>', UV_VERTEX)}`;
+    // In lightmap space the triangle's winding says nothing about which side
+    // faces the light: always use the geometry's own normal.
+    shader.fragmentShader = shader.fragmentShader.replace(/gl_FrontFacing \? 1\.0 : - 1\.0/g, '1.0');
+  };
+  m.customProgramCacheKey = () => 'tl-lightmap-bake';
+  return m;
+}
+
 /**
- * A white Lambert material that renders a mesh into its lightmap rectangle: UV1 in the atlas rectangle is
+ * The same bake material for WebGPURenderer: UV1 in the atlas rectangle is
  * the clip position (Y turned over where the clip space is WebGPU's, so row 0
  * of the read-back atlas is still v 0), lit with the geometry's own normal on
  * both sides (in lightmap space the winding says nothing about the lit side).
@@ -114,7 +139,7 @@ function bakeNodeMaterial(scaleOffset: readonly number[], webgpuClip: boolean): 
   return m;
 }
 
-type BakeRenderer = WebGPURenderer;
+type BakeRenderer = THREE.WebGLRenderer | WebGPURenderer;
 type BakeTarget = THREE.RenderTarget;
 
 const tick = (): Promise<void> => new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
@@ -146,7 +171,13 @@ async function readFloatTarget(renderer: BakeRenderer, target: BakeTarget): Prom
   const { width, height } = target;
   const n = width * height * 4;
   const half = target.texture.type !== THREE.FloatType;
-  const raw = (await renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height)) as unknown as ArrayLike<number>;
+  let raw: ArrayLike<number>;
+  if (isNodeRenderer(renderer)) {
+    raw = (await renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height)) as unknown as ArrayLike<number>;
+  } else {
+    const buffer = half ? new Uint16Array(n) : new Float32Array(n);
+    raw = await renderer.readRenderTargetPixelsAsync(target as THREE.WebGLRenderTarget, 0, 0, width, height, buffer);
+  }
   const rowLength = width * 4;
   const stride = height > 1 ? (raw.length - rowLength) / (height - 1) : rowLength;
   const out = new Float32Array(n);
@@ -204,21 +235,38 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
   const canvas = document.createElement('canvas');
   canvas.width = 4;
   canvas.height = 4;
-  const preference = input.renderer ?? DEFAULT_RENDERER_PREFERENCE;
-  const handle = createRenderer({ canvas, preference, source: 'default', antialias: false, alpha: true, clearColor: 0x000000, clearAlpha: 0, loseContextOnDispose: true });
-  const ready = await handle.whenReady();
-  const live = handle.current();
-  if (!ready || live === null) {
-    const reason = handle.info().reason;
-    handle.dispose();
-    return { ok: false, code: 'bake_unsupported', message: `no renderer for baking: ${reason}`.slice(0, 200) };
+  const preference = input.renderer ?? 'legacy';
+  let renderer: BakeRenderer;
+  let handle: RendererHandle | null = null;
+  try {
+    if (preference === 'legacy') {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, preserveDrawingBuffer: false });
+    } else {
+      handle = createRenderer({ canvas, preference, source: 'default', antialias: false, alpha: true, clearColor: 0x000000, clearAlpha: 0 });
+      const ready = await handle.whenReady();
+      const live = handle.current();
+      if (!ready || live === null) {
+        const reason = handle.info().reason;
+        handle.dispose();
+        return { ok: false, code: 'bake_unsupported', message: `no renderer for baking: ${reason}`.slice(0, 200) };
+      }
+      renderer = live;
+    }
+  } catch (e) {
+    handle?.dispose();
+    return { ok: false, code: 'bake_unsupported', message: `no WebGL for baking: ${(e as Error).message}` };
   }
-  const renderer: BakeRenderer = live;
-  const webgpuClip = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem;
-  const material = (scaleOffset: readonly number[]): THREE.Material => bakeNodeMaterial(scaleOffset, webgpuClip);
+  const node = isNodeRenderer(renderer);
+  const webgpuClip = node && (renderer as WebGPURenderer).coordinateSystem === THREE.WebGPUCoordinateSystem;
+  const material = (scaleOffset: readonly number[]): THREE.Material => (node ? bakeNodeMaterial(scaleOffset, webgpuClip) : bakeMaterial(scaleOffset));
   const disposables: { dispose(): void }[] = [];
   try {
-    const type: THREE.TextureDataType = THREE.HalfFloatType;
+    let type: THREE.TextureDataType = THREE.HalfFloatType;
+    if (!node) {
+      const gl = (renderer as THREE.WebGLRenderer).getContext();
+      const floatOk = gl instanceof WebGL2RenderingContext && gl.getExtension('EXT_color_buffer_float') !== null;
+      type = floatOk ? THREE.FloatType : THREE.HalfFloatType;
+    }
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.autoClear = false;
@@ -228,7 +276,7 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
 
     const makeTarget = (w: number, h: number): BakeTarget => {
       const options = { type, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false };
-      const t = new THREE.RenderTarget(w, h, options);
+      const t = node ? new THREE.RenderTarget(w, h, options) : new THREE.WebGLRenderTarget(w, h, options);
       disposables.push(t);
       return t;
     };
@@ -254,8 +302,10 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
       camera.layers.set(ATLAS_LAYER0);
       let lm: THREE.DataTexture | null = null;
       if (lightMapValue !== null) {
-        // Half float (a float32 texture is unfilterable without an optional WebGPU feature).
-        lm = new THREE.DataTexture(new Uint16Array([lightMapValue, lightMapValue, lightMapValue, 1].map((v) => THREE.DataUtils.toHalfFloat(v))), 1, 1, THREE.RGBAFormat, THREE.HalfFloatType);
+        // Half float on WebGPURenderer (a float32 texture is unfilterable without an optional WebGPU feature).
+        lm = node
+          ? new THREE.DataTexture(new Uint16Array([lightMapValue, lightMapValue, lightMapValue, 1].map((v) => THREE.DataUtils.toHalfFloat(v))), 1, 1, THREE.RGBAFormat, THREE.HalfFloatType)
+          : new THREE.DataTexture(new Float32Array([lightMapValue, lightMapValue, lightMapValue, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
         lm.channel = 1;
         lm.needsUpdate = true;
         calibMat.lightMap = lm;
@@ -281,7 +331,7 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
     sunLight.position.set(0, 10, 0);
     const directOut = await measure(sunLight, null);
     const lightMapOut = await measure(null, 1);
-    if (!(directOut > 0) || !(lightMapOut > 0)) return { ok: false, code: 'bake_failed', message: 'the bake calibration rendered nothing (half-float render targets?)' };
+    if (!(directOut > 0) || !(lightMapOut > 0)) return { ok: false, code: 'bake_failed', message: 'the bake calibration rendered nothing (WebGL float targets?)' };
     /** An open surface's ambient light, as sphere-sampled directional light: k = 4 · ambient / direct. */
     const ambientToDirect = (4 * ambientOut) / directOut;
 
@@ -454,6 +504,10 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
     return { ok: false, code: 'bake_failed', message: (e as Error).message };
   } finally {
     for (const d of disposables) d.dispose();
-    handle.dispose();
+    if (handle !== null) handle.dispose();
+    else {
+      renderer.dispose();
+      (renderer as THREE.WebGLRenderer).forceContextLoss();
+    }
   }
 }

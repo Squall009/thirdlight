@@ -206,7 +206,7 @@ export interface ModelsRealizationContext {
   readonly entityMaterials?: (entityId: string) => Readonly<Record<string, string>> | null;
   /** Phase 12 (c): more entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
-  /** Phase 9.6: a model instance is attached to its entity (lightmaps go on here). */
+  /** Phase 9.6: a model instance (phase 17.4: or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
   readonly onAttached?: (entityId: string, root: THREE.Object3D) => void;
   /** The entity holders (the adapter's `objects` map entries); `null` when
    * the entity has no holder (defensive: the entity is skipped). */
@@ -631,6 +631,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`);
     holder.add(built.group);
     attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
+    ctx.onAttached?.(entityId, built.group);
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {

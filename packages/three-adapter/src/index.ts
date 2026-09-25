@@ -72,6 +72,8 @@ export {
   decideShadows,
   deriveShadowCamera,
   planSceneLights,
+  DIRECTIONAL_SHADOW_DEFAULTS,
+  directionalShadowSettings,
   SHADOW_PROFILE,
   SURFACE_PRESETS,
   type AuthoredLight,

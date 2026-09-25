@@ -99,10 +99,14 @@ test('the keyboard drives the game in the editor preview', async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect.poll(async () => ((await relay(`${psid}/observe`, {})).json as unknown as Observation).state).toBe('playing');
   const x0 = await x();
+  // Held until the player has run half a metre (poll, not a fixed hold: a CPU-rendered
+  // frame can take hundreds of milliseconds, and the game steps with its frames).
   await page.keyboard.down('d');
-  await page.waitForTimeout(400);
-  await page.keyboard.up('d');
-  expect(await x()).toBeGreaterThan(x0 + 0.5);
+  try {
+    await expect.poll(x, { timeout: 15_000 }).toBeGreaterThan(x0 + 0.5);
+  } finally {
+    await page.keyboard.up('d');
+  }
 });
 
 test('the exported Beacon Reach starts and plays from the keyboard with the backend stopped', async ({ page }) => {

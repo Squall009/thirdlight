@@ -36,6 +36,37 @@ export const SHADOW_PROFILE = Object.freeze({
 } as const);
 
 /**
+ * Phase 17.4: the directional light's shadow settings when its data sets
+ * none (`light.shadowMapSize`, `shadowBias`, `shadowNormalBias`,
+ * `shadowExtent`; the same values and their genre-neutral reasons as
+ * project-model `DIRECTIONAL_SHADOW_DEFAULTS`). They replace the frozen
+ * profile's 512² map without bias (which striped instance sets and curved
+ * models with self-shadowing); SHADOW_PROFILE keeps the camera derivation.
+ */
+export const DIRECTIONAL_SHADOW_DEFAULTS = Object.freeze({
+  /** 1024²: a 4.7 cm texel over the default 48 m square. */
+  mapSize: 1024,
+  /** Removes acne on surfaces facing the light without lifting the shadow off its caster. */
+  bias: -0.0005,
+  /** Metres along the normal: about half a texel at the defaults (no stripes on grazing surfaces). */
+  normalBias: 0.02,
+  /** Half the side of the square that follows the camera in a v4 game (the former engine constant). */
+  extent: 24,
+} as const);
+
+/** The shadow settings of a directional light (its data over the defaults). */
+export function directionalShadowSettings(l: AuthoredLight | null): { mapSize: number; bias: number; normalBias: number; extent: number } {
+  const d = DIRECTIONAL_SHADOW_DEFAULTS;
+  const fin = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  return {
+    mapSize: fin(l?.shadowMapSize, d.mapSize),
+    bias: fin(l?.shadowBias, d.bias),
+    normalBias: fin(l?.shadowNormalBias, d.normalBias),
+    extent: fin(l?.shadowExtent, d.extent),
+  };
+}
+
+/**
  * §41.2.1 — the three frozen preset rows (a **value row**, never a resource).
  * Single change point per package (dependencies.md §4.2 pattern):
  * `three-adapter` has no `project-model` edge (§4.1), so it keeps its own
@@ -230,6 +261,11 @@ export interface AuthoredLight {
   readonly direction?: readonly [number, number, number];
   /** Directional only; defaulted to `false` by the §23.7 normalizer. */
   readonly castShadow?: boolean;
+  /** Phase 17.4 (directional, optional): the shadow map settings (see DIRECTIONAL_SHADOW_DEFAULTS). */
+  readonly shadowMapSize?: number;
+  readonly shadowBias?: number;
+  readonly shadowNormalBias?: number;
+  readonly shadowExtent?: number;
 }
 
 /** The structural shape of the authored `components.surface` value

@@ -94,3 +94,23 @@ describe('descriptor fields are setComponent fields', () => {
     expect(checked).toBeGreaterThan(60);
   });
 });
+
+describe('phase 17.4: the shadow flags of a box', () => {
+  it('stores castShadow / receiveShadow, undoes them, and null goes back to the default (absent)', () => {
+    const s = fresh();
+    const box = s.scene.entities.find((e) => (e.components as Record<string, unknown>)['box'] !== undefined)!;
+    const before = structuredClone(components(s, box.id)['box']);
+    const off = run(s, 'setComponent', { entityId: box.id, component: 'box', value: { castShadow: false, receiveShadow: false } });
+    expect(off.ok, JSON.stringify(off.result)).toBe(true);
+    expect(components(off.state, box.id)['box']).toEqual({ ...(before as object), castShadow: false, receiveShadow: false });
+    const undone = run(off.state, 'undo', {});
+    expect(components(undone.state, box.id)['box']).toEqual(before);
+    const redone = run(undone.state, 'redo', {});
+    expect(components(redone.state, box.id)['box']).toMatchObject({ castShadow: false, receiveShadow: false });
+    const back = run(redone.state, 'setComponent', { entityId: box.id, component: 'box', value: { castShadow: null, receiveShadow: null } });
+    expect(back.ok, JSON.stringify(back.result)).toBe(true);
+    expect(components(back.state, box.id)['box']).toEqual(before);
+    const bad = run(s, 'setComponent', { entityId: box.id, component: 'box', value: { castShadow: 'yes' } });
+    expect(bad.ok).toBe(false);
+  });
+});

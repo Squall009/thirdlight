@@ -1707,22 +1707,34 @@ accepted before although the range said `0 ≤ v`).
 
 ## Renderer backends
 
-Play, the exported game, the Scene view and the asset/Animator previews get
-their renderer from one factory. Four backends:
+Play, the exported game, the Scene view, the asset/Animator previews, the
+asset thumbnails and the browser lightmap baker get their renderer from one
+factory. Since phase 17.4 everything draws with three's `WebGPURenderer`,
+all shading written once in TSL (node materials and node post-processing);
+three's older `WebGLRenderer` path is gone (archived in the repository under
+`archive/webgl-renderer-17/`). Three backends:
 
 | Name | What draws | |
 |---|---|---|
-| `legacy` | three's `WebGLRenderer` (WebGL 2) | the default for now |
-| `auto` | three's `WebGPURenderer` on WebGPU when the browser gives a working adapter and device, else on its WebGL 2 backend | the default once phase 17.4 switches over |
-| `webgpu` | `WebGPURenderer` on WebGPU; where WebGPU cannot start it runs on WebGL 2 and says why | |
-| `webgl2` | `WebGPURenderer` forced onto its WebGL 2 backend | |
+| `auto` | WebGPU when the browser gives a working adapter and device, else the WebGL 2 backend | the default |
+| `webgpu` | WebGPU; where WebGPU cannot start it runs on WebGL 2 and says why | |
+| `webgl2` | the WebGL 2 backend, even where WebGPU would work | |
 
 Choose one in **Gameplay → settings → Renderer** (the `render_backend`
-project setting: 0 legacy, 1 auto, 2 WebGPU, 3 WebGL 2; MCP:
+project setting: 1 auto, 2 WebGPU, 3 WebGL 2; MCP:
 `setSettings {render_backend: 3}`). The Scene view switches at once; the
 next Play and the next export use it. A URL flag overrides the setting for
-one page: `?renderer=legacy|auto|webgpu|webgl2` on the editor URL (the
-editor passes it on to Play) or on an exported game's `index.html`.
+one page: `?renderer=auto|webgpu|webgl2` on the editor URL (the editor
+passes it on to Play) or on an exported game's `index.html`. To force WebGL 2
+(an older GPU driver, a WebGPU bug, comparing the two), set the setting to
+"WebGL 2" or add `?renderer=webgl2`. A project that stored 0 (the removed
+WebGL renderer, "legacy") and an old `?renderer=legacy` link get `auto`.
+
+Browser support: WebGPU needs a browser with WebGPU and a secure context —
+https, or `localhost`/`127.0.0.1`. Every other page (plain http on a LAN
+address, a browser without WebGPU) gets the WebGL 2 backend at once, with the
+reason; a browser without WebGL 2 cannot draw (Play reports
+`render_unsupported`).
 
 What was chosen and why is shown in the status bar ("scene view: …", the
 reason as its tooltip), in the Play label above the game, in
@@ -1731,50 +1743,66 @@ where the choice came from, the backend that draws, its state and the
 reason), in `tl_game_observe` (`renderer`) and on every render canvas
 (`data-tl-renderer`, `data-tl-renderer-state`, `data-tl-renderer-reason`).
 
-WebGPU needs a secure context: https, or `localhost`/`127.0.0.1`. An editor
-or game opened over plain http on a LAN address has no WebGPU, so `auto`
-takes WebGL 2 there (the reason says so). If the GPU device is lost the
+If the GPU device is lost the
 renderer is rebuilt on a new one (at most 3 times, then it reports `failed`:
 reload the page); a lost WebGL context is rebuilt when the browser restores
 it.
 
-Project materials draw the same on every backend: on `WebGPURenderer` the
-material library builds node materials (TSL) for each shader type —
+Project materials draw the same on both backends: the material library
+builds node materials (TSL) for each shader type —
 standard, foliage wind (COLOR_0 + the global wind), kit (world-X UVs, the
 UV1 macro normal), unlit, water — and lightmaps (UV1, the bake's range, the
 lights a bake holds left out), the Scene view's selection tint and the
-checkpoint glow work there too. A pixel test compares each against WebGL
-reference images (`tests/e2e/shader-parity/`).
+checkpoint glow work there too. A pixel test compares each against the
+reference images the old WebGL renderer drew (`tests/e2e/shader-parity/`).
 
-The environment draws the same on every backend too (phase 17.3): every sky
+The environment draws the same on both backends too (phase 17.3): every sky
 mode (physical — three's TSL sky —, gradient, colour, texture as an equirect
 image or six cube faces) with its image-based lighting, fog, fog volumes
 (with the height falloff), shadows (also the square that follows the camera
 in games without level bounds) and the whole post stack per quality level —
 ambient occlusion, depth of field, bloom, grading with lift/gamma/gain, the
 LUT and the vignette, SMAA/FXAA and AgX/ACES/Neutral tone mapping — as
-three's node post-processing on `WebGPURenderer`. A level's own look works
-the same. A pixel test compares 21 environments with WebGL reference images
-(`tests/e2e/env-parity/`). Differences you may see on `WebGPURenderer`:
-scene fog is mixed before tone mapping (the WebGL renderer mixes it after
-when there is no post stack), so its tint is a little different; ambient
-occlusion has a different noise pattern and depth of field a slightly
-different blur shape; the low quality level also turns MSAA off there.
+three's node post-processing. A level's own look works the same. A pixel
+test compares 21 environments with the old WebGL renderer's reference images
+(`tests/e2e/env-parity/`). Differences from the old WebGL renderer you may
+see: scene fog is mixed before tone mapping (the WebGL renderer mixed it
+after when there was no post stack), so its tint is a little different;
+ambient occlusion has a different noise pattern and depth of field a
+slightly different blur shape; the low quality level also turns MSAA off.
 
-Fixed on every backend with phase 17.3: the gradient sky now shows — it sat
+**Shadows (phase 17.4).** Boxes, models and instance sets cast and receive
+the sun's (the directional light's) realtime shadow when the light has "Cast
+shadows" on. Each has **Casts shadows** and **Receives shadows** checkboxes
+in its Box / Model / Instance set section (on by default; turn them off for a
+decal, a glow or a distant backdrop). The sun's shadow is tuned in its Light
+section: **Shadow map size** (512–4096, default 1024), **Shadow bias**
+(default −0.0005), **Shadow normal bias** (default 0.02 m) and **Shadow
+extent** (half the side of the shadowed square that follows the camera in a
+game without level bounds, default 24 m). Before, only instance sets cast
+shadows, with a fixed 512² map without bias (they striped themselves).
+The Scene view shows no realtime shadows (Play and the export do).
+
+Fixed with phase 17.3: the gradient sky now shows — it sat
 4 km out, beyond every camera's far plane (1 km in the Scene view, 100 m by
 default in games), so only its lighting was seen — and it is tone mapped
 like the rest of the picture. The browser lightmap baker ("Bake preview")
-draws with the editor's renderer backend (on `WebGPURenderer` it reads the
-atlases back asynchronously), and a lightmapped object in Play picks up its
+draws with the editor's renderer backend (it reads the atlases back
+asynchronously), and a lightmapped object in Play picks up its
 project material's texture even when the texture arrives after the
 lightmap.
 
-The kit's macro normal map now shows with the WebGL renderer too: before
-phase 17.2 it was silently never applied (a shader-hook bug), so kit pieces
-with a macro normal map look bumpier than before on every backend. Thumbnails render with the backend the
-editor had when it drew the first one.
-Real-GPU looks and frame times: owner look pending.
+The kit's macro normal map shows since phase 17.2: before, it was silently
+never applied (a shader-hook bug), so kit pieces with a macro normal map
+look bumpier than before. Thumbnails render with the backend the editor had
+when it drew the first one.
+
+Exported games link only three's WebGPU build (`three/webgpu`, which carries
+the whole three core, plus TSL); the WebGL renderer code is no longer in the
+bundle (`js/main.js` about 0.8 MB smaller unminified, see
+`docs/plan-phase-17.md` §6). On this CPU-only server the WebGL 2 backend and
+WebGPU (Dawn on SwiftShader) are slower than the old WebGL renderer was;
+real-GPU looks and frame times: owner look pending.
 
 ## Performance
 
@@ -1866,22 +1894,22 @@ npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
 npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
-node tests/e2e/shader-parity/capture.mjs    # re-capture the WebGL shader reference images (rarely)
-TL_CAPTURE_ENV_REFS=1 npx playwright test tests/e2e/env-parity.e2e.ts --project=default   # the environment references (rarely)
 node tools/perf/run.mjs                     # the performance harness (long; see "Performance")
 TL_PERF=1 npx vitest run tests/perf/regression.test.ts   # harness run vs the stored baseline (opt-in)
 ```
 
 `npm run test:e2e` runs both Playwright projects: `default` (every spec,
-Chromium with WebGL 2 on SwiftShader and no WebGPU, so `auto` covers the
-WebGL 2 fallback) and `webgpu` (the renderer-sensitive specs again with
+Chromium with WebGL 2 on SwiftShader and no WebGPU adapter, so `auto`, the
+default, covers the WebGL 2 fallback everywhere) and `webgpu` (the
+renderer-sensitive specs again with
 `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader`:
 Dawn's SwiftShader adapter). The materials, textures, lightmaps,
-environment, lights, sky-texture and level-look specs run once per renderer
-variant: `legacy` and `webgl2` (forced with `?renderer=`) in `default`,
-`webgpu` in `webgpu`; the shader-parity and env-parity specs compare every
-shader type and environment with its WebGL reference image on WebGL 2 and
-on WebGPU.
+environment, lights, sky-texture, level-look and shadows specs run once per
+renderer variant: `auto` (no flag) and `webgl2` (forced with `?renderer=`)
+in `default`, `webgpu` in `webgpu`; the shader-parity and env-parity specs
+compare every shader type and environment with its reference image (drawn
+by the old WebGL renderer, frozen since phase 17.4) on WebGL 2 and on
+WebGPU.
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

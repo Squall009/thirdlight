@@ -9,10 +9,9 @@
  * Lambert material from `material.color`), one perspective camera
  * (project-model §10.3: exactly one camera entity), and a fixed M1
  * component→Object3D table (no registration API — dependencies.md §6
- * non-goal). One renderer path, consistent with the accepted stack:
- * the three.js WebGL renderer, WebGL 2 first (decision 0001 §3;
- * runtime.md §8: the SELECTED backend is reported in diagnostics — no
- * WebGPU, no feature-equivalence promises).
+ * non-goal). One renderer path: three's WebGPURenderer from the renderer
+ * factory — WebGPU where it starts, else its WebGL 2 backend (phase 17.4;
+ * runtime.md §8: the SELECTED backend is reported in diagnostics).
  *
  * Frame ordering (normative, runtime.md §6): the RUNTIME owns the single
  * frame driver; `renderFrame` runs as the runtime's `onFrame` — after
@@ -20,7 +19,7 @@
  * into Object3Ds, and renders. The adapter never installs its own
  * animation loop (one loop owner = the runtime).
  *
- * `createSceneAdapter` never throws: WebGL context creation is deferred
+ * `createSceneAdapter` never throws: renderer creation is deferred
  * to the first `renderFrame`; in non-browser environments the structured
  * `render_unsupported`/`canvas_invalid` results and the
  * `renderBackend: null` diagnostics value are reported (the absent
@@ -52,6 +51,7 @@ import {
 import {
   decideShadows,
   deriveShadowCamera,
+  directionalShadowSettings,
   planSceneLights,
   SHADOW_PROFILE,
   type AuthoredLight,
@@ -64,7 +64,6 @@ import { createFadeTracker } from './fade';
 import {
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
-  isNodeRenderer,
   rendererMemory,
   type AnyRenderer,
   type RendererFactoryDeps,
@@ -120,7 +119,7 @@ export interface SceneAdapterOptions {
    * Phase 17.1: which renderer backend to use and where that choice came
    * from (the page's `?renderer=` flag, the project's `render_backend`
    * setting, or the default — see `resolveRendererPreference`). Absent: the
-   * default (`legacy`, today's WebGL renderer).
+   * default (`auto`: WebGPU where it starts, else WebGL 2).
    */
   renderer?: {
     readonly preference: RendererPreference;
@@ -133,9 +132,10 @@ export interface SceneAdapterOptions {
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
  * additions are presentation.md §41.1.4 — exactly two read-only fields). */
 export interface SceneAdapterDiagnostics {
-  /** The SELECTED graphics API: `"webgl2"` | `"webgl1"` (the legacy WebGL
-   *  renderer) or `"webgpu"` (phase 17.1), or `null` when no backend has been
-   *  selected yet (no successful render — e.g. a non-browser environment, or
+  /** The SELECTED graphics API: `"webgpu"` or `"webgl2"` (WebGPURenderer's
+   *  backends; `"webgl1"` was the archived WebGL renderer's WebGL 1 fallback
+   *  and is no longer produced), or `null` when no backend has been selected
+   *  yet (no successful render — e.g. a non-browser environment, or
    *  WebGPURenderer still initialising: the contract-prescribed absent value). */
   renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null;
   /** Phase 17.1: the renderer choice — requested backend and its source, the
@@ -231,8 +231,27 @@ interface OwnedResources {
   renderer: RendererHandle | null;
 }
 
-/** Phase 12 (c): the half extent (m) of the camera-following shadow square of a v4 game. */
-const SHADOW_FOLLOW_HALF = 24;
+/**
+ * Phase 17.4: whether an entity's box, model or instance set casts and
+ * receives the directional light's realtime shadow — its component's
+ * `castShadow` / `receiveShadow`, true when absent (solid geometry blocks the
+ * light and shows the shadows falling on it; project-model's descriptors).
+ */
+function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean } {
+  const c = components as { box?: { castShadow?: unknown; receiveShadow?: unknown }; model?: { castShadow?: unknown; receiveShadow?: unknown }; instances?: { castShadow?: unknown; receiveShadow?: unknown } };
+  const part = c.box ?? c.model ?? c.instances;
+  return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
+}
+
+/** Set the shadow flags on every mesh under `root` (a model's meshes, an instance set's instanced meshes). */
+function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive: boolean }): void {
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh === true) {
+      o.castShadow = flags.cast;
+      o.receiveShadow = flags.receive;
+    }
+  });
+}
 
 /** The model, animation and instance-set references of some entities (structural reads). */
 function modelRefsOf(entities: readonly { id: string; components: unknown }[]): {
@@ -269,17 +288,13 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
-  // Phase 9.4: project materials (shared by boxes, models and instance sets).
-  // Phase 17.2: every backend but `legacy` draws with WebGPURenderer, which needs node materials
-  // (known before the renderer exists: the preference decides the renderer class).
-  const nodeMaterials = (opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE) !== 'legacy';
+  // Phase 9.4: project materials (shared by boxes, models and instance sets), node materials (phase 17.4).
   /** The lightmap set once it exists (the library may report a change while it is still being set up). */
   let lightmapsLive: LightmapSet | null = null;
   const materialLibrary: MaterialLibrary | null =
     opts.materials !== undefined
       ? createMaterialLibrary({
           loadTexture: opts.materials.loadTexture,
-          nodeMaterials,
           // Phase 17.3: a project material changed in place (a texture arrived): lightmapped
           // copies made before are clones and follow it (else they keep the texture-less look).
           onChange: () => lightmapsLive?.refresh(),
@@ -298,7 +313,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             const t = (entityDocs.get(id)?.components as { light?: { type?: string } } | undefined)?.light?.type;
             return t === 'ambient' || t === 'hemisphere';
           }),
-          { nodeMaterials },
         )
       : null;
   lightmapsLive = lightmaps;
@@ -407,13 +421,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    *  snapshot (`game.level`). The null fallback below is defensive only. */
   const authoredLevel: ShadowLevel | null =
     isV3 && gameBlock !== null && gameBlock !== undefined ? (gameBlock.level ?? null) : null;
-  // Phase 12 (c): a v4 game has no level bounds; the shadow region is a
-  // fixed square that follows the camera (planned here around its start).
-  const followShadow = isV3 && authoredLevel === null;
-  const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
-  const level: ShadowLevel | null = followShadow
-    ? { minX: startCamera[0] - SHADOW_FOLLOW_HALF, maxX: startCamera[0] + SHADOW_FOLLOW_HALF, minY: startCamera[1] - SHADOW_FOLLOW_HALF, maxY: startCamera[1] + SHADOW_FOLLOW_HALF }
-    : authoredLevel;
   const authoredLights: AuthoredLight[] = [];
   if (isV3) {
     for (const e of sceneDoc.entities) {
@@ -423,6 +430,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
   const keyLight = isV3 ? (authoredLights.find((l) => l.type === 'directional') ?? null) : null;
+  /** Phase 17.4: the key light's shadow map settings (its data over the defaults). */
+  const keyShadow = directionalShadowSettings(keyLight);
+  // Phase 12 (c): a v4 game has no level bounds; the shadow region is a
+  // square that follows the camera (planned here around its start), half its
+  // side the light's `shadowExtent` (phase 17.4; 24 m by default).
+  const followShadow = isV3 && authoredLevel === null;
+  const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
+  const followHalf = keyShadow.extent;
+  const level: ShadowLevel | null = followShadow
+    ? { minX: startCamera[0] - followHalf, maxX: startCamera[0] + followHalf, minY: startCamera[1] - followHalf, maxY: startCamera[1] + followHalf }
+    : authoredLevel;
   /** The planned shadow outcome (probeOk: true — the capability probe runs
    *  at the first render; the webgl2 requirement is enforced at renderer
    *  creation, where a WebGL-1 context for a v3 scene is a hard
@@ -484,6 +502,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       own.geometries.push(geometry);
       own.materials.push(material);
       obj = new THREE.Mesh(geometry, material);
+      // Phase 17.4: boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
+      applyShadowFlags(obj, shadowFlagsOf(e.components));
     } else if (cam) {
       // The single M1 camera (project-model §10.3). Aspect is a
       // viewport property — updated per frame from the canvas size.
@@ -563,7 +583,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           // The shadow-camera parameters are set now; the shadow map is
           // allocated only by the first-render probe (§41.1.4 rule 5).
           light.castShadow = true;
-          light.shadow.mapSize.set(SHADOW_PROFILE.mapSize, SHADOW_PROFILE.mapSize);
+          // Phase 17.4: the light's shadow map settings (data; DIRECTIONAL_SHADOW_DEFAULTS when absent).
+          light.shadow.mapSize.set(keyShadow.mapSize, keyShadow.mapSize);
+          light.shadow.bias = keyShadow.bias;
+          light.shadow.normalBias = keyShadow.normalBias;
           light.shadow.camera.left = keyPlan.camera.left;
           light.shadow.camera.right = keyPlan.camera.right;
           light.shadow.camera.top = keyPlan.camera.top;
@@ -640,7 +663,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,
-      ...(lightmaps !== null ? { onAttached: (entityId: string, root: THREE.Object3D) => lightmaps.apply(entityId, root) } : {}),
+      onAttached: (entityId: string, root: THREE.Object3D) => {
+        // Phase 17.4: models and instance sets cast and receive the key light's shadow (their data).
+        applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
+        lightmaps?.apply(entityId, root);
+      },
     });
     if (result.ok === true) {
       realization = result.realization;
@@ -651,7 +678,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
 
   // --- renderer state (lazy: created on the first successful render) ---
   const canvasLike = canvas as CanvasLike | null;
-  let renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null = null;
+  let renderBackend: 'webgl2' | 'webgpu' | null = null;
   let rendererInfo: string | null = null;
   let pixelRatio = 1;
   let contextAttempted = false;
@@ -704,7 +731,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (disposed) return adapterError('adapter_disposed', 'adapter is disposed');
     if (owned.renderer) return null;
     if (contextAttempted) {
-      return adapterError('render_unsupported', 'WebGL context creation previously failed (no WebGL in this environment)');
+      return adapterError('render_unsupported', 'renderer creation previously failed (no canvas renderer in this environment)');
     }
     if (typeof canvasLike?.getContext !== 'function') {
       contextAttempted = true;
@@ -713,7 +740,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     contextAttempted = true;
     const preference = opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE;
     try {
-      // Phase 17.1: the one renderer factory (legacy = the three.js WebGL renderer, WebGL 2 first).
+      // Phase 17.1: the one renderer factory (WebGPURenderer on WebGPU or WebGL 2).
       const handle = createRenderer({
         canvas: canvasLike,
         preference,
@@ -723,6 +750,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         // Opaque black where nothing is drawn (what WebGLRenderer always cleared to).
         clearColor: 0x000000,
         clearAlpha: 1,
+        // The game canvas is not drawn to again after dispose: free its WebGL context.
         loseContextOnDispose: true,
         ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
       });
@@ -730,37 +758,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const win = globalThis.window;
       const dpr = win && typeof win.devicePixelRatio === 'number' && win.devicePixelRatio > 0 ? win.devicePixelRatio : 1;
       pixelRatio = dpr;
-      const legacy = handle.current();
-      if (legacy === null || isNodeRenderer(legacy)) return null; // WebGPURenderer: set up when it is ready (adoptRenderer)
-      rendererGeneration = handle.generation();
-      legacy.setPixelRatio(pixelRatio);
-      renderBackend = legacy.capabilities.isWebGL2 ? 'webgl2' : 'webgl1';
-      // §41.1.4 (hard, packet 52): the M3 target is WebGL 2 (baseline.md
-      // §1). A WebGL-1 context for a v3 scene is the unplayable
-      // `render_unsupported` case; the accepted M1/M2 webgl1 fallback is
-      // unchanged for v1/v2 scenes.
-      if (renderBackend === 'webgl1' && isV3) {
-        handle.dispose();
-        owned.renderer = null;
-        renderBackend = null;
-        rendererInfo = null;
-        return adapterError(
-          'render_unsupported',
-          'M3 (v3) scenes require WebGL 2; the selected context is WebGL 1 (presentation.md §41.1.4)',
-        );
-      }
-      // `debug.rendererName` exists on the three.js runtime but not on the
-      // pinned @types/three 0.186.0 WebGLDebug type — narrow access.
-      const dbg = legacy.debug as { rendererName?: string };
-      const name = typeof dbg.rendererName === 'string' ? dbg.rendererName : '';
-      rendererInfo =
-        name.length > 0 ? name.slice(0, RENDERER_INFO_LIMIT) : renderBackend === 'webgl2' ? 'WebGL 2.0 (OpenGL ES 3.0)' : 'WebGL 1.0 (OpenGL ES 2.0)';
+      // Set up when it is ready (adoptRenderer): WebGPURenderer initialises asynchronously.
       return null;
     } catch {
       owned.renderer = null;
       renderBackend = null;
       rendererInfo = null;
-      return adapterError('render_unsupported', 'WebGL context creation failed (non-browser environment or WebGL unsupported)');
+      return adapterError('render_unsupported', 'renderer creation failed (non-browser environment or no WebGPU/WebGL 2)');
     }
   }
 
@@ -881,7 +885,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** v4: the shadow square follows the camera, snapped to whole shadow texels (no shimmer). */
   function followCameraShadow(): void {
     if (camera === null || keyLights.length === 0) return;
-    const texel = (2 * keyPlan.halfExtent) / SHADOW_PROFILE.mapSize;
+    const texel = (2 * keyPlan.halfExtent) / keyShadow.mapSize;
     const cx = Math.round(camera.position.x / texel) * texel;
     const cy = Math.round(camera.position.y / texel) * texel;
     const dir = keyLight?.direction ?? [0, -1, 0];
@@ -936,7 +940,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lastFrameSkipped = true;
       return { ok: true };
     }
-    if (isNodeRenderer(live)) adoptRenderer(handle, live);
+    adoptRenderer(handle, live);
     // The runtime is the single frame driver: this runs after the step
     // update (runtime.md §6 frame ordering: step → onFrame → render).
     const st = opts.runtime.getInterpolatedState();
@@ -1006,6 +1010,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       applyAnimatorPoses();
     }
     const renderer = live;
+    if (followShadow) followCameraShadow();
+    // Phase 17.4: the follow shadow and the size first — the shadow probe below is a
+    // real frame (it compiles the scene's pipelines), drawn as the game will draw it.
+    const [w, h] = canvasSize();
+    // Resize only on a change: setSize rewrites the canvas' drawing buffer,
+    // and the environment renderer rebuilds its whole post stack on resize.
+    const current = renderer.getSize(tmpSize);
+    if (current.x !== w || current.y !== h || canvasLike?.width !== Math.floor(w * renderer.getPixelRatio())) {
+      renderer.setSize(w, h, false);
+    }
+    camera!.aspect = w / h;
+    camera!.updateProjectionMatrix();
     // §41.1.4 shadow capability probe (packet 52): once per realized
     // scene, before the first successful v3 frame. The probe render is the
     // allocation check (`maxTextureSize ≥ SHADOW_MAP_SIZE` + the actual
@@ -1017,9 +1033,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // map is allocated).
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
       shadowProbeDone = true;
-      // WebGPURenderer has no `capabilities`: WebGPU and WebGL 2 both guarantee textures far above the shadow map size.
-      const maxTexture = (renderer as { capabilities?: { maxTextureSize?: number } }).capabilities?.maxTextureSize ?? SHADOW_PROFILE.mapSize;
-      let probeOk = maxTexture >= SHADOW_PROFILE.mapSize;
+      // WebGPURenderer has no `capabilities`: WebGPU guarantees 8192² textures and WebGL 2
+      // 2048²; a larger map than the device takes fails the probe render below (soft degradation).
+      let probeOk = true;
       if (probeOk) {
         try {
           renderer.shadowMap.enabled = true;
@@ -1040,16 +1056,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
       }
     }
-    if (followShadow) followCameraShadow();
-    const [w, h] = canvasSize();
-    // Resize only on a change: setSize rewrites the canvas' drawing buffer,
-    // and the environment renderer rebuilds its whole post stack on resize.
-    const current = renderer.getSize(tmpSize);
-    if (current.x !== w || current.y !== h || canvasLike?.width !== Math.floor(w * renderer.getPixelRatio())) {
-      renderer.setSize(w, h, false);
-    }
-    camera!.aspect = w / h;
-    camera!.updateProjectionMatrix();
     try {
       if (opts.environment !== undefined) {
         if (environmentRenderer === null) {
@@ -1205,7 +1211,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (owned.renderer) {
       lastRendererInfo = owned.renderer.info();
-      // The handle disposes the renderer (and drops the legacy WebGL context).
+      // The handle disposes the renderer (WebGPURenderer's WebGL 2 backend drops its context).
       try { owned.renderer.dispose(); } catch { /* best effort */ }
     }
     owned.geometries = [];

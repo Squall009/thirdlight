@@ -3,8 +3,8 @@
  * shows the image itself.
  *
  * Phase 17.2: a texture on a material shows on a box in the Scene view and in
- * Play with every renderer variant (renderer-variants.ts): the legacy
- * WebGLRenderer, and node materials on WebGPURenderer (WebGL 2 / WebGPU).
+ * Play with every renderer variant (renderer-variants.ts): node materials on
+ * WebGPURenderer (auto and WebGL 2 / WebGPU).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

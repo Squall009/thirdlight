@@ -8,9 +8,12 @@
  *
  * Runs in both Playwright projects: `default` has no WebGPU (a forced or
  * automatic WebGPU choice runs on the WebGL 2 backend and says why); `webgpu`
- * launches Chromium with headless WebGPU (Dawn on SwiftShader).
+ * launches Chromium with headless WebGPU (Dawn on SwiftShader). Phase 17.4:
+ * `auto` is the default everywhere; the archived WebGL renderer's `legacy`
+ * flag value and setting value 0 mean `auto`.
  */
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 
@@ -19,6 +22,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect as baseExpect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { menu } from './ui';
 
@@ -40,7 +44,7 @@ async function backend(template?: string): Promise<E2EBackend> {
 /** Does this Playwright project give the page a working WebGPU adapter? */
 const hasWebGpu = (): boolean => test.info().project.name === 'webgpu';
 /** The backend a preference ends up on in this project. */
-const expected = (preference: 'auto' | 'webgpu' | 'webgl2' | 'legacy'): string => (preference === 'legacy' ? 'legacy' : preference === 'webgl2' ? 'webgl2' : hasWebGpu() ? 'webgpu' : 'webgl2');
+const expected = (preference: 'auto' | 'webgpu' | 'webgl2'): string => (preference === 'webgl2' ? 'webgl2' : hasWebGpu() ? 'webgpu' : 'webgl2');
 
 /** Non-black pixels: brighter than `threshold` in any channel (the lit box, not the black clear colour). */
 function brightPixels(img: Image, threshold = 40): number {
@@ -137,13 +141,25 @@ async function expectExport(page: Page, siteUrl: string, query: string, backend:
   }
 }
 
-test('by default everything draws with the legacy WebGL renderer and says so', async ({ page }) => {
-  test.setTimeout(180_000);
+test('by default everything draws with auto (WebGPU where it starts, else WebGL 2) and says so', async ({ page }) => {
+  test.setTimeout(240_000);
   const be = await backend();
   await openWithBox(page, be.editorUrl);
-  await expectSceneView(page, 'legacy', 'default legacy');
+  await expectSceneView(page, expected('auto'), 'default auto');
+  if (!hasWebGpu()) await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-tl-renderer-reason', /WebGL 2 backend/);
   await page.getByTitle('Start an isolated play preview').click();
-  await expectPlay(page, 'legacy', 'default legacy');
+  await expectPlay(page, expected('auto'), 'default auto');
+  await page.getByTitle('Stop the play preview').click();
+  // The standalone export too.
+  const res = await be.admin(`projects/${be.projectId}/export`);
+  expect(res.status, JSON.stringify(res.json)).toBe(200);
+  await be.halt();
+  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
+  try {
+    await expectExport(page, site.url, '', expected('auto'), 'default auto');
+  } finally {
+    await site.close();
+  }
 });
 
 test('the project setting picks the backend of the Scene view, Play (tl_game_observe, tl_diagnostics) and the export', async ({ page }) => {
@@ -156,8 +172,9 @@ test('the project setting picks the backend of the Scene view, Play (tl_game_obs
   await page.getByRole('tab', { name: 'Gameplay' }).click();
   await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
   const field = page.getByLabel('gameplay settings').getByLabel('settings render_backend', { exact: true });
-  await expect(field).toHaveValue('0');
-  await expect(field.locator('option')).toHaveText(['WebGL (legacy)', 'Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2 (WebGPU renderer)']);
+  // Unset: the default, auto (1); the archived WebGL renderer (0) is no longer offered.
+  await expect(field).toHaveValue('1');
+  await expect(field.locator('option')).toHaveText(['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2']);
   await field.selectOption('2');
   const want = expected('webgpu');
   // The Scene view switches at once (a fresh canvas)…
@@ -209,7 +226,8 @@ test('the project setting picks the backend of the Scene view, Play (tl_game_obs
   const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
   try {
     await expectExport(page, site.url, '', want, 'project setting webgpu');
-    await expectExport(page, site.url, '?renderer=legacy', 'legacy', 'URL flag ?renderer=legacy');
+    // An old ?renderer=legacy link (the archived WebGL renderer) means auto.
+    await expectExport(page, site.url, '?renderer=legacy', expected('auto'), 'URL flag ?renderer=auto');
   } finally {
     await site.close();
   }
@@ -235,5 +253,35 @@ test('the ?renderer= URL flag forces a backend in the Scene view, Play and the e
     await expectExport(page, site.url, '?renderer=auto', expected('auto'), hasWebGpu() ? 'WebGPU on' : 'WebGL 2 backend');
   } finally {
     await site.close();
+  }
+});
+
+test('asset thumbnails render with the editor\'s backend (WebGPU where it starts, else WebGL 2)', async ({ page }) => {
+  test.setTimeout(180_000);
+  const be = await backend();
+  const dir = mkdtempSync(join(tmpdir(), 'tl-thumb-'));
+  try {
+    const file = join(dir, 'kit.glb');
+    writeFileSync(file, multiPieceGlb(KIT_PIECES));
+    await page.goto(be.editorUrl);
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    // The editor's backend (auto): the Scene view and the thumbnail renderer use it.
+    await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', expected('auto'));
+    await page.getByRole('tab', { name: 'Assets' }).click();
+    await page.locator('.tl-assets__file').first().setInputFiles(file);
+    const publish = page.getByRole('button', { name: 'publish' });
+    await expect(publish).toBeEnabled({ timeout: 15_000 });
+    await publish.click();
+    const tile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').first();
+    await expect(tile.locator('img.tl-tile__img--thumb')).toBeVisible({ timeout: 30_000 });
+    // The cached PNG: transparent corners, an opaque model in the middle.
+    const src = (await tile.locator('img.tl-tile__img--thumb').getAttribute('src'))!;
+    const bytes = await page.evaluate(async (u) => Array.from(new Uint8Array(await (await fetch(u)).arrayBuffer())), src);
+    const png = decodePng(Buffer.from(bytes));
+    expect(png.width).toBe(128);
+    expect(png.pixel(0, 0)[3]).toBe(0);
+    expect(png.pixel(64, 64)[3]).toBeGreaterThan(200);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

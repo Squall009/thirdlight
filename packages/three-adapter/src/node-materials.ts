@@ -1,14 +1,14 @@
 /**
- * Phase 17.2: the node-material (TSL) side of the project shading, used when
- * the renderer is three's `WebGPURenderer` (its WebGPU and WebGL 2 backends).
- * `WebGPURenderer` ignores `onBeforeCompile`/`customProgramCacheKey`, so every
- * shader hook of the legacy path has a node equivalent here:
+ * Phase 17.2: the node-material (TSL) side of the project shading; since
+ * phase 17.4 the only one (every view draws with three's `WebGPURenderer`,
+ * WebGPU or its WebGL 2 backend, which ignores `onBeforeCompile`). Every
+ * shader hook of the archived WebGL path has a node equivalent here:
  *
  * - `toNodeMaterial`: the node-material version of a plain three material
  *   (same values; what `WebGPURenderer` would convert it to, but as an object
  *   we own so node hooks can go on it).
  * - `withoutAmbientLight`: a lightmapped copy whose bake holds the ambient /
- *   hemisphere light ignores those lights (the legacy no-ambient hook).
+ *   hemisphere light ignores those lights (the bake holds them).
  * - `cloneMaterial`: a per-mesh copy that keeps the hooks (both kinds).
  * - `instanceOrigin`: the instance's translation in an `InstancedMesh`
  *   (the kit's world-X UV shift works per instance).
@@ -76,7 +76,7 @@ export function standardNodeMaterialFrom(source: THREE.Material | null): MeshSta
 }
 
 const NO_AMBIENT_KEY = 'tl-lightmap-no-ambient';
-const OWN_HOOKS = ['setupLighting', 'customProgramCacheKey', 'onBeforeCompile'] as const;
+const OWN_HOOKS = ['setupLighting', 'customProgramCacheKey'] as const;
 
 interface LightsNodeLike {
   getLights(): THREE.Light[];
@@ -115,7 +115,7 @@ export function withoutAmbientLight(material: THREE.Material): void {
 
 /**
  * `material.clone()` keeping the instance's own hooks: `Material.clone()`
- * drops them (the legacy project shaders and the no-ambient hook live there).
+ * drops them (the no-ambient hook lives there).
  */
 export function cloneMaterial<T extends THREE.Material>(material: T): T {
   const c = material.clone() as T;

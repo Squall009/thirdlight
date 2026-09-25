@@ -1268,7 +1268,7 @@
               "cls": "validation",
               "path": "/args/value/colour",
               "found": "#ffffff",
-              "expected": "one of \"size\", \"material\"",
+              "expected": "one of \"size\", \"material\", \"castShadow\", \"receiveShadow\"",
               "message": "unknown component field"
             }
           }

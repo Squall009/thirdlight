@@ -78,15 +78,15 @@ import type {
 } from './types';
 
 const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
-  box: ['size', 'material'],
+  box: ['size', 'material', 'castShadow', 'receiveShadow'],
   camera: ['type', 'fovY', 'near', 'far'],
-  model: ['asset', 'piece'],
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'damage'],
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   effect: ['effectId', 'playOnStart', 'params'],

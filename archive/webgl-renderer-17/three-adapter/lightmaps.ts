@@ -10,11 +10,11 @@
  * - `createLightmapSet`: the bakes of a project — which entity has which
  *   atlas rectangle, which lights are baked, the atlas textures (loaded once).
  *
- * Phase 17.4: the copy is always a node material (every view draws with
- * `WebGPURenderer`) and the no-ambient hook is `withoutAmbientLight`; the
- * `onBeforeCompile` version is archived (`archive/webgl-renderer-17/`).
+ * Phase 17.2: with `nodeMaterials: true` (the renderer is `WebGPURenderer`) the copy
+ * is a node material and the no-ambient hook is its node twin
+ * (`withoutAmbientLight`); `WebGPURenderer` ignores `onBeforeCompile`.
  *
- * Pure three.js (textures come from the caller).
+ * Browser-only (WebGL textures); pure three.js otherwise.
  */
 import * as THREE from 'three';
 
@@ -60,6 +60,23 @@ export function boxLightmapSize(size: readonly [number, number, number] | readon
   return { width: Math.ceil(cell * 3), height: Math.ceil(cell * 2) };
 }
 
+const NO_AMBIENT_KEY = 'tl-lightmap-no-ambient';
+
+function withoutAmbient(material: THREE.Material): void {
+  const prev = material.onBeforeCompile;
+  const prevKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    prev.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <lights_fragment_begin>',
+      THREE.ShaderChunk.lights_fragment_begin
+        .replace('vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );', 'vec3 irradiance = vec3( 0.0 );')
+        .replace('irradiance += getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal );', ''),
+    );
+  };
+  material.customProgramCacheKey = () => `${prevKey.call(material)}|${NO_AMBIENT_KEY}`;
+}
+
 /** The atlas as one entity's lightmap (UV1 → its rectangle; sRGB; channel 1). */
 export function lightmapTexture(atlas: THREE.Texture, scaleOffset: readonly number[]): THREE.Texture {
   const map = atlas.clone();
@@ -78,18 +95,29 @@ export function lightmapTexture(atlas: THREE.Texture, scaleOffset: readonly numb
 type LightmapCapable = THREE.Material & { lightMap?: THREE.Texture | null; lightMapIntensity?: number };
 
 /**
- * A node-material copy of `material` with the lightmap (a plain source is
- * converted; a node source is copied with its own hooks). Null when the
- * material has no lightmap support.
+ * A copy of `material` with the lightmap. `Material.clone()` drops an
+ * instance's shader hooks (the project shaders live there), so they are
+ * carried over. Null when the material has no lightmap support. With
+ * `node` the copy is a node material (a plain source is converted).
  */
-export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture, range: number, ignoreAmbient: boolean): THREE.Material | null {
+export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture, range: number, ignoreAmbient: boolean, node = false): THREE.Material | null {
   if (!('lightMap' in material)) return null;
-  const converted = toNodeMaterial(material);
-  if (converted === null || !isNodeMaterial(converted)) return null;
-  const c = converted as LightmapCapable;
+  let c: LightmapCapable;
+  if (node) {
+    const converted = toNodeMaterial(material);
+    if (converted === null || !isNodeMaterial(converted)) return null;
+    c = converted as LightmapCapable;
+  } else {
+    c = material.clone() as LightmapCapable;
+    c.onBeforeCompile = material.onBeforeCompile;
+    c.customProgramCacheKey = material.customProgramCacheKey;
+  }
   c.lightMap = map;
   c.lightMapIntensity = range;
-  if (ignoreAmbient) withoutAmbientLight(c);
+  if (ignoreAmbient) {
+    if (node) withoutAmbientLight(c);
+    else withoutAmbient(c);
+  }
   c.needsUpdate = true;
   return c;
 }
@@ -99,15 +127,25 @@ export function refreshLightmappedMaterial(copy: THREE.Material, source: THREE.M
   const c = copy as LightmapCapable;
   const map = c.lightMap ?? null;
   const intensity = c.lightMapIntensity ?? 1;
-  // NodeMaterial.copy copies INTO an object-valued property it already holds
-  // (`this.map.copy(source.map)`): that throws for a texture the source lacks
-  // (the lightmap) and would overwrite a texture shared with other materials.
-  // Emptied first, every texture is taken over by reference.
-  const slots = c as unknown as Record<string, unknown>;
-  for (const k of Object.keys(slots)) if ((slots[k] as { isTexture?: boolean } | null)?.isTexture === true) slots[k] = null;
-  copyMaterialKeepingHooks(c, source);
+  if (isNodeMaterial(c)) {
+    // NodeMaterial.copy copies INTO an object-valued property it already holds
+    // (`this.map.copy(source.map)`): that throws for a texture the source lacks
+    // (the lightmap) and would overwrite a texture shared with other materials.
+    // Emptied first, every texture is taken over by reference.
+    const slots = c as unknown as Record<string, unknown>;
+    for (const k of Object.keys(slots)) if ((slots[k] as { isTexture?: boolean } | null)?.isTexture === true) slots[k] = null;
+    copyMaterialKeepingHooks(c, source);
+    c.lightMap = map;
+    c.lightMapIntensity = intensity;
+    return;
+  }
+  const hook = c.onBeforeCompile;
+  const key = c.customProgramCacheKey;
+  c.copy(source);
   c.lightMap = map;
   c.lightMapIntensity = intensity;
+  c.onBeforeCompile = hook;
+  c.customProgramCacheKey = key;
 }
 
 /**
@@ -119,7 +157,7 @@ export function applyLightmap(
   atlas: THREE.Texture,
   scaleOffset: readonly number[],
   range: number,
-  options: { ignoreAmbient?: boolean } = {},
+  options: { ignoreAmbient?: boolean; nodeMaterials?: boolean } = {},
 ): () => void {
   return applyLightmapTracked(root, atlas, scaleOffset, range, options).undo;
 }
@@ -135,7 +173,7 @@ export function applyLightmapTracked(
   atlas: THREE.Texture,
   scaleOffset: readonly number[],
   range: number,
-  options: { ignoreAmbient?: boolean } = {},
+  options: { ignoreAmbient?: boolean; nodeMaterials?: boolean } = {},
 ): { undo: () => void; refresh: () => void } {
   const map = lightmapTexture(atlas, scaleOffset);
   const restores: (() => void)[] = [];
@@ -145,7 +183,7 @@ export function applyLightmapTracked(
     if (mesh.isMesh !== true || mesh.geometry.getAttribute('uv1') === undefined) return;
     const original = mesh.material;
     const list = Array.isArray(original) ? original : [original];
-    const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true));
+    const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true, options.nodeMaterials === true));
     if (copies.every((c) => c === null)) return;
     copies.forEach((c, i) => {
       if (c !== null) pairs.push([c, list[i]!]);
@@ -198,6 +236,7 @@ export function createLightmapSet(
   bakes: Readonly<Record<string, LightingBakeLike>>,
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>,
   ambientBaked: (lightIds: readonly string[]) => boolean,
+  options: { nodeMaterials?: boolean } = {},
 ): LightmapSet {
   const entries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[] }>();
   const bakedLights = new Set<string>();
@@ -240,7 +279,7 @@ export function createLightmapSet(
       void texture(entry.atlas).then((tex) => {
         if (disposed || tex === null || pending.get(entityId) !== ticket) return;
         pending.delete(entityId);
-        const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights) });
+        const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights), nodeMaterials: options.nodeMaterials === true });
         undo.set(entityId, applied.undo);
         refreshers.set(entityId, applied.refresh);
       });

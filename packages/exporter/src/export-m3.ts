@@ -38,7 +38,7 @@ import {
 import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
-import { buildM3Bundle, PINNED_OPTIONS } from './export-bundle';
+import { buildM3Bundle, PINNED_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN } from './export-bundle';
 import { assertRelativeClosure, scanGlbContainer, scanImageContainer, scanMusicContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { publishTree, resolveExportTarget, type TreeFile } from './export-io';
 import type { ExportContext } from './export-types';
@@ -121,11 +121,11 @@ function installedPackage(ctx: ExportContext, packageJsonPath: string, id: strin
 }
 
 /**
- * The §5.4.1 binding 3 reference three entry: the full core plus (phase
- * 17.1) the WebGPU renderer and TSL, which the engine links since the
- * renderer factory (`three/webgpu`).
+ * The §5.4.1 binding 3 reference three entry: the three build the engine
+ * links — phase 17.4: the WebGPU build (`three/webgpu`, the full core
+ * re-exported) and TSL; `three` resolves to `three/webgpu` like in the bundle.
  */
-const REFERENCE_ENTRY = "import * as THREE from 'three'; import * as WEBGPU from 'three/webgpu'; import * as TSL from 'three/tsl'; console.log(THREE.REVISION, WEBGPU.REVISION, Object.keys(TSL).length);";
+const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu'; import * as TSL from 'three/tsl'; console.log(WEBGPU.REVISION, Object.keys(TSL).length);";
 
 /** The pinned Rapier compat probe entry (re-measures the physics row). */
 const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort);";
@@ -137,6 +137,7 @@ async function probeBundle(ctx: ExportContext, contents: string, sourcefile: str
       ...PINNED_OPTIONS,
       stdin: { contents, resolveDir: ctx.repoRoot, sourcefile },
       write: false,
+      plugins: [THREE_WEBGPU_ONLY_PLUGIN as never],
     });
     return r.outputFiles?.[0]?.contents ?? null;
   } catch {

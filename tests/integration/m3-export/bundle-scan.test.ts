@@ -35,7 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildContentClosureM3, checkBundleGraphM3 } from '@thirdlight/exporter';
-import { buildM3Bundle } from '../../../packages/exporter/src/export-bundle';
+import { buildM3Bundle, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { fakeService, syntheticV3 } from '../m3-builds/helpers';
 
@@ -54,8 +54,8 @@ const PINNED_OPTIONS = {
 
 const CANARY_TOKEN = 'tl-canary-authoring-token-9f3c';
 
-/** The §5.4.1 reference entry (exporter/src/export-m3.ts): three core + (phase 17.1) the WebGPU renderer and TSL. */
-const REFERENCE_ENTRY = "import * as THREE from 'three';\nimport * as WEBGPU from 'three/webgpu';\nimport * as TSL from 'three/tsl';\nconsole.log(THREE.REVISION, WEBGPU.REVISION, Object.keys(TSL).length);\n";
+/** The §5.4.1 reference entry (exporter/src/export-m3.ts): phase 17.4 — the WebGPU build of three (core re-exported) and TSL. */
+const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu';\nimport * as TSL from 'three/tsl';\nconsole.log(WEBGPU.REVISION, Object.keys(TSL).length);\n";
 
 function count(text: string, needle: string): number {
   let n = 0;
@@ -85,7 +85,7 @@ function scanText(text: string, tokenValues: readonly string[]): Record<string, 
 }
 
 async function buildStdin(contents: string): Promise<string> {
-  const result = await build({ ...PINNED_OPTIONS, stdin: { contents, resolveDir: REPO_ROOT }, write: false });
+  const result = await build({ ...PINNED_OPTIONS, stdin: { contents, resolveDir: REPO_ROOT }, write: false, plugins: [THREE_WEBGPU_ONLY_PLUGIN as never] });
   const out = result.outputFiles?.[0];
   if (out === undefined) throw new Error('esbuild produced no output');
   return new TextDecoder().decode(out.contents);
@@ -95,13 +95,14 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
   it('re-verifies the §5.4.1 reference full-core three counts against the current install (binding 3)', async () => {
     const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
-    // The §5.4.1 recorded-exception table (pinned three@0.186.0, full core +
-    // phase 17.1 three/webgpu + three/tsl: +13 `process.` prose, +1 `http://`
-    // and +4 `https://` doc links; its six `node:` object keys are not
+    // The §5.4.1 recorded-exception table (pinned three@0.186.0; phase 17.4:
+    // the WebGPU build — core + three.webgpu + TSL, no three.module.js, so the
+    // one `https://` doc link only the WebGL renderer build had is gone:
+    // 4 `http://` + 26 `https://`; its six `node:` object keys are not
     // module specifiers).
     expect(ref.d).toBe(3);
     expect(ref.f).toBe(16);
-    expect(ref.h).toBe(31);
+    expect(ref.h).toBe(30);
     expect(ref.j).toBe(3);
     expect(ref.a + ref.b + ref.c + ref.e + ref.g + ref.i).toBe(0);
   }, 60_000);
@@ -175,10 +176,11 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     expect(inputs.some((p) => p.includes('packages/three-adapter/src/gltf-loader.ts'))).toBe(true);
     const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
     // GLTFLoader and its two utils, plus (2026-09-23) three's Draco/KTX2
-    // loaders with their helpers and the meshopt decoder, plus (phase 9.5b)
-    // the environment's sky and post-processing passes, plus (phase 17.3) the
-    // TSL sky and node post passes of the WebGPURenderer path (the DOF node
-    // pulls in the Gaussian blur node) — nothing else.
+    // loaders with their helpers and the meshopt decoder, plus (phase 17.3)
+    // the TSL sky and node post passes of the WebGPURenderer path (the DOF
+    // node pulls in the Gaussian blur node) — nothing else. Phase 17.4: the
+    // WebGL sky, EffectComposer passes and shaders are gone with the
+    // archived WebGL renderer path.
     expect(addons).toEqual([
       'libs/ktx-parse.module.js',
       'libs/meshopt_decoder.module.js',
@@ -187,27 +189,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
       'loaders/GLTFLoader.js',
       'loaders/KTX2Loader.js',
       'math/ColorSpaces.js',
-      'math/SimplexNoise.js',
-      'objects/Sky.js',
       'objects/SkyMesh.js',
-      'postprocessing/BokehPass.js',
-      'postprocessing/EffectComposer.js',
-      'postprocessing/GTAOPass.js',
-      'postprocessing/MaskPass.js',
-      'postprocessing/OutputPass.js',
-      'postprocessing/Pass.js',
-      'postprocessing/RenderPass.js',
-      'postprocessing/SMAAPass.js',
-      'postprocessing/ShaderPass.js',
-      'postprocessing/UnrealBloomPass.js',
-      'shaders/BokehShader.js',
-      'shaders/CopyShader.js',
-      'shaders/FXAAShader.js',
-      'shaders/GTAOShader.js',
-      'shaders/LuminosityHighPassShader.js',
-      'shaders/OutputShader.js',
-      'shaders/PoissonDenoiseShader.js',
-      'shaders/SMAAShader.js',
       'tsl/display/BloomNode.js',
       'tsl/display/DepthOfFieldNode.js',
       'tsl/display/FXAANode.js',

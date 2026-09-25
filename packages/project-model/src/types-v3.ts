@@ -104,6 +104,10 @@ export interface InstancesComponent {
   /** SHA-256 (64 lowercase hex) of the buffer bytes; byte length = count × 40. */
   buffer: string;
   count: number;
+  /** Phase 17.4: the copies cast the directional light's realtime shadow (absent: true). */
+  castShadow?: boolean;
+  /** Phase 17.4: the copies show realtime shadows falling on them (absent: true). */
+  receiveShadow?: boolean;
 }
 
 /** Floats per instance in an instance buffer. */
@@ -146,6 +150,14 @@ export interface LightComponent {
   direction?: Vec3;
   /** Directional only; defaulted to `false` by the §23.7 normalizer. */
   castShadow?: boolean;
+  /** Phase 17.4 (directional): shadow map width = height in texels (absent: 1024). */
+  shadowMapSize?: number;
+  /** Phase 17.4 (directional): depth bias of the shadow test (absent: -0.0005). */
+  shadowBias?: number;
+  /** Phase 17.4 (directional): offset along the surface normal in metres (absent: 0.02). */
+  shadowNormalBias?: number;
+  /** Phase 17.4 (directional): half the side of the shadowed square around the camera, metres (v4 games; absent: 24). */
+  shadowExtent?: number;
   /** Phase 9.5, point/spot: the reach in meters (0 = unlimited). */
   range?: number;
   /** Phase 9.5, point/spot: light falloff (2 = physical). */

@@ -70,6 +70,24 @@ const PINNED_OPTIONS = {
   define: { 'import.meta.url': 'location.href' },
 };
 
+/**
+ * Phase 17.4: every `import … from 'three'` (the engine's and three's own
+ * addons': GLTFLoader, KTX2Loader, SkeletonUtils, …) resolves to
+ * `three/webgpu`, so a browser bundle (the editor page, Play and the export) links one three build — the WebGPURenderer
+ * build (`three.core.js` + `three.webgpu.js`) — and not `three.module.js`
+ * (the WebGLRenderer, its shader chunks and the WebGL PMREM, which nothing
+ * uses since the switch-over). `three/webgpu` re-exports the whole core, so
+ * every class is the same object; the seven names only `three` has
+ * (WebGLRenderer, WebGLCubeRenderTarget, WebGLUtils, ShaderChunk, ShaderLib,
+ * UniformsLib, UniformsUtils) are used by no bundled module.
+ */
+const THREE_WEBGPU_ONLY_PLUGIN = {
+  name: 'thirdlight-three-webgpu-only',
+  setup(b) {
+    b.onResolve({ filter: /^three$/ }, (a) => b.resolve('three/webgpu', { kind: a.kind, resolveDir: a.resolveDir }));
+  },
+};
+
 /** dependencies.md §4.2 — the two bundles built by the workspace build script. */
 const BUNDLES = [
   {
@@ -118,7 +136,7 @@ for (const b of BUNDLES) {
   }
   const out = join(root, b.out);
   mkdirSync(dirname(out), { recursive: true });
-  await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS });
+  await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS, plugins: [THREE_WEBGPU_ONLY_PLUGIN] });
   console.log(`build: ${b.name}: ${b.entry} -> ${b.out}`);
   built += 1;
 }

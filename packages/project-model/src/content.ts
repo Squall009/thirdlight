@@ -1466,6 +1466,11 @@ export interface SettingsKeySpec {
   /** Phase 17.1: display text for each of `values` (same order), e.g. a backend name. */
   valueLabels?: readonly string[];
   /**
+   * Phase 17.4: values an older project may hold that stay valid (the engine
+   * reads them as documented next to the setting) but are no longer offered.
+   */
+  legacyValues?: readonly number[];
+  /**
    * Phase 15.3: an engine setting resolved only when the project sets it
    * (absent: the engine uses `default`), so a project that never sets it
    * keeps its exact resolved settings, manifest and digests.
@@ -1504,9 +1509,11 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // 0.2 s: a quick blend between two animation roles (idle, run, airborne).
   { key: 'animation_crossfade_s', type: 'number', default: 0.2, min: 0, max: 2, unit: 's', optional: true, group: 'Animation', label: 'Animation blend', tooltip: 'Seconds a model blends between its idle, run and airborne animations (animator transitions set their own).' },
   // Phase 17.1: the renderer backend of Play, the export and the Scene view
-  // (three-adapter RENDER_BACKEND_SETTING_VALUES). 0, the WebGL renderer: what
-  // every project drew with before WebGPU (the default until phase 17.4).
-  { key: 'render_backend', type: 'number', default: 0, values: [0, 1, 2, 3], valueLabels: ['WebGL (legacy)', 'Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2 (WebGPU renderer)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Renderer', tooltip: 'Which renderer draws the game and the Scene view: the WebGL renderer, WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. A page URL flag ?renderer=legacy|auto|webgpu|webgl2 overrides it.' },
+  // (three-adapter RENDER_BACKEND_SETTING_VALUES). Phase 17.4: 1, auto — WebGPU
+  // where the browser can start it, else WebGL 2: every browser with WebGL 2
+  // draws and the faster API is used where it exists. 0 was the archived WebGL
+  // renderer ("legacy"): still valid in an older project, read as auto.
+  { key: 'render_backend', type: 'number', default: 1, values: [1, 2, 3], legacyValues: [0], valueLabels: ['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Renderer', tooltip: 'Which backend draws the game and the Scene view: WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. WebGPU needs https or localhost. A page URL flag ?renderer=auto|webgpu|webgl2 overrides it.' },
 ];
 
 /** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */
@@ -1554,7 +1561,7 @@ function validateSettings(settings: unknown, path: string, errors: ModelErrorV2[
       errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
     } else if (spec.max !== undefined && (spec.maxExclusive ? value >= spec.max : value > spec.max)) {
       errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
-    } else if ((spec.integer === true && !Number.isInteger(value)) || (spec.values !== undefined && !spec.values.includes(value))) {
+    } else if ((spec.integer === true && !Number.isInteger(value)) || (spec.values !== undefined && !spec.values.includes(value) && spec.legacyValues?.includes(value) !== true)) {
       errors.push(settingsValueError(`${path}/${pointerSegment(key)}`, spec, value));
     }
   }

@@ -167,15 +167,23 @@ test('pad rebinding, menu sounds, ambience and the title background in Play', as
   // Settings → "Jump (pad)": press pad button 3.
   const items = flow.locator('.tl-flow__item');
   const selectItem = async (prefix: string): Promise<void> => {
+    // The menu reads keys on game frames (hundreds of ms apart when CPU-rendered): act only on a
+    // selection seen twice in a row, so a key press still on its way cannot be overtaken.
+    let seen = -2;
     await expect
       .poll(async () => {
         const labels = await items.allTextContents();
         const want = labels.findIndex((l) => l.startsWith(prefix));
         const at = await items.evaluateAll((els) => els.findIndex((e) => e.classList.contains('is-selected')));
+        if (at !== seen) {
+          seen = at;
+          return false;
+        }
         if (want < 0 || want === at) return want >= 0;
         await page.keyboard.press(want > at ? 'ArrowDown' : 'ArrowUp');
+        seen = -2;
         return false;
-      }, { timeout: 10_000 })
+      }, { timeout: 30_000, intervals: [400] })
       .toBe(true);
   };
   await selectItem('Settings');
