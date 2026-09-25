@@ -23,7 +23,7 @@
  *
  * Browser-only (React).
  */
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import {
   BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL,
   BEHAVIOR_TRUST_NOTICE,
@@ -51,6 +51,8 @@ export interface BehaviorPanelProps {
   document?: boolean;
   /** Phase 16.0: open a behavior in its own centre tab (double-click its tile). */
   onOpen?: (behaviorId: string) => void;
+  /** Phase 19.0: create a visual script (a behavior whose source is a graph) with this name. */
+  onCreateVisualScript?: (displayName: string) => void;
 }
 
 export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
@@ -58,6 +60,7 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
   const staged = p.publication.staged;
   const digest = staged?.digest ?? selected?.source?.sourceDigest ?? null;
   const acknowledged = digest !== null && p.publication.acknowledgedDigests.includes(digest);
+  const [visualName, setVisualName] = useState('');
 
   return (
     <div className={`tl-panel tl-behaviors${p.document === true ? ' tl-behaviors--document' : ''}`}>
@@ -88,7 +91,7 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
             <span className="tl-tile__name">{b.displayName}</span>
             <span className="tl-tile__meta">
               {b.declaration.properties.length} prop · r{b.publishedRevision}
-              {b.source !== null ? ' · source' : ' · declaration'}
+              {b.graph !== undefined ? ' · visual script' : b.source !== null ? ' · source' : ' · declaration'}
             </span>
           </li>
         ))}
@@ -99,6 +102,23 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
           + New behavior
         </button>
       </div>
+      {p.onCreateVisualScript !== undefined && (
+        <form
+          className="tl-behaviors__row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const name = visualName.trim();
+            if (name === '') return;
+            p.onCreateVisualScript?.(name);
+            setVisualName('');
+          }}
+        >
+          <input className="tl-prop__input" aria-label="New visual script name" placeholder="Visual script name" maxLength={128} value={visualName} onChange={(e) => setVisualName(e.target.value)} />
+          <button className="tl-btn tl-btn--small" type="submit" disabled={visualName.trim() === ''} title="A behavior whose logic is a node graph (opens as a Graph tab)">
+            + Visual script
+          </button>
+        </form>
+      )}
       </>
       )}
       {p.document === true && selected === null ? (

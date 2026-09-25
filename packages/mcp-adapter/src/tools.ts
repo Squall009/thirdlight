@@ -111,6 +111,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{entityId, behaviorId, values}; private ones are not shown and not settable (property_private): the script always reads the default. A script may declare ' +
       'its properties in its src/index.ts instead (export const properties = {speed: property.number(3, {min: 0, group: "Movement"}), secret: property.private.number(1)}): ' +
       'the compiler derives the declaration from the code, which wins over a JSON declaration sent with the source. ' +
+      'Visual scripts: publishBehavior {mode: "declaration-create", ..., graph: {nodes, edges}} creates a behavior whose logic is a node graph (graph kind "behavior"; ' +
+      'its catalogue is in tl_content_query target="game" includeDescriptors (graphKinds.behavior)); edit it with graphEdit {owner: {kind: "behavior", id: behaviorId}, ops} ' +
+      '(below). Exec ports (type exec) carry the flow from events (event.start: the first step of the script and of every run, event.step: every step) along one wire per ' +
+      'exec output (flow.sequence has several outputs); data ports carry number/boolean/string values (conversions number→string, boolean→string, boolean→number); an ' +
+      'unwired data input uses the node field of the same key; no cycles (repeat with flow.for: first..last, at most 10000 iterations per step, more is a script error with ' +
+      'the node id). Variables are var.number|var.boolean|var.string nodes {name (the property key), default, visibility: public|private, label?, group?, tooltip?} read and ' +
+      'written with var.get / var.set {variable, value? (set: the unwired value as text)} whose value port takes the variable\'s type; they are the behavior\'s properties (public ones set per object with setBehaviorProperties). Publishing compiles the ' +
+      'graph to TypeScript (the same compiler, limits and trust per digest) through the editor\'s Publish (HTTP POST content/behaviors/source {graph: true, ...}); ' +
+      'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
       'Prefabs: ' +
       'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
       'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 0|1|2|3 (0: WebGL legacy renderer, 1: auto = WebGPU else WebGL 2, 2: WebGPU, 3: WebGL 2 on the WebGPU renderer; a page URL flag ?renderer=legacy|auto|webgpu|webgl2 overrides it). Scenes: createScene {name, sceneId?}, ' +
@@ -192,6 +201,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'transitions (connect adds one transition: exit time 1, crossfade 0.1 s; disconnect removes the pair\'s transitions; conditions and several transitions per pair ' +
       'are edited with setAnimator). A blend tree graph has the fixed OUT node and one clip node {threshold, clip, asset, duration} per child. Such an edit records the ' +
       'same setAnimators change as setAnimator (one undo step). ' +
+      'A visual script is owner kind "behavior" (owner id = behaviorId, kind behavior; the change is graphEdit with the ops, one undo step). ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

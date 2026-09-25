@@ -55,6 +55,8 @@ export interface CompileDiagnostic {
   line?: number;
   column?: number;
   message: string;
+  /** Phase 19.0: the visual-script node the diagnostic is about (graph sources only). */
+  nodeId?: string;
 }
 
 /** The `compileBehavior` input (behaviors.md §5.1). */
@@ -95,6 +97,8 @@ export interface BehaviorManifest {
   declaration: { properties: DeclaredProperty[] };
   /** Phase 15.4: `true` when the declaration was derived from `export const properties` (absent otherwise). */
   declaredInCode?: true;
+  /** Phase 19.0: `'graph'` when src/index.ts was generated from a visual-script graph (absent otherwise). */
+  sourceKind?: 'graph';
   apiVersion: number;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
   outputDigest: string;
@@ -188,6 +192,8 @@ export interface PreparedBehaviorSource {
   declaration: { properties: DeclaredProperty[] };
   /** Phase 15.4: the declaration was derived from the code (absent otherwise). */
   declaredInCode?: true;
+  /** Phase 19.0: generated from a visual-script graph (absent otherwise). */
+  sourceKind?: 'graph';
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };

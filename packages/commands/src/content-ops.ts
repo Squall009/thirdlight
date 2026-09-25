@@ -11,14 +11,20 @@
  * **source** publication is refused before any stage/digest work (§8.8.2).
  */
 
-import type {
-  AssetRecord,
-  BehaviorComponent,
-  BehaviorRecord,
-  EntityV3,
-  ModelErrorV3,
-  PropertyValue,
-  SceneV3,
+import {
+  BEHAVIOR_GRAPH_KIND,
+  behaviorGraphContext,
+  canonicalGraphData,
+  validateGraphData,
+  type AssetRecord,
+  type BehaviorComponent,
+  type BehaviorRecord,
+  type EntityV3,
+  type GraphData,
+  type ModelErrorV2,
+  type ModelErrorV3,
+  type PropertyValue,
+  type SceneV3,
 } from '@thirdlight/project-model';
 
 import {
@@ -405,6 +411,28 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
       },
     };
   }
+  // Phase 19.0: a visual script's properties are its graph's variables (the
+  // declaration is derived from them when the graph is published); a rename
+  // (same declaration) is still an update.
+  if (existing !== null && args.mode === 'declaration-update' && existing.graph !== undefined && !deepEqual(existing.declaration, dv.declaration)) {
+    return {
+      ok: false,
+      error: {
+        ...behaviorDeclarationMismatch(args.behaviorId, 'declared_in_graph'),
+        message: "this behavior is a visual script: its properties are its graph's variables (declare them with Variable nodes and publish the graph); nothing was written",
+      },
+    };
+  }
+  let graph: GraphData | undefined;
+  if (args.graph !== undefined) {
+    const errors: ModelErrorV2[] = [];
+    validateGraphData(BEHAVIOR_GRAPH_KIND, args.graph, '', errors, behaviorGraphContext(args.graph));
+    if (errors.length > 0) {
+      const e = errors[0]!;
+      return { ok: false, error: { code: e.code, cls: 'validation', path: `/args/graph${e.path ?? ''}`, message: e.message, ...(e.found !== undefined ? { found: e.found } : {}) } as unknown as CommandError };
+    }
+    graph = canonicalGraphData(args.graph);
+  } else if (existing?.graph !== undefined) graph = deepClone(existing.graph);
   // step 6: declaration-update compatibility against every existing use.
   if (existing !== null && args.mode === 'declaration-update') {
     const uses = collectBehaviorUses(input.scene, catalog, args.behaviorId);
@@ -426,6 +454,8 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
     // tuning a declaration no longer detaches the source.
     source: existing !== null && args.mode === 'declaration-update' && existing.source !== null ? deepClone(existing.source) : null,
     publishedRevision: input.revision,
+    // Phase 19.0: a visual script keeps its graph (or starts with the one sent).
+    ...(graph !== undefined ? { graph } : {}),
   };
   return finishBehaviorPublication(input, catalog, record, existing);
 }
@@ -546,9 +576,13 @@ function applyPublishBehaviorSource(
       ...(prepared.ownedTransforms.length > 0 ? { ownedTransforms: [...prepared.ownedTransforms] } : {}),
       // Phase 15.4: the declaration comes from the code (editors show it read-only).
       ...(prepared.declaredInCode === true ? { declaredInCode: true as const } : {}),
+      // Phase 19.0: generated from the behavior's visual-script graph.
+      ...(prepared.sourceKind === 'graph' ? { kind: 'graph' as const } : {}),
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,
+    // Phase 19.0: publishing a source keeps the visual script's graph.
+    ...(existing.graph !== undefined ? { graph: deepClone(existing.graph) } : {}),
   };
   return finishBehaviorPublication(input, catalog, record, existing);
 }

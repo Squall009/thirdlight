@@ -23,7 +23,11 @@
  * (18.1) are standalone graphs of kind `material-function`; calls in any
  * graph resolve their ports through the validation context (the project's
  * standalone graphs and, in a material, its exposed parameters).
- * Later phases register the behavior (19) and effect (20) owners here with
+ * Phase 19.0: `behavior` — a visual script (`BehaviorRecord.graph`, kind
+ * `behavior`); the change is the generic `graphEdit` with its ops, undone by
+ * the inverse ops. Editing the graph does not touch the published source:
+ * publishing compiles it (the behavior source route).
+ * Later phases register the effect (20) owner here with
  * the same op set.
  */
 import {
@@ -43,6 +47,8 @@ import {
   GRAPH_KINDS,
   parseAnimatorOwnerId,
   type AnimatorController,
+  type BehaviorRecord,
+  behaviorGraphContext,
   validateGraphData,
   validateGraphDocument,
   type GraphData,
@@ -74,7 +80,17 @@ export interface GraphOwnerAdapter {
    * by the inverse ops).
    */
   record?(before: ContentDocument, after: ContentDocument): { change: ForwardChange; inverse: InverseSpec };
+  /**
+   * Phase 19.0: the context an edited graph validates in when it depends on
+   * the graph itself (absent = the context `read` gave) — a visual script's
+   * variables type its Get/Set ports, so an edit that adds a variable and
+   * wires it validates against the result.
+   */
+  contextOf?(content: ContentDocument, graph: GraphData): GraphContext;
 }
+
+/** Phase 19.0: the behavior records (a visual script keeps its graph in its record). */
+const behaviorsOf = (content: ContentDocument): BehaviorRecord[] => (content as ContentDocument & { behaviors?: BehaviorRecord[] }).behaviors ?? [];
 
 const animatorsOf = (content: ContentDocument): AnimatorController[] => (content as WithAnimators).animators ?? [];
 
@@ -134,6 +150,19 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
     },
   },
+  // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one).
+  behavior: {
+    read(content, id) {
+      const b = behaviorsOf(content).find((x) => x.behaviorId === id);
+      const kind = GRAPH_KINDS['behavior'];
+      return b?.graph !== undefined && kind !== undefined ? { kind, graph: b.graph, ctx: behaviorGraphContext(b.graph) } : null;
+    },
+    contextOf: (_content, graph) => behaviorGraphContext(graph),
+    write(content, id, graph) {
+      const list = behaviorsOf(content).map((b) => (b.behaviorId === id ? { ...b, graph } : b));
+      return { ...content, behaviors: list } as ContentDocument;
+    },
+  },
 };
 
 export const GRAPH_OWNER_KINDS: readonly string[] = Object.keys(GRAPH_OWNERS);
@@ -177,7 +206,7 @@ export function editOwnerGraph(
   const applied = applyGraphOps(current.graph, ops);
   if (!applied.ok) return { ok: false, error: modelError(applied.error, '/args/ops') };
   const errors: ModelErrorV2[] = [];
-  validateGraphData(current.kind, applied.graph, '', errors, current.ctx);
+  validateGraphData(current.kind, applied.graph, '', errors, adapter.contextOf !== undefined ? adapter.contextOf(content, applied.graph) : current.ctx);
   if (errors.length > 0) {
     // The result names graph paths (/nodes/3/…); say which op list produced it.
     const e = errors[0]!;

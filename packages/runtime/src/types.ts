@@ -855,6 +855,8 @@ export interface DiagnosticErrorEntry {
   reason?: string;
   /** The contract's short detail token (e.g. `duplicate_writer`). */
   detail?: string;
+  /** Phase 19.0: the visual-script node the error came from (graph behaviors only). */
+  nodeId?: string;
 }
 
 /**

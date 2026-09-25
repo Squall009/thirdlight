@@ -385,6 +385,27 @@ export {
   type GraphValue,
 } from './graph';
 export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KIND, GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
+// Phase 19.0: visual scripts (the `behavior` graph kind, its node catalogue and compile checks).
+export {
+  BEHAVIOR_API_NODES,
+  BEHAVIOR_GRAPH_KIND,
+  BEHAVIOR_GRAPH_LIMITS,
+  BEHAVIOR_VALUE_TYPES,
+  BEHAVIOR_VARIABLE_NAME_RE,
+  VARIABLE_PROPERTY_TYPE,
+  behaviorGraphContext,
+  behaviorGraphDeclaration,
+  checkBehaviorGraph,
+  isVariableAccess,
+  parseVariableValue,
+  variableLabel,
+  variableNodesOf,
+  variableTypeOf,
+  type BehaviorApiArg,
+  type BehaviorApiNodeSpec,
+  type BehaviorGraphProblem,
+  type BehaviorValueType,
+} from './behavior-graph';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).

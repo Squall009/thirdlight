@@ -39,7 +39,7 @@ import {
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, type BehaviorPropertyView } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
@@ -1187,6 +1187,8 @@ class RuntimeInstance implements Runtime {
   private failedPhase?: SimulationPhase;
   private failedStepIndex?: number;
   private errorRing: DiagnosticErrorEntry[] = [];
+  /** Phase 19.0: the visual-script node of the error being fail-stopped (consumed by `failStop`). */
+  private failNodeId: string | undefined = undefined;
   private errorCount = 0;
   private rafId: number | null = null;
   /** The settle pre-roll is initialization: cancellable before the first frame. */
@@ -3423,6 +3425,8 @@ class RuntimeInstance implements Runtime {
   private failStopFromError(e: unknown, stepIndex: number): void {
     const moduleId = this.currentModuleId;
     const phase = this.currentPhase;
+    // Phase 19.0: a visual script's error names the node it came from.
+    this.failNodeId = graphNodeIdOf(e);
     if (e instanceof PhaseViolationError) {
       this.failStop('module_error', 'phase_violation', messageOf(e), stepIndex, moduleId, phase);
       return;
@@ -3493,6 +3497,8 @@ class RuntimeInstance implements Runtime {
     if (moduleId !== undefined) entry.moduleId = moduleId;
     if (phase !== undefined) entry.phase = phase;
     if (detail !== undefined) entry.detail = detail;
+    if (this.failNodeId !== undefined) entry.nodeId = this.failNodeId;
+    this.failNodeId = undefined;
     this.recordError(entry);
     // M3 (gameplay.md §2.2 T7): a runtime fail-stop freezes the run at its
     // last committed value — no run event is appended and a failure is never

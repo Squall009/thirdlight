@@ -909,6 +909,61 @@ overrides; functions are `setGraph` with kind `material-function`. The
 catalogues are in `tl_content_query target="game" includeDescriptors`
 (`graphKinds.material`, `graphKinds["material-function"]`).
 
+## Visual scripts
+
+A behavior can be written as a node graph instead of TypeScript (phase
+19.0). Bottom dock → **Behaviors**: type a name next to **+ Visual script**
+and press it; the new behavior opens as a **Graph: <name>** centre tab (the
+graph editor above, with the visual-script catalogue) holding an **On
+start** node and one public number variable "value". Double-click a visual
+script's tile (it says "visual script") to open it again. The Inspector on
+the right edits the selected node's fields.
+
+- **Flow:** events start the flow along the white **exec** wires — **On
+  start** runs on the script's first step and again at the start of every
+  run (a new game or a replay: every run starts with fresh script state),
+  **On step** every fixed step (after the On start nodes of that step).
+  Each exec output takes one wire (a **Sequence** has four outputs, run top
+  to bottom); an exec input takes any number. **Branch** continues on true
+  or false; **For** runs its body once per whole number from first to last
+  and then "completed" — a script may run at most 10 000 loop iterations per
+  step, more stops the play with a script error naming the loop node.
+- **Data:** coloured wires carry numbers, true/false and text (a number or
+  true/false feeds a text input as text, true/false feeds a number as 1/0).
+  An input without a wire uses the value set on the node. Graphs have no
+  cycles: a value cannot feed itself, and repetition happens only inside a
+  For node. Nodes: Add, Subtract, Multiply, Divide (÷0 gives 0), Compare,
+  And, Or, Not, Log, Add to counter, Counter value, Emit signal, Signal
+  received (the full catalogue follows in 19.1).
+- **Variables:** a Number/Boolean/Text variable node declares one (its name
+  is the property key: lower case, a-z, 0-9, _). Public variables are the
+  script's properties — shown and set per object in the Inspector like any
+  script property; private ones start at their default. **Get variable** /
+  **Set variable** name a variable; their value port takes its type (a Get
+  naming no variable is grey and connects to anything until fixed). The
+  script's properties come only from its variables (the Behaviors tab
+  refuses a different declaration for a visual script).
+- **Check and publish:** a moment after each change the backend compiles
+  the graph (to TypeScript, with the same compiler, limits, output scan and
+  engine pins as a TypeScript script); problems are listed beside the graph
+  with their node (click one to frame it) — e.g. an empty counter name, a
+  Get naming no variable, a node no event reaches (a warning). **Publish**
+  shows the trust notice for a new digest, then publishes (one
+  `publishBehavior`, one undo step); Play and exports run the published
+  script, which the stored source record marks `kind: "graph"`. Editing
+  the graph never changes the published script until you publish again.
+- **Errors in Play:** a script error from a visual script names the node
+  that was running (`nodeId` in the play diagnostics and `tl_diagnostics`).
+
+Every graph gesture is one `graphEdit {owner: {kind: "behavior", id:
+behaviorId}, ops}` command (one undo step; MCP edits appear in the open tab).
+MCP creates one with `publishBehavior {mode: "declaration-create", …,
+graph: {nodes, edges}}`; publishing is `POST
+/api/v1/projects/<id>/content/behaviors/source {graph: true, behaviorId,
+displayName, expectedRevision, requestId}` (`{check: true, graph: true,
+behaviorId}` compiles without publishing and returns the digest to
+acknowledge). Limits: 256 nodes and 32 variables per visual script.
+
 ## Input actions
 
 The game reads named **actions**, not keys (bottom dock → Input): `move`

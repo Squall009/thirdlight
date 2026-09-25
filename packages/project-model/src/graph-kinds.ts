@@ -14,6 +14,7 @@
  * without depending on any later graph kind.
  */
 import type { GraphKindDef } from './graph';
+import { BEHAVIOR_GRAPH_KIND } from './behavior-graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND } from './material-graph-kinds';
 
 export const TEST_GRAPH_KIND: GraphKindDef = {
@@ -151,6 +152,8 @@ export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   [ANIMATOR_GRAPH_KIND.kind]: ANIMATOR_GRAPH_KIND,
   [ANIMATOR_LAYER_GRAPH_KIND.kind]: ANIMATOR_LAYER_GRAPH_KIND,
   [ANIMATOR_BLEND_GRAPH_KIND.kind]: ANIMATOR_BLEND_GRAPH_KIND,
+  // Phase 19.0: visual scripts (owner kind `behavior`).
+  [BEHAVIOR_GRAPH_KIND.kind]: BEHAVIOR_GRAPH_KIND,
   // Phase 18.1: material graphs (owner kind `material`) and material functions (standalone graphs).
   [MATERIAL_GRAPH_KIND.kind]: MATERIAL_GRAPH_KIND,
   [MATERIAL_FUNCTION_GRAPH_KIND.kind]: MATERIAL_FUNCTION_GRAPH_KIND,

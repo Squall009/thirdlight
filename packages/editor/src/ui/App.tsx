@@ -115,6 +115,8 @@ import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
+import type { VisualScriptCheckResult } from './script/VisualScriptDocument';
+import { behaviorPortContext, newBehaviorGraph } from '../session/behavior-graph';
 import { GraphsPanel } from '../graph/GraphsPanel';
 import { diagnoseGraph, portsResolver, type GraphKindDef, type GraphOp } from '../graph/model';
 import { graphsPortContext, materialPortContext } from '../session/material-graph';
@@ -299,6 +301,17 @@ function EditorApp(): JSX.Element {
   const openGraph = activeGraphId !== null ? (graphs.find((g) => g.graphId === activeGraphId) ?? null) : null;
   // A different graph in front starts with an empty selection.
   useEffect(() => setGraphSelection([]), [activeGraphId]);
+  // Phase 19.0: the visual script in front (a behavior with a graph), its selection and a focus request.
+  const [visualSelection, setVisualSelection] = useState<readonly string[]>([]);
+  const [visualFocus, setVisualFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const activeVisualId = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'visual-script' ? d.id : null;
+  })();
+  useEffect(() => {
+    setVisualSelection([]);
+    setVisualFocus(null);
+  }, [activeVisualId]);
   // Phase 16.2: the Animator tabs — which graph of each controller is shown
   // (an animator owner id: base layer, `@n` layer, `#state` blend tree), the
   // selection of the one in front (the Inspector shows it) and a focus request.
@@ -2923,6 +2936,77 @@ function EditorApp(): JSX.Element {
     [refreshEntities],
   );
 
+  // ---- phase 19.0: visual scripts ------------------------------------------------
+
+  const checkVisualScript = useCallback(async (behaviorId: string): Promise<VisualScriptCheckResult> => {
+    const c = clientRef.current;
+    if (!c) return { ok: false, error: { code: 'disconnected', message: 'not connected' } };
+    return c.checkBehaviorGraph(behaviorId);
+  }, []);
+
+  /**
+   * Publish a visual script: compile the stored graph (its digest), ask for
+   * or record the trust acknowledgment of a new digest, then the source route
+   * with `graph: true` (the backend generates the same bytes and runs one
+   * publishBehavior command).
+   */
+  const publishVisualScript = useCallback(
+    async (behaviorId: string, acknowledge: boolean): Promise<ScriptPublishOutcome> => {
+      const c = clientRef.current;
+      const view = behaviorViews.find((b) => b.behaviorId === behaviorId);
+      if (!c || !view) return { kind: 'failed', message: 'the behavior is not available' };
+      const checked = await c.checkBehaviorGraph(behaviorId);
+      if (!checked.ok) return { kind: 'failed', message: `${checked.error.code}: ${checked.error.message}` };
+      if (!checked.compiled) return { kind: 'failed', message: checked.diagnostics[0]?.message ?? checked.code };
+      let revision = c.projection.revision;
+      if (!c.acknowledgedDigests().includes(checked.sourceDigest)) {
+        if (!acknowledge) return { kind: 'needs-ack', digest: checked.sourceDigest };
+        const ack = await c.acknowledgeBehaviorTrust(checked.sourceDigest, revision);
+        if (!ack.ok) {
+          const r = ack.response;
+          return { kind: 'failed', message: r.ok ? 'the acknowledgment was not recorded' : `${r.code}: ${r.message ?? r.code}` };
+        }
+        revision = ack.revision;
+        setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: checked.sourceDigest, acknowledgedRevision: ack.revision }]));
+      }
+      const res = await c.publishBehaviorGraph(behaviorId, view.displayName, revision);
+      if (!res.ok) {
+        if (res.code === 'behavior_trust_unacknowledged' && res.sourceDigest !== undefined) return { kind: 'needs-ack', digest: res.sourceDigest };
+        return { kind: 'failed', message: `${res.code}: ${res.message}` };
+      }
+      refreshEntities();
+      return { kind: 'published', revision: res.revision, digest: res.sourceDigest };
+    },
+    [behaviorViews, refreshEntities],
+  );
+
+  /**
+   * A new visual script: a behavior created with a graph holding one On start
+   * node and one public number variable "value" (a behavior declares 1–32
+   * properties; the name is no genre's quantity). One publishBehavior command.
+   */
+  const createVisualScript = useCallback(
+    async (displayName: string): Promise<void> => {
+      const c = clientRef.current;
+      if (!c) return;
+      const base = displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'visual-script';
+      let behaviorId = base;
+      for (let i = 2; behaviorViews.some((b) => b.behaviorId === behaviorId); i++) behaviorId = `${base}-${i}`;
+      setBehaviorError(null);
+      const template = newBehaviorGraph();
+      const res = await c.command('publishBehavior', { behaviorId, displayName, mode: 'declaration-create', declaration: template.declaration, graph: template.graph }, c.projection.revision);
+      const err = refusal(res);
+      if (err !== null) {
+        setBehaviorError({ code: 'refused', message: err });
+        return;
+      }
+      for (let i = 0; i < 100 && c.projection.revision < (res as { revision: number }).revision; i++) await new Promise((r) => setTimeout(r, 20));
+      refreshEntities();
+      workspaceDispatch({ type: 'open', doc: { kind: 'visual-script', id: behaviorId } });
+    },
+    [behaviorViews, refreshEntities, workspaceDispatch],
+  );
+
   // A rejected token is forgotten and asked for again; an unknown project
   // goes back to the picker.
   useEffect(() => {
@@ -3011,9 +3095,12 @@ function EditorApp(): JSX.Element {
     onAcknowledge: (digest) => void acknowledgeDigest(digest),
     onPublishSource: () => void publishStagedSource(),
     onSaveDeclaration: saveDeclaration,
-    onOpen: (id) => openDocument('script', id),
+    // Phase 19.0: a visual script opens as a Graph tab, any other behavior as a Script tab.
+    onOpen: (id) => openDocument(behaviorViews.find((b) => b.behaviorId === id)?.graph !== undefined ? 'visual-script' : 'script', id),
+    onCreateVisualScript: (name) => void createVisualScript(name),
   };
   const animatorGraphEdit = (ownerId: string, ops: GraphOp[]): Promise<string | null> => sendGraphEdit({ kind: 'animator', id: ownerId }, ops);
+  const activeVisual = activeVisualId !== null ? (behaviorViews.find((b) => b.behaviorId === activeVisualId) ?? null) : null;
   const workspaceHost: WorkspaceHost = {
     animator: animatorProps,
     animatorDocument: (controllerId) => ({
@@ -3065,6 +3152,16 @@ function EditorApp(): JSX.Element {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
+    },
+    visualScript: {
+      kind: graphKinds['behavior'],
+      activePlay: behaviorProps.activePlay,
+      onEdit: (behaviorId, ops) => sendGraphEdit({ kind: 'behavior', id: behaviorId }, ops),
+      onSelection: setVisualSelection,
+      focus: visualFocus,
+      onFocus: (id) => setVisualFocus({ id, nonce: Date.now() }),
+      check: checkVisualScript,
+      publish: publishVisualScript,
     },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
@@ -3688,6 +3785,11 @@ function EditorApp(): JSX.Element {
               }}
               onFocus={(id) => setAnimatorFocus({ id, nonce: Date.now() })}
             />
+          </div>
+        ) : activeVisual?.graph !== undefined && graphKinds['behavior'] !== undefined ? (
+          <div className="tl-inspector" aria-label="visual script inspector">
+            <div className="tl-panel__title">Inspector</div>
+            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph)} />
           </div>
         ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">

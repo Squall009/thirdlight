@@ -304,9 +304,9 @@ export function validateSetGameConfigArgs(
 export function validatePublishBehaviorArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishBehaviorArgs> | { ok: false; error: CommandError } {
-  const KNOWN = 'behaviorId, displayName, mode, declaration, source (source mode only)';
+  const KNOWN = 'behaviorId, displayName, mode, declaration, source (source mode only), graph (declaration-create only)';
   for (const key of Object.keys(args)) {
-    if (!['behaviorId', 'displayName', 'mode', 'declaration', 'source'].includes(key)) {
+    if (!['behaviorId', 'displayName', 'mode', 'declaration', 'source', 'graph'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -347,6 +347,13 @@ export function validatePublishBehaviorArgs(
   if (mode === 'source' && args['source'] === undefined) {
     return { ok: false, error: fieldMissing('/args/source', 'source') };
   }
+  // Phase 19.0: a new behavior may start as a visual script (its graph; validated by the op).
+  if (args['graph'] !== undefined && mode !== 'declaration-create') {
+    return { ok: false, error: fieldUnexpected('/args/graph', 'graph', KNOWN, 'graph is only permitted with mode "declaration-create" (edit a visual script with graphEdit)') };
+  }
+  if (args['graph'] !== undefined && !isPlainObject(args['graph'])) {
+    return { ok: false, error: fieldType('/args/graph', args['graph'], 'object { nodes, edges }') };
+  }
   if (args['declaration'] === undefined) {
     return { ok: false, error: fieldMissing('/args/declaration', 'declaration') };
   }
@@ -376,6 +383,7 @@ export function validatePublishBehaviorArgs(
     displayName: args['displayName'],
     mode,
     declaration: declaration as unknown as PublishBehaviorArgs['declaration'],
+    ...(args['graph'] !== undefined ? { graph: args['graph'] as unknown as NonNullable<PublishBehaviorArgs['graph']> } : {}),
   };
   if (args['source'] !== undefined) {
     if (!isPlainObject(args['source'])) {

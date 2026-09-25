@@ -201,6 +201,7 @@ function preparedSourceFromCompile(compiled: BehaviorCompileSuccess): PreparedBe
     ownedTransforms: [...m.ownedTransforms],
     declaration: { properties: m.declaration.properties.map((p) => ({ ...p })) },
     ...(m.declaredInCode === true ? { declaredInCode: true as const } : {}),
+    ...(m.sourceKind === 'graph' ? { sourceKind: 'graph' as const } : {}),
     declarationDigest: compiled.declarationDigest,
     recipeDigest: compiled.recipeDigest,
     compiler: { ...m.compiler },

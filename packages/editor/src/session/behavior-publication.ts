@@ -59,6 +59,8 @@ export interface CompileDiagnosticView {
   path?: string;
   line?: number;
   column?: number;
+  /** Phase 19.0: the visual-script node the diagnostic is about. */
+  nodeId?: string;
 }
 
 /** The bounded compile failure the publication panel renders (≤ 32 entries). */

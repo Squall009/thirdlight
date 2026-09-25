@@ -52,6 +52,7 @@ import type {
   GameFlow,
   InputConfig,
   MaterialDef,
+  GraphData,
   GraphDocument,
   GraphOp,
 } from '@thirdlight/project-model';
@@ -1035,6 +1036,8 @@ export interface PreparedBehaviorSourceFact {
   declaration: PropertyDeclaration;
   /** Phase 15.4: the declaration was derived from `export const properties` in the code. */
   declaredInCode?: true;
+  /** Phase 19.0: the source was generated from a visual-script graph. */
+  sourceKind?: 'graph';
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
@@ -1228,6 +1231,8 @@ export interface PublishBehaviorArgs {
   declaration: PropertyDeclaration;
   /** Only with `mode: "source"` (unavailable in M2). */
   source?: { sourceDigest: string; sourceByteLength: number };
+  /** Phase 19.0: only with `mode: "declaration-create"` — the new behavior is a visual script with this graph. */
+  graph?: GraphData;
 }
 
 /** `setBehaviorProperties` args (commands.md §3.1.5/§8.9). */

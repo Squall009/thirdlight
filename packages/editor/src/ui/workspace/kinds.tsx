@@ -23,6 +23,7 @@ import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
+import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/VisualScriptDocument';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -47,6 +48,8 @@ export interface WorkspaceHost {
     /** Phase 18.1: sub-graph calls in a standalone graph (material functions calling functions) read their ports here. */
     portContext: GraphContext;
   };
+  /** Phase 19.0: visual scripts (behaviors with a graph) — everything but the behavior itself. */
+  visualScript: Omit<VisualScriptDocumentProps, 'behaviorId' | 'behavior'>;
   /** Phase 18.0: the props of one graph material's tab (all materials share them). */
   material: Omit<MaterialDocumentProps, 'materialId'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
@@ -148,8 +151,20 @@ const materialKind: DocumentKind = {
   render: (id, host) => <MaterialDocument key={id} {...host.material} materialId={id} />,
 };
 
+/**
+ * Phase 19.0: a visual script — a behavior whose source is a graph — in the
+ * generic graph editor with the `behavior` kind ("Graph: <behavior>").
+ */
+const visualScriptKind: DocumentKind = {
+  kind: 'visual-script',
+  label: 'Graph',
+  icon: GRAPH_ICON,
+  name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
+  render: (id, host) => <VisualScriptDocument key={id} {...host.visualScript} behaviorId={id} behavior={host.behavior.behaviors.find((b) => b.behaviorId === id) ?? null} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

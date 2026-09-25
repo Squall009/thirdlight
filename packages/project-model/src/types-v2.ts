@@ -321,6 +321,12 @@ export interface BehaviorSourceRecord {
    * records stay byte-identical). Editors show such a declaration read-only.
    */
   declaredInCode?: true;
+  /**
+   * Phase 19.0: `'graph'` when the published source was generated from the
+   * behavior's visual-script graph (`BehaviorRecord.graph`); absent for a
+   * TypeScript source (older records stay byte-identical).
+   */
+  kind?: 'graph';
   publishedRevision: number;
 }
 
@@ -330,6 +336,13 @@ export interface BehaviorRecord {
   declaration: PropertyDeclaration;
   source: BehaviorSourceRecord | null;
   publishedRevision: number;
+  /**
+   * Phase 19.0 (v4 content only): the visual script — a graph of kind
+   * `behavior`, edited with `graphEdit {owner: {kind: "behavior", id}}`.
+   * Present = the behavior is a visual script; publishing compiles it (the
+   * published `source` then has `kind: 'graph'`). The game never reads it.
+   */
+  graph?: import('./graph').GraphData;
 }
 
 export interface TrustEntry {
