@@ -13,7 +13,8 @@
  * (or `@graphNode skip <reason>`), `@graphPure` (a query without side
  * effects: a data node evaluated where it is read; everything else is an
  * exec node run once in the flow), `@graphDefault <arg> <value>` (an inline
- * default), `@graphLabel <arg> <label>` (an argument's label) and
+ * default), `@graphLabel <arg> <label>` (an argument's label), `@graphAsset
+ * <arg> <kind>` (a text naming an asset of that kind) and
  * `@graphPhase <phase>` (an intent valid in one phase).
  */
 import type { GraphValue } from './graph';
@@ -50,6 +51,8 @@ export interface BehaviorApiArg {
   axes?: readonly string[];
   /** A rest text parameter: the text is split at commas. */
   rest?: true;
+  /** The text names an asset of this kind (the Inspector offers the project's assets of that kind). */
+  asset?: string;
 }
 
 /** How one call argument is built from the node's arguments. */

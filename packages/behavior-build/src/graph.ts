@@ -2,8 +2,12 @@
  * Phase 19.0/19.1: the visual-script compiler front end (graph → TypeScript).
  *
  * A behavior graph (project-model `BEHAVIOR_GRAPH_KIND`) with its functions
- * and the shared functions it calls is turned into one TypeScript file,
- * `src/index.ts`, in an ordinary source-graph container; that container goes
+ * and the shared functions it calls is turned into TypeScript files in an
+ * ordinary source-graph container — the entry `src/index.ts` (properties,
+ * events), `src/graph-runtime.ts` (shared helpers) and the node functions in
+ * `src/graph-nodes-<n>.ts` (about 40 KB each, under the compiler's 64 KiB per
+ * file; they register into a table the entry owns, so no import cycles).
+ * That container goes
  * through the one behavior compiler (`compileBehavior`) like any
  * hand-written source — the same limits, output scan, engine pins, trust
  * gate and publication. The file declares its properties in code
@@ -96,8 +100,8 @@ export type GraphSourceResult =
       containerBytes: Uint8Array;
       /** The declaration the graph's variables make (what the compiler will derive from the code). */
       declaration: PropertyDeclaration;
-      /** The node each line of `src/index.ts` belongs to (null: shared code). */
-      lineNodes: (string | null)[];
+      /** Per file: the node each line belongs to (null: shared code). */
+      lineNodes: Record<string, (string | null)[]>;
       /** Warnings (never block a compile). */
       problems: BehaviorGraphProblem[];
     }
@@ -159,11 +163,39 @@ function zero(type: string): string {
 class Emitter {
   readonly lines: string[] = [];
   readonly nodes: (string | null)[] = [];
+  bytes = 0;
   line(text: string, nodeId: string | null = null): void {
     this.lines.push(text);
     this.nodes.push(nodeId);
+    this.bytes += utf8Encode(text).length + 1;
+  }
+  /** A node function starts (the chunked emitter may begin a new file here). */
+  boundary(): void {}
+}
+
+/**
+ * The node functions, spread over files of at most `CHUNK_BYTES` (the
+ * compiler bounds one file to 64 KiB): each file exports `install(N)`, which
+ * puts its node functions into the table `N` the entry file owns; node
+ * functions call each other through `N`, so the files import only the
+ * helpers (no import cycles).
+ */
+class ChunkEmitter extends Emitter {
+  readonly chunks: Emitter[] = [];
+  override line(text: string, nodeId: string | null = null): void {
+    if (this.chunks.length === 0) this.chunks.push(new Emitter());
+    this.chunks[this.chunks.length - 1]!.line(text, nodeId);
+  }
+  override boundary(): void {
+    const cur = this.chunks[this.chunks.length - 1];
+    if (cur === undefined || cur.bytes > CHUNK_BYTES) this.chunks.push(new Emitter());
   }
 }
+
+/** Bytes of node code per file (below the compiler's 64 KiB per file, leaving room for one more node). */
+const CHUNK_BYTES = 40_000;
+const HELPERS_PATH = 'src/graph-runtime.ts';
+const chunkPath = (i: number): string => `src/graph-nodes-${i + 1}.ts`;
 
 class CompileError extends Error {
   constructor(readonly problem: BehaviorGraphProblem) {
@@ -324,6 +356,9 @@ function rint(s: S, a: number, b: number): number {
   return hi < lo ? lo : lo + Math.floor(rnd(s) * (hi - lo + 1));
 }`;
 
+/** The value names the helpers export (every generated file imports them). */
+const HELPER_NAMES = [...RUNTIME_HELPERS.matchAll(/^(?:function|const) ([A-Za-z0-9_]+)/gm)].map((m) => m[1]!);
+
 /** The code of one graph (the script, a function or a shared function). */
 class GraphCode {
   readonly nodes: GraphNode[];
@@ -422,7 +457,7 @@ class GraphCode {
     if (src.type === 'fn.input') return `f.a[${this.inputIndex.get(src.id) ?? 0}]`;
     if (this.isEvent(src) || this.isExec(src) || src.type === 'fn.entry') return `(f.o[${q(`${src.id}.${port.id}`)}] ?? ${zero(port.type)})`;
     const outs = this.portsOf(src).outputs;
-    return outs.length === 1 ? `${this.name(src)}(s, c, r, f)` : `${this.name(src)}(s, c, r, f)[${q(port.id)}]`;
+    return outs.length === 1 ? `N.${this.name(src)}(s, c, r, f)` : `N.${this.name(src)}(s, c, r, f)[${q(port.id)}]`;
   }
 
   /** The value an input port reads: its wire (converted) or the node's inline value. */
@@ -465,17 +500,18 @@ class GraphCode {
 
   /** Calls of the exec nodes an exec output leads to (one wire, or none). */
   follow(n: GraphNode, portId: string, indent: string, em: Emitter, frame = 'f'): void {
-    for (const to of this.outgoing.get(`${n.id}\u0000${portId}`) ?? []) em.line(`${indent}${this.execName(this.byId.get(to.node)!, to.port)}(s, c, r, ${frame});`, this.sid(n));
+    for (const to of this.outgoing.get(`${n.id}\u0000${portId}`) ?? []) em.line(`${indent}N.${this.execName(this.byId.get(to.node)!, to.port)}(s, c, r, ${frame});`, this.sid(n));
   }
 
   /** The frame constructor of this graph (its local variables at their defaults). */
   emitFrame(em: Emitter): void {
+    em.boundary();
     em.line('');
-    em.line(`function ${this.prefix}L(a: any[]): F {`);
+    em.line(`  N.${this.prefix}L = function (a: any[]): F {`);
     const vars: string[] = [];
     for (const [name] of this.locals) vars.push(`${q(name)}: ${this.localDefault(this.declared.get(name)!)}`);
-    em.line(`  return { o: {}, a, v: { ${vars.join(', ')} } };`);
-    em.line('}');
+    em.line(`    return { o: {}, a, v: { ${vars.join(', ')} } };`);
+    em.line('  };');
   }
   localDefault(n: GraphNode): string {
     const k = variableTypeOf(n.type)!;
@@ -511,8 +547,9 @@ class GraphCode {
 
   emitData(n: GraphNode, em: Emitter): void {
     const id = q(this.sid(n));
+    em.boundary();
     em.line('');
-    em.line(`function ${this.name(n)}(s: S, c: any, r: R, f: F): any {`, this.sid(n));
+    em.line(`N.${this.name(n)} = function (s: S, c: any, r: R, f: F): any {`, this.sid(n));
     const a = this.args(n, em);
     const A = (k: string): string => a.get(k)!;
     em.line(`  r.n = ${id};`, this.sid(n));
@@ -722,7 +759,7 @@ class GraphCode {
     }
     if (expr === null) this.fail(n, `the compiler has no code for "${n.type}"`);
     em.line(`  return ${expr};`, this.sid(n));
-    em.line('}', this.sid(n));
+    em.line('};', this.sid(n));
   }
 
   /** An API node's call expression (`c.game?.add(a0, a1)`). */
@@ -805,14 +842,15 @@ class GraphCode {
     const sid = this.sid(n);
     const id = q(sid);
     const execIns = d.inputs.filter((p) => p.type === 'exec');
+    em.boundary();
     const open = (port: string): Map<string, string> => {
       em.line('');
-      em.line(`function ${this.execName(n, port)}(s: S, c: any, r: R, f: F): void {`, sid);
+      em.line(`N.${this.execName(n, port)} = function (s: S, c: any, r: R, f: F): void {`, sid);
       const a = port === 'in' || execIns.length === 1 ? this.args(n, em) : new Map<string, string>();
       em.line(`  r.n = ${id};`, sid);
       return a;
     };
-    const close = (): void => em.line('}', sid);
+    const close = (): void => em.line('};', sid);
     const store = (port: string, value: string, indent = '  '): void => em.line(`${indent}f.o[${q(`${n.id}.${port}`)}] = ${value};`, sid);
     const g = `s.g[${id}]`;
     switch (n.type) {
@@ -956,7 +994,7 @@ class GraphCode {
         if (fn === null) this.fail(n, 'the called function does not exist');
         const ins = this.portsOf(n).inputs.filter((p) => p.type !== 'exec');
         const outs = this.portsOf(n).outputs.filter((p) => p.type !== 'exec');
-        em.line(`  const out = ${fn}(s, c, r, [${ins.map((p) => a.get(p.id)).join(', ')}]);`, sid);
+        em.line(`  const out = N.${fn}(s, c, r, [${ins.map((p) => a.get(p.id)).join(', ')}]);`, sid);
         em.line(`  r.n = ${id};`, sid);
         outs.forEach((p, i) => store(p.id, `out[${i}]`));
         this.follow(n, 'then', '  ', em);
@@ -987,9 +1025,10 @@ class GraphCode {
   emitEvent(n: GraphNode, em: Emitter): void {
     const sid = this.sid(n);
     const id = q(sid);
-    const L = `${this.prefix}L([])`;
+    const L = `N.${this.prefix}L([])`;
+    em.boundary();
     em.line('');
-    em.line(`function ${this.name(n)}(s: S, c: any, r: R): void {`, sid);
+    em.line(`N.${this.name(n)} = function (s: S, c: any, r: R): void {`, sid);
     em.line(`  r.n = ${id};`, sid);
     const fire = (indent: string, outputs: [string, string][] = []): void => {
       em.line(`${indent}{`, sid);
@@ -1100,15 +1139,16 @@ class GraphCode {
       default:
         this.fail(n, `the compiler has no code for "${n.type}"`);
     }
-    em.line('}', sid);
+    em.line('};', sid);
   }
 
   /** A function graph as one TypeScript function: a new frame, the flow from its start, its outputs. */
   emitFunction(em: Emitter, fname: string): void {
     const entry = this.nodes.find((n) => n.type === 'fn.entry');
+    em.boundary();
     em.line('');
-    em.line(`function ${fname}(s: S, c: any, r: R, a: any[]): any[] {`);
-    em.line(`  const f = ${this.prefix}L(a);`);
+    em.line(`N.${fname} = function (s: S, c: any, r: R, a: any[]): any[] {`);
+    em.line(`  const f = N.${this.prefix}L(a);`);
     if (entry !== undefined) {
       em.line(`  r.n = ${q(this.sid(entry))};`, this.sid(entry));
       this.follow(entry, 'then', '  ', em);
@@ -1119,7 +1159,7 @@ class GraphCode {
       return this.readInput(node, p);
     });
     em.line(`  return [${outs.join(', ')}];`);
-    em.line('}');
+    em.line('};');
   }
 }
 
@@ -1180,23 +1220,29 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
   const script = new ScriptCode(graphs);
   const main = script.scriptCode!;
   const em = new Emitter();
+  const nodesEm = new ChunkEmitter();
   const declaration = behaviorGraphDeclaration(graph);
   const phases = behaviorNodePhases(graphs);
   try {
+    for (const code of script.codes) {
+      code.emitFrame(nodesEm);
+      code.emitNodes(nodesEm);
+      const fname = script.functionName(code.sg.scope);
+      if (fname !== null) code.emitFunction(nodesEm, fname);
+    }
     em.line(GRAPH_SOURCE_BANNER);
     em.line('/* eslint-disable */');
+    em.line(`import { ${HELPER_NAMES.join(', ')} } from './${HELPERS_PATH.slice(4, -3)}';`);
+    em.line(`import type { R, S } from './${HELPERS_PATH.slice(4, -3)}';`);
+    nodesEm.chunks.forEach((_c, i) => em.line(`import { install as install${i + 1} } from './${chunkPath(i).slice(4, -3)}';`));
     em.line('');
     em.line('export const properties = {');
     for (const p of declaration.properties) em.line(`  ${p.key}: ${propertyCall(p)},`);
     em.line('};');
     em.line('');
-    for (const l of RUNTIME_HELPERS.split('\n')) em.line(l);
-    for (const code of script.codes) {
-      code.emitFrame(em);
-      code.emitNodes(em);
-      const fname = script.functionName(code.sg.scope);
-      if (fname !== null) code.emitFunction(em, fname);
-    }
+    em.line('// The node functions (graph-nodes-*.ts) by name.');
+    em.line('const N: Record<string, any> = {};');
+    nodesEm.chunks.forEach((_c, i) => em.line(`install${i + 1}(N);`));
 
     // The module: per-object variables, and the events of each phase in their fixed order.
     const instanceVars: string[] = [];
@@ -1238,12 +1284,12 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
       const starts = events.filter((n) => n.type === 'event.start');
       em.line(`        if (s.st[${q(phase)}] !== true) {`);
       em.line(`          s.st[${q(phase)}] = true;`);
-      for (const n of starts) em.line(`          ${main.name(n)}(s, c, r);`, n.id);
+      for (const n of starts) em.line(`          N.${main.name(n)}(s, c, r);`, n.id);
       em.line('        }');
       const rest = [...events.filter((n) => n.type !== 'event.start'), ...delays].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       for (const n of rest) {
         if (n.type !== 'flow.delay') {
-          em.line(`        ${main.name(n)}(s, c, r);`, n.id);
+          em.line(`        N.${main.name(n)}(s, c, r);`, n.id);
           continue;
         }
         // A pending Delay continues in the step its timer fires, with the frame it kept.
@@ -1268,14 +1314,25 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     throw e;
   }
 
+  const helpers = RUNTIME_HELPERS.split('\n').map((l) => (/^(function|const|type) /.test(l) ? `export ${l}` : l));
+  const files: { path: string; text: string }[] = [
+    { path: ENTRY_PATH, text: em.lines.join('\n') },
+    { path: HELPERS_PATH, text: ['/* eslint-disable */', ...helpers, ''].join('\n') },
+  ];
+  const lineNodes: Record<string, (string | null)[]> = { [ENTRY_PATH]: em.nodes };
+  nodesEm.chunks.forEach((c, i) => {
+    const head = ['/* eslint-disable */', `import { ${HELPER_NAMES.join(', ')} } from './${HELPERS_PATH.slice(4, -3)}';`, `import type { F, R, S } from './${HELPERS_PATH.slice(4, -3)}';`, '', 'export function install(N: Record<string, any>): void {'];
+    files.push({ path: chunkPath(i), text: [...head, ...c.lines, '}', ''].join('\n') });
+    lineNodes[chunkPath(i)] = [...head.map(() => null), ...c.nodes, null, null];
+  });
   const container: SourceGraphContainer = {
     graphVersion: 1,
     entryPath: ENTRY_PATH,
     requiredModules: [],
     ownedTransforms: behaviorOwnedTransforms(graphs),
-    files: [{ path: ENTRY_PATH, text: em.lines.join('\n') }],
+    files: files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
   };
-  return { ok: true, container, containerBytes: utf8Encode(canonicalContainerText(container)), declaration, lineNodes: em.nodes, problems: checked.filter((p) => p.severity === 'warning') };
+  return { ok: true, container, containerBytes: utf8Encode(canonicalContainerText(container)), declaration, lineNodes, problems: checked.filter((p) => p.severity === 'warning') };
 }
 
 /** `property[.private].<type>(default, { label, values?, group?, tooltip? })` for the code declaration. */
@@ -1288,9 +1345,9 @@ function propertyCall(p: DeclaredProperty): string {
 }
 
 /** Compile diagnostics with the node of their line (`nodeId`), when the line is a node's code. */
-export function diagnosticsWithNodes(diagnostics: readonly CompileDiagnostic[], lineNodes: readonly (string | null)[]): CompileDiagnostic[] {
+export function diagnosticsWithNodes(diagnostics: readonly CompileDiagnostic[], lineNodes: Readonly<Record<string, readonly (string | null)[]>>): CompileDiagnostic[] {
   return diagnostics.map((d) => {
-    const id = d.path === ENTRY_PATH && typeof d.line === 'number' ? lineNodes[d.line - 1] : null;
+    const id = typeof d.path === 'string' && typeof d.line === 'number' ? lineNodes[d.path]?.[d.line - 1] : null;
     return id !== null && id !== undefined ? { ...d, nodeId: id } : { ...d };
   });
 }
@@ -1307,7 +1364,7 @@ export function graphProblemsFailure(problems: readonly BehaviorGraphProblem[]):
 }
 
 export type BehaviorGraphCompileResult =
-  | { ok: true; result: Extract<BehaviorCompileResult, { ok: true }>; containerBytes: Uint8Array; lineNodes: (string | null)[]; warnings: BehaviorGraphProblem[] }
+  | { ok: true; result: Extract<BehaviorCompileResult, { ok: true }>; containerBytes: Uint8Array; lineNodes: Record<string, (string | null)[]>; warnings: BehaviorGraphProblem[] }
   | { ok: false; failure: BehaviorCompileFailure; containerBytes: Uint8Array | null; warnings: BehaviorGraphProblem[] };
 
 /**

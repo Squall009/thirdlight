@@ -524,7 +524,8 @@ function apiArgFields(a: BehaviorApiArg): GraphFieldDef[] {
   if (a.options !== undefined) return [{ key: a.id, label: a.label, type: 'enum', options: a.options, default: typeof a.default === 'string' ? a.default : a.options[0]! }];
   if (a.type === 'typed') return [typeField(`${a.id}_type`, `${a.label} type`, a.types ?? BEHAVIOR_DATA_TYPES, (a.types ?? BEHAVIOR_DATA_TYPES)[0]!), { key: a.id, label: a.label, type: 'string', default: '', maxLength: 256 }];
   if (a.default === undefined) return [];
-  const f = inlineField(a.id, a.label, a.type, a.default);
+  const f0 = inlineField(a.id, a.label, a.type, a.default);
+  const f = f0 !== null && a.asset !== undefined ? { ...f0, asset: a.asset } : f0;
   const out = f === null ? [] : [f];
   if (a.axes !== undefined) {
     const opts = axesOptions(a.axes);

@@ -24,7 +24,7 @@
  *
  * Doc tags in the runtime typings steer it (see project-model
  * behavior-api.ts): `@graphNode <label>` / `@graphNode skip <reason>`,
- * `@graphPure`, `@graphDefault <arg> <value>`, `@graphLabel <arg> <label>`, `@graphPhase <phase>`,
+ * `@graphPure`, `@graphDefault <arg> <value>`, `@graphLabel <arg> <label>`, `@graphAsset <arg> <kind>`, `@graphPhase <phase>`,
  * `@graphType list` (a number array that is not a vector).
  *
  * Output: `packages/project-model/src/behavior-api.generated.ts` (checked
@@ -68,7 +68,7 @@ function tagText(tag) {
 
 /** The `@graph…` tags of a declaration. */
 function graphTags(decl) {
-  const out = { node: null, skip: null, pure: false, defaults: new Map(), labels: new Map(), phase: null, type: null };
+  const out = { node: null, skip: null, pure: false, defaults: new Map(), labels: new Map(), assets: new Map(), phase: null, type: null };
   if (decl === undefined) return out;
   for (const tag of ts.getJSDocTags(decl)) {
     const name = tag.tagName.text;
@@ -86,6 +86,10 @@ function graphTags(decl) {
       const m = /^(\S+)\s+(.+)$/.exec(text);
       if (m === null) throw new Error(`gen-behavior-graph-api: @graphLabel needs "<arg> <label>" (got "${text}")`);
       out.labels.set(m[1], m[2].trim());
+    } else if (name === 'graphAsset') {
+      const m = /^(\S+)\s+([a-z]+)$/.exec(text);
+      if (m === null) throw new Error(`gen-behavior-graph-api: @graphAsset needs "<arg> <asset kind>" (got "${text}")`);
+      out.assets.set(m[1], m[2]);
     } else if (name === 'graphPhase') {
       if (text !== 'intent' && text !== 'transform') throw new Error(`gen-behavior-graph-api: @graphPhase is intent or transform (got "${text}")`);
       out.phase = text;
@@ -249,8 +253,9 @@ class Builder {
         return { ...base, type: d.kind, default: def ?? TYPE_DEFAULT[d.kind] };
       case 'string': {
         if (name === 'entityId') return { ...base, label: tags.labels.get(name) ?? 'entity', type: 'string', default: '', self: true };
-        if (optional) return { ...base, type: 'string', default: def ?? '', omitEmpty: true };
-        return { ...base, type: 'string', default: def ?? '', ...(def === undefined ? { required: true } : {}) };
+        const asset = tags.assets.has(name) ? { asset: tags.assets.get(name) } : {};
+        if (optional) return { ...base, type: 'string', default: def ?? '', omitEmpty: true, ...asset };
+        return { ...base, type: 'string', default: def ?? '', ...(def === undefined ? { required: true } : {}), ...asset };
       }
       case 'vector':
       case 'vec2':

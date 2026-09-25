@@ -85,8 +85,8 @@ export function parseContainer(text: string): { ok: true; container: ScriptConta
 }
 
 /**
- * A new behavior's starting source: declares one property in code (a
- * behavior declares 1..32 properties) and a `step` that does nothing yet.
+ * A new behavior's starting source: declares one example property in code (a
+ * behavior declares 0..32) and a `step` that does nothing yet.
  * The declaration already published for the behavior is kept when it exists:
  * then no property is declared in code.
  */

@@ -758,6 +758,7 @@ export interface BehaviorAudio {
    * Play an audio asset once (volume 0–1).
    * @graphNode Play sound
    * @graphLabel assetId sound
+   * @graphAsset assetId audio
    * @graphDefault volume 1
    */
   play(assetId: string, options?: { volume?: number }): void;

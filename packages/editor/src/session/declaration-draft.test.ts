@@ -34,7 +34,8 @@ describe('phase 15.4: declaration drafts', () => {
     expect(declarationOf([drafts[0]!, { ...drafts[1]!, key: 'speed' }])).toMatchObject({ ok: false, problem: { index: 1, field: 'key' } });
     expect(declarationOf([{ ...drafts[2]!, default: 'fly' }])).toMatchObject({ ok: false, problem: { field: 'default' } });
     expect(declarationOf([{ ...drafts[3]!, boundsMax: '1, 1' }])).toMatchObject({ ok: false, problem: { field: 'boundsMax' } });
-    expect(declarationOf([])).toMatchObject({ ok: false, problem: { field: 'properties' } });
+    // Phase 19.1: no property at all is a valid declaration.
+    expect(declarationOf([])).toEqual({ ok: true, declaration: { properties: [] } });
   });
 
   it('new properties get unused keys; retyping resets the default', () => {

@@ -3791,7 +3791,7 @@ function EditorApp(): JSX.Element {
         ) : activeVisual?.graph !== undefined && graphKinds['behavior'] !== undefined ? (
           <div className="tl-inspector" aria-label="visual script inspector">
             <div className="tl-panel__title">Inspector</div>
-            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph, { functions: activeVisual.functions, graphs, kinds: graphKinds })} />
+            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph, { functions: activeVisual.functions, graphs, kinds: graphKinds })} assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))} />
           </div>
         ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">

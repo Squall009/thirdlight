@@ -202,6 +202,12 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
         if (target.functionId === null) return { ...b, graph };
         const functions = withFunction(b.functions ?? [], target.functionId, graph);
         if (functions.length > BEHAVIOR_GRAPH_LIMITS.functions) refused = `a script has at most ${BEHAVIOR_GRAPH_LIMITS.functions} functions`;
+        // The script and its other functions must still fit this function's interface (calls wired to its ports).
+        const graphs = (content as WithGraphs).graphs;
+        const errors: ModelErrorV2[] = [];
+        validateGraphData(GRAPH_KINDS['behavior']!, b.graph!, '', errors, behaviorGraphContext(b.graph, { functions, graphs }));
+        for (const f of functions) if (f.functionId !== target.functionId) validateGraphData(GRAPH_KINDS['behavior-function']!, f.graph, '', errors, behaviorGraphContext(f.graph, { functions, graphs, script: b.graph }));
+        if (errors.length > 0 && refused === null) refused = `a call of this function would break: ${errors[0]!.message}`;
         const next: BehaviorRecord = { ...b, functions };
         if (functions.length === 0) delete next.functions;
         return next;

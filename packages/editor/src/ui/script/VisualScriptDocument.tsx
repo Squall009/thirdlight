@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
-import type { GraphDocument } from '@thirdlight/project-model';
+import type { GraphDocument, GraphValue } from '@thirdlight/project-model';
 import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDiagnosticView } from '../../session/behavior-publication';
 import { behaviorPortContext } from '../../session/behavior-graph';
 import type { BehaviorDeclarationView } from '../../session/prefab-projection';
@@ -98,6 +98,13 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
     ...(result !== null && result.ok && !result.compiled ? result.diagnostics.map((d) => ({ message: d.message, severity: 'error' as const, ...(d.nodeId !== undefined ? { nodeId: d.nodeId } : {}) })) : []),
     ...(result !== null && result.ok ? result.warnings.map((w) => ({ ...w, severity: 'warning' as const })) : []),
   ];
+  // A new call runs the script's first function (or the first shared function): a call must name one.
+  const library = p.graphs.filter((g) => g.kind === 'behavior-library');
+  const newNodeData = (type: string): Record<string, GraphValue> | undefined => {
+    if (type === 'fn.call' && (behavior.functions ?? []).length > 0) return { function: behavior.functions![0]!.functionId };
+    if (type === 'fn.library' && library.length > 0) return { function: library[0]!.graphId };
+    return undefined;
+  };
   const titleOf = (id: string): string => {
     const n = behavior.graph?.nodes.find((x) => x.id === id);
     return n === undefined ? id : (p.kind?.nodes.find((d) => d.type === n.type)?.label ?? n.type);
@@ -115,6 +122,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
           onSelection={p.onSelection}
           focus={p.focus}
           portContext={portContext}
+          newNodeData={newNodeData}
         />
       </div>
       <div className="tl-vscript__side">

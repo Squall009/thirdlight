@@ -785,7 +785,7 @@ export function createBackend(
     // Phase 19.0: `graph: true` — the source is generated from the behavior's
     // visual-script graph (as stored now); then the same preparation and
     // publication as any source (trust per exact digest, one command).
-    let graphSource: { bytes: Uint8Array; lineNodes: (string | null)[] } | null = null;
+    let graphSource: { bytes: Uint8Array; lineNodes: Record<string, (string | null)[]> } | null = null;
     if (value.graph !== undefined) {
       if (value.graph !== true || value.stageId !== undefined || value.bytesBase64 !== undefined) {
         sendError(res, sessionError('field_value', 'validation', 'graph must be true and comes without stageId/bytesBase64 (the source is generated from the stored graph)', { path: '/graph' }));

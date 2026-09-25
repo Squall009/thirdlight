@@ -37,10 +37,11 @@ describe('generateGraphSource', () => {
     const r = generateGraphSource(g);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.container.files.map((f) => f.path)).toEqual(['src/index.ts']);
+    // Phase 19.1: the entry (properties, events), the shared helpers and the node functions (in files of at most ~40 KB).
+    expect(r.container.files.map((f) => f.path)).toEqual(['src/graph-nodes-1.ts', 'src/graph-runtime.ts', 'src/index.ts']);
     expect(r.container.requiredModules).toEqual([]);
     expect(r.container.ownedTransforms).toEqual([]);
-    const text = r.container.files[0]!.text;
+    const text = r.container.files.find((f) => f.path === 'src/index.ts')!.text;
     expect(text.startsWith('// Thirdlight visual script v1')).toBe(true);
     expect(text).toContain('amount: property.number(2, { label: "Amount" })');
     expect(text).toContain('armed: property.private.boolean(true, { label: "Armed", group: "Rules", tooltip: "Starts armed" })');
@@ -49,9 +50,9 @@ describe('generateGraphSource', () => {
       { key: 'armed', label: 'Armed', type: 'boolean', default: true, visibility: 'private', group: 'Rules', tooltip: 'Starts armed' },
     ]);
     // Every line of a node's function maps back to the node.
-    const lines = text.split('\n');
+    const lines = r.container.files.find((f) => f.path === 'src/graph-nodes-1.ts')!.text.split('\n');
     const addCall = lines.findIndex((l) => l.includes('c.game?.add('));
-    expect(r.lineNodes[addCall]).toBe('add');
+    expect(r.lineNodes['src/graph-nodes-1.ts']![addCall]).toBe('add');
     // Deterministic bytes: the same graph (in any order) gives the same container.
     const again = generateGraphSource({ nodes: [...g.nodes].reverse(), edges: [...g.edges].reverse() });
     expect(again.ok && Array.from(again.containerBytes)).toEqual(Array.from(r.containerBytes));
@@ -149,7 +150,7 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
   it("an unwired Set variable writes its Value text read as the variable's type", async () => {
     const g = graph([{ id: 'start', type: 'event.start', position: [0, 0] }, { id: 'set', type: 'var.set', position: [200, 0], data: { variable: 'amount', value: '7.5' } }], [['start', 'then', 'set', 'in']]);
     const r = generateGraphSource(g);
-    expect(r.ok && r.container.files[0]!.text).toContain('const a0 = 7.5;');
+    expect(r.ok && r.container.files.map((f) => f.text).join('\n')).toContain('const a0 = 7.5;');
     const bad = generateGraphSource(graph([{ id: 'start', type: 'event.start', position: [0, 0] }, { id: 'set', type: 'var.set', position: [200, 0], data: { variable: 'amount', value: 'seven' } }], [['start', 'then', 'set', 'in']]));
     expect(!bad.ok && bad.problems[0]).toMatchObject({ nodeId: 'set', message: expect.stringContaining('not a number') });
   });
@@ -166,5 +167,29 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
     const r = await compileBehaviorGraph(compiler, { behaviorId: 'scan', graph: g });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.failure.code).toBe('behavior_output_forbidden_content');
+  });
+});
+
+describe('phase 19.1: a script at the node budget', () => {
+  it('compiles: the node code is spread over files within the per-file bound', async () => {
+    const nodes: GraphNode[] = [{ id: 'start', type: 'event.step', position: [0, 0] }];
+    const edges: [string, string, string, string][] = [];
+    let prev = 'start';
+    for (let i = 0; i < 255; i++) {
+      // Long ids and three API kinds with outputs: about the most code a node makes.
+      const id = `node-${String(i).padStart(4, '0')}-abcdefghijklmnop`;
+      const type = i % 3 === 0 ? 'api.game.add' : i % 3 === 1 ? 'api.audio.play' : 'api.physics.raycast';
+      nodes.push({ id, type, position: [i * 10, 0], data: type === 'api.game.add' ? { name: 'coins' } : type === 'api.audio.play' ? { assetId: 'sound-1' } : {} });
+      edges.push([prev, 'then', id, 'in']);
+      prev = id;
+    }
+    const g: GraphData = { nodes, edges: edges.map(([a, ap, b, bp], i) => ({ id: `w${i}`, from: { node: a, port: ap }, to: { node: b, port: bp } })) };
+    const gen = generateGraphSource(g);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) return;
+    expect(gen.container.files.length).toBeGreaterThan(3);
+    for (const f of gen.container.files) expect(new TextEncoder().encode(f.text).length).toBeLessThan(65_536);
+    const r = await compileBehaviorGraph(createBehaviorCompiler(), { behaviorId: 'big', graph: g, limits: { timeoutMs: 30_000 } });
+    expect(r.ok, JSON.stringify(r.ok ? null : r.failure).slice(0, 400)).toBe(true);
   });
 });

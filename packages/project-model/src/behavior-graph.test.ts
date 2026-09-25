@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { behaviorGraphContext, behaviorGraphDeclaration, BEHAVIOR_GRAPH_KIND, checkBehaviorGraph } from './behavior-graph';
+import { behaviorGraphContext, behaviorGraphDeclaration, behaviorOwnedTransforms, behaviorScriptGraphs, BEHAVIOR_GRAPH_KIND, checkBehaviorGraph } from './behavior-graph';
 import { canonicalContentV3, validateContentV3, validateContentV4 } from './content';
 import { GRAPH_KINDS } from './graph-kinds';
 import { resolveGraphPorts, validateGraphData, type GraphData, type GraphNode } from './graph';
@@ -136,5 +136,99 @@ describe('the behavior record: graph and source.kind', () => {
     expect(paths(content({ graph: { nodes: [{ id: 'x', type: 'nope', position: [0, 0] }], edges: [] } }))).toEqual(['/behaviors/0/graph/nodes/0/type']);
     expect(paths(content({ source: { ...SOURCE, kind: 'typescript' } }))).toEqual(['/behaviors/0/source/kind']);
     expect(paths(content({ graph: GRAPH }), 3)).toEqual(['/behaviors/0/graph']);
+  });
+});
+
+// ---- phase 19.1 -------------------------------------------------------------------------
+
+const FN: GraphData = {
+  nodes: [n('start', 'fn.entry', { name: 'double' }), n('x', 'fn.input', { name: 'x', type: 'number' }, [0, 100]), n('twice', 'math.multiply', { b: 2 }), n('y', 'fn.output', { name: 'y', type: 'number' }, [0, 200]), n('get', 'var.get', { variable: 'count' })],
+  edges: [w('1', 'x', 'value', 'twice', 'a'), w('2', 'twice', 'result', 'y', 'value')],
+};
+
+describe('phase 19.1: variables, functions, phases and moved objects', () => {
+  it('variable kinds: vector, entity (entityRef), choice (enum), list and map; local variables are no properties', () => {
+    const g: GraphData = {
+      nodes: [
+        n('a', 'var.vector', { name: 'aim', default: [1, 2, 3] }, [0, 0]),
+        n('b', 'var.entity', { name: 'door', visibility: 'public' }, [0, 10]),
+        n('c', 'var.enum', { name: 'mode', options: 'walk, run', default: 'run', visibility: 'private' }, [0, 20]),
+        n('d', 'var.list', { name: 'items' }, [0, 30]),
+        n('e', 'var.map', { name: 'table', visibility: 'local' }, [0, 40]),
+        n('f', 'var.number', { name: 'tmp', visibility: 'local' }, [0, 50]),
+      ],
+      edges: [],
+    };
+    expect(checkBehaviorGraph(g)).toEqual([]);
+    expect(behaviorGraphDeclaration(g).properties).toEqual([
+      { key: 'aim', label: 'Aim', type: 'vec3', default: [1, 2, 3] },
+      { key: 'door', label: 'Door', type: 'entityRef', default: null },
+      { key: 'mode', label: 'Mode', type: 'enum', default: 'run', values: ['walk', 'run'], visibility: 'private' },
+    ]);
+    const ctx = behaviorGraphContext(g);
+    expect(['aim', 'door', 'mode', 'items', 'table', 'tmp'].map((v) => ctx.lookup!('variable', v))).toEqual(['vector', 'string', 'string', 'list', 'map', 'number']);
+    const bad = checkBehaviorGraph({ nodes: [n('c', 'var.enum', { name: 'mode', options: '', default: 'x' }), n('b', 'var.entity', { name: 'door', default: 'Not An Id' }, [0, 10])], edges: [] });
+    expect(bad.map((p) => p.nodeId)).toEqual(['c', 'c', 'b']);
+  });
+
+  it('functions: calls resolve the interface as ports; a function reads the script variables; missing callees and call cycles are errors', () => {
+    const functions = [{ functionId: 'double', graph: FN }];
+    const script: GraphData = {
+      nodes: [n('v', 'var.number', { name: 'count' }, [0, -100]), n('s', 'event.start'), n('call', 'fn.call', { function: 'double' }), n('lib', 'fn.library', { function: 'shared' }, [0, 300])],
+      edges: [w('1', 's', 'then', 'call', 'in'), w('2', 'call', 'y', 'lib', 'x'), w('3', 'call', 'then', 'lib', 'in')],
+    };
+    const graphs = [{ graphId: 'shared', kind: 'behavior-library', name: 'Shared', graph: FN }];
+    const ctx = behaviorGraphContext(script, { functions, graphs });
+    const ports = resolveGraphPorts(BEHAVIOR_GRAPH_KIND, script, ctx).get('call')!;
+    expect(ports.inputs.map((p) => `${p.id}:${p.type}`)).toEqual(['in:exec', 'x:number']);
+    expect(ports.outputs.map((p) => `${p.id}:${p.type}`)).toEqual(['then:exec', 'y:number']);
+    const errs: ModelErrorV2[] = [];
+    validateGraphData(BEHAVIOR_GRAPH_KIND, script, '', errs, ctx);
+    expect(errs).toEqual([]);
+    // The script function reads "count" (the script's); the shared one does not see it.
+    const p = checkBehaviorGraph(script, { functions, graphs });
+    expect(p.filter((x) => x.severity === 'error')).toEqual([{ severity: 'error', nodeId: 'lib:shared/get', message: 'no variable named "count" is declared' }]);
+    // A call naming nothing, and functions calling each other in a cycle.
+    const a: GraphData = { nodes: [n('start', 'fn.entry'), n('c', 'fn.call', { function: 'b' })], edges: [w('1', 'start', 'then', 'c', 'in')] };
+    const b: GraphData = { nodes: [n('start', 'fn.entry'), n('c', 'fn.call', { function: 'a' })], edges: [w('1', 'start', 'then', 'c', 'in')] };
+    const cyc = checkBehaviorGraph({ nodes: [n('s', 'event.start'), n('c', 'fn.call', { function: 'a' }), n('m', 'fn.call', { function: 'missing' }, [0, 100])], edges: [w('1', 's', 'then', 'c', 'in'), w('2', 'c', 'then', 'm', 'in')] }, { functions: [{ functionId: 'a', graph: a }, { functionId: 'b', graph: b }] });
+    expect(cyc.filter((x) => x.severity === 'error').map((x) => x.nodeId).sort()).toEqual(['fn:b/c', 'm']);
+    expect(cyc.find((x) => x.nodeId === 'fn:b/c')?.message).toContain('cycle');
+  });
+
+  it('phases: intents in their phase only; Move/Pose own this object or a typed entity; a transform event in a script that moves nothing is a warning', () => {
+    const move = n('mv', 'api.emit.transform', { position_axes: 'y' });
+    const inIntent = checkBehaviorGraph({ nodes: [n('s', 'event.step'), move], edges: [w('1', 's', 'then', 'mv', 'in')] });
+    expect(inIntent).toEqual([expect.objectContaining({ severity: 'error', nodeId: 'mv', message: expect.stringContaining('transform phase') })]);
+    const ok: GraphData = { nodes: [n('s', 'event.step', { phase: 'transform' }), move, n('p', 'api.emit.pose', { entityId: 'lamp-1' }, [0, 100])], edges: [w('1', 's', 'then', 'mv', 'in'), w('2', 'mv', 'then', 'p', 'in')] };
+    expect(checkBehaviorGraph(ok)).toEqual([]);
+    expect(behaviorOwnedTransforms(behaviorScriptGraphs(ok))).toEqual(['@self', 'lamp-1']);
+    const wired = checkBehaviorGraph({ nodes: [...ok.nodes, n('id', 'api.entityId', undefined, [0, 200])], edges: [...ok.edges, w('3', 'id', 'value', 'p', 'entityId')] });
+    expect(wired.map((x) => x.nodeId)).toEqual(['p']);
+    const lonely = checkBehaviorGraph({ nodes: [n('s', 'event.step', { phase: 'transform' })], edges: [] });
+    expect(lonely).toEqual([expect.objectContaining({ severity: 'warning', nodeId: 's' })]);
+    // Control intents only in the intent phase.
+    const jump = checkBehaviorGraph({ nodes: [n('s', 'event.step', { phase: 'transform' }), n('j', 'api.emit.control_jump'), move], edges: [w('1', 's', 'then', 'j', 'in'), w('2', 'j', 'then', 'mv', 'in')] });
+    expect(jump.filter((x) => x.severity === 'error').map((x) => x.nodeId)).toEqual(['j']);
+  });
+
+  it('the record keeps its functions (canonical, sorted); functions need a graph and unique ids; an empty function does not exist', () => {
+    const ok = validateContentV4(content({ graph: GRAPH, functions: [{ functionId: 'zeta', graph: FN }, { functionId: 'alpha', graph: FN }] }));
+    if (!ok.ok) throw new Error(JSON.stringify(ok.errors));
+    const b = canonicalContentV3(ok.normalized as never).behaviors[0]!;
+    expect(b.functions?.map((f) => f.functionId)).toEqual(['alpha', 'zeta']);
+    const paths = (c: Record<string, unknown>): string[] => {
+      const r = validateContentV4(c);
+      return r.ok ? [] : r.errors.map((e) => e.path ?? '');
+    };
+    expect(paths(content({ functions: [{ functionId: 'a', graph: FN }] }))).toEqual(['/behaviors/0/functions']);
+    expect(paths(content({ graph: GRAPH, functions: [{ functionId: 'a', graph: FN }, { functionId: 'a', graph: FN }] }))).toEqual(['/behaviors/0/functions/1/functionId']);
+    expect(paths(content({ graph: GRAPH, functions: [{ functionId: 'a', graph: { nodes: [], edges: [] } }] }))).toEqual(['/behaviors/0/functions/0/graph/nodes']);
+    // A call in the script resolves against the record's functions.
+    const withCall = { nodes: [...GRAPH.nodes, { id: 'c', type: 'fn.call', position: [0, 200], data: { function: 'alpha' } }], edges: [] };
+    expect(paths(content({ graph: withCall, functions: [{ functionId: 'alpha', graph: FN }] }))).toEqual([]);
+    expect(paths(content({ graph: withCall }))).toEqual(['/behaviors/0/graph/nodes/2/data/function']);
+    // A declaration may be empty (phase 19.1).
+    expect(paths(content({ declaration: { properties: [] } }))).toEqual([]);
   });
 });
