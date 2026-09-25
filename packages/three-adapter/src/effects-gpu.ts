@@ -938,11 +938,11 @@ export class GpuSystem {
     return this.capacity - new Int32Array(buf)[0]!;
   }
 
-  dispose(): void {
+  dispose(renderer?: THREE.WebGPURenderer | null): void {
     for (const n of [this.resetPass, this.updatePass, this.spawnPass, this.sortFill, this.sortStep, this.gatherPass]) n?.dispose?.();
-    for (const bnode of [this.buffers.state, this.buffers.serial, this.buffers.dead, this.buffers.deadCount, ...Object.values(this.draw)]) (bnode as N).value?.dispose?.();
-    this.sortKeys?.value?.dispose?.();
-    this.sortIdx?.value?.dispose?.();
+    const buffers = [this.buffers.state, this.buffers.serial, this.buffers.dead, this.buffers.deadCount, ...Object.values(this.draw), this.sortKeys, this.sortIdx].map((b) => (b as N | null)?.value ?? null);
+    for (const b of buffers) b?.dispose?.();
+    releaseStorage(renderer, buffers);
   }
 }
 
@@ -1024,12 +1024,16 @@ export class GpuEffectExecutor {
     this.needsReset = true;
   }
 
+  /** Apply a pending restart now (clears the buffers without a step: the Effect tab's preview seeking to time 0). */
+  resetNow(renderer: THREE.WebGPURenderer): void {
+    if (!this.needsReset) return;
+    for (const s of this.systems) s.reset(renderer);
+    this.needsReset = false;
+  }
+
   step(renderer: THREE.WebGPURenderer, dt: number, input: { origin?: EffectOrigin; worldTime?: number }): void {
     if (!(dt > 0)) return;
-    if (this.needsReset) {
-      for (const s of this.systems) s.reset(renderer);
-      this.needsReset = false;
-    }
+    this.resetNow(renderer);
     const before = this.planner.origins().current;
     this.planner.step(dt, input);
     const { current } = this.planner.origins();
@@ -1063,8 +1067,26 @@ export class GpuEffectExecutor {
     return n;
   }
 
-  dispose(): void {
-    for (const s of this.systems) s.dispose();
+  /** Release the passes and buffers (`renderer`: the one that ran them, so their GPU buffers are freed now; see `releaseStorage`). */
+  dispose(renderer?: THREE.WebGPURenderer | null): void {
+    for (const s of this.systems) s.dispose(renderer);
     this.shared.perm.value?.dispose?.();
+    releaseStorage(renderer, [this.shared.perm.value]);
   }
+}
+
+/**
+ * Free compute-only storage buffers on the renderer that created them.
+ * three 0.186 frees a node's buffer only together with a geometry that drew
+ * it (`BufferAttribute.dispose()` is a TODO in its `Geometries`), so buffers
+ * only compute passes use (particle state, free list, sort keys, the noise
+ * table) would stay allocated after their passes are disposed — the 20.3
+ * leak check measured 5 per system. The renderer's attribute map is private
+ * API of the pinned three version; deleting an attribute it never saw (or
+ * already freed) does nothing.
+ */
+function releaseStorage(renderer: THREE.WebGPURenderer | null | undefined, buffers: readonly unknown[]): void {
+  const map = (renderer as unknown as { _attributes?: { delete(a: unknown): unknown } | null } | null | undefined)?._attributes;
+  if (map === null || map === undefined || typeof map.delete !== 'function') return;
+  for (const b of buffers) if (b !== null && b !== undefined) map.delete(b);
 }

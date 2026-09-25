@@ -65,6 +65,8 @@ export default defineConfig({
         // Phase 20.2: effects on the WebGPU compute executor.
         '**/effects-gpu.e2e.ts',
         '**/effects-runtime.e2e.ts',
+        // Phase 20.3: the Effect tab's preview on the WebGPU compute executor.
+        '**/effect-editor.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

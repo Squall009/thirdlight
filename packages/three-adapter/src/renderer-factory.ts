@@ -242,6 +242,8 @@ export interface NodeRendererParams {
   device?: GpuDeviceLike;
   /** Phase 17.4: the WebGL 2 context the factory made for the WebGL 2 backend (same attributes as three's own). */
   context?: unknown;
+  /** Phase 20.3: GPU timestamp queries (where the device offers them). */
+  trackTimestamp?: boolean;
 }
 
 /** The parts of a WebGPURenderer the handle drives. */
@@ -285,6 +287,13 @@ export interface CreateRendererOptions {
    * three's WebGLBackend would otherwise lose it on every dispose.
    */
   loseContextOnDispose?: boolean;
+  /**
+   * Phase 20.3: record GPU timestamp queries for `resolveTimestampsAsync`
+   * (the Effect tab's GPU time). Only where the device offers them (WebGPU's
+   * `timestamp-query` feature, WebGL 2's `EXT_disjoint_timer_query_webgl2`);
+   * default false (queries cost a little on every pass).
+   */
+  trackTimestamp?: boolean;
   /** Tests inject stubs; the browser uses three and `navigator.gpu`. */
   deps?: Partial<RendererFactoryDeps>;
 }
@@ -299,6 +308,7 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       alpha: p.alpha,
       powerPreference: p.powerPreference,
       forceWebGL: p.forceWebGL,
+      ...(p.trackTimestamp === true ? { trackTimestamp: true } : {}),
       // The probed device (WebGPUBackend takes it instead of requesting its own).
       ...(p.device !== undefined ? { device: p.device } : {}),
       // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
@@ -415,7 +425,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     }
     let r: NodeRendererLike;
     try {
-      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}) });
+      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}), ...(o.trackTimestamp === true ? { trackTimestamp: true } : {}) });
       r.setClearColor(o.clearColor, o.clearAlpha);
     } catch (e) {
       publish({ backend: null, api: null, state: 'failed', reason: `the renderer could not be created: ${messageOf(e)}` });

@@ -238,3 +238,5 @@ export {
 } from './effects-player';
 export { GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
 export { EFFECT_LIGHT_LIMIT } from './effects-draw';
+// Phase 20.3: one effect on a controllable timeline (the Effect tab's preview; same executors as Play).
+export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';

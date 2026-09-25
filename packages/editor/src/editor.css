@@ -870,5 +870,23 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-effect-doc__systems { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .tl-effect-doc__settings { display: grid; grid-template-columns: 110px 1fr; gap: 4px 6px; align-items: center; }
 .tl-effect-doc__settings .tl-input { min-width: 0; }
+/* Phase 20.3: the Effect tab's preview pane. */
+.tl-effect-doc__preview { width: 300px; display: flex; flex-direction: column; }
+.tl-effect-preview { display: flex; flex-direction: column; gap: 6px; }
+.tl-effect-preview__canvas { width: 100%; aspect-ratio: 1; display: block; border: 1px solid var(--line); border-radius: var(--radius); background: #000; touch-action: none; }
+.tl-effect-preview__status { font-size: 11px; }
+.tl-effect-preview__timeline { display: flex; align-items: center; gap: 4px; }
+.tl-effect-preview__scrub { flex: 1; min-width: 0; }
+.tl-effect-preview__time { font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
+.tl-effect-preview__length { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tl-effect-preview__length .tl-input { width: 70px; }
+.tl-effect-preview__counters { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tl-effect-preview__counters th, .tl-effect-preview__counters td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.tl-effect-preview__counters th:not(:first-child), .tl-effect-preview__counters td:not(:first-child) { text-align: right; }
+.tl-effect-preview__cost { margin: 0; font-size: 11px; }
+.tl-effect-preview__params { display: flex; flex-direction: column; gap: 4px; }
+.tl-effect-preview__params .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tl-effect-preview__param { display: grid; grid-template-columns: 80px 1fr auto; align-items: center; gap: 4px; }
+.tl-effect-preview__param input[type="range"] { min-width: 0; }
 
 .tl-panel__subtitle { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin-top: 4px; }
