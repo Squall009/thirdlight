@@ -770,7 +770,9 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
       renderer.toneMappingExposure = p?.exposure ?? 1;
       buildSky();
       applyFog();
-      composerKey = '';
+      // The node pipeline's key holds everything it is built from (a sky colour edit
+      // does not rebuild and recompile it); the legacy composer rebuilds on every set.
+      if (!nodeRenderer) composerKey = '';
       options.onChange?.();
     },
     setKeyLightDirection(direction) {
