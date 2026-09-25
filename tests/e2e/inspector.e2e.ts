@@ -254,6 +254,18 @@ test('the game block is built from its descriptor: create, texts, references and
   await cmd('createEntity', { kind: 'group', name: 'Goal', transform: { position: [6, 0, 0] }, components: { gameZone: { role: 'goal', size: [2, 2] } } });
   // The game camera follows the player (the game block names a camera with camera follow).
   await cmd('setComponent', { entityId: 'cam-main', component: 'cameraFollow', value: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } });
+  // The title's result is held back (its HTTP ack below, its WS event here, in order) so the cue
+  // is edited before the editor has seen it — what a busy page does.
+  let holdTitle = false;
+  await page.routeWebSocket(/\/api\/v1\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    let chain = Promise.resolve();
+    server.onMessage((m) => {
+      const held = holdTitle && typeof m === 'string' && m.includes('Neutral test');
+      chain = chain.then(() => (held ? new Promise((r) => setTimeout(r, 1500)) : undefined)).then(() => ws.send(m));
+    });
+    ws.onMessage((m) => server.send(m));
+  });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const sound = await importFile(page, join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-goal.wav'), 1, 'cue-goal');
@@ -264,10 +276,22 @@ test('the game block is built from its descriptor: create, texts, references and
   await block.getByRole('button', { name: 'Create game block' }).click();
   await expect.poll(game).toMatchObject({ configVersion: 2, title: 'Untitled game', cameraId: 'cam-main', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } });
   const title = block.getByLabel('game title', { exact: true });
+  // The second edit must be sent after the first and on top of it, not refused as a conflict.
+  holdTitle = true;
+  await page.route('**/commands', async (route) => {
+    const body = route.request().postData() ?? '';
+    if (body.includes('"setGameConfig"') && body.includes('Neutral test')) {
+      const res = await route.fetch();
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.fulfill({ response: res });
+    } else await route.continue();
+  });
   await title.fill('Neutral test');
   await title.press('Enter');
-  await expect.poll(async () => (await game())?.['title']).toBe('Neutral test');
   await block.getByLabel('game cues goal', { exact: true }).selectOption(sound);
+  await expect.poll(async () => (await game())?.['title']).toBe('Neutral test');
+  await page.unroute('**/commands');
+  holdTitle = false;
   await expect.poll(async () => (await game())?.['cues']).toEqual({ start: null, jump: null, checkpoint: null, death: null, goal: sound });
   await undo(page);
   await expect.poll(async () => ((await game())?.['cues'] as { goal: unknown }).goal).toBeNull();

@@ -1913,7 +1913,12 @@ function EditorApp(): JSX.Element {
       const c = clientRef.current;
       if (!c) return;
       setGameplayError(null);
-      const res = await c.setGameConfig(game, c.projection.revision);
+      // An edit of an existing block is a partial patch (only its changed top-level fields), which
+      // is what mergeDocumentEdit would send anyway: built at send time it is rebased over this
+      // editor's own earlier edits, so a quick second edit (title, then a cue) no longer conflicts.
+      // Create (the complete block) and remove keep their revision.
+      const partial = game !== null && c.getGameConfig() !== null;
+      const res = await c.command('setGameConfig', partial ? () => ({ game }) : { game }, c.projection.revision);
       if (res.ok) {
         refreshEntities();
         return;
