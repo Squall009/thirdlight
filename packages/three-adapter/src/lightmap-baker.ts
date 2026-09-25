@@ -23,6 +23,9 @@
  * (`readRenderTargetPixelsAsync`, the only read WebGPURenderer has). The
  * WebGLRenderer version (float targets, a GLSL hook) is archived
  * (`archive/webgl-renderer-17/`).
+ *
+ * Phase 22.1: DOM-free apart from the default canvas — the editor runs it in
+ * a worker on an `OffscreenCanvas` (`canvas`).
  */
 import * as THREE from 'three';
 import { Fn, normalViewGeometry, uniform, uv, vec4 } from 'three/tsl';
@@ -78,6 +81,12 @@ export interface BrowserBakeInput {
   readonly signal?: AbortSignal;
   /** Phase 17.3: the renderer backend to bake with (default: the factory's default, `auto`). */
   readonly renderer?: RendererPreference;
+  /**
+   * Phase 22.1: the surface to render with (default: a new DOM canvas). An
+   * `OffscreenCanvas` lets the whole bake run in a worker (WebGPURenderer
+   * takes one on its WebGPU and WebGL 2 backends); the bake is the same.
+   */
+  readonly canvas?: unknown;
 }
 
 export interface BakedAtlas {
@@ -200,8 +209,11 @@ const srgb = (v: number): number => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.p
 
 export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<BrowserBakeResult> {
   const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  if (typeof document === 'undefined') return { ok: false, code: 'bake_unsupported', message: 'baking needs a browser' };
-  const canvas = document.createElement('canvas');
+  let canvas = input.canvas as { width: number; height: number } | undefined;
+  if (canvas === undefined) {
+    if (typeof document === 'undefined') return { ok: false, code: 'bake_unsupported', message: 'baking needs a browser' };
+    canvas = document.createElement('canvas');
+  }
   canvas.width = 4;
   canvas.height = 4;
   const preference = input.renderer ?? DEFAULT_RENDERER_PREFERENCE;

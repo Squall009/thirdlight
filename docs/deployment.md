@@ -2088,6 +2088,34 @@ steady loop's allocation sites.
   the cache) and answers revalidation (`ETag` / `If-None-Match`) with 304.
 - The editor bundle uses React's production build.
 
+**Editor workers (phase 22.1).** Heavy editor jobs run in a worker
+(`dist/editor/editor-worker.js`, loaded next to the editor page on first
+use), so the page keeps answering input while they run:
+
+- *Bake preview (browser):* the whole bake — drawing the lightmaps with
+  WebGPURenderer on an `OffscreenCanvas` (WebGPU or WebGL 2, the editor's
+  renderer choice), reading them back, filling the padding, sRGB and the PNG
+  encoding — runs in its own worker, which ends after the bake. The Lighting
+  window's message says "(in a worker)". Placing the lightmaps in the atlas
+  still happens on the page (it reads the Scene view's objects).
+- *Asset thumbnails:* the model is still drawn on the page (the loaded models
+  live there), but the PNG is encoded in the worker from a snapshot of the
+  canvas instead of a synchronous read-back.
+- *Instance set scatter:* the placements are computed in the worker.
+- *Problems tab:* the diagnostics of graphs and graph materials (the kind's
+  rules and the material compiler's problems) are computed in the worker and
+  appear a moment after an edit. The open graph editor checks its own graph
+  on the page as before.
+
+Every job gives the same result on the page: add `?workers=off` to the
+editor URL (like `?renderer=webgl2`) to run them all inline, as before 22.1. The editor does so by itself when the browser has no
+`Worker` or `OffscreenCanvas`, when the worker script does not load (it is
+not tried again until the page reloads), when a worker stops during a job,
+and — for the bake — when the worker's canvas gets no renderer. The editor
+page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
+(main-thread long tasks before and after) are in `docs/plan-phase-22.md` §5;
+`tests/e2e/editor-workers.e2e.ts` measures them.
+
 ## Upgrade
 
 ```sh

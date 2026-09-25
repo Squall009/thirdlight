@@ -11,13 +11,17 @@
  */
 import { bakeHashes, packLightmaps, type BakeHashEntity, type LightmapPacking, type LightmapPlacement } from '@thirdlight/protocol';
 import * as THREE from 'three';
-import { bakeLightmapsInBrowser, boxLightmapSize, type BakedAtlas, type BakeMeshInput } from '@thirdlight/three-adapter';
+import { bakeLightmapsInBrowser, boxLightmapSize, type BakeMeshInput, type BrowserBakeInput } from '@thirdlight/three-adapter';
 import type { LightingBake } from '@thirdlight/project-model';
 
 import { makeAssetId, type SessionClient } from '../session/client';
 import { publishArgsFromProposal, utcSecondTimestamp, type ImportTarget } from '../session/asset-browser';
 import type { ProjectedEntity } from '../session/projection';
 import { editorRendererChoice } from './renderer-choice';
+import { packBakeInput } from '../workers/bake-transfer';
+import { editorWorkers } from '../workers/editor-workers';
+import type { BakeJobResult } from '../workers/jobs';
+import { encodePngOnPage } from '../workers/page-png';
 import type { Viewport } from './viewport';
 
 export interface BakeSettings {
@@ -58,22 +62,8 @@ export function bakeIsStale(bake: LightingBake, sceneEntities: readonly Projecte
   return h.staticsHash !== bake.staticsHash || h.lightsHash !== bake.lightsHash;
 }
 
-function toPng(atlas: BakedAtlas): Promise<Uint8Array> {
-  const canvas = document.createElement('canvas');
-  canvas.width = atlas.width;
-  canvas.height = atlas.height;
-  const ctx = canvas.getContext('2d');
-  if (ctx === null) return Promise.reject(new Error('no 2D canvas for the PNG'));
-  ctx.putImageData(new ImageData(atlas.pixels as unknown as Uint8ClampedArray<ArrayBuffer>, atlas.width, atlas.height), 0, 0);
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob === null) reject(new Error('the PNG could not be encoded'));
-      else void blob.arrayBuffer().then((b) => resolve(new Uint8Array(b)), reject);
-    }, 'image/png');
-  });
-}
-
-export type BakeRunResult = { ok: true; bake: LightingBake; millis: number; skipped: string[]; device?: string } | { ok: false; message: string };
+/** `where`: the preview bake ran in the editor worker or on the page (phase 22.1). */
+export type BakeRunResult = { ok: true; bake: LightingBake; millis: number; skipped: string[]; device?: string; where?: 'worker' | 'page' } | { ok: false; message: string };
 
 interface BakeDeps {
   client: SessionClient;
@@ -200,7 +190,7 @@ export async function runBrowserBake(deps: BakeDeps): Promise<BakeRunResult> {
   if ('message' in prepared) return { ok: false, message: prepared.message };
   const baked = prepared.inputs.lights.filter((l) => l.mode === 'baked');
   deps.onProgress('baking…', 0);
-  const result = await bakeLightmapsInBrowser({
+  const input: Omit<BrowserBakeInput, 'onProgress' | 'signal' | 'canvas'> = {
     atlases: prepared.packing.atlases,
     targets: prepared.inputs.targets.map((t) => {
       const p = prepared.placement.get(t.entityId)!;
@@ -213,15 +203,38 @@ export async function runBrowserBake(deps: BakeDeps): Promise<BakeRunResult> {
     padding: PADDING,
     // Phase 17.3: the bake draws with the editor's renderer backend (like its previews).
     renderer: editorRendererChoice().preference,
-    onProgress: (done, total) => deps.onProgress(`baking ${done}/${total}`, (done / total) * 0.9),
-    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-  });
+  };
+  const onProgress = (done: number, total: number): void => deps.onProgress(`baking ${done}/${total}`, (done / total) * 0.9);
+  /** On the page, as before 22.1: the renderer on a DOM canvas, then the PNGs. */
+  const onPage = async (): Promise<BakeJobResult> => {
+    const r = await bakeLightmapsInBrowser({ ...input, onProgress, ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
+    if (!r.ok) return r;
+    const pngs: Uint8Array[] = [];
+    for (const atlas of r.atlases) pngs.push(await encodePngOnPage({ pixels: atlas.pixels, width: atlas.width, height: atlas.height }));
+    return { ok: true, pngs, millis: r.millis };
+  };
+  // Phase 22.1: the whole bake (rendering on an OffscreenCanvas, read-back,
+  // dilation, encoding) in a worker; on the page when there is none, or when
+  // the worker's canvas gets no renderer (then the page's might).
+  const workers = editorWorkers();
+  let result: BakeJobResult;
+  try {
+    result = await workers.run('bake', () => packBakeInput(input), { lane: 'gpu', inline: onPage, onProgress, ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+  let where: 'worker' | 'page' = workers.lastMode.get('bake') === 'worker' ? 'worker' : 'page';
+  if (!result.ok && result.code === 'bake_unsupported' && where === 'worker') {
+    result = await onPage();
+    where = 'page';
+  }
+  // A user-timing mark (DevTools, the e2e): the lightmaps are baked and encoded; what follows is publishing them.
+  performance.mark('tl:bake:rendered');
   if (!result.ok) return { ok: false, message: result.message };
-  const pngs: Uint8Array[] = [];
-  for (const atlas of result.atlases) pngs.push(await toPng(atlas));
+  const pngs = result.pngs;
   const bake = await publish(deps, prepared, pngs, { source: 'browser', samples: deps.settings.samples, bounces: 0, bakedLights: baked.map((l) => l.entityId) });
   if ('message' in bake) return { ok: false, message: bake.message };
-  return { ok: true, bake, millis: result.millis, skipped: prepared.inputs.missingUv };
+  return { ok: true, bake, millis: result.millis, skipped: prepared.inputs.missingUv, where };
 }
 
 /** The bake package the backend hands to Blender (see backend bake.ts). */

@@ -7,12 +7,23 @@
  * Phase 17.1: the renderer comes from the three-adapter factory with the
  * editor's backend choice (a thumbnail waits until WebGPURenderer is ready).
  *
+ * Phase 22.1: the render stays on the page (the loaded models live with the
+ * editor's asset loader; a worker would need a second loader and a second
+ * copy of every model), but the PNG is no longer read with `toDataURL` —
+ * a synchronous read-back of the WebGL/WebGPU canvas plus the encoding,
+ * 0.6 s of main thread per thumbnail on the CPU renderer. A bitmap snapshot
+ * of the canvas (taken in the render's task, no CPU read) goes to the
+ * editor worker, which encodes it (inline without a worker: the same
+ * encoder on the page).
+ *
  * Browser-only (three.js + WebGL/WebGPU).
  */
 import * as THREE from 'three';
 import { createRenderer, type PreparedVisualResource, type RendererHandle, type VertexColorMode } from '@thirdlight/three-adapter';
 
 import { editorRendererChoice } from './renderer-choice';
+import { editorWorkers } from '../workers/editor-workers';
+import { encodePngOnPage } from '../workers/page-png';
 
 /** Thumbnail edge in pixels (tiles show it at half size on HiDPI screens). */
 export const THUMBNAIL_SIZE = 128;
@@ -40,16 +51,6 @@ function idle(): Promise<void> {
     if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(() => resolve(), { timeout: 500 });
     else setTimeout(resolve, 30);
   });
-}
-
-/** A PNG data URL as a Blob (null when it is not one). */
-function dataUrlBlob(url: string): Blob | null {
-  const prefix = 'data:image/png;base64,';
-  if (!url.startsWith(prefix)) return null;
-  const bin = atob(url.slice(prefix.length));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: 'image/png' });
 }
 
 export class ThumbnailRenderer {
@@ -124,6 +125,7 @@ export class ThumbnailRenderer {
     const created = resource.createInstance({ ...(piece !== null ? { piece } : {}), vertexColors: this.source.vertexColorsFor(assetId) });
     if (!created.ok) return null;
     const instance = created.instance;
+    let snapshot: Promise<ImageBitmap>;
     try {
       if (this.renderer === null) {
         const canvas = document.createElement('canvas');
@@ -152,13 +154,15 @@ export class ThumbnailRenderer {
       this.camera.lookAt(sphere.center);
       this.camera.updateProjectionMatrix();
       renderer.render(this.scene, this.camera);
-      const canvas = renderer.domElement;
-      // WebGPURenderer keeps no drawing buffer (WebGPU and WebGL 2): the PNG is read in the same task as the render.
-      return dataUrlBlob(canvas.toDataURL('image/png'));
+      // WebGPURenderer keeps no drawing buffer (WebGPU and WebGL 2): the snapshot is taken in the same task as the render.
+      snapshot = createImageBitmap(renderer.domElement as HTMLCanvasElement);
     } finally {
       this.scene.remove(instance.root);
       instance.dispose();
     }
+    const bitmap = await snapshot;
+    const png = await editorWorkers().run('encodePng', () => ({ input: { bitmap }, transfer: [bitmap] }), { inline: () => encodePngOnPage({ bitmap }) });
+    return new Blob([png as BlobPart], { type: 'image/png' });
   }
 
   dispose(): void {

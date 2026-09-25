@@ -85,7 +85,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, materialGraphProblems, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
@@ -125,7 +125,10 @@ import type { DebugRequest, DebugResult } from '../preview/play-debug';
 import { functionName as scriptFunctionName, splitScoped } from '../session/visual-debug';
 import { behaviorPortContext, newBehaviorGraph } from '../session/behavior-graph';
 import { GraphsPanel } from '../graph/GraphsPanel';
-import { diagnoseGraph, portsResolver, type GraphKindDef, type GraphOp } from '../graph/model';
+import { type GraphKindDef, type GraphOp } from '../graph/model';
+import { editorWorkers } from '../workers/editor-workers';
+import { graphIssuesOf, materialIssuesOf, type GraphIssue, type MaterialIssue } from '../workers/problems';
+import { useWorkerJob } from '../workers/use-worker-job';
 import { graphsPortContext, materialPortContext } from '../session/material-graph';
 import type { GraphDocument } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
@@ -253,6 +256,10 @@ interface PlayInfo {
   contentPath: string | null;
 }
 
+/** Phase 22.1: the Problems tab's graph diagnostics before the first worker result. */
+const NO_GRAPH_ISSUES: readonly GraphIssue[] = [];
+const NO_MATERIAL_ISSUES: readonly MaterialIssue[] = [];
+
 /** Phase 21.4: the pickers' option per projected entity object (see fieldContextBase). */
 const entityOptionCache = new WeakMap<ProjectedEntity, { id: string; name: string; sceneId?: string; components: string[] }>();
 
@@ -373,18 +380,8 @@ function EditorApp(): JSX.Element {
     setEffectFocus(null);
   }, [activeEffectId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
-  const graphIssues = useMemo(
-    () =>
-      graphs.flatMap((g) => {
-        const k = graphKinds[g.kind];
-        if (k === undefined) return [];
-        return diagnoseGraph(k, g.graph, portsResolver(k, g.graph, graphsContext)).map((p, i) => {
-          const node = p.nodeId !== undefined ? g.graph.nodes.find((n) => n.id === p.nodeId) : undefined;
-          return { key: `${g.graphId}:${i}`, graphId: g.graphId, graphName: g.name, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}), nodeLabel: node !== undefined ? (k.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null, severity: p.severity, message: p.message };
-        });
-      }),
-    [graphs, graphKinds, graphsContext],
-  );
+  // Phase 22.1: computed in the editor worker (inline without one).
+  const graphIssues = useWorkerJob('graphIssues', () => ({ graphs, kinds: graphKinds }), (i) => graphIssuesOf(i.graphs, i.kinds), NO_GRAPH_ISSUES, [graphs, graphKinds]);
   // A graph that went away (deleted here, by MCP or undone) closes its tab.
   useEffect(() => {
     if (!graphsLoaded) return;
@@ -688,31 +685,14 @@ function EditorApp(): JSX.Element {
     [visualProblems, behaviorViews, graphKinds],
   );
   // Phase 18.2: graph materials' problems (the kind's rules and the compiler's), for the Problems tab.
-  const materialIssues = useMemo(() => {
-    const kind = graphKinds['material'];
-    if (kind === undefined) return [];
-    const textureIds = new Set(assets.filter((a) => a.kind === 'texture').map((a) => a.assetId));
-    const functions = graphs.filter((g) => g.kind === 'material-function') as unknown as MaterialFunctionLike[];
-    return materials.flatMap((m) => {
-      if (m.graph === undefined) return [];
-      const g = m.graph;
-      const rules = diagnoseGraph(kind, g, portsResolver(kind, g, materialPortContext(m.parameters, graphs, graphKinds)));
-      const compiled = materialGraphProblems({ graph: g, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, functions, textureIds);
-      return [...rules, ...compiled].map((p, i) => {
-        const node = p.nodeId !== undefined ? g.nodes.find((n) => n.id === p.nodeId) : undefined;
-        return {
-          key: `material:${m.materialId}:${i}`,
-          graphId: m.materialId,
-          graphName: m.name,
-          ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}),
-          nodeLabel: node !== undefined ? (kind.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null,
-          severity: p.severity,
-          message: p.message,
-          materialId: m.materialId,
-        };
-      });
-    });
-  }, [materials, graphs, graphKinds, assets]);
+  // Phase 22.1: computed in the editor worker (inline without one).
+  const materialIssues = useWorkerJob(
+    'materialIssues',
+    () => ({ materials, graphs, kinds: graphKinds, textureIds: assets.filter((a) => a.kind === 'texture').map((a) => a.assetId) }),
+    (i) => materialIssuesOf(i.materials, i.graphs, i.kinds, i.textureIds),
+    NO_MATERIAL_ISSUES,
+    [materials, graphs, graphKinds, assets],
+  );
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
   const [sourceDraft, setSourceDraft] = useState('');
@@ -1778,7 +1758,15 @@ function EditorApp(): JSX.Element {
       return;
     }
     setScatter((f) => ({ ...f, busy: true, error: null }));
-    const published = await c.publishInstanceBuffer(scatterTransforms(opts));
+    // Phase 22.1: the placements are computed in the editor worker (inline without one: the same function).
+    let floats: Float32Array;
+    try {
+      floats = await editorWorkers().run('scatter', () => ({ input: opts }), { inline: () => scatterTransforms(opts) });
+    } catch (e) {
+      setScatter((f) => ({ ...f, busy: false, error: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    const published = await c.publishInstanceBuffer(floats);
     if (!published.ok) {
       setScatter((f) => ({ ...f, busy: false, error: published.error.message }));
       return;
@@ -2574,7 +2562,7 @@ function EditorApp(): JSX.Element {
     setBakeBusy(null);
     if (!r.ok) setBakeMessage(`Bake failed: ${r.message}`);
     else {
-      setBakeMessage(`Baked ${r.bake.entries.length} objects in ${(r.millis / 1000).toFixed(1)} s${r.skipped.length > 0 ? `; ${r.skipped.length} static object(s) have no lightmap UV (UV1) and only cast shadows` : ''}.`);
+      setBakeMessage(`Baked ${r.bake.entries.length} objects in ${(r.millis / 1000).toFixed(1)} s${r.where === 'worker' ? ' (in a worker)' : ''}${r.skipped.length > 0 ? `; ${r.skipped.length} static object(s) have no lightmap UV (UV1) and only cast shadows` : ''}.`);
       await c.fullResync();
       refreshEntities();
     }

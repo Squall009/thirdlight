@@ -101,6 +101,14 @@ const BUNDLES = [
     // slower on large trees). The editor bundle only; the play bundles carry no React.
     define: { 'process.env.NODE_ENV': '"production"' },
   },
+  // Phase 22.1: the editor worker (scatter, graph diagnostics, PNG encoding,
+  // the browser lightmap bake on an OffscreenCanvas), next to the editor page;
+  // the page loads it on first use and runs every job inline without it.
+  {
+    name: 'editor-worker',
+    entry: 'packages/editor/src/workers/editor-worker.ts',
+    out: 'dist/editor/editor-worker.js',
+  },
   // Packet 59 (delivery.md §3.2): the M3 preview wrapper entry — the v3 play
   // bundle (served as `game.js` at the v3 locator). The M2 `preview.js`
   // entry above stays byte-stable (binding M2 §5.4.1 bundle-scan evidence).
