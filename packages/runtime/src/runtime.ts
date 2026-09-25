@@ -2910,6 +2910,12 @@ class RuntimeInstance implements Runtime {
   }
 
   /** Why a scene op cannot be requested (null: it can). */
+  /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
+  sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
+    if (this.stateName === 'disposed') return 'runtime is disposed';
+    return this.sceneOpProblem(op, sceneId);
+  }
+
   private sceneOpProblem(op: 'load' | 'unload', sceneId: unknown, options?: SceneLoadOptions): string | null {
     if (this.sceneRows === null) return 'this game has no scene catalog (a v4 project runs with one)';
     if (typeof sceneId !== 'string' || !this.sceneStatus.has(sceneId)) return `unknown scene ${JSON.stringify(String(sceneId))}`;

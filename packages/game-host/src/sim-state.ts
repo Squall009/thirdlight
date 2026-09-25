@@ -238,10 +238,13 @@ export class FrameEncoder {
       for (const b of set.batches) {
         present.add(b.sceneId);
         const sent = this.sentBatches.get(b.sceneId);
-        if (sent === b.entities) batches.push({ sceneId: b.sceneId, start: b.start });
+        // The runtime's own refusal of an unload (the page's mirror refuses it the same way).
+        const pinned = rt.sceneRequestProblem?.('unload', b.sceneId) ?? null;
+        const head = { sceneId: b.sceneId, start: b.start, ...(pinned !== null ? { pinned } : {}) };
+        if (sent === b.entities) batches.push(head);
         else {
           this.sentBatches.set(b.sceneId, b.entities);
-          batches.push({ sceneId: b.sceneId, start: b.start, entities: b.entities });
+          batches.push({ ...head, entities: b.entities });
         }
       }
       for (const id of [...this.sentBatches.keys()]) if (!present.has(id)) this.sentBatches.delete(id);
@@ -322,6 +325,8 @@ export class FrameMirror {
   runSave: unknown = null;
   sceneSet: SceneSetView | null = null;
   readonly batchEntities = new Map<string, SceneEntities>();
+  /** Loaded scenes the runtime refuses to unload, and why. */
+  pinned = new Map<string, string>();
   private spawnedByToken = new Map<number, SceneEntities[number]>();
   audio: { assetId: string; volume: number; stepIndex: number }[] = [];
   effects: unknown[] = [];
@@ -364,6 +369,7 @@ export class FrameMirror {
     if (s.sceneSet !== undefined) {
       const w = s.sceneSet;
       const present = new Set<string>();
+      this.pinned = new Map(w.batches.filter((b) => b.pinned !== undefined).map((b) => [b.sceneId, b.pinned!]));
       const batches = w.batches.map((b) => {
         present.add(b.sceneId);
         if (b.entities !== undefined) this.batchEntities.set(b.sceneId, b.entities);

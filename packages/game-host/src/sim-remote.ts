@@ -388,6 +388,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       if (!hasScenes) return { ok: false, error: rtError('scene_invalid', 'this runtime has no scene set', { reason: op }) };
       const status = mirror.sceneSet?.status;
       if (status !== undefined && !(sceneId in status)) return { ok: false, error: rtError('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId))}`, { reason: op }) };
+      const pinned = op === 'unload' ? mirror.pinned.get(sceneId) : undefined;
+      if (pinned !== undefined) return { ok: false, error: rtError('scene_invalid', pinned, { reason: op }) };
       command({ op: 'requestScene', sceneOp: op, sceneId });
       return { ok: true };
     },
