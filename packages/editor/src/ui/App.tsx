@@ -118,7 +118,9 @@ import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
 import { effectPortContext, shownSystem } from './effect/EffectDocument';
 import { newEffect, uniqueId } from '../session/effect-edit';
-import type { VisualScriptCheckResult } from './script/VisualScriptDocument';
+import type { VisualScriptCheckResult, VisualScriptProblem } from './script/VisualScriptDocument';
+import type { DebugRequest, DebugResult } from '../preview/play-debug';
+import { functionName as scriptFunctionName, splitScoped } from '../session/visual-debug';
 import { behaviorPortContext, newBehaviorGraph } from '../session/behavior-graph';
 import { GraphsPanel } from '../graph/GraphsPanel';
 import { diagnoseGraph, portsResolver, type GraphKindDef, type GraphOp } from '../graph/model';
@@ -305,16 +307,25 @@ function EditorApp(): JSX.Element {
   // A different graph in front starts with an empty selection.
   useEffect(() => setGraphSelection([]), [activeGraphId]);
   // Phase 19.0: the visual script in front (a behavior with a graph), its selection and a focus request.
-  const [visualSelection, setVisualSelection] = useState<readonly string[]>([]);
-  const [visualFocus, setVisualFocus] = useState<{ id: string; nonce: number } | null>(null);
+  // Phase 19.2: the selection with the graph it belongs to (owner id): a tab switch shows no stale selection.
+  const [visualSelectionOf, setVisualSelectionOf] = useState<{ owner: string; ids: readonly string[] }>({ owner: '', ids: [] });
+  // Phase 19.2: a focus request names its script (a Problems click may open another script's tab first).
+  const [visualFocus, setVisualFocus] = useState<{ behaviorId?: string; id: string; nonce: number } | null>(null);
   const activeVisualId = (() => {
     const d = activeDoc(workspace);
     return d !== null && d.kind === 'visual-script' ? d.id : null;
   })();
-  useEffect(() => {
-    setVisualSelection([]);
-    setVisualFocus(null);
-  }, [activeVisualId]);
+  // Phase 19.2: per script — the graph in front ("" = event graph, else a function id), the latest
+  // compile problems (the Problems tab), breakpoints (scoped node ids) and watched variables.
+  const [visualTargets, setVisualTargets] = useState<Readonly<Record<string, string>>>({});
+  const [visualProblems, setVisualProblems] = useState<Readonly<Record<string, readonly VisualScriptProblem[]>>>({});
+  const [visualBreakpoints, setVisualBreakpoints] = useState<Readonly<Record<string, readonly string[]>>>({});
+  const [visualWatches, setVisualWatches] = useState<Readonly<Record<string, readonly string[]>>>({});
+  const activeVisualTarget = activeVisualId !== null ? (visualTargets[activeVisualId] ?? '') : '';
+  const onVisualTarget = useCallback((behaviorId: string, target: string) => setVisualTargets((m) => (m[behaviorId] === target ? m : { ...m, [behaviorId]: target })), []);
+  const onVisualProblems = useCallback((behaviorId: string, problems: readonly VisualScriptProblem[]) => setVisualProblems((m) => ({ ...m, [behaviorId]: problems })), []);
+  const activeVisualOwner = activeVisualId === null ? '' : activeVisualTarget === '' ? activeVisualId : `${activeVisualId}#${activeVisualTarget}`;
+  const visualSelection = visualSelectionOf.owner === activeVisualOwner ? visualSelectionOf.ids : [];
   // Phase 16.2: the Animator tabs — which graph of each controller is shown
   // (an animator owner id: base layer, `@n` layer, `#state` blend tree), the
   // selection of the one in front (the Inspector shows it) and a focus request.
@@ -434,6 +445,31 @@ function EditorApp(): JSX.Element {
         const relayId = `relay-${hex}`;
         debugWaitersRef.current.set(relayId, resolve);
         b.requestGameObserve(playInfo.playSessionId, relayId, entityId);
+        window.setTimeout(() => {
+          if (debugWaitersRef.current.delete(relayId)) resolve(null);
+        }, 2000);
+      }),
+    [playInfo],
+  );
+
+  /**
+   * Phase 19.2: one poll of the visual-script debugger in the running Play —
+   * over the preview bridge, answered by the preview from the running game
+   * (the editor runs no game code); null when nothing answers in 2 s.
+   */
+  const debugPlay = useCallback(
+    (req: DebugRequest): Promise<DebugResult | null> =>
+      new Promise((resolve) => {
+        const b = bridgeRef.current;
+        if (b === null || playInfo === null) {
+          resolve(null);
+          return;
+        }
+        let hex = '';
+        for (let i = 0; i < 32; i++) hex += Math.floor(Math.random() * 16).toString(16);
+        const relayId = `relay-${hex}`;
+        debugWaitersRef.current.set(relayId, (r) => resolve(r as unknown as DebugResult | null));
+        b.requestDebug(playInfo.playSessionId, relayId, req);
         window.setTimeout(() => {
           if (debugWaitersRef.current.delete(relayId)) resolve(null);
         }, 2000);
@@ -614,6 +650,33 @@ function EditorApp(): JSX.Element {
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
   // Packet 34: behavior publication workflow (trust, staging, publication).
   const [behaviorViews, setBehaviorViews] = useState<BehaviorDeclarationView[]>([]);
+  // Phase 19.2: visual scripts' compile problems (from the last check of each open script), for the Problems tab.
+  const scriptIssues = useMemo(
+    () =>
+      Object.entries(visualProblems).flatMap(([behaviorId, list]) => {
+        const b = behaviorViews.find((x) => x.behaviorId === behaviorId);
+        if (b === undefined || b.graph === undefined) return [];
+        return list.map((p, i) => {
+          const s = p.nodeId !== undefined ? splitScoped(p.nodeId) : null;
+          const fn = s !== null && s.target !== '' ? b.functions?.find((f) => f.functionId === s.target) : undefined;
+          const g = s === null ? undefined : s.target === '' ? b.graph : fn?.graph;
+          const kindDef = s !== null && s.target !== '' ? graphKinds['behavior-function'] : graphKinds['behavior'];
+          const node = s !== null ? g?.nodes.find((n) => n.id === s.id) : undefined;
+          const label = node !== undefined ? (kindDef?.nodes.find((d) => d.type === node.type)?.label ?? node.type) : null;
+          return {
+            key: `script:${behaviorId}:${i}`,
+            graphId: behaviorId,
+            graphName: `${b.displayName}${fn !== undefined ? ` › ${scriptFunctionName(fn)}` : ''}`,
+            ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}),
+            nodeLabel: label,
+            severity: p.severity,
+            message: p.message,
+            behaviorId,
+          };
+        });
+      }),
+    [visualProblems, behaviorViews, graphKinds],
+  );
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
   const [sourceDraft, setSourceDraft] = useState('');
@@ -1347,6 +1410,14 @@ function EditorApp(): JSX.Element {
         return;
       }
       ack({ type: 'game.observe.ack', relayId: r.relayId, ...outcome(r, ['result']) });
+    });
+    // Phase 19.2: the visual-script debugger's polls (the editor's own; never a backend relay).
+    bridge.on('tl.debug.result', (m) => {
+      const r = m as Record<string, unknown>;
+      const waiter = debugWaitersRef.current.get(String(r.relayId));
+      if (waiter === undefined) return;
+      debugWaitersRef.current.delete(String(r.relayId));
+      waiter(r.ok === true && typeof r.result === 'object' && r.result !== null ? (r.result as Record<string, unknown>) : null);
     });
 
     const onLoad = (): void => {
@@ -3200,12 +3271,30 @@ function EditorApp(): JSX.Element {
       graphs,
       kinds: graphKinds,
       activePlay: behaviorProps.activePlay,
-      onEdit: (behaviorId, ops) => sendGraphEdit({ kind: 'behavior', id: behaviorId }, ops),
-      onSelection: setVisualSelection,
+      onEdit: (ownerId, ops) => sendGraphEdit({ kind: 'behavior', id: ownerId }, ops),
+      onSelection: (ids, owner) => setVisualSelectionOf({ owner, ids }),
       focus: visualFocus,
-      onFocus: (id) => setVisualFocus({ id, nonce: Date.now() }),
+      onFocus: (id) => setVisualFocus({ ...(activeVisualId !== null ? { behaviorId: activeVisualId } : {}), id, nonce: Date.now() }),
       check: checkVisualScript,
       publish: publishVisualScript,
+      targets: visualTargets,
+      onTarget: onVisualTarget,
+      onProblems: onVisualProblems,
+      breakpoints: visualBreakpoints,
+      onBreakpoints: (behaviorId, ids) => setVisualBreakpoints((m) => ({ ...m, [behaviorId]: ids })),
+      watches: visualWatches,
+      onWatches: (behaviorId, names) => setVisualWatches((m) => ({ ...m, [behaviorId]: names })),
+      carriers: (behaviorId) => entities.filter((e) => e.behaviorId === behaviorId).map((e) => ({ id: e.id, name: e.name })),
+      selectedEntityId: selectedId,
+      debugRequest: debugPlay,
+      onOpenGraph: (graphId) => showGraph(graphId),
+      onCreateSharedFunction: async (name) => {
+        const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'shared-function';
+        let graphId = base;
+        for (let i = 2; graphs.some((g) => g.graphId === graphId); i++) graphId = `${base}-${i}`;
+        const ok = await graphDocCommand('setGraph', { graph: { graphId, kind: 'behavior-library', name, graph: { nodes: [{ id: 'start', type: 'fn.entry', position: [0, 0], data: { name } }], edges: [] } } });
+        return ok ? graphId : null;
+      },
     },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
@@ -3574,7 +3663,7 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length}</span> : null}
                 </button>
               ))}
             </div>
@@ -3622,8 +3711,14 @@ function EditorApp(): JSX.Element {
           )}
           {bottomTab === 'problems' && (
             <ProblemsPanel
-              graphIssues={graphIssues}
-              onGraphIssue={(i) => showGraph(i.graphId, i.nodeId)}
+              graphIssues={[...graphIssues, ...scriptIssues]}
+              onGraphIssue={(i) => {
+                if (i.behaviorId !== undefined) {
+                  // Phase 19.2: a visual script's problem opens its Graph tab at the node (its function's tab inside a function).
+                  workspaceDispatch({ type: 'open', doc: { kind: 'visual-script', id: i.behaviorId } });
+                  if (i.nodeId !== undefined) setVisualFocus({ behaviorId: i.behaviorId, id: i.nodeId, nonce: Date.now() });
+                } else showGraph(i.graphId, i.nodeId);
+              }}
               problems={ui.problems}
               viewFailures={viewFailures}
               sourceIssues={folderProject ? sourceIssues : null}
@@ -3854,7 +3949,29 @@ function EditorApp(): JSX.Element {
         ) : activeVisual?.graph !== undefined && graphKinds['behavior'] !== undefined ? (
           <div className="tl-inspector" aria-label="visual script inspector">
             <div className="tl-panel__title">Inspector</div>
-            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph, { functions: activeVisual.functions, graphs, kinds: graphKinds })} assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))} />
+            {(() => {
+              // Phase 19.2: the graph in front — the event graph or one of the script's functions.
+              const fn = activeVisualTarget !== '' ? activeVisual.functions?.find((f) => f.functionId === activeVisualTarget) : undefined;
+              const kindDef = fn !== undefined ? graphKinds['behavior-function'] : graphKinds['behavior'];
+              const g = fn !== undefined ? fn.graph : activeVisual.graph!;
+              if (kindDef === undefined || (activeVisualTarget !== '' && fn === undefined)) return null;
+              const owner = fn !== undefined ? `${activeVisual.behaviorId}#${fn.functionId}` : activeVisual.behaviorId;
+              return (
+                <GraphInspector
+                  key={owner}
+                  kind={kindDef}
+                  graph={g}
+                  ids={visualSelection}
+                  onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: owner }, ops)}
+                  portContext={behaviorPortContext(g, { functions: activeVisual.functions, graphs, kinds: graphKinds, ...(fn !== undefined ? { script: activeVisual.graph! } : {}) })}
+                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  // Calls pick their function by name: the script's functions, or the project's shared functions.
+                  fieldOptions={(f, n) =>
+                    f.key !== 'function' ? undefined : n.type === 'fn.call' ? (activeVisual.functions ?? []).map((x) => ({ id: x.functionId, label: scriptFunctionName(x) })) : n.type === 'fn.library' ? graphs.filter((x) => x.kind === 'behavior-library').map((x) => ({ id: x.graphId, label: x.name })) : undefined
+                  }
+                />
+              );
+            })()}
           </div>
         ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">

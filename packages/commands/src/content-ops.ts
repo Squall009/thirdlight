@@ -454,8 +454,10 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
     // tuning a declaration no longer detaches the source.
     source: existing !== null && args.mode === 'declaration-update' && existing.source !== null ? deepClone(existing.source) : null,
     publishedRevision: input.revision,
-    // Phase 19.0: a visual script keeps its graph (or starts with the one sent).
+    // Phase 19.0: a visual script keeps its graph (or starts with the one sent);
+    // phase 19.2: and its functions (a declaration-update sent with no graph keeps them).
     ...(graph !== undefined ? { graph } : {}),
+    ...(graph !== undefined && args.graph === undefined && existing?.functions !== undefined ? { functions: deepClone(existing.functions) } : {}),
   };
   return finishBehaviorPublication(input, catalog, record, existing);
 }
@@ -581,8 +583,10 @@ function applyPublishBehaviorSource(
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,
-    // Phase 19.0: publishing a source keeps the visual script's graph.
+    // Phase 19.0: publishing a source keeps the visual script's graph;
+    // phase 19.2: and its functions (19.1 dropped them on publication).
     ...(existing.graph !== undefined ? { graph: deepClone(existing.graph) } : {}),
+    ...(existing.graph !== undefined && existing.functions !== undefined ? { functions: deepClone(existing.functions) } : {}),
   };
   return finishBehaviorPublication(input, catalog, record, existing);
 }

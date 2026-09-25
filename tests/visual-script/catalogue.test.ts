@@ -115,7 +115,7 @@ function requiredData(type: string): Record<string, string> {
   if (type === 'var.get' || type === 'var.set') out['variable'] = 'v';
   if (type === 'fn.call') out['function'] = 'helper';
   if (type === 'fn.library') out['function'] = 'shared-helper';
-  if (type === 'flow.switch') Object.assign(out, { case1: 'x', case2: 'y' });
+  if (type === 'flow.switch') Object.assign(out, { cases: 'x, y' });
   if (/^var\.(number|boolean|string|vector|entity|enum|list|map)$/.test(type)) out['name'] = 'w';
   if (type === 'var.enum') out['options'] = 'low, high';
   return out;

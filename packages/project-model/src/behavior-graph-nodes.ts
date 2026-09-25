@@ -49,8 +49,8 @@ export const BEHAVIOR_GRAPH_LIMITS = {
   listItems: 1024,
   /** Entries in one map value (more is a script error naming the node). */
   mapEntries: 256,
-  /** Cases of one Switch node (a fixed port list; chain Switches for more). */
-  switchCases: 6,
+  /** Cases of one Switch node (phase 19.2: one exec output per listed case, up to this many). */
+  switchCases: 32,
 } as const;
 
 /** The value types of data ports. */
@@ -216,7 +216,6 @@ const EVENT_NODES: readonly GraphNodeDef[] = [
 // ---- flow ---------------------------------------------------------------------------------
 
 const cap = BEHAVIOR_GRAPH_LIMITS.loopIterationsPerStep;
-const CASES = Array.from({ length: BEHAVIOR_GRAPH_LIMITS.switchCases }, (_, i) => i + 1);
 
 const FLOW_NODES: readonly GraphNodeDef[] = [
   node({ type: 'flow.branch', label: 'Branch', category: 'Flow', description: 'Continues on "true" or "false".', inputs: [EXEC_IN, input('condition', 'condition', 'boolean')], outputs: [execOut('true', 'true'), execOut('false', 'false')] }),
@@ -270,10 +269,12 @@ const FLOW_NODES: readonly GraphNodeDef[] = [
     type: 'flow.switch',
     label: 'Switch',
     category: 'Flow',
-    description: `Continues on the first case equal to the value (text, or a whole number), else on "default". Empty cases never match; ${BEHAVIOR_GRAPH_LIMITS.switchCases} cases per node (chain Switches for more).`,
+    description: `Continues on the first case equal to the value (text, or a whole number), else on "default". The cases are a comma-separated list — one output per case (at most ${BEHAVIOR_GRAPH_LIMITS.switchCases}); empty cases never match.`,
     inputs: [EXEC_IN, { id: 'value', label: 'value', type: 'string', typeFrom: { field: 'on', map: { text: 'string', int: 'number' } } }],
-    outputs: [...CASES.map((i) => execOut(`case${i}`, `case ${i}`)), execOut('default', 'default')],
-    fields: [typeField('on', 'Compare', ['text', 'int'], 'text'), ...CASES.map((i) => textField(`case${i}`, `Case ${i}`)), { key: 'value', label: 'value', type: 'string', default: '', maxLength: 256 }],
+    // Phase 19.2: one exec output per listed case (ids case1, case2, …: a case keeps its wire while others are added after it).
+    outputs: [{ ...execOut('case', 'case'), repeat: { field: 'cases', max: BEHAVIOR_GRAPH_LIMITS.switchCases } }, execOut('default', 'default')],
+    // "1, 2, 3": three cases, a neutral start that reads the same comparing text or whole numbers.
+    fields: [typeField('on', 'Compare', ['text', 'int'], 'text'), { key: 'cases', label: 'Cases (comma separated)', type: 'string', default: '1, 2, 3', maxLength: 1024 }, { key: 'value', label: 'value', type: 'string', default: '', maxLength: 256 }],
   },
   {
     type: 'flow.select',
@@ -559,7 +560,8 @@ export { BEHAVIOR_API_NODES };
 // ---- the kinds ----------------------------------------------------------------------------
 
 const PORT_TYPES: GraphKindDef['portTypes'] = [
-  { id: 'exec', label: 'exec', color: '#f4f4f4' },
+  // Phase 19.2: exec wires are control flow (drawn thicker, with arrows).
+  { id: 'exec', label: 'exec', color: '#f4f4f4', flow: true },
   { id: 'number', label: 'number', color: '#7fb3ff' },
   { id: 'boolean', label: 'boolean', color: '#e67e9b' },
   { id: 'string', label: 'text', color: '#f2b544' },

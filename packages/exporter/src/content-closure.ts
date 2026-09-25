@@ -39,6 +39,14 @@ export interface ContentClosureCompilerPort {
     | { ok: true; outputBytes: Uint8Array; outputDigest: string }
     | { ok: false; reason: string; diagnostics?: readonly unknown[] }
   >;
+  /**
+   * Phase 19.2, Play builds only (exports never pass it): the Play debug
+   * build of a visual script — the same graph compiled with the debugger's
+   * recording (trace, wire values, locals) — used instead of the ordinary
+   * module after that one was verified; null keeps the ordinary module (not
+   * a visual script, or its graph no longer generates the published source).
+   */
+  debugVariant?(input: { behaviorId: string; sourceDigest: string; row: Readonly<Record<string, unknown>> }): Promise<{ outputBytes: Uint8Array; outputDigest: string } | null>;
 }
 
 /** One declared artifact of the closure (path relative to the artifact root). */
@@ -234,13 +242,22 @@ async function compileReachableBehaviors(
         },
       };
     }
-    const outputBytes = compiled.outputBytes;
+    // Phase 19.2: a Play build may swap in the visual script's debug build (never an export: no debugVariant there).
+    let outputBytes = compiled.outputBytes;
+    let outputDigest = compiled.outputDigest;
+    if (compiler.debugVariant !== undefined) {
+      const variant = await compiler.debugVariant({ behaviorId, sourceDigest, row }).catch(() => null);
+      if (variant !== null) {
+        outputBytes = variant.outputBytes;
+        outputDigest = variant.outputDigest;
+      }
+    }
     const ownedTransforms = (source['ownedTransforms'] as string[] | undefined) ?? [];
     const requiredModules = (source['requiredModules'] as string[] | undefined) ?? [];
     behaviorArtifacts.push({
-      path: `behaviors/${compiled.outputDigest}.js`,
+      path: `behaviors/${outputDigest}.js`,
       bytes: outputBytes,
-      digest: compiled.outputDigest,
+      digest: outputDigest,
       contentType: 'text/javascript; charset=utf-8',
     });
     behaviorInputs.push({
@@ -248,7 +265,7 @@ async function compileReachableBehaviors(
       sourceDigest,
       sourceByteLength: Number(source['sourceByteLength']),
       manifestDigest: String(source['manifestDigest']),
-      outputDigest: compiled.outputDigest,
+      outputDigest: outputDigest,
       outputByteLength: outputBytes.length,
       apiVersion: 1,
       declaration: row['declaration'],
@@ -260,7 +277,7 @@ async function compileReachableBehaviors(
       sourceDigest,
       sourceByteLength: Number(source['sourceByteLength']),
       manifestDigest: String(source['manifestDigest']),
-      outputDigest: compiled.outputDigest,
+      outputDigest: outputDigest,
       outputByteLength: outputBytes.length,
       apiVersion: 1,
       declaration: row['declaration'],

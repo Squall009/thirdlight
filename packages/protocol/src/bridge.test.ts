@@ -23,6 +23,7 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
   it('editor → preview: exactly the §13.5 v2 set', () => {
     expect([...BRIDGE_EDITOR_TO_PREVIEW_TYPES].sort()).toEqual(
       [
+        'tl.debug.request',
         'tl.diagnostics.request',
         'tl.game.control',
         'tl.game.observe',
@@ -36,9 +37,25 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
       ].sort(),
     );
   });
+  it('phase 19.2: the debugger messages are validated (behavior, entity, bounded breakpoints, commands)', () => {
+    const base = { v: 2, type: 'tl.debug.request', playSessionId: `play-${'a'.repeat(32)}`, relayId: `relay-${'b'.repeat(32)}`, behaviorId: 'door', breakpoints: ['n1', 'fn:open/n2', 'lib:shared/n3'] };
+    expect(validateBridgeEditorToPreview(base).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ ...base, entityId: 'box-1', command: 'step' }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ ...base, command: 'jump' }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, breakpoints: ['bad id'] }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, breakpoints: Array.from({ length: 65 }, (_, i) => `n${i}`) }).ok).toBe(false);
+    expect(validateBridgeEditorToPreview({ ...base, extra: 1 }).ok).toBe(false);
+    const result = { v: 2, type: 'tl.debug.result', playSessionId: base.playSessionId, relayId: base.relayId, ok: true, result: { paused: false } };
+    expect(validateBridgePreviewToEditor(result).ok).toBe(true);
+    expect(validateBridgePreviewToEditor({ ...result, result: { big: 'x'.repeat(40_000) } }).ok).toBe(false);
+    for (const command of ['debugPause', 'debugResume', 'debugStep']) {
+      expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: base.playSessionId, relayId: base.relayId, command }).ok).toBe(true);
+    }
+  });
   it('preview → editor: exactly the §13.5 v2 set', () => {
     expect([...BRIDGE_PREVIEW_TO_EDITOR_TYPES].sort()).toEqual(
       [
+        'tl.debug.result',
         'tl.diagnostics.result',
         'tl.error',
         'tl.game.control.result',

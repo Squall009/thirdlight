@@ -55,7 +55,7 @@ const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'] as const;
+const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -118,7 +118,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the script owns), event.overlap / event.raycast (a query around this object every step: enter|exit|each), event.input {action, when: pressed|released|held}, ' +
       'event.animator {event?, entity?}, event.timer {timer}, event.message {message, type} (sent with api.messages.send). Flow: flow.branch, sequence, for, foreach, while ' +
       '(loops: at most 10000 iterations per step in all, more is a script error with the node id), gate (enter/open/close/toggle), doonce (in/reset), delay {seconds} ' +
-      '(step-counted, a timer "vs.delay.<n>"), switch {on: text|int, case1..case6} (+ default), select. Data ports: number, boolean, string, vector [x,y,z], list and map ' +
+      '(step-counted, a timer "vs.delay.<n>"), switch {on: text|int, cases: "a, b, c" (comma separated, up to 32; outputs case1..caseN)} (+ default), select. Data ports: number, boolean, string, vector [x,y,z], list and map ' +
       '(bounded: 1024 items, 256 entries; list/map nodes return new values) with conversions number→string, boolean→string, boolean→number, number→vector, vector→string; ' +
       'constants, maths, logic, text, vectors, random.* (a per-object deterministic sequence restarting each run). API nodes api.<ctx path> are generated from the runtime ' +
       'typings (every ctx call: game, signals, messages, timers, physics, tags, world, scenes, input, animator, audio, save, spawn/destroy, api.emit.* intents — Move/Pose ' +
@@ -385,7 +385,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_game_control',
     description:
       'Submit one bounded §20 game-control command (start, replay, mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
-      'sceneId - the same request a script makes with ctx.scenes) to an explicitly presented play ' +
+      'sceneId - the same request a script makes with ctx.scenes; debugPause / debugResume / debugStep hold the simulation at a step boundary, ' +
+      'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}) to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
       'tuple + run state); with no connected/presenting browser the contracted session_unavailable is returned - ' +

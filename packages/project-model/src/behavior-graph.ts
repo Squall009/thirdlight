@@ -24,7 +24,7 @@
  * through incomplete states.
  */
 import type { GraphContext, GraphData, GraphEdge, GraphNode, GraphValue } from './graph';
-import { graphInterface, nodeDef } from './graph';
+import { graphInterface, nodeDef, repeatedPorts, repeatItems, resolveGraphPorts } from './graph';
 import type { BehaviorApiNodeSpec } from './behavior-api';
 import type { DeclaredProperty, PropertyDeclaration } from './types-v2';
 import {
@@ -310,7 +310,8 @@ export function calleeScope(n: GraphNode): string | null {
 
 function execOutputs(sg: BehaviorScriptGraph, n: GraphNode): Set<string> {
   const d = nodeDef(sg.kind, n.type);
-  return new Set((d?.outputs ?? []).filter((p) => p.type === 'exec').map((p) => p.id));
+  // Phase 19.2: a repeated exec output stands for its copies.
+  return new Set((d?.outputs ?? []).flatMap((p) => (p.type === 'exec' ? repeatedPorts(d!, n, p) : [])).map((p) => p.id));
 }
 
 /** The exec nodes each root reaches (following exec wires) in one graph. */
@@ -537,10 +538,9 @@ function checkOne(sg: BehaviorScriptGraph, outer: Map<string, GraphNode>, out: B
       if (String(field(n, key, '')) === '') out.push({ severity: 'error', nodeId: at(n.id), message: `fill in the ${nodeDef(sg.kind, n.type)?.fields?.find((f) => f.key === key)?.label.toLowerCase() ?? key}` });
     }
     if (n.type === 'flow.switch' && field(n, 'on', 'text') === 'int') {
-      for (let i = 1; i <= BEHAVIOR_GRAPH_LIMITS.switchCases; i++) {
-        const c = String(field(n, `case${i}`, '')).trim();
-        if (c !== '' && !/^-?\d{1,15}$/.test(c)) out.push({ severity: 'error', nodeId: at(n.id), message: `case ${i} "${c}" is not a whole number` });
-      }
+      repeatItems(String(field(n, 'cases', ''))).forEach((c, i) => {
+        if (c !== '' && !/^-?\d{1,15}$/.test(c)) out.push({ severity: 'error', nodeId: at(n.id), message: `case ${i + 1} "${c}" is not a whole number` });
+      });
       const v = String(field(n, 'value', '')).trim();
       if (!wired.has(`${n.id}\u0000value`) && v !== '' && !Number.isFinite(Number(v))) out.push({ severity: 'error', nodeId: at(n.id), message: `"${v}" is not a number` });
     }
@@ -552,11 +552,11 @@ function checkOne(sg: BehaviorScriptGraph, outer: Map<string, GraphNode>, out: B
   if (inFunction && !graph.nodes.some((n) => n.type === 'fn.entry')) out.push({ severity: 'error', message: `function "${scope.slice(scope.indexOf(':') + 1)}" needs a Function start node` });
 
   // An `any` port (a Get/Set naming no variable) must not join the exec flow.
+  // Resolved ports: a repeated port's copies (phase 19.2) are exec ports too; exec is never data-dependent.
+  const resolved = resolveGraphPorts(sg.kind, graph, sg.ctx);
   for (const e of graph.edges) {
-    const from = graph.nodes.find((x) => x.id === e.from.node);
-    const to = graph.nodes.find((x) => x.id === e.to.node);
-    const fromExec = from !== undefined && nodeDef(sg.kind, from.type)?.outputs.find((p) => p.id === e.from.port)?.type === 'exec';
-    const toExec = to !== undefined && nodeDef(sg.kind, to.type)?.inputs.find((p) => p.id === e.to.port)?.type === 'exec';
+    const fromExec = resolved.get(e.from.node)?.outputs.find((p) => p.id === e.from.port)?.type === 'exec';
+    const toExec = resolved.get(e.to.node)?.inputs.find((p) => p.id === e.to.port)?.type === 'exec';
     if (fromExec !== toExec) out.push({ severity: 'error', nodeId: at(fromExec ? e.to.node : e.from.node), message: 'an exec wire connects only exec ports' });
   }
   // Flow nodes no event (or function start) reaches never run.

@@ -938,6 +938,19 @@ export interface Runtime {
   /** Phase 9.10: pause or resume the simulation (frames still render). */
   setPaused?(paused: boolean): void;
   readonly isPaused?: boolean;
+  /**
+   * Phase 19.2 (Play debugging): hold the simulation at a step boundary or
+   * release it; while held, `debugStep` runs exactly one more step; a step
+   * watcher returning true holds right after the step it saw (breakpoints);
+   * `behaviorDebug` reads what running behavior instances expose to a
+   * debugger (a visual script's Play debug build: its trace, wire values,
+   * variables). The game never uses them; they change nothing it computes.
+   */
+  setDebugHold?(hold: boolean): void;
+  readonly debugHeld?: boolean;
+  debugStep?(): void;
+  setStepWatcher?(watcher: ((stepIndex: number) => boolean) | null): void;
+  behaviorDebug?(filter?: { behaviorId?: string; entityId?: string }): { behaviorId: string; entityId: string; debug: unknown }[];
   /** Phase 9.9: entities collected or defeated (the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;
   /** Phase 15.3: entities fading out (id -> opacity 0-1; a defeated enemy with `defeat: "fade"`). */

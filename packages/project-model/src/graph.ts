@@ -87,6 +87,12 @@ export interface GraphPortType {
   label: string;
   /** Wire and port colour in the editor (`#rrggbb`). */
   color: string;
+  /**
+   * Phase 19.2: a control-flow type (e.g. a visual script's exec): its wires
+   * say in which order things run, not which value moves, so the editor draws
+   * them thicker with arrows along the direction of flow. Presentation only.
+   */
+  flow?: boolean;
 }
 
 /** An implicit conversion: an output of `from` may feed an input of `to`. */
@@ -123,6 +129,54 @@ export interface GraphPortDef {
    * editor; the framework never refuses an unconnected defaulted input.
    */
   default?: GraphValue;
+  /**
+   * Phase 19.2: a repeated port — the port stands for as many ports as the
+   * node field `field` says (see `repeatedPorts`), at most `max`: ids
+   * `<id>1`, `<id>2`, … (1-based), so a port keeps its id (and wires) while
+   * later ones are added or removed. E.g. a switch's cases.
+   */
+  repeat?: GraphPortRepeat;
+}
+
+/**
+ * Phase 19.2: how many copies a repeated port has. A number field gives the
+ * count (whole, clamped to 0..max; labels "<label> 1", "<label> 2", …); a
+ * text field is a comma-separated list — one port per item (empty items
+ * included, so "a,,b" keeps three ports), labelled with the item (or
+ * "<label> n" for an empty one); items beyond `max` get no port.
+ */
+export interface GraphPortRepeat {
+  field: string;
+  max: number;
+}
+
+/** Phase 19.2: the items of a repeated port's text field (trimmed, comma separated; "" = none). */
+export function repeatItems(value: string): string[] {
+  return value.trim() === '' ? [] : value.split(',').map((x) => x.trim());
+}
+
+/**
+ * Phase 19.2: the ports a repeated port stands for on a node (see
+ * `GraphPortRepeat`); a port without `repeat` is itself. Shared by
+ * validation, the compilers and (copied) the editor.
+ */
+export function repeatedPorts(def: GraphNodeDef, node: GraphNode, port: GraphPortDef): GraphPortDef[] {
+  const rep = port.repeat;
+  if (rep === undefined) return [port];
+  const f = def.fields?.find((x) => x.key === rep.field);
+  const v = f !== undefined ? nodeFieldValue(node, f) : 0;
+  const { repeat: _r, ...base } = port;
+  void _r;
+  const out: GraphPortDef[] = [];
+  if (typeof v === 'number') {
+    const n = Number.isFinite(v) ? Math.max(0, Math.min(rep.max, Math.trunc(v))) : 0;
+    for (let i = 1; i <= n; i++) out.push({ ...base, id: `${port.id}${i}`, label: `${port.label} ${i}`.trim() });
+  } else if (typeof v === 'string') {
+    repeatItems(v)
+      .slice(0, rep.max)
+      .forEach((item, i) => out.push({ ...base, id: `${port.id}${i + 1}`, label: item !== '' ? item : `${port.label} ${i + 1}`.trim() }));
+  }
+  return out;
 }
 
 /**
@@ -401,8 +455,9 @@ export function resolveGraphPorts(kind: GraphKindDef, graph: { nodes: readonly G
   for (const node of graph.nodes) {
     const def = nodeDef(kind, node.type);
     if (def === undefined) continue;
-    let inputs: readonly GraphPortDef[] = def.inputs;
-    let outputs: readonly GraphPortDef[] = def.outputs;
+    // Phase 19.2: repeated ports first (their copies are ordinary ports).
+    let inputs: readonly GraphPortDef[] = def.inputs.some((p) => p.repeat !== undefined) ? def.inputs.flatMap((p) => repeatedPorts(def, node, p)) : def.inputs;
+    let outputs: readonly GraphPortDef[] = def.outputs.some((p) => p.repeat !== undefined) ? def.outputs.flatMap((p) => repeatedPorts(def, node, p)) : def.outputs;
     const pf = def.portsFrom;
     if (pf !== undefined) {
       const f = def.fields?.find((x) => x.key === pf.field);

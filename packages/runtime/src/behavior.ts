@@ -192,6 +192,19 @@ export interface BehaviorSpec<State = unknown, Prepared = unknown> {
   instantiate?(prepared: Prepared, inst: BehaviorInstanceInfo): State;
   step(state: State, ctx: BehaviorContext): void;
   dispose?(prepared: Prepared, state: State): void;
+  /**
+   * Phase 19.2: what a debugger may read of an instance's state (Play's
+   * visual-script debugger: the trace of the step, wire values, variables).
+   * Never called during a step; its result is read-only. Optional.
+   */
+  debug?(state: State): unknown;
+}
+
+/** Phase 19.2: one running instance's `debug(state)` answer (Play debugging). */
+export interface BehaviorDebugView {
+  behaviorId: string;
+  entityId: string;
+  debug: unknown;
 }
 
 /**
@@ -811,6 +824,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
         behaviorProperties(entityId: string): BehaviorPropertyView | null;
+        behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[];
       } = {
         get transformOwners(): readonly string[] {
           return owners;
@@ -906,6 +920,22 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number } {
           return { logCount, logDropped, instanceCount: instances.length };
         },
+        behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[] {
+          // Phase 19.2: only modules that answer (a Play debug build of a visual script).
+          if (typeof spec.debug !== 'function' || (filter.behaviorId !== undefined && filter.behaviorId !== behaviorId)) return [];
+          const out: BehaviorDebugView[] = [];
+          for (const instance of instances) {
+            if (filter.entityId !== undefined && instance.entityId !== filter.entityId) continue;
+            let debug: unknown = null;
+            try {
+              debug = spec.debug(instance.state);
+            } catch {
+              debug = null; // a debugger read never breaks the game
+            }
+            out.push({ behaviorId, entityId: instance.entityId, debug });
+          }
+          return out;
+        },
         behaviorProperties(entityId: string): BehaviorPropertyView | null {
           const instance = instances.find((i) => i.entityId === entityId);
           if (instance === undefined) return null;
@@ -992,6 +1022,7 @@ interface LoadedBehaviorSpec {
   instantiate?(prepared: unknown, inst: unknown): unknown;
   step(state: unknown, ctx: unknown): unknown;
   dispose?(prepared: unknown, state: unknown): void;
+  debug?(state: unknown): unknown;
 }
 
 function orderOf(snapshot: RuntimeSnapshot, entityId: string): number {

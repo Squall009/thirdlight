@@ -39,7 +39,7 @@ import {
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorPropertyView } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContribution, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
@@ -1223,6 +1223,17 @@ class RuntimeInstance implements Runtime {
   private levelSpawnId: string | null = null;
   /** Phase 9.10: paused — frames render and call onFrame, no steps run. */
   private paused = false;
+  /**
+   * Phase 19.2 (Play debugging): held at a step boundary — like `paused`
+   * but owned by the debugger, never by the game (the flow's pause does not
+   * release it), and nothing at all happens at the boundary until a step is
+   * allowed (`debugStep`) or the hold is released.
+   */
+  private debugHold = false;
+  /** Phase 19.2: steps the debugger allowed while held (each runs, then the hold stays). */
+  private debugSteps = 0;
+  /** Phase 19.2: called after every executed step with the completed step index; true holds there (a breakpoint). */
+  private stepWatcher: ((stepIndex: number) => boolean) | null = null;
   /** Loaded scenes, in load order. */
   private batches = new Map<string, SceneBatchState>();
   private sceneStatus = new Map<string, SceneStatus>();
@@ -1633,6 +1644,38 @@ class RuntimeInstance implements Runtime {
     return this.paused;
   }
 
+  /**
+   * Phase 19.2 (Play debugging): hold the simulation at the next step
+   * boundary (true) or let it run on (false). Frames still render and reach
+   * onFrame; the clock resumes from where it was released (no catch-up).
+   * Holding changes nothing the simulation computes: the same steps run
+   * with the same inputs, only later.
+   */
+  setDebugHold(hold: boolean): void {
+    this.debugHold = hold === true;
+    if (!this.debugHold) this.debugSteps = 0;
+  }
+
+  /** Phase 19.2: held at a step boundary by the debugger. */
+  get debugHeld(): boolean {
+    return this.debugHold;
+  }
+
+  /** Phase 19.2: while held, run exactly one more step on the next frame (then stay held). */
+  debugStep(): void {
+    if (this.debugHold) this.debugSteps += 1;
+  }
+
+  /**
+   * Phase 19.2: a check after every executed step (settle steps excluded):
+   * returning true holds the simulation right there — the rest of that
+   * frame's steps do not run (a breakpoint pauses at a step boundary, the
+   * same one whatever the frame rate). null removes it.
+   */
+  setStepWatcher(watcher: ((stepIndex: number) => boolean) | null): void {
+    this.stepWatcher = watcher;
+  }
+
   /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`): id -> opacity. */
   entityOpacity(): ReadonlyMap<string, number> {
     return this.blocks?.entityOpacity() ?? new Map();
@@ -2012,6 +2055,20 @@ class RuntimeInstance implements Runtime {
       this.onFrame?.();
       return;
     }
+    if (this.debugHold) {
+      // Phase 19.2: held by the debugger — no steps (and nothing applied at the
+      // boundary) except the single steps it allowed; the clock resumes from here.
+      if (this.debugSteps > 0) {
+        this.debugSteps -= 1;
+        if (this.isM2) {
+          if (!this.stepOnceM2()) return;
+        } else this.stepOnce();
+      }
+      this.anchor = { wall: t, simTime: this.simTime };
+      this.lastAlpha = 0;
+      this.onFrame?.();
+      return;
+    }
     if (this.paused) {
       // Phase 9.10: no steps while paused; the clock resumes from here.
       // Phase 14.5: scene loads/unloads still apply (a paused game's menu may
@@ -2026,14 +2083,25 @@ class RuntimeInstance implements Runtime {
     const targetSim = this.anchor.simTime + elapsed;
     const rawN = Math.floor((targetSim - this.simTime) / this.dt + STEP_COUNT_EPS);
     const n = Math.min(rawN, MAX_CATCHUP_STEPS);
+    let held = false;
     for (let i = 0; i < n; i += 1) {
       if (this.isM2) {
         if (!this.stepOnceM2()) return; // fail-stop: no further frame/onFrame
       } else {
         this.stepOnce();
       }
+      // Phase 19.2: a breakpoint holds right after the step it hit.
+      if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
+        this.debugHold = true;
+        this.debugSteps = 0;
+        held = true;
+        break;
+      }
     }
-    if (rawN > MAX_CATCHUP_STEPS) {
+    if (held) {
+      this.anchor = { wall: t, simTime: this.simTime };
+      this.lastAlpha = 0;
+    } else if (rawN > MAX_CATCHUP_STEPS) {
       // Bounded catch-up (normative, §5.4): drop the remainder and
       // resync the anchor — no unbounded burst after a stall. The
       // resync makes targetSim == simTime for the display, so
@@ -3589,6 +3657,23 @@ class RuntimeInstance implements Runtime {
    * Phase 15.4: the property values every behavior instance on `entityId`
    * reads (public and private) — read-only, for the Play debug view.
    */
+  /**
+   * Phase 19.2 (Play debugging): what the running behavior instances expose
+   * for a debugger (their module's optional `debug(state)`; a visual script
+   * built for Play returns its trace, wire values and variables), for one
+   * behavior and/or one entity. Read-only by contract; exported games carry
+   * no module that answers.
+   */
+  behaviorDebug(filter: { behaviorId?: string; entityId?: string } = {}): BehaviorDebugView[] {
+    const out: BehaviorDebugView[] = [];
+    for (const entry of this.entries) {
+      const probe = entry.instance as { behaviorDebug?: (f: { behaviorId?: string; entityId?: string }) => BehaviorDebugView[] };
+      if (typeof probe.behaviorDebug !== 'function') continue;
+      out.push(...probe.behaviorDebug(filter));
+    }
+    return out;
+  }
+
   behaviorProperties(entityId: string): BehaviorPropertyView[] {
     const out: BehaviorPropertyView[] = [];
     for (const entry of this.entries) {

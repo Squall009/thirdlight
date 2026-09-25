@@ -151,6 +151,7 @@ export {
   type BehaviorLogEntry,
   type BehaviorProperties,
   type BehaviorPropertyView,
+  type BehaviorDebugView,
 } from './behavior';
 export {
   BEHAVIOR_LOG_CODE,

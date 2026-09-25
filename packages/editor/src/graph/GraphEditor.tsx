@@ -109,6 +109,21 @@ export interface GraphEditorProps {
    * (e.g. a material's parameters). Absent = none.
    */
   portContext?: GraphContext;
+  /**
+   * Phase 19.2: problems found outside the kind's rules (e.g. a visual
+   * script's compile errors, by node): shown like the kind's own — a badge on
+   * the node, the toolbar count, the node's hover text.
+   */
+  extraProblems?: readonly GraphProblem[];
+  /** Phase 19.2: nodes with a breakpoint (a red dot); with `onToggleBreakpoint`, F9 and the toolbar toggle them on the selection. */
+  breakpoints?: ReadonlySet<string>;
+  onToggleBreakpoint?: (nodeIds: readonly string[]) => void;
+  /** Phase 19.2: the node a paused debugger stands on (outlined, with a ▶). */
+  current?: string | null;
+  /** Phase 19.2: a short text shown while the pointer is over a wire (e.g. the value it carried in Play); null = none. */
+  edgeTip?: (edgeId: string) => string | null;
+  /** Phase 19.2: something was dropped on the graph (drag and drop from outside, e.g. a variable); `at` in graph units, `screen` the client (window) point. */
+  onDropItem?: (data: DataTransfer, at: GraphPoint, screen: { x: number; y: number }) => void;
 }
 
 /** Copy/paste between editors of the same graph kind (document tabs of one kind). */
@@ -145,7 +160,7 @@ interface Catalogue {
   active: number;
 }
 
-export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext }: GraphEditorProps): JSX.Element {
+export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext, extraProblems, breakpoints, onToggleBreakpoint, current, edgeTip, onDropItem }: GraphEditorProps): JSX.Element {
   const fixedTypes = useMemo(() => fixedTypesOf(kind), [kind]);
   // Phase 18.1: every node's resolved ports for this graph value; the geometry
   // helpers below read the current table through a ref (callbacks keep working).
@@ -184,8 +199,10 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   const [editing, setEditing] = useState<{ id: string; kind: 'comment' | 'group'; text: string } | null>(null);
   const [pendingPort, setPendingPort] = useState<PortEnd | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  /** Phase 19.2: where the pointer is over the hovered wire (the tip follows it). */
+  const [hoverAt, setHoverAt] = useState<{ sx: number; sy: number } | null>(null);
 
-  const problems = useMemo(() => diagnoseGraph(kind, graph, portsOf), [kind, graph, portsOf]);
+  const problems = useMemo(() => [...diagnoseGraph(kind, graph, portsOf), ...(extraProblems ?? [])], [kind, graph, portsOf, extraProblems]);
   const problemsByNode = useMemo(() => {
     const m = new Map<string, GraphProblem[]>();
     for (const p of problems) if (p.nodeId !== undefined) m.set(p.nodeId, [...(m.get(p.nodeId) ?? []), p]);
@@ -226,8 +243,25 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       }
     }
     const box = d?.mode === 'box' ? { x: Math.min(d.start[0], d.now[0]), y: Math.min(d.start[1], d.now[1]), w: Math.abs(d.now[0] - d.start[0]), h: Math.abs(d.now[1] - d.start[1]) } : null;
-    return { kind, portsOf: portsRef.current, graph: graphRef.current, view: viewRef.current, width: sizeRef.current.w, height: sizeRef.current.h, moved: movedRef.current, selected: selectionRef.current, problems: problemsByNode, wire, box, hoverEdge, ...(edgeLabels !== undefined ? { edgeLabels } : {}), ...(highlighted !== undefined ? { highlighted } : {}) };
-  }, [kind, problemsByNode, hoverEdge, edgeLabels, highlighted]);
+    return {
+      kind,
+      portsOf: portsRef.current,
+      graph: graphRef.current,
+      view: viewRef.current,
+      width: sizeRef.current.w,
+      height: sizeRef.current.h,
+      moved: movedRef.current,
+      selected: selectionRef.current,
+      problems: problemsByNode,
+      wire,
+      box,
+      hoverEdge,
+      ...(edgeLabels !== undefined ? { edgeLabels } : {}),
+      ...(highlighted !== undefined ? { highlighted } : {}),
+      ...(breakpoints !== undefined ? { breakpoints } : {}),
+      ...(current !== undefined ? { current } : {}),
+    };
+  }, [kind, problemsByNode, hoverEdge, edgeLabels, highlighted, breakpoints, current]);
 
   const draw = useCallback(() => {
     frameRef.current = 0;
@@ -247,7 +281,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     if (frameRef.current !== 0) return;
     frameRef.current = requestAnimationFrame(() => drawRef.current());
   }, []);
-  useEffect(() => requestDraw(), [selection, problemsByNode, hoverEdge, edgeLabels, highlighted, requestDraw]);
+  useEffect(() => requestDraw(), [selection, problemsByNode, hoverEdge, edgeLabels, highlighted, breakpoints, current, requestDraw]);
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
   // Size the canvas to the element.
@@ -517,7 +551,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       const def = nodeDefOf(kind, type);
       if (def === undefined) return;
       const g = graphRef.current;
-      const id = makeIdFactory(g, def.type.slice(0, 3))();
+      // A readable id prefix from the type (item ids are letters, digits, _ and -: "fn.input" → "fni").
+      const id = makeIdFactory(g, def.type.replace(/[^A-Za-z0-9]/g, '').slice(0, 3) || 'n')();
       let position: GraphPoint = [snap(c.at[0], snapOn), snap(c.at[1], snapOn)];
       const data = newNodeData?.(type);
       const withData = data !== undefined && Object.keys(data).length > 0 ? { data } : {};
@@ -631,6 +666,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       const h = hitTest(p);
       const e = h.type === 'edge' ? h.id : null;
       if (e !== hoverEdge) setHoverEdge(e);
+      if (e !== null && edgeTip !== undefined) setHoverAt({ sx, sy });
+      else if (hoverAt !== null) setHoverAt(null);
       return;
     }
     if (d.mode === 'pan') {
@@ -862,6 +899,14 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       void addGroup();
       return;
     }
+    if (ev.key === 'F9' && onToggleBreakpoint !== undefined) {
+      // Phase 19.2: toggle breakpoints on the selected nodes.
+      handled();
+      const ids = graphRef.current.nodes.filter((n) => selectionRef.current.has(n.id)).map((n) => n.id);
+      if (ids.length > 0) onToggleBreakpoint(ids);
+      else setStatus({ text: 'select a node to put a breakpoint on it', error: false });
+      return;
+    }
     if (mod) return;
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       handled();
@@ -1039,6 +1084,19 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
         <button className="tl-btn tl-btn--small" onClick={() => void addGroup()} title="Frame the selected nodes in a group (Ctrl+G)">
           Group
         </button>
+        {onToggleBreakpoint !== undefined && (
+          <button
+            className="tl-btn tl-btn--small"
+            title="Toggle a breakpoint on the selected nodes (F9): Play pauses after the step in which the node runs"
+            onClick={() => {
+              const ids = graphRef.current.nodes.filter((n) => selectionRef.current.has(n.id)).map((n) => n.id);
+              if (ids.length > 0) onToggleBreakpoint(ids);
+              else setStatus({ text: 'select a node to put a breakpoint on it', error: false });
+            }}
+          >
+            ● Breakpoint
+          </button>
+        )}
         <span className="tl-graph__sep" />
         {(
           [
@@ -1081,6 +1139,16 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
           requestDraw();
         }}
         onDoubleClick={onDoubleClick}
+        onDragOver={(ev) => {
+          if (onDropItem !== undefined) ev.preventDefault();
+        }}
+        onDrop={(ev) => {
+          if (onDropItem === undefined) return;
+          ev.preventDefault();
+          const { sx, sy } = localPoint(ev.clientX, ev.clientY);
+          const at = toGraph(viewRef.current, sx, sy);
+          onDropItem(ev.dataTransfer, [snap(at[0], snapOn), snap(at[1], snapOn)], { x: ev.clientX, y: ev.clientY });
+        }}
         onContextMenu={(ev) => {
           ev.preventDefault();
           const { sx, sy } = localPoint(ev.clientX, ev.clientY);
@@ -1106,6 +1174,9 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
                 data-node-id={n.id}
                 data-node-type={n.type}
                 data-problems={probs.length > 0 ? probs.map((x) => x.severity).join(' ') : undefined}
+                data-breakpoint={breakpoints?.has(n.id) === true ? 'true' : undefined}
+                data-active={highlighted?.has(n.id) === true ? 'true' : undefined}
+                data-current={current === n.id ? 'true' : undefined}
                 title={probs.map((x) => `${x.severity}: ${x.message}`).join('\n') || undefined}
                 onFocus={(e) => {
                   if (!pointerDownRef.current && e.target === e.currentTarget && !selectionRef.current.has(n.id)) setSelection(new Set([n.id]));
@@ -1146,6 +1217,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
               aria-label={label}
               aria-pressed={selection.has(e.id)}
               data-edge-id={e.id}
+              data-value={edgeTip?.(e.id) ?? undefined}
+              title={edgeTip?.(e.id) ?? undefined}
               onFocus={(ev) => !pointerDownRef.current && ev.target === ev.currentTarget && !selectionRef.current.has(e.id) && setSelection(new Set([e.id]))}
             />
           ))}
@@ -1248,6 +1321,11 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
             dragRef.current = null;
           }}
         />
+        {hoverEdge !== null && hoverAt !== null && edgeTip !== undefined && edgeTip(hoverEdge) !== null && (
+          <div className="tl-graph__tip" role="tooltip" aria-label="Wire value" style={{ left: hoverAt.sx + 14, top: hoverAt.sy + 14 }}>
+            {edgeTip(hoverEdge)}
+          </div>
+        )}
         {(status !== null || graphProblems.length > 0) && (
           <div className={`tl-graph__status${status?.error === true || (status === null && graphProblems.length > 0) ? ' is-error' : ''}`} role="status">
             {status?.text ?? graphProblems.map((p) => p.message).join('; ')}

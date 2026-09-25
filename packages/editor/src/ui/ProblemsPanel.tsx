@@ -17,6 +17,8 @@ export interface GraphIssueView {
   nodeLabel: string | null;
   severity: 'error' | 'warning';
   message: string;
+  /** Phase 19.2: a visual script's compile problem (the click opens its Graph tab at the node; `nodeId` scoped in a function). */
+  behaviorId?: string;
 }
 
 interface Props {
@@ -78,8 +80,8 @@ export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFa
         <ul className="tl-problems__list" aria-label="Graphs">
           {graphIssues.map((g) => (
             <li key={g.key} className="tl-problem">
-              <span className={`tl-problem__source tl-problem__source--${g.severity === 'error' ? 'command' : 'workspace'}`}>{g.severity === 'error' ? 'graph error' : 'graph warning'}</span>
-              <button className="tl-problem__message tl-problem__link" title="Open the graph at this node" onClick={() => onGraphIssue?.(g)}>
+              <span className={`tl-problem__source tl-problem__source--${g.severity === 'error' ? 'command' : 'workspace'}`}>{g.behaviorId !== undefined ? (g.severity === 'error' ? 'script error' : 'script warning') : g.severity === 'error' ? 'graph error' : 'graph warning'}</span>
+              <button className="tl-problem__message tl-problem__link" title="Open the graph at this node" data-behavior={g.behaviorId} onClick={() => onGraphIssue?.(g)}>
                 {g.graphName}
                 {g.nodeLabel !== null ? ` › ${g.nodeLabel} (${g.nodeId ?? ''})` : ''}: {g.message}
               </button>
