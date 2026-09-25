@@ -374,7 +374,9 @@ export {
   type GraphPortType,
   type GraphValue,
 } from './graph';
-export { GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
+export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KIND, GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
+// Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
+export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Phase 9.8: input actions.
 export {
   canonicalInput,
@@ -393,7 +395,9 @@ export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migra
 export {
   ANIMATOR_CONDITION_OPS,
   ANIMATOR_PARAMETER_TYPES,
+  ANIMATOR_RESERVED_GRAPH_ID_RE,
   animatorAssetIds,
+  animatorsForRuntime,
   animatorStates,
   canonicalAnimatorController,
   canonicalAnimators,
@@ -410,6 +414,7 @@ export {
   type AnimatorController,
   type AnimatorEvent,
   type AnimatorLayer,
+  type AnimatorLayout,
   type AnimatorMotion,
   type AnimatorParameter,
   type AnimatorParameterType,

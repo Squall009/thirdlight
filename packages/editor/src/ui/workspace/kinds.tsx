@@ -18,7 +18,8 @@ import type { GraphDocument } from '@thirdlight/project-model';
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import type { DocRef } from '../../session/workspace-tabs';
-import { AnimatorPanel, type AnimatorPanelProps } from '../AnimatorPanel';
+import type { AnimatorPanelProps } from '../AnimatorPanel';
+import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
 
@@ -26,6 +27,8 @@ import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocume
 export interface WorkspaceHost {
   /** The Animator's props (the bottom-dock panel uses the same). */
   animator: AnimatorPanelProps;
+  /** Phase 16.2: the props of one controller's tab (graph, layers, preview pane). */
+  animatorDocument: (controllerId: string) => AnimatorDocumentProps;
   /** The Behaviors panel's props (the bottom-dock panel uses the same). */
   behavior: BehaviorPanelProps;
   /** Phase 16.3: the script editor's data and actions (all behaviors share them). */
@@ -63,16 +66,20 @@ const animatorKind: DocumentKind = {
   label: 'Animator',
   icon: './icons/model.png',
   name: (id, host) => host.animator.controllers.find((c) => c.controllerId === id)?.name ?? id,
-  render: (id, host) => (
-    <AnimatorPanel
-      {...host.animator}
-      controllerId={id}
-      onDelete={(controllerId) => {
-        host.animator.onDelete(controllerId);
-        host.close({ kind: 'animator', id: controllerId });
-      }}
-    />
-  ),
+  // Phase 16.2: the controller's state machine on the graph framework (AnimatorDocument).
+  render: (id, host) => {
+    const props = host.animatorDocument(id);
+    return (
+      <AnimatorDocument
+        key={id}
+        {...props}
+        onDelete={(controllerId) => {
+          props.onDelete(controllerId);
+          host.close({ kind: 'animator', id: controllerId });
+        }}
+      />
+    );
+  },
 };
 
 const scriptKind: DocumentKind = {

@@ -3,10 +3,10 @@
  * graphEdit (atomic op lists, one undo step, refusals change nothing).
  */
 import { describe, expect, it } from 'vitest';
-import type { GraphDocument, SceneV4 } from '@thirdlight/project-model';
+import type { AnimatorController, GraphDocument, SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
-import type { CommandState, GraphEditChange, MutationSuccess, SetGraphChange } from './index';
+import type { CommandState, GraphEditChange, MutationSuccess, SetAnimatorsChange, SetGraphChange } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
 
 const BEFORE = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
@@ -125,5 +125,60 @@ describe('graphEdit', () => {
   it('an edit that changes nothing is refused with no_change', () => {
     const s = ok(withGraph(), 'graphEdit', { owner, ops: [{ op: 'addNodes', nodes: [{ id: 'a', type: 'constant', position: [0, 0] }] }] }).state;
     expect((run(s, 'graphEdit', { owner, ops: [{ op: 'moveNodes', moves: [{ id: 'a', position: [0, 0] }] }] }).result.error as { code: string }).code).toBe('no_change');
+  });
+});
+
+describe('graphEdit on an animator controller (phase 16.2)', () => {
+  const animators = (s: State): AnimatorController[] => (s.content as { animators?: AnimatorController[] }).animators ?? [];
+  const clip = (name: string) => ({ assetId: 'asset-2b11d4a76c9f0e35', clip: name, duration: 1 });
+  function withController(): State {
+    return ok(fresh(), 'setAnimator', {
+      controller: {
+        controllerId: 'walker',
+        name: 'Walker',
+        parameters: [{ name: 'speed', type: 'float', default: 0 }],
+        states: [
+          { id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: clip('idle') }, speed: 1, loop: true },
+          { id: 'run', name: 'Run', motion: { kind: 'clip', clip: clip('run') }, speed: 1, loop: true },
+        ],
+        transitions: [{ from: 'idle', to: 'run', conditions: [{ parameter: 'speed', op: 'greater', value: 0.2 }], duration: 0.1 }],
+        entry: 'idle',
+        events: [],
+      },
+    }).state;
+  }
+  const anim = { kind: 'animator', id: 'walker' };
+
+  it('records the same setAnimators change as setAnimator, one undo step; MCP-style ops map onto the controller', () => {
+    const s0 = withController();
+    const r = ok(s0, 'graphEdit', {
+      owner: anim,
+      ops: [
+        { op: 'moveNodes', moves: [{ id: 'run', position: [600, 20] }] },
+        { op: 'connect', edges: [{ id: 'x', from: { node: 'run', port: 'out' }, to: { node: 'idle', port: 'in' } }] },
+      ],
+    });
+    const change = r.change as SetAnimatorsChange;
+    expect(change.type).toBe('setAnimators');
+    expect(change.previous).toEqual(animators(s0));
+    const c = animators(r.state)[0]!;
+    expect(c.states.find((x) => x.id === 'run')!.position).toEqual([600, 20]);
+    expect(c.transitions.map((t) => `${t.from}>${t.to}`)).toEqual(['idle>run', 'run>idle']);
+    const undone = ok(r.state, 'undo', {});
+    expect(animators(undone.state)).toEqual(animators(s0));
+    expect((undone.change as SetAnimatorsChange).type).toBe('setAnimators');
+    const redone = ok(undone.state, 'redo', {});
+    expect(animators(redone.state)).toEqual(animators(r.state));
+  });
+
+  it('refuses edits that do not fit the controller (with a reason) and unknown targets', () => {
+    const s = withController();
+    const noEntry = run(s, 'graphEdit', { owner: anim, ops: [{ op: 'disconnect', ids: ['ENTRY-WIRE'] }] }).result;
+    expect(noEntry.ok).toBe(false);
+    expect((noEntry.error as { message: string }).message).toMatch(/Entry/);
+    expect((run(s, 'graphEdit', { owner: { kind: 'animator', id: 'walker@1' }, ops: [{ op: 'removeNodes', ids: ['a'] }] }).result.error as { code: string }).code).toBe('reference_missing');
+    expect((run(s, 'graphEdit', { owner: { kind: 'animator', id: 'ghost' }, ops: [{ op: 'removeNodes', ids: ['a'] }] }).result.error as { code: string }).code).toBe('reference_missing');
+    // An animator graph kind is not a standalone graph.
+    expect(run(s, 'setGraph', { graph: { graphId: 'g9', kind: 'animator', name: 'X', graph: { nodes: [], edges: [] } } }).result.ok).toBe(false);
   });
 });

@@ -97,6 +97,7 @@ import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './Mat
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
 import { AnimatorPanel, type AnimatorPanelProps, type AnimatorPreview } from './AnimatorPanel';
+import { AnimatorInspector } from './animator/AnimatorInspector';
 import { ClipsForField } from './ClipsForField';
 import { InputPanel } from './InputPanel';
 import { FlowPanel } from './FlowPanel';
@@ -290,6 +291,20 @@ function EditorApp(): JSX.Element {
   const openGraph = activeGraphId !== null ? (graphs.find((g) => g.graphId === activeGraphId) ?? null) : null;
   // A different graph in front starts with an empty selection.
   useEffect(() => setGraphSelection([]), [activeGraphId]);
+  // Phase 16.2: the Animator tabs — which graph of each controller is shown
+  // (an animator owner id: base layer, `@n` layer, `#state` blend tree), the
+  // selection of the one in front (the Inspector shows it) and a focus request.
+  const [animatorTargets, setAnimatorTargets] = useState<Readonly<Record<string, string>>>({});
+  const [animatorSelection, setAnimatorSelection] = useState<{ ownerId: string; ids: readonly string[] }>({ ownerId: '', ids: [] });
+  const [animatorFocus, setAnimatorFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const activeAnimatorId = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'animator' ? d.id : null;
+  })();
+  useEffect(() => {
+    setAnimatorSelection({ ownerId: '', ids: [] });
+    setAnimatorFocus(null);
+  }, [activeAnimatorId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
   const graphIssues = useMemo(
     () =>
@@ -2876,6 +2891,7 @@ function EditorApp(): JSX.Element {
 
   // The Animator and Behaviors panels: the bottom dock and the centre document tabs share these.
   const openDocument = (kind: string, id: string): void => workspaceDispatch({ type: 'open', doc: { kind, id } });
+  const animatorModels = assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) }));
   const animatorProps: AnimatorPanelProps = {
     controllers: animators,
     models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) })),
@@ -2905,8 +2921,30 @@ function EditorApp(): JSX.Element {
     onSaveDeclaration: saveDeclaration,
     onOpen: (id) => openDocument('script', id),
   };
+  const animatorGraphEdit = (ownerId: string, ops: GraphOp[]): Promise<string | null> => sendGraphEdit({ kind: 'animator', id: ownerId }, ops);
   const workspaceHost: WorkspaceHost = {
     animator: animatorProps,
+    animatorDocument: (controllerId) => ({
+      controllerId,
+      controllers: animators,
+      models: animatorModels,
+      clipsOf,
+      skeletonOf,
+      preview: previewAnimator,
+      onSave: (controller) => void saveAnimator(controller),
+      onDelete: (id) => void deleteAnimator(id),
+      error: animatorError,
+      kinds: graphKinds,
+      target: animatorTargets[controllerId] ?? controllerId,
+      onTarget: (ownerId) => {
+        setAnimatorTargets((t) => ({ ...t, [controllerId]: ownerId }));
+        setAnimatorSelection({ ownerId, ids: [] });
+        setAnimatorFocus(null);
+      },
+      onGraphEdit: animatorGraphEdit,
+      onSelection: (ownerId, ids) => setAnimatorSelection({ ownerId, ids }),
+      focus: animatorFocus,
+    }),
     behavior: behaviorProps,
     script: {
       drafts: scriptDrafts,
@@ -3520,7 +3558,27 @@ function EditorApp(): JSX.Element {
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
         <div className="tl-dock tl-dock--right" style={{ width: sizes.right }}>
-        {openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
+        {activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
+          <div className="tl-inspector" aria-label="animator inspector">
+            <div className="tl-panel__title">Inspector</div>
+            <AnimatorInspector
+              controller={animators.find((a) => a.controllerId === activeAnimatorId)!}
+              ownerId={animatorSelection.ownerId !== '' ? animatorSelection.ownerId : (animatorTargets[activeAnimatorId] ?? activeAnimatorId)}
+              ids={animatorSelection.ids}
+              kinds={graphKinds}
+              models={animatorModels}
+              clipsOf={clipsOf}
+              onGraphEdit={animatorGraphEdit}
+              onSave={(controller) => void saveAnimator(controller)}
+              onTarget={(ownerId) => {
+                setAnimatorTargets((t) => ({ ...t, [activeAnimatorId]: ownerId }));
+                setAnimatorSelection({ ownerId, ids: [] });
+                setAnimatorFocus(null);
+              }}
+              onFocus={(id) => setAnimatorFocus({ id, nonce: Date.now() })}
+            />
+          </div>
+        ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">
             <div className="tl-panel__title">Inspector</div>
             <GraphInspector kind={graphKinds[openGraph.kind]!} graph={openGraph.graph} ids={graphSelection} onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)} />

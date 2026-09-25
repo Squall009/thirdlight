@@ -48,7 +48,106 @@ export const TEST_GRAPH_KIND: GraphKindDef = {
   sinks: ['output'],
 };
 
+// ---- phase 16.2: the animator controller's graphs (owner kind `animator`) ----------------
+//
+// A controller layer is a state machine: state nodes (a clip, a blend tree
+// or — override layers only — nothing), the fixed Entry (its one wire names
+// the layer's first state) and Any State, and transition wires (one wire per
+// ordered pair of states; the pair's transitions — conditions, crossfade,
+// exit time — are listed on the wire in the Inspector). A blend tree state
+// opens as its own graph: one Clip node per blend child feeding the fixed
+// Blend node. The graphs are read from and written to the controller data
+// (animator-graph.ts); the node fields mirror the state's own fields.
+
+const TRANSITION_PORTS = {
+  inputs: [{ id: 'in', label: 'in', type: 'transition', multi: true }],
+  outputs: [{ id: 'out', label: 'out', type: 'transition' }],
+} as const;
+const STATE_COMMON_FIELDS = [
+  // 0–10: the controller data's range (a quarter-speed walk to a 10× time-lapse).
+  { key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10 },
+  { key: 'name', label: 'Name', type: 'string', default: '', maxLength: 128 },
+  { key: 'loop', label: 'Loop', type: 'boolean', default: true },
+] as const;
+const SPEED_PARAMETER_FIELD = { key: 'speedParameter', label: '× parameter', type: 'string', default: '', maxLength: 64 } as const;
+const CLIP_FIELDS = [
+  { key: 'clip', label: 'Clip', type: 'string', default: '', maxLength: 128 },
+  { key: 'duration', label: 'Length (s)', type: 'number', default: 1, min: 0.001, max: 600 },
+  { key: 'asset', label: 'Model asset', type: 'string', default: '', maxLength: 64 },
+] as const;
+
+const ANIMATOR_NODES: GraphKindDef['nodes'] = [
+  { type: 'entry', label: 'Entry', category: 'States', description: 'Where the layer starts: its wire names the first state.', inputs: [], outputs: [{ id: 'out', label: 'start', type: 'transition', single: true }], max: 1, required: true, fixed: true },
+  { type: 'any', label: 'Any State', category: 'States', description: 'Its transitions may fire from every state of the layer.', inputs: [], outputs: [{ id: 'out', label: 'any', type: 'transition' }], max: 1, required: true, fixed: true },
+  { type: 'state', label: 'State', category: 'States', description: 'Plays one clip.', ...TRANSITION_PORTS, titleField: 'name', fields: [CLIP_FIELDS[0], STATE_COMMON_FIELDS[0], STATE_COMMON_FIELDS[1], STATE_COMMON_FIELDS[2], SPEED_PARAMETER_FIELD, CLIP_FIELDS[1], CLIP_FIELDS[2]] },
+  {
+    type: 'blend',
+    label: 'Blend tree',
+    category: 'States',
+    description: 'Blends clips by a float or int parameter (double-click to open its clips).',
+    ...TRANSITION_PORTS,
+    titleField: 'name',
+    fields: [{ key: 'parameter', label: 'Blend by', type: 'string', default: '', maxLength: 64 }, STATE_COMMON_FIELDS[0], STATE_COMMON_FIELDS[1], STATE_COMMON_FIELDS[2], SPEED_PARAMETER_FIELD],
+  },
+];
+const ANIMATOR_PORT_TYPES: GraphKindDef['portTypes'] = [{ id: 'transition', label: 'transition', color: '#9fb4d6' }];
+
+/** The base layer of an animator controller (no empty states). */
+export const ANIMATOR_GRAPH_KIND: GraphKindDef = {
+  kind: 'animator',
+  label: 'Animator layer',
+  portTypes: ANIMATOR_PORT_TYPES,
+  conversions: [],
+  categories: ['States'],
+  nodes: ANIMATOR_NODES,
+  // A state machine loops (idle → run → idle); a state may even transition to itself.
+  allowCycles: true,
+  // MAX_ANIMATOR_STATES (64) + Entry + Any State.
+  maxNodes: 66,
+  owner: 'animator',
+};
+
+/** An override layer (phase 14.6): also empty states (the layers under it show through). */
+export const ANIMATOR_LAYER_GRAPH_KIND: GraphKindDef = {
+  ...ANIMATOR_GRAPH_KIND,
+  kind: 'animator-layer',
+  label: 'Animator override layer',
+  nodes: [
+    ...ANIMATOR_NODES,
+    { type: 'empty', label: 'Empty state', category: 'States', description: 'Plays nothing: the layers under this one show through.', ...TRANSITION_PORTS, titleField: 'name', fields: [...STATE_COMMON_FIELDS, SPEED_PARAMETER_FIELD] },
+  ],
+};
+
+/** A 1D blend tree state's clips. */
+export const ANIMATOR_BLEND_GRAPH_KIND: GraphKindDef = {
+  kind: 'animator-blend',
+  label: 'Blend tree',
+  portTypes: [{ id: 'motion', label: 'motion', color: '#7ed491' }],
+  conversions: [],
+  categories: ['Blend'],
+  nodes: [
+    { type: 'output', label: 'Blend', category: 'Blend', description: 'The blend tree: every clip feeds it, weighted by the parameter.', inputs: [{ id: 'motions', label: 'clips', type: 'motion', multi: true }], outputs: [], max: 1, required: true, fixed: true },
+    {
+      type: 'clip',
+      label: 'Clip',
+      category: 'Blend',
+      description: 'A clip played at its threshold of the blend parameter.',
+      inputs: [],
+      outputs: [{ id: 'motion', label: 'motion', type: 'motion' }],
+      titleField: 'clip',
+      fields: [{ key: 'threshold', label: 'Threshold', type: 'number', default: 0, min: -1e6, max: 1e6 }, CLIP_FIELDS[0], CLIP_FIELDS[1], CLIP_FIELDS[2]],
+    },
+  ],
+  allowCycles: false,
+  // MAX_BLEND_CHILDREN (16) + the Blend node.
+  maxNodes: 17,
+  owner: 'animator',
+};
+
 /** Every registered graph kind, by kind id. */
 export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   [TEST_GRAPH_KIND.kind]: TEST_GRAPH_KIND,
+  [ANIMATOR_GRAPH_KIND.kind]: ANIMATOR_GRAPH_KIND,
+  [ANIMATOR_LAYER_GRAPH_KIND.kind]: ANIMATOR_LAYER_GRAPH_KIND,
+  [ANIMATOR_BLEND_GRAPH_KIND.kind]: ANIMATOR_BLEND_GRAPH_KIND,
 };

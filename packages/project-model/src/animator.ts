@@ -18,6 +18,26 @@
  * through).
  */
 import type { ModelErrorV2 } from './errors';
+import type { GraphComment, GraphGroup } from './graph';
+
+/**
+ * Phase 16.2: editor-only layout of one graph of a controller (a layer's
+ * state machine or a blend tree's clips) in the graph editor: where its
+ * fixed nodes sit, its groups and comments, and its collapsed nodes. Optional
+ * (absent = auto-layout); the game never reads it and exports drop it.
+ */
+export interface AnimatorLayout {
+  /** The Entry node's top-left (graph units). */
+  entry?: [number, number];
+  /** The Any State node's top-left. */
+  any?: [number, number];
+  /** A blend tree's Blend node's top-left. */
+  output?: [number, number];
+  groups?: GraphGroup[];
+  comments?: GraphComment[];
+  /** Ids of collapsed nodes (states, blend clips "C<i>", or "ENTRY"/"ANY"/"OUT"). */
+  collapsed?: string[];
+}
 
 export const ANIMATOR_PARAMETER_TYPES = ['float', 'int', 'bool', 'trigger'] as const;
 export type AnimatorParameterType = (typeof ANIMATOR_PARAMETER_TYPES)[number];
@@ -40,7 +60,14 @@ export interface AnimatorClipRef {
 
 export type AnimatorMotion =
   | { kind: 'clip'; clip: AnimatorClipRef }
-  | { kind: 'blend1d'; parameter: string; children: { threshold: number; clip: AnimatorClipRef }[] }
+  | {
+      kind: 'blend1d';
+      parameter: string;
+      /** `position`: phase 16.2, where the graph editor draws the clip (editor-only). */
+      children: { threshold: number; clip: AnimatorClipRef; position?: [number, number] }[];
+      /** Phase 16.2: the blend tree graph's layout (editor-only). */
+      layout?: AnimatorLayout;
+    }
   /** Phase 14.6, override layers only: nothing plays (the layers under it show through). */
   | { kind: 'empty' };
 
@@ -95,6 +122,8 @@ export interface AnimatorLayer {
   states: AnimatorState[];
   transitions: AnimatorTransition[];
   entry: string;
+  /** Phase 16.2: this layer's graph layout (editor-only). */
+  layout?: AnimatorLayout;
 }
 
 export interface AnimatorController {
@@ -108,6 +137,8 @@ export interface AnimatorController {
   events: AnimatorEvent[];
   /** Phase 14.6: override layers over the base layer (absent = the base layer only). */
   layers?: AnimatorLayer[];
+  /** Phase 16.2: the base layer's graph layout (editor-only). */
+  layout?: AnimatorLayout;
 }
 
 export interface AnimatorComponent {
@@ -145,6 +176,71 @@ function onlyKeys(v: Record<string, unknown>, keys: readonly string[], path: str
   for (const k of Object.keys(v)) if (!keys.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, keys.join(', '));
 }
 
+/** Positions: the graph editor's coordinate bound (GRAPH_LIMITS.coordinate). */
+const POS_BOUND = 1e6;
+const pos2 = (v: unknown): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every((x) => num(x, -POS_BOUND, POS_BOUND));
+const LAYOUT_ITEM_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const COLOR_RE = /^#[0-9a-f]{6}$/;
+/**
+ * Phase 16.2: ids the controller's graphs give their own items (animator-graph.ts):
+ * the fixed nodes, the entry wire, transition wires (T + hash), blend clips and
+ * their wires (C<i>, W<i>). A group or comment id may not take one.
+ */
+export const ANIMATOR_RESERVED_GRAPH_ID_RE = /^(ENTRY|ANY|OUT|ENTRY-WIRE|T[0-9a-f]{8}(-[0-9]+)?|[CW][0-9]+)$/;
+const FIXED_IDS = ['ENTRY', 'ANY', 'OUT'];
+
+/**
+ * Phase 16.2: a graph layout (editor-only data). `taken` holds the graph's
+ * node ids (state ids or blend clip ids), which a group or comment id may
+ * not reuse.
+ */
+function checkLayout(v: unknown, path: string, taken: ReadonlySet<string>, errors: ModelErrorV2[]): void {
+  if (v === undefined) return;
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'layout is { entry?, any?, output?, groups?, comments?, collapsed? }', v);
+  onlyKeys(v, ['entry', 'any', 'output', 'groups', 'comments', 'collapsed'], path, errors);
+  for (const k of ['entry', 'any', 'output'] as const) if (v[k] !== undefined && !pos2(v[k])) err(errors, 'field_value', `${path}/${k}`, `${k} is [x, y]`, v[k]);
+  const ids = new Set<string>();
+  const claim = (id: unknown, p: string): void => {
+    if (typeof id !== 'string' || !LAYOUT_ITEM_RE.test(id)) return err(errors, 'field_value', p, 'an id is 1-64 letters, digits, _ or -', id);
+    if (ids.has(id) || taken.has(id) || ANIMATOR_RESERVED_GRAPH_ID_RE.test(id)) return err(errors, 'id_duplicate', p, 'a group or comment id is unique in its graph (not a state id or an id the graph uses itself)', id);
+    ids.add(id);
+  };
+  const groups = v['groups'];
+  if (groups !== undefined) {
+    if (!Array.isArray(groups) || groups.length > 256) err(errors, 'field_value', `${path}/groups`, 'groups is a list of at most 256', groups);
+    else
+      groups.forEach((g, i) => {
+        const p = `${path}/groups/${i}`;
+        if (!isPlainObject(g)) return err(errors, 'field_type', p, 'a group is { id, title, color, rect }', g);
+        onlyKeys(g, ['id', 'title', 'color', 'rect'], p, errors);
+        claim(g['id'], `${p}/id`);
+        if (typeof g['title'] !== 'string' || g['title'].length > 64) err(errors, 'field_value', `${p}/title`, 'a title is at most 64 characters', g['title']);
+        if (typeof g['color'] !== 'string' || !COLOR_RE.test(g['color'])) err(errors, 'field_value', `${p}/color`, 'a colour is #rrggbb (lower case)', g['color']);
+        const r = g['rect'];
+        if (!Array.isArray(r) || r.length !== 4 || !num(r[0], -POS_BOUND, POS_BOUND) || !num(r[1], -POS_BOUND, POS_BOUND) || !num(r[2], 1, 1e5) || !num(r[3], 1, 1e5)) err(errors, 'field_value', `${p}/rect`, 'rect is [x, y, width, height]', r);
+      });
+  }
+  const comments = v['comments'];
+  if (comments !== undefined) {
+    if (!Array.isArray(comments) || comments.length > 256) err(errors, 'field_value', `${path}/comments`, 'comments is a list of at most 256', comments);
+    else
+      comments.forEach((c, i) => {
+        const p = `${path}/comments/${i}`;
+        if (!isPlainObject(c)) return err(errors, 'field_type', p, 'a comment is { id, text, position, size? }', c);
+        onlyKeys(c, ['id', 'text', 'position', 'size'], p, errors);
+        claim(c['id'], `${p}/id`);
+        if (typeof c['text'] !== 'string' || c['text'].length > 2000) err(errors, 'field_value', `${p}/text`, 'a comment is at most 2000 characters', c['text']);
+        if (!pos2(c['position'])) err(errors, 'field_value', `${p}/position`, 'position is [x, y]', c['position']);
+        const sz = c['size'];
+        if (sz !== undefined && (!Array.isArray(sz) || sz.length !== 2 || !num(sz[0], 1, 1e5) || !num(sz[1], 1, 1e5))) err(errors, 'field_value', `${p}/size`, 'size is [width, height]', sz);
+      });
+  }
+  const collapsed = v['collapsed'];
+  if (collapsed !== undefined && (!Array.isArray(collapsed) || collapsed.length > MAX_ANIMATOR_STATES + 2 || !collapsed.every((x) => typeof x === 'string' && (taken.has(x) || FIXED_IDS.includes(x))))) {
+    err(errors, 'field_value', `${path}/collapsed`, 'collapsed lists node ids of this graph', collapsed);
+  }
+}
+
 function checkClip(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a clip is { assetId, clip, duration }', v);
   onlyKeys(v, ['assetId', 'clip', 'duration'], path, errors);
@@ -175,14 +271,14 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
       if (typeof s['loop'] !== 'boolean') err(errors, 'field_type', `${sp}/loop`, 'loop is true or false', s['loop']);
       if (s['speedParameter'] !== undefined && params.get(s['speedParameter'] as string) !== 'float') err(errors, 'reference_missing', `${sp}/speedParameter`, 'speedParameter names a float parameter', s['speedParameter']);
       const pos = s['position'];
-      if (pos !== undefined && (!Array.isArray(pos) || pos.length !== 2 || !pos.every((x) => num(x, -1e5, 1e5)))) err(errors, 'field_value', `${sp}/position`, 'position is [x, y]', pos);
+      if (pos !== undefined && !pos2(pos)) err(errors, 'field_value', `${sp}/position`, 'position is [x, y]', pos);
       const m = s['motion'];
       if (!isPlainObject(m)) return err(errors, 'field_type', `${sp}/motion`, 'motion is a clip or a 1D blend tree', m);
       if (m['kind'] === 'clip') {
         onlyKeys(m, ['kind', 'clip'], `${sp}/motion`, errors);
         checkClip(m['clip'], `${sp}/motion/clip`, errors);
       } else if (m['kind'] === 'blend1d') {
-        onlyKeys(m, ['kind', 'parameter', 'children'], `${sp}/motion`, errors);
+        onlyKeys(m, ['kind', 'parameter', 'children', 'layout'], `${sp}/motion`, errors);
         const bp = params.get(m['parameter'] as string);
         if (bp !== 'float' && bp !== 'int') err(errors, 'reference_missing', `${sp}/motion/parameter`, 'a blend tree reads a float or int parameter', m['parameter']);
         const kids = m['children'];
@@ -192,11 +288,13 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
           kids.forEach((k, j) => {
             const kp = `${sp}/motion/children/${j}`;
             if (!isPlainObject(k)) return err(errors, 'field_type', kp, 'a blend child is { threshold, clip }', k);
-            onlyKeys(k, ['threshold', 'clip'], kp, errors);
+            onlyKeys(k, ['threshold', 'clip', 'position'], kp, errors);
+            if (k['position'] !== undefined && !pos2(k['position'])) err(errors, 'field_value', `${kp}/position`, 'position is [x, y]', k['position']);
             if (!num(k['threshold'], -1e6, 1e6) || k['threshold'] <= last) err(errors, 'field_value', `${kp}/threshold`, 'thresholds are numbers in increasing order', k['threshold']);
             else last = k['threshold'];
             checkClip(k['clip'], `${kp}/clip`, errors);
           });
+          checkLayout(m['layout'], `${sp}/motion/layout`, new Set(kids.map((_, j) => `C${j}`)), errors);
         }
       } else if (m['kind'] === 'empty' && allowEmpty) {
         onlyKeys(m, ['kind'], `${sp}/motion`, errors);
@@ -204,6 +302,7 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
     });
 
   if (typeof v['entry'] !== 'string' || !own.has(v['entry'])) err(errors, 'reference_missing', `${path}/entry`, 'entry names a state of this layer', v['entry']);
+  checkLayout(v['layout'], `${path}/layout`, own, errors);
 
   const tlist = v['transitions'];
   if (!Array.isArray(tlist) || tlist.length > MAX_ANIMATOR_TRANSITIONS) err(errors, 'field_value', `${path}/transitions`, `transitions is a list of at most ${MAX_ANIMATOR_TRANSITIONS}`, tlist);
@@ -241,7 +340,7 @@ function checkGraph(v: Record<string, unknown>, path: string, params: ReadonlyMa
 export function validateAnimatorController(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'an animator controller is an object', value);
   const v = value;
-  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events', 'layers'], path, errors);
+  onlyKeys(v, ['controllerId', 'name', 'parameters', 'states', 'transitions', 'entry', 'events', 'layers', 'layout'], path, errors);
   if (typeof v['controllerId'] !== 'string' || !ID_RE.test(v['controllerId'])) err(errors, 'field_value', `${path}/controllerId`, 'controllerId is an id (a-z, 0-9, _ and -)', v['controllerId']);
   if (!isName(v['name'])) err(errors, 'field_value', `${path}/name`, 'name is 1–128 characters', v['name']);
 
@@ -275,7 +374,7 @@ export function validateAnimatorController(value: unknown, path: string, errors:
       layers.forEach((l, i) => {
         const lp = `${path}/layers/${i}`;
         if (!isPlainObject(l)) return err(errors, 'field_type', lp, 'a layer is { name, mask, weight, weightParameter?, states, transitions, entry }', l);
-        onlyKeys(l, ['name', 'mask', 'weight', 'weightParameter', 'states', 'transitions', 'entry'], lp, errors);
+        onlyKeys(l, ['name', 'mask', 'weight', 'weightParameter', 'states', 'transitions', 'entry', 'layout'], lp, errors);
         if (!isName(l['name'])) err(errors, 'field_value', `${lp}/name`, 'name is 1–128 characters', l['name']);
         const mask = l['mask'];
         if (!Array.isArray(mask) || mask.length > MAX_LAYER_MASK) err(errors, 'field_value', `${lp}/mask`, `mask is a list of at most ${MAX_LAYER_MASK} bone names (empty = every bone)`, mask);
@@ -337,11 +436,31 @@ export function validateAnimatorComponent(value: unknown, path: string, errors: 
 
 const clipOf = (c: AnimatorClipRef): AnimatorClipRef => ({ assetId: c.assetId, clip: c.clip, duration: c.duration });
 
+const p2 = (p: readonly number[]): [number, number] => [p[0]!, p[1]!];
+const byItemId = <T extends { id: string }>(a: T, b: T): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/** Phase 16.2: a layout in canonical form (empty parts dropped; undefined when nothing is left). */
+function canonicalLayout(l: AnimatorLayout | undefined): AnimatorLayout | undefined {
+  if (l === undefined) return undefined;
+  const out: AnimatorLayout = {
+    ...(l.entry !== undefined ? { entry: p2(l.entry) } : {}),
+    ...(l.any !== undefined ? { any: p2(l.any) } : {}),
+    ...(l.output !== undefined ? { output: p2(l.output) } : {}),
+    ...(l.groups !== undefined && l.groups.length > 0 ? { groups: [...l.groups].sort(byItemId).map((g) => ({ id: g.id, title: g.title, color: g.color, rect: [g.rect[0], g.rect[1], g.rect[2], g.rect[3]] as [number, number, number, number] })) } : {}),
+    ...(l.comments !== undefined && l.comments.length > 0 ? { comments: [...l.comments].sort(byItemId).map((c) => ({ id: c.id, text: c.text, position: p2(c.position), ...(c.size !== undefined ? { size: p2(c.size) } : {}) })) } : {}),
+    ...(l.collapsed !== undefined && l.collapsed.length > 0 ? { collapsed: [...new Set(l.collapsed)].sort() } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+const withLayout = (l: AnimatorLayout | undefined): { layout?: AnimatorLayout } => {
+  const c = canonicalLayout(l);
+  return c !== undefined ? { layout: c } : {};
+};
+
 const canonicalMotion = (m: AnimatorMotion): AnimatorMotion =>
   m.kind === 'clip'
     ? { kind: 'clip', clip: clipOf(m.clip) }
     : m.kind === 'blend1d'
-      ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip) })) }
+      ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: clipOf(k.clip), ...(k.position !== undefined ? { position: p2(k.position) } : {}) })), ...withLayout(m.layout) }
       : { kind: 'empty' };
 const canonicalStates = (list: readonly AnimatorState[]): AnimatorState[] =>
   list.map((s) => ({
@@ -383,10 +502,37 @@ export function canonicalAnimatorController(c: AnimatorController): AnimatorCont
             states: canonicalStates(l.states),
             transitions: canonicalTransitions(l.transitions),
             entry: l.entry,
+            ...withLayout(l.layout),
           })),
         }
       : {}),
+    ...withLayout(c.layout),
   };
+}
+
+/**
+ * Phase 16.2: the controllers as the game gets them — without the graph
+ * editor's layout (groups, comments, fixed-node and blend-clip positions),
+ * which the game never reads (and whose free text must not reach an export).
+ */
+export function animatorsForRuntime(list: readonly AnimatorController[]): AnimatorController[] {
+  const motion = (m: AnimatorMotion): AnimatorMotion => (m.kind === 'blend1d' ? { kind: 'blend1d', parameter: m.parameter, children: m.children.map((k) => ({ threshold: k.threshold, clip: k.clip })) } : m);
+  const states = (ss: readonly AnimatorState[]): AnimatorState[] => ss.map((s) => (s.motion.kind === 'blend1d' ? { ...s, motion: motion(s.motion) } : s));
+  return list.map((c) => {
+    const { layout: _l, ...rest } = c;
+    return {
+      ...rest,
+      states: states(c.states),
+      ...(c.layers !== undefined
+        ? {
+            layers: c.layers.map((l) => {
+              const { layout: _ll, ...lr } = l;
+              return { ...lr, states: states(l.states) };
+            }),
+          }
+        : {}),
+    };
+  });
 }
 
 export function canonicalAnimators(list: readonly AnimatorController[]): AnimatorController[] {

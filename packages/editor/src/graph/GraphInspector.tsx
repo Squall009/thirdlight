@@ -2,8 +2,13 @@
  * Phase 16.1: the Inspector for the selected graph item (node, edge, group
  * or comment). Node fields come from the node type's schema; every change
  * is one `graphEdit` through the host's `onEdit`.
+ *
+ * Phase 16.2: a graph kind may extend it — `extension(id)` renders the
+ * Inspector for an item the kind knows better (an animator state, a
+ * transition wire); it returns null for the rest, which get the generic
+ * forms. `empty` replaces the hint shown when nothing is selected.
  */
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useState, type JSX, type ReactNode } from 'react';
 
 import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portTypeLabel, type GraphData, type GraphKindDef, type GraphOp } from './model';
 import type { GraphFieldDef, GraphNode, GraphValue } from '@thirdlight/project-model';
@@ -13,17 +18,23 @@ interface Props {
   graph: GraphData;
   ids: readonly string[];
   onEdit: (ops: GraphOp[]) => Promise<string | null>;
+  /** Phase 16.2: the kind's own Inspector for an item (null = the generic form). */
+  extension?: (id: string) => ReactNode | null;
+  /** Phase 16.2: shown when nothing is selected. */
+  empty?: ReactNode;
 }
 
-export function GraphInspector({ kind, graph, ids, onEdit }: Props): JSX.Element {
+export function GraphInspector({ kind, graph, ids, onEdit, extension, empty }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const edit = (ops: GraphOp[]): void => {
     void onEdit(ops).then(setError);
   };
   useEffect(() => setError(null), [ids.join(',')]);
-  if (ids.length === 0) return <div className="tl-inspector__empty">Select a node, wire, group or comment.</div>;
+  if (ids.length === 0) return <>{empty ?? <div className="tl-inspector__empty">Select a node, wire, group or comment.</div>}</>;
   if (ids.length > 1) return <div className="tl-inspector__empty">{ids.length} items selected.</div>;
   const id = ids[0]!;
+  const own = extension?.(id) ?? null;
+  if (own !== null) return <div className="tl-graph-inspector" aria-label="Graph item">{own}</div>;
   const node = graph.nodes.find((n) => n.id === id);
   const edge = graph.edges.find((e) => e.id === id);
   const group = (graph.groups ?? []).find((g) => g.id === id);

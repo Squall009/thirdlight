@@ -22,7 +22,8 @@ interface Props {
 }
 
 export function GraphsPanel({ graphs, kinds, openId, error, onOpen, onCreate, onRename, onDelete }: Props): JSX.Element {
-  const kindIds = Object.keys(kinds);
+  // Kinds owned by another document (phase 16.2: the animator's) open from that document, never as standalone graphs.
+  const kindIds = Object.keys(kinds).filter((k) => kinds[k]!.owner === undefined);
   const [kind, setKind] = useState<string>(kindIds[0] ?? '');
   const [name, setName] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);

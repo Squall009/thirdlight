@@ -88,7 +88,7 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
   await expect(tab(page, 'Animator: Walker')).toHaveAttribute('aria-selected', 'true');
   const animView = page.getByRole('tabpanel', { name: 'Animator: Walker' });
-  await expect(animView.getByLabel('animator graph').getByRole('button', { name: 'state Idle' })).toBeVisible();
+  await expect(animView.getByLabel('animator graph').getByRole('group', { name: 'State Idle node state-01' })).toBeVisible();
   // The document view has no controller picker (it edits this one controller) and edits reach the backend.
   await expect(animView.getByLabel('animator controller', { exact: true })).toHaveCount(0);
   await animView.getByLabel('controller name').fill('Walker B');

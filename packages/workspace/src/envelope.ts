@@ -627,7 +627,10 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
   // (commands.md §5.3/§8.4).
   if (op !== 'undo' && op !== 'redo') {
     const expected = M2_CHANGE_TYPE_BY_OP[op];
-    if (expected !== undefined && expected !== t) {
+    // Phase 16.2: a graphEdit on an owner that stores its graph as its own data
+    // (an animator controller) records that owner's change.
+    const alsoOk = op === 'graphEdit' && t === 'setAnimators';
+    if (expected !== undefined && expected !== t && !alsoOk) {
       return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
     }
     if (expected === undefined) {

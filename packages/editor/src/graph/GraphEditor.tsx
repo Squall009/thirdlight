@@ -36,6 +36,7 @@ import {
   deleteOps,
   diagnoseGraph,
   fitView,
+  fixedTypesOf,
   groupAround,
   GROUP_HEADER,
   groupRect,
@@ -45,6 +46,7 @@ import {
   makeIdFactory,
   nodeDefOf,
   nodeRect,
+  nodeTitle,
   overlaps,
   pasteItems,
   planConnection,
@@ -67,6 +69,7 @@ import {
   type GraphOp,
   type GraphPoint,
   type GraphProblem,
+  type GraphValue,
   type PortEnd,
   type Rect,
   type View,
@@ -88,6 +91,14 @@ export interface GraphEditorProps {
   onSelection?: (ids: readonly string[]) => void;
   /** Select and frame an item (a Problems jump); a new `nonce` repeats it. */
   focus?: { id: string; nonce: number } | null;
+  /** Phase 16.2: a short label drawn on a wire (edge id → text, e.g. "×2"). */
+  edgeLabels?: ReadonlyMap<string, string>;
+  /** Phase 16.2: nodes drawn highlighted (e.g. the live preview's current state). */
+  highlighted?: ReadonlySet<string>;
+  /** Phase 16.2: the host's field values for a node added from the catalogue (absent = the field defaults). */
+  newNodeData?: (type: string) => Record<string, GraphValue> | undefined;
+  /** Phase 16.2: a node's body was double-clicked (e.g. open a blend tree's own graph). */
+  onOpenNode?: (id: string) => void;
 }
 
 /** Copy/paste between editors of the same graph kind (document tabs of one kind). */
@@ -124,7 +135,8 @@ interface Catalogue {
   active: number;
 }
 
-export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: GraphEditorProps): JSX.Element {
+export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode }: GraphEditorProps): JSX.Element {
+  const fixedTypes = useMemo(() => fixedTypesOf(kind), [kind]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const miniRef = useRef<HTMLCanvasElement | null>(null);
@@ -192,8 +204,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
       }
     }
     const box = d?.mode === 'box' ? { x: Math.min(d.start[0], d.now[0]), y: Math.min(d.start[1], d.now[1]), w: Math.abs(d.now[0] - d.start[0]), h: Math.abs(d.now[1] - d.start[1]) } : null;
-    return { kind, graph: graphRef.current, view: viewRef.current, width: sizeRef.current.w, height: sizeRef.current.h, moved: movedRef.current, selected: selectionRef.current, problems: problemsByNode, wire, box, hoverEdge };
-  }, [kind, problemsByNode, hoverEdge]);
+    return { kind, graph: graphRef.current, view: viewRef.current, width: sizeRef.current.w, height: sizeRef.current.h, moved: movedRef.current, selected: selectionRef.current, problems: problemsByNode, wire, box, hoverEdge, ...(edgeLabels !== undefined ? { edgeLabels } : {}), ...(highlighted !== undefined ? { highlighted } : {}) };
+  }, [kind, problemsByNode, hoverEdge, edgeLabels, highlighted]);
 
   const draw = useCallback(() => {
     frameRef.current = 0;
@@ -213,7 +225,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
     if (frameRef.current !== 0) return;
     frameRef.current = requestAnimationFrame(() => drawRef.current());
   }, []);
-  useEffect(() => requestDraw(), [selection, problemsByNode, hoverEdge, requestDraw]);
+  useEffect(() => requestDraw(), [selection, problemsByNode, hoverEdge, edgeLabels, highlighted, requestDraw]);
   useEffect(() => () => cancelAnimationFrame(frameRef.current), []);
 
   // Size the canvas to the element.
@@ -409,11 +421,11 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
   const copySelection = useCallback((): GraphClipboard | null => {
     const sel = selectionRef.current;
     if (sel.size === 0) return null;
-    const clip = copyItems(kind.kind, graphRef.current, sel);
+    const clip = copyItems(kind.kind, graphRef.current, sel, fixedTypes);
     if (clip.nodes.length + clip.groups.length + clip.comments.length === 0) return null;
     CLIPBOARDS.set(kind.kind, clip);
     return clip;
-  }, [kind.kind]);
+  }, [kind.kind, fixedTypes]);
 
   const pasteClip = useCallback(
     async (clip: GraphClipboard, place: { at: GraphPoint } | { offset: GraphPoint }) => {
@@ -435,9 +447,13 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
   }, [kind.kind, pasteClip, snapOn]);
 
   const removeSelection = useCallback(async () => {
-    const ops = deleteOps(graphRef.current, selectionRef.current);
+    const ops = deleteOps(graphRef.current, selectionRef.current, fixedTypes);
+    if (ops.length === 0) {
+      if (selectionRef.current.size > 0) setStatus({ text: 'this node is part of every graph of its kind: it cannot be deleted', error: false });
+      return;
+    }
     if (await edit(ops)) setSelection(new Set());
-  }, [edit, setSelection]);
+  }, [edit, setSelection, fixedTypes]);
 
   const align = useCallback(
     async (how: Alignment) => {
@@ -481,6 +497,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
       const g = graphRef.current;
       const id = makeIdFactory(g, def.type.slice(0, 3))();
       let position: GraphPoint = [snap(c.at[0], snapOn), snap(c.at[1], snapOn)];
+      const data = newNodeData?.(type);
+      const withData = data !== undefined && Object.keys(data).length > 0 ? { data } : {};
       const ops: GraphOp[] = [];
       let connectTo: { from: { node: string; port: string }; to: { node: string; port: string }; replaces: string[] } | null = null;
       if (c.from !== null) {
@@ -499,14 +517,14 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
           if (plan.ok) connectTo = plan;
         }
       }
-      ops.push({ op: 'addNodes', nodes: [{ id, type, position }] });
+      ops.push({ op: 'addNodes', nodes: [{ id, type, position, ...withData }] });
       if (connectTo !== null) {
         if (connectTo.replaces.length > 0) ops.push({ op: 'disconnect', ids: connectTo.replaces });
         ops.push({ op: 'connect', edges: [{ id: makeIdFactory({ ...g, nodes: [...g.nodes, { id, type, position }] }, 'e')(), from: connectTo.from, to: connectTo.to }] });
       }
       if (await edit(ops, `added ${def.label}`)) setSelection(new Set([id]));
     },
-    [catalogue, edit, kind, setSelection, snapOn],
+    [catalogue, edit, kind, setSelection, snapOn, newNodeData],
   );
 
   const connect = useCallback(
@@ -706,6 +724,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
     if (hit.type === 'node' && hit.header && !hit.toggle) {
       const n = g.nodes.find((x) => x.id === hit.id)!;
       void edit([{ op: 'setCollapsed', ids: [n.id], collapsed: n.collapsed !== true }]);
+    } else if (hit.type === 'node' && !hit.header) {
+      onOpenNode?.(hit.id);
     } else if (hit.type === 'comment') {
       const c = (g.comments ?? []).find((x) => x.id === hit.id)!;
       setEditing({ id: c.id, kind: 'comment', text: c.text });
@@ -804,7 +824,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
     }
     if (mod && key === 'd') {
       handled();
-      const clip = copyItems(kind.kind, graphRef.current, selectionRef.current);
+      const clip = copyItems(kind.kind, graphRef.current, selectionRef.current, fixedTypes);
       if (clip.nodes.length + clip.groups.length + clip.comments.length > 0) void pasteClip(clip, { offset: [GRID * 2, GRID * 2] });
       return;
     }
@@ -940,6 +960,26 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
   const pos = (id: string, fallback: GraphPoint): GraphPoint => movedRef.current.get(id) ?? fallback;
   const visible = graph.nodes.filter((n) => overlaps(nodeRect(kind, { ...n, position: pos(n.id, n.position) }), viewRect));
   const domNodes = visible.length <= MAX_DOM_NODES ? visible : visible.filter((n) => selection.has(n.id));
+  // Phase 16.2: a focusable handle at each wire's middle (keyboard selection, screen readers,
+  // tests) — only while every node in view has its DOM element (the same budget).
+  const domEdges = ((): { e: GraphData['edges'][number]; mid: GraphPoint; label: string }[] => {
+    if (visible.length > MAX_DOM_NODES) return [];
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const out: { e: GraphData['edges'][number]; mid: GraphPoint; label: string }[] = [];
+    for (const e of graph.edges) {
+      const a = byId.get(e.from.node);
+      const b = byId.get(e.to.node);
+      if (a === undefined || b === undefined) continue;
+      const segs = wireSegments(portPoint(kind, { ...a, position: pos(a.id, a.position) }, 'out', e.from.port), portPoint(kind, { ...b, position: pos(b.id, b.position) }, 'in', e.to.port), (e.reroutes ?? []).map((p, i) => movedRef.current.get(`${e.id}#${i}`) ?? p));
+      const s = segs[Math.floor(segs.length / 2)]!;
+      const mid: GraphPoint = [(s[0][0] + s[3][0]) / 2, (s[0][1] + s[3][1]) / 2];
+      if (!inside(viewRect, mid)) continue;
+      const extra = edgeLabels?.get(e.id);
+      out.push({ e, mid, label: `wire ${nodeTitle(kind, a)} → ${nodeTitle(kind, b)}${extra !== undefined ? ` (${extra})` : ''}` });
+      if (out.length >= MAX_DOM_NODES) break;
+    }
+    return out;
+  })();
   const graphProblems = problems.filter((p) => p.nodeId === undefined);
   const errorCount = problems.filter((p) => p.severity === 'error').length;
   const warnCount = problems.length - errorCount;
@@ -1038,7 +1078,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
                 style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
                 tabIndex={0}
                 role="group"
-                aria-label={`${def?.label ?? n.type} node ${n.id}${probs.length > 0 ? ` (${probs.map((x) => x.message).join('; ')})` : ''}`}
+                aria-label={`${def?.label ?? n.type}${nodeTitle(kind, n) !== (def?.label ?? n.type) ? ` ${nodeTitle(kind, n)}` : ''} node ${n.id}${probs.length > 0 ? ` (${probs.map((x) => x.message).join('; ')})` : ''}`}
                 aria-selected={selection.has(n.id)}
                 data-node-id={n.id}
                 data-node-type={n.type}
@@ -1073,6 +1113,19 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus }: 
             if (!overlaps(r, viewRect)) return null;
             return <div key={c.id} className="tl-graph__item" style={{ left: r.x, top: r.y, width: r.w, height: r.h }} tabIndex={0} role="note" aria-label={`Comment: ${c.text}`} data-comment-id={c.id} onFocus={(e) => !pointerDownRef.current && e.target === e.currentTarget && !selectionRef.current.has(c.id) && setSelection(new Set([c.id]))} />;
           })}
+          {domEdges.map(({ e, mid, label }) => (
+            <div
+              key={e.id}
+              className={`tl-graph__wire${selection.has(e.id) ? ' is-selected' : ''}`}
+              style={{ left: mid[0] - 9, top: mid[1] - 9 }}
+              tabIndex={0}
+              role="button"
+              aria-label={label}
+              aria-pressed={selection.has(e.id)}
+              data-edge-id={e.id}
+              onFocus={(ev) => !pointerDownRef.current && ev.target === ev.currentTarget && !selectionRef.current.has(e.id) && setSelection(new Set([e.id]))}
+            />
+          ))}
           {(graph.groups ?? []).map((g) => {
             const at = pos(g.id, [g.rect[0], g.rect[1]]);
             return <div key={g.id} className="tl-graph__item" style={{ left: at[0], top: at[1], width: g.rect[2], height: GROUP_HEADER }} tabIndex={0} role="group" aria-label={`Group ${g.title}`} data-group-id={g.id} onFocus={(e) => !pointerDownRef.current && e.target === e.currentTarget && !selectionRef.current.has(g.id) && setSelection(new Set([g.id]))} />;

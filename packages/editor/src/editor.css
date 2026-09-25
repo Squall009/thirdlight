@@ -695,9 +695,26 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-workspace__doc { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column;
   background: var(--panel); overflow: hidden; }
 .tl-workspace__view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 8px; overflow: auto; }
-.tl-animator--document { flex: 1; min-height: 0; }
-.tl-animator--document .tl-animator__body { flex: 1; min-height: 320px; }
-.tl-animator--document .tl-animator__graph { height: auto; min-height: 320px; }
+/* Phase 16.2: the Animator tab (layers, graph path, parameters | graph | dockable preview pane). */
+.tl-animator-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
+.tl-animator-doc__path { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.tl-animator-doc__path [aria-current] { color: var(--text); font-weight: 600; }
+.tl-animator-doc__dock { display: inline-flex; align-items: center; gap: 4px; }
+.tl-animator-doc__dock .is-active { outline: 2px solid #f2b544; }
+.tl-animator-doc__body { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 6px; }
+.tl-animator-doc__body.is-row { flex-direction: row; }
+.tl-animator-doc__main { flex: 1; display: flex; min-height: 0; gap: 6px; }
+.tl-animator-doc__side { width: 250px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+.tl-animator-doc__graph { flex: 1; min-width: 0; min-height: 280px; display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.tl-animator-doc__preview { flex: none; overflow-y: auto; font-size: 12px; border: 1px solid var(--line); border-radius: var(--radius); padding: 6px; background: var(--surface-1); }
+.tl-animator-doc__preview--right { width: 280px; }
+.tl-animator-doc__preview--bottom { max-height: 45%; }
+.tl-animator-doc__preview--bottom .tl-animator__preview { max-width: 320px; }
+.tl-animator__transition { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; margin: 6px 0; }
+.tl-animator__transition legend { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+.tl-animator__link { display: block; margin: 2px 0; text-align: left; }
+.tl-graph__wire { position: absolute; width: 18px; height: 18px; border-radius: 50%; outline: none; }
+.tl-graph__wire:focus-visible { box-shadow: 0 0 0 2px var(--brand); }
 .tl-animator__list { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0 0 6px; padding: 0; }
 .tl-animator__list .is-active { outline: 2px solid #f2b544; }
 /* Maximize: the docks and their splitters are hidden (kept mounted, so their state survives). */
