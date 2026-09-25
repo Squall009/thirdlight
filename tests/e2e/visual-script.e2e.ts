@@ -88,7 +88,8 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
   // Add "Add to counter" from the catalogue (right click on empty space).
   const stage = page.locator('.tl-graph__stage');
   const box = (await stage.boundingBox())!;
-  await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.75, { button: 'right' });
+  // Phase 19.2: the graph shares the tab with the variable list: add the node left of the minimap.
+  await page.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.45, { button: 'right' });
   const popup = page.getByRole('dialog', { name: 'Add node' });
   await expect(popup.getByRole('group', { name: 'Game' })).toBeVisible();
   await popup.getByLabel('Search nodes').fill('counter');

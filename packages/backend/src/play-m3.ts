@@ -118,7 +118,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     };
   }
   // Phase 19.2: Play runs visual scripts as debug builds (trace, wire values) when their graph matches the publication.
-  const playCompiler = { pinnedModules: compiler.pinnedModules, compile: compiler.compile.bind(compiler), debugVariant: playDebugVariant(service, compiler, projectId) };
+  const playCompiler = { pinnedModules: compiler.pinnedModules, compile: (input: Parameters<BehaviorCompiler['compile']>[0]) => compiler.compile(input), debugVariant: playDebugVariant(service, compiler, projectId) };
   const built = await buildContentClosureM3({
     service,
     compiler: playCompiler as unknown as Parameters<typeof buildContentClosureM3>[0]['compiler'],

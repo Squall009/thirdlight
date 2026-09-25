@@ -774,8 +774,10 @@ and keeps playing.
 Node graphs share one editor (phase 16.1): the Animator's state graphs use
 it (phase 16.2, see "Animation (Animator)"), and material graphs, visual
 scripts and effect graphs will. Each graph has a **kind** that sets its node
-catalogue (categories, ports, fields), its port types with the implicit
-conversions between them, and its rules (cycles allowed or not, a node
+catalogue (categories, ports, fields — phase 19.2: a port may repeat once
+per item of a node field, e.g. one output per case of a Switch), its port
+types with the implicit conversions between them (a control-flow type is
+drawn thick with arrows), and its rules (cycles allowed or not, a node
 budget, nodes a graph must have, fixed nodes every graph of the kind has
 once). Graphs that belong to a document (an animator controller's layers
 and blend trees) open from that document. The only standalone kind is
@@ -921,6 +923,35 @@ open it again. Right click (or Space, or **+ Node**) opens the catalogue
 with its search; the Inspector on the right edits the selected node's
 fields.
 
+The tab has three parts (phase 19.2):
+
+- **Graph tabs** along the top: **Event graph** (the script's events) and
+  one **ƒ** tab per function of the script. **+ Function** asks for a name
+  and creates the function with its **Function start** node; double-click a
+  function's tab to rename it (the name of its Function start; calls keep
+  pointing at it); **×** deletes it (refused while a Call function uses its
+  ports). A problem or a breakpoint inside a function opens its tab.
+- **Left: Variables** of the graph in front (inside a function: its local
+  variables) — the name, the type (Number, Boolean, Text, Vector, Entity,
+  Choice, List, Map) and the visibility (public / private / local; lists
+  and maps are private or local) are edited in place, each change one
+  undoable edit (renaming also renames the Get/Set nodes of that graph that
+  name it). **+ Variable** adds one, **×** deletes it, **edit** selects its
+  node (the Inspector edits its default, label, group and tooltip), **watch**
+  puts it on the debugger's watch list. Drag a variable by its **≡** onto
+  the graph and pick **Get** or **Set** for a Get/Set variable node there.
+  Below: the project's **shared functions** (click one to open it in its
+  own Graph tab) and **+ Shared function**.
+- **Right:** the compile status, the problems, **Publish** and the
+  **debugger** (below).
+
+Exec wires (the flow: which node runs next) are drawn thick with arrows
+pointing along the flow; data wires are thinner and coloured by type.
+Reroute points (double-click a wire), comments and groups work as in every
+graph. Compile problems show as a badge on their node, in the list beside
+the graph and in the bottom dock's **Problems** tab ("script error"/"script
+warning"; a click opens the script's Graph tab at the node).
+
 - **Events** start the flow along the white **exec** wires. Each event has
   a **Phase**: *intent* (decide: counters, timers, signals, control) or
   *transform* (move objects — it runs only in scripts that move something).
@@ -941,7 +972,9 @@ fields.
   condition is read again before each round), **Gate** (enter/open/close/
   toggle), **Do once** (with reset), **Delay** (continues after the given
   seconds, counted in fixed steps; values from before it are kept),
-  **Switch** (text or whole number, six cases and default), **Select**
+  **Switch** (text or whole number: its **Cases** field is a comma-separated
+  list — one exec output per case, up to 32, plus default; an empty case
+  never matches), **Select**
   (a or b). A script may run at most 10 000 loop iterations per step (all
   loops, functions included) — more stops the play with a script error
   naming the loop node.
@@ -991,9 +1024,9 @@ fields.
   **Shared functions** are graphs of kind "behavior-library" in the
   project's graph list, called from any script with **Call shared
   function** (they see only their own inputs and locals). Functions may not
-  call each other in a cycle. The function tabs of the editor come with
-  19.2; today functions are made through MCP / commands (below) and a new
-  call node picks the first function.
+  call each other in a cycle. A new Call function picks the script's first
+  function; its **Function** field (and a Call shared function's) is a
+  list of the functions by name.
 - **Check and publish:** a moment after each change the backend compiles
   the script with its functions and the shared functions it calls (to
   TypeScript, with the same compiler, limits, output scan and engine pins as
@@ -1009,6 +1042,45 @@ fields.
 - **Errors in Play:** a script error from a visual script names the node
   that was running (`nodeId` in the play diagnostics and `tl_diagnostics`;
   `fn:<function>/<node>` or `lib:<graph>/<node>` inside a function).
+
+### Debugging visual scripts in Play
+
+While Play runs, the Graph tab's **Debug (Play)** panel watches one
+object's instance of the script: pick it under **Object** (the object
+selected in the scene is picked when it carries the script). The editor
+never runs game code: four times a second it asks the running Play over
+the preview relay.
+
+- **Active nodes:** the nodes that ran in the last half second light up
+  (gold outline), and exec wires between them glow.
+- **Wire values:** hover a data wire to see the last value that moved along
+  it (numbers to 3 decimals, vectors "x, y, z", lists and maps by size and
+  first items).
+- **Breakpoints:** select nodes and press **F9** (or **● Breakpoint** in the
+  graph toolbar) — a red dot. When a node with a breakpoint runs, Play
+  pauses right after that step (the same step at any frame rate); the
+  paused node gets a green outline and a ▶, the panel says "Paused at step
+  N on <node> (<object>)" and the wire values and the watch list show that
+  step. **Step once** runs exactly one step and pauses again; **Resume**
+  lets the game run on; **Pause** holds it at the next step boundary. The
+  breakpoint list under the buttons jumps to a node (click) or removes it
+  (×). Breakpoints stay while the editor page is open (they are not project
+  data). Closing the tab resumes a paused game.
+- **Watch:** the variables ticked "watch" with their values (per-object
+  variables, and the last value of a local).
+- **What runs:** Play builds each published visual script as a *debug
+  build* — the same graph, compiled by the same compiler, that also records
+  its trace (at most 256 node entries per step), wire values and locals —
+  but only while the graph still generates exactly the published source;
+  after unpublished edits Play runs the published script without debugging
+  and the panel says to publish and restart Play. Exports never contain
+  debug builds or breakpoints: an exported game runs the published module
+  byte for byte. A pause never changes what the game computes (the same
+  steps run with the same input, only later).
+- **MCP:** `tl_game_observe` shows `debug {paused, stepIndex, breakpoints,
+  hit {behaviorId, entityId, nodeId}}` while the editor debugs or the game is
+  held; `tl_game_control` takes `debugPause`, `debugResume` and `debugStep`.
+  Breakpoints are set in the editor only.
 
 Every graph gesture is one `graphEdit {owner: {kind: "behavior", id:
 behaviorId}, ops}` command (one undo step; MCP edits appear in the open tab).

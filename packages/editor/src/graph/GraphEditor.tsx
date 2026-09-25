@@ -551,7 +551,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       const def = nodeDefOf(kind, type);
       if (def === undefined) return;
       const g = graphRef.current;
-      const id = makeIdFactory(g, def.type.slice(0, 3))();
+      // A readable id prefix from the type (item ids are letters, digits, _ and -: "fn.input" → "fni").
+      const id = makeIdFactory(g, def.type.replace(/[^A-Za-z0-9]/g, '').slice(0, 3) || 'n')();
       let position: GraphPoint = [snap(c.at[0], snapOn), snap(c.at[1], snapOn)];
       const data = newNodeData?.(type);
       const withData = data !== undefined && Object.keys(data).length > 0 ? { data } : {};

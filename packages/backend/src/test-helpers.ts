@@ -44,6 +44,9 @@ export interface BackendTestOptions {
   tokens?: Array<{ token: string; scope: string }>;
   /** The project id the default authoring token is bound to. */
   projectId?: string;
+  /** Phase 19.2: exports (the admin export route) — where they are written and the engine root they build from. */
+  exportRoot?: string;
+  engineRoot?: string;
 }
 
 /** Start an ephemeral backend with a demo project already created. */
@@ -62,6 +65,8 @@ export async function startBackend(opts: BackendTestOptions = {}): Promise<TestB
       ...(opts.tokens ?? []),
     ],
     timeouts: opts.timeouts,
+    ...(opts.exportRoot !== undefined ? { exportRoot: opts.exportRoot } : {}),
+    ...(opts.engineRoot !== undefined ? { engineRoot: opts.engineRoot } : {}),
   });
   t.backend._test.service.createProject(projectId, 'Demo');
   const tb: TestBackend = {

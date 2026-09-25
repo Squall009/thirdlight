@@ -76,7 +76,8 @@ export interface VisualScriptDocumentProps {
   activePlay: { snapshotId: string; revision: number } | null;
   /** One graphEdit on owner {kind: "behavior", id: ownerId} (`<behaviorId>` or `<behaviorId>#<functionId>`). */
   onEdit: (ownerId: string, ops: GraphOp[]) => Promise<string | null>;
-  onSelection: (ids: readonly string[]) => void;
+  /** The selection of the graph in front changed (its owner id: `<behaviorId>` or `<behaviorId>#<functionId>`). */
+  onSelection: (ids: readonly string[], ownerId: string) => void;
   /** A focus request (a problem was clicked): the node id, scoped inside a function; `behaviorId` = for which script. */
   focus: { behaviorId?: string; id: string; nonce: number } | null;
   /** Frame and select a node (scoped id). */
@@ -304,7 +305,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
     const n = graph?.nodes.find((x) => x.id === nodeId);
     if (n === undefined || n.type === `var.${kindName}`) return;
     const vis = n.data?.['visibility'];
-    const keep = !inFunction && typeof vis === 'string' && visibilitiesOf(kindName, false).includes(vis) ? { visibility: vis } : {};
+    const keep: Record<string, GraphValue> = !inFunction && typeof vis === 'string' && visibilitiesOf(kindName, false).includes(vis) ? { visibility: vis } : {};
     const name = n.data?.['name'];
     // A declaration has no ports: the new type is a new node in the same place (one edit).
     void edit([
@@ -442,8 +443,14 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
                 }}
                 title="Drag onto the graph for a Get or Set node"
               >
-                <span className="tl-vscript__grip" aria-hidden="true">⠿</span>
+                <div className="tl-vscript__varrow">
+                <span className="tl-vscript__grip" aria-label={`Drag ${v.name}`}>≡</span>
                 <VariableName value={v.name} onCommit={(to) => renameVariable(v.nodeId, v.name, to)} />
+                <button className="tl-btn tl-btn--small" aria-label={`Delete variable ${v.name}`} title="Delete the variable (its Get/Set nodes stay, marked until renamed)" onClick={() => void edit([{ op: 'removeNodes', ids: [v.nodeId] }])}>
+                  ×
+                </button>
+                </div>
+                <div className="tl-vscript__varrow">
                 <select className="tl-input" aria-label={`Type of ${v.name}`} value={v.kind} onChange={(e) => retypeVariable(v.nodeId, e.target.value)}>
                   {VARIABLE_KINDS.map((k) => (
                     <option key={k.kind} value={k.kind}>
@@ -460,14 +467,12 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
                 </select>
                 <label className="tl-vscript__watch" title="Show its value in the watch list while Play runs">
                   <input type="checkbox" aria-label={`Watch ${v.name}`} checked={watches.includes(watchKey(v.name))} onChange={() => toggleWatch(v.name)} />
-                  👁
+                  watch
                 </label>
                 <button className="tl-btn tl-btn--small" aria-label={`Select ${v.name}`} title="Select its declaration (the Inspector edits its default, label, group, tooltip)" onClick={() => p.onFocus(scopedId(target, v.nodeId))}>
-                  ⌖
+                  edit
                 </button>
-                <button className="tl-btn tl-btn--small" aria-label={`Delete variable ${v.name}`} title="Delete the variable (its Get/Set nodes stay, marked until renamed)" onClick={() => void edit([{ op: 'removeNodes', ids: [v.nodeId] }])}>
-                  ×
-                </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -530,7 +535,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
               owner={{ kind: 'behavior', id: ownerId }}
               graph={graph}
               onEdit={(ops) => p.onEdit(ownerId, ops)}
-              onSelection={p.onSelection}
+              onSelection={(ids) => p.onSelection(ids, ownerId)}
               focus={graphFocus}
               portContext={portContext}
               newNodeData={newNodeData}
@@ -672,7 +677,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
             </ul>
             <div className="tl-panel__subtitle">Watch</div>
             <ul className="tl-vscript__watches" aria-label="watch list">
-              {watches.length === 0 && <li className="tl-hint">Tick 👁 on a variable to watch it.</li>}
+              {watches.length === 0 && <li className="tl-hint">Tick "watch" on a variable to watch it.</li>}
               {watches.map((w) => (
                 <li key={w} data-watch={w}>
                   <span className="tl-comp__name">{w}</span> <span className="tl-comp__value" data-watch-value={w}>{watchValue(w)}</span>

@@ -162,5 +162,14 @@ describe('phase 19.1: a script with a function and a shared function (HTTP)', ()
     const second = await source({ check: true, graph: true, behaviorId: 'caller' });
     expect(second.json).toMatchObject({ ok: true, compiled: true });
     expect(second.json['sourceDigest']).not.toBe(first.json['sourceDigest']);
+    // Phase 19.2: publishing keeps the script's functions (the stored graph still generates the published source).
+    const digest = String(second.json['sourceDigest']);
+    expect((await command('acknowledgeBehaviorTrust', { sourceDigest: digest })).ok).toBe(true);
+    const published = await source({ graph: true, behaviorId: 'caller', displayName: 'Caller', expectedRevision: await revision(), requestId: mkRequestId() });
+    expect(published.status, JSON.stringify(published.json)).toBe(200);
+    const after = await behavior('caller');
+    expect((after['functions'] as { functionId: string }[]).map((f) => f.functionId)).toEqual(['double']);
+    expect((after['source'] as { sourceDigest: string }).sourceDigest).toBe(digest);
+    expect((await source({ check: true, graph: true, behaviorId: 'caller' })).json['sourceDigest']).toBe(digest);
   });
 });
