@@ -11,14 +11,24 @@
  * their copy from the change alone; the undo carries the inverse ops.
  *
  * Owner kinds say where a graph is stored. `graph` is a standalone document
- * in `content.graphs` (created with `setGraph`, removed with `deleteGraph`);
- * later phases register the animator controller (16.2), material (18),
- * behavior (19) and effect (20) owners here with the same op set.
+ * in `content.graphs` (created with `setGraph`, removed with `deleteGraph`).
+ * Phase 16.2: `animator` — an animator controller's layers and blend trees
+ * (project-model animator-graph.ts): the ops are applied to the graph read
+ * from the controller and the result is written back into it, so the
+ * command records the same controller change `setAnimator` makes
+ * (`setAnimators` previous/next, undone by restoring the previous list).
+ * Later phases register the material (18), behavior (19) and effect (20)
+ * owners here with the same op set.
  */
 import {
+  animatorGraphOf,
+  applyAnimatorGraph,
   applyGraphOps,
+  canonicalAnimators,
   canonicalGraphDocuments,
   GRAPH_KINDS,
+  parseAnimatorOwnerId,
+  type AnimatorController,
   validateGraphData,
   validateGraphDocument,
   type GraphData,
@@ -30,18 +40,28 @@ import {
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
+import { withAnimators } from './material-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, GraphEditChange, GraphOwner, SetGraphChange } from './types';
+import type { ContentDocument, ForwardChange, GraphEditChange, GraphOwner, InverseSpec, SetGraphChange } from './types';
 
 type WithGraphs = ContentDocument & { graphs?: GraphDocument[] };
+type WithAnimators = ContentDocument & { animators?: AnimatorController[] };
 
 /** Where an owner kind keeps its graph (and which graph kind it is). */
 export interface GraphOwnerAdapter {
   /** The owner's graph and kind, or null when the owner does not exist. */
   read(content: ContentDocument, id: string): { kind: GraphKindDef; graph: GraphData } | null;
-  /** The content with the owner's graph replaced. */
-  write(content: ContentDocument, id: string, graph: GraphData): ContentDocument;
+  /** The content with the owner's graph replaced, or why the graph does not fit the owner. */
+  write(content: ContentDocument, id: string, graph: GraphData): ContentDocument | { refused: string };
+  /**
+   * Phase 16.2: the change and undo an edit records when the owner stores its
+   * graph as its own data (absent = a `graphEdit` change with the ops, undone
+   * by the inverse ops).
+   */
+  record?(before: ContentDocument, after: ContentDocument): { change: ForwardChange; inverse: InverseSpec };
 }
+
+const animatorsOf = (content: ContentDocument): AnimatorController[] => (content as WithAnimators).animators ?? [];
 
 export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
   graph: {
@@ -53,6 +73,29 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
     write(content, id, graph) {
       const list = ((content as WithGraphs).graphs ?? []).map((g) => (g.graphId === id ? { ...g, graph } : g));
       return { ...(content as WithGraphs), graphs: list } as ContentDocument;
+    },
+  },
+  // Phase 16.2: `<controllerId>` (base layer), `<controllerId>@<n>` (override layer n), `<controllerId>#<stateId>` (a blend tree).
+  animator: {
+    read(content, id) {
+      const target = parseAnimatorOwnerId(id);
+      const c = target !== null ? animatorsOf(content).find((x) => x.controllerId === target.controllerId) : undefined;
+      const r = target !== null && c !== undefined ? animatorGraphOf(c, target) : null;
+      const kind = r !== null ? GRAPH_KINDS[r.kindId] : undefined;
+      return r !== null && kind !== undefined ? { kind, graph: r.graph } : null;
+    },
+    write(content, id, graph) {
+      const target = parseAnimatorOwnerId(id);
+      const list = animatorsOf(content);
+      const c = target !== null ? list.find((x) => x.controllerId === target.controllerId) : undefined;
+      if (target === null || c === undefined) return { refused: 'no animator controller with this id' };
+      const r = applyAnimatorGraph(c, target, graph);
+      if (!r.ok) return { refused: r.message };
+      return withAnimators(content, canonicalAnimators(list.map((x) => (x.controllerId === c.controllerId ? r.controller : x))));
+    },
+    record(before, after) {
+      const previous = deepClone(animatorsOf(before));
+      return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
     },
   },
 };
@@ -85,10 +128,12 @@ export function editOwnerGraph(
     const e = errors[0]!;
     return { ok: false, error: { ...modelError(e, '/args/ops'), path: '/args/ops', message: `${e.message} (at ${e.path})` } as CommandError };
   }
-  return { ok: true, content: adapter.write(content, owner.id, applied.graph), inverse: applied.inverse };
+  const written = adapter.write(content, owner.id, applied.graph);
+  if ('refused' in written) return { ok: false, error: fieldValue('/args/ops', owner.id, `ops that fit the ${owner.kind}`, written.refused as string) };
+  return { ok: true, content: written as ContentDocument, inverse: applied.inverse };
 }
 
-function commit(input: OpInput, next: ContentDocument, change: GraphEditChange | SetGraphChange, inverse: { kind: 'graphEdit'; owner: GraphOwner; ops: GraphOp[] } | { kind: 'setGraph'; graphId: string; restore: GraphDocument | null }): OpOutcome {
+function commit(input: OpInput, next: ContentDocument, change: GraphEditChange | SetGraphChange | ForwardChange, inverse: { kind: 'graphEdit'; owner: GraphOwner; ops: GraphOp[] } | { kind: 'setGraph'; graphId: string; restore: GraphDocument | null } | InverseSpec): OpOutcome {
   const catalog = contentOf(input.content);
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
   const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, next);
@@ -101,6 +146,11 @@ export function applyGraphEdit(input: OpInput, args: { owner: GraphOwner; ops: G
   const r = editOwnerGraph(catalog, args.owner, args.ops);
   if (!r.ok) return r;
   const owner = { kind: args.owner.kind, id: args.owner.id };
+  const record = GRAPH_OWNERS[owner.kind]?.record;
+  if (record !== undefined) {
+    const { change, inverse } = record(catalog, r.content);
+    return commit(input, r.content, change, inverse);
+  }
   return commit(input, r.content, { type: 'graphEdit', owner, ops: deepClone(args.ops) }, { kind: 'graphEdit', owner, ops: r.inverse });
 }
 

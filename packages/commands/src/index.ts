@@ -157,6 +157,8 @@ export type {
   GraphOwner,
   GraphEditArgs,
   GraphEditChange,
+  SetAnimatorsChange,
+  SetAnimatorsInverse,
   GraphEditInverse,
   SetGraphArgs,
   DeleteGraphArgs,

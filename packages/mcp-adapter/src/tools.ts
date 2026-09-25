@@ -176,9 +176,16 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'removeNodes {ids} (also removes their edges), moveNodes {moves: [{id, position}]} (nodes, comments or groups), setNodeData {id, data} (replaces the node\'s data; {} = defaults), ' +
       'setCollapsed {ids, collapsed}, connect {edges: [{id, from: {node, port (an output)}, to: {node, port (an input)}, reroutes?: [[x, y]]}]}, disconnect {ids}, ' +
       'setReroutes {id, reroutes}, setGroups {groups: [{id, title, color: #rrggbb, rect: [x, y, w, h]}]} (add or replace), removeGroups {ids}, setComments {comments: [{id, text, ' +
-      'position, size?}]}, removeComments {ids}. You choose the ids (1-40 of A-Z a-z 0-9 _ -, unique across the graph\'s nodes, edges, groups and comments). ' +
+      'position, size?}]}, removeComments {ids}. You choose the ids (1-64 of A-Z a-z 0-9 _ -, unique across the graph\'s nodes, edges, groups and comments). ' +
       'The result must follow the kind: known node types and fields, output → input between compatible port types (same type, "any", or a listed ' +
-      'implicit conversion), one edge into an input unless it is multi, no cycles unless the kind allows them, the node budget. ' +
+      'implicit conversion), one edge into an input unless it is multi, one edge out of a single output, fixed nodes kept, no cycles unless the kind allows them, the node budget. ' +
+      'Animator controllers are graphs too (owner kind "animator"; the controllers are in tl_content_query target="game" (animators)): owner id "<controllerId>" = the base layer ' +
+      '(kind animator), "<controllerId>@<n>" = override layer n (kind animator-layer), "<controllerId>#<stateId>" = a blend tree state\'s clips (kind animator-blend). ' +
+      'A layer graph has the fixed nodes ENTRY (its one wire → the entry state) and ANY (Any State), one node per state (id = state id, lower case; type state {clip, asset, ' +
+      'duration, name, speed, loop, speedParameter} | blend {parameter, name, speed, loop, speedParameter} | empty (override layers)) and one wire per state pair with ' +
+      'transitions (connect adds one transition: exit time 1, crossfade 0.1 s; disconnect removes the pair\'s transitions; conditions and several transitions per pair ' +
+      'are edited with setAnimator). A blend tree graph has the fixed OUT node and one clip node {threshold, clip, asset, duration} per child. Such an edit records the ' +
+      'same setAnimators change as setAnimator (one undo step). ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

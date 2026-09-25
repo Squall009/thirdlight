@@ -1276,12 +1276,15 @@ const STATES = (allowEmpty: boolean): ListFieldDescriptor =>
       list('children', 'Clips', `2–${MAX_BLEND_CHILDREN} clips by threshold (increasing).`, obj('*', 'Blend clip', 'A clip and its threshold.', [
         num('threshold', 'Threshold', 'The parameter value where this clip plays fully.', { required: true, min: -1e6, max: 1e6, step: 0.1 }),
         { ...CLIP, required: true },
+        // Phase 16.2: editor-only (the blend tree graph).
+        vec2('position', 'Graph position', 'Where the blend tree graph draws the clip (editor only).', { min: -1e6, max: 1e6, step: 1 }),
       ]), { required: true, when: when('kind', 'blend1d'), minItems: 2, maxItems: MAX_BLEND_CHILDREN }),
     ], { required: true }),
     num('speed', 'Speed', 'Playback speed (× the speed parameter when set).', { required: true, min: 0, max: 10, step: 0.05, unit: '×', default: 1 }),
     ref('speedParameter', 'Speed parameter', 'A float parameter the speed is multiplied by.', 'animatorParameter', { paramTypes: ['float'] }),
     bool('loop', 'Loop', 'Loops (else holds the last frame).', { required: true, default: true }),
-    vec2('position', 'Graph position', 'Where the editor draws the state.', { min: -1e5, max: 1e5, step: 1 }),
+    // Phase 16.2: the graph editor's coordinate bound (GRAPH_LIMITS.coordinate).
+    vec2('position', 'Graph position', 'Where the editor draws the state.', { min: -1e6, max: 1e6, step: 1 }),
   ]), { required: true, minItems: 1, maxItems: MAX_ANIMATOR_STATES });
 
 const TRANSITIONS = list('transitions', 'Transitions', `Up to ${MAX_ANIMATOR_TRANSITIONS} transitions.`, obj('*', 'Transition', 'From a state (or any state) to a state, on conditions or at an exit time.', [

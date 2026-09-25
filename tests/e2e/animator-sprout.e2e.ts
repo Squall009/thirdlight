@@ -63,11 +63,13 @@ test("Sprout's clips play on Beacon Reach's player: idle, run, airborne", async 
   const game = (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['game'] as { playerId: string };
   const model = String((await cmd('createEntity', { kind: 'model', name: 'Sprout', parentId: game.playerId, model: { asset: { assetId: sprout } }, transform: { position: [0, 0, 0] } })).createdId);
 
-  await page.getByRole('tab', { name: 'Animator' }).click();
+  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(sprout);
   await page.getByRole('button', { name: 'New from clips: Platformer' }).click();
-  const graph = page.getByLabel('animator graph');
-  for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('button', { name: `state ${s}` })).toBeVisible();
+  // Phase 16.2: the new controller opens as a centre tab (its state graph).
+  const graph = page.getByRole('tabpanel', { name: 'Animator: Platformer' }).getByLabel('animator graph');
+  for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();
+  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${model}"]`).click();
   // Phase 15.1: the Inspector's animator section (added from "+ Add component" when absent).
   const inspector = page.locator('.tl-inspector');

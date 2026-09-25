@@ -154,7 +154,8 @@ the controller list under the toolbar, or **Open in tab**) to open
 "Animator: <controller>", or a behavior tile (bottom dock → Behaviors) to
 open "Script: <behavior>". The document takes over the centre area: the
 Animator tab is the full state-graph editor for that one controller
-(states, transitions, layers, parameters, live preview); the Script tab is
+(states, transitions, layers, parameters, live preview — see "Animation
+(Animator)" below); the Script tab is
 the behavior's code editor (see "Script editor" below) with its declaration
 editor docked beside it. Edits
 are the same commands as in the bottom dock (one undo step each; Ctrl+Z
@@ -668,13 +669,59 @@ editor (the headless one works too).
 ## Animation (Animator)
 
 Models with clips (skinned or not) play them through **animator
-controllers** (bottom dock → Animator): parameters (float, int, bool,
-trigger), states that play a clip or a 1D blend tree, transitions with
-conditions, crossfade and exit time, an entry state, and clip events. Right
-click the graph to add states, right click a state to start a transition or
-make it the entry state; drag states to arrange them. "New from clips:
-Platformer" builds idle/run/jump/fall/land states from a model's clips. The
-Inspector's "+ Add component" → **Animator** puts a controller on a model object.
+controllers**: parameters (float, int, bool, trigger), states that play a
+clip or a 1D blend tree, transitions with conditions, crossfade and exit
+time, an entry state, and clip events. Bottom dock → **Animator** lists the
+controllers: pick the model whose clips a new controller uses, then **New
+controller** or **New from clips: Platformer** (idle/run/jump/fall/land
+states from a model's clips); a controller opens as the centre tab
+**Animator: <controller>** with a double-click, Enter or **Open in tab**
+(a new one opens by itself). The Inspector's "+ Add component" →
+**Animator** puts a controller on a model object.
+
+**The Animator tab** shows a layer's state machine on the node-graph editor
+(all its gestures work, see "Graph editing" below):
+
+- **Nodes**: one per state — **State** (plays a clip), **Blend tree**, and on
+  override layers **Empty state** — plus the fixed **Entry** (its one wire
+  goes to the state the layer starts in; drag a new wire from Entry to
+  change it) and **Any State**. Add states with a right click, Space or
+  **+ Node** (a new state plays the model's first clip until you pick one);
+  Delete removes the selected states (Entry and Any State stay; deleting the
+  entry state makes the first remaining state the entry).
+- **Transitions**: drag from a state's output (or Any State's) to another
+  state's input (a state may also go to itself). One wire stands for every
+  transition between that ordered pair; a pair with several shows **×n** on
+  the wire. A new wire starts as one transition at exit time 1 with a 0.1 s
+  crossfade; deleting the wire removes the pair's transitions.
+- **Inspector** (right dock): a selected state shows its name, clip (or the
+  blend parameter and **Open blend tree**), speed and its × parameter, loop,
+  **Set as entry state**, its clip events and the transitions leaving it
+  (click one to select its wire). A selected wire lists its transitions in
+  the order they are checked (↑ reorders): conditions, crossfade, exit time,
+  interruption; **Add transition** adds another between the same states.
+  Tab onto a wire's handle (the dot in its middle) to select it with the
+  keyboard.
+- **Blend trees** open as their own graph (double-click the node's body, or
+  **Open blend tree**): one **Clip** node per blend clip (threshold and clip
+  in the Inspector; clips stay in threshold order) feeding the fixed
+  **Blend** node; the path above the graph (**Base layer › Blend tree:
+  …**) leads back.
+- **Layers** are the tabs above the graph; **Parameters** and, on an
+  override layer, the layer's settings are on the left.
+- **Live preview**: a pane inside the tab (the **Preview:** buttons dock it
+  **Right**, at the **Bottom** or **Hide** it; remembered in the browser).
+  **Preview** runs the controller on its model with the parameters as
+  sliders, checkboxes and trigger buttons (nothing is saved); the states it
+  is in are outlined in the graph.
+
+Every gesture is one command and one undo step (Ctrl+Z works while the tab
+is in front): graph gestures (states, wires, moves, groups, comments) are
+`graphEdit` on the controller, the rest (transition details, parameters,
+layers, events, the name) `setAnimator`. Positions, groups, comments and
+collapsed nodes are stored in the controller (editor-only: exports drop
+them); a controller without them (older projects, or made by MCP) opens
+with an automatic layout, columns by distance from the entry state.
 
 The game steps animators with the simulation (deterministic; a replay looks
 the same). An animator on the player (or on a model under the player) gets
@@ -682,19 +729,24 @@ the same). An animator on the player (or on a model under the player) gets
 automatically, when its controller defines them. Scripts use
 `ctx.animator(entityId)?.set(name, value)`, `.trigger(name)`, `.state()`;
 clip events of the previous step are in `ctx.events`. MCP: `setAnimator` /
-`deleteAnimator` through `tl_command`; `tl_game_observe` reports each
+`deleteAnimator` through `tl_command`, or the graph ops through `graphEdit
+{owner: {kind: "animator", id}}` (id `<controllerId>` = the base layer,
+`<controllerId>@<n>` = override layer n, `<controllerId>#<stateId>` = a blend
+tree; the node ids are the state ids, `ENTRY`, `ANY` and, in a blend tree,
+`OUT` and `C0`, `C1`, …) — it changes the controller exactly as
+`setAnimator` would (one undo step); `tl_game_observe` reports each
 animator's current state.
 
-**Layers and bone masks.** "Add layer" (the tab row above the graph) adds an
+**Layers and bone masks.** "Add layer" (the layer tabs above the graph) adds an
 override layer — up to three — on top of the base layer, e.g. an attack
 played by the upper body while the legs keep running. Each layer has its own
 states, transitions and entry state and shares the controller's parameters
-(a trigger reaches every layer that tests it in the same step). Its side
-panel sets the name, the weight (0–1, optionally times a float parameter, so
+(a trigger reaches every layer that tests it in the same step). The panel
+left of its graph sets the name, the weight (0–1, optionally times a float parameter, so
 a script can fade the layer in and out) and the **bone mask**: a checkbox per
 bone of the model's skeleton ("+ children" takes a bone and everything under
 it; no bone picked = every bone). A layer state may be **empty** (right
-click → "Add empty state"): the layer plays nothing and the layers under it
+click → **Empty state**): the layer plays nothing and the layers under it
 show through, so the usual layer is Empty → Attack (on a trigger) → back to
 Empty at its exit time. A masked bone that the layer's clip does not animate
 goes to its rest pose while the layer plays. `tl_game_observe` reports the
@@ -719,14 +771,16 @@ and keeps playing.
 
 ## Graph editing
 
-Node graphs share one editor (phase 16.1): the animator state graph moves
-onto it in 16.2, and material graphs, visual scripts and effect graphs use
-it later. Each graph has a **kind** that sets its node catalogue
-(categories, ports, fields), its port types with the implicit conversions
-between them, and its rules (cycles allowed or not, a node budget, nodes a
-graph must have). For now the only kind is **Test graph**, a small
-numeric graph used to test the editor; it has no effect on the game and is
-never exported.
+Node graphs share one editor (phase 16.1): the Animator's state graphs use
+it (phase 16.2, see "Animation (Animator)"), and material graphs, visual
+scripts and effect graphs will. Each graph has a **kind** that sets its node
+catalogue (categories, ports, fields), its port types with the implicit
+conversions between them, and its rules (cycles allowed or not, a node
+budget, nodes a graph must have, fixed nodes every graph of the kind has
+once). Graphs that belong to a document (an animator controller's layers
+and blend trees) open from that document. The only standalone kind is
+**Test graph**, a small numeric graph used to test the editor; it has no
+effect on the game and is never exported.
 
 Bottom dock → **Graphs** lists the project's graphs: pick a kind, type a
 name and **Create graph**; **Open** (or double-click) shows it in the centre

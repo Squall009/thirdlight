@@ -102,8 +102,13 @@ export interface GraphPortDef {
   label: string;
   /** A port type id of the kind, or the kind's `anyType`. */
   type: string;
-  /** Input only: accepts several edges (outputs always may fan out). */
+  /** Input only: accepts several edges (outputs fan out unless `single`). */
   multi?: boolean;
+  /**
+   * Phase 16.2, output only: at most one edge leaves it (a new wire replaces
+   * the old one) — e.g. a state machine's Entry names exactly one state.
+   */
+  single?: boolean;
   /** Input only: an unconnected required input is a diagnostic error. */
   required?: boolean;
 }
@@ -135,6 +140,14 @@ export interface GraphNodeDef {
   max?: number;
   /** A graph without one is a diagnostic error. */
   required?: boolean;
+  /**
+   * Phase 16.2: part of every graph of the kind, exactly once (a refusal
+   * otherwise): not in the catalogue, not copied, not deleted — e.g. a state
+   * machine's Entry and Any State.
+   */
+  fixed?: boolean;
+  /** Phase 16.2: the field whose (non-empty) value is the node's title instead of the type label. */
+  titleField?: string;
 }
 
 export interface GraphKindDef {
@@ -153,6 +166,12 @@ export interface GraphKindDef {
   maxNodes: number;
   /** Node types that are the graph's results; a node reaching none gets a warning. */
   sinks?: readonly string[];
+  /**
+   * Phase 16.2: the owner kind whose documents hold graphs of this kind
+   * (e.g. `animator`); absent = standalone graphs (`content.graphs`). A kind
+   * with an owner cannot be a standalone graph.
+   */
+  owner?: string;
 }
 
 // ---- limits ------------------------------------------------------------------------
@@ -176,7 +195,8 @@ export const GRAPH_LIMITS = {
   ops: 512,
 } as const;
 
-export const GRAPH_ITEM_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+/** 1-64 characters (64: the longest state/controller id, so an owner's ids can be graph ids). */
+export const GRAPH_ITEM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
 // ---- small helpers -----------------------------------------------------------------
@@ -257,7 +277,7 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
   const ids = new Set<string>();
   const claim = (id: unknown, p: string): boolean => {
     if (typeof id !== 'string' || !GRAPH_ITEM_ID_RE.test(id)) {
-      err(errors, 'field_value', p, 'an item id is 1-40 letters, digits, _ or -', id);
+      err(errors, 'field_value', p, 'an item id is 1-64 letters, digits, _ or -', id);
       return false;
     }
     if (ids.has(id)) {
@@ -306,6 +326,9 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
         }
       }
     });
+    for (const def of kind.nodes) {
+      if (def.fixed === true && (counts.get(def.type) ?? 0) !== 1) err(errors, 'field_value', `${path}/nodes`, `every ${kind.label} has exactly one "${def.label}" node (it cannot be added or removed)`, counts.get(def.type) ?? 0, '1');
+    }
   }
 
   const edges = value['edges'];
@@ -315,6 +338,7 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
   else {
     if (edges.length > maxEdges) err(errors, 'limits_exceeded', `${path}/edges`, `a ${kind.label} has at most ${maxEdges} edges`, edges.length, `at most ${maxEdges}`);
     const intoSingle = new Set<string>();
+    const fromSingle = new Set<string>();
     const pairs = new Set<string>();
     edges.forEach((e, i) => {
       const p = `${path}/edges/${i}`;
@@ -344,6 +368,11 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
         if (inp.multi !== true) {
           if (intoSingle.has(key)) err(errors, 'field_value', `${p}/to`, `input "${inp.label}" takes one connection`, to.node);
           intoSingle.add(key);
+        }
+        if (out.single === true) {
+          const fromKey = `${from.node}\u0000${from.port}`;
+          if (fromSingle.has(fromKey)) err(errors, 'field_value', `${p}/from`, `output "${out.label}" takes one connection`, from.node);
+          fromSingle.add(fromKey);
         }
         const pair = `${from.node}\u0000${from.port}\u0000${key}`;
         if (pairs.has(pair)) err(errors, 'id_duplicate', p, 'these two ports are already connected', e['id']);
@@ -791,6 +820,7 @@ export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDe
   if (typeof value['name'] !== 'string' || value['name'].length < 1 || value['name'].length > GRAPH_LIMITS.titleLength) err(errors, 'field_value', `${path}/name`, `a name is 1-${GRAPH_LIMITS.titleLength} characters`, value['name']);
   const kind = typeof value['kind'] === 'string' && Object.prototype.hasOwnProperty.call(kinds, value['kind']) ? kinds[value['kind']] : undefined;
   if (kind === undefined) return err(errors, 'reference_missing', `${path}/kind`, 'not a registered graph kind', value['kind'], Object.keys(kinds).join(', '));
+  if (kind.owner !== undefined) return err(errors, 'field_value', `${path}/kind`, `a ${kind.label} belongs to its ${kind.owner} (edit it there with graphEdit {owner: {kind: "${kind.owner}", …}})`, value['kind'], Object.keys(kinds).filter((k) => kinds[k]!.owner === undefined).join(', '));
   validateGraphData(kind, value['graph'], `${path}/graph`, errors);
 }
 

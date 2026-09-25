@@ -21,7 +21,8 @@ import {
   portTypeColor,
   ROW,
   FIELD_ROW,
-  SHOWN_FIELDS,
+  nodeTitle,
+  shownFields,
   wireSegments,
   type GraphData,
   type GraphKindDef,
@@ -46,6 +47,10 @@ export interface Scene {
   wire: { from: GraphPoint; to: GraphPoint; color: string; ok: boolean | null } | null;
   box: Rect | null;
   hoverEdge: string | null;
+  /** Phase 16.2: a short label drawn on a wire (e.g. "×2" for two transitions of one pair). */
+  edgeLabels?: ReadonlyMap<string, string>;
+  /** Phase 16.2: nodes drawn highlighted (e.g. the live preview's current state). */
+  highlighted?: ReadonlySet<string>;
 }
 
 const COLORS = {
@@ -62,6 +67,7 @@ const COLORS = {
   warn: '#ffcf5c',
   comment: '#3a3524',
   commentLine: '#6b5f36',
+  lit: '#f2b544',
 };
 
 export function positionOf(scene: Scene, id: string, fallback: GraphPoint): GraphPoint {
@@ -174,6 +180,20 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
       ctx.arc(p[0], p[1], 5, 0, Math.PI * 2);
       ctx.fill();
     }
+    const extra = scene.edgeLabels?.get(e.id);
+    if (extra !== undefined && view.zoom >= 0.35) {
+      const mid = segs[Math.floor(segs.length / 2)]!;
+      const m: GraphPoint = [(mid[0][0] + mid[3][0]) / 2, (mid[0][1] + mid[3][1]) / 2];
+      ctx.font = 'bold 11px sans-serif';
+      const w = ctx.measureText(extra).width + 10;
+      ctx.fillStyle = '#11151b';
+      ctx.fillRect(m[0] - w / 2, m[1] - 9, w, 18);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = px;
+      ctx.strokeRect(m[0] - w / 2, m[1] - 9, w, 18);
+      ctx.fillStyle = COLORS.text;
+      ctx.fillText(extra, m[0] - w / 2 + 5, m[1] + 4);
+    }
     if (conv !== null && view.zoom >= 0.6) {
       // The implicit conversion, shown on the wire.
       const mid = segs[Math.floor(segs.length / 2)]!;
@@ -228,8 +248,9 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.fillStyle = COLORS.header;
   ctx.fillRect(r.x, r.y, r.w, HEADER);
-  ctx.strokeStyle = selected ? COLORS.select : problems.some((p) => p.severity === 'error') ? COLORS.err : COLORS.nodeLine;
-  ctx.lineWidth = (selected ? 2.5 : 1) * px;
+  const lit = scene.highlighted?.has(n.id) === true;
+  ctx.strokeStyle = selected ? COLORS.select : lit ? COLORS.lit : problems.some((p) => p.severity === 'error') ? COLORS.err : COLORS.nodeLine;
+  ctx.lineWidth = (selected || lit ? 2.5 : 1) * px;
   ctx.strokeRect(r.x, r.y, r.w, r.h);
   if (detail) {
     ctx.fillStyle = COLORS.dim;
@@ -237,7 +258,7 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
     ctx.fillText(n.collapsed === true ? '▸' : '▾', r.x + 6, r.y + 17);
     ctx.fillStyle = COLORS.text;
     ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(clip(def?.label ?? n.type, 20), r.x + 18, r.y + 17);
+    ctx.fillText(clip(nodeTitle(kind, n), 20), r.x + 18, r.y + 17);
   }
   if (problems.length > 0) {
     // The problem badge: red for an error, yellow for a warning.
@@ -273,7 +294,7 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
   }
   if (detail && n.collapsed !== true && def.fields !== undefined) {
     const rows = Math.max(def.inputs.length, def.outputs.length);
-    def.fields.slice(0, SHOWN_FIELDS).forEach((f, i) => {
+    shownFields(def).forEach((f, i) => {
       const v = fieldValue(n, f);
       ctx.fillStyle = COLORS.dim;
       ctx.font = '11px sans-serif';

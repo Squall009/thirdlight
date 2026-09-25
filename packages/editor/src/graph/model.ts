@@ -34,7 +34,7 @@ import type {
   GraphValue,
 } from '@thirdlight/project-model';
 
-export type { GraphData, GraphKindDef, GraphNode, GraphNodeDef, GraphEdge, GraphGroup, GraphComment, GraphOp, GraphPoint };
+export type { GraphData, GraphKindDef, GraphNode, GraphNodeDef, GraphEdge, GraphGroup, GraphComment, GraphOp, GraphPoint, GraphValue };
 
 // ---- the projection -----------------------------------------------------------------------
 
@@ -232,6 +232,8 @@ export function planConnection(
   if (!kind.allowCycles && wouldCycle(graph, out.node, inp.node)) return { ok: false, reason: 'this would make a cycle' };
   if (graph.edges.some((e) => e.from.node === out.node && e.from.port === out.port && e.to.node === inp.node && e.to.port === inp.port)) return { ok: false, reason: 'already connected' };
   const replaces = pi.multi === true ? [] : graph.edges.filter((e) => e.to.node === inp.node && e.to.port === inp.port).map((e) => e.id);
+  // Phase 16.2: a single output (e.g. a state machine's Entry) keeps one wire: the new one replaces it.
+  if (po.single === true) for (const e of graph.edges) if (e.from.node === out.node && e.from.port === out.port && !replaces.includes(e.id)) replaces.push(e.id);
   return { ok: true, from: { node: out.node, port: out.port }, to: { node: inp.node, port: inp.port }, replaces, conversion: c.conversion };
 }
 
@@ -251,6 +253,7 @@ export function edgeConversion(kind: GraphKindDef, graph: GraphData, e: GraphEdg
 export function compatibleNodeDefs(kind: GraphKindDef, type: string, side: 'in' | 'out'): { def: GraphNodeDef; port: string }[] {
   const out: { def: GraphNodeDef; port: string }[] = [];
   for (const def of kind.nodes) {
+    if (def.fixed === true) continue;
     const ports = side === 'out' ? def.inputs : def.outputs;
     const hit = ports.find((p) => (side === 'out' ? compatibility(kind, type, p.type) : compatibility(kind, p.type, type)) !== null);
     if (hit !== undefined) out.push({ def, port: hit.id });
@@ -261,7 +264,8 @@ export function compatibleNodeDefs(kind: GraphKindDef, type: string, side: 'in' 
 /** Catalogue search: entries matching every word of `query` (label, type, category, description), in category order. */
 export function searchCatalogue(kind: GraphKindDef, query: string, only?: readonly GraphNodeDef[]): GraphNodeDef[] {
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
-  const pool = only ?? kind.nodes;
+  // Fixed nodes (phase 16.2) are part of every graph of the kind: never added from the catalogue.
+  const pool = (only ?? kind.nodes).filter((d) => d.fixed !== true);
   const hits = pool.filter((d) => {
     const hay = `${d.label} ${d.type} ${d.category} ${d.description ?? ''}`.toLowerCase();
     return words.every((w) => hay.includes(w));
@@ -276,6 +280,22 @@ export function searchCatalogue(kind: GraphKindDef, query: string, only?: readon
 export function fieldValue(node: GraphNode, f: GraphFieldDef): GraphValue {
   const v = node.data?.[f.key];
   return v === undefined ? f.default : v;
+}
+
+/** Phase 16.2: a node's title — its title field's value when the type has one and it is set, else the type's label. */
+export function nodeTitle(kind: GraphKindDef, node: GraphNode): string {
+  const def = nodeDefOf(kind, node.type);
+  if (def === undefined) return node.type;
+  if (def.titleField !== undefined) {
+    const v = node.data?.[def.titleField];
+    if (typeof v === 'string' && v !== '') return v;
+  }
+  return def.label;
+}
+
+/** The fields drawn on the node body (the title field is the title), at most SHOWN_FIELDS. */
+export function shownFields(def: GraphNodeDef): GraphFieldDef[] {
+  return (def.fields ?? []).filter((f) => f.key !== def.titleField).slice(0, SHOWN_FIELDS);
 }
 
 // ---- diagnostics ----------------------------------------------------------------------------
@@ -361,7 +381,7 @@ export function nodeRect(kind: GraphKindDef, n: GraphNode, position: GraphPoint 
   const def = nodeDefOf(kind, n.type);
   if (n.collapsed === true || def === undefined) return { x: position[0], y: position[1], w: NODE_WIDTH, h: HEADER };
   const rows = Math.max(def.inputs.length, def.outputs.length, 0);
-  const fields = Math.min(def.fields?.length ?? 0, SHOWN_FIELDS);
+  const fields = shownFields(def).length;
   return { x: position[0], y: position[1], w: NODE_WIDTH, h: HEADER + rows * ROW + fields * FIELD_ROW + 8 };
 }
 
@@ -506,8 +526,9 @@ export interface GraphClipboard {
   comments: GraphComment[];
 }
 
-export function copyItems(kind: string, graph: GraphData, ids: ReadonlySet<string>): GraphClipboard {
-  const nodes = graph.nodes.filter((n) => ids.has(n.id)).map(clone);
+/** `fixedTypes`: node types that are part of every graph of the kind (phase 16.2) — never copied. */
+export function copyItems(kind: string, graph: GraphData, ids: ReadonlySet<string>, fixedTypes: ReadonlySet<string> = new Set()): GraphClipboard {
+  const nodes = graph.nodes.filter((n) => ids.has(n.id) && !fixedTypes.has(n.type)).map(clone);
   const kept = new Set(nodes.map((n) => n.id));
   return {
     kind,
@@ -560,8 +581,8 @@ export function pasteItems(clip: GraphClipboard, newId: () => string, place: { a
 }
 
 /** Delete a selection (nodes take their edges; selected edges, groups and comments go too). */
-export function deleteOps(graph: GraphData, ids: ReadonlySet<string>): GraphOp[] {
-  const nodeIds = graph.nodes.filter((n) => ids.has(n.id)).map((n) => n.id);
+export function deleteOps(graph: GraphData, ids: ReadonlySet<string>, fixedTypes: ReadonlySet<string> = new Set()): GraphOp[] {
+  const nodeIds = graph.nodes.filter((n) => ids.has(n.id) && !fixedTypes.has(n.type)).map((n) => n.id);
   const gone = new Set(nodeIds);
   const edgeIds = graph.edges.filter((e) => ids.has(e.id) && !gone.has(e.from.node) && !gone.has(e.to.node)).map((e) => e.id);
   const groupIds = (graph.groups ?? []).filter((g) => ids.has(g.id)).map((g) => g.id);
@@ -622,6 +643,11 @@ export function groupAround(kind: GraphKindDef, graph: GraphData, ids: ReadonlyS
 export function itemsInGroup(kind: GraphKindDef, graph: GraphData, g: GraphGroup): string[] {
   const r = groupRect(g);
   return [...graph.nodes.filter((n) => contains(r, nodeRect(kind, n))).map((n) => n.id), ...(graph.comments ?? []).filter((c) => contains(r, commentRect(c))).map((c) => c.id)];
+}
+
+/** Phase 16.2: the kind's fixed node types (in every graph once; never added, copied or deleted). */
+export function fixedTypesOf(kind: GraphKindDef): ReadonlySet<string> {
+  return new Set(kind.nodes.filter((d) => d.fixed === true).map((d) => d.type));
 }
 
 /** Default values of a new node's fields are not stored (absent = default). */

@@ -5,9 +5,11 @@
  * The neutral skinned column (bones `root` and `upper`, clips `idle` and
  * `bend`) and a clips-only file (the same bones, no mesh, clip `wave`: the
  * upper half bent to the right) are imported; the clips file is marked
- * "clips for rig of" the column in the Asset browser. In the Animator window
- * a controller plays `idle` on the base layer; a second layer, masked to the
- * `upper` bone with the bone picker, plays `wave` from the clips file. The
+ * "clips for rig of" the column in the Asset browser. In the Animator tab
+ * (phase 16.2: the graph editor; layers are tabs inside it) a controller
+ * plays `idle` on the base layer; a second layer, masked to the `upper` bone
+ * with the bone picker, plays `wave` from the clips file (a state added from
+ * the node catalogue, made the entry state in the Inspector). The
  * live preview shows the upper half bent to the right; masking the layer to
  * `root` instead (a bone `wave` does not animate) straightens it again. Play
  * (the runtime's two-layer state machine and the renderer's masked actions,
@@ -91,39 +93,46 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect.poll(async () => (await assets()).find((a) => a.assetId === moves.assetId)?.clipsFor).toBe(column.assetId);
   await expect(page.getByLabel('clips for rig check')).toHaveText('every animated bone is in the rig', { timeout: 15_000 });
 
-  // A controller on the column: idle on the base layer.
-  await page.getByRole('tab', { name: 'Animator' }).click();
+  // A controller on the column: idle on the base layer (it opens as a centre tab).
+  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(column.assetId);
   await page.getByRole('button', { name: 'New controller' }).click();
-  const graph = page.getByLabel('animator graph');
-  await expect(graph.getByRole('button', { name: 'state idle' })).toBeVisible();
+  const doc = page.getByRole('tabpanel', { name: 'Animator: New animator' });
+  const graph = doc.getByLabel('animator graph');
+  const inspector = page.locator('.tl-dock--right');
+  await expect(graph.getByRole('group', { name: 'State idle node state-01' })).toBeVisible();
 
-  // The live preview: the straight column.
-  await page.getByRole('button', { name: 'Preview', exact: true }).click();
-  const preview = page.getByLabel('animator preview', { exact: true });
+  // The live preview (the pane inside the tab): the straight column.
+  await doc.getByRole('button', { name: 'Preview', exact: true }).click();
+  const preview = doc.getByLabel('animator preview', { exact: true });
   await expect(preview).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
   await page.waitForTimeout(500);
   const straight = leanRight(decodePng(await preview.screenshot()));
 
-  // A second layer: a state playing `wave` from the clips file, made the entry state.
-  await page.getByRole('button', { name: 'Add layer' }).click();
-  await expect(page.getByRole('tab', { name: 'Layer 1' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByLabel('layer settings')).toBeVisible();
-  await expect(graph.getByRole('button', { name: 'state Empty' })).toBeVisible();
-  const box = (await graph.boundingBox())!;
-  await graph.click({ button: 'right', position: { x: box.width * 0.6, y: 180 } });
-  await page.getByRole('menuitem', { name: 'Add state' }).click();
-  await expect(page.getByLabel('state inspector')).toBeVisible();
-  await page.getByLabel('state clip').selectOption(`${moves.assetId}/wave`);
-  await page.getByLabel('state name').fill('Wave');
-  await page.getByLabel('state name').blur();
-  await expect(graph.getByRole('button', { name: 'state Wave' })).toBeVisible();
-  await graph.getByRole('button', { name: 'state Wave' }).click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Set as entry state' }).click();
+  // A second layer (a tab inside the document): a state playing `wave` from the clips file, made the entry state.
+  await doc.getByRole('button', { name: 'Add layer' }).click();
+  await expect(doc.getByRole('tab', { name: 'Layer 1' })).toHaveAttribute('aria-selected', 'true');
+  await expect(doc.getByLabel('layer settings')).toBeVisible();
+  await expect(graph.getByRole('group', { name: /^Empty state Empty node / })).toBeVisible();
+  const empty = (await graph.getByRole('group', { name: /^Empty state Empty node / }).boundingBox())!;
+  const sb = (await graph.locator('.tl-graph__stage').boundingBox())!;
+  await page.mouse.click(Math.min(sb.x + sb.width - 260, empty.x + empty.width + 200), empty.y + empty.height + 80, { button: 'right' });
+  const popup = page.getByRole('dialog', { name: 'Add node' });
+  // An override layer's catalogue also offers empty states.
+  await expect(popup.getByRole('option', { name: 'Empty state', exact: true })).toBeVisible();
+  await popup.getByRole('option', { name: 'State', exact: true }).click();
+  await expect(inspector.getByLabel('state inspector')).toBeVisible();
+  await inspector.getByLabel('state clip').selectOption(`${moves.assetId}/wave`);
+  await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"clip":"wave"');
+  await inspector.getByLabel('state name').fill('Wave');
+  await inspector.getByLabel('state name').press('Enter');
+  await expect(graph.getByRole('group', { name: /^State Wave node / })).toBeVisible();
+  await inspector.getByRole('button', { name: 'Set as entry state' }).click();
+  await expect(inspector.getByText('State (entry)')).toBeVisible();
 
   // The bone picker lists the column's skeleton; mask the layer to the upper bone.
-  await expect(page.getByLabel('mask bone root')).toBeVisible();
-  await page.getByLabel('mask bone upper').check();
+  await expect(doc.getByLabel('mask bone root')).toBeVisible();
+  await doc.getByLabel('mask bone upper').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["upper"]');
 
   // The live preview shows the upper-body layer: the upper half bends to the right.
@@ -136,8 +145,9 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   expect(bent).toBeGreaterThan(0.15);
 
   // Masked to `root` instead (a bone the clip does not animate): the column is straight again.
-  await page.getByLabel('mask bone upper').uncheck();
-  await page.getByLabel('mask bone root').check();
+  await doc.getByLabel('mask bone upper').click();
+  await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":[]');
+  await doc.getByLabel('mask bone root').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["root"]');
   await expect(preview).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
   await page.waitForTimeout(800);
@@ -160,7 +170,7 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
 
   // Play: the runtime steps both layers and the renderer plays the clips file's
   // `wave` on the column's bones — only when the layer's mask holds `upper`.
-  await page.getByRole('button', { name: 'Stop preview' }).click();
+  await doc.getByRole('button', { name: 'Stop preview' }).click();
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const created = await be.command({ op: 'createEntity', projectId: be.projectId, expectedRevision: q.revision, requestId: 'req-00000000000000000000000000146a01', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { kind: 'model', name: 'column', model: { asset: { assetId: column.assetId } }, transform: { position: [0, 0, 0] } } });
   expect(created.ok, JSON.stringify(created)).toBe(true);
@@ -168,10 +178,11 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   const put = await be.command({ op: 'setComponent', projectId: be.projectId, expectedRevision: q2.revision, requestId: 'req-00000000000000000000000000146a02', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { entityId: created['createdId'], component: 'animator', value: { controller: (stored as unknown as { controllerId: string }).controllerId } } });
   expect(put.ok, JSON.stringify(put)).toBe(true);
   const rootOnly = playRightPixels(await play(page));
-  await page.getByRole('tab', { name: 'Animator' }).click();
-  await page.getByRole('tab', { name: 'Layer 1' }).click();
-  await page.getByLabel('mask bone root').uncheck();
-  await page.getByLabel('mask bone upper').check();
+  await page.getByRole('tab', { name: 'Animator: New animator', exact: true }).click();
+  await doc.getByRole('tab', { name: 'Layer 1' }).click();
+  await doc.getByLabel('mask bone root').click();
+  await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":[]');
+  await doc.getByLabel('mask bone upper').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["upper"]');
   const upper = playRightPixels(await play(page));
   console.log(`[animator-layers] Play: orange pixels right of the column, mask root ${rootOnly}, mask upper ${upper}`);

@@ -516,7 +516,7 @@ function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; fir
   ];
   const first = params.findIndex((p) => p.type === o.firstParam);
   const ordered = [params[first]!, ...params.filter((_, i) => i !== first)];
-  const motion = (kind: string, n: string) => (kind === 'clip' ? { kind: 'clip', clip: CLIP(n) } : kind === 'blend1d' ? { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 0, clip: CLIP(`${n}-a`) }, { threshold: 1, clip: CLIP(`${n}-b`) }] } : { kind: 'empty' });
+  const motion = (kind: string, n: string) => (kind === 'clip' ? { kind: 'clip', clip: CLIP(n) } : kind === 'blend1d' ? { kind: 'blend1d', parameter: 'speed', children: [{ threshold: 0, clip: CLIP(`${n}-a`), position: [0, 0] }, { threshold: 1, clip: CLIP(`${n}-b`) }] } : { kind: 'empty' });
   const cond = o.cond === 'number' ? { parameter: 'speed', op: 'greater', value: 0.1 } : o.cond === 'bool' ? { parameter: 'grounded', op: 'true' } : { parameter: 'attack', op: 'trigger' };
   return [
     {
