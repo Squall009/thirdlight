@@ -693,7 +693,14 @@ export class SessionClient {
       this.content.applyChange(ev.change as ChangeData);
       // M2 (packet 28): definitions/declarations converge from the same
       // records, so an MCP-origin edit is visible without a reload.
-      this.prefabs.applyChange(ev.change as ChangeData);
+      // Phase 19.0: a visual-script edit that does not fit the copy is
+      // stale — re-read everything.
+      try {
+        this.prefabs.applyChange(ev.change as ChangeData);
+      } catch {
+        void this.fullResync().then(() => this.cb.onSceneChanged());
+        return;
+      }
       // M3 (packet 56): the game block + settings map converge from the same
       // records (the `setGameConfig` change carries the full next block or
       // `null`; the `setSettings` change carries the full next map —
@@ -1453,6 +1460,53 @@ export class SessionClient {
       return { ok: true, compiled: false, code: r.code ?? 'behavior_compile_failed', reason: r.reason ?? '', diagnostics: r.diagnostics ?? [] };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Phase 19.0: compile a visual script's stored graph without publishing
+   * it (the source route's `check` + `graph` mode). Returns the digest the
+   * publication will ask trust for, or the problems (with their nodes).
+   */
+  async checkBehaviorGraph(
+    behaviorId: string,
+  ): Promise<
+    | { ok: true; compiled: true; sourceDigest: string; declaration: PropertyDeclaration; warnings: { message: string; nodeId?: string }[] }
+    | { ok: true; compiled: false; code: string; diagnostics: CompileDiagnosticView[]; warnings: { message: string; nodeId?: string }[] }
+    | { ok: false; error: { code: string; message: string } }
+  > {
+    try {
+      const r = await this.request<{ ok: true; compiled: boolean; sourceDigest?: string; declaration?: PropertyDeclaration; code?: string; diagnostics?: CompileDiagnosticView[]; warnings?: { message: string; nodeId?: string }[] }>(
+        `/projects/${this.cfg.projectId}/content/behaviors/source`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ check: true, graph: true, behaviorId }) },
+      );
+      if (r.compiled) return { ok: true, compiled: true, sourceDigest: r.sourceDigest ?? '', declaration: r.declaration ?? { properties: [] }, warnings: r.warnings ?? [] };
+      return { ok: true, compiled: false, code: r.code ?? 'behavior_compile_failed', diagnostics: r.diagnostics ?? [], warnings: r.warnings ?? [] };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * Phase 19.0: publish a visual script — the backend generates the source
+   * from the stored graph and runs the ordinary preparation + one
+   * `publishBehavior{mode:"source"}` command (trust per exact digest).
+   */
+  async publishBehaviorGraph(
+    behaviorId: string,
+    displayName: string,
+    expectedRevision: number,
+  ): Promise<{ ok: true; revision: number; sourceDigest: string } | { ok: false; code: string; message: string; sourceDigest?: string; diagnostics?: CompileDiagnosticView[] }> {
+    try {
+      const r = await this.request<{ ok: true; revision: number; sourceDigest: string }>(`/projects/${this.cfg.projectId}/content/behaviors/source`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ graph: true, behaviorId, displayName, expectedRevision, requestId: makeRequestId() }),
+      });
+      return { ok: true, revision: r.revision, sourceDigest: r.sourceDigest };
+    } catch (e) {
+      const err = (e as { body?: { error?: { code?: string; message?: string; sourceDigest?: string; diagnostics?: CompileDiagnosticView[] } } }).body?.error;
+      return { ok: false, code: err?.code ?? 'internal', message: err?.diagnostics?.[0]?.message ?? err?.message ?? 'the visual script was not published', ...(err?.sourceDigest !== undefined ? { sourceDigest: err.sourceDigest } : {}), ...(err?.diagnostics !== undefined ? { diagnostics: err.diagnostics } : {}) };
     }
   }
 

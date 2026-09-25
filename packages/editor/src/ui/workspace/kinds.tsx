@@ -22,6 +22,7 @@ import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
+import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/VisualScriptDocument';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -44,6 +45,8 @@ export interface WorkspaceHost {
     /** A node to frame and focus (e.g. from the Problems tab). */
     focus: { id: string; nonce: number } | null;
   };
+  /** Phase 19.0: visual scripts (behaviors with a graph) — everything but the behavior itself. */
+  visualScript: Omit<VisualScriptDocumentProps, 'behaviorId' | 'behavior'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -128,8 +131,20 @@ const graphKind: DocumentKind = {
   },
 };
 
+/**
+ * Phase 19.0: a visual script — a behavior whose source is a graph — in the
+ * generic graph editor with the `behavior` kind ("Graph: <behavior>").
+ */
+const visualScriptKind: DocumentKind = {
+  kind: 'visual-script',
+  label: 'Graph',
+  icon: GRAPH_ICON,
+  name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
+  render: (id, host) => <VisualScriptDocument key={id} {...host.visualScript} behaviorId={id} behavior={host.behavior.behaviors.find((b) => b.behaviorId === id) ?? null} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, visualScriptKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

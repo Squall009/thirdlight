@@ -25,7 +25,9 @@
  */
 
 import type { ChangeData } from '@thirdlight/commands';
-import type { BehaviorRecord, BehaviorSourceRecord, PrefabDefinition, PropertyDeclaration, TrustEntry } from '@thirdlight/project-model';
+import type { BehaviorRecord, BehaviorSourceRecord, GraphData, PrefabDefinition, PropertyDeclaration, TrustEntry } from '@thirdlight/project-model';
+
+import { applyGraphOpsLocal } from '../graph/model';
 
 /** The published declaration part of a behavior record (never its source bytes). */
 export interface BehaviorDeclarationView {
@@ -35,6 +37,8 @@ export interface BehaviorDeclarationView {
   /** The digest-bound source record, or `null` (a declaration-only behavior). */
   source: BehaviorSourceRecord | null;
   publishedRevision: number;
+  /** Phase 19.0: the visual script (absent: not a visual script). */
+  graph?: GraphData;
 }
 
 /** One definition summary as `queryPrefabs`/full state returns it. */
@@ -153,6 +157,16 @@ export class PrefabProjection {
         this.behaviors.set(change.behaviorId, toDeclarationView(next));
         return true;
       }
+      case 'graphEdit': {
+        // Phase 19.0: a visual script's graph advances from the change's ops
+        // (the backend applied and validated the same ops).
+        if (change.owner.kind !== 'behavior') return false;
+        const b = this.behaviors.get(change.owner.id);
+        const next = b?.graph !== undefined ? applyGraphOpsLocal(b.graph, change.ops) : null;
+        if (b === undefined || next === null) throw new Error(`stale visual script "${change.owner.id}"`);
+        this.behaviors.set(b.behaviorId, { ...b, graph: next });
+        return true;
+      }
       case 'acknowledgeBehaviorTrust': {
         // Full entry arrays in the direction applied (commands.md §5.3/§8.12).
         this.trust = change.next.map((e) => ({ ...e }));
@@ -173,6 +187,7 @@ function toDeclarationView(b: BehaviorRecord): BehaviorDeclarationView {
     declaration: { properties: b.declaration.properties.map((p) => ({ ...p })) },
     source: b.source === null ? null : { ...b.source, requiredModules: [...b.source.requiredModules], ...(b.source.ownedTransforms !== undefined ? { ownedTransforms: [...b.source.ownedTransforms] } : {}) },
     publishedRevision: b.publishedRevision,
+    ...(b.graph !== undefined ? { graph: structuredClone(b.graph) } : {}),
   };
 }
 

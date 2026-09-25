@@ -42,6 +42,9 @@ export { prepareBehavior, preparedSourceFrom } from './prepare';
 export { labelOfKey, readCodeDeclaration } from './declare';
 export type { CodeDeclarationResult } from './declare';
 export type { BehaviorPrepareResult } from './prepare';
+// Phase 19.0: visual scripts (behavior graph → TypeScript → the same compiler).
+export { compileBehaviorGraph, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, GRAPH_SOURCE_BANNER } from './graph';
+export type { BehaviorGraphCompileResult, GraphSourceResult } from './graph';
 export { canonicalJsonText, sha256Hex, sha256HexOfText } from './canonical';
 export type {
   BehaviorCompileFailure,

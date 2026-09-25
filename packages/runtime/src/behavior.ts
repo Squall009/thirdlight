@@ -226,6 +226,8 @@ export class BehaviorHostError extends Error {
   readonly code: 'config_invalid' | 'module_error' | 'transform_owner_forbidden';
   readonly reason: string;
   readonly detail?: string;
+  /** Phase 19.0: the visual-script node that was running (see `graphNodeIdOf`). */
+  nodeId?: string;
   constructor(
     code: BehaviorHostError['code'],
     reason: string,
@@ -238,6 +240,21 @@ export class BehaviorHostError extends Error {
     this.reason = reason;
     if (detail !== undefined) this.detail = detail;
   }
+}
+
+const GRAPH_NODE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const GRAPH_DETAIL_RE = /^[a-z_]{1,32}$/;
+
+/**
+ * Phase 19.0: the visual-script node an error came from. Code generated from
+ * a behavior graph tags every error thrown while a node runs with the node's
+ * id (`nodeId`); the runtime copies it into the script error (diagnostics,
+ * Play) so the failure points at the node. Any other error has none.
+ */
+export function graphNodeIdOf(e: unknown): string | undefined {
+  if (typeof e !== 'object' || e === null) return undefined;
+  const id = (e as { nodeId?: unknown }).nodeId;
+  return typeof id === 'string' && GRAPH_NODE_ID_RE.test(id) ? id : undefined;
 }
 
 /** A write to the frozen `prepare` result (§14.3.1 `behavior_state_shared`). */
@@ -720,13 +737,20 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
             throw e;
           }
+          // Phase 19.0: a visual script's error keeps the node it came from.
+          const withNode = (err: BehaviorHostError): BehaviorHostError => {
+            const nodeId = graphNodeIdOf(e);
+            if (nodeId !== undefined) err.nodeId = nodeId;
+            return err;
+          };
           if (e instanceof TimerCallError) {
-            throw new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`);
+            throw withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
           }
           if (e instanceof FrozenPreparedError) {
-            throw new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`);
+            throw withNode(new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`));
           }
-          throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" step threw: ${messageOf(e)}`);
+          const detail = graphNodeIdOf(e) !== undefined ? (e as { detail?: unknown }).detail : undefined;
+          throw withNode(new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" step threw: ${messageOf(e)}`, typeof detail === 'string' && GRAPH_DETAIL_RE.test(detail) ? detail : undefined));
         }
         if (result !== undefined) {
           if (isThenable(result)) {
@@ -743,12 +767,28 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         get transformOwners(): readonly string[] {
           return owners;
         },
-        /** Phase 14.2: a new run (start, replay, a level switch) clears every instance's timers. */
+        /**
+         * Phase 14.2: a new run (start, replay) clears every instance's timers.
+         * Phase 19.0: and starts every instance with fresh state (dispose, then
+         * `instantiate` again with the same properties), so a run — a replay
+         * included — begins exactly like the first one and code that runs "on
+         * the first step" runs again at the start of each run.
+         */
         reset(rctx): void {
           if (rctx.reason !== 'start' && rctx.reason !== 'replay') return;
           for (const instance of instances) {
             instance.timers.clear();
             instance.events = null;
+            try {
+              spec.dispose?.(readonlyResult, instance.state);
+            } catch (e) {
+              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`);
+            }
+            try {
+              instance.state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId: instance.entityId, properties: instance.properties, tags }));
+            } catch (e) {
+              throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${instance.entityId}") threw: ${messageOf(e)}`);
+            }
           }
         },
         step(phase: SimulationPhase, ctx: StepContext): void {

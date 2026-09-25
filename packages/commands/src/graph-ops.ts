@@ -17,8 +17,12 @@
  * from the controller and the result is written back into it, so the
  * command records the same controller change `setAnimator` makes
  * (`setAnimators` previous/next, undone by restoring the previous list).
- * Later phases register the material (18), behavior (19) and effect (20)
- * owners here with the same op set.
+ * Phase 19.0: `behavior` — a visual script (`BehaviorRecord.graph`, kind
+ * `behavior`); the change is the generic `graphEdit` with its ops, undone by
+ * the inverse ops. Editing the graph does not touch the published source:
+ * publishing compiles it (the behavior source route).
+ * Later phases register the material (18) and effect (20) owners here with
+ * the same op set.
  */
 import {
   animatorGraphOf,
@@ -29,6 +33,7 @@ import {
   GRAPH_KINDS,
   parseAnimatorOwnerId,
   type AnimatorController,
+  type BehaviorRecord,
   validateGraphData,
   validateGraphDocument,
   type GraphData,
@@ -60,6 +65,9 @@ export interface GraphOwnerAdapter {
    */
   record?(before: ContentDocument, after: ContentDocument): { change: ForwardChange; inverse: InverseSpec };
 }
+
+/** Phase 19.0: the behavior records (a visual script keeps its graph in its record). */
+const behaviorsOf = (content: ContentDocument): BehaviorRecord[] => (content as ContentDocument & { behaviors?: BehaviorRecord[] }).behaviors ?? [];
 
 const animatorsOf = (content: ContentDocument): AnimatorController[] => (content as WithAnimators).animators ?? [];
 
@@ -96,6 +104,18 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
     record(before, after) {
       const previous = deepClone(animatorsOf(before));
       return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
+    },
+  },
+  // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one).
+  behavior: {
+    read(content, id) {
+      const b = behaviorsOf(content).find((x) => x.behaviorId === id);
+      const kind = GRAPH_KINDS['behavior'];
+      return b?.graph !== undefined && kind !== undefined ? { kind, graph: b.graph } : null;
+    },
+    write(content, id, graph) {
+      const list = behaviorsOf(content).map((b) => (b.behaviorId === id ? { ...b, graph } : b));
+      return { ...content, behaviors: list } as ContentDocument;
     },
   },
 };

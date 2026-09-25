@@ -36,6 +36,7 @@ import { canonicalJsonText, sha256Hex, sha256HexOfText, utf8Encode } from './can
 import { containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph, posixResolve, withLimits } from './scan';
 import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
+import { GRAPH_SOURCE_BANNER } from './graph-banner';
 import type {
   BehaviorCompileFailure,
   BehaviorCompileInput,
@@ -355,6 +356,8 @@ export async function compileBehavior(
     declaration: { properties: properties.map((p) => ({ ...p })) },
     // Phase 15.4: present only when the declaration was derived from the code.
     ...(declaredInCode ? { declaredInCode: true as const } : {}),
+    // Phase 19.0: generated from a visual-script graph (the generator's first line).
+    ...(entryText !== undefined && entryText.startsWith(`${GRAPH_SOURCE_BANNER}\n`) ? { sourceKind: 'graph' as const } : {}),
     apiVersion: BEHAVIOR_API_VERSION,
     compiler: { id: toolchain.id, version: toolchain.version, esbuild: toolchain.esbuild, typescript: toolchain.typescript },
     outputDigest,
