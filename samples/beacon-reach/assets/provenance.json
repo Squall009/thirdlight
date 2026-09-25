@@ -2,7 +2,7 @@
   "sample": "beacon-reach",
   "generatedBy": "samples/beacon-reach/tools/generate-assets.mjs",
   "license": "thirdlight-sample-generated-content",
-  "licenseText": "/home/dadmin/projects/thirdlight/.claude/worktrees/agent-a88f3009eb304418e/samples/beacon-reach/LICENSE",
+  "licenseText": "/home/dadmin/projects/thirdlight/samples/beacon-reach/LICENSE",
   "assets": [
     {
       "id": "audio-start",

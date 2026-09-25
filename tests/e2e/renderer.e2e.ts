@@ -99,9 +99,9 @@ async function openWithBox(page: Page, url: string): Promise<void> {
 /** The Scene view reports `backend` ready and draws the box. */
 async function expectSceneView(page: Page, backend: string, reasonPart: string): Promise<void> {
   const canvas = page.locator('canvas.tl-viewport');
-  await expect.poll(async () => (await rendererOf(canvas)).state).toBe('ready');
+  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend`.
+  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}`; }, { timeout: 20_000 }).toBe(`ready/${backend}`);
   const r = await rendererOf(canvas);
-  expect(r.backend).toBe(backend);
   expect(r.reason).toContain(reasonPart);
   await expect(page.locator('.tl-statusbar__renderer')).toHaveAttribute('data-render-backend', backend);
   await expect.poll(async () => brightPixels(decodePng(await canvas.screenshot()))).toBeGreaterThan(20);
@@ -112,9 +112,9 @@ async function expectPlay(page: Page, backend: string, reasonPart: string): Prom
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-  await expect.poll(async () => (await rendererOf(canvas)).state).toBe('ready');
+  // The view swaps its canvas when the backend changes: wait until the current one is ready with `backend`.
+  await expect.poll(async () => { const x = await rendererOf(canvas); return `${x.state}/${x.backend}`; }, { timeout: 20_000 }).toBe(`ready/${backend}`);
   const r = await rendererOf(canvas);
-  expect(r.backend).toBe(backend);
   expect(r.reason).toContain(reasonPart);
   // The Play label line (from the play's observation).
   await expect(page.locator('.tl-app__preview-renderer')).toHaveAttribute('data-render-backend', backend);
