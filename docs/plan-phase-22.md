@@ -76,7 +76,7 @@ without concurrency hazards and without changing game results. Read
 |---|---|---|
 | 22.0 simulation worker | done 2026-09-25 | 56e7124, 4d6cb8b |
 | 22.1 editor workers | done 2026-09-25 | 61edf98 |
-| 22.2 render worker spike | todo | |
+| 22.2 render worker spike | done 2026-09-25 | a9cfb2b, e6ac12a |
 | 22.3 physics details | done 2026-09-25 | 56e7124 |
 | 22.4 wrap-up | todo | |
 
