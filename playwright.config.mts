@@ -11,7 +11,8 @@
  *    the WebGL 2 backend here, so the suite covers the fallback).
  *  - `webgpu` — the renderer-sensitive specs again with headless WebGPU
  *    (Dawn's SwiftShader adapter through Vulkan): renderer, shader parity
- *    (17.2) and the materials/textures/lightmaps specs, which force the
+ *    (17.2), environment parity (17.3) and the materials/textures/lightmaps
+ *    and environment/lights/sky-texture/level-look specs, which force the
  *    WebGPU backend there (`?renderer=webgpu`). Slower; run it as its own
  *    step: `npx playwright test --project=webgpu`.
  */
@@ -44,7 +45,18 @@ export default defineConfig({
     },
     {
       name: 'webgpu',
-      testMatch: ['**/renderer.e2e.ts', '**/shader-parity.e2e.ts', '**/materials.e2e.ts', '**/textures.e2e.ts', '**/lightmaps.e2e.ts'],
+      testMatch: [
+        '**/renderer.e2e.ts',
+        '**/shader-parity.e2e.ts',
+        '**/env-parity.e2e.ts',
+        '**/materials.e2e.ts',
+        '**/textures.e2e.ts',
+        '**/lightmaps.e2e.ts',
+        '**/environment.e2e.ts',
+        '**/lights.e2e.ts',
+        '**/sky-texture.e2e.ts',
+        '**/level-look.e2e.ts',
+      ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },
   ],

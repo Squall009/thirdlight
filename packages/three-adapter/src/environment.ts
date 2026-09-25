@@ -14,11 +14,14 @@
  * lost context), rendering falls back to the direct path and
  * `diagnostics().fallback` says why; gameplay never depends on it.
  *
- * Phase 17.1: on three's WebGPURenderer (the `webgpu`/`webgl2` backends, not
- * yet the default) the scene, colour and texture skies, fog and tone mapping
- * draw; the post stack, the gradient and procedural skies and fog volumes are
- * WebGL-only shaders until phase 17.3 ports them to TSL — they are left out
- * and `diagnostics().fallback` names what is missing.
+ * Phase 17.3: on three's WebGPURenderer (the `webgpu`/`webgl2` backends, not
+ * yet the default) every part draws from TSL (`environment-nodes.ts`): the
+ * physical sky is three's `SkyMesh`, the gradient dome a node material, PMREM
+ * is `three/webgpu`'s generator, and the post stack a `RenderPipeline` with
+ * the same passes in the same order (TSL display nodes for GTAO, depth of
+ * field, bloom, SMAA and FXAA; the fog volume and grading passes ported line
+ * by line). On WebGPURenderer the low quality level also draws without MSAA
+ * (its profile has no anti-aliasing), through a plain scene pass.
  *
  * Pure three.js + examples; textures come from the injected loader.
  */
@@ -34,6 +37,8 @@ import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
+
+import { buildPostPipeline, createSkyMesh, gradientSkyMaterial, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -310,8 +315,8 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
   /** Phase 17.1: three's WebGPURenderer (either backend): no EffectComposer, no ShaderMaterial. */
   const nodeRenderer = (renderer as { isWebGPURenderer?: boolean }).isWebGPURenderer === true;
   const glRenderer = renderer as THREE.WebGLRenderer;
-  /** Phase 17.1: what the node renderer leaves out of the current environment (null: nothing). */
-  let nodeGap: string | null = null;
+  /** Phase 17.3: the post stack on WebGPURenderer (a RenderPipeline). */
+  let pipeline: PostPipeline | null = null;
   let env: EnvironmentLike | null = null;
   let qualityOverride: QualityLevel | null = null;
   let keyLight: [number, number, number] | null = null;
@@ -327,7 +332,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
   let depthTarget: THREE.WebGLRenderTarget | null = null;
   const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
   const pmrem: PmremLike = nodeRenderer ? (new NodePMREMGenerator(renderer as WebGPURenderer) as unknown as PmremLike) : (new THREE.PMREMGenerator(glRenderer) as unknown as PmremLike);
-  let skyMesh: Sky | null = null;
+  let skyMesh: THREE.Mesh | null = null;
   let skyDome: THREE.Mesh | null = null;
   let envMap: { texture: THREE.Texture; dispose(): void } | null = null;
   /** The cube/equirect background built from a sky texture (freed with the sky). */
@@ -402,11 +407,19 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
       scene.background = new THREE.Color(sky.color ?? '#7ec8ff');
       return;
     }
-    if (nodeRenderer && (sky.mode === 'procedural' || sky.mode === 'gradient')) {
-      // Phase 17.1: these skies are GLSL ShaderMaterials the node renderer
-      // cannot draw (phase 17.3 ports them): the gradient's horizon colour
-      // stands in as a plain background, the procedural sky draws nothing.
-      if (sky.mode === 'gradient') scene.background = new THREE.Color(sky.horizonColor ?? '#bfe3ff');
+    if (nodeRenderer && sky.mode === 'procedural') {
+      // Phase 17.3: three's TSL sky, and image-based lighting from a copy of it.
+      const params = { turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) };
+      skyMesh = createSkyMesh(params);
+      scene.background = null;
+      scene.add(skyMesh);
+      const tmp = new THREE.Scene();
+      const clone = createSkyMesh(params);
+      tmp.add(clone);
+      envMap = pmrem.fromScene(tmp, 0, 0.1, 10000);
+      scene.environment = envMap.texture;
+      clone.geometry.dispose();
+      (clone.material as THREE.Material).dispose();
       return;
     }
     if (sky.mode === 'procedural') {
@@ -436,16 +449,20 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
       return;
     }
     if (sky.mode === 'gradient') {
-      const mat = new THREE.ShaderMaterial({
+      const top = new THREE.Color(sky.topColor ?? '#3d7cd6');
+      const horizon = new THREE.Color(sky.horizonColor ?? '#bfe3ff');
+      const bottom = new THREE.Color(sky.bottomColor ?? '#757575'); // phase 15.5: neutral grey below the horizon (was a grass olive)
+      const mat = nodeRenderer ? gradientSkyMaterial(top, horizon, bottom) : new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
-        uniforms: {
-          top: { value: new THREE.Color(sky.topColor ?? '#3d7cd6') },
-          horizon: { value: new THREE.Color(sky.horizonColor ?? '#bfe3ff') },
-          bottom: { value: new THREE.Color(sky.bottomColor ?? '#757575') }, // phase 15.5: neutral grey below the horizon (was a grass olive)
-        },
-        vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-        fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; varying vec3 vDir; void main() { float h = vDir.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, bottom, pow(-h, 0.5)); gl_FragColor = vec4(c, 1.0); }',
+        uniforms: { top: { value: top }, horizon: { value: horizon }, bottom: { value: bottom } },
+        // Phase 17.3: on the far plane (z = w, like three's Sky): a camera whose far
+        // plane is nearer than the dome (the Scene view's 1000 m) still sees the sky.
+        vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w; }',
+        // Phase 17.3: tone mapped and sRGB-encoded like every other surface and three's
+        // Sky (before, only the post stack's output pass did it; without post the raw
+        // linear colours reached the canvas — never seen, as the dome was clipped).
+        fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; varying vec3 vDir; void main() { float h = vDir.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, bottom, pow(-h, 0.5)); gl_FragColor = vec4(c, 1.0);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
       });
       skyDome = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), mat);
       skyDome.frustumCulled = false;
@@ -550,14 +567,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
     const w = wanted();
     const post = env?.post;
     if (nodeRenderer) {
-      // Phase 17.1: EffectComposer and its passes are WebGL-only (phase 17.3 moves post to TSL).
-      const skyMode = env?.sky?.mode;
-      const gaps = [
-        ...(anyPost(w) ? ['post-processing'] : []),
-        ...(skyMode === 'procedural' || skyMode === 'gradient' ? [`the ${skyMode} sky`] : []),
-        ...(w.fogVolumes ? ['fog volumes'] : []),
-      ];
-      nodeGap = gaps.length > 0 ? `not drawn on the WebGPU renderer yet (phase 17.3): ${gaps.join(', ')}` : null;
+      buildPipeline(camera, w);
       return;
     }
     const key = JSON.stringify({ w, post, q: quality(), size: [width, height], cam: camera.uuid });
@@ -645,6 +655,93 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
 
   const anyPost = (w: ReturnType<typeof wanted>): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || w.aa !== 'none';
 
+  // ---- Phase 17.3: the post stack on WebGPURenderer ----------------------------------
+  const disposePipeline = (): void => {
+    pipeline?.dispose();
+    pipeline = null;
+    passNames = [];
+  };
+  /** A pixel ratio for the post passes (the quality level's, never above the device's), relative to the renderer's. */
+  const postScale = (): number => {
+    const target = Math.min(QUALITY_PROFILE[quality()].pixelRatio, globalThis.devicePixelRatio ?? 1);
+    return target / Math.max(1e-6, renderer.getPixelRatio());
+  };
+  const buildPipeline = (camera: THREE.Camera, w: ReturnType<typeof wanted>): void => {
+    // The low level has no anti-aliasing: on WebGPURenderer that includes MSAA, so it draws
+    // through a plain scene pass (no samples) even without post effects.
+    const noMsaa = !QUALITY_PROFILE[quality()].antialias;
+    const isPost = anyPost(w);
+    // Without a post stack the WebGL renderer shows a colour or sRGB image background as it is
+    // (not tone mapped); WebGPURenderer tone maps the whole frame, so the background gets its own pass.
+    const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
+    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
+    const post = env?.post;
+    const key = JSON.stringify({ w, post, q: quality(), cam: camera.uuid, scale: postScale(), noMsaa, displayBackground });
+    if (key === composerKey) return;
+    composerKey = key;
+    disposePipeline();
+    if (!isPost && !noMsaa && !displayBackground) return;
+    const g = post?.grading;
+    const perspective = camera instanceof THREE.PerspectiveCamera;
+    const plan: PostPlan = {
+      ssao: w.ssao && perspective ? { radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
+      fogVolumes: w.fogVolumes,
+      dof: w.dof && perspective ? { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxBlur: post?.dof?.maxBlur ?? 0.01 } : null,
+      bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
+      grading: w.grading
+        ? {
+            brightness: g?.brightness ?? 0,
+            contrast: g?.contrast ?? 0,
+            saturation: g?.saturation ?? 0,
+            tint: g?.tint ?? '#ffffff',
+            lift: g?.lift ?? 0,
+            gamma: g?.gamma ?? 1,
+            gain: g?.gain ?? 1,
+            vignette: post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0,
+            vignetteOffset: post?.vignette?.offset ?? 1,
+          }
+        : null,
+      aa: w.aa,
+      resolutionScale: isPost ? postScale() : 1,
+      displayBackground,
+      // The legacy post stack renders without MSAA (EffectComposer's targets); a plain frame keeps the renderer's.
+      samples: isPost || noMsaa ? 0 : (renderer as WebGPURenderer).samples,
+    };
+    try {
+      const p = buildPostPipeline(renderer as WebGPURenderer, scene, camera, plan);
+      p.setSize(width, height, renderer.getPixelRatio());
+      pipeline = p;
+      // A plain frame (the background pass, or no MSAA at low quality) is not post-processing.
+      passNames = isPost ? [...p.passes] : [];
+      fallback = null;
+      if (plan.grading !== null && g?.lut !== undefined) {
+        void texture(g.lut).then((t) => {
+          if (t === null || disposed || pipeline !== p) return;
+          const lut = t.clone();
+          lut.colorSpace = THREE.NoColorSpace;
+          lut.flipY = false;
+          lut.generateMipmaps = false;
+          lut.minFilter = THREE.LinearFilter;
+          lut.needsUpdate = true;
+          p.setLut(lut);
+          options.onChange?.();
+        });
+      }
+    } catch (e) {
+      disposePipeline();
+      fallback = `post-processing is off: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
+    }
+  };
+  const volumeBoxes = (): FogVolumeBox[] =>
+    volumes.map((v) => ({
+      min: [v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2],
+      max: [v.center[0] + v.size[0] / 2, v.center[1] + v.size[1] / 2, v.center[2] + v.size[2] / 2],
+      color: v.color,
+      density: v.density,
+      falloff: v.falloff ?? 0.5,
+      heightFalloff: v.heightFalloff ?? 0,
+    }));
+
   const renderDepth = (camera: THREE.Camera): void => {
     const pr = renderer.getPixelRatio();
     const w = Math.max(1, Math.floor(width * pr));
@@ -693,6 +790,15 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
     render(camera) {
       if (disposed) return;
       buildComposer(camera);
+      if (nodeRenderer) {
+        if (pipeline === null) {
+          renderer.render(scene, camera);
+          return;
+        }
+        pipeline.update(camera, volumeBoxes());
+        pipeline.render();
+        return;
+      }
       if (composer === null) {
         renderer.render(scene, camera);
         return;
@@ -721,14 +827,17 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPU
       if (nw === width && nh === height) return; // a same-size resize must not rebuild the post stack
       width = nw;
       height = nh;
-      composerKey = '';
+      // The node passes follow the canvas size themselves (only the depth of field's pixel blur needs it).
+      if (nodeRenderer) pipeline?.setSize(width, height, renderer.getPixelRatio());
+      else composerKey = '';
     },
     diagnostics() {
-      return { post: composer !== null, passes: [...passNames], fallback: nodeRenderer ? nodeGap : fallback, quality: quality() };
+      return { post: nodeRenderer ? passNames.length > 0 : composer !== null, passes: [...passNames], fallback, quality: quality() };
     },
     dispose() {
       disposed = true;
       disposeComposer();
+      disposePipeline();
       clearSky();
       depthTarget?.dispose();
       depthOnly.dispose();

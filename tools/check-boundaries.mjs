@@ -160,6 +160,15 @@ export const NODE_SIDE_ALLOWED = {
         // (exporter/src/scan.ts) is measured with them.
         'webgpu',
         'tsl',
+        // Phase 17.3 (environment-nodes.ts): the physical sky and the post
+        // stack on WebGPURenderer — three's TSL sky mesh and node passes
+        // (GTAO, depth of field, bloom, SMAA, FXAA) inside a RenderPipeline.
+        'examples/jsm/objects/SkyMesh.js',
+        'examples/jsm/tsl/display/GTAONode.js',
+        'examples/jsm/tsl/display/DepthOfFieldNode.js',
+        'examples/jsm/tsl/display/BloomNode.js',
+        'examples/jsm/tsl/display/SMAANode.js',
+        'examples/jsm/tsl/display/FXAANode.js',
       ],
     },
     node: [],

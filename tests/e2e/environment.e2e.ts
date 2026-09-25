@@ -4,6 +4,10 @@
  * bloom brightens the view, a fog volume fills its box with fog (14.4: and thins
  * with height) — and Play and
  * the export render the same environment.
+ *
+ * Phase 17.3: runs once per renderer variant (renderer-variants.ts): the
+ * legacy WebGLRenderer, and WebGPURenderer with the TSL sky, fog volumes and
+ * post stack (WebGL 2 in the default project, WebGPU in the webgpu project).
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -13,6 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -71,15 +76,22 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
-test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in the export', async ({ page }) => {
-  test.setTimeout(180_000);
-  await page.goto(be.editorUrl);
+for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog volume in the Scene view, in Play and in the export (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(240_000);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await menu(page, 'GameObject', 'Box');
   const viewport = page.locator('canvas.tl-viewport');
+  await expectRendererBackend(viewport, variant);
+  await menu(page, 'GameObject', 'Box');
   await viewport.click({ position: { x: 5, y: 5 } });
   const before = avg(await shot(viewport), 0.05, 0.02, 0.95, 0.15);
 
+  /** The editor has seen the backend's latest revision (a busy page applies the change late; an edit before that is a revision conflict). */
+  const synced = async (): Promise<void> => {
+    const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+    await expect(page.locator('.tl-statusbar')).toContainText(new RegExp(`revision ${rev}(?!\\d)`));
+  };
   // A solid sky colour: the top of the Scene view turns light blue (#7ec8ff).
   await page.getByRole('tab', { name: 'Environment' }).click();
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('color');
@@ -88,22 +100,33 @@ test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in th
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('procedural');
   await expect.poll(async () => bright(avg(await shot(viewport), 0.05, 0.02, 0.95, 0.12)), { timeout: 10_000 }).toBeGreaterThan(bright(before) + 40);
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('color');
+  await expect.poll(async () => avg(await shot(viewport), 0.05, 0.02, 0.95, 0.15)[2], { timeout: 10_000 }).toBeGreaterThan(before[2] + 80);
+  await synced();
 
   // A vignette darkens the corners against the bright sky.
   const corners = bright(avg(await shot(viewport), 0, 0, 0.06, 0.08));
   await page.getByRole('checkbox', { name: 'vignette' }).check();
   await expect.poll(async () => bright(avg(await shot(viewport), 0, 0, 0.06, 0.08)), { timeout: 10_000 }).toBeLessThan(corners - 30);
+  await synced();
 
   // Bloom with threshold 0 and full strength: the box glows, the view brightens.
   const box = bright(avg(await shot(viewport), 0.4, 0.4, 0.6, 0.6));
+  const storedPost = async (): Promise<unknown> => ((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'] as { post: unknown }).post;
   await page.getByRole('checkbox', { name: 'bloom', exact: true }).check();
+  await expect.poll(storedPost).toMatchObject({ bloom: { enabled: true } });
+  await synced();
+  // Each slider edit is stored (and seen by the editor) before the next one.
   await page.getByRole('slider', { name: 'bloom threshold' }).focus();
   await page.keyboard.press('Home');
+  await expect.poll(storedPost).toMatchObject({ bloom: { enabled: true, threshold: 0 } });
+  await synced();
   await page.getByRole('slider', { name: 'bloom strength' }).focus();
   await page.keyboard.press('End');
+  await expect.poll(storedPost).toMatchObject({ bloom: { enabled: true, threshold: 0, strength: 3 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.4, 0.4, 0.6, 0.6)), { timeout: 10_000 }).toBeGreaterThan(box + 25);
-  expect(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'] as { post: unknown }).post).toMatchObject({ bloom: { enabled: true, threshold: 0, strength: 3 } });
   await page.getByRole('checkbox', { name: 'bloom', exact: true }).uncheck();
+  await expect.poll(storedPost).toMatchObject({ bloom: { enabled: false } });
+  await synced();
 
   // A fog volume in front of the camera: the middle of the view gets foggy (#dfe7ef).
   const middle = bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7));
@@ -133,6 +156,7 @@ test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in th
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   // The camera stands just outside the dense volume: the middle is fog-grey,
   // the top still shows the blue sky through less fog, the corners are darker.
   let play: Look | null = null;
@@ -151,7 +175,8 @@ test('sky, vignette, bloom and a fog volume in the Scene view, in Play and in th
   const errors: string[] = [];
   exported.on('pageerror', (e) => errors.push(e.message));
   try {
-    await exported.goto(site.url);
+    await exported.goto(`${site.url}${exportQueryFor(variant)}`);
+    await expectRendererBackend(exported.locator('canvas').first(), variant);
     let out: Look | null = null;
     await expect.poll(async () => (out = look(await shot(exported))).ok, { timeout: 20_000 }).toBe(true);
     // The export renders what Play rendered.

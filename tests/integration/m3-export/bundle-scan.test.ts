@@ -176,7 +176,9 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
     // GLTFLoader and its two utils, plus (2026-09-23) three's Draco/KTX2
     // loaders with their helpers and the meshopt decoder, plus (phase 9.5b)
-    // the environment's sky and post-processing passes — nothing else.
+    // the environment's sky and post-processing passes, plus (phase 17.3) the
+    // TSL sky and node post passes of the WebGPURenderer path (the DOF node
+    // pulls in the Gaussian blur node) — nothing else.
     expect(addons).toEqual([
       'libs/ktx-parse.module.js',
       'libs/meshopt_decoder.module.js',
@@ -187,6 +189,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
       'math/ColorSpaces.js',
       'math/SimplexNoise.js',
       'objects/Sky.js',
+      'objects/SkyMesh.js',
       'postprocessing/BokehPass.js',
       'postprocessing/EffectComposer.js',
       'postprocessing/GTAOPass.js',
@@ -205,6 +208,12 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
       'shaders/OutputShader.js',
       'shaders/PoissonDenoiseShader.js',
       'shaders/SMAAShader.js',
+      'tsl/display/BloomNode.js',
+      'tsl/display/DepthOfFieldNode.js',
+      'tsl/display/FXAANode.js',
+      'tsl/display/GTAONode.js',
+      'tsl/display/GaussianBlurNode.js',
+      'tsl/display/SMAANode.js',
       'utils/BufferGeometryUtils.js',
       'utils/SkeletonUtils.js',
       'utils/WorkerPool.js',

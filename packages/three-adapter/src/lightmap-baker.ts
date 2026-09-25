@@ -16,8 +16,20 @@
  * No bounce light: that is the Blender bake's job.
  *
  * Browser-only (WebGL2 with float render targets).
+ *
+ * Phase 17.3: the atlases are read back asynchronously
+ * (`readRenderTargetPixelsAsync`: WebGPURenderer has no synchronous read),
+ * and `renderer` picks the renderer like every other view (the factory's
+ * backends): the legacy WebGLRenderer (float targets, the GLSL bake
+ * material) or WebGPURenderer on WebGPU / WebGL 2 (half-float targets —
+ * blendable everywhere, float32 blending is an optional WebGPU feature — and
+ * the same bake material as a node material).
  */
 import * as THREE from 'three';
+import { Fn, normalViewGeometry, uniform, uv, vec4 } from 'three/tsl';
+import { MeshLambertNodeMaterial, type WebGPURenderer } from 'three/webgpu';
+
+import { createRenderer, isNodeRenderer, type RendererHandle, type RendererPreference } from './renderer-factory';
 
 export interface BakeMeshInput {
   /** The mesh's geometry (needs `uv1`); positions in the mesh's own space. */
@@ -65,6 +77,8 @@ export interface BrowserBakeInput {
   readonly softness?: number;
   readonly onProgress?: (done: number, total: number) => void;
   readonly signal?: AbortSignal;
+  /** Phase 17.3: the renderer backend to bake with (default: the legacy WebGLRenderer). */
+  readonly renderer?: RendererPreference;
 }
 
 export interface BakedAtlas {
@@ -103,6 +117,31 @@ function bakeMaterial(scaleOffset: readonly number[]): THREE.MeshLambertMaterial
   return m;
 }
 
+/**
+ * The same bake material for WebGPURenderer: UV1 in the atlas rectangle is
+ * the clip position (Y turned over where the clip space is WebGPU's, so row 0
+ * of the read-back atlas is still v 0), lit with the geometry's own normal on
+ * both sides (in lightmap space the winding says nothing about the lit side).
+ */
+function bakeNodeMaterial(scaleOffset: readonly number[], webgpuClip: boolean): THREE.Material {
+  const m = new MeshLambertNodeMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  m.blending = THREE.AdditiveBlending;
+  m.depthTest = false;
+  m.depthWrite = false;
+  const scale = uniform(new THREE.Vector2(scaleOffset[0], scaleOffset[1]));
+  const offset = uniform(new THREE.Vector2(scaleOffset[2], scaleOffset[3]));
+  const flip = webgpuClip ? -1 : 1;
+  m.vertexNode = Fn(() => {
+    const p = uv(1).mul(scale).add(offset).mul(2).sub(1);
+    return vec4(p.x, p.y.mul(flip), 0, 1);
+  })();
+  m.normalNode = normalViewGeometry;
+  return m;
+}
+
+type BakeRenderer = THREE.WebGLRenderer | WebGPURenderer;
+type BakeTarget = THREE.RenderTarget;
+
 const tick = (): Promise<void> => new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : setTimeout(r, 0)));
 
 /** Points spread evenly over the sphere (Fibonacci), rotated per bake. */
@@ -123,16 +162,31 @@ function random(seed: number): () => number {
   };
 }
 
-function readFloatTarget(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget): Float32Array {
+/**
+ * Read a float or half-float target back (asynchronously: the only read
+ * WebGPURenderer has). WebGPU pads each row to 256 bytes; the rows are
+ * taken apart by the stride the returned length implies.
+ */
+async function readFloatTarget(renderer: BakeRenderer, target: BakeTarget): Promise<Float32Array> {
   const { width, height } = target;
-  const out = new Float32Array(width * height * 4);
-  if (target.texture.type === THREE.FloatType) {
-    renderer.readRenderTargetPixels(target, 0, 0, width, height, out);
-    return out;
+  const n = width * height * 4;
+  const half = target.texture.type !== THREE.FloatType;
+  let raw: ArrayLike<number>;
+  if (isNodeRenderer(renderer)) {
+    raw = (await renderer.readRenderTargetPixelsAsync(target, 0, 0, width, height)) as unknown as ArrayLike<number>;
+  } else {
+    const buffer = half ? new Uint16Array(n) : new Float32Array(n);
+    raw = await renderer.readRenderTargetPixelsAsync(target as THREE.WebGLRenderTarget, 0, 0, width, height, buffer);
   }
-  const half = new Uint16Array(width * height * 4);
-  renderer.readRenderTargetPixels(target, 0, 0, width, height, half);
-  for (let i = 0; i < half.length; i++) out[i] = THREE.DataUtils.fromHalfFloat(half[i]!);
+  const rowLength = width * 4;
+  const stride = height > 1 ? (raw.length - rowLength) / (height - 1) : rowLength;
+  const out = new Float32Array(n);
+  for (let y = 0; y < height; y++) {
+    for (let i = 0; i < rowLength; i++) {
+      const v = raw[y * stride + i]!;
+      out[y * rowLength + i] = half ? THREE.DataUtils.fromHalfFloat(v) : v;
+    }
+  }
   return out;
 }
 
@@ -181,17 +235,38 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
   const canvas = document.createElement('canvas');
   canvas.width = 4;
   canvas.height = 4;
-  let renderer: THREE.WebGLRenderer;
+  const preference = input.renderer ?? 'legacy';
+  let renderer: BakeRenderer;
+  let handle: RendererHandle | null = null;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, preserveDrawingBuffer: false });
+    if (preference === 'legacy') {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, preserveDrawingBuffer: false });
+    } else {
+      handle = createRenderer({ canvas, preference, source: 'default', antialias: false, alpha: true, clearColor: 0x000000, clearAlpha: 0 });
+      const ready = await handle.whenReady();
+      const live = handle.current();
+      if (!ready || live === null) {
+        const reason = handle.info().reason;
+        handle.dispose();
+        return { ok: false, code: 'bake_unsupported', message: `no renderer for baking: ${reason}`.slice(0, 200) };
+      }
+      renderer = live;
+    }
   } catch (e) {
+    handle?.dispose();
     return { ok: false, code: 'bake_unsupported', message: `no WebGL for baking: ${(e as Error).message}` };
   }
+  const node = isNodeRenderer(renderer);
+  const webgpuClip = node && (renderer as WebGPURenderer).coordinateSystem === THREE.WebGPUCoordinateSystem;
+  const material = (scaleOffset: readonly number[]): THREE.Material => (node ? bakeNodeMaterial(scaleOffset, webgpuClip) : bakeMaterial(scaleOffset));
   const disposables: { dispose(): void }[] = [];
   try {
-    const gl = renderer.getContext();
-    const floatOk = gl instanceof WebGL2RenderingContext && gl.getExtension('EXT_color_buffer_float') !== null;
-    const type = floatOk ? THREE.FloatType : THREE.HalfFloatType;
+    let type: THREE.TextureDataType = THREE.HalfFloatType;
+    if (!node) {
+      const gl = (renderer as THREE.WebGLRenderer).getContext();
+      const floatOk = gl instanceof WebGL2RenderingContext && gl.getExtension('EXT_color_buffer_float') !== null;
+      type = floatOk ? THREE.FloatType : THREE.HalfFloatType;
+    }
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.autoClear = false;
@@ -199,25 +274,27 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
     camera.position.set(0, 0, 5);
     camera.updateMatrixWorld();
 
-    const makeTarget = (w: number, h: number): THREE.WebGLRenderTarget => {
-      const t = new THREE.WebGLRenderTarget(w, h, { type, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+    const makeTarget = (w: number, h: number): BakeTarget => {
+      const options = { type, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false };
+      const t = node ? new THREE.RenderTarget(w, h, options) : new THREE.WebGLRenderTarget(w, h, options);
       disposables.push(t);
       return t;
     };
+    const target = (t: BakeTarget | null): void => (renderer as { setRenderTarget(t: BakeTarget | null): void }).setRenderTarget(t);
 
     // ---- calibration: ambient 1 vs an overhead light 1 vs a lightmap texel 1 ----
     const calib = new THREE.Scene();
     const plane = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     plane.setAttribute('uv1', plane.getAttribute('uv')!.clone());
     disposables.push(plane);
-    const calibMat = bakeMaterial([1, 1, 0, 0]);
+    const calibMat = material([1, 1, 0, 0]) as THREE.Material & { lightMap: THREE.Texture | null; lightMapIntensity: number };
     disposables.push(calibMat);
     const calibMesh = new THREE.Mesh(plane, calibMat);
     calibMesh.frustumCulled = false;
     calibMesh.layers.set(ATLAS_LAYER0);
     calib.add(calibMesh);
     const calibTarget = makeTarget(4, 4);
-    const measure = (light: THREE.Object3D | null, lightMapValue: number | null): number => {
+    const measure = async (light: THREE.Object3D | null, lightMapValue: number | null): Promise<number> => {
       if (light !== null) {
         light.layers.enableAll(); // lights count only when they share a layer with the camera
         calib.add(light);
@@ -225,19 +302,22 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
       camera.layers.set(ATLAS_LAYER0);
       let lm: THREE.DataTexture | null = null;
       if (lightMapValue !== null) {
-        lm = new THREE.DataTexture(new Float32Array([lightMapValue, lightMapValue, lightMapValue, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
+        // Half float on WebGPURenderer (a float32 texture is unfilterable without an optional WebGPU feature).
+        lm = node
+          ? new THREE.DataTexture(new Uint16Array([lightMapValue, lightMapValue, lightMapValue, 1].map((v) => THREE.DataUtils.toHalfFloat(v))), 1, 1, THREE.RGBAFormat, THREE.HalfFloatType)
+          : new THREE.DataTexture(new Float32Array([lightMapValue, lightMapValue, lightMapValue, 1]), 1, 1, THREE.RGBAFormat, THREE.FloatType);
         lm.channel = 1;
         lm.needsUpdate = true;
         calibMat.lightMap = lm;
         calibMat.lightMapIntensity = 1;
         calibMat.needsUpdate = true;
       }
-      renderer.setRenderTarget(calibTarget);
+      target(calibTarget);
       renderer.setClearColor(0x000000, 0);
       renderer.clear();
       renderer.render(calib, camera);
-      renderer.setRenderTarget(null);
-      const px = readFloatTarget(renderer, calibTarget);
+      target(null);
+      const px = await readFloatTarget(renderer, calibTarget);
       if (light !== null) calib.remove(light);
       if (lm !== null) {
         calibMat.lightMap = null;
@@ -246,11 +326,11 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
       }
       return px[5 * 4]!; // a texel in the middle, red channel
     };
-    const ambientOut = measure(new THREE.AmbientLight(0xffffff, 1), null);
+    const ambientOut = await measure(new THREE.AmbientLight(0xffffff, 1), null);
     const sunLight = new THREE.DirectionalLight(0xffffff, 1);
     sunLight.position.set(0, 10, 0);
-    const directOut = measure(sunLight, null);
-    const lightMapOut = measure(null, 1);
+    const directOut = await measure(sunLight, null);
+    const lightMapOut = await measure(null, 1);
     if (!(directOut > 0) || !(lightMapOut > 0)) return { ok: false, code: 'bake_failed', message: 'the bake calibration rendered nothing (WebGL float targets?)' };
     /** An open surface's ambient light, as sphere-sampled directional light: k = 4 · ambient / direct. */
     const ambientToDirect = (4 * ambientOut) / directOut;
@@ -274,9 +354,9 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
       return mesh;
     };
     for (const t of input.targets) {
-      const material = bakeMaterial(t.scaleOffset);
-      disposables.push(material);
-      for (const m of t.meshes) addMesh(m, material, t.atlas);
+      const mat = material(t.scaleOffset);
+      disposables.push(mat);
+      for (const m of t.meshes) addMesh(m, mat, t.atlas);
     }
     const occluderMaterial = new THREE.MeshBasicMaterial();
     disposables.push(occluderMaterial);
@@ -346,11 +426,11 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
 
     const accum = input.atlases.map((a) => makeTarget(a.width, a.height));
     for (const t of accum) {
-      renderer.setRenderTarget(t);
+      target(t);
       renderer.setClearColor(0x000000, 0);
       renderer.clear();
     }
-    renderer.setRenderTarget(null);
+    target(null);
 
     const rnd = random(0x7117);
     const twist = rnd() * Math.PI * 2;
@@ -385,10 +465,10 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
       }
       for (let a = 0; a < accum.length; a++) {
         camera.layers.set(ATLAS_LAYER0 + a);
-        renderer.setRenderTarget(accum[a]!);
+        target(accum[a]!);
         renderer.render(scene, camera);
       }
-      renderer.setRenderTarget(null);
+      target(null);
       input.onProgress?.(s + 1, samples);
       if (s % 4 === 3) await tick();
     }
@@ -398,7 +478,7 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
     const atlases: BakedAtlas[] = [];
     for (let a = 0; a < accum.length; a++) {
       const { width: w, height: h } = input.atlases[a]!;
-      const raw = readFloatTarget(renderer, accum[a]!);
+      const raw = await readFloatTarget(renderer, accum[a]!);
       const rgb = new Float32Array(w * h * 3);
       const covered = new Uint8Array(w * h);
       for (let i = 0; i < w * h; i++) {
@@ -424,7 +504,10 @@ export async function bakeLightmapsInBrowser(input: BrowserBakeInput): Promise<B
     return { ok: false, code: 'bake_failed', message: (e as Error).message };
   } finally {
     for (const d of disposables) d.dispose();
-    renderer.dispose();
-    renderer.forceContextLoss();
+    if (handle !== null) handle.dispose();
+    else {
+      renderer.dispose();
+      (renderer as THREE.WebGLRenderer).forceContextLoss();
+    }
   }
 }

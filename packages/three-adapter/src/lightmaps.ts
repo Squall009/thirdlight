@@ -128,6 +128,12 @@ export function refreshLightmappedMaterial(copy: THREE.Material, source: THREE.M
   const map = c.lightMap ?? null;
   const intensity = c.lightMapIntensity ?? 1;
   if (isNodeMaterial(c)) {
+    // NodeMaterial.copy copies INTO an object-valued property it already holds
+    // (`this.map.copy(source.map)`): that throws for a texture the source lacks
+    // (the lightmap) and would overwrite a texture shared with other materials.
+    // Emptied first, every texture is taken over by reference.
+    const slots = c as unknown as Record<string, unknown>;
+    for (const k of Object.keys(slots)) if ((slots[k] as { isTexture?: boolean } | null)?.isTexture === true) slots[k] = null;
     copyMaterialKeepingHooks(c, source);
     c.lightMap = map;
     c.lightMapIntensity = intensity;
@@ -153,8 +159,25 @@ export function applyLightmap(
   range: number,
   options: { ignoreAmbient?: boolean; nodeMaterials?: boolean } = {},
 ): () => void {
+  return applyLightmapTracked(root, atlas, scaleOffset, range, options).undo;
+}
+
+/**
+ * `applyLightmap` that also returns `refresh`: bring every copy up to date
+ * with its source material (phase 17.3: a project material's texture that
+ * arrives after the copy was made — the copy is a clone and would stay
+ * without it).
+ */
+export function applyLightmapTracked(
+  root: THREE.Object3D,
+  atlas: THREE.Texture,
+  scaleOffset: readonly number[],
+  range: number,
+  options: { ignoreAmbient?: boolean; nodeMaterials?: boolean } = {},
+): { undo: () => void; refresh: () => void } {
   const map = lightmapTexture(atlas, scaleOffset);
   const restores: (() => void)[] = [];
+  const pairs: [THREE.Material, THREE.Material][] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh !== true || mesh.geometry.getAttribute('uv1') === undefined) return;
@@ -162,6 +185,9 @@ export function applyLightmap(
     const list = Array.isArray(original) ? original : [original];
     const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true, options.nodeMaterials === true));
     if (copies.every((c) => c === null)) return;
+    copies.forEach((c, i) => {
+      if (c !== null) pairs.push([c, list[i]!]);
+    });
     const next = copies.map((c, i) => c ?? list[i]!);
     mesh.material = Array.isArray(original) ? next : next[0]!;
     restores.push(() => {
@@ -169,9 +195,17 @@ export function applyLightmap(
       for (const c of copies) c?.dispose();
     });
   });
-  return () => {
-    for (const r of restores) r();
-    map.dispose();
+  return {
+    undo: () => {
+      for (const r of restores) r();
+      map.dispose();
+    },
+    refresh: () => {
+      for (const [copy, source] of pairs) {
+        refreshLightmappedMaterial(copy, source);
+        copy.needsUpdate = true;
+      }
+    },
   };
 }
 
@@ -184,6 +218,12 @@ export interface LightmapSet {
   apply(entityId: string, root: THREE.Object3D): void;
   /** Take the entity's lightmap off again. */
   release(entityId: string): void;
+  /**
+   * Phase 17.3: bring the lightmapped copies up to date with their source
+   * materials (call when a project material changed in place, e.g. its
+   * texture arrived after the copy was made).
+   */
+  refresh(): void;
   dispose(): void;
 }
 
@@ -209,6 +249,7 @@ export function createLightmapSet(
   }
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   const undo = new Map<string, () => void>();
+  const refreshers = new Map<string, () => void>();
   const pending = new Map<string, number>();
   let generation = 0;
   let disposed = false;
@@ -224,6 +265,7 @@ export function createLightmapSet(
     pending.delete(entityId);
     undo.get(entityId)?.();
     undo.delete(entityId);
+    refreshers.delete(entityId);
   };
   return {
     isBakedLight: (id) => bakedLights.has(id),
@@ -237,10 +279,15 @@ export function createLightmapSet(
       void texture(entry.atlas).then((tex) => {
         if (disposed || tex === null || pending.get(entityId) !== ticket) return;
         pending.delete(entityId);
-        undo.set(entityId, applyLightmap(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights), nodeMaterials: options.nodeMaterials === true }));
+        const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights), nodeMaterials: options.nodeMaterials === true });
+        undo.set(entityId, applied.undo);
+        refreshers.set(entityId, applied.refresh);
       });
     },
     release,
+    refresh() {
+      for (const r of refreshers.values()) r();
+    },
     dispose() {
       disposed = true;
       for (const id of [...undo.keys()]) release(id);
