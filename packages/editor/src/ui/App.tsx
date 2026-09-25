@@ -251,6 +251,9 @@ interface PlayInfo {
   contentPath: string | null;
 }
 
+/** Phase 21.4: the pickers' option per projected entity object (see fieldContextBase). */
+const entityOptionCache = new WeakMap<ProjectedEntity, { id: string; name: string; sceneId?: string; components: string[] }>();
+
 function EditorApp(): JSX.Element {
   const cfg = useRef(readEditorConfig());
   /** Phase 17.1: the Scene view's canvas lives in this host (the Viewport replaces it on a renderer backend change). */
@@ -271,6 +274,8 @@ function EditorApp(): JSX.Element {
     cfg.current.ok || cfg.current.needs === 'page' ? null : { kind: cfg.current.needs === 'token' ? 'token' : 'projects' },
   );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
+  /** Phase 21.4: the transform a Scene-view gesture shows while it runs (the Inspector readout), until the change lands. */
+  const [liveTransform, setLiveTransform] = useState<{ id: string; position: number[]; rotation: number[]; scale: number[] } | null>(null);
   /** Phase 12: the hierarchy selection (several ids) and its primary entity (inspector, gizmo). */
   const [selection, setSelection] = useState<{ ids: string[]; primary: string | null }>({ ids: [], primary: null });
   const selectedId = selection.primary;
@@ -731,39 +736,52 @@ function EditorApp(): JSX.Element {
     applyEnvironmentView();
   }, [levelLookOn, envLevelId, applyEnvironmentView]);
 
+  // Phase 21.4: a refresh after every applied change must not hand React new
+  // objects for what did not change — every panel keyed on them would redraw
+  // (and effects such as the asset thumbnails and the Scene view sync would
+  // rerun). A slice keeps its previous object while its content is the same.
+  const stableRef = useRef(new Map<string, { key: string; value: unknown }>());
+  const stable = useCallback(<T,>(slot: string, value: T, key: string = JSON.stringify(value instanceof Map ? [...value] : value) ?? 'undefined'): T => {
+    const prev = stableRef.current.get(slot);
+    if (prev !== undefined && prev.key === key) return prev.value as T;
+    stableRef.current.set(slot, { key, value });
+    return value;
+  }, []);
   const refreshEntities = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
+    // The projection hands out the same array until an entity changes (phase 21.4).
     setEntities(c.visibleEntities());
+    setLiveTransform(null);
     // Phase 12 (c): the scene headers (open scenes) and the closed scenes.
     const scenes = c.projection.scenes;
     if (scenes.length === 0) {
       setSceneHeaders(null);
-      setClosedScenes([]);
+      setClosedScenes(stable('closedScenes', []));
     } else {
       const view = c.getSceneView();
       const counts = new Map<string, number>();
       for (const e of c.projection.listEntities()) if (e.sceneId !== undefined) counts.set(e.sceneId, (counts.get(e.sceneId) ?? 0) + 1);
       const start = new Set(c.projection.startScenes);
-      setSceneHeaders(scenes.filter((r) => view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name, start: start.has(r.sceneId), active: r.sceneId === view.active, entityCount: counts.get(r.sceneId) ?? 0 })));
-      setClosedScenes(scenes.filter((r) => !view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name })));
+      setSceneHeaders(stable('sceneHeaders', scenes.filter((r) => view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name, start: start.has(r.sceneId), active: r.sceneId === view.active, entityCount: counts.get(r.sceneId) ?? 0 }))));
+      setClosedScenes(stable('closedScenes', scenes.filter((r) => !view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name }))));
     }
-    const assetList = c.content.listAssets();
+    const assetList = stable('assets', c.content.listAssets());
     setAssets(assetList);
-    setAssetQuery((q) => ({ ...q, total: Math.max(q.total, assetList.length) }));
-    setPrefabSummaries(c.prefabs.listSummaries());
-    setDeclarations(c.prefabs.declarationMap());
-    setBehaviorViews([...c.prefabs.listDeclarations()]);
+    setAssetQuery((q) => (assetList.length > q.total ? { ...q, total: assetList.length } : q));
+    setPrefabSummaries(stable('prefabSummaries', c.prefabs.listSummaries()));
+    setDeclarations(stable('declarations', c.prefabs.declarationMap()));
+    setBehaviorViews(stable('behaviorViews', [...c.prefabs.listDeclarations()]));
     // M3 (packet 56): the game block + settings map converge from the client
     // state (full states + the applied change records — the backend stays
     // the sole authority).
-    setGameConfig(c.getGameConfig());
+    setGameConfig(stable('gameConfig', c.getGameConfig()));
     setGameConfigLoaded(c.getGameConfigLoaded());
     setRegistry(c.getDescriptors());
-    setSettings(c.getSettings());
-    setTags(c.getTags());
-    const mats = c.getMaterials();
-    const env = c.getEnvironment();
+    setSettings(stable('settings', c.getSettings()));
+    setTags(stable('tags', c.getTags()));
+    const mats = stable('materials', c.getMaterials());
+    const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
     setEnvironment(env);
     // Phase 18.0: the renderer gets the shader part only (a graph renders with its shader until 18.3), so a graph edit never rebuilds the Scene view's materials.
@@ -775,25 +793,26 @@ function EditorApp(): JSX.Element {
     }
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
-    setAnimators(c.getAnimators());
+    setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
     // The graphs arrive with the game block (the same full-state query).
     setGraphsLoaded(c.getGameConfigLoaded());
-    setInputConfig(c.getInput());
-    setInputDefaults(c.getInputDefaults());
-    setFlow(c.getFlow());
+    setInputConfig(stable('inputConfig', c.getInput()));
+    setInputDefaults(stable('inputDefaults', c.getInputDefaults()));
+    setFlow(stable('flow', c.getFlow()));
     // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
-    const lighting = c.getLighting();
+    const lit = c.getLighting();
+    const lightingKey = JSON.stringify(lit);
+    const lighting = stable('lighting', lit, lightingKey);
     setLighting(lighting);
-    const lightingKey = JSON.stringify(lighting);
     if (lightingKey !== lightingKeyRef.current && loadTextureRef.current !== null) {
       lightingKeyRef.current = lightingKey;
       viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
-    setUi((s) => ({ ...s, revision: c.projection.revision }));
-  }, [applyEnvironmentView]);
+    setUi((s) => (s.revision === c.projection.revision ? s : { ...s, revision: c.projection.revision }));
+  }, [applyEnvironmentView, stable]);
 
   // ---- mount: create the client + viewport, connect -----------------------
   useEffect(() => {
@@ -848,7 +867,8 @@ function EditorApp(): JSX.Element {
       onGestureFrame: (id, t) => {
         // The viewport already moved the Object3D (local preview, no traffic);
         // mirror the live transform into the inspector readout.
-        setEntities((prev) => prev.map((e) => (e.id === id ? { ...e, position: t.position, rotation: t.rotation, scale: t.scale } : e)));
+        // Phase 21.4: only the readout changes (the entity list keeps its identity, so nothing else redraws).
+        setLiveTransform({ id, position: t.position, rotation: t.rotation, scale: t.scale });
       },
       onGestureEnd: async (id, transform) => {
         const g = gestureRef.current;
@@ -3299,6 +3319,64 @@ function EditorApp(): JSX.Element {
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
 
+  // Phase 21.4: what every render derived from all entities is memoised on
+  // the entity list (the same array until an entity changes), so a selection,
+  // a panel toggle or a gesture frame no longer walks 16k entities.
+  const selectedEntity = useMemo(() => {
+    const base = selectedId === null ? null : (entities.find((e) => e.id === selectedId) ?? null);
+    if (base === null || liveTransform === null || liveTransform.id !== base.id) return base;
+    const t = { position: liveTransform.position, rotation: liveTransform.rotation, scale: liveTransform.scale };
+    return { ...base, ...t, components: base.components['transform'] !== undefined ? { ...base.components, transform: t } : base.components };
+  }, [entities, selectedId, liveTransform]);
+  // The tree's shape (entities added or removed, parents, order, names, flags, kinds) and the open scenes.
+  const structureKey = `${clientRef.current?.projection.structureVersion ?? 0}|${clientRef.current?.getSceneView().open.join(',') ?? ''}`;
+  // Flags depend on parents and own flags only: recomputed with the shape, not on every transform edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hierarchyFlagsMemo = useMemo(() => effectiveFlagsOf(entities), [structureKey, entities.length]);
+  const tagUsageMemo = useMemo(() => {
+    const usage = new Map<number, number>();
+    for (const e of entities) {
+      if (e.tags === 0) continue;
+      for (let bit = 0; bit < 32; bit++) if ((e.tags & (1 << bit)) !== 0) usage.set(bit, (usage.get(bit) ?? 0) + 1);
+    }
+    return usage;
+  }, [entities]);
+  const allEntitiesMemo = clientRef.current?.projection.listEntities() ?? entities;
+  const projectScenes = clientRef.current?.projection.scenes;
+  const fieldContextBase = useMemo(
+    () => ({
+      assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, displayName: a.displayName })),
+      entities: allEntitiesMemo.map((e) => {
+        // One option object per entity object (copy-on-write: kept until the entity changes).
+        let o = entityOptionCache.get(e);
+        if (o === undefined) {
+          o = { id: e.id, name: e.name, ...(e.sceneId !== undefined ? { sceneId: e.sceneId } : {}), components: Object.keys(e.components) };
+          entityOptionCache.set(e, o);
+        }
+        return o;
+      }),
+      scenes: projectScenes ?? [],
+      refs: {
+        material: materials.map((m) => ({ id: m.materialId, name: m.name })),
+        animator: animators.map((a) => ({ id: a.controllerId, name: a.name })),
+        behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
+        prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
+        effect: effects.map((e) => ({ id: e.effectId, name: e.name })),
+      },
+      // Phase 20.0: an object's effect overrides are edited from its effect's public parameters.
+      effectParameters: Object.fromEntries(effects.map((e) => [e.effectId, (e.parameters ?? []).filter((x) => x.visibility !== 'private')])),
+      signals: registry === null ? [] : collectSignals(registry, allEntitiesMemo.map((e) => e.components)),
+      // Phase 15.2: an animator's starting values are edited from its controller's parameters.
+      animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
+    }),
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry],
+  );
+  const selectedSceneId = selectedEntity?.sceneId;
+  const fieldContextMemo: FieldContext = useMemo(
+    () => ({ ...fieldContextBase, ...(selectedSceneId !== undefined ? { sceneId: selectedSceneId } : {}) }),
+    [fieldContextBase, selectedSceneId],
+  );
+
   if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
     return <TokenForm message={gate.message} />;
   }
@@ -3317,34 +3395,14 @@ function EditorApp(): JSX.Element {
     );
   }
 
-  const selected = entities.find((e) => e.id === selectedId) ?? null;
-  const hierarchyFlags = effectiveFlagsOf(entities);
-  const tagUsage = new Map<number, number>();
-  for (const e of entities) {
-    for (let bit = 0; bit < 32; bit++) if ((e.tags & (1 << bit)) !== 0) tagUsage.set(bit, (tagUsage.get(bit) ?? 0) + 1);
-  }
+  const selected = selectedEntity;
+  const hierarchyFlags = hierarchyFlagsMemo;
+  const tagUsage = tagUsageMemo;
   /** Phase 15.1: the components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
   /** Phase 15.1: what the Inspector's pickers offer. */
-  const allEntities = clientRef.current?.projection.listEntities() ?? entities;
-  const fieldContext: FieldContext = {
-    assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, displayName: a.displayName })),
-    entities: allEntities.map((e) => ({ id: e.id, name: e.name, ...(e.sceneId !== undefined ? { sceneId: e.sceneId } : {}), components: Object.keys(e.components) })),
-    scenes: clientRef.current?.projection.scenes ?? [],
-    refs: {
-      material: materials.map((m) => ({ id: m.materialId, name: m.name })),
-      animator: animators.map((a) => ({ id: a.controllerId, name: a.name })),
-      behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
-      prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
-      effect: effects.map((e) => ({ id: e.effectId, name: e.name })),
-    },
-    // Phase 20.0: an object's effect overrides are edited from its effect's public parameters.
-    effectParameters: Object.fromEntries(effects.map((e) => [e.effectId, (e.parameters ?? []).filter((x) => x.visibility !== 'private')])),
-    signals: registry === null ? [] : collectSignals(registry, allEntities.map((e) => e.components)),
-    // Phase 15.2: an animator's starting values are edited from its controller's parameters.
-    animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
-    ...(selected?.sceneId !== undefined ? { sceneId: selected.sceneId } : {}),
-  };
+  const allEntities = allEntitiesMemo;
+  const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
   /** Phase 15.1: a component's "+ Add component" value (the descriptor's; the GameObject presets use it too). */
@@ -3543,6 +3601,7 @@ function EditorApp(): JSX.Element {
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
             <Hierarchy
           entities={entities}
+          structureKey={structureKey}
           flags={hierarchyFlags}
           projectId={cfg.current.config.projectId}
           selectedIds={selection.ids}

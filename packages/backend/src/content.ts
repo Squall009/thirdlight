@@ -1228,6 +1228,15 @@ export class ContentRoutes {
     if (auth !== null) return this.deps.sendError(res, auth);
     const piece = this.thumbnailPiece(res, query);
     if (piece === undefined) return;
+    // Phase 21.4: revalidation — an unchanged cached thumbnail answers 304 without its bytes.
+    const etag = this.deps.thumbnails?.etag(projectId, digest, piece) ?? null;
+    if (etag !== null && req.headers['if-none-match'] === etag) {
+      res.statusCode = 304;
+      res.setHeader('etag', etag);
+      res.setHeader('cache-control', 'private, no-cache');
+      res.end();
+      return;
+    }
     const png = this.deps.thumbnails?.read(projectId, digest, piece) ?? null;
     if (png === null) {
       // Not cached yet: an expected miss (the editor renders one), not an error.
@@ -1238,6 +1247,7 @@ export class ContentRoutes {
     }
     res.setHeader('content-type', 'image/png');
     res.setHeader('content-length', String(png.byteLength));
+    if (etag !== null) res.setHeader('etag', etag);
     res.setHeader('cache-control', 'private, no-cache');
     res.statusCode = 200;
     res.end(png);

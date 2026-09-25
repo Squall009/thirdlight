@@ -17,6 +17,7 @@ import { chromium, type Browser, type Frame, type Page } from '@playwright/test'
 import { browserLaunchEnv } from '../../tests/e2e/browser-env.mjs';
 import type { PerfBackend } from './backend';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
+import { measureEditorOps, type EditorOpsResult } from './editor-ops';
 import { summarize, type Summary } from './stats';
 
 export type RendererName = 'legacy' | 'webgl2' | 'webgpu' | 'auto';
@@ -197,7 +198,7 @@ export async function measureEditor(
   projectId: string,
   renderer: RendererName,
   opts: SurfaceOptions & { commands: number; entityId: string },
-): Promise<{ surface: SurfaceResult; commandMs: Summary; commandSamples: number[] }> {
+): Promise<{ surface: SurfaceResult; commandMs: Summary; commandSamples: number[]; ops?: EditorOpsResult }> {
   const context = await browser.newContext({ viewport: opts.viewport });
   await context.addInitScript(installPerfInstrumentation);
   const page = await context.newPage();
@@ -255,19 +256,12 @@ export async function measureEditor(
     await page.mouse.up();
     const la = await loadavg();
 
-    // Command round trips (the one mutation path) while the editor shows the project.
-    const p = be.project(projectId);
-    const q = await p.query('queryEntity', { entityId: opts.entityId });
-    const pos = ((q['entity'] as { components: { transform: { position: number[] } } } | undefined)?.components.transform.position ?? [0, 0, 0]).slice();
-    const samples: number[] = [];
-    await p.revision();
-    for (let i = 0; i < opts.commands; i += 1) {
-      const a = performance.now();
-      await p.command('setTransform', { entityId: opts.entityId, transform: { position: [pos[0]! + (i % 2 === 0 ? 0.25 : 0), pos[1]!, pos[2]!] } });
-      samples.push(performance.now() - a);
-    }
     const surface = result('editor', renderer, sample, { connectedMs, firstFrameMs: firstEpoch! - t0 }, ['heap: the whole editor page (projection, UI, Scene view)'], la);
-    return { surface, commandMs: summarize(samples), commandSamples: samples.map((v) => Math.round(v * 100) / 100) };
+    if (opts.commands <= 0) return { surface, commandMs: summarize([]), commandSamples: [] };
+    // Phase 21.4: the Hierarchy, command round trips (the one mutation path) while the editor shows
+    // the project, what each costs the editor and the disk, and one material edit.
+    const ops = await measureEditorOps(page, be, be.project(projectId), { commands: opts.commands, entityId: opts.entityId, projectDir: join(be.dataRoot, 'projects', projectId), scrollMs: 1500 });
+    return { surface, commandMs: ops.command.httpMs, commandSamples: [], ops };
   } finally {
     await context.close();
   }

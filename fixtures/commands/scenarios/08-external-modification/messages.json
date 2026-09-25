@@ -30,7 +30,7 @@
         "cls": "unavailable",
         "pendingChange": {
           "snapshotState": "ok",
-          "externalHash": "fa8d8854181b43b2b5db797af488b10930772abe5b9ce46f5c0e1671482ca099",
+          "externalHash": "b8df47ca88c45fe9b8d87aea8baac086f712776dd7b714a8531c86e11e05816e",
           "externalValid": true,
           "externalErrorCount": 0
         },
@@ -80,7 +80,7 @@
         "pauseReason": "external_change",
         "pendingChange": {
           "snapshotState": "ok",
-          "externalHash": "fa8d8854181b43b2b5db797af488b10930772abe5b9ce46f5c0e1671482ca099",
+          "externalHash": "b8df47ca88c45fe9b8d87aea8baac086f712776dd7b714a8531c86e11e05816e",
           "externalValid": true,
           "externalErrorCount": 0,
           "externalErrors": []

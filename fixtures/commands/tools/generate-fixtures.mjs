@@ -62,6 +62,30 @@ const digestOf = (obj) => sha256(JSON.stringify(sortedDeep(obj)));
 // fixed key order; 2-space indent, LF, one trailing newline.
 const canonJson = (obj) => JSON.stringify(obj, null, 2) + "\n";
 
+// Project-file layout (store-v4.ts `layoutProjectJson`, phase 21.4) for
+// content.json and scenes/*.json: objects indented two spaces, every array
+// of objects with one compact element per line, LF, one trailing newline.
+function layoutJson(v, indent = "") {
+  if (Array.isArray(v)) {
+    if (v.length > 0 && v.every((x) => x !== null && typeof x === "object")) {
+      const inner = indent + "  ";
+      return "[\n" + v.map((x) => inner + JSON.stringify(x)).join(",\n") + "\n" + indent + "]";
+    }
+    return JSON.stringify(v);
+  }
+  if (v !== null && typeof v === "object") {
+    const inner = indent + "  ";
+    const parts = [];
+    for (const [k, x] of Object.entries(v)) {
+      if (x === undefined || typeof x === "function") continue;
+      parts.push(inner + JSON.stringify(k) + ": " + layoutJson(x, inner));
+    }
+    return parts.length === 0 ? "{}" : "{\n" + parts.join(",\n") + "\n" + indent + "}";
+  }
+  return JSON.stringify(v) ?? "null";
+}
+const fileJson = (obj) => layoutJson(obj) + "\n";
+
 const deepCopy = (v) => JSON.parse(JSON.stringify(v));
 
 // ---------------------------------------------------------------------------
@@ -520,8 +544,8 @@ class FixtureProject {
 function projectFiles(projectId, manifest, snap) {
   return {
     "project.json": canonJson(manifest),
-    "content.json": canonJson(contentFileObj(projectId, snap.contentRevision, snap.content, snap.contentRecords)),
-    [SCENE_REL]: canonJson(sceneFileObj(projectId, snap.scene, snap.sceneRecords)),
+    "content.json": fileJson(contentFileObj(projectId, snap.contentRevision, snap.content, snap.contentRecords)),
+    [SCENE_REL]: fileJson(sceneFileObj(projectId, snap.scene, snap.sceneRecords)),
   };
 }
 
@@ -719,7 +743,7 @@ const t7Files = projectFiles(P, MAIN, T7);
 // else identical (revision 7, retry block copied)
 const extScene = deepCopy(T7.scene);
 entityById(extScene, "box-0001").entity.components.box.material.color = "#ff8800";
-const extSceneBytes = canonJson(sceneFileObj(P, extScene, deepCopy(T7.sceneRecords)));
+const extSceneBytes = fileJson(sceneFileObj(P, extScene, deepCopy(T7.sceneRecords)));
 const extHash = sha256(extSceneBytes);
 const extHash8 = extHash.slice(0, 8);
 
@@ -788,7 +812,7 @@ const invalid = {};
 {
   // storageVersion 3 in a v4 scene file
   const o = JSON.parse(rev0[SCENE_REL]);
-  invalid["storage-version-unsupported"] = { ...rev0, [SCENE_REL]: canonJson({ ...o, storageVersion: 3 }) };
+  invalid["storage-version-unsupported"] = { ...rev0, [SCENE_REL]: fileJson({ ...o, storageVersion: 3 }) };
 }
 {
   // content.json without its "type" key
@@ -798,19 +822,19 @@ const invalid = {};
 {
   // the scene file names another project
   const o = JSON.parse(rev0[SCENE_REL]);
-  invalid["project-mismatch"] = { ...rev0, [SCENE_REL]: canonJson({ ...o, projectId: "demo-0002" }) };
+  invalid["project-mismatch"] = { ...rev0, [SCENE_REL]: fileJson({ ...o, projectId: "demo-0002" }) };
 }
 {
   // the camera's rotation is not a unit quaternion
   const o = JSON.parse(rev0[SCENE_REL]);
   o.scene.entities[0].components.transform.rotation = [0, 0, 0, 0];
-  invalid["embedded-scene-invalid"] = { ...rev0, [SCENE_REL]: canonJson(o) };
+  invalid["embedded-scene-invalid"] = { ...rev0, [SCENE_REL]: fileJson(o) };
 }
 {
   // two records with the same appliedRevision (not strictly ascending)
   const o = JSON.parse(rev5[SCENE_REL]);
   o.retry.records[1].appliedRevision = o.retry.records[0].appliedRevision;
-  invalid["retry-records-non-ascending"] = { ...rev5, [SCENE_REL]: canonJson(o) };
+  invalid["retry-records-non-ascending"] = { ...rev5, [SCENE_REL]: fileJson(o) };
 }
 {
   // a duplicated "projectId" key in content.json
@@ -828,7 +852,7 @@ const invalid = {};
   // the scene file holds a different scene id than its file name
   const o = JSON.parse(rev0[SCENE_REL]);
   o.scene.sceneId = "scene-other";
-  invalid["scene-id-mismatch"] = { ...rev0, [SCENE_REL]: canonJson(o) };
+  invalid["scene-id-mismatch"] = { ...rev0, [SCENE_REL]: fileJson(o) };
 }
 for (const [name, fm] of Object.entries(invalid)) putProject(`envelope/invalid/${name}`, fm);
 
@@ -1077,7 +1101,9 @@ const problems = [];
 for (const [rel, bytes] of files) {
   if (rel.includes("/duplicate-key/")) continue; // deliberately not re-serializable
   try {
-    if (canonJson(JSON.parse(bytes)) !== bytes) problems.push(`canonical stability: ${rel}`);
+    const doc = JSON.parse(bytes);
+    const projectFile = doc !== null && typeof doc === "object" && "retry" in doc && ("scene" in doc || "content" in doc);
+    if ((projectFile ? fileJson : canonJson)(doc) !== bytes) problems.push(`canonical stability: ${rel}`);
   } catch (e) {
     problems.push(`parse: ${rel}: ${e.message}`);
   }

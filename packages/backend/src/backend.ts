@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
-import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, type SessionError } from '@thirdlight/protocol';
+import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { publishBehaviorSource } from './behavior';
@@ -148,7 +148,9 @@ export function createBackend(
       const s = sessions.sessionForSessionId(ownerSessionId);
       if (!s || !s.connected || !s.socket) return false;
       if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
-        logStartup(`outbound frame exceeds the 1 MiB bound (play=${ownerSessionId}); dropped (internal)`);
+        // Phase 21.4: never silent — the owner's project shows a problem (the relay then fails or times out visibly).
+        logStartup(`outbound frame exceeds the 1 MiB bound (play=${ownerSessionId}); dropped`);
+        recordProblem(s.projectId, 'play', 'ws_frame_too_large', `A ${utf8Len(payload)}-byte message to the editor exceeds the 1 MiB WebSocket frame bound and was not sent.`);
         return false;
       }
       try {
@@ -507,9 +509,19 @@ export function createBackend(
     if (!s || !s.connected || !s.socket) return;
     // §11.6/§17.6: a full-state/change frame never carries GLB or source bytes.
     // Phase 12 (c): `sceneId` names the scene a v4 edit touched.
-    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change, ...(sceneId !== undefined ? { sceneId } : {}) }, WS_OUT_FRAME_MAX);
+    // Phase 21.4: the change without its previous side, keyed lists as deltas (protocol wire-change.ts).
+    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change: toWireChange(change as Parameters<typeof toWireChange>[0]), ...(sceneId !== undefined ? { sceneId } : {}) }, WS_OUT_FRAME_MAX);
     if (payload === null) {
-      logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; dropped (internal)');
+      // Phase 21.4: an oversized change record is not dropped silently: the
+      // editor is told to re-read the project over HTTP (the authoritative
+      // full state), and the project shows why.
+      logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; sent workspace.resync');
+      recordProblem(projectId, 'workspace', 'ws_frame_too_large', `The change at revision ${revision} is larger than one WebSocket message (1 MiB); the editor re-read the project instead.`);
+      try {
+        s.socket.send(JSON.stringify({ type: 'workspace.resync' }));
+      } catch {
+        // best-effort: the next change's revision gap resyncs the editor
+      }
       return;
     }
     try {
@@ -1299,6 +1311,15 @@ export function createBackend(
           const projectId = parts[3]!;
           const psid = parts[5]!;
           const action = parts[6]!;
+          // Phase 21.4: GET …/play/:playSessionId/snapshot — a snapshot too large for one WS frame.
+          if (action === 'snapshot') {
+            if (method === 'GET') {
+              playSnapshotRoute(req, res, projectId, psid);
+              return;
+            }
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
           if (method !== 'POST') {
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
             return;
@@ -1439,7 +1460,7 @@ export function createBackend(
     }
   }, sweepIntervalMs);
 
-  const { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless });
+  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless });
 
   const pinWarned = new Set<string>();
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });

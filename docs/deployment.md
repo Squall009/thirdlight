@@ -132,6 +132,11 @@ A project directory holds:
   instance-set buffers. A folder project's assets can instead stay in the
   game folder, see "Assets referenced in place".
 
+`content.json` and the scene files are indented JSON with every list of
+objects written one item per line (one entity, material or retry record per
+line), so a diff shows one line per changed item and an edit writes about a
+third of the fully indented size. Any JSON reader reads them.
+
 An edit writes only the files it changed. An edit that touches several files
 (a new scene: the index plus its file) goes through a small redo journal
 (`.thirdlight/journal.json`), so a crash in the middle is completed at the
@@ -282,6 +287,10 @@ listening to the project's sounds.
   `moveEntities` command, so it is one undo step. Moves keep world
   positions; moving out of a rotated or scaled parent re-expresses the local
   transform. Delete removes every selected subtree, one undo step each.
+- **Long lists.** Above 400 rows the list is windowed: only the rows in view
+  (and a margin) are in the page, with a fixed row height, so thousands of
+  objects scroll, select and rename as fast as a few. Selecting an object in
+  the Scene view scrolls its row into view. The filter works on every row.
 - **Flags** (inspector: Active, Locked, Static; `updateEntity {active,
   locked, static}`) are stored on the entity in the scene, only when they
   differ from the default.
@@ -1686,6 +1695,7 @@ These protect the runtime and are not tuning values:
 | Model animation run threshold | 0.05 m/s |
 | Shadow-follow extent | 24 m |
 | Stick dead zone default | 0.2 (per action: `deadZone`) |
+| WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) |
 
 ### Engine defaults
 
@@ -1822,7 +1832,13 @@ measures:
   three's own renderer counts from the play diagnostics;
 - the **editor**: time to the Scene view's first frame, frame intervals while
   orbiting, heap, and the p95 round trip of `setTransform` commands with the
-  project open;
+  project open; and (phase 21.4, once per class) the Hierarchy — rows in the
+  page, click-to-Inspector and rename latency, scrolling — and what each
+  command costs after its response: the delay until the editor's second
+  frame after the `mutation.applied` arrived, long tasks, WebSocket bytes per
+  change, the bytes and files the backend writes (stat diff of the project
+  folder, plus the process's `/proc` write counter), and the bytes one
+  material edit puts on the socket;
 - the **simulation** in Node (runtime, platformer, Rapier and the project's
   scripts, headless, `--expose-gc`): step cost percentiles and the bytes
   allocated per steady step.
@@ -1845,6 +1861,36 @@ out the calibrated times (the noisiest here). The always-on checks are
 `tests/perf/plumbing.test.ts` (generator and comparison) and
 `tests/e2e/perf-harness.e2e.ts` (the whole harness on the small benchmark).
 Frame and load times on a real GPU: owner look pending.
+
+**Large projects in the editor (phase 21.4).**
+
+- *Play of a large project.* The editor gets `play.started` over its
+  WebSocket, whose messages are at most 1 MiB. A runtime snapshot that does
+  not fit (a few thousand entities and up) is not sent inline: the message
+  carries a reference, and the editor fetches the snapshot from
+  `GET /api/v1/projects/<id>/play/<playSessionId>/snapshot` (owner token)
+  and hands it to the preview as before. If that fails, the editor shows the
+  error and the play stops. Nothing waits silently on the frame bound: an
+  oversized change record makes the editor re-read the project instead, and
+  any other oversized message is dropped with an entry under Problems.
+- *Changes on the socket.* A `mutation.applied` carries the change without
+  its "before" side (the HTTP result and the undo history keep it), and a
+  change to a keyed list (materials, animators) carries only the items that
+  changed plus the order, so one material edit in a project with 500
+  materials is one material on the wire.
+- *The editor's projection* updates incrementally: a change replaces only the
+  entities it touched, the Hierarchy rebuilds its rows only when the tree's
+  shape or names change and draws only the rows in view (above 400 rows),
+  and the editor's panels keep what did not change, so a transform edit does
+  not redraw every panel. The Scene view still re-syncs every object after
+  each change (phase 21.3, rendering).
+- *Commands.* A command runs against its one scene; only that scene's file
+  (and, when content changed, `content.json`) is written, in the one-item-per-
+  line layout above. Unchanged scenes are no longer re-serialized to find out
+  they did not change.
+- *Thumbnails.* The cache keeps its per-project count (a write no longer lists
+  the cache) and answers revalidation (`ETag` / `If-None-Match`) with 304.
+- The editor bundle uses React's production build.
 
 ## Upgrade
 

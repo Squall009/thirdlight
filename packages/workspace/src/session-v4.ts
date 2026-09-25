@@ -266,7 +266,10 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
   // Scenes: written when their entities changed; created / removed with the index.
   for (const [id, scene] of after.scenes) {
     const prev = before.scenes.get(id);
-    if (prev !== undefined && JSON.stringify(prev.entities) === JSON.stringify(scene.entities)) continue;
+    // Phase 21.4: a scene the command did not touch is the same object (or
+    // holds the same entity array) — skip it without serializing it; only the
+    // edited scene is compared by value.
+    if (prev !== undefined && (prev === scene || prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))) continue;
     const rel = sceneRel(id);
     const recs = appendTo(rel);
     const stamped: SceneV4 = { ...scene, revision: after.revision };
@@ -284,7 +287,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     fileRecords.delete(rel);
   }
   // Content: written when it changed (or when no scene carries the record).
-  const contentChanged = JSON.stringify(before.content) !== JSON.stringify(after.content);
+  const contentChanged = before.content !== after.content && JSON.stringify(before.content) !== JSON.stringify(after.content);
   if (contentChanged || writes.length === 0) {
     const recs = appendTo(CONTENT_REL);
     const bytes = contentFileBytes(projectId, after.revision, after.content, recs);

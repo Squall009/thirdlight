@@ -63,6 +63,7 @@ import {
   type CompileDiagnosticView,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
+import { fromWireChange } from '@thirdlight/protocol';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
 
 export interface ClientConfig {
@@ -635,7 +636,7 @@ export class SessionClient {
         this.applyMutationApplied(m as unknown as Parameters<Projection['applyMutationApplied']>[0]);
         break;
       case 'play.started':
-        this.handlePlayStarted(m as unknown as { playSessionId: string; snapshot: unknown; playContent?: PlayStartResult['playContent'] });
+        void this.receivePlayStarted(m as unknown as { playSessionId: string; snapshot?: unknown; snapshotRef?: { path?: unknown; bytes?: unknown }; playContent?: PlayStartResult['playContent'] });
         break;
       case 'play.stop.request': {
         const psid = String(m.playSessionId ?? '');
@@ -678,6 +679,13 @@ export class SessionClient {
   }
 
   private applyMutationApplied(ev: { requestId: string; revision: number; change: unknown; sceneId?: string }): void {
+    // Phase 21.4: a keyed-list change arrives as a delta; rebuild it from our copy (a copy that does not fit resyncs).
+    const full = fromWireChange(ev.change as Record<string, unknown>, { setMaterials: this.materials as unknown as Record<string, unknown>[], setAnimators: this.animators as unknown as Record<string, unknown>[] });
+    if (full === null) {
+      void this.fullResync().then(() => this.cb.onSceneChanged());
+      return;
+    }
+    ev = { ...ev, change: full };
     const res = this.projection.applyMutationApplied({
       requestId: ev.requestId,
       revision: ev.revision,
@@ -776,6 +784,33 @@ export class SessionClient {
       this.cb.onSceneChanged();
       this.emit();
       this.queueHistoryRefresh();
+    }
+  }
+
+  /**
+   * Phase 21.4: a `play.started` carries the snapshot inline, or — when it
+   * does not fit one WebSocket frame (1 MiB) — a `snapshotRef` to fetch it by
+   * from the play's snapshot route over HTTP. A failed fetch is shown and the
+   * play is stopped (`play.preview.failed`), never left waiting.
+   */
+  private async receivePlayStarted(m: { playSessionId: string; snapshot?: unknown; snapshotRef?: { path?: unknown; bytes?: unknown }; playContent?: PlayStartResult['playContent'] }): Promise<void> {
+    if (m.snapshot !== undefined || m.snapshotRef === undefined) {
+      this.handlePlayStarted({ ...m, snapshot: m.snapshot ?? null });
+      return;
+    }
+    const path = typeof m.snapshotRef.path === 'string' ? m.snapshotRef.path : '';
+    const expected = `/api/v1/projects/${this.cfg.projectId}/play/${m.playSessionId}/snapshot`;
+    try {
+      // Only this project's own play route (the reference never points elsewhere).
+      if (path !== expected) throw new Error(`unexpected snapshot reference ${path.slice(0, 120)}`);
+      const snapshot = await this.api<unknown>(path.slice('/api/v1'.length));
+      this.handlePlayStarted({ ...m, snapshot });
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      const message = `Play could not load the ${typeof m.snapshotRef.bytes === 'number' ? `${Math.round(m.snapshotRef.bytes / 1024)} KiB ` : ''}snapshot: ${status !== undefined ? `HTTP ${status}` : String((e as Error).message ?? e)}`;
+      this.error = { code: 'play_snapshot_unavailable', message };
+      this.emit();
+      this.sendPlayPreviewFailed(m.playSessionId, 'play_snapshot_unavailable', message);
     }
   }
 
@@ -1025,9 +1060,16 @@ export class SessionClient {
   visibleEntities(): ProjectedEntity[] {
     const all = this.projection.listEntities();
     if (this.projection.scenes.length === 0) return all;
+    // Phase 21.4: the same array until the projection or the open scenes change,
+    // so views keyed on it (the Hierarchy, the Scene view sync) skip unchanged updates.
+    const c = this.visibleCache;
+    if (c !== null && c.all === all && c.open === this.openSceneIds) return c.list;
     const open = new Set(this.openSceneIds);
-    return all.filter((e) => e.sceneId === undefined || open.has(e.sceneId));
+    const list = all.filter((e) => e.sceneId === undefined || open.has(e.sceneId));
+    this.visibleCache = { all, open: this.openSceneIds, list };
+    return list;
   }
+  private visibleCache: { all: ProjectedEntity[]; open: readonly string[]; list: ProjectedEntity[] } | null = null;
 
   /** Phase 12 (c): the open scenes (in index order) and the active one; empty for a single-scene project. */
   getSceneView(): { open: readonly string[]; active: string | null } {

@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
+import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
@@ -56,6 +56,43 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     } catch {
       return null;
     }
+  };
+
+  /** Phase 21.4: each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play). */
+  const snapshotBytes = new WeakMap<PlayRecord, Uint8Array>();
+  const snapshotBytesOf = (rec: PlayRecord): Uint8Array => {
+    let b = snapshotBytes.get(rec);
+    if (b === undefined) {
+      b = new TextEncoder().encode(JSON.stringify(rec.snapshot));
+      snapshotBytes.set(rec, b);
+    }
+    return b;
+  };
+
+  /**
+   * Phase 21.4: `GET /api/v1/projects/:projectId/play/:playSessionId/snapshot`
+   * — the running play's frozen runtime snapshot (owner token), for a
+   * `play.started` that carries a `snapshotRef` because the snapshot does not
+   * fit one WebSocket frame. The editor hands it to the preview through the
+   * checked bridge exactly like an inline snapshot.
+   */
+  const playSnapshotRoute = (req: IncomingMessage, res: ServerResponse, projectId: string, playSessionId: string): void => {
+    const authError = requireAuth(req, projectId, false);
+    if (authError !== null) {
+      sendError(res, authError);
+      return;
+    }
+    const rec = plays.get(playSessionId);
+    if (rec === undefined || rec.projectId !== projectId || (rec.state !== 'active' && rec.state !== 'presented')) {
+      sendError(res, sessionError('play_not_found', 'not_found', 'no active play session with this id', { playSessionId }), 404);
+      return;
+    }
+    const bytes = snapshotBytesOf(rec);
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('content-length', String(bytes.length));
+    res.setHeader('cache-control', 'no-store');
+    res.end(bytes);
   };
 
   /** A UTC second stamp in the project-model §7.2 format. */
@@ -247,21 +284,21 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     // header, a tool/operator request does not.
     const startedBy: OriginDoc | null =
       scope === 'admin' && req.headers.origin === undefined ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
-    const payload = makePlayStarted({
-      playSessionId,
-      startedBy,
-      snapshot,
-      playContent: { contentId: published.contentId, buildId: builtCore.buildId, path: `/play-content/${published.contentId}/` },
-    });
+    const playContentRef = { contentId: published.contentId, buildId: builtCore.buildId, path: `/play-content/${published.contentId}/` };
+    let payload = makePlayStarted({ playSessionId, startedBy, snapshot, playContent: playContentRef });
+    // Phase 21.4: a snapshot that does not fit one WebSocket frame (1 MiB,
+    // WS_OUT_FRAME_MAX) goes by reference: the editor fetches it from the
+    // play's snapshot route over HTTP. Nothing is held on the frame bound.
+    if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
+      const bytes = snapshotBytesOf(rec).length;
+      payload = makePlayStarted({ playSessionId, startedBy, snapshot: { ref: { path: playSnapshotPath(projectId, playSessionId), bytes } }, playContent: playContentRef });
+      logStartup(`play.started: the ${bytes}-byte snapshot goes by reference (over the 1 MiB frame bound)`);
+    }
     let delivered = false;
     if (session.connected && session.socket) {
       try {
-        if (utf8Len(payload) <= WS_OUT_FRAME_MAX) {
-          session.socket.send(payload);
-          delivered = true;
-        } else {
-          logStartup('play.started frame exceeds the 1 MiB bound; held (internal)');
-        }
+        session.socket.send(payload);
+        delivered = true;
       } catch {
         delivered = false;
       }
@@ -690,5 +727,5 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
 
-  return { playStartRoute, playStopRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute };
+  return { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute };
 }

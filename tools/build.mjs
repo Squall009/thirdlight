@@ -4,7 +4,8 @@
  *
  * Builds the editor and play-preview bundles (dependencies.md §4.2) with the
  * pinned esbuild 0.28.2 and the export.md §5.3 pinned option set — every
- * other option at its 0.28.2 default; no additional defines, banners,
+ * other option at its 0.28.2 default; no additional defines (except, phase
+ * 21.4, React's production mode for the editor bundle — see BUNDLES), banners,
  * loaders, aliases, or externals. The editor bundle's .tsx files use
  * esbuild's default TSX loader (decision 0001 §10 — no option change).
  *
@@ -76,6 +77,11 @@ const BUNDLES = [
     name: 'editor',
     entry: 'packages/editor/src/index.tsx',
     out: 'dist/editor/main.js',
+    // Phase 21.4: React's production build. Unminified, esbuild substitutes
+    // process.env.NODE_ENV = "development", which ships React's development
+    // build (dev-only checks and per-render performance logging, several times
+    // slower on large trees). The editor bundle only; the play bundles carry no React.
+    define: { 'process.env.NODE_ENV': '"production"' },
   },
   // Packet 59 (delivery.md §3.2): the M3 preview wrapper entry — the v3 play
   // bundle (served as `game.js` at the v3 locator). The M2 `preview.js`
@@ -118,7 +124,7 @@ for (const b of BUNDLES) {
   }
   const out = join(root, b.out);
   mkdirSync(dirname(out), { recursive: true });
-  await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS });
+  await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS, define: { ...PINNED_OPTIONS.define, ...(b.define ?? {}) } });
   console.log(`build: ${b.name}: ${b.entry} -> ${b.out}`);
   built += 1;
 }

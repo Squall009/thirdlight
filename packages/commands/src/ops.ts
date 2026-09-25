@@ -189,10 +189,32 @@ function cameraIdOf(scene: SceneDocument): string | null {
  * different state), but the pipeline runs the check uniformly.
  */
 export function isNoChange(current: SceneDocument, result: SceneDocument): boolean {
-  const a = serializeCanonical({ ...current, revision: 0 });
-  const b = serializeCanonical({ ...result, revision: 0 });
-  if (!a.ok || !b.ok) return false; // unreachable: both documents are valid
-  return bytesEqual(a.bytes, b.bytes);
+  const a = maskedSceneBytes(current);
+  const b = maskedSceneBytes(result);
+  if (a === null || b === null) return false; // unreachable: both documents are valid
+  return bytesEqual(a, b);
+}
+
+/**
+ * Phase 21.4: the canonical bytes of a scene with `revision` masked, cached
+ * per entity array. Scene documents are immutable values here: an edit builds
+ * a new entity array, so the scene a command starts from is usually the one
+ * the previous command produced (and serialized) — its bytes are not built
+ * again. The cache key also checks the scene's other fields.
+ */
+const sceneBytesCache = new WeakMap<object, { head: string; bytes: Uint8Array }>();
+function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
+  const entities = (scene as { entities?: unknown }).entities;
+  const cacheable = Array.isArray(entities);
+  const head = cacheable ? JSON.stringify({ ...scene, entities: null, revision: 0 }) : '';
+  if (cacheable) {
+    const hit = sceneBytesCache.get(entities);
+    if (hit !== undefined && hit.head === head) return hit.bytes;
+  }
+  const s = serializeCanonical({ ...scene, revision: 0 });
+  if (!s.ok) return null;
+  if (cacheable) sceneBytesCache.set(entities, { head, bytes: s.bytes });
+  return s.bytes;
 }
 
 /**
