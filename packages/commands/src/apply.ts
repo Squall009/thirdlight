@@ -48,9 +48,10 @@ import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
 import { applyPasteEntities } from './paste-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetFlow, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
-import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
+import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -349,6 +350,19 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setEffect':
+    case 'deleteEffect':
+    case 'renameEffect': {
+      const a = va.validated.args as Record<string, unknown>;
+      const r =
+        va.validated.op === 'setEffect'
+          ? applySetEffect(input, a as { effect: EffectDef })
+          : va.validated.op === 'deleteEffect'
+            ? applyDeleteEffect(input, a as { effectId: string })
+            : applyRenameEffect(input, a as { effectId: string; name: string });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setLighting': {
       const r = applySetLighting(input, va.validated.args as { sceneId: string; lighting: LightingBake | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -510,7 +524,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect',
         }),
       };
     }

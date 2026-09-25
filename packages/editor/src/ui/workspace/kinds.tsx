@@ -18,6 +18,7 @@ import type { GraphDocument } from '@thirdlight/project-model';
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { MaterialDocument, type MaterialDocumentProps } from '../material/MaterialDocument';
+import { EffectDocument, type EffectDocumentProps } from '../effect/EffectDocument';
 import type { DocRef } from '../../session/workspace-tabs';
 import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
@@ -52,6 +53,8 @@ export interface WorkspaceHost {
   visualScript: Omit<VisualScriptDocumentProps, 'behaviorId' | 'behavior'>;
   /** Phase 18.0: the props of one graph material's tab (all materials share them). */
   material: Omit<MaterialDocumentProps, 'materialId'>;
+  /** Phase 20.0: the props of one effect's tab (all effects share them). */
+  effect: Omit<EffectDocumentProps, 'effectId'>;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }
@@ -163,8 +166,22 @@ const visualScriptKind: DocumentKind = {
   render: (id, host) => <VisualScriptDocument key={id} {...host.visualScript} behaviorId={id} behavior={host.behavior.behaviors.find((b) => b.behaviorId === id) ?? null} />,
 };
 
+/** A small spark glyph for effect tabs. */
+const EFFECT_ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" fill="#f2b544"/><circle cx="13" cy="13" r="1.6" fill="#ff7f9e"/><circle cx="3" cy="13.5" r="1.1" fill="#8fb4ff"/></svg>');
+
+/** Phase 20.0: an effect's particle systems, each a graph of kind `effect` ("Effect: <name>"). */
+const effectKind: DocumentKind = {
+  kind: 'effect',
+  label: 'Effect',
+  icon: EFFECT_ICON,
+  name: (id, host) => host.effect.effects.find((e) => e.effectId === id)?.name ?? id,
+  render: (id, host) => <EffectDocument key={id} {...host.effect} effectId={id} />,
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

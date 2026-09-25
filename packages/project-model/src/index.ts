@@ -351,6 +351,9 @@ export {
   resolveGraphPorts,
   staticNodePorts,
   GRAPH_LIMITS,
+  GRAPH_CURVE_LIMITS,
+  curveValueError,
+  gradientValueError,
   GRAPH_OP_NAMES,
   MAX_GRAPH_DOCUMENTS,
   nodeDef,
@@ -432,6 +435,47 @@ export {
 } from './behavior-graph';
 export { BEHAVIOR_API_SKIPPED } from './behavior-api.generated';
 export type { BehaviorApiArg, BehaviorApiNodeSpec, BehaviorApiOutput, BehaviorApiStep, BehaviorApiValue, BehaviorDataType } from './behavior-api';
+// Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
+export {
+  EFFECT_ATTRIBUTES,
+  EFFECT_ATTRIBUTE_TYPES,
+  EFFECT_BLEND_MODES,
+  EFFECT_CONTEXTS,
+  EFFECT_CONTEXT_FLOWS,
+  EFFECT_CONTEXT_LAYOUT,
+  EFFECT_EVENTS,
+  EFFECT_GRAPH_KIND,
+  EFFECT_GRAPH_LIMITS,
+  EFFECT_SHADING,
+  EFFECT_VALUE_TYPES,
+  effectFieldDefault,
+  newEffectSystemGraph,
+  type EffectContext,
+  type EffectValueType,
+} from './effect-graph-kinds';
+export {
+  EFFECT_DEFAULTS,
+  EFFECT_LIMITS,
+  EFFECT_PARAMETER_TYPES,
+  canonicalEffect,
+  canonicalEffectComponent,
+  canonicalEffects,
+  effectComponentErrors,
+  effectGraphContext,
+  effectParameterPortType,
+  effectParameterValueError,
+  effectSystemOwnerId,
+  parseEffectSystemOwnerId,
+  validateEffect,
+  validateEffectComponent,
+  validateEffectParameters,
+  validateEffects,
+  type EffectComponent,
+  type EffectDef,
+  type EffectParameter,
+  type EffectParameterType,
+  type EffectSystem,
+} from './effects';
 // Phase 18.1: the material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).

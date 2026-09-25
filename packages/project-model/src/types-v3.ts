@@ -198,6 +198,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   materialParams?: Record<string, Record<string, number | number[] | string>>;
   /** Phase 9.5, v4 only: a box of fog around the entity. */
   fogVolume?: FogVolumeComponent;
+  /** Phase 20.0, v4 only: a visual effect played from the entity. */
+  effect?: import('./effects').EffectComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
   animator?: AnimatorComponent;
   /** Phase 9.9, v4 only: gameplay building blocks. */
@@ -469,6 +471,8 @@ export interface ContentCatalogV4 extends ContentCatalogV3 {
   flow?: GameFlow;
   /** Phase 16.1: standalone graph documents (absent = none). */
   graphs?: GraphDocument[];
+  /** Phase 20.0: visual effects (absent = none). */
+  effects?: import('./effects').EffectDef[];
 }
 
 /** Phase 12 (c): one scene in the project's scene index. */

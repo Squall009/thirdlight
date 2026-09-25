@@ -147,8 +147,14 @@ export const GRAPH_AUTO_TYPE = 'auto';
 export interface GraphFieldDef {
   key: string;
   label: string;
-  /** Phase 18.1: `color` is a `#rrggbb` string (lower case). */
-  type: 'number' | 'string' | 'boolean' | 'enum' | 'vector' | 'color';
+  /**
+   * Phase 18.1: `color` is a `#rrggbb` string (lower case).
+   * Phase 20.1: `curve` is keys `[t0, v0, t1, v1, …]` (2–16 keys, t in 0–1
+   * ascending, values within min/max, linear between keys, clamped outside);
+   * `gradient` is stops `[t0, r0, g0, b0, a0, t1, …]` (1–8 stops, t ascending,
+   * every number 0–1, linear between stops).
+   */
+  type: 'number' | 'string' | 'boolean' | 'enum' | 'vector' | 'color' | 'curve' | 'gradient';
   default: GraphValue;
   min?: number;
   max?: number;
@@ -267,6 +273,9 @@ export const GRAPH_LIMITS = {
   /** Ops in one graph edit. */
   ops: 512,
 } as const;
+
+/** Phase 20.1: the bounds of the `curve` and `gradient` field types. */
+export const GRAPH_CURVE_LIMITS = { minKeys: 2, maxKeys: 16, minStops: 1, maxStops: 8 } as const;
 
 /** 1-64 characters (64: the longest state/controller id, so an owner's ids can be graph ids). */
 export const GRAPH_ITEM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -499,7 +508,34 @@ function fieldValueError(f: GraphFieldDef, v: unknown): string | null {
       if (v.some((x) => (f.min !== undefined && (x as number) < f.min) || (f.max !== undefined && (x as number) > f.max))) return `${n} numbers ${f.min ?? '-∞'}–${f.max ?? '∞'}`;
       return null;
     }
+    case 'curve':
+      return curveValueError(v, f.min, f.max);
+    case 'gradient':
+      return gradientValueError(v);
   }
+}
+
+/** Phase 20.1: a curve value (null = valid; see `GraphFieldDef.type`). */
+export function curveValueError(v: unknown, min?: number, max?: number): string | null {
+  const L = GRAPH_CURVE_LIMITS;
+  const what = `a curve: ${L.minKeys}-${L.maxKeys} keys [t, value, …], t 0–1 ascending, values ${min ?? '-∞'}–${max ?? '∞'}`;
+  if (!Array.isArray(v) || v.length % 2 !== 0 || v.length < L.minKeys * 2 || v.length > L.maxKeys * 2 || !v.every((x) => finite(x, 1e9))) return what;
+  for (let i = 0; i < v.length; i += 2) {
+    const t = v[i] as number;
+    const y = v[i + 1] as number;
+    if (t < 0 || t > 1 || (i > 0 && t < (v[i - 2] as number))) return what;
+    if ((min !== undefined && y < min) || (max !== undefined && y > max)) return what;
+  }
+  return null;
+}
+
+/** Phase 20.1: a gradient value (null = valid; see `GraphFieldDef.type`). */
+export function gradientValueError(v: unknown): string | null {
+  const L = GRAPH_CURVE_LIMITS;
+  const what = `a gradient: ${L.minStops}-${L.maxStops} stops [t, r, g, b, a, …], every number 0–1, t ascending`;
+  if (!Array.isArray(v) || v.length % 5 !== 0 || v.length < L.minStops * 5 || v.length > L.maxStops * 5 || !v.every((x) => finite(x, 1) && (x as number) >= 0)) return what;
+  for (let i = 5; i < v.length; i += 5) if ((v[i] as number) < (v[i - 5] as number)) return what;
+  return null;
 }
 
 // ---- structural validation (refusals) --------------------------------------------------
