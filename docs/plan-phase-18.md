@@ -73,7 +73,7 @@ moved after the renderer phase by the owner, 2026-09-24.) Read
 |---|---|---|
 | 18.0 data | done 2026-09-25 | 936074f |
 | 18.1 node catalogue | done 2026-09-25 | 936074f |
-| 18.2 editor | todo | |
+| 18.2 editor | done 2026-09-25 | 35cd2fb |
 | 18.3 runtime and export | todo | |
 | 18.4 tests and wrap-up | todo | |
 
