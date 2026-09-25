@@ -3,11 +3,14 @@
  * box tints it in the Scene view (game lighting) and in Play; the light is
  * edited in the Inspector; the Scene view toggles between the editor rig and
  * the scene's own lights.
+ *
+ * Phase 17.3: runs once per renderer variant (renderer-variants.ts).
  */
 import { expect, test } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -27,9 +30,12 @@ function reddish(img: Image): number {
   return n;
 }
 
-test('a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector', async ({ page }) => {
-  await page.goto(be.editorUrl);
+for (const variant of RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(120_000);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   // The new project has a sun and an ambient light: the Scene view uses them.
   await expect(page.getByRole('button', { name: 'light: game' })).toBeVisible();
   await menu(page, 'GameObject', 'Box');
@@ -70,6 +76,7 @@ test('a red point light tints a box in the Scene view and in Play; lights are ed
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect.poll(async () => reddish(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBeGreaterThan(200);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });

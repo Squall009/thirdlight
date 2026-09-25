@@ -273,8 +273,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Phase 17.2: every backend but `legacy` draws with WebGPURenderer, which needs node materials
   // (known before the renderer exists: the preference decides the renderer class).
   const nodeMaterials = (opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE) !== 'legacy';
+  /** The lightmap set once it exists (the library may report a change while it is still being set up). */
+  let lightmapsLive: LightmapSet | null = null;
   const materialLibrary: MaterialLibrary | null =
-    opts.materials !== undefined ? createMaterialLibrary({ loadTexture: opts.materials.loadTexture, nodeMaterials }) : null;
+    opts.materials !== undefined
+      ? createMaterialLibrary({
+          loadTexture: opts.materials.loadTexture,
+          nodeMaterials,
+          // Phase 17.3: a project material changed in place (a texture arrived): lightmapped
+          // copies made before are clones and follow it (else they keep the texture-less look).
+          onChange: () => lightmapsLive?.refresh(),
+        })
+      : null;
   if (materialLibrary !== null && opts.materials !== undefined) {
     materialLibrary.setMaterials(opts.materials.defs);
     materialLibrary.setWind(opts.materials.wind);
@@ -291,6 +301,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           { nodeMaterials },
         )
       : null;
+  lightmapsLive = lightmaps;
   /** Phase 9.9: entities the runtime hides (collected, defeated). */
   const hiddenIds = new Set<string>();
   /** Phase 15.3: entities fading out (a defeated enemy with `defeat: "fade"`), drawn at the runtime's opacity. */

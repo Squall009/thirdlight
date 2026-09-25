@@ -4,6 +4,8 @@
  * shows blue at the top of Play's view and green at the bottom (it used to
  * show the ground overhead: the sky was uploaded unflipped). The Scene
  * view's camera looks down below the horizon, so its top shows ground.
+ *
+ * Phase 17.3: runs once per renderer variant (renderer-variants.ts).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +16,7 @@ import { expect, test } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend;
 let dir: string;
@@ -26,11 +29,14 @@ test.afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('a texture sky is upright: sky above, ground below', async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`a texture sky is upright: sky above, ground below (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(120_000);
   const file = join(dir, 'sky.png');
   writeFileSync(file, makePng(256, 128, (_x, y) => (y < 64 ? [40, 110, 250, 255] : [40, 170, 40, 255])));
-  await page.goto(be.editorUrl);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   await page.getByRole('tab', { name: 'Assets' }).click();
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
@@ -69,6 +75,7 @@ test('a texture sky is upright: sky above, ground below', async ({ page }) => {
   // Play looks level: sky above the horizon, ground below.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect.poll(() => blueness(frame, 0.02, 0.12), { timeout: 30_000 }).toBeGreaterThan(40);
   expect(await blueness(frame, 0.88, 0.98)).toBeLessThan(-40);
 });

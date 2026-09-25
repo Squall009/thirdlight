@@ -45,8 +45,10 @@ function Slider(props: { label: string; name: string; value: number; min: number
           step={props.step}
           value={v}
           onChange={(e) => setV(Number(e.target.value))}
-          onPointerUp={() => v !== props.value && props.onCommit(v)}
-          onKeyUp={() => v !== props.value && props.onCommit(v)}
+          // The input's own value: on a busy page the key-up can come before React re-rendered
+          // with the new value (the closure's `v` would still be the old one and nothing is saved).
+          onPointerUp={(e) => Number(e.currentTarget.value) !== props.value && props.onCommit(Number(e.currentTarget.value))}
+          onKeyUp={(e) => Number(e.currentTarget.value) !== props.value && props.onCommit(Number(e.currentTarget.value))}
         />
         <span className="tl-param__value">{v.toFixed(props.step < 0.01 ? 3 : props.step < 1 ? 2 : 0)}</span>
       </span>

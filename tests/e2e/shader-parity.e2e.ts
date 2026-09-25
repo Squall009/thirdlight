@@ -16,14 +16,12 @@
  * The tolerance rule is logged in docs/plan-phase-17.md §6 (17.2).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { join, resolve } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
-import { build } from 'esbuild';
 
+import { diff, diffPng, serveHarness, show, within, type Diff } from './parity';
 import { decodePng, type Image } from './png';
-import { makePng } from './png-make';
 
 const HERE = resolve(import.meta.dirname, 'shader-parity');
 const REFS = join(HERE, 'refs');
@@ -35,83 +33,14 @@ export const CASES = ['standard', 'foliage', 'kit', 'unlit', 'water', 'lightmap'
 /** Cases whose legacy hook WebGPURenderer ignores: without the port they must fail the comparison. */
 const CONTROL_CASES = ['foliage', 'kit', 'water', 'lightmap'] as const;
 
-/**
- * The tolerance (logged in §6): both backends here are SwiftShader (the
- * legacy renderer and WebGPURenderer's WebGL 2 backend through ANGLE, WebGPU
- * through Dawn on SwiftShader's Vulkan), so the pictures are deterministic;
- * what differs is float evaluation order in three's node BRDF vs. its GLSL
- * chunks, where sRGB is decoded/encoded (a blended, textured unlit surface
- * lands up to ~12 levels off in places), and rasterisation of sub-pixel
- * edges (thin blades). Measured on the first run: mean ≤ 0.76, ≤ 0.02 % of
- * pixels off by more than 32. A render matches when the mean absolute
- * channel difference is ≤ MEAN_LIMIT and at most BAD_LIMIT of the pixels
- * differ by more than BAD_DELTA in some channel: about twice the measured
- * noise, far below what a lost shader hook costs (the control: mean 2.3–14,
- * 6–24 % bad pixels).
- */
-const MEAN_LIMIT = 1.5;
-const BAD_DELTA = 32;
-const BAD_LIMIT = 0.005;
-
-interface Diff {
-  mean: number;
-  bad: number;
-  worst: number;
-}
-function diff(a: Image, b: Image): Diff {
-  expect(a.width).toBe(b.width);
-  expect(a.height).toBe(b.height);
-  let sum = 0;
-  let bad = 0;
-  let worst = 0;
-  for (let y = 0; y < a.height; y++) {
-    for (let x = 0; x < a.width; x++) {
-      const p = a.pixel(x, y);
-      const r = b.pixel(x, y);
-      const d = Math.max(Math.abs(p[0] - r[0]), Math.abs(p[1] - r[1]), Math.abs(p[2] - r[2]));
-      sum += Math.abs(p[0] - r[0]) + Math.abs(p[1] - r[1]) + Math.abs(p[2] - r[2]);
-      if (d > BAD_DELTA) bad += 1;
-      worst = Math.max(worst, d);
-    }
-  }
-  const n = a.width * a.height;
-  return { mean: sum / (n * 3), bad: bad / n, worst };
-}
-const within = (d: Diff): boolean => d.mean <= MEAN_LIMIT && d.bad <= BAD_LIMIT;
-const show = (d: Diff): string => `mean ${d.mean.toFixed(2)} (≤ ${MEAN_LIMIT}), >${BAD_DELTA}: ${(d.bad * 100).toFixed(2)}% (≤ ${BAD_LIMIT * 100}%), worst ${d.worst}`;
-
-/** A visual diff for a failure report: grey reference, red where they differ. */
-function diffPng(a: Image, b: Image): Buffer {
-  return makePng(a.width, a.height, (x, y) => {
-    const p = a.pixel(x, y);
-    const r = b.pixel(x, y);
-    const d = Math.max(Math.abs(p[0] - r[0]), Math.abs(p[1] - r[1]), Math.abs(p[2] - r[2]));
-    const g = (r[0] + r[1] + r[2]) / 6;
-    return d > BAD_DELTA ? [255, 0, 0, 255] : d > 8 ? [255, 160, 0, 255] : [g, g, g, 255];
-  });
-}
-
-let server: Server | null = null;
+let harness: { base: string; close: () => Promise<void> } | null = null;
 let base = '';
 test.beforeAll(async () => {
-  const bundle = await build({ entryPoints: [join(HERE, 'harness.ts')], absWorkingDir: REPO, bundle: true, format: 'esm', platform: 'browser', write: false, logLevel: 'error' });
-  const js = bundle.outputFiles[0]!.text;
-  const html = `<!doctype html><body style="margin:0;background:#000"><canvas width="${SIZE}" height="${SIZE}" style="width:${SIZE}px;height:${SIZE}px;display:block"></canvas><script type="module" src="harness.js"></script></body>`;
-  server = createServer((req, res) => {
-    if ((req.url ?? '').startsWith('/harness.js')) {
-      res.setHeader('content-type', 'text/javascript');
-      res.end(js);
-    } else {
-      res.setHeader('content-type', 'text/html');
-      res.end(html);
-    }
-  });
-  await new Promise<void>((ok) => server!.listen(0, '127.0.0.1', ok));
-  // localhost: a secure context, so navigator.gpu exists where the browser has WebGPU.
-  base = `http://localhost:${(server.address() as { port: number }).port}/`;
+  harness = await serveHarness(join(HERE, 'harness.ts'), REPO, SIZE, SIZE);
+  base = harness.base;
 });
 test.afterAll(async () => {
-  await new Promise<void>((ok) => (server === null ? ok() : server.close(() => ok())));
+  await harness?.close();
 });
 
 async function render(page: Page, backend: string, name: string, control = false): Promise<{ img: Image; png: Buffer; backend: string }> {

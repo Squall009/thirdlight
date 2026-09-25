@@ -1662,16 +1662,36 @@ standard, foliage wind (COLOR_0 + the global wind), kit (world-X UVs, the
 UV1 macro normal), unlit, water — and lightmaps (UV1, the bake's range, the
 lights a bake holds left out), the Scene view's selection tint and the
 checkpoint glow work there too. A pixel test compares each against WebGL
-reference images (`tests/e2e/shader-parity/`). Until phase 17.3 ports them,
-`WebGPURenderer` does not draw post-processing, the gradient and procedural
-skies or fog volumes; colour and texture skies, fog, lights, shadows,
-models, instances and tone mapping draw. The environment's diagnostics name
-what is left out.
+reference images (`tests/e2e/shader-parity/`).
+
+The environment draws the same on every backend too (phase 17.3): every sky
+mode (physical — three's TSL sky —, gradient, colour, texture as an equirect
+image or six cube faces) with its image-based lighting, fog, fog volumes
+(with the height falloff), shadows (also the square that follows the camera
+in games without level bounds) and the whole post stack per quality level —
+ambient occlusion, depth of field, bloom, grading with lift/gamma/gain, the
+LUT and the vignette, SMAA/FXAA and AgX/ACES/Neutral tone mapping — as
+three's node post-processing on `WebGPURenderer`. A level's own look works
+the same. A pixel test compares 21 environments with WebGL reference images
+(`tests/e2e/env-parity/`). Differences you may see on `WebGPURenderer`:
+scene fog is mixed before tone mapping (the WebGL renderer mixes it after
+when there is no post stack), so its tint is a little different; ambient
+occlusion has a different noise pattern and depth of field a slightly
+different blur shape; the low quality level also turns MSAA off there.
+
+Fixed on every backend with phase 17.3: the gradient sky now shows — it sat
+4 km out, beyond every camera's far plane (1 km in the Scene view, 100 m by
+default in games), so only its lighting was seen — and it is tone mapped
+like the rest of the picture. The browser lightmap baker ("Bake preview")
+draws with the editor's renderer backend (on `WebGPURenderer` it reads the
+atlases back asynchronously), and a lightmapped object in Play picks up its
+project material's texture even when the texture arrives after the
+lightmap.
 
 The kit's macro normal map now shows with the WebGL renderer too: before
 phase 17.2 it was silently never applied (a shader-hook bug), so kit pieces
 with a macro normal map look bumpier than before on every backend. Thumbnails render with the backend the
-editor had when it drew the first one; the lightmap baker still uses WebGL.
+editor had when it drew the first one.
 Real-GPU looks and frame times: owner look pending.
 
 ## Upgrade
@@ -1695,16 +1715,19 @@ npm run build && npm run test:e2e           # Playwright: real backend + Chromiu
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
 npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
 node tests/e2e/shader-parity/capture.mjs    # re-capture the WebGL shader reference images (rarely)
+TL_CAPTURE_ENV_REFS=1 npx playwright test tests/e2e/env-parity.e2e.ts --project=default   # the environment references (rarely)
 ```
 
 `npm run test:e2e` runs both Playwright projects: `default` (every spec,
 Chromium with WebGL 2 on SwiftShader and no WebGPU, so `auto` covers the
 WebGL 2 fallback) and `webgpu` (the renderer-sensitive specs again with
 `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader`:
-Dawn's SwiftShader adapter). The materials, textures and lightmaps specs run
-once per renderer variant: `legacy` and `webgl2` (forced with `?renderer=`)
-in `default`, `webgpu` in `webgpu`; the shader-parity spec compares every
-shader type with its WebGL reference image on WebGL 2 and on WebGPU.
+Dawn's SwiftShader adapter). The materials, textures, lightmaps,
+environment, lights, sky-texture and level-look specs run once per renderer
+variant: `legacy` and `webgl2` (forced with `?renderer=`) in `default`,
+`webgpu` in `webgpu`; the shader-parity and env-parity specs compare every
+shader type and environment with its WebGL reference image on WebGL 2 and
+on WebGPU.
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

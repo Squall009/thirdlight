@@ -17,6 +17,7 @@ import type { LightingBake } from '@thirdlight/project-model';
 import { makeAssetId, type SessionClient } from '../session/client';
 import { publishArgsFromProposal, utcSecondTimestamp, type ImportTarget } from '../session/asset-browser';
 import type { ProjectedEntity } from '../session/projection';
+import { editorRendererChoice } from './renderer-choice';
 import type { Viewport } from './viewport';
 
 export interface BakeSettings {
@@ -210,6 +211,8 @@ export async function runBrowserBake(deps: BakeDeps): Promise<BakeRunResult> {
     samples: deps.settings.samples,
     range: deps.settings.range,
     padding: PADDING,
+    // Phase 17.3: the bake draws with the editor's renderer backend (like its previews).
+    renderer: editorRendererChoice().preference,
     onProgress: (done, total) => deps.onProgress(`baking ${done}/${total}`, (done / total) * 0.9),
     ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
   });

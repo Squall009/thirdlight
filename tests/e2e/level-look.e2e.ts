@@ -8,6 +8,9 @@
  * the export, served statically: level 1 plays with the project sky; after
  * level 1 completes, level 2 shows the magenta sky lifted to pink
  * (#ff80ff: lift 0.5 raises the green channel from 0 to one half).
+ *
+ * Phase 17.3: runs once per renderer variant (renderer-variants.ts): the
+ * level's grading runs in the TSL post stack on WebGPURenderer.
  */
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -18,6 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -70,7 +74,8 @@ const pink = (c: [number, number, number]): boolean => c[0] > 220 && c[2] > 220 
 const storedFlow = async (): Promise<{ levels: { id: string; environment?: unknown }[] }> =>
   (await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} }))['flow'] as { levels: { id: string; environment?: unknown }[] };
 
-test('a level look set in the Game flow window shows in the Scene view and in the export once level 1 completes', async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`a level look set in the Game flow window shows in the Scene view and in the export once level 1 completes (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
   test.setTimeout(300_000);
   // Two short levels far from the main scene's own geometry: start, floor, goal.
   const spawns: string[] = [];
@@ -91,9 +96,10 @@ test('a level look set in the Game flow window shows in the Scene view and in th
   });
 
   // The Game flow window: "Level look…" on level 2 opens the Environment window for its look.
-  await page.goto(be.editorUrl);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const viewport = page.locator('canvas.tl-viewport');
+  await expectRendererBackend(viewport, variant);
   const light = page.getByRole('button', { name: /^light: / });
   if ((await light.textContent())?.includes('editor')) await light.click();
   await expect(light).toHaveText('light: game');
@@ -170,7 +176,8 @@ test('a level look set in the Game flow window shows in the Scene view and in th
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(url);
+    await page.goto(`${url}${exportQueryFor(variant)}`);
+    await expectRendererBackend(page.locator('canvas').first(), variant);
     const flow = page.locator('.tl-flow');
     await expect(flow).toHaveAttribute('data-screen', 'title', { timeout: 20_000 });
     await page.mouse.click(20, 1000);
