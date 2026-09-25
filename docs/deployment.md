@@ -1776,6 +1776,76 @@ with a macro normal map look bumpier than before on every backend. Thumbnails re
 editor had when it drew the first one.
 Real-GPU looks and frame times: owner look pending.
 
+## Performance
+
+Phase 21 measures the engine against written budgets with generated
+benchmark projects and an automated harness. The budgets (frame time,
+heap and GPU memory, load time, draw calls, simulation step cost and
+garbage, editor command latency, per scene class) are in
+`docs/plan-phase-21.md` §2 and `tools/perf/classes.ts`; they are for a
+mid-range desktop GPU at 1920×1080. Measured numbers are in §4 there.
+
+**Benchmark projects.** Five classes — small (100 entities), medium (2000
+entities, 50 materials, 20 effects), large (16 000 entities over 10 scenes,
+four instance sets of 50 000 copies), script-heavy (500 scripted objects),
+effect-heavy (20 effects, 50 000 particles) — are generated
+deterministically (`tools/perf/generate.ts`, seed 21) and built through the
+real HTTP API into a throwaway data root under
+`~/.cache/thirdlight-perf/runs/` (deleted after the run unless `--keep`).
+Effects are generated but not drawn until phase 20.2.
+
+**Run the harness** (needs `dist/`; not part of `npm test` or the default
+Playwright run):
+
+```sh
+npm run build
+node tools/perf/run.mjs                                  # every class, legacy + webgl2 renderers
+node tools/perf/run.mjs --classes small,medium --quick   # a short smoke run
+node tools/perf/run.mjs --renderers webgpu               # WebGPURenderer on (headless) WebGPU
+node tools/perf/run.mjs --compare tests/perf/baseline.json   # exit 1 on a regression
+```
+
+Options: `--classes`, `--renderers legacy,webgl2,webgpu,auto`, `--surfaces
+play,export,editor,sim`, `--record-ms`, `--warmup-ms`, `--commands`,
+`--sim-steps`, `--viewport WxH` (default 1280x720), `--seed`, `--keep`,
+`--out FILE`, `--write-baseline FILE`. For each class and renderer it
+measures:
+
+- **Play** (the editor's preview iframe) and the **export** (served by a
+  plain static server): first-frame time, rendered-frame intervals
+  (p50/p95/p99), draw calls and triangles per frame, live programs or
+  pipelines, textures, buffers and an estimate of GPU memory — counted at
+  the WebGL / WebGPU API, so the legacy renderer and WebGPURenderer are
+  measured the same way — the JS heap after a forced collection
+  (`performance.memory`; `measureUserAgentSpecificMemory` needs a
+  cross-origin-isolated page and is reported unavailable), and for Play
+  three's own renderer counts from the play diagnostics;
+- the **editor**: time to the Scene view's first frame, frame intervals while
+  orbiting, heap, and the p95 round trip of `setTransform` commands with the
+  project open;
+- the **simulation** in Node (runtime, platformer, Rapier and the project's
+  scripts, headless, `--expose-gc`): step cost percentiles and the bytes
+  allocated per steady step.
+
+The JSON report goes to `~/.cache/thirdlight-perf/reports/<time>.json`
+(and `latest.json`) with the machine, its load average at start and end, the
+calibrations and every number above.
+
+**Regression check.** This server renders on the CPU (SwiftShader) and
+shares its cores, so absolute times say little. The checked-in baseline
+`tests/perf/baseline.json` stores only machine-independent metrics: counts,
+memory, and times divided by a calibration measured in the same run (a fixed
+raw-WebGL page for frame times, a fixed arithmetic workload for Node times).
+`TL_PERF=1 npx vitest run tests/perf/regression.test.ts` runs the harness
+and fails on a regression beyond the tolerance (`tools/perf/stats.ts`:
+counts +10 %, memory +25 %, calibrated times +75 %);
+`TL_PERF_REPORT=<report.json>` compares an existing report,
+`TL_PERF_CLASSES=small` limits it and `TL_PERF_KINDS=count,memory` leaves
+out the calibrated times (the noisiest here). The always-on checks are
+`tests/perf/plumbing.test.ts` (generator and comparison) and
+`tests/e2e/perf-harness.e2e.ts` (the whole harness on the small benchmark).
+Frame and load times on a real GPU: owner look pending.
+
 ## Upgrade
 
 ```sh
@@ -1798,6 +1868,8 @@ npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
 npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
 node tests/e2e/shader-parity/capture.mjs    # re-capture the WebGL shader reference images (rarely)
 TL_CAPTURE_ENV_REFS=1 npx playwright test tests/e2e/env-parity.e2e.ts --project=default   # the environment references (rarely)
+node tools/perf/run.mjs                     # the performance harness (long; see "Performance")
+TL_PERF=1 npx vitest run tests/perf/regression.test.ts   # harness run vs the stored baseline (opt-in)
 ```
 
 `npm run test:e2e` runs both Playwright projects: `default` (every spec,

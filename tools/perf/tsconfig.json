@@ -1,0 +1,10 @@
+{
+  "//": "Phase 21.1: strict typecheck of the performance harness (not a workspace package): npx tsc -p tools/perf",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": false,
+    "allowImportingTsExtensions": false
+  },
+  "include": ["*.ts", "../../tests/perf/*.ts", "../../tests/e2e/perf-harness.e2e.ts"]
+}
