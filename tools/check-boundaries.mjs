@@ -150,17 +150,8 @@ export const NODE_SIDE_ALLOWED = {
         // 2026-09-24: skinned meshes need SkeletonUtils.clone so each
         // instance gets its own skeleton (gltf-loader port only).
         'examples/jsm/utils/SkeletonUtils.js',
-        // Phase 9.5 (environment.ts): sky, the post stack and FXAA.
-        'examples/jsm/objects/Sky.js',
-        'examples/jsm/postprocessing/EffectComposer.js',
-        'examples/jsm/postprocessing/RenderPass.js',
-        'examples/jsm/postprocessing/ShaderPass.js',
-        'examples/jsm/postprocessing/UnrealBloomPass.js',
-        'examples/jsm/postprocessing/OutputPass.js',
-        'examples/jsm/postprocessing/SMAAPass.js',
-        'examples/jsm/postprocessing/GTAOPass.js',
-        'examples/jsm/postprocessing/BokehPass.js',
-        'examples/jsm/shaders/FXAAShader.js',
+        // Phase 9.5's WebGL sky, EffectComposer passes and FXAA shader were
+        // removed with the archived WebGL renderer path (phase 17.4).
         // Phase 17.1 (renderer-factory.ts, environment.ts): three's WebGPURenderer
         // (WebGPU with its WebGL 2 backend) and its node PMREM generator; TSL
         // for the node materials and post of phases 17.2/17.3. Part of the

@@ -41,7 +41,7 @@ export const MAX_COLLIDER_EXTENT = 64; // §10.7
 export const MIN_POLYGON_AREA = 1e-6; // §10.7
 export const CONVEX_TOL = 1e-9; // §10.7
 
-const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece']);
+const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
@@ -49,7 +49,7 @@ const KNOWN_COLLIDER_FIELDS = new Set(['shape']);
 const KNOWN_BOX_SHAPE_FIELDS = new Set(['type', 'hx', 'hy']);
 const KNOWN_POLYGON_SHAPE_FIELDS = new Set(['type', 'vertices']);
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
-const KNOWN_BOX_FIELDS = new Set(['size', 'material']);
+const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow']);
 const KNOWN_MATERIAL_FIELDS = new Set(['color']);
 const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
@@ -114,8 +114,21 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
     }
   }
   validateModelPiece(c['piece'], `${path}/piece`, errors);
+  validateShadowFlags(c, path, errors);
   for (const k of Object.keys(c)) {
-    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece'));
+    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow'));
+  }
+}
+
+/**
+ * Phase 17.4: optional `castShadow` / `receiveShadow` booleans of a visible
+ * object (box, model, instance set). Absent = true: solid geometry blocks the
+ * light and shows the shadows falling on it in any genre; a decal, a glow or a
+ * distant backdrop turns them off.
+ */
+export function validateShadowFlags(c: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
+  for (const k of ['castShadow', 'receiveShadow'] as const) {
+    if (c[k] !== undefined && typeof c[k] !== 'boolean') errors.push(fieldType(`${path}/${k}`, c[k], 'boolean'));
   }
 }
 
@@ -623,8 +636,9 @@ export function validateBoxV2(b: unknown, path: string, errors: ModelErrorV2[]):
       }
     }
   }
+  validateShadowFlags(b, path, errors);
   for (const k of Object.keys(b)) {
-    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material'));
+    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material, castShadow, receiveShadow'));
   }
 }
 

@@ -1,20 +1,17 @@
 /**
  * Phase 17.1: the one renderer factory used by Play/export (the scene
  * adapter), the editor's Scene view and its previews (asset preview,
- * Animator preview, thumbnails) and the browser lightmap baker.
+ * Animator preview, thumbnails).
  *
- * Backends (the names are logged in docs/plan-phase-17.md §6), all three's
- * `WebGPURenderer` with the shading written once in TSL:
- *  - `auto` — the DEFAULT since phase 17.4: WebGPU when an adapter and a
- *    working device initialise, else the WebGL 2 backend (a plain-http LAN
- *    page has no `navigator.gpu`).
- *  - `webgl2` — `WebGPURenderer` forced onto its WebGL 2 backend.
+ * Backends (the names are logged in docs/plan-phase-17.md §6):
+ *  - `legacy` — today's `THREE.WebGLRenderer` (WebGL 2 first). The DEFAULT
+ *    until phase 17.4 switches over, so nothing changes for a project that
+ *    does not ask for another backend.
+ *  - `webgl2` — three's `WebGPURenderer` forced onto its WebGL 2 backend.
  *  - `webgpu` — `WebGPURenderer` on WebGPU; when WebGPU cannot start here it
  *    runs on the WebGL 2 backend and the reason says why.
- *
- * Phase 17.4: the `THREE.WebGLRenderer` path (`legacy`) is archived
- * (`archive/webgl-renderer-17/`); an old `?renderer=legacy` flag or a stored
- * `render_backend` 0 means `auto`.
+ *  - `auto` — WebGPU when an adapter and a working device initialise, else
+ *    the WebGL 2 backend (a plain-http LAN page has no `navigator.gpu`).
  *
  * The choice comes from a URL flag (`?renderer=…`), else the project setting
  * (`render_backend`), else the default. `WebGPURenderer` initialises
@@ -22,33 +19,27 @@
  * until then. The chosen backend, its state and a reason are reported by
  * `info()` and mirrored on the canvas (`data-tl-renderer*` attributes).
  *
- * Loss: `WebGPURenderer` reports loss through `onDeviceLost`: on WebGL 2
+ * Loss: the legacy renderer keeps today's contract (the scene adapter's
+ * `webglcontextlost`/`webglcontextrestored` listeners; three restores its GL
+ * state). `WebGPURenderer` reports loss through `onDeviceLost`: on WebGL 2
  * the renderer is rebuilt once the browser restores the context; on WebGPU
  * it is rebuilt on a new device, at most `MAX_RENDERER_RECOVERIES` times,
  * then the handle reports `failed` (reload the page).
  */
+import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 
-export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
+export type RendererPreference = 'legacy' | 'auto' | 'webgpu' | 'webgl2';
 export type RendererPreferenceSource = 'default' | 'setting' | 'url';
-/** What actually draws: WebGPURenderer on WebGPU or on its WebGL 2 backend. */
-export type RendererBackend = 'webgpu' | 'webgl2';
+/** What actually draws: today's WebGL renderer, or WebGPURenderer on WebGPU / WebGL 2. */
+export type RendererBackend = 'legacy' | 'webgpu' | 'webgl2';
 export type RendererState = 'initialising' | 'ready' | 'lost' | 'failed';
 
-export const RENDERER_PREFERENCES: readonly RendererPreference[] = ['auto', 'webgpu', 'webgl2'];
-/**
- * The project setting `render_backend`: its value is the index here. 0 was
- * the archived WebGL renderer (`legacy`, phases 17.1–17.3): a project that
- * stored it gets `auto` (phase 17.4).
- */
-export const RENDER_BACKEND_SETTING_VALUES: readonly RendererPreference[] = ['auto', 'auto', 'webgpu', 'webgl2'];
-/**
- * Phase 17.4: `auto` — WebGPU where the browser can start it, else WebGL 2:
- * every browser with WebGL 2 draws, and the faster API is used where it exists.
- */
-export const DEFAULT_RENDERER_PREFERENCE: RendererPreference = 'auto';
-/** Phase 17.4: the archived WebGL renderer's flag value, still accepted in a URL as `auto`. */
-const LEGACY_URL_VALUE = 'legacy';
+export const RENDERER_PREFERENCES: readonly RendererPreference[] = ['legacy', 'auto', 'webgpu', 'webgl2'];
+/** The project setting `render_backend`: its value is the index here (0 = legacy, the default). */
+export const RENDER_BACKEND_SETTING_VALUES: readonly RendererPreference[] = ['legacy', 'auto', 'webgpu', 'webgl2'];
+/** Legacy until phase 17.4 switches every view to `auto`. */
+export const DEFAULT_RENDERER_PREFERENCE: RendererPreference = 'legacy';
 /** The URL query parameter that forces a backend (`?renderer=webgl2`). */
 export const RENDERER_URL_PARAM = 'renderer';
 /** Engine limit: rebuilds after a lost WebGPU device before the handle gives up (a device that keeps dying is a driver/GPU fault). */
@@ -67,7 +58,6 @@ export function rendererPreferenceFromUrl(search: string | null | undefined): Re
   } catch {
     return null;
   }
-  if (value === LEGACY_URL_VALUE) return 'auto';
   return value !== null && (RENDERER_PREFERENCES as readonly string[]).includes(value) ? (value as RendererPreference) : null;
 }
 
@@ -131,22 +121,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   });
 }
 
-/** `navigator.gpu` exists (the page is a secure context in a browser with WebGPU). */
-function hasWebGpuApi(gpu: GpuLike | undefined): gpu is GpuLike {
-  return gpu !== undefined && gpu !== null && typeof gpu.requestAdapter === 'function';
-}
-
-function noWebGpuReason(secureContext: boolean): string {
-  return secureContext ? 'this browser has no WebGPU (navigator.gpu is missing)' : 'the page is not a secure context (https or localhost), so navigator.gpu is missing';
-}
-
 /**
  * Can WebGPU draw here? An adapter, a device, and one validated command (a
  * device that dies at first use — Dawn without a working Vulkan here — is
  * refused, see §6 of the phase plan). Never rejects.
  */
 export async function probeWebGpu(gpu: GpuLike | undefined, secureContext: boolean, timeoutMs: number = WEBGPU_PROBE_TIMEOUT_MS): Promise<WebGpuProbe> {
-  if (!hasWebGpuApi(gpu)) return { ok: false, reason: noWebGpuReason(secureContext) };
+  if (gpu === undefined || gpu === null || typeof gpu.requestAdapter !== 'function') {
+    return { ok: false, reason: secureContext ? 'this browser has no WebGPU (navigator.gpu is missing)' : 'the page is not a secure context (https or localhost), so navigator.gpu is missing' };
+  }
   try {
     const adapter = await withTimeout(gpu.requestAdapter({ powerPreference: 'high-performance', featureLevel: 'compatibility' }), timeoutMs, 'requestAdapter');
     if (adapter === null) return { ok: false, reason: 'no WebGPU adapter (requestAdapter returned null)' };
@@ -171,8 +154,9 @@ export async function probeWebGpu(gpu: GpuLike | undefined, secureContext: boole
   }
 }
 
-/** Which backend a preference gets, given the probe (pure; the probe is null for `webgl2`). */
+/** Which backend a preference gets, given the probe (pure; the probe is null for `legacy`/`webgl2`). */
 export function decideBackend(preference: RendererPreference, probe: WebGpuProbe | null): { backend: RendererBackend; reason: string } {
+  if (preference === 'legacy') return { backend: 'legacy', reason: 'the WebGL renderer (the default until the WebGPU switch-over)' };
   if (preference === 'webgl2') return { backend: 'webgl2', reason: 'WebGPURenderer on its WebGL 2 backend' };
   if (probe !== null && probe.ok) return { backend: 'webgpu', reason: `WebGPU on ${probe.adapterName}` };
   const why = probe === null ? 'WebGPU was not probed' : probe.reason;
@@ -187,8 +171,7 @@ const SOURCE_TEXT: Record<RendererPreferenceSource, string> = {
 
 // ---- the handle ---------------------------------------------------------------------
 
-/** The renderer every view draws with (phase 17.4: only WebGPURenderer). */
-export type AnyRenderer = WebGPURenderer;
+export type AnyRenderer = THREE.WebGLRenderer | WebGPURenderer;
 
 /** True for three's WebGPURenderer (either backend). */
 export function isNodeRenderer(r: unknown): r is WebGPURenderer {
@@ -200,8 +183,8 @@ export interface RendererInfo {
   source: RendererPreferenceSource;
   /** What draws (null while `auto`/`webgpu` are still probing). */
   backend: RendererBackend | null;
-  /** The graphics API underneath: `webgpu` or `webgl2`. */
-  api: 'webgpu' | 'webgl2' | null;
+  /** The graphics API underneath: `webgpu`, `webgl2` or (legacy only) `webgl1`. */
+  api: 'webgpu' | 'webgl2' | 'webgl1' | null;
   state: RendererState;
   /** Why this backend (and any loss/recovery), ≤ 200 characters plus the source. */
   reason: string;
@@ -226,7 +209,6 @@ export interface RendererHandle {
 
 /** The canvas surface the factory needs (a real canvas satisfies it). */
 export interface RendererCanvasLike {
-  getContext?: (type: string, attributes?: unknown) => unknown;
   addEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
   removeEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
   setAttribute?: (name: string, value: string) => void;
@@ -240,8 +222,6 @@ export interface NodeRendererParams {
   powerPreference: 'high-performance' | 'low-power';
   forceWebGL: boolean;
   device?: GpuDeviceLike;
-  /** Phase 17.4: the WebGL 2 context the factory made for the WebGL 2 backend (same attributes as three's own). */
-  context?: unknown;
 }
 
 /** The parts of a WebGPURenderer the handle drives. */
@@ -249,19 +229,15 @@ export interface NodeRendererLike {
   init(): Promise<unknown>;
   setClearColor(color: number, alpha: number): void;
   onDeviceLost: (info: { api: string; message: string; reason: string | null }) => void;
-  readonly backend: { isWebGPUBackend?: boolean; extensions?: { get(name: string): unknown } };
-  dispose(): unknown;
-}
-
-/** The part of `WEBGL_lose_context` the handle uses. */
-interface LoseContextLike {
-  loseContext(): void;
+  readonly backend: { isWebGPUBackend?: boolean };
+  dispose(): void;
 }
 
 export interface RendererFactoryDeps {
   /** `navigator.gpu` (undefined without WebGPU). */
   gpu(): GpuLike | undefined;
   secureContext(): boolean;
+  createLegacy(params: { canvas: unknown; antialias: boolean; alpha: boolean; preserveDrawingBuffer: boolean; powerPreference: 'high-performance' | 'low-power' }): THREE.WebGLRenderer;
   createNode(params: NodeRendererParams): NodeRendererLike;
   probe(gpu: GpuLike | undefined, secureContext: boolean): Promise<WebGpuProbe>;
 }
@@ -273,17 +249,13 @@ export interface CreateRendererOptions {
   antialias?: boolean;
   /** A transparent canvas where nothing is drawn (default false). */
   alpha?: boolean;
+  /** Legacy only: keep the drawing buffer for a later `toBlob` (thumbnails). */
+  preserveDrawingBuffer?: boolean;
   powerPreference?: 'high-performance' | 'low-power';
   /** The explicit clear colour and alpha (WebGPURenderer's canvas is transparent otherwise). */
   clearColor: number;
   clearAlpha: number;
-  /**
-   * WebGL 2 backend: drop the canvas's WebGL context when the handle is
-   * disposed (the canvas is not drawn to again: Play's and the export's game
-   * canvas, thumbnails, the baker). Default false: the canvas keeps a live
-   * context for a later renderer (a preview restarted on the same canvas) —
-   * three's WebGLBackend would otherwise lose it on every dispose.
-   */
+  /** Legacy: also drop the WebGL context on dispose (the adapter and thumbnails own their canvases). */
   loseContextOnDispose?: boolean;
   /** Tests inject stubs; the browser uses three and `navigator.gpu`. */
   deps?: Partial<RendererFactoryDeps>;
@@ -292,6 +264,7 @@ export interface CreateRendererOptions {
 const BROWSER_DEPS: RendererFactoryDeps = {
   gpu: () => (globalThis as { navigator?: { gpu?: GpuLike } }).navigator?.gpu,
   secureContext: () => (globalThis as { isSecureContext?: boolean }).isSecureContext === true,
+  createLegacy: (p) => new THREE.WebGLRenderer({ canvas: p.canvas as HTMLCanvasElement, antialias: p.antialias, alpha: p.alpha, preserveDrawingBuffer: p.preserveDrawingBuffer, powerPreference: p.powerPreference }),
   createNode: (p) =>
     new WebGPURenderer({
       canvas: p.canvas as HTMLCanvasElement,
@@ -301,15 +274,14 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       forceWebGL: p.forceWebGL,
       // The probed device (WebGPUBackend takes it instead of requesting its own).
       ...(p.device !== undefined ? { device: p.device } : {}),
-      // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
-      ...(p.context !== undefined ? { context: p.context } : {}),
     } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]) as unknown as NodeRendererLike,
   probe: (gpu, secure) => probeWebGpu(gpu, secure),
 };
 
 /**
- * Create the renderer for a canvas. Never throws: failures surface as
- * `state: 'failed'` with the reason.
+ * Create the renderer for a canvas. `legacy` is created synchronously and
+ * throws like `new THREE.WebGLRenderer` does (no WebGL here); the other
+ * backends never throw here — their failures surface as `state: 'failed'`.
  */
 export function createRenderer(o: CreateRendererOptions): RendererHandle {
   const deps: RendererFactoryDeps = { ...BROWSER_DEPS, ...o.deps };
@@ -349,73 +321,70 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     }
   };
 
+  // ---- legacy: today's WebGLRenderer, synchronously -------------------------------
+  if (o.preference === 'legacy') {
+    const r = deps.createLegacy({ canvas: o.canvas, antialias, alpha, preserveDrawingBuffer: o.preserveDrawingBuffer === true, powerPreference });
+    r.setClearColor(o.clearColor, o.clearAlpha);
+    renderer = r;
+    generation = 1;
+    const d = decideBackend('legacy', null);
+    publish({ backend: 'legacy', api: r.capabilities?.isWebGL2 === false ? 'webgl1' : 'webgl2', state: 'ready', reason: d.reason });
+    return {
+      current: () => renderer,
+      ready: () => renderer !== null && !disposed,
+      generation: () => generation,
+      info: () => ({ ...info }),
+      whenReady: () => Promise.resolve(renderer !== null && !disposed),
+      onChange: (l) => {
+        listeners.add(l);
+        return () => listeners.delete(l);
+      },
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        listeners.clear();
+        try {
+          r.dispose();
+        } catch {
+          /* best effort */
+        }
+        if (o.loseContextOnDispose === true) {
+          try {
+            r.forceContextLoss();
+          } catch {
+            /* best effort */
+          }
+        }
+        renderer = null;
+      },
+    };
+  }
+
   // ---- WebGPURenderer: probe (auto/webgpu), build, init; rebuild after a loss ----------
   let initialised = false;
   let lost = false;
   let node: NodeRendererLike | null = null;
 
-  /** The WebGL 2 context's lose extension (taken while the context lives; the handle decides when to use it). */
-  let loseExt: LoseContextLike | null = null;
-
-  const dropRenderer = (final = false): void => {
+  const dropRenderer = (): void => {
     const old = node;
     node = null;
     renderer = null;
     initialised = false;
-    if (old === null) return;
-    // three's WebGLBackend.dispose() loses the context itself (via its extension cache):
-    // the canvas could never take another renderer. The handle keeps that decision.
-    const ext = old.backend.extensions;
-    if (ext !== undefined && typeof ext.get === 'function') {
-      const get = ext.get.bind(ext);
-      ext.get = (name: string): unknown => (name === 'WEBGL_lose_context' ? null : get(name));
-    }
-    const lose = final && o.loseContextOnDispose === true ? loseExt : null;
-    let done: unknown;
-    try {
-      done = old.dispose();
-    } catch {
-      /* best effort: the old renderer may sit on a lost device */
-    }
-    if (lose !== null) {
-      void Promise.resolve(done)
-        .catch(() => undefined)
-        .then(() => {
-          try {
-            lose.loseContext();
-          } catch {
-            /* best effort */
-          }
-        });
+    if (old !== null) {
+      try {
+        old.dispose();
+      } catch {
+        /* best effort: the old renderer may sit on a lost device */
+      }
     }
   };
 
   const build = (device: GpuDeviceLike | null, reason: string): void => {
     if (disposed) return;
     dropRenderer();
-    // The WebGL 2 backend: the context is asked for here, synchronously, with the
-    // attributes three's WebGLBackend uses, so a canvas without WebGL 2 fails at once
-    // (the scene adapter's `render_unsupported` contract) instead of in init().
-    let context: unknown;
-    if (device === null && typeof canvas?.getContext === 'function') {
-      try {
-        context = canvas.getContext('webgl2', { antialias, alpha: true, depth: true, stencil: false, powerPreference }) ?? null;
-      } catch {
-        context = null;
-      }
-      if (context === null) {
-        publish({ backend: null, api: null, state: 'failed', reason: `${reason}, but this canvas has no WebGL 2 context` });
-        return;
-      }
-      try {
-        loseExt = ((context as { getExtension?: (n: string) => unknown }).getExtension?.('WEBGL_lose_context') as LoseContextLike | null | undefined) ?? null;
-      } catch {
-        loseExt = null;
-      }
-    }
     let r: NodeRendererLike;
     try {
-      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}) });
+      r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}) });
       r.setClearColor(o.clearColor, o.clearAlpha);
     } catch (e) {
       publish({ backend: null, api: null, state: 'failed', reason: `the renderer could not be created: ${messageOf(e)}` });
@@ -457,14 +426,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       build(null, `${decideBackend('webgl2', null).reason}${reasonSuffix}`);
       return;
     }
-    const gpu = deps.gpu();
-    if (!hasWebGpuApi(gpu)) {
-      // No navigator.gpu (a plain-http page, an older browser): nothing to probe, WebGL 2 at once.
-      build(null, `${decideBackend(o.preference, { ok: false, reason: noWebGpuReason(deps.secureContext()) }).reason}${reasonSuffix}`);
-      return;
-    }
     publish({ backend: null, api: null, state: 'initialising', reason: `probing WebGPU${reasonSuffix}` });
-    void deps.probe(gpu, deps.secureContext()).then((probe) => {
+    void deps.probe(deps.gpu(), deps.secureContext()).then((probe) => {
       if (disposed) {
         if (probe.ok) probe.device.destroy?.();
         return;
@@ -530,7 +493,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       listeners.clear();
       for (const release of releases) release();
       releases.length = 0;
-      dropRenderer(true);
+      dropRenderer();
       const waiters = readyWaiters;
       readyWaiters = [];
       for (const w of waiters) w(false);
@@ -538,12 +501,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   };
 }
 
-/**
- * The renderer's live GPU resources. `programs` counts the render pipelines
- * WebGPURenderer holds (its `info.memory` has no program count; the archived
- * WebGL renderer reported `info.programs`).
- */
+/** The GPU resource counts both renderers report (`programs` exists only on the legacy one). */
 export function rendererMemory(r: AnyRenderer): { geometries: number; textures: number; programs: number } {
-  const i = r.info as unknown as { memory?: { geometries?: number; textures?: number; programs?: number } };
-  return { geometries: i.memory?.geometries ?? 0, textures: i.memory?.textures ?? 0, programs: i.memory?.programs ?? 0 };
+  const i = r.info as unknown as { memory?: { geometries?: number; textures?: number }; programs?: unknown[] | null };
+  return { geometries: i.memory?.geometries ?? 0, textures: i.memory?.textures ?? 0, programs: Array.isArray(i.programs) ? i.programs.length : 0 };
 }

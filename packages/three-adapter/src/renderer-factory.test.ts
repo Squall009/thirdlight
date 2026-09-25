@@ -63,7 +63,9 @@ describe('renderer preference (URL flag over project setting over default)', () 
     expect(rendererPreferenceFromUrl('?a=1&renderer=webgpu')).toBe('webgpu');
     expect(rendererPreferenceFromUrl('?renderer=vulkan')).toBeNull();
     expect(rendererPreferenceFromUrl('')).toBeNull();
-    expect(rendererPreferenceFromSetting(0)).toBe('legacy');
+    // Phase 17.4: the archived WebGL renderer's values mean auto (old URLs, old stored settings).
+    expect(rendererPreferenceFromUrl('?renderer=legacy')).toBe('auto');
+    expect(rendererPreferenceFromSetting(0)).toBe('auto');
     expect(rendererPreferenceFromSetting(1)).toBe('auto');
     expect(rendererPreferenceFromSetting(2)).toBe('webgpu');
     expect(rendererPreferenceFromSetting(3)).toBe('webgl2');
@@ -74,7 +76,8 @@ describe('renderer preference (URL flag over project setting over default)', () 
   it('resolves url > setting > default', () => {
     expect(resolveRendererPreference({ url: '?renderer=webgpu', setting: 3 })).toEqual({ preference: 'webgpu', source: 'url' });
     expect(resolveRendererPreference({ url: '?renderer=nope', setting: 3 })).toEqual({ preference: 'webgl2', source: 'setting' });
-    expect(resolveRendererPreference({ url: '', setting: undefined })).toEqual({ preference: 'legacy', source: 'default' });
+    expect(resolveRendererPreference({ url: '', setting: undefined })).toEqual({ preference: 'auto', source: 'default' });
+    expect(resolveRendererPreference({ url: '', setting: 0 })).toEqual({ preference: 'auto', source: 'setting' });
   });
 });
 
@@ -110,7 +113,6 @@ describe('decideBackend', () => {
   const ok: WebGpuProbe = { ok: true, device: device(), adapterName: 'A' };
   const no: WebGpuProbe = { ok: false, reason: 'no adapter' };
   it('maps every preference', () => {
-    expect(decideBackend('legacy', null).backend).toBe('legacy');
     expect(decideBackend('webgl2', null).backend).toBe('webgl2');
     expect(decideBackend('auto', ok)).toEqual({ backend: 'webgpu', reason: 'WebGPU on A' });
     expect(decideBackend('auto', no)).toEqual({ backend: 'webgl2', reason: 'no adapter: WebGL 2 backend' });
@@ -133,7 +135,8 @@ function stubDeps(probe: WebGpuProbe | (() => Promise<WebGpuProbe>)): { deps: Pa
   const made: StubNode[] = [];
   const state = { probes: 0 };
   const deps: Partial<RendererFactoryDeps> = {
-    gpu: () => undefined,
+    // A navigator.gpu stand-in (the probe itself is stubbed below).
+    gpu: () => ({ requestAdapter: () => Promise.resolve(null) }),
     secureContext: () => true,
     probe: () => {
       state.probes += 1;
@@ -200,23 +203,48 @@ function eventCanvas(): { canvas: { addEventListener(t: string, l: (e: unknown) 
 }
 
 describe('createRenderer', () => {
-  it('legacy: today\'s WebGLRenderer, ready at once, explicit clear colour, context dropped on dispose', () => {
-    const calls: string[] = [];
-    const legacy = {
-      capabilities: { isWebGL2: true },
-      setClearColor: (c: number, a: number) => calls.push(`clear ${c} ${a}`),
-      dispose: () => calls.push('dispose'),
-      forceContextLoss: () => calls.push('lose'),
-    };
-    const { canvas } = eventCanvas();
-    const h = createRenderer({ canvas, preference: 'legacy', source: 'default', clearColor: 0x000000, clearAlpha: 1, loseContextOnDispose: true, deps: { createLegacy: () => legacy as never } });
-    expect(h.ready()).toBe(true);
-    expect(h.info()).toMatchObject({ backend: 'legacy', api: 'webgl2', state: 'ready', source: 'default' });
-    expect(h.info().reason).toContain('default legacy');
-    expect(canvas.attrs['data-tl-renderer']).toBe('legacy');
-    h.dispose();
-    expect(calls).toEqual(['clear 0 1', 'dispose', 'lose']);
-    expect(h.current()).toBeNull();
+  it('webgl2: the canvas keeps its WebGL context after dispose unless the caller frees it (three would lose it on every dispose)', async () => {
+    for (const loseContextOnDispose of [false, true]) {
+      let lost = 0;
+      const ext = { loseContext: () => (lost += 1) };
+      const gl = { getExtension: (n: string) => (n === 'WEBGL_lose_context' ? ext : null) };
+      const { canvas } = eventCanvas();
+      const withContext = { ...canvas, getContext: (type: string) => (type === 'webgl2' ? gl : null) };
+      let made: { params: NodeRendererParams } | null = null;
+      const h = createRenderer({
+        canvas: withContext,
+        preference: 'webgl2',
+        source: 'default',
+        clearColor: 0,
+        clearAlpha: 1,
+        loseContextOnDispose,
+        deps: {
+          createNode: (params) => {
+            const cache = new Map<string, unknown>();
+            const r = {
+              params,
+              backend: { isWebGPUBackend: false, extensions: { get: (n: string): unknown => (cache.has(n) ? cache.get(n) : (cache.set(n, gl.getExtension(n)), cache.get(n))) } },
+              init: () => Promise.resolve(),
+              setClearColor: () => undefined,
+              onDeviceLost: () => undefined,
+              // What three's WebGLBackend.dispose() does: lose the context through its extension cache.
+              dispose: async (): Promise<void> => {
+                await Promise.resolve();
+                (r.backend.extensions.get('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
+              },
+            };
+            made = r;
+            return r;
+          },
+        },
+      });
+      expect(await h.whenReady()).toBe(true);
+      // The factory asked the canvas for the context and handed it over.
+      expect(made!.params.context).toBe(gl);
+      h.dispose();
+      await flush();
+      expect(lost, `loseContextOnDispose ${loseContextOnDispose}`).toBe(loseContextOnDispose ? 1 : 0);
+    }
   });
 
   it('webgl2: WebGPURenderer forced to WebGL 2, not ready until init resolves', async () => {
@@ -336,7 +364,8 @@ describe('scene adapter on the factory (stubbed WebGPURenderer)', () => {
     res.runtime.tick(0);
     return { runtime: res.runtime, snapshot };
   }
-  const canvas = { getContext: () => null, width: 64, height: 64, clientWidth: 64, clientHeight: 64 };
+  // getContext gives a stand-in WebGL 2 context (the stub renderer never uses it).
+  const canvas = { getContext: () => ({}), width: 64, height: 64, clientWidth: 64, clientHeight: 64 };
 
   it('skips frames while initialising and reports the choice; a lost device is render_context_lost; a failure render_unsupported', async () => {
     const { runtime, snapshot } = makeRuntime();
@@ -373,5 +402,28 @@ describe('scene adapter on the factory (stubbed WebGPURenderer)', () => {
     if (!res.ok) expect(res.error.code).toBe('render_unsupported');
     failing.dispose();
     r2.runtime.dispose();
+  });
+
+  it('a canvas without WebGL 2 (and no navigator.gpu) is render_unsupported on the first frame, sticky, with the reason', () => {
+    const { runtime, snapshot } = makeRuntime();
+    const s = stubDeps({ ok: false, reason: 'unused' });
+    s.deps.gpu = () => undefined;
+    const adapter = createSceneAdapter({ ...canvas, getContext: () => null }, { runtime, snapshot, renderer: { preference: 'auto', source: 'default', deps: s.deps } });
+    const first = adapter.renderFrame();
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.error.code).toBe('render_unsupported');
+    expect(s.probes).toBe(0); // nothing to probe without navigator.gpu
+    expect(s.made).toHaveLength(0);
+    const again = adapter.renderFrame();
+    expect(again.ok).toBe(false);
+    const d = adapter.diagnostics();
+    if (d.ok) {
+      expect(d.diagnostics.renderBackend).toBeNull();
+      expect(d.diagnostics.renderer).toMatchObject({ requested: 'auto', state: 'failed' });
+      expect(d.diagnostics.renderer?.reason).toContain('no WebGL 2 context');
+      expect(d.diagnostics.renderer?.reason).toContain('navigator.gpu is missing');
+    }
+    adapter.dispose();
+    runtime.dispose();
   });
 });

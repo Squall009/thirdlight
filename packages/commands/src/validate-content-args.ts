@@ -460,10 +460,10 @@ export function validateSetBehaviorPropertiesArgs(
 
 /** Component field sets (commands.md §8.10). */
 const COMPONENT_FIELDS: Record<string, readonly string[]> = {
-  box: ['size', 'material'],
+  box: ['size', 'material', 'castShadow', 'receiveShadow'],
   camera: ['type', 'fovY', 'near', 'far'],
   // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
-  model: ['asset', 'piece'],
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape', 'oneWay'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
@@ -471,11 +471,11 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 15.2: which way the player faces at this spawn (v4).
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
-  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode'],
+  light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   // Phase 12 (c) / 9.4 (v4 scenes).
-  instances: ['asset', 'buffer', 'count'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow'],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'],

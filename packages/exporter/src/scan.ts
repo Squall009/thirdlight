@@ -12,9 +12,10 @@
  *      the lockfile registry integrity equal to the recorded sha512).
  *   2. Flags — the build used exactly the export.md §5.3 pinned option set
  *      (enforced by the exporter's build call, not re-checkable here).
- *   3. Reference build — a reference full three bundle (the entry imports
- *      `three`, `three/webgpu` and `three/tsl` — phase 17.1: the engine links
- *      the WebGPU renderer — same pinned options) re-scans to exactly the
+ *   3. Reference build — a reference full three bundle (phase 17.4: the
+ *      entry imports `three/webgpu` (the core re-exported) and `three/tsl`,
+ *      the one three build the engine links — same pinned options, `three`
+ *      resolved to `three/webgpu` as in the bundle) re-scans to exactly the
  *      table's counts (re-verifies the record against the current install
  *      before the real bundle is judged).
  *   4. Real-bundle exact counts — as recorded below.
@@ -30,7 +31,7 @@
  * Pure string/byte processing: no I/O (the bytes are passed in).
  */
 
-/** The §5.4.1 recorded-exception table (pinned three@0.186.0, pinned flags; phase 17.1: three + three/webgpu + three/tsl). */
+/** The §5.4.1 recorded-exception table (pinned three@0.186.0, pinned flags; phase 17.4: the WebGPU build — three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu). */
 export const THREE_RECORD = {
   version: '0.186.0',
   /** dependencies.md §7 / export.md §5.4.1: npm registry integrity of three@0.186.0. */
@@ -41,8 +42,8 @@ export const THREE_RECORD = {
   processDot: 16,
   /** h — `http://` (XHTML namespace + two doc comments; one more doc comment in the WebGPU renderer). */
   http: 4,
-  /** h — `https://` (23 doc-comment reference links in three core; 4 more in the WebGPU renderer and TSL). */
-  https: 27,
+  /** h — `https://` (22 doc-comment reference links in three core; 4 more in the WebGPU renderer and TSL; phase 17.4: the WebGL renderer build's one is gone). */
+  https: 26,
   /** h — `file://`: absent. */
   file: 0,
   /** j — `XMLHttpRequest` (three doc comments); `WebSocket`: 0. */

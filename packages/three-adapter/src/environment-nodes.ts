@@ -4,13 +4,13 @@
  * `environment.ts`:
  *
  * - `createSkyMesh`: the physical sky as three's `SkyMesh` (the TSL port of
- *   `Sky.js`), clouds held still like the legacy sky (its `time` never moves);
- * - `gradientSkyMaterial`: the gradient dome, the legacy shader line by line;
+ *   `Sky.js`), clouds held still like the archived (WebGL) sky (its `time` never moves);
+ * - `gradientSkyMaterial`: the gradient dome, the archived (WebGL) shader line by line;
  * - `buildPostPipeline`: the post stack as a `RenderPipeline` (three's node
- *   post-processing, renamed from `PostProcessing` in r183) in the legacy
+ *   post-processing, renamed from `PostProcessing` in r183) in the archived WebGL
  *   pass order: scene → ambient occlusion (GTAO) → fog volumes → depth of
  *   field → bloom → output (tone mapping + sRGB) → grading / LUT / vignette →
- *   SMAA / FXAA. The fog volume and grading passes mirror the legacy GLSL line
+ *   SMAA / FXAA. The fog volume and grading passes mirror the archived (WebGL) GLSL line
  *   by line; AO, DOF, bloom, SMAA and FXAA are three's TSL display nodes.
  *
  * Pure three.js (`three/webgpu`, `three/tsl`, examples); nothing here needs a
@@ -63,7 +63,7 @@ import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
 
-/** The fog volume cap (the same as the legacy pass). */
+/** The fog volume cap (the same as the archived (WebGL) pass). */
 export const MAX_FOG_VOLUMES = 16;
 
 /** The physical sky's parameters (the project's `sky` fields). */
@@ -75,7 +75,7 @@ export interface SkyParams {
   sun: THREE.Vector3;
 }
 
-/** three's TSL sky with the project's parameters; its clouds stand still (the legacy sky's `time` stays 0). */
+/** three's TSL sky with the project's parameters; its clouds stand still (the archived (WebGL) sky's `time` stays 0). */
 export function createSkyMesh(p: SkyParams): THREE.Mesh {
   const s = new SkyMesh();
   s.scale.setScalar(4500);
@@ -91,7 +91,7 @@ export function createSkyMesh(p: SkyParams): THREE.Mesh {
 /**
  * The gradient dome: above the horizon horizon→top (h^0.6), below it
  * horizon→bottom ((−h)^0.5), h = the direction's height. Unlit, no fog (the
- * legacy ShaderMaterial draws no fog either).
+ * archived (WebGL) ShaderMaterial drew no fog either).
  */
 export function gradientSkyMaterial(top: THREE.Color, horizon: THREE.Color, bottom: THREE.Color): THREE.Material {
   const m = new MeshBasicNodeMaterial();
@@ -201,12 +201,12 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     disposables.push(aoNode);
     const intensity = uniform(plan.ssao!.intensity);
     const occlusion = aoNode.getTextureNode().r;
-    // The legacy blend: colour × mix(1, ao, intensity).
+    // The archived GLSL blend: colour × mix(1, ao, intensity).
     color = vec4(color.rgb.mul(mix(float(1), occlusion, intensity)), color.a);
     passes.push('ssao');
   }
 
-  // ---- fog volumes (the legacy TlFogVolumeShader, line by line) -----------------------
+  // ---- fog volumes (the archived (WebGL) TlFogVolumeShader, line by line) -----------------------
   const count = uniform(0, 'int');
   const vMin: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
   const vMax: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
@@ -271,7 +271,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     passes.push('fogVolumes');
   }
 
-  // ---- depth of field (three's DOF node; the legacy Bokeh parameters mapped) ----------
+  // ---- depth of field (three's DOF node; the archived (WebGL) Bokeh parameters mapped) ----------
   // Legacy: blur radius (UV) = clamp(|distance − focus| · aperture, 0, maxBlur), gathered at
   // up to 0.4 of it with the aspect folded into X: in pixels 0.4 · maxBlur · width at full blur.
   // Node DOF: CoC = smoothstep(0, focalLength, |distance − focus|), radius = CoC · bokehScale px.
@@ -309,7 +309,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     color = vec4(fg.rgb.add(bg.rgb.mul(float(1).sub(fg.a))), fg.a.add(bg.a.mul(float(1).sub(fg.a))));
   }
 
-  // ---- grading, LUT, vignette (the legacy TlGradingShader, line by line) --------------
+  // ---- grading, LUT, vignette (the archived (WebGL) TlGradingShader, line by line) --------------
   const lutNode: N = texture(blankLut());
   const lutSize = uniform(0);
   if (plan.grading !== null) {

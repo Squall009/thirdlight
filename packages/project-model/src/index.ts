@@ -279,7 +279,7 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
-export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
+export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, MAX_EXIT_SCENES, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, canonicalGame, MAX_SCENES, GAME_TIMING_DEFAULTS, GAME_TIMING_FIELDS, GAME_TIMING_LIMITS } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';

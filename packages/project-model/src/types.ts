@@ -34,6 +34,10 @@ export interface BoxMaterial {
 export interface BoxComponent {
   size: Vec3;
   material: BoxMaterial;
+  /** Phase 17.4: casts the directional light's realtime shadow (absent: true). */
+  castShadow?: boolean;
+  /** Phase 17.4: shows realtime shadows falling on it (absent: true). */
+  receiveShadow?: boolean;
 }
 
 /** `camera` component (§10.3) — perspective; `aspect` is never persisted. */

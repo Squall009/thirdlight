@@ -22,7 +22,7 @@ function mesh(material: THREE.Material = new THREE.MeshStandardMaterial({ name: 
 
 describe('material library: node materials', () => {
   it('builds node materials for every shader type, keeping the file material values', () => {
-    const lib = createMaterialLibrary({ loadTexture: async () => null, nodeMaterials: true });
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
     lib.setMaterials([def('std', 'standard', { roughness: 0.2 }), def('fol', 'foliage'), def('kit', 'kit'), def('flat', 'unlit', { color: '#ff0000' }), def('wat', 'water')]);
     const got: Record<string, THREE.Material> = {};
     for (const id of ['std', 'fol', 'kit', 'flat', 'wat']) {
@@ -49,7 +49,7 @@ describe('material library: node materials', () => {
 
   it('rebuilds the kit normal once its normal and macro maps arrive', async () => {
     const tex = new THREE.Texture();
-    const lib = createMaterialLibrary({ loadTexture: async () => tex, nodeMaterials: true });
+    const lib = createMaterialLibrary({ loadTexture: async () => tex });
     lib.setMaterials([def('kit', 'kit', {}, { normalMap: 'n', macroNormalMap: 'm', ormMap: 'o' })]);
     const m = mesh();
     lib.apply(m, { '*': 'kit' });
@@ -64,19 +64,16 @@ describe('material library: node materials', () => {
     expect(mat.version).toBeGreaterThan(version);
   });
 
-  it('switches between node and WebGL materials, rebuilding what is applied', () => {
+  it('never builds a plain (onBeforeCompile) material: every shader type is a node material without shader hooks', () => {
     const lib = createMaterialLibrary({ loadTexture: async () => null });
-    lib.setMaterials([def('fol', 'foliage')]);
-    const m = mesh();
-    lib.apply(m, { '*': 'fol' });
-    const legacy = m.material as THREE.Material;
-    expect(isNodeMaterial(legacy)).toBe(false);
-    lib.setNodeMaterials(true);
-    expect(lib.nodeMaterials()).toBe(true);
-    expect(isNodeMaterial(m.material)).toBe(true);
-    lib.setNodeMaterials(false);
-    expect(isNodeMaterial(m.material)).toBe(false);
-    expect(m.material).not.toBe(legacy);
+    lib.setMaterials([def('fol', 'foliage'), def('kit', 'kit'), def('wat', 'water')]);
+    for (const id of ['fol', 'kit', 'wat']) {
+      const m = mesh();
+      lib.apply(m, { '*': id });
+      const mat = m.material as THREE.Material;
+      expect(isNodeMaterial(mat), id).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(mat, 'onBeforeCompile'), id).toBe(false);
+    }
   });
 });
 
@@ -84,13 +81,11 @@ describe('lightmaps on node materials', () => {
   it('converts a plain material to a node copy with the lightmap on UV1 and the range as intensity', () => {
     const plain = new THREE.MeshLambertMaterial({ color: 0x808080 });
     const map = new THREE.Texture();
-    const c = lightmappedMaterial(plain, map, 1.6, false, true) as THREE.MeshLambertMaterial;
+    const c = lightmappedMaterial(plain, map, 1.6, false) as THREE.MeshLambertMaterial;
     expect(c.type).toBe('MeshLambertNodeMaterial');
     expect(c.lightMap).toBe(map);
     expect(c.lightMapIntensity).toBe(1.6);
     expect(c.color.getHex()).toBe(0x808080);
-    // The legacy path is unchanged: a plain clone.
-    expect(isNodeMaterial(lightmappedMaterial(plain, map, 1, false, false))).toBe(false);
   });
 
   it('the no-ambient copy leaves ambient and hemisphere lights out of its lighting and says so in its cache key', () => {
@@ -115,7 +110,7 @@ describe('lightmaps on node materials', () => {
 
   it('a lightmapped node copy follows its source and keeps its hooks', () => {
     const src = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const copy = lightmappedMaterial(src, new THREE.Texture(), 2, true, true) as THREE.MeshStandardMaterial;
+    const copy = lightmappedMaterial(src, new THREE.Texture(), 2, true) as THREE.MeshStandardMaterial;
     const key = copy.customProgramCacheKey();
     src.color.setHex(0x22aa22);
     refreshLightmappedMaterial(copy, src);
@@ -125,12 +120,12 @@ describe('lightmaps on node materials', () => {
     expect(cloneMaterial(copy).customProgramCacheKey()).toBe(key);
   });
 
-  it('applyLightmap with nodeMaterials puts node copies on UV1 meshes and undoes', () => {
+  it('applyLightmap puts node copies on UV1 meshes and undoes', () => {
     const g = new THREE.BoxGeometry();
     g.setAttribute('uv1', g.getAttribute('uv').clone());
     const original = new THREE.MeshLambertMaterial();
     const m = new THREE.Mesh(g, original);
-    const undo = applyLightmap(m, new THREE.Texture(), [1, 1, 0, 0], 1.2, { ignoreAmbient: true, nodeMaterials: true });
+    const undo = applyLightmap(m, new THREE.Texture(), [1, 1, 0, 0], 1.2, { ignoreAmbient: true });
     expect(isNodeMaterial(m.material)).toBe(true);
     undo();
     expect(m.material).toBe(original);
@@ -139,7 +134,7 @@ describe('lightmaps on node materials', () => {
 
 describe('per-mesh looks', () => {
   it('the checkpoint glow gives a mesh wearing a shared project material its own copy', () => {
-    const lib = createMaterialLibrary({ loadTexture: async () => null, nodeMaterials: true });
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
     lib.setMaterials([def('pad', 'standard')]);
     const file = new THREE.MeshStandardMaterial({ name: 'file' });
     const a = mesh(file);

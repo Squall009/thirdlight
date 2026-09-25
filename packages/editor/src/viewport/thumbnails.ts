@@ -10,7 +10,7 @@
  * Browser-only (three.js + WebGL/WebGPU).
  */
 import * as THREE from 'three';
-import { createRenderer, isNodeRenderer, type PreparedVisualResource, type RendererHandle, type VertexColorMode } from '@thirdlight/three-adapter';
+import { createRenderer, type PreparedVisualResource, type RendererHandle, type VertexColorMode } from '@thirdlight/three-adapter';
 
 import { editorRendererChoice } from './renderer-choice';
 
@@ -131,7 +131,7 @@ export class ThumbnailRenderer {
         canvas.height = THUMBNAIL_SIZE;
         const choice = editorRendererChoice();
         // A transparent background: the tile's own colour shows around the model.
-        this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, alpha: true, antialias: true, preserveDrawingBuffer: true, clearColor: 0x000000, clearAlpha: 0, loseContextOnDispose: true });
+        this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, alpha: true, antialias: true, clearColor: 0x000000, clearAlpha: 0, loseContextOnDispose: true });
       }
       if (!(await this.renderer.whenReady()) || this.disposed) return null;
       const renderer = this.renderer.current();
@@ -153,9 +153,8 @@ export class ThumbnailRenderer {
       this.camera.updateProjectionMatrix();
       renderer.render(this.scene, this.camera);
       const canvas = renderer.domElement;
-      // WebGPURenderer keeps no drawing buffer: the PNG is read in the same task as the render.
-      if (isNodeRenderer(renderer)) return dataUrlBlob(canvas.toDataURL('image/png'));
-      return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+      // WebGPURenderer keeps no drawing buffer (WebGPU and WebGL 2): the PNG is read in the same task as the render.
+      return dataUrlBlob(canvas.toDataURL('image/png'));
     } finally {
       this.scene.remove(instance.root);
       instance.dispose();

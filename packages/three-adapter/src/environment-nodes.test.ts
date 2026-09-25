@@ -8,7 +8,8 @@
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+
+import type { WebGPURenderer } from 'three/webgpu';
 
 import type { FogVolumeBox, PostPlan } from './environment-nodes';
 
@@ -52,8 +53,8 @@ vi.mock('./environment-nodes', async (importOriginal) => {
 
 const { createEnvironmentRenderer } = await import('./environment');
 
-function nodeRenderer(): THREE.WebGLRenderer & { render: ReturnType<typeof vi.fn> } {
-  return { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, samples: 4, getPixelRatio: () => 1, render: vi.fn() } as unknown as THREE.WebGLRenderer & { render: ReturnType<typeof vi.fn> };
+function nodeRenderer(): WebGPURenderer & { render: ReturnType<typeof vi.fn> } {
+  return { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, samples: 4, getPixelRatio: () => 1, render: vi.fn() } as unknown as WebGPURenderer & { render: ReturnType<typeof vi.fn> };
 }
 
 afterEach(() => {
@@ -70,7 +71,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     const sky = scene.children.find((o) => (o as { isSkyMesh?: boolean }).isSkyMesh === true) as unknown as { turbidity: { value: number }; cloudSpeed: { value: number }; sunPosition: { value: THREE.Vector3 } };
     expect(sky).toBeDefined();
     expect(sky.turbidity.value).toBe(4);
-    expect(sky.cloudSpeed.value).toBe(0); // clouds stand still, like the legacy sky
+    expect(sky.cloudSpeed.value).toBe(0); // clouds stand still, like the archived WebGL sky
     expect(sky.sunPosition.value.toArray().map((v) => Math.round(v * 1000) / 1000 + 0)).toEqual([0, 0.707, 0.707]);
     expect(scene.environment).not.toBeNull();
 
@@ -88,8 +89,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(scene.children).toHaveLength(0);
   });
 
-  it('plans the post stack per quality level, never builds an EffectComposer, and rebuilds only on a change', () => {
-    const composerRender = vi.spyOn(EffectComposer.prototype, 'render');
+  it('plans the post stack per quality level and rebuilds only on a change (not on same-size frames)', () => {
     const renderer = nodeRenderer();
     const scene = new THREE.Scene();
     const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
@@ -102,7 +102,6 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
       env.resize(800, 600);
       env.render(camera);
     }
-    expect(composerRender).not.toHaveBeenCalled();
     expect(built).toHaveLength(1);
     const plan = built[0]!.plan;
     expect(plan.bloom).toEqual({ strength: 1.5, radius: 0.4, threshold: 0.85 });
@@ -110,7 +109,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(plan.dof).toEqual({ focus: 4, aperture: 0.002, maxBlur: 0.01 });
     expect(plan.grading).toMatchObject({ lift: 0.2, gamma: 1, gain: 1, vignette: 0.7 });
     expect(plan.aa).toBe('smaa');
-    expect(plan.samples).toBe(0); // like the legacy composer: no MSAA in the post stack
+    expect(plan.samples).toBe(0); // like the archived EffectComposer: no MSAA in the post stack
     expect(plan.displayBackground).toBe(false);
     expect(built[0]!.renders).toBe(5);
     expect(renderer.render).not.toHaveBeenCalled();

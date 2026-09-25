@@ -8,12 +8,12 @@
  * lift/gamma/gain + vignette, a LUT, bloom, ambient occlusion, depth of
  * field, SMAA, FXAA and a low quality level render in a neutral scene
  * (`env-parity/harness.ts`) and are compared with the WebGL reference images
- * captured from the legacy renderer before the port (`env-parity/refs/*.png`,
- * re-captured with `TL_CAPTURE_ENV_REFS=1 npx playwright test
- * tests/e2e/env-parity.e2e.ts --project=default`).
+ * captured from the WebGLRenderer path before the port (`env-parity/refs/*.png`).
+ * Phase 17.4: that path is archived (`archive/webgl-renderer-17/`); the
+ * references are frozen as the contract.
  *
- * - `default` project: the legacy renderer still draws its references, and
- *   WebGPURenderer's WebGL 2 backend (TSL sky/fog volumes/post) matches them.
+ * - `default` project: WebGPURenderer's WebGL 2 backend (TSL sky/fog
+ *   volumes/post) matches them, with the archived stack's pass list.
  * - `webgpu` project: WebGPU matches them.
  *
  * Tolerances (logged in docs/plan-phase-17.md §6, 17.3): the 17.2 rule for
@@ -33,7 +33,6 @@ import { decodePng, type Image } from './png';
 const HERE = resolve(import.meta.dirname, 'env-parity');
 const REFS = join(HERE, 'refs');
 const REPO = resolve(import.meta.dirname, '..', '..');
-const CAPTURE = process.env['TL_CAPTURE_ENV_REFS'] === '1';
 const WIDTH = 320;
 const HEIGHT = 240;
 
@@ -110,6 +109,22 @@ const TOLERANCE: Partial<Record<CaseName, Tolerance>> = {
 };
 const tolerance = (name: CaseName): Tolerance => TOLERANCE[name] ?? STRICT;
 
+/**
+ * The post passes of each case — the pass list the archived WebGL stack
+ * reported for it (17.3 checked WebGL 2 against it case by case); no entry:
+ * no post stack (a plain frame).
+ */
+const PASSES: Partial<Record<CaseName, string[]>> = {
+  'fog-volume': ['render', 'fogVolumes', 'output'],
+  grading: ['render', 'output', 'grading'],
+  lut: ['render', 'output', 'grading'],
+  bloom: ['render', 'bloom', 'output'],
+  ssao: ['render', 'ssao', 'output'],
+  dof: ['render', 'dof', 'output'],
+  smaa: ['render', 'output', 'smaa'],
+  fxaa: ['render', 'output', 'fxaa'],
+};
+
 let harness: { base: string; close: () => Promise<void> } | null = null;
 test.beforeAll(async () => {
   harness = await serveHarness(join(HERE, 'harness.ts'), REPO, WIDTH, HEIGHT);
@@ -165,39 +180,16 @@ function notPlain(name: CaseName, label: string, got: Rendered): void {
 
 const project = (): string => test.info().project.name;
 
-if (CAPTURE) {
-  test('capture the WebGL environment reference images (legacy renderer)', async ({ page }) => {
-    test.skip(project() !== 'default', 'references come from the default project');
-    test.setTimeout(600_000);
-    mkdirSync(REFS, { recursive: true });
-    for (const name of CASES) {
-      const got = await render(page, 'legacy', name);
-      writeFileSync(join(REFS, `${name}.png`), got.png);
-      console.log(`[env-parity] captured ${name}.png (${got.png.length} bytes) passes=${got.passes.join(',')}`);
-    }
+for (const name of CASES) {
+  test(`${name}: WebGPURenderer matches the WebGL environment reference`, async ({ page }) => {
+    test.setTimeout(150_000);
+    const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+    const got = await render(page, backend, name);
+    expect(got.backend).toBe(backend);
+    expect(got.fallback).toBeNull();
+    // The same passes as the archived WebGL stack.
+    expect(got.passes).toEqual(PASSES[name] ?? []);
+    notPlain(name, backend, got);
+    expect(within(compare(name, backend, got), tolerance(name)), `${backend} ${name}`).toBe(true);
   });
-} else {
-  for (const name of CASES) {
-    test(`${name}: WebGPURenderer matches the WebGL environment reference`, async ({ page }) => {
-      test.setTimeout(150_000);
-      if (project() === 'webgpu') {
-        const got = await render(page, 'webgpu', name);
-        expect(got.backend).toBe('webgpu');
-        expect(got.fallback).toBeNull();
-        notPlain(name, 'webgpu', got);
-        expect(within(compare(name, 'webgpu', got), tolerance(name)), `webgpu ${name}`).toBe(true);
-        return;
-      }
-      // The legacy path is unchanged until the switch-over: it still draws its references.
-      const legacy = await render(page, 'legacy', name);
-      expect(within(compare(name, 'legacy', legacy), tolerance(name)), `legacy ${name}`).toBe(true);
-      const got = await render(page, 'webgl2', name);
-      expect(got.backend).toBe('webgl2');
-      expect(got.fallback).toBeNull();
-      // The same passes as the legacy stack.
-      expect(got.passes).toEqual(legacy.passes);
-      notPlain(name, 'webgl2', got);
-      expect(within(compare(name, 'webgl2', got), tolerance(name)), `webgl2 ${name}`).toBe(true);
-    });
-  }
 }

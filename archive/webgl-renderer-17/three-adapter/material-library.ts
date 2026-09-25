@@ -2,10 +2,10 @@
  * Phase 9.4: project materials at runtime (editor view, Play and export).
  *
  * A material definition is a shader type plus overrides. On a model it
- * starts from the file's own material (a copy keeps its textures) and
+ * starts from the file's own material (a clone keeps its textures) and
  * changes only what it sets; on a box it starts from the shader defaults.
- * The shader types extend three's standard node material with TSL nodes
- * (phase 17.2), so lighting, shadows and fog stay three's own:
+ * The shader types extend three's standard material through
+ * `onBeforeCompile`, so lighting, shadows and fog stay three's own:
  *
  * - foliage: COLOR_0 drives wind (R bend weight root→tip, G phase, B flutter,
  *   A thinness → a small translucency term). The vertex colour is read as data
@@ -18,10 +18,12 @@
  *
  * Wind and time are one shared uniform block updated by `tick()`.
  *
- * Phase 17.4: node materials only (every view draws with `WebGPURenderer`);
- * the `onBeforeCompile` twins of phases 9.4–17.3 are archived in
- * `archive/webgl-renderer-17/`. The pixel-parity e2e compares the node
- * materials with the reference images those twins drew.
+ * Phase 17.2: the same shader types as node materials (TSL) for three's
+ * `WebGPURenderer` (`nodeMaterials: true`, or `setNodeMaterials(true)` when
+ * a view switches renderer), which ignores `onBeforeCompile`. Both paths take
+ * the same parameters and draw the same picture (the pixel-parity e2e
+ * compares them); the `onBeforeCompile` path stays until the switch-over
+ * (17.4).
  *
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
@@ -56,6 +58,8 @@ export interface MaterialLibraryOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   /** Something changed that needs a new frame (a texture arrived, a material was rebuilt). */
   onChange?: () => void;
+  /** Phase 17.2: build node materials (the renderer is `WebGPURenderer`); default false (the WebGL renderer). */
+  nodeMaterials?: boolean;
 }
 
 export interface MaterialLibrary {
@@ -71,6 +75,13 @@ export interface MaterialLibrary {
    * restores the file's materials and stops tracking `root`.
    */
   apply(root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null): () => void;
+  /**
+   * Phase 17.2: switch between node materials (`WebGPURenderer`) and the
+   * WebGL renderer's materials; every applied material is rebuilt.
+   */
+  setNodeMaterials(on: boolean): void;
+  /** Whether the library builds node materials. */
+  nodeMaterials(): boolean;
   dispose(): void;
 }
 
@@ -78,6 +89,15 @@ export interface MaterialLibrary {
 export const DEFAULT_WIND_LIKE: WindLike = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
 
 const SOURCE = '__tlSourceMaterial';
+
+const COMMON_VERTEX_PARS = /* glsl */ `
+uniform float uTlTime;
+uniform vec2 uTlWindDir;
+uniform float uTlWindStrength;
+uniform float uTlWindGust;
+uniform float uTlWindGustFreq;
+uniform float uTlWindTurb;
+`;
 
 function num(v: unknown, d: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
@@ -87,10 +107,18 @@ function vec2(v: unknown, d: [number, number]): [number, number] {
 }
 
 export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
-  /** The shared wind and clock block (TSL uniforms). */
+  const globals = {
+    uTlTime: { value: 0 },
+    uTlWindDir: { value: new THREE.Vector2(1, 0) },
+    uTlWindStrength: { value: DEFAULT_WIND_LIKE.strength },
+    uTlWindGust: { value: DEFAULT_WIND_LIKE.gust },
+    uTlWindGustFreq: { value: DEFAULT_WIND_LIKE.gustFrequency },
+    uTlWindTurb: { value: DEFAULT_WIND_LIKE.turbulence },
+  };
+  /** The same shared block as TSL uniforms (node materials). */
   const nodeGlobals = {
     time: TSL.uniform(0),
-    windDir: TSL.uniform(new THREE.Vector2(1, 0)),
+    windDir: TSL.uniform(globals.uTlWindDir.value),
     strength: TSL.uniform(DEFAULT_WIND_LIKE.strength),
     gust: TSL.uniform(DEFAULT_WIND_LIKE.gust),
     gustFreq: TSL.uniform(DEFAULT_WIND_LIKE.gustFrequency),
@@ -103,6 +131,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const applied = new Map<THREE.Object3D, Readonly<Record<string, string>> | null>();
   let animatedCount = 0;
   let disposed = false;
+  let nodeMode = options.nodeMaterials === true;
   /** Node materials whose nodes depend on textures that arrive later (rebuilt on arrival). */
   const nodeRefresh = new WeakMap<THREE.Material, () => void>();
   const refreshNodes = (m: THREE.Material): void => {
@@ -143,7 +172,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (def.shader === 'unlit') {
       const src = source as THREE.MeshStandardMaterial | null;
       const colour = { color: new THREE.Color(typeof p['color'] === 'string' ? p['color'] : '#ffffff') };
-      const m = new MeshBasicNodeMaterial(colour) as unknown as THREE.MeshBasicMaterial;
+      const m = nodeMode ? (new MeshBasicNodeMaterial(colour) as unknown as THREE.MeshBasicMaterial) : new THREE.MeshBasicMaterial(colour);
       if (src?.map) m.map = src.map;
       m.vertexColors = p['vertexTint'] === true;
       applyAlpha(m, p);
@@ -152,7 +181,12 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       loadSlot(def, m, 'map', 'map', true);
       return m;
     }
-    const m = standardNodeMaterialFrom(source instanceof THREE.MeshStandardMaterial ? source : null) as unknown as THREE.MeshStandardMaterial;
+    const base = nodeMode
+      ? (standardNodeMaterialFrom(source instanceof THREE.MeshStandardMaterial ? source : null) as unknown as THREE.MeshStandardMaterial)
+      : source instanceof THREE.MeshStandardMaterial
+        ? (source.clone() as THREE.MeshStandardMaterial)
+        : new THREE.MeshStandardMaterial();
+    const m = base;
     m.name = def.name;
     m.vertexColors = false; // COLOR_0 is data for every project material
     if (typeof p['color'] === 'string') m.color.set(p['color']);
@@ -189,9 +223,15 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         options.onChange?.();
       });
     }
-    if (def.shader === 'foliage') installFoliageNodes(m, p);
-    else if (def.shader === 'kit') installKitNodes(m, def);
-    else if (def.shader === 'water') installWaterNodes(m, p);
+    if (nodeMode) {
+      if (def.shader === 'foliage') installFoliageNodes(m, p);
+      else if (def.shader === 'kit') installKitNodes(m, def);
+      else if (def.shader === 'water') installWaterNodes(m, p);
+      return m;
+    }
+    if (def.shader === 'foliage') installFoliage(m, p);
+    else if (def.shader === 'kit') installKit(m, def);
+    else if (def.shader === 'water') installWater(m, p);
     return m;
   };
 
@@ -222,20 +262,197 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     });
   }
 
+  function installFoliage(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
+    animatedCount += 1;
+    const local = {
+      uTlBend: { value: num(p['windBend'], 1) },
+      uTlFlutter: { value: num(p['windFlutter'], 1) },
+      uTlFlutterFreq: { value: num(p['flutterFrequency'], 6) },
+      uTlSubsurface: { value: num(p['subsurface'], 0.3) },
+    };
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, globals, local);
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+${COMMON_VERTEX_PARS}
+uniform float uTlBend;
+uniform float uTlFlutter;
+uniform float uTlFlutterFreq;
+#if !defined(USE_COLOR) && !defined(USE_COLOR_ALPHA)
+attribute vec4 color;
+#endif
+varying float vTlThin;`,
+        )
+        // Phase 15.5: the sway is in absolute metres (about 0.1 m at the tip in the
+        // default breeze) — plant-sized for grass and shrubs; taller foliage raises
+        // its material's windBend / windFlutter (0–4×). Kept (changing it would move
+        // every existing project's foliage); a size-relative sway is a material-graph
+        // (phase 18) candidate.
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+{
+  mat4 tlModel = modelMatrix;
+  #ifdef USE_INSTANCING
+  tlModel = modelMatrix * instanceMatrix;
+  #endif
+  vec4 tlWorld = tlModel * vec4(transformed, 1.0);
+  float tlBend = color.r * color.r * uTlBend;
+  float tlPhase = color.g * 6.2831853;
+  float tlGust = 0.5 + 0.5 * sin(uTlTime * uTlWindGustFreq * 6.2831853 - tlWorld.x * 0.08 * (1.0 + uTlWindTurb * 3.0));
+  float tlSway = sin(uTlTime * 1.7 + tlPhase + tlWorld.x * 0.4 * uTlWindTurb) * 0.35;
+  float tlStrength = uTlWindStrength + uTlWindGust * tlGust;
+  vec2 tlDir = length(uTlWindDir) > 0.0 ? normalize(uTlWindDir) : vec2(1.0, 0.0);
+  vec3 tlOffset = vec3(tlDir.x, 0.0, tlDir.y) * tlStrength * (0.65 + tlSway) * tlBend * 0.12;
+  tlOffset.y -= length(tlOffset) * 0.35;
+  tlOffset += normalize(mat3(tlModel) * objectNormal) * sin(uTlTime * uTlFlutterFreq + tlPhase * 3.0 + tlWorld.x * 2.3) * color.b * uTlFlutter * 0.015 * (0.5 + tlStrength);
+  transformed += inverse(mat3(tlModel)) * tlOffset;
+  vTlThin = color.a;
+}`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+uniform float uTlSubsurface;
+varying float vTlThin;`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+totalEmissiveRadiance += diffuseColor.rgb * uTlSubsurface * vTlThin * 0.25;`);
+    };
+    m.customProgramCacheKey = () => 'tl-foliage';
+  }
+
+  function installKit(m: THREE.MeshStandardMaterial, def: MaterialDefLike): void {
+    const p = def.params;
+    const local = {
+      uTlUvPeriod: { value: num(p['uvPeriod'], 4) },
+      uTlMacroNormal: { value: null as THREE.Texture | null },
+      uTlMacroNormalScale: { value: num(p['macroNormalScale'], 1) },
+    };
+    const macroId = def.textures['macroNormalMap'];
+    if (macroId !== undefined) {
+      m.defines = { ...(m.defines ?? {}), TL_KIT_MACRO: '' };
+      void texture(macroId).then((t) => {
+        if (t === null || disposed) return;
+        const c = t.clone();
+        c.colorSpace = THREE.NoColorSpace;
+        c.flipY = false;
+        c.needsUpdate = true;
+        local.uTlMacroNormal.value = c;
+        options.onChange?.();
+      });
+    }
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, local);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+uniform float uTlUvPeriod;
+#if defined(TL_KIT_MACRO) && !defined(USE_UV1)
+attribute vec2 uv1;
+#endif
+varying vec2 vTlUv1;`)
+        .replace(
+          '#include <uv_vertex>',
+          `#include <uv_vertex>
+{
+  vec4 tlOrigin = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  #ifdef USE_INSTANCING
+  tlOrigin = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  #endif
+  float tlShift = tlOrigin.x / uTlUvPeriod;
+  #ifdef USE_MAP
+  vMapUv.x += tlShift;
+  #endif
+  #ifdef USE_NORMALMAP
+  vNormalMapUv.x += tlShift;
+  #endif
+  #ifdef USE_ROUGHNESSMAP
+  vRoughnessMapUv.x += tlShift;
+  #endif
+  #ifdef USE_METALNESSMAP
+  vMetalnessMapUv.x += tlShift;
+  #endif
+  #ifdef TL_KIT_MACRO
+  vTlUv1 = uv1;
+  #endif
+}`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+uniform sampler2D uTlMacroNormal;
+uniform float uTlMacroNormalScale;
+varying vec2 vTlUv1;`)
+        // Phase 17.2: the blend goes into the expanded chunk — onBeforeCompile sees
+        // `#include <normal_fragment_maps>`, not its lines, so replacing the line
+        // itself (as before) silently never applied the macro normal.
+        .replace(
+          '#include <normal_fragment_maps>',
+          THREE.ShaderChunk.normal_fragment_maps.replace(
+            'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+            `vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+	#ifdef TL_KIT_MACRO
+	vec3 tlMacro = texture2D( uTlMacroNormal, vTlUv1 ).xyz * 2.0 - 1.0;
+	tlMacro.xy *= uTlMacroNormalScale;
+	mapN = normalize( vec3( mapN.xy + tlMacro.xy, mapN.z * tlMacro.z ) );
+	#endif`,
+          ),
+        );
+    };
+    m.customProgramCacheKey = () => `tl-kit${macroId !== undefined ? '-macro' : ''}`;
+  }
+
+  function installWater(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
+    animatedCount += 1;
+    m.transparent = true;
+    m.opacity = num(p['opacity'], 0.8);
+    m.roughness = num(p['roughness'], 0.1);
+    m.color.set(typeof p['color'] === 'string' ? p['color'] : '#1d5f8a');
+    const [fx, fy] = vec2(p['flow'], [0.05, 0.02]);
+    const local = {
+      uTlFlow: { value: new THREE.Vector2(fx, fy) },
+      uTlWaveScale: { value: num(p['waveScale'], 2) },
+      uTlShallow: { value: new THREE.Color(typeof p['shallowColor'] === 'string' ? p['shallowColor'] : '#4fb3c9') },
+      uTlFresnel: { value: num(p['fresnel'], 3) },
+    };
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, globals, local);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+uniform float uTlTime;
+uniform vec2 uTlFlow;
+uniform float uTlWaveScale;`)
+        .replace(
+          '#include <uv_vertex>',
+          `#include <uv_vertex>
+#ifdef USE_NORMALMAP
+vNormalMapUv = vNormalMapUv * uTlWaveScale + uTlFlow * uTlTime;
+#endif`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+uniform vec3 uTlShallow;
+uniform float uTlFresnel;`)
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+{
+  float tlF = pow(1.0 - clamp(abs(dot(normalize(vViewPosition), normalize(vNormal))), 0.0, 1.0), uTlFresnel);
+  diffuseColor.rgb = mix(uTlShallow, diffuseColor.rgb, clamp(tlF * 1.5, 0.0, 1.0));
+}`,
+        );
+    };
+    m.customProgramCacheKey = () => 'tl-water';
+  }
+
   // ---- Phase 17.2: the shader types as node materials (TSL) --------------------------
-  // Each mirrors its archived onBeforeCompile twin line by line (same constants,
-  // same order of operations), so the picture matches the parity references.
+  // Each mirrors its onBeforeCompile twin above line by line (same constants,
+  // same order of operations), so both renderers draw the same picture.
 
   /** COLOR_0 as data (a missing attribute reads (0, 0, 0, 1), as WebGL's default vertex attribute does). */
   const vertexData = TSL.Fn((builder: NodeBuilder) => ((builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color') ? TSL.attribute('color', 'vec4') : TSL.vec4(0, 0, 0, 1)));
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    // Phase 15.5: the sway is in absolute metres (about 0.1 m at the tip in the
-    // default breeze) — plant-sized for grass and shrubs; taller foliage raises
-    // its material's windBend / windFlutter (0–4×). Kept (changing it would move
-    // every existing project's foliage); a size-relative sway is a material-graph
-    // (phase 18) candidate.
     const bend = TSL.uniform(num(p['windBend'], 1));
     const flutter = TSL.uniform(num(p['windFlutter'], 1));
     const flutterFreq = TSL.uniform(num(p['flutterFrequency'], 6));
@@ -281,13 +498,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     // The object's (or instance's) world X over the period, per vertex.
     const shift = TSL.varying(TSL.modelWorldMatrix.mul(TSL.vec4(instanceOrigin(), 1)).x.div(period));
     // Colour, roughness and metalness maps sample at uv + shift, after their own transform (as the
-    // archived GLSL added it to vMapUv): shift / (the transform's x scale) before it. Not the lightmap.
+    // legacy path adds it to vMapUv): shift / (the transform's x scale) before it. Not the lightmap.
     nm.contextNode = TSL.context({
       getUV: (tn: { value: THREE.Texture }, builder: { material?: { lightMap?: THREE.Texture | null } }) =>
         tn.value === builder.material?.lightMap ? null : TSL.uv(tn.value.channel).add(TSL.vec2(shift.div(uvScaleX(tn.value)), 0)),
     }) as unknown as MeshStandardNodeMaterial['contextNode'];
     const refresh = (): void => {
-      // AO and emission keep their own UVs (only map, normal, roughness and metalness shift).
+      // AO and emission keep their own UVs (the legacy path shifts only map, normal, roughness and metalness).
       nm.aoNode = m.aoMap !== null ? TSL.materialAO.context({ getUV: undefined }) : null;
       nm.emissiveNode = TSL.materialEmissive.context({ getUV: undefined });
       const t = m.normalMap;
@@ -415,13 +632,18 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     setWind(wind) {
       const w = wind ?? DEFAULT_WIND_LIKE;
-      (nodeGlobals.windDir.value as THREE.Vector2).set(w.direction[0], w.direction[1]);
+      globals.uTlWindDir.value.set(w.direction[0], w.direction[1]);
+      globals.uTlWindStrength.value = w.strength;
+      globals.uTlWindGust.value = w.gust;
+      globals.uTlWindGustFreq.value = w.gustFrequency;
+      globals.uTlWindTurb.value = w.turbulence;
       nodeGlobals.strength.value = w.strength;
       nodeGlobals.gust.value = w.gust;
       nodeGlobals.gustFreq.value = w.gustFrequency;
       nodeGlobals.turb.value = w.turbulence;
     },
     tick(seconds) {
+      globals.uTlTime.value = seconds;
       nodeGlobals.time.value = seconds;
     },
     animated() {
@@ -434,6 +656,18 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         applied.delete(root);
         assign(root, null);
       };
+    },
+    setNodeMaterials(on) {
+      if (on === nodeMode || disposed) return;
+      nodeMode = on;
+      for (const b of built.values()) b.material.dispose();
+      built.clear();
+      animatedCount = 0;
+      for (const [root, mapping] of applied) assign(root, mapping);
+      options.onChange?.();
+    },
+    nodeMaterials() {
+      return nodeMode;
     },
     dispose() {
       disposed = true;

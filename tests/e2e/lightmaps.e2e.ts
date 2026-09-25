@@ -6,11 +6,11 @@
  * lightmap (the sun is then no longer realtime), and a lit spot keeps about
  * the brightness the realtime sun gave it.
  *
- * Phase 17.2: the preview bake runs once per renderer variant
- * (renderer-variants.ts): Play draws the lightmaps with the legacy
- * WebGLRenderer, or as node materials on WebGPURenderer (WebGL 2 / WebGPU),
- * including the no-ambient copies (the bake holds the ambient light). The
- * browser baker itself stays on WebGL until 17.4.
+ * Phase 17.2/17.4: the preview bake runs once per renderer variant
+ * (renderer-variants.ts): the browser baker and Play draw with WebGPURenderer
+ * (auto and forced WebGL 2 in the default project, WebGPU in the webgpu
+ * project), the lightmaps as node materials including the no-ambient copies
+ * (the bake holds the ambient light).
  */
 import { spawnSync } from 'node:child_process';
 
@@ -74,7 +74,7 @@ interface Scene {
   play: () => Promise<Image>;
 }
 
-async function openScene(page: Page, variant: RendererVariant = 'legacy'): Promise<Scene> {
+async function openScene(page: Page, variant: RendererVariant = 'auto'): Promise<Scene> {
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);

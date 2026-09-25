@@ -4,14 +4,17 @@
  * water), lightmaps (UV1, range scaling, no-ambient) and the per-mesh looks
  * (selection highlight, checkpoint glow) render in a neutral test scene
  * (`shader-parity/harness.ts`) and are compared with the WebGL reference
- * images captured from the legacy renderer before the port
- * (`shader-parity/refs/*.png`, re-captured with `shader-parity/capture.mjs`).
+ * images captured from the WebGLRenderer path before the port
+ * (`shader-parity/refs/*.png`). Phase 17.4: that path is archived
+ * (`archive/webgl-renderer-17/`, with its capture script): the references
+ * are frozen as the contract.
  *
- * - `default` project: the legacy renderer still matches its references,
- *   and the node materials on WebGPURenderer's WebGL 2 backend match them.
+ * - `default` project: the node materials on WebGPURenderer's WebGL 2
+ *   backend match them (forced `webgl2`, and `auto`, which takes WebGL 2
+ *   here: no WebGPU adapter in this project).
  * - `webgpu` project: the node materials on WebGPU match them.
- * - A control: the legacy (onBeforeCompile) materials drawn by
- *   WebGPURenderer do NOT match (the comparison sees what the port fixes).
+ * - A control: the cases without their shader nodes (what WebGPURenderer drew
+ *   while the archived hooks were ignored) do NOT match.
  *
  * The tolerance rule is logged in docs/plan-phase-17.md §6 (17.2).
  */
@@ -26,11 +29,10 @@ import { decodePng, type Image } from './png';
 const HERE = resolve(import.meta.dirname, 'shader-parity');
 const REFS = join(HERE, 'refs');
 const REPO = resolve(import.meta.dirname, '..', '..');
-const CAPTURE = process.env['TL_CAPTURE_SHADER_REFS'] === '1';
 const SIZE = 256;
 
 export const CASES = ['standard', 'foliage', 'kit', 'unlit', 'water', 'lightmap', 'highlight', 'checkpoint'] as const;
-/** Cases whose legacy hook WebGPURenderer ignores: without the port they must fail the comparison. */
+/** Cases whose shading needs its own nodes: without them they must fail the comparison. */
 const CONTROL_CASES = ['foliage', 'kit', 'water', 'lightmap'] as const;
 
 let harness: { base: string; close: () => Promise<void> } | null = null;
@@ -75,42 +77,34 @@ function compare(name: string, label: string, got: { img: Image; png: Buffer }):
 
 const project = (): string => test.info().project.name;
 
-if (CAPTURE) {
-  test('capture the WebGL reference images (legacy renderer)', async ({ page }) => {
-    test.skip(project() !== 'default', 'references come from the default project');
-    test.setTimeout(300_000);
-    mkdirSync(REFS, { recursive: true });
-    for (const name of CASES) {
-      const got = await render(page, 'legacy', name);
-      writeFileSync(join(REFS, `${name}.png`), got.png);
-      console.log(`[shader-parity] captured ${name}.png (${got.png.length} bytes)`);
+for (const name of CASES) {
+  test(`${name}: node materials match the WebGL reference`, async ({ page }) => {
+    test.setTimeout(120_000);
+    if (project() === 'webgpu') {
+      const got = await render(page, 'webgpu', name);
+      expect(got.backend).toBe('webgpu');
+      expect(within(compare(name, 'webgpu', got)), `webgpu ${name}`).toBe(true);
+      // The default backend: auto takes WebGPU where an adapter and a device work.
+      const auto = await render(page, 'auto', name);
+      expect(auto.backend).toBe('webgpu');
+      expect(within(compare(name, 'auto', auto)), `auto ${name}`).toBe(true);
+      return;
     }
-  });
-} else {
-  for (const name of CASES) {
-    test(`${name}: node materials match the WebGL reference`, async ({ page }) => {
-      test.setTimeout(120_000);
-      if (project() === 'webgpu') {
-        const got = await render(page, 'webgpu', name);
-        expect(got.backend).toBe('webgpu');
-        expect(within(compare(name, 'webgpu', got)), `webgpu ${name}`).toBe(true);
-        return;
-      }
-      // The legacy path is unchanged until the switch-over: it still draws its references.
-      const legacy = await render(page, 'legacy', name);
-      expect(within(compare(name, 'legacy', legacy)), `legacy ${name}`).toBe(true);
-      const got = await render(page, 'webgl2', name);
-      expect(got.backend).toBe('webgl2');
-      expect(within(compare(name, 'webgl2', got)), `webgl2 ${name}`).toBe(true);
-    });
-  }
-
-  test('control: the legacy shader hooks on WebGPURenderer miss the references', async ({ page }) => {
-    test.skip(project() !== 'default', 'one backend is enough for the control');
-    test.setTimeout(180_000);
-    for (const name of CONTROL_CASES) {
-      const got = await render(page, 'webgl2', name, true);
-      expect(within(compare(name, 'control', got)), `control ${name} should differ`).toBe(false);
-    }
+    const got = await render(page, 'webgl2', name);
+    expect(got.backend).toBe('webgl2');
+    expect(within(compare(name, 'webgl2', got)), `webgl2 ${name}`).toBe(true);
+    // The default backend: auto takes WebGL 2 here (no WebGPU adapter in this project).
+    const auto = await render(page, 'auto', name);
+    expect(auto.backend).toBe('webgl2');
+    expect(within(compare(name, 'auto', auto)), `auto ${name}`).toBe(true);
   });
 }
+
+test('control: the cases without their shader nodes miss the references', async ({ page }) => {
+  test.skip(project() !== 'default', 'one backend is enough for the control');
+  test.setTimeout(180_000);
+  for (const name of CONTROL_CASES) {
+    const got = await render(page, 'webgl2', name, true);
+    expect(within(compare(name, 'control', got)), `control ${name} should differ`).toBe(false);
+  }
+});

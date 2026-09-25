@@ -44,9 +44,24 @@ async function grips(page: Page): Promise<Grip[]> {
   return JSON.parse((await view(page).getAttribute('data-size-handles')) ?? '[]') as Grip[];
 }
 async function grip(page: Page, component: string, kind: string, handle: string): Promise<Grip> {
-  await expect.poll(async () => (await grips(page)).some((g) => g.component === component && g.kind === kind && g.handle === handle), { message: `${component} ${kind} ${handle}` }).toBe(true);
-  await page.waitForTimeout(150);
-  return (await grips(page)).find((g) => g.component === component && g.kind === kind && g.handle === handle)!;
+  const find = async (): Promise<Grip | undefined> => (await grips(page)).find((g) => g.component === component && g.kind === kind && g.handle === handle);
+  await expect.poll(async () => (await find()) !== undefined, { message: `${component} ${kind} ${handle}` }).toBe(true);
+  // Settled: the same screen position in two frames 200 ms apart (a focus move or an undo's
+  // redraw may still be under way on a slow, CPU-rendered frame).
+  let last = '';
+  await expect
+    .poll(
+      async () => {
+        const g = await find();
+        const now = g === undefined ? '' : `${Math.round(g.x)},${Math.round(g.y)}`;
+        const same = now !== '' && now === last;
+        last = now;
+        return same;
+      },
+      { message: `${component} ${kind} ${handle} settled`, intervals: [200] },
+    )
+    .toBe(true);
+  return (await find())!;
 }
 async function drag(page: Page, from: { x: number; y: number }, dx: number, dy: number): Promise<void> {
   await page.mouse.move(from.x, from.y);

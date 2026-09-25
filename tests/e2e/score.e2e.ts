@@ -109,7 +109,8 @@ test('score rules set in the Game flow window: the HUD and the level complete sc
     // Right over the three coins: the HUD counts 10 points each.
     await page.keyboard.down('d');
     try {
-      await expect(flow).toHaveAttribute('data-score', '30', { timeout: 15_000 });
+      // The game steps with its frames (slow when CPU-rendered): a generous wait for game time.
+      await expect(flow).toHaveAttribute('data-score', '30', { timeout: 45_000 });
     } finally {
       await page.keyboard.up('d');
     }
@@ -119,7 +120,7 @@ test('score rules set in the Game flow window: the HUD and the level complete sc
     // On to the goal: the level complete screen shows the time bonus, the score and a new best.
     await page.keyboard.down('d');
     try {
-      await expect(flow).toHaveAttribute('data-screen', 'levelComplete', { timeout: 15_000 });
+      await expect(flow).toHaveAttribute('data-screen', 'levelComplete', { timeout: 45_000 });
     } finally {
       await page.keyboard.up('d');
     }

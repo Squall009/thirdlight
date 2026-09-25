@@ -7,12 +7,13 @@
  * TL_BROWSER_LIBS at an extracted library tree (see tests/e2e/browser-env.mjs).
  *
  * Projects (phase 17.1, docs/plan-phase-17.md §6):
- *  - `default` — every spec, WebGL 2 on SwiftShader (no WebGPU: `auto` takes
- *    the WebGL 2 backend here, so the suite covers the fallback).
+ *  - `default` — every spec, WebGL 2 on SwiftShader (no WebGPU adapter:
+ *    `auto`, the default since phase 17.4, takes the WebGL 2 backend here, so
+ *    the whole suite covers the fallback).
  *  - `webgpu` — the renderer-sensitive specs again with headless WebGPU
  *    (Dawn's SwiftShader adapter through Vulkan): renderer, shader parity
  *    (17.2), environment parity (17.3) and the materials/textures/lightmaps
- *    and environment/lights/sky-texture/level-look specs, which force the
+ *    and environment/lights/sky-texture/level-look and (17.4) shadows specs, which force the
  *    WebGPU backend there (`?renderer=webgpu`). Slower; run it as its own
  *    step: `npx playwright test --project=webgpu`.
  */
@@ -56,6 +57,7 @@ export default defineConfig({
         '**/lights.e2e.ts',
         '**/sky-texture.e2e.ts',
         '**/level-look.e2e.ts',
+        '**/shadows.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

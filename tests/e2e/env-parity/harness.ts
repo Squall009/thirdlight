@@ -2,13 +2,13 @@
  * Phase 17.3: the neutral environment/post test scene (browser code, bundled
  * by `env-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=legacy|webgl2|webgpu&case=<name>
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>
  *
  * Every case draws the same small scene (a ground, boxes near and far, a
  * rough and a mirror-like sphere, an emissive block) through the real
  * three-adapter code — `createRenderer` and `createEnvironmentRenderer` —
  * with one environment: a sky mode, fog, fog volumes, shadows, tone mapping
- * or a post effect. The WebGL reference images come from the legacy renderer
+ * or a post effect. The WebGL reference images come from the archived WebGLRenderer path
  * (`refs/*.png`); WebGPURenderer (WebGL 2 / WebGPU) must match them.
  * Textures (the sky images, the LUT) are generated here, PNG-encoded and
  * decoded with the host's own `decodeTexture` (no files, no fetch).
@@ -23,7 +23,7 @@ export const WIDTH = 320;
 export const HEIGHT = 240;
 
 const q = new URLSearchParams(location.search);
-const backend = (q.get('backend') ?? 'legacy') as RendererPreference;
+const backend = (q.get('backend') ?? 'auto') as RendererPreference;
 const which = q.get('case') ?? 'sky-color';
 
 // ---- generated images --------------------------------------------------------------

@@ -4,33 +4,41 @@
  * view and Play/export. It replaces `renderer.render(scene, camera)`.
  *
  * Pass order (each only when enabled and allowed by the quality level):
- * render → ambient occlusion (GTAO) → fog volumes (from the scene pass's
- * depth) → depth of field → bloom → output (tone mapping + sRGB) → grading
- * (brightness/contrast/saturation/tint, LUT strip, vignette) → anti-aliasing
- * (SMAA/FXAA). With nothing enabled it renders directly (the renderer's own
- * tone mapping).
+ * render → ambient occlusion (GTAO) → fog volumes (from a depth pre-pass) →
+ * depth of field (Bokeh) → bloom (UnrealBloom) → output (tone mapping + sRGB)
+ * → grading (brightness/contrast/saturation/tint, LUT strip, vignette) →
+ * anti-aliasing (SMAA/FXAA). With nothing enabled it renders directly (the
+ * renderer's own tone mapping).
  *
- * Capability fallback: if the post pipeline cannot be built, rendering falls
- * back to the direct path and `diagnostics().fallback` says why; gameplay
- * never depends on it.
+ * Capability fallback: if the composer cannot be built (no float targets,
+ * lost context), rendering falls back to the direct path and
+ * `diagnostics().fallback` says why; gameplay never depends on it.
  *
- * Phase 17.3/17.4: three's WebGPURenderer (WebGPU or its WebGL 2 backend)
- * draws every part from TSL (`environment-nodes.ts`): the physical sky is
- * three's `SkyMesh`, the gradient dome a node material, PMREM is
- * `three/webgpu`'s generator, and the post stack a `RenderPipeline` (TSL
- * display nodes for GTAO, depth of field, bloom, SMAA and FXAA; the fog
- * volume and grading passes ported line by line from the archived GLSL). The
- * low quality level also draws without MSAA (its profile has no
- * anti-aliasing), through a plain scene pass. The WebGLRenderer version
- * (EffectComposer, `Sky.js`, GLSL passes) is archived
- * (`archive/webgl-renderer-17/`).
+ * Phase 17.3: on three's WebGPURenderer (the `webgpu`/`webgl2` backends, not
+ * yet the default) every part draws from TSL (`environment-nodes.ts`): the
+ * physical sky is three's `SkyMesh`, the gradient dome a node material, PMREM
+ * is `three/webgpu`'s generator, and the post stack a `RenderPipeline` with
+ * the same passes in the same order (TSL display nodes for GTAO, depth of
+ * field, bloom, SMAA and FXAA; the fog volume and grading passes ported line
+ * by line). On WebGPURenderer the low quality level also draws without MSAA
+ * (its profile has no anti-aliasing), through a plain scene pass.
  *
  * Pure three.js + examples; textures come from the injected loader.
  */
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 
-import { buildPostPipeline, createSkyMesh, gradientSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
+import { buildPostPipeline, createSkyMesh, gradientSkyMaterial, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -152,7 +160,150 @@ const TONE: Record<string, THREE.ToneMapping> = {
   neutral: THREE.NeutralToneMapping,
 };
 
-/** The PMREM calls used here (`three/webgpu`'s generator). */
+const GRADING_SHADER = {
+  name: 'TlGradingShader',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uBrightness: { value: 0 },
+    uContrast: { value: 0 },
+    uSaturation: { value: 0 },
+    uTint: { value: new THREE.Color(1, 1, 1) },
+    uLift: { value: 0 },
+    uGamma: { value: 1 },
+    uGain: { value: 1 },
+    uVignette: { value: 0 },
+    uVignetteOffset: { value: 1 },
+    tLut: { value: null as THREE.Texture | null },
+    uLutSize: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `
+uniform sampler2D tDiffuse;
+uniform float uBrightness;
+uniform float uContrast;
+uniform float uSaturation;
+uniform vec3 uTint;
+uniform float uLift;
+uniform float uGamma;
+uniform float uGain;
+uniform float uVignette;
+uniform float uVignetteOffset;
+uniform sampler2D tLut;
+uniform float uLutSize;
+varying vec2 vUv;
+vec3 lutLookup(vec3 c) {
+  // A horizontal strip: uLutSize tiles of uLutSize x uLutSize (blue picks the tile).
+  float n = uLutSize;
+  float b = clamp(c.b, 0.0, 1.0) * (n - 1.0);
+  float b0 = floor(b);
+  float b1 = min(b0 + 1.0, n - 1.0);
+  vec2 inTile = (clamp(c.rg, 0.0, 1.0) * (n - 1.0) + 0.5) / vec2(n * n, n);
+  vec3 c0 = texture2D(tLut, inTile + vec2(b0 / n, 0.0)).rgb;
+  vec3 c1 = texture2D(tLut, inTile + vec2(b1 / n, 0.0)).rgb;
+  return mix(c0, c1, b - b0);
+}
+void main() {
+  vec4 texel = texture2D(tDiffuse, vUv);
+  vec3 c = texel.rgb + uBrightness;
+  c = (c - 0.5) * (1.0 + uContrast) + 0.5;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(l), c, 1.0 + uSaturation);
+  // Lift raises the blacks (whites stay), gain scales, gamma bends the mid-tones.
+  c = (c + uLift * (1.0 - c)) * uGain;
+  c = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
+  c *= uTint;
+  if (uLutSize > 1.0) c = lutLookup(c);
+  vec2 d = (vUv - 0.5) * uVignetteOffset;
+  c *= mix(1.0, 1.0 - dot(d, d) * 2.0, uVignette);
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), texel.a);
+}`,
+};
+
+const MAX_VOLUMES = 16;
+const FOG_VOLUME_SHADER = {
+  name: 'TlFogVolumeShader',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    tDepth: { value: null as THREE.Texture | null },
+    uInvProjection: { value: new THREE.Matrix4() },
+    uCameraWorld: { value: new THREE.Matrix4() },
+    uCount: { value: 0 },
+    uMin: { value: Array.from({ length: MAX_VOLUMES }, () => new THREE.Vector3()) },
+    uMax: { value: Array.from({ length: MAX_VOLUMES }, () => new THREE.Vector3()) },
+    uColor: { value: Array.from({ length: MAX_VOLUMES }, () => new THREE.Color()) },
+    uDensity: { value: new Array<number>(MAX_VOLUMES).fill(0) },
+    uFalloff: { value: new Array<number>(MAX_VOLUMES).fill(0) },
+    uHeightFalloff: { value: new Array<number>(MAX_VOLUMES).fill(0) },
+  },
+  vertexShader: GRADING_SHADER.vertexShader,
+  fragmentShader: /* glsl */ `
+#define MAX_VOLUMES ${MAX_VOLUMES}
+uniform sampler2D tDiffuse;
+uniform sampler2D tDepth;
+uniform mat4 uInvProjection;
+uniform mat4 uCameraWorld;
+uniform int uCount;
+uniform vec3 uMin[MAX_VOLUMES];
+uniform vec3 uMax[MAX_VOLUMES];
+uniform vec3 uColor[MAX_VOLUMES];
+uniform float uDensity[MAX_VOLUMES];
+uniform float uFalloff[MAX_VOLUMES];
+uniform float uHeightFalloff[MAX_VOLUMES];
+varying vec2 vUv;
+void main() {
+  vec4 base = texture2D(tDiffuse, vUv);
+  float depth = texture2D(tDepth, vUv).x;
+  vec4 clip = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+  vec4 view = uInvProjection * clip;
+  view /= view.w;
+  vec3 world = (uCameraWorld * vec4(view.xyz, 1.0)).xyz;
+  // The ray starts on the near plane: right for perspective and orthographic cameras.
+  vec4 nearView = uInvProjection * vec4(clip.xy, -1.0, 1.0);
+  nearView /= nearView.w;
+  vec3 origin = (uCameraWorld * vec4(nearView.xyz, 1.0)).xyz;
+  vec3 ray = world - origin;
+  float dist = length(ray);
+  vec3 dir = ray / max(dist, 1e-5);
+  float optical = 0.0;
+  vec3 fogColor = vec3(0.0);
+  for (int i = 0; i < MAX_VOLUMES; i++) {
+    if (i >= uCount) break;
+    vec3 inv = 1.0 / (dir + vec3(1e-6));
+    vec3 t0 = (uMin[i] - origin) * inv;
+    vec3 t1 = (uMax[i] - origin) * inv;
+    vec3 tmin = min(t0, t1);
+    vec3 tmax = max(t0, t1);
+    float tin = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
+    float tout = min(min(tmax.x, tmax.y), min(tmax.z, dist));
+    float len = max(tout - tin, 0.0);
+    if (len <= 0.0) continue;
+    // Soft edges: less fog where the ray's middle is near the box edge.
+    vec3 mid = origin + dir * (tin + tout) * 0.5;
+    vec3 halfSize = (uMax[i] - uMin[i]) * 0.5;
+    vec3 q = abs(mid - (uMin[i] + uMax[i]) * 0.5) / max(halfSize, vec3(1e-4));
+    float edge = 1.0 - uFalloff[i] * smoothstep(0.0, 1.0, max(max(q.x, q.y), q.z));
+    // Height falloff: density × e^(−k·(y − bottom)), integrated along the
+    // segment in closed form: e^(−k·(y_in − bottom)) · (1 − e^(−k·dy·len)) / (k·dy).
+    float k = uHeightFalloff[i];
+    float heightLen = len;
+    if (k > 0.0) {
+      float yIn = origin.y + dir.y * tin - uMin[i].y;
+      float kd = k * dir.y;
+      heightLen = abs(kd * len) < 1e-4 ? exp(-k * yIn) * len : exp(-k * yIn) * (1.0 - exp(-kd * len)) / kd;
+    }
+    float od = uDensity[i] * heightLen * edge;
+    optical += od;
+    fogColor += uColor[i] * od;
+  }
+  if (optical > 0.0) fogColor /= optical;
+  float f = 1.0 - exp(-optical);
+  gl_FragColor = vec4(mix(base.rgb, fogColor, f), base.a);
+}`,
+};
+
+/** The PMREM calls used here (three's WebGL generator and the node renderer's have the same shape). */
 interface PmremLike {
   fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number): { texture: THREE.Texture; dispose(): void };
   fromEquirectangular(texture: THREE.Texture): { texture: THREE.Texture; dispose(): void };
@@ -160,8 +311,11 @@ interface PmremLike {
   dispose(): void;
 }
 
-export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
-  /** Phase 17.3: the post stack (a RenderPipeline). */
+export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
+  /** Phase 17.1: three's WebGPURenderer (either backend): no EffectComposer, no ShaderMaterial. */
+  const nodeRenderer = (renderer as { isWebGPURenderer?: boolean }).isWebGPURenderer === true;
+  const glRenderer = renderer as THREE.WebGLRenderer;
+  /** Phase 17.3: the post stack on WebGPURenderer (a RenderPipeline). */
   let pipeline: PostPipeline | null = null;
   let env: EnvironmentLike | null = null;
   let qualityOverride: QualityLevel | null = null;
@@ -169,10 +323,15 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let volumes: readonly FogVolumeLike[] = [];
   let width = 1;
   let height = 1;
+  let composer: EffectComposer | null = null;
   let composerKey = '';
   let fallback: string | null = null;
   let passNames: string[] = [];
-  const pmrem: PmremLike = new NodePMREMGenerator(renderer) as unknown as PmremLike;
+  let fogPass: ShaderPass | null = null;
+  let gradingPass: ShaderPass | null = null;
+  let depthTarget: THREE.WebGLRenderTarget | null = null;
+  const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
+  const pmrem: PmremLike = nodeRenderer ? (new NodePMREMGenerator(renderer as WebGPURenderer) as unknown as PmremLike) : (new THREE.PMREMGenerator(glRenderer) as unknown as PmremLike);
   let skyMesh: THREE.Mesh | null = null;
   let skyDome: THREE.Mesh | null = null;
   let envMap: { texture: THREE.Texture; dispose(): void } | null = null;
@@ -248,7 +407,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       scene.background = new THREE.Color(sky.color ?? '#7ec8ff');
       return;
     }
-    if (sky.mode === 'procedural') {
+    if (nodeRenderer && sky.mode === 'procedural') {
       // Phase 17.3: three's TSL sky, and image-based lighting from a copy of it.
       const params = { turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) };
       skyMesh = createSkyMesh(params);
@@ -263,12 +422,48 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       (clone.material as THREE.Material).dispose();
       return;
     }
+    if (sky.mode === 'procedural') {
+      const s = new Sky();
+      s.scale.setScalar(4500);
+      const u = s.material.uniforms as Record<string, { value: unknown }>;
+      (u['turbidity']!).value = sky.turbidity ?? 6;
+      (u['rayleigh']!).value = sky.rayleigh ?? 1.5;
+      (u['mieCoefficient']!).value = sky.mieCoefficient ?? 0.005;
+      (u['mieDirectionalG']!).value = sky.mieDirectionalG ?? 0.8;
+      ((u['sunPosition']!).value as THREE.Vector3).copy(sunDirection(sky));
+      skyMesh = s;
+      scene.background = null;
+      scene.add(s);
+      // Image-based lighting from the same sky.
+      const tmp = new THREE.Scene();
+      const clone = new Sky();
+      clone.scale.setScalar(4500);
+      const cu = clone.material.uniforms as Record<string, { value: unknown }>;
+      for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) (cu[k]!).value = (u[k]!).value;
+      ((cu['sunPosition']!).value as THREE.Vector3).copy((u['sunPosition']!).value as THREE.Vector3);
+      tmp.add(clone);
+      envMap = pmrem.fromScene(tmp, 0, 0.1, 10000);
+      scene.environment = envMap.texture;
+      clone.geometry.dispose();
+      clone.material.dispose();
+      return;
+    }
     if (sky.mode === 'gradient') {
       const top = new THREE.Color(sky.topColor ?? '#3d7cd6');
       const horizon = new THREE.Color(sky.horizonColor ?? '#bfe3ff');
       const bottom = new THREE.Color(sky.bottomColor ?? '#757575'); // phase 15.5: neutral grey below the horizon (was a grass olive)
-      // On the far plane (phase 17.3): a camera whose far plane is nearer than the dome still sees the sky.
-      const mat = gradientSkyMaterial(top, horizon, bottom);
+      const mat = nodeRenderer ? gradientSkyMaterial(top, horizon, bottom) : new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        uniforms: { top: { value: top }, horizon: { value: horizon }, bottom: { value: bottom } },
+        // Phase 17.3: on the far plane (z = w, like three's Sky): a camera whose far
+        // plane is nearer than the dome (the Scene view's 1000 m) still sees the sky.
+        vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z = gl_Position.w; }',
+        // Phase 17.3: tone mapped and sRGB-encoded like every other surface and three's
+        // Sky (before, only the post stack's output pass did it; without post the raw
+        // linear colours reached the canvas — never seen, as the dome was clipped).
+        fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; varying vec3 vDir; void main() { float h = vDir.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, bottom, pow(-h, 0.5)); gl_FragColor = vec4(c, 1.0);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
+      });
       skyDome = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), mat);
       skyDome.frustumCulled = false;
       scene.background = null;
@@ -352,9 +547,115 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     };
   };
 
+  // EffectComposer.dispose() frees only its own targets and copy pass: every
+  // added pass (bloom, GTAO, bokeh, SMAA, shader passes) and the grading LUT
+  // clone are freed here, or each rebuild leaks their targets and programs.
+  const disposeComposer = (): void => {
+    if (composer !== null) {
+      const lut = (gradingPass?.uniforms as Record<string, { value: unknown }> | undefined)?.['tLut']?.value;
+      if (lut instanceof THREE.Texture) lut.dispose();
+      for (const pass of composer.passes) pass.dispose();
+      composer.dispose();
+    }
+    composer = null;
+    fogPass = null;
+    gradingPass = null;
+    passNames = [];
+  };
+
+  const buildComposer = (camera: THREE.Camera): void => {
+    const w = wanted();
+    const post = env?.post;
+    if (nodeRenderer) {
+      buildPipeline(camera, w);
+      return;
+    }
+    const key = JSON.stringify({ w, post, q: quality(), size: [width, height], cam: camera.uuid });
+    if (key === composerKey && (composer !== null || !anyPost(w))) return;
+    composerKey = key;
+    disposeComposer();
+    if (!anyPost(w)) return;
+    try {
+      const c = new EffectComposer(glRenderer);
+      c.setPixelRatio(Math.min(QUALITY_PROFILE[quality()].pixelRatio, globalThis.devicePixelRatio ?? 1));
+      c.setSize(width, height);
+      c.addPass(new RenderPass(scene, camera));
+      passNames = ['render'];
+      if (w.ssao && camera instanceof THREE.PerspectiveCamera) {
+        const ao = new GTAOPass(scene, camera, width, height);
+        ao.updateGtaoMaterial({ radius: post?.ssao?.radius ?? 0.5 });
+        (ao as unknown as { blendIntensity: number }).blendIntensity = post?.ssao?.intensity ?? 1;
+        c.addPass(ao);
+        passNames.push('ssao');
+      }
+      if (w.fogVolumes) {
+        fogPass = new ShaderPass(FOG_VOLUME_SHADER);
+        c.addPass(fogPass);
+        passNames.push('fogVolumes');
+      }
+      if (w.dof && camera instanceof THREE.PerspectiveCamera) {
+        c.addPass(new BokehPass(scene, camera, { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxblur: post?.dof?.maxBlur ?? 0.01 }));
+        passNames.push('dof');
+      }
+      if (w.bloom) {
+        c.addPass(new UnrealBloomPass(new THREE.Vector2(width, height), post?.bloom?.strength ?? 0.6, post?.bloom?.radius ?? 0.4, post?.bloom?.threshold ?? 0.85));
+        passNames.push('bloom');
+      }
+      c.addPass(new OutputPass());
+      passNames.push('output');
+      if (w.grading) {
+        gradingPass = new ShaderPass(GRADING_SHADER);
+        const g = post?.grading;
+        const u = gradingPass.uniforms as Record<string, { value: unknown }>;
+        (u['uBrightness']!).value = g?.brightness ?? 0;
+        (u['uContrast']!).value = g?.contrast ?? 0;
+        (u['uSaturation']!).value = g?.saturation ?? 0;
+        (u['uTint']!).value = new THREE.Color(g?.tint ?? '#ffffff');
+        (u['uLift']!).value = g?.lift ?? 0;
+        (u['uGamma']!).value = g?.gamma ?? 1;
+        (u['uGain']!).value = g?.gain ?? 1;
+        (u['uVignette']!).value = post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0;
+        (u['uVignetteOffset']!).value = post?.vignette?.offset ?? 1;
+        if (g?.lut !== undefined) {
+          const pass = gradingPass;
+          void texture(g.lut).then((t) => {
+            if (t === null || disposed || pass !== gradingPass) return;
+            const lut = t.clone();
+            lut.colorSpace = THREE.NoColorSpace;
+            lut.flipY = false;
+            lut.generateMipmaps = false;
+            lut.minFilter = THREE.LinearFilter;
+            lut.needsUpdate = true;
+            const img = lut.image as { width?: number; height?: number };
+            (u['tLut']!).value = lut;
+            (u['uLutSize']!).value = img.height ?? 0;
+            options.onChange?.();
+          });
+        }
+        c.addPass(gradingPass);
+        passNames.push('grading');
+      }
+      if (w.aa === 'smaa') {
+        c.addPass(new SMAAPass());
+        passNames.push('smaa');
+      } else if (w.aa === 'fxaa') {
+        const fx = new ShaderPass(FXAAShader);
+        const pr = c.renderer.getPixelRatio();
+        ((fx.material.uniforms as Record<string, { value: THREE.Vector2 }>)['resolution']!).value.set(1 / (width * pr), 1 / (height * pr));
+        c.addPass(fx);
+        passNames.push('fxaa');
+      }
+      composer = c;
+      fallback = null;
+    } catch (e) {
+      disposeComposer();
+      fallback = `post-processing is off: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
+    }
+  };
+
   const anyPost = (w: ReturnType<typeof wanted>): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || w.aa !== 'none';
 
-  // ---- Phase 17.3: the post stack (a RenderPipeline) ----------------------------------
+  // ---- Phase 17.3: the post stack on WebGPURenderer ----------------------------------
   const disposePipeline = (): void => {
     pipeline?.dispose();
     pipeline = null;
@@ -365,15 +666,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const target = Math.min(QUALITY_PROFILE[quality()].pixelRatio, globalThis.devicePixelRatio ?? 1);
     return target / Math.max(1e-6, renderer.getPixelRatio());
   };
-  const buildPipeline = (camera: THREE.Camera): void => {
-    const w = wanted();
+  const buildPipeline = (camera: THREE.Camera, w: ReturnType<typeof wanted>): void => {
     // The low level has no anti-aliasing: on WebGPURenderer that includes MSAA, so it draws
     // through a plain scene pass (no samples) even without post effects.
     const noMsaa = !QUALITY_PROFILE[quality()].antialias;
     const isPost = anyPost(w);
-    // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
-    // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
-    // background gets its own pass.
+    // Without a post stack the WebGL renderer shows a colour or sRGB image background as it is
+    // (not tone mapped); WebGPURenderer tone maps the whole frame, so the background gets its own pass.
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
     const post = env?.post;
@@ -405,11 +704,11 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       aa: w.aa,
       resolutionScale: isPost ? postScale() : 1,
       displayBackground,
-      // The post stack renders without MSAA (as the archived EffectComposer did); a plain frame keeps the renderer's.
-      samples: isPost || noMsaa ? 0 : renderer.samples,
+      // The legacy post stack renders without MSAA (EffectComposer's targets); a plain frame keeps the renderer's.
+      samples: isPost || noMsaa ? 0 : (renderer as WebGPURenderer).samples,
     };
     try {
-      const p = buildPostPipeline(renderer, scene, camera, plan);
+      const p = buildPostPipeline(renderer as WebGPURenderer, scene, camera, plan);
       p.setSize(width, height, renderer.getPixelRatio());
       pipeline = p;
       // A plain frame (the background pass, or no MSAA at low quality) is not post-processing.
@@ -443,6 +742,26 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       heightFalloff: v.heightFalloff ?? 0,
     }));
 
+  const renderDepth = (camera: THREE.Camera): void => {
+    const pr = renderer.getPixelRatio();
+    const w = Math.max(1, Math.floor(width * pr));
+    const h = Math.max(1, Math.floor(height * pr));
+    if (depthTarget === null || depthTarget.width !== w || depthTarget.height !== h) {
+      depthTarget?.dispose();
+      depthTarget = new THREE.WebGLRenderTarget(w, h, { depthTexture: new THREE.DepthTexture(w, h) });
+    }
+    const prevOverride = scene.overrideMaterial;
+    const prevBackground = scene.background;
+    scene.overrideMaterial = depthOnly;
+    scene.background = null;
+    glRenderer.setRenderTarget(depthTarget);
+    glRenderer.clear();
+    glRenderer.render(scene, camera);
+    glRenderer.setRenderTarget(null);
+    scene.overrideMaterial = prevOverride;
+    scene.background = prevBackground;
+  };
+
   return {
     set(next) {
       env = next;
@@ -451,8 +770,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       renderer.toneMappingExposure = p?.exposure ?? 1;
       buildSky();
       applyFog();
-      // The pipeline's key holds everything it is built from (a sky colour edit
-      // does not rebuild and recompile it).
+      // The node pipeline's key holds everything it is built from (a sky colour edit
+      // does not rebuild and recompile it); the legacy composer rebuilds on every set.
+      if (!nodeRenderer) composerKey = '';
       options.onChange?.();
     },
     setKeyLightDirection(direction) {
@@ -462,7 +782,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     setFogVolumes(list) {
       const changedCount = (list.length > 0) !== (volumes.length > 0);
-      volumes = list.slice(0, MAX_FOG_VOLUMES);
+      volumes = list.slice(0, MAX_VOLUMES);
       if (changedCount) composerKey = '';
     },
     setQuality(level) {
@@ -471,13 +791,37 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     render(camera) {
       if (disposed) return;
-      buildPipeline(camera);
-      if (pipeline === null) {
+      buildComposer(camera);
+      if (nodeRenderer) {
+        if (pipeline === null) {
+          renderer.render(scene, camera);
+          return;
+        }
+        pipeline.update(camera, volumeBoxes());
+        pipeline.render();
+        return;
+      }
+      if (composer === null) {
         renderer.render(scene, camera);
         return;
       }
-      pipeline.update(camera, volumeBoxes());
-      pipeline.render();
+      if (fogPass !== null) {
+        renderDepth(camera);
+        const u = fogPass.uniforms as Record<string, { value: unknown }>;
+        (u['tDepth']!).value = depthTarget!.depthTexture;
+        ((u['uInvProjection']!).value as THREE.Matrix4).copy((camera as THREE.PerspectiveCamera).projectionMatrixInverse);
+        ((u['uCameraWorld']!).value as THREE.Matrix4).copy(camera.matrixWorld);
+        (u['uCount']!).value = volumes.length;
+        volumes.forEach((v, i) => {
+          ((u['uMin']!).value as THREE.Vector3[])[i]!.set(v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2);
+          ((u['uMax']!).value as THREE.Vector3[])[i]!.set(v.center[0] + v.size[0] / 2, v.center[1] + v.size[1] / 2, v.center[2] + v.size[2] / 2);
+          ((u['uColor']!).value as THREE.Color[])[i]!.set(v.color);
+          ((u['uDensity']!).value as number[])[i] = v.density;
+          ((u['uFalloff']!).value as number[])[i] = v.falloff ?? 0.5;
+          ((u['uHeightFalloff']!).value as number[])[i] = v.heightFalloff ?? 0;
+        });
+      }
+      composer.render();
     },
     resize(w, h) {
       const nw = Math.max(1, Math.floor(w));
@@ -486,15 +830,19 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       width = nw;
       height = nh;
       // The node passes follow the canvas size themselves (only the depth of field's pixel blur needs it).
-      pipeline?.setSize(width, height, renderer.getPixelRatio());
+      if (nodeRenderer) pipeline?.setSize(width, height, renderer.getPixelRatio());
+      else composerKey = '';
     },
     diagnostics() {
-      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality() };
+      return { post: nodeRenderer ? passNames.length > 0 : composer !== null, passes: [...passNames], fallback, quality: quality() };
     },
     dispose() {
       disposed = true;
+      disposeComposer();
       disposePipeline();
       clearSky();
+      depthTarget?.dispose();
+      depthOnly.dispose();
       pmrem.dispose();
     },
   };

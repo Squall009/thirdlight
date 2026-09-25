@@ -749,6 +749,9 @@ export function canonicalBox(b: unknown): BoxComponent {
   return {
     size: canonVec3(o['size'], 1, 1, 1),
     material: { color: typeof color === 'string' ? color.toLowerCase() : '#b0b0b0' },
+    // Phase 17.4: kept only when set (an existing box keeps its exact canonical bytes).
+    ...(typeof o['castShadow'] === 'boolean' ? { castShadow: o['castShadow'] } : {}),
+    ...(typeof o['receiveShadow'] === 'boolean' ? { receiveShadow: o['receiveShadow'] } : {}),
   };
 }
 

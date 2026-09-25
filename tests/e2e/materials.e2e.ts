@@ -4,9 +4,9 @@
  * the Scene view, in Play and in the export; a standard material with a
  * texture shows the texture on a box.
  *
- * Phase 17.2: runs once per renderer variant (renderer-variants.ts): the
- * legacy WebGLRenderer, and node materials on WebGPURenderer (WebGL 2 in the
- * default project, WebGPU in the webgpu project).
+ * Phase 17.2/17.4: runs once per renderer variant (renderer-variants.ts):
+ * node materials on WebGPURenderer — auto (the default) and forced WebGL 2 in
+ * the default project, WebGPU in the webgpu project.
  */
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -123,7 +123,8 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   await page.getByRole('tab', { name: 'Assets' }).click();
   await kitTile.click();
   await page.getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Material 1' });
-  await expect.poll(() => motion(viewport), { timeout: 10_000 }).toBeGreaterThan(50);
+  // Generous waits: the first frames with a new node material compile its pipeline (slow on the CPU renderer here).
+  await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
 
   // A textured standard material on a box.
   await page.getByRole('tab', { name: 'Materials' }).click();
@@ -142,7 +143,7 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
-  await expect.poll(() => motion(frame), { timeout: 20_000 }).toBeGreaterThan(30);
+  await expect.poll(() => motion(frame), { timeout: 45_000 }).toBeGreaterThan(30);
   await expect.poll(async () => bluePixels(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(100);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();

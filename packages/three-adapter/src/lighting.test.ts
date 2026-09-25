@@ -15,6 +15,8 @@ import { describe, expect, it } from 'vitest';
 import {
   decideShadows,
   deriveShadowCamera,
+  DIRECTIONAL_SHADOW_DEFAULTS,
+  directionalShadowSettings,
   planSceneLights,
   SHADOW_PROFILE,
   SURFACE_PRESETS,
@@ -270,5 +272,14 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
   it('no authored lights ⇒ no light nodes (the M1 fixed pair is v1/v2 only)', () => {
     const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, level: LEVEL, direction: DIR });
     expect(planSceneLights([], LEVEL, decision)).toEqual([]);
+  });
+});
+describe('phase 17.4: the directional light shadow settings as data', () => {
+  it('uses the light data where set and the genre-neutral defaults elsewhere', () => {
+    expect(directionalShadowSettings(null)).toEqual({ mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 });
+    expect(DIRECTIONAL_SHADOW_DEFAULTS).toEqual({ mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 });
+    const light = { type: 'directional' as const, color: '#ffffff', intensity: 1, direction: [0, -1, 0] as [number, number, number], castShadow: true, shadowMapSize: 2048, shadowBias: -0.002, shadowNormalBias: 0, shadowExtent: 40 };
+    expect(directionalShadowSettings(light)).toEqual({ mapSize: 2048, bias: -0.002, normalBias: 0, extent: 40 });
+    expect(directionalShadowSettings({ ...light, shadowMapSize: undefined, shadowExtent: Number.NaN })).toMatchObject({ mapSize: 1024, extent: 24 });
   });
 });

@@ -333,7 +333,7 @@ export class Viewport {
           const original = mesh.material;
           const list = Array.isArray(original) ? original : [original];
           const copies = list.map((m) => {
-            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient, this.nodeMaterials()));
+            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient));
             const c = r.copies.get(m) ?? null;
             if (c !== null) refreshLightmappedMaterial(c, m);
             return c ?? m;
@@ -558,12 +558,6 @@ export class Viewport {
   private readonly boxMaterials = new Map<string, { key: string; undo: () => void }>();
   setMaterialLibrary(library: MaterialLibrary | null): void {
     this.materialLibrary = library;
-    library?.setNodeMaterials(this.nodeMaterials());
-  }
-
-  /** Phase 17.2: every backend but `legacy` is WebGPURenderer, which draws node materials only. */
-  private nodeMaterials(): boolean {
-    return this.rendererChoice.preference !== 'legacy';
   }
 
   private syncBoxMaterial(e: ProjectedEntity, obj: THREE.Object3D): void {
@@ -726,19 +720,8 @@ export class Viewport {
       this.rendererChoice = { preference, source };
       return;
     }
-    const nodeBefore = this.nodeMaterials();
+    // Every backend is WebGPURenderer with node materials (phase 17.4): the materials stay.
     this.rendererChoice = { preference, source };
-    if (nodeBefore !== this.nodeMaterials()) {
-      // Phase 17.2: project materials and lightmapped copies are rebuilt for the other renderer class.
-      this.unapplyLightmaps();
-      for (const rec of this.lightmapCopies.values()) {
-        rec.map.dispose();
-        for (const c of rec.copies.values()) c?.dispose();
-      }
-      this.lightmapCopies.clear();
-      this.materialLibrary?.setNodeMaterials(this.nodeMaterials());
-      this.applyLightmaps();
-    }
     const old = this.root;
     const next = document.createElement('canvas');
     for (const a of [...old.attributes]) if (!a.name.startsWith('data-tl-renderer')) next.setAttribute(a.name, a.value);

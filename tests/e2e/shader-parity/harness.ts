@@ -2,16 +2,19 @@
  * Phase 17.2: the neutral shader test scene (browser code, bundled by
  * `shader-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=legacy|webgl2|webgpu&case=<name>[&control=1]
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>[&control=1]
  *
  * Every case draws one shader type of the project material library (or one
  * per-mesh look) through the real three-adapter code — `createRenderer`,
  * `createMaterialLibrary`, `applyLightmap`, `setSelectionHighlight`,
  * `setEmissiveLook` — with fixed time, wind, camera and lights, so the WebGL
- * reference images (legacy renderer) and the node-material renders
- * (WebGPURenderer on WebGL 2 / WebGPU) can be compared pixel by pixel.
- * Textures are generated here (no files, no fetch). `control=1` draws the
- * legacy (onBeforeCompile) materials on WebGPURenderer: what the port fixes.
+ * reference images (drawn by the archived WebGLRenderer path before the
+ * switch-over, phase 17.2) and the node-material renders (WebGPURenderer on
+ * WebGL 2 / WebGPU) can be compared pixel by pixel. Textures are generated
+ * here (no files, no fetch). `control=1` draws the cases without their shader
+ * nodes (foliage, kit and water as plain standard materials, lightmap copies
+ * keeping the ambient light) — what WebGPURenderer drew while the archived
+ * onBeforeCompile hooks were silently ignored (phase 17.0).
  *
  * When done, `window.__shaderCase` holds { ok, backend, reason, error? };
  * with `debug=1` on WebGPURenderer, `window.__shader` holds the generated
@@ -33,10 +36,9 @@ import {
 export const SIZE = 256;
 
 const q = new URLSearchParams(location.search);
-const backend = (q.get('backend') ?? 'legacy') as RendererPreference;
+const backend = (q.get('backend') ?? 'auto') as RendererPreference;
 const which = q.get('case') ?? 'standard';
 const control = q.get('control') === '1';
-const nodeMaterials = backend !== 'legacy' && !control;
 
 // ---- generated textures (sRGB colour data / linear normal data) ----------------------
 
@@ -91,12 +93,20 @@ sun.position.set(3, 5, 4);
 const ambient = new THREE.AmbientLight('#8090a8', 0.7);
 scene.add(sun, ambient);
 
-const library = createMaterialLibrary({ loadTexture: async (id) => (TEXTURES[id] ? TEXTURES[id]() : null), nodeMaterials });
+const library = createMaterialLibrary({ loadTexture: async (id) => (TEXTURES[id] ? TEXTURES[id]() : null) });
 library.setWind({ direction: [1, 0.3], strength: 3, gust: 1, gustFrequency: 0.3, turbulence: 0.5 });
 library.tick(1.7);
 
 const src = (): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ name: 'src', color: '#ffffff' });
-const def = (materialId: string, shader: MaterialDefLike['shader'], params: MaterialDefLike['params'], textures: MaterialDefLike['textures'] = {}): MaterialDefLike => ({ materialId, name: materialId, shader, params, textures });
+/** The control strips the shader types that need their own nodes (what an ignored hook drew). */
+const NODE_SHADERS: readonly MaterialDefLike['shader'][] = ['foliage', 'kit', 'water'];
+const def = (materialId: string, shader: MaterialDefLike['shader'], params: MaterialDefLike['params'], textures: MaterialDefLike['textures'] = {}): MaterialDefLike => ({
+  materialId,
+  name: materialId,
+  shader: control && NODE_SHADERS.includes(shader) ? 'standard' : shader,
+  params,
+  textures,
+});
 const box = (s = 1): THREE.BoxGeometry => {
   const g = new THREE.BoxGeometry(s, s, s);
   addBoxLightmapUv(g);
@@ -187,11 +197,11 @@ const cases: Record<string, () => void | Promise<void>> = {
     library.apply(piece, { '*': 'lm-kit' });
     await settle(); // the project material's texture first (the lightmapped copy clones it)
     // A plain (Lambert) ground whose bake holds the ambient light.
-    applyLightmap(ground, atlas, [1, 1, 0, 0], 1.6, { ignoreAmbient: true, nodeMaterials });
+    applyLightmap(ground, atlas, [1, 1, 0, 0], 1.6, { ignoreAmbient: !control });
     // A project material cube whose bake keeps ambient realtime (range 2.2).
-    applyLightmap(cube, atlas, [1, 1, 0, 0], 2.2, { ignoreAmbient: false, nodeMaterials });
+    applyLightmap(cube, atlas, [1, 1, 0, 0], 2.2, { ignoreAmbient: false });
     // A kit piece (world-X UV) with a lightmap and no ambient.
-    applyLightmap(piece, atlas, [1, 1, 0, 0], 1.2, { ignoreAmbient: true, nodeMaterials });
+    applyLightmap(piece, atlas, [1, 1, 0, 0], 1.2, { ignoreAmbient: !control });
   },
   highlight() {
     // The Scene view's box: its own Lambert material, emissive-tinted while selected.

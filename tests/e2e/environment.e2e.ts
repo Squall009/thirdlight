@@ -5,9 +5,10 @@
  * with height) — and Play and
  * the export render the same environment.
  *
- * Phase 17.3: runs once per renderer variant (renderer-variants.ts): the
- * legacy WebGLRenderer, and WebGPURenderer with the TSL sky, fog volumes and
- * post stack (WebGL 2 in the default project, WebGPU in the webgpu project).
+ * Phase 17.3/17.4: runs once per renderer variant (renderer-variants.ts):
+ * WebGPURenderer with the TSL sky, fog volumes and post stack — auto (the
+ * default) and forced WebGL 2 in the default project, WebGPU in the webgpu
+ * project.
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';

@@ -65,6 +65,7 @@ import {
   canonicalController,
   validateModelComponent,
   validateModelPiece,
+  validateShadowFlags,
   validatePhysicsTransform,
   validatePrefabProvenance,
   validateTransformV2,
@@ -144,7 +145,30 @@ export const CAMERA_FOLLOW_DEFAULTS = Object.freeze({ maxSpeed: 480 });
 export const CAMERA_FOLLOW_LIMITS = Object.freeze({ distance: { min: 0.1, max: 1000 }, maxSpeed: { min: 0.1, max: 100000 } });
 const KNOWN_DEADZONE_FIELDS = new Set(['x', 'y']);
 const KNOWN_BOUNDS_FIELDS = new Set(['minX', 'maxX', 'minY', 'maxY']);
-const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow']);
+const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent']);
+
+/**
+ * Phase 17.4: the directional light's shadow settings (data; absent = the
+ * defaults, three-adapter `DIRECTIONAL_SHADOW_DEFAULTS` holds the same values):
+ * - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp
+ *   shadow for a person-size object in a side, top-down or third-person view,
+ *   at a quarter of the memory of 2048²; WebGL 2 guarantees 2048, WebGPU 8192
+ *   (4096 is the cap: the largest map worth its memory on common GPUs).
+ * - bias -0.0005: half a thousandth of the shadow depth range removes acne on
+ *   surfaces facing the light without lifting the shadow off its caster.
+ * - normal bias 0.02 m: about half a texel at the defaults — removes the
+ *   stripes on surfaces at a grazing angle (curved models, instance sets).
+ * - extent 24 m (half the side of the square that follows the camera in a v4
+ *   game): the previous engine constant, room for a screen of any common
+ *   genre; a v3 game's level bounds decide its square instead.
+ */
+export const DIRECTIONAL_SHADOW_LIMITS = {
+  mapSizes: [512, 1024, 2048, 4096],
+  bias: { min: -0.01, max: 0.01 },
+  normalBias: { min: 0, max: 1 },
+  extent: { min: 1, max: 64 },
+} as const;
+export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 } as const;
 /** Phase 9.5 (v4): the local light fields. */
 const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode']);
 /** Phase 9.5: point/spot intensity is in candela (three's physical units). */
@@ -362,8 +386,9 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   else if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > MAX_INSTANCES) {
     errors.push(fieldValue(`${path}/count`, count, `integer 1-${MAX_INSTANCES}`, 'an instance set holds 1 to 65536 copies'));
   }
+  validateShadowFlags(c, path, errors);
   for (const k of Object.keys(c)) {
-    if (k !== 'asset' && k !== 'buffer' && k !== 'count') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count'));
+    if (k !== 'asset' && k !== 'buffer' && k !== 'count' && k !== 'castShadow' && k !== 'receiveShadow') errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, buffer, count, castShadow, receiveShadow'));
   }
 }
 
@@ -501,7 +526,25 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     if (c['castShadow'] !== undefined && typeof c['castShadow'] !== 'boolean') {
       errors.push(fieldType(`${path}/castShadow`, c['castShadow'], 'boolean'));
     }
+    // Phase 17.4: the shadow map settings (optional).
+    const lim = DIRECTIONAL_SHADOW_LIMITS;
+    const size = c['shadowMapSize'];
+    if (size !== undefined && !(lim.mapSizes as readonly unknown[]).includes(size)) {
+      errors.push(fieldValue(`${path}/shadowMapSize`, size, `one of ${lim.mapSizes.join(', ')}`, 'the shadow map size is a power of two from 512 to 4096'));
+    }
+    const range = (k: string, r: { min: number; max: number }, unit: string): void => {
+      const v = c[k];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < r.min || v > r.max)) {
+        errors.push(fieldValue(`${path}/${k}`, v, `a number in [${r.min}, ${r.max}]${unit}`, `${k} must be in [${r.min}, ${r.max}]${unit}`));
+      }
+    };
+    range('shadowBias', lim.bias, '');
+    range('shadowNormalBias', lim.normalBias, ' m');
+    range('shadowExtent', lim.extent, ' m');
   } else {
+    for (const k of ['shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent']) {
+      if (c[k] !== undefined) errors.push(fieldValue(`${path}/${k}`, c[k], 'absent on an ambient light', 'only a directional light casts shadows'));
+    }
     if (c['direction'] !== undefined) {
       errors.push(fieldValue(`${path}/direction`, c['direction'], 'absent on an ambient light', 'only a directional light carries a direction'));
     }
@@ -511,7 +554,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
   }
   for (const k of Object.keys(c)) {
     if (version === 4 && k === 'mode') continue;
-    if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow'));
+    if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow, shadowMapSize, shadowBias, shadowNormalBias, shadowExtent'));
   }
 }
 
@@ -1041,6 +1084,8 @@ function canonicalLight(c: unknown): LightComponent {
     out.direction = [canonNum(dir[0]), canonNum(dir[1]), canonNum(dir[2])];
   }
   if (out.type === 'directional') out.castShadow = typeof o['castShadow'] === 'boolean' ? o['castShadow'] : false;
+  // Phase 17.4: the directional shadow settings, kept when set.
+  if (out.type === 'directional') for (const k of ['shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if ((out.type === 'point' || out.type === 'spot') && typeof o['castShadow'] === 'boolean') out.castShadow = o['castShadow'];
   // Phase 9.5 local-light fields, kept when set.
   for (const k of ['range', 'decay', 'angle', 'penumbra'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
@@ -1128,8 +1173,15 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   }
   if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number };
-    components.instances = { asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) }, buffer: i.buffer, count: i.count };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean };
+    components.instances = {
+      asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
+      buffer: i.buffer,
+      count: i.count,
+      // Phase 17.4: kept only when set (an existing set keeps its exact canonical bytes).
+      ...(typeof i.castShadow === 'boolean' ? { castShadow: i.castShadow } : {}),
+      ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
+    };
   }
   const name = e['name'];
   const pid = e['parentId'];

@@ -13,3 +13,12 @@ truth now.
 The exact pre-cleanup tree is also tagged `archive/pre-audit-2026-09-22`.
 
 Nothing under `archive/` is built, type-checked, or tested.
+
+`webgl-renderer-17/` holds the three.js `WebGLRenderer` path as it stood when
+phase 17.4 switched every view to `WebGPURenderer` (2026-09-25): the
+three-adapter renderer factory with its `legacy` backend, the
+`onBeforeCompile` project shaders and lightmap hook, the EffectComposer post
+stack with the WebGL sky/PMREM/fog-volume passes, the WebGL lightmap baker,
+and the shader-parity reference capture script. The shader and environment
+parity reference images it drew stay in `tests/e2e/*-parity/refs/` as the
+contract the TSL shading is compared with.

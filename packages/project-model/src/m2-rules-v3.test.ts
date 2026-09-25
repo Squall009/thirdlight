@@ -284,6 +284,9 @@ describe('gameplay settings resolution (§21.5)', () => {
     expect(engine.ok && Object.keys(engine.normalized)).toEqual(['gravity_y', 'run_speed', 'jump_velocity', 'max_fall_speed', 'max_slope_climb_deg', 'min_slope_slide_deg', 'fixed_step_hz', 'audio_voices']);
     const backend = resolveGameplaySettings({ settings: { render_backend: 3 } });
     expect(backend.ok && backend.normalized.render_backend).toBe(3);
+    // Phase 17.4: 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
+    const legacy = resolveGameplaySettings({ settings: { render_backend: 0 } });
+    expect(legacy.ok && legacy.normalized.render_backend).toBe(0);
     for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }]) {
       expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
     }
