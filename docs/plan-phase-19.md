@@ -69,7 +69,7 @@ way. Read `docs/roadmap.md` (principles) first.
 | 19.0 data and compiler | done 2026-09-25 | e99a7e8, 9cbccf1, 139f306 |
 | 19.1 node catalogue | done 2026-09-25 | c1a254d, dbbc7d5 |
 | 19.2 editor and debugging | done 2026-09-25 | 1c1d90e, 1a8784a |
-| 19.3 tests and wrap-up | todo | |
+| 19.3 tests and wrap-up | done 2026-09-25 | bdc07c6 |
 
 ## 4. Decision log
 
