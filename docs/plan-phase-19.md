@@ -66,7 +66,7 @@ way. Read `docs/roadmap.md` (principles) first.
 
 | Item | Status | Commits |
 |---|---|---|
-| 19.0 data and compiler | todo | |
+| 19.0 data and compiler | done 2026-09-25 | e99a7e8, 9cbccf1, 139f306 |
 | 19.1 node catalogue | todo | |
 | 19.2 editor and debugging | todo | |
 | 19.3 tests and wrap-up | todo | |
