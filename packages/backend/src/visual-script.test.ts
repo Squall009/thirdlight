@@ -98,12 +98,69 @@ describe('publishing a visual script (HTTP)', () => {
     // The stored source is the generated TypeScript.
     const stored = await api(`${tb.authUrl}/api/v1/projects/${P}/content/behaviors/counter/source`, { method: 'GET', token: tb.authToken, origin: null });
     const container = JSON.parse((stored.json as { source: string }).source) as { files: { path: string; text: string }[] };
-    expect(container.files[0]!.text).toContain('const a0 = "coins";');
-    expect(container.files[0]!.text).toContain('c.game?.add(a0, a1);');
+    const all = container.files.map((f) => f.text).join('\n');
+    expect(container.files.find((f) => f.path === 'src/index.ts')!.text.startsWith('// Thirdlight visual script v1')).toBe(true);
+    expect(all).toContain('const a0 = "coins";');
+    expect(all).toContain('c.game?.add(a0, a1);');
 
     // A behavior without a graph cannot be published as one.
     await command('publishBehavior', { behaviorId: 'plain', displayName: 'Plain', mode: 'declaration-create', declaration: { properties: [{ key: 'a', label: 'A', type: 'number', default: 0 }] } });
     const plain = await source({ check: true, graph: true, behaviorId: 'plain' });
     expect(plain.status).toBe(400);
+  });
+});
+
+describe('phase 19.1: a script with a function and a shared function (HTTP)', () => {
+  it('the check compiles the script with its functions and the shared function; changing the shared function changes the digest', async () => {
+    const fn = (factor: number) => ({
+      nodes: [
+        { id: 'start', type: 'fn.entry', position: [0, 0] },
+        { id: 'x', type: 'fn.input', position: [0, 100], data: { name: 'x', type: 'number' } },
+        { id: 'times', type: 'math.multiply', position: [200, 100], data: { b: factor } },
+        { id: 'y', type: 'fn.output', position: [400, 100], data: { name: 'y', type: 'number' } },
+      ],
+      edges: [
+        { id: 'w1', from: { node: 'x', port: 'value' }, to: { node: 'times', port: 'a' } },
+        { id: 'w2', from: { node: 'times', port: 'result' }, to: { node: 'y', port: 'value' } },
+      ],
+    });
+    expect((await command('setGraph', { graph: { graphId: 'triple', kind: 'behavior-library', name: 'Triple', graph: fn(3) } })).ok).toBe(true);
+    // No variable at all: a script may declare no property.
+    const created = await command('publishBehavior', { behaviorId: 'caller', displayName: 'Caller', mode: 'declaration-create', declaration: { properties: [] }, graph: { nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] } });
+    expect(created.ok, JSON.stringify(created)).toBe(true);
+    const made = await command('graphEdit', { owner: { kind: 'behavior', id: 'caller#double' }, ops: [{ op: 'addNodes', nodes: fn(2).nodes }, { op: 'connect', edges: fn(2).edges }] });
+    expect(made.ok, JSON.stringify(made)).toBe(true);
+    const wired = await command('graphEdit', {
+      owner: { kind: 'behavior', id: 'caller' },
+      ops: [
+        {
+          op: 'addNodes',
+          nodes: [
+            { id: 'call', type: 'fn.call', position: [200, 0], data: { function: 'double' } },
+            { id: 'lib', type: 'fn.library', position: [400, 0], data: { function: 'triple' } },
+            { id: 'add', type: 'api.game.add', position: [600, 0], data: { name: 'score' } },
+          ],
+        },
+        {
+          op: 'connect',
+          edges: [
+            { id: 'c1', from: { node: 'start', port: 'then' }, to: { node: 'call', port: 'in' } },
+            { id: 'c2', from: { node: 'call', port: 'then' }, to: { node: 'lib', port: 'in' } },
+            { id: 'c3', from: { node: 'call', port: 'y' }, to: { node: 'lib', port: 'x' } },
+            { id: 'c4', from: { node: 'lib', port: 'then' }, to: { node: 'add', port: 'in' } },
+            { id: 'c5', from: { node: 'lib', port: 'y' }, to: { node: 'add', port: 'amount' } },
+          ],
+        },
+      ],
+    });
+    expect(wired.ok, JSON.stringify(wired)).toBe(true);
+    expect(((await behavior('caller'))['functions'] as { functionId: string }[]).map((f) => f.functionId)).toEqual(['double']);
+    const first = await source({ check: true, graph: true, behaviorId: 'caller' });
+    expect(first.json).toMatchObject({ ok: true, compiled: true, declaration: { properties: [] } });
+    // The shared function's code is part of the source: changing it changes the digest.
+    expect((await command('graphEdit', { owner: { kind: 'graph', id: 'triple' }, ops: [{ op: 'setNodeData', id: 'times', data: { b: 4 } }] })).ok).toBe(true);
+    const second = await source({ check: true, graph: true, behaviorId: 'caller' });
+    expect(second.json).toMatchObject({ ok: true, compiled: true });
+    expect(second.json['sourceDigest']).not.toBe(first.json['sourceDigest']);
   });
 });

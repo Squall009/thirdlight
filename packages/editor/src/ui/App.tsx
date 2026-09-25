@@ -2982,8 +2982,8 @@ function EditorApp(): JSX.Element {
 
   /**
    * A new visual script: a behavior created with a graph holding one On start
-   * node and one public number variable "value" (a behavior declares 1–32
-   * properties; the name is no genre's quantity). One publishBehavior command.
+   * node (phase 19.1: no variable needed — a behavior may declare no
+   * property). One publishBehavior command.
    */
   const createVisualScript = useCallback(
     async (displayName: string): Promise<void> => {
@@ -3155,6 +3155,8 @@ function EditorApp(): JSX.Element {
     },
     visualScript: {
       kind: graphKinds['behavior'],
+      graphs,
+      kinds: graphKinds,
       activePlay: behaviorProps.activePlay,
       onEdit: (behaviorId, ops) => sendGraphEdit({ kind: 'behavior', id: behaviorId }, ops),
       onSelection: setVisualSelection,
@@ -3789,7 +3791,7 @@ function EditorApp(): JSX.Element {
         ) : activeVisual?.graph !== undefined && graphKinds['behavior'] !== undefined ? (
           <div className="tl-inspector" aria-label="visual script inspector">
             <div className="tl-panel__title">Inspector</div>
-            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph)} />
+            <GraphInspector kind={graphKinds['behavior']} graph={activeVisual.graph} ids={visualSelection} onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: activeVisual.behaviorId }, ops)} portContext={behaviorPortContext(activeVisual.graph, { functions: activeVisual.functions, graphs, kinds: graphKinds })} assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))} />
           </div>
         ) : openGraph !== null && graphKinds[openGraph.kind] !== undefined ? (
           <div className="tl-inspector">

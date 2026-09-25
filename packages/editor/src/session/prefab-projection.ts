@@ -28,6 +28,7 @@ import type { ChangeData } from '@thirdlight/commands';
 import type { BehaviorRecord, BehaviorSourceRecord, GraphData, PrefabDefinition, PropertyDeclaration, TrustEntry } from '@thirdlight/project-model';
 
 import { applyGraphOpsLocal } from '../graph/model';
+import { parseBehaviorOwnerId } from './behavior-graph';
 
 /** The published declaration part of a behavior record (never its source bytes). */
 export interface BehaviorDeclarationView {
@@ -39,6 +40,8 @@ export interface BehaviorDeclarationView {
   publishedRevision: number;
   /** Phase 19.0: the visual script (absent: not a visual script). */
   graph?: GraphData;
+  /** Phase 19.1: the script's functions (sorted by id; absent: none). */
+  functions?: { functionId: string; graph: GraphData }[];
 }
 
 /** One definition summary as `queryPrefabs`/full state returns it. */
@@ -161,10 +164,27 @@ export class PrefabProjection {
         // Phase 19.0: a visual script's graph advances from the change's ops
         // (the backend applied and validated the same ops).
         if (change.owner.kind !== 'behavior') return false;
-        const b = this.behaviors.get(change.owner.id);
-        const next = b?.graph !== undefined ? applyGraphOpsLocal(b.graph, change.ops) : null;
-        if (b === undefined || next === null) throw new Error(`stale visual script "${change.owner.id}"`);
-        this.behaviors.set(b.behaviorId, { ...b, graph: next });
+        // Phase 19.1: `<behaviorId>#<functionId>` is one of the script's functions
+        // (it exists while it has nodes, like the backend's record).
+        const target = parseBehaviorOwnerId(change.owner.id);
+        const b = this.behaviors.get(target.behaviorId);
+        if (b === undefined || b.graph === undefined) throw new Error(`stale visual script "${change.owner.id}"`);
+        if (target.functionId === null) {
+          const next = applyGraphOpsLocal(b.graph, change.ops);
+          if (next === null) throw new Error(`stale visual script "${change.owner.id}"`);
+          this.behaviors.set(b.behaviorId, { ...b, graph: next });
+          return true;
+        }
+        const fid = target.functionId;
+        const current = b.functions?.find((f) => f.functionId === fid)?.graph ?? { nodes: [], edges: [] };
+        const next = applyGraphOpsLocal(current, change.ops);
+        if (next === null) throw new Error(`stale visual script function "${change.owner.id}"`);
+        const functions = (b.functions ?? []).filter((f) => f.functionId !== fid);
+        if (next.nodes.length > 0) functions.push({ functionId: fid, graph: next });
+        functions.sort((x, y) => (x.functionId < y.functionId ? -1 : x.functionId > y.functionId ? 1 : 0));
+        const view: BehaviorDeclarationView = { ...b, functions };
+        if (functions.length === 0) delete view.functions;
+        this.behaviors.set(b.behaviorId, view);
         return true;
       }
       case 'acknowledgeBehaviorTrust': {
@@ -188,6 +208,7 @@ function toDeclarationView(b: BehaviorRecord): BehaviorDeclarationView {
     source: b.source === null ? null : { ...b.source, requiredModules: [...b.source.requiredModules], ...(b.source.ownedTransforms !== undefined ? { ownedTransforms: [...b.source.ownedTransforms] } : {}) },
     publishedRevision: b.publishedRevision,
     ...(b.graph !== undefined ? { graph: structuredClone(b.graph) } : {}),
+    ...(b.functions !== undefined && b.functions.length > 0 ? { functions: structuredClone(b.functions) } : {}),
   };
 }
 

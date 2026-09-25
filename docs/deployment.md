@@ -912,57 +912,118 @@ catalogues are in `tl_content_query target="game" includeDescriptors`
 ## Visual scripts
 
 A behavior can be written as a node graph instead of TypeScript (phase
-19.0). Bottom dock → **Behaviors**: type a name next to **+ Visual script**
+19). Bottom dock → **Behaviors**: type a name next to **+ Visual script**
 and press it; the new behavior opens as a **Graph: <name>** centre tab (the
 graph editor above, with the visual-script catalogue) holding an **On
-start** node and one public number variable "value". Double-click a visual
-script's tile (it says "visual script") to open it again. The Inspector on
-the right edits the selected node's fields.
+start** node (a script needs no variable: a behavior may declare no
+property). Double-click a visual script's tile (it says "visual script") to
+open it again. Right click (or Space, or **+ Node**) opens the catalogue
+with its search; the Inspector on the right edits the selected node's
+fields.
 
-- **Flow:** events start the flow along the white **exec** wires — **On
-  start** runs on the script's first step and again at the start of every
-  run (a new game or a replay: every run starts with fresh script state),
-  **On step** every fixed step (after the On start nodes of that step).
-  Each exec output takes one wire (a **Sequence** has four outputs, run top
-  to bottom); an exec input takes any number. **Branch** continues on true
-  or false; **For** runs its body once per whole number from first to last
-  and then "completed" — a script may run at most 10 000 loop iterations per
-  step, more stops the play with a script error naming the loop node.
-- **Data:** coloured wires carry numbers, true/false and text (a number or
-  true/false feeds a text input as text, true/false feeds a number as 1/0).
-  An input without a wire uses the value set on the node. Graphs have no
-  cycles: a value cannot feed itself, and repetition happens only inside a
-  For node. Nodes: Add, Subtract, Multiply, Divide (÷0 gives 0), Compare,
-  And, Or, Not, Log, Add to counter, Counter value, Emit signal, Signal
-  received (the full catalogue follows in 19.1).
-- **Variables:** a Number/Boolean/Text variable node declares one (its name
-  is the property key: lower case, a-z, 0-9, _). Public variables are the
-  script's properties — shown and set per object in the Inspector like any
-  script property; private ones start at their default. **Get variable** /
-  **Set variable** name a variable; their value port takes its type (a Get
-  naming no variable is grey and connects to anything until fixed). The
-  script's properties come only from its variables (the Behaviors tab
-  refuses a different declaration for a visual script).
+- **Events** start the flow along the white **exec** wires. Each event has
+  a **Phase**: *intent* (decide: counters, timers, signals, control) or
+  *transform* (move objects — it runs only in scripts that move something).
+  **On start** (the first step of every run: a new game or a replay starts
+  with fresh script state), **On step**, **On signal**, **On trigger**
+  (enter or exit of a trigger the script owns: on its object, below it, or
+  named by one of its entity variables), **On overlap** / **On raycast** (a
+  query around the object every step: an entity starts or stops
+  overlapping/being hit, or each step), **On input** (an input action
+  pressed, released or held), **On animator event** (a clip event), **On
+  timer** (one of the script's timers fired), **On message** (a message
+  another script sent). Each step the On start nodes run first, then every
+  other event in a fixed order; an event with several occurrences in a step
+  runs once per occurrence.
+- **Flow:** each exec output takes one wire (a **Sequence** has four
+  outputs, run top to bottom); an exec input takes any number. **Branch**,
+  **For** (first..last), **For each** (the items of a list), **While** (the
+  condition is read again before each round), **Gate** (enter/open/close/
+  toggle), **Do once** (with reset), **Delay** (continues after the given
+  seconds, counted in fixed steps; values from before it are kept),
+  **Switch** (text or whole number, six cases and default), **Select**
+  (a or b). A script may run at most 10 000 loop iterations per step (all
+  loops, functions included) — more stops the play with a script error
+  naming the loop node.
+- **Data:** coloured wires carry numbers, true/false, text, vectors (x, y,
+  z), lists and maps (a number or true/false feeds a text input as text,
+  true/false feeds a number as 1/0, a number feeds a vector as (n, n, n), a
+  vector feeds text as "x, y, z"). An input without a wire uses the value
+  set on the node. Graphs have no cycles: repetition happens only inside
+  the loop nodes. Constants, maths (incl. modulo, power, min/max, rounding,
+  clamp, lerp, sine/cosine/angle in degrees), logic, text, vectors, lists
+  (at most 1024 items) and maps (text keys, at most 256 entries) — list and
+  map nodes never change a value, they give a new one (store it with Set
+  variable) — and **Random** number / integer / chance: each object draws
+  from its own sequence, which starts again with every run, so a replay
+  repeats it exactly.
+- **Script API:** every call and value a TypeScript script reaches on `ctx`
+  is a node — game counters, health and visibility, signals, messages,
+  timers, physics queries (raycast, overlap, character result), tags, world
+  transforms, scenes, input actions, animators, sounds, the save, spawning
+  prefabs and removing spawned objects, the intents (control move/jump,
+  respawn, **Move object** and **Pose object**) and values such as This
+  object, Step index and the settings. They are generated from the runtime's
+  typings (new script API appears as nodes without hand work). An empty
+  entity means **this object**; **Play sound** picks from the project's
+  audio. **Move object** / **Pose object** run in the transform phase only:
+  with an empty entity the script moves its own object (it owns "@self");
+  a typed entity id is owned by the script (at most 16 objects).
+- **Messages:** **Send message** (name, a number/text/true-false value,
+  optionally one target entity) reaches **On message** of every script (or
+  the target's) in the next step; at most 256 messages per step. TypeScript
+  scripts use the same `ctx.messages.send` / `received`.
+- **Variables:** Number, Boolean, Text, Vector, Entity (an entity id; as a
+  property it is picked in the Inspector), Choice (one of listed texts),
+  List and Map variable nodes; the name is the property key (lower case,
+  a-z, 0-9, _). **Public** variables are the script's properties — shown
+  and set per object in the Inspector; **private** ones are per object and
+  start at their default; **local** ones live for one event run (lists and
+  maps are private or local). **Get variable** / **Set variable** name a
+  variable; their value port takes its type (a Get naming no variable is
+  grey and connects to anything until fixed). The script's properties come
+  only from its public and private variables (at most 32).
+- **Functions:** a script can have functions — graphs with a **Function
+  start**, **Input** nodes and **Output** nodes (name and type); **Call
+  function** runs one: its ports are the function's Inputs and Outputs (read
+  when the function's flow has finished). Variables declared in a function
+  are local to one call; a function may use the script's variables.
+  **Shared functions** are graphs of kind "behavior-library" in the
+  project's graph list, called from any script with **Call shared
+  function** (they see only their own inputs and locals). Functions may not
+  call each other in a cycle. The function tabs of the editor come with
+  19.2; today functions are made through MCP / commands (below) and a new
+  call node picks the first function.
 - **Check and publish:** a moment after each change the backend compiles
-  the graph (to TypeScript, with the same compiler, limits, output scan and
-  engine pins as a TypeScript script); problems are listed beside the graph
-  with their node (click one to frame it) — e.g. an empty counter name, a
-  Get naming no variable, a node no event reaches (a warning). **Publish**
-  shows the trust notice for a new digest, then publishes (one
-  `publishBehavior`, one undo step); Play and exports run the published
-  script, which the stored source record marks `kind: "graph"`. Editing
-  the graph never changes the published script until you publish again.
+  the script with its functions and the shared functions it calls (to
+  TypeScript, with the same compiler, limits, output scan and engine pins as
+  a TypeScript script; the shared functions' code is part of the published
+  digest); problems are listed beside the graph with their node (click one
+  to frame it) — e.g. an empty counter name, a Get naming no variable, a
+  Move object reached from an intent event, a node no event reaches (a
+  warning). **Publish** shows the trust notice for a new digest, then
+  publishes (one `publishBehavior`, one undo step); Play and exports run the
+  published script, which the stored source record marks `kind: "graph"`.
+  Editing the graph (or a shared function) never changes the published
+  script until you publish again.
 - **Errors in Play:** a script error from a visual script names the node
-  that was running (`nodeId` in the play diagnostics and `tl_diagnostics`).
+  that was running (`nodeId` in the play diagnostics and `tl_diagnostics`;
+  `fn:<function>/<node>` or `lib:<graph>/<node>` inside a function).
 
 Every graph gesture is one `graphEdit {owner: {kind: "behavior", id:
 behaviorId}, ops}` command (one undo step; MCP edits appear in the open tab).
-MCP creates one with `publishBehavior {mode: "declaration-create", …,
-graph: {nodes, edges}}`; publishing is `POST
+A script's function is owner id `"<behaviorId>#<functionId>"` (kind
+`behavior-function`): the first edit that adds nodes to a new id creates the
+function, removing its last node removes it. Shared functions are `setGraph
+{graph: {graphId, kind: "behavior-library", name, graph}}` and `graphEdit
+{owner: {kind: "graph", id}}` (a change that breaks a script calling it is
+refused, naming the script). MCP creates a script with `publishBehavior
+{mode: "declaration-create", …, graph: {nodes, edges}}`; publishing is `POST
 /api/v1/projects/<id>/content/behaviors/source {graph: true, behaviorId,
 displayName, expectedRevision, requestId}` (`{check: true, graph: true,
 behaviorId}` compiles without publishing and returns the digest to
-acknowledge). Limits: 256 nodes and 32 variables per visual script.
+acknowledge). Limits: 256 nodes per graph, 32 functions and 32 properties
+per script; Delay nodes use timers named `vs.delay.<n>`.
 
 ## Input actions
 
@@ -1059,6 +1120,15 @@ A timed door, for example: a script on the door with a "sensor" entity
 property naming a trigger; on its `enter` event `ctx.timers.after("open",
 1)`; when `fired("open")` it hides the door (`ctx.game.setVisible`) and
 starts `after("close", 4)`, which shows it again.
+
+- Phase 19.1: `ctx.messages.send(name, value?, target?)` sends a named
+  message (name like a timer name; value a number, text of at most 256
+  characters or true/false) to every script, or only to the scripts on the
+  entity `target`; `ctx.messages.received(name)` lists, in send order, the
+  messages of that name sent in the previous step to everyone or to this
+  object (`{ name, value, from, stepIndex }`). At most 256 messages per step
+  (`send` returns false beyond, or for a bad name/value); a new run clears
+  them. A behavior may now declare no property at all.
 
 ### Spawning prefabs from scripts
 

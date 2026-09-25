@@ -17,7 +17,7 @@ import { canonicalInput, validateInput } from './input';
 import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
 import { canonicalGraphData, canonicalGraphDocuments, graphAssetRefs, graphDocumentsContext, validateGraphData, validateGraphDocuments, type GraphData, type GraphKindDef } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
-import { behaviorGraphContext } from './behavior-graph';
+import { BEHAVIOR_FUNCTION_ID_RE, BEHAVIOR_GRAPH_LIMITS, behaviorGraphContext } from './behavior-graph';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
@@ -248,7 +248,7 @@ const KNOWN_VERSION_FIELDS = new Set([
 const KNOWN_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain', 'extensions']);
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'entityCount', 'depth', 'entities']);
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'components']);
-const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision', 'graph']);
+const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision', 'graph', 'functions']);
 const KNOWN_DECLARATION_FIELDS = new Set(['properties']);
 const KNOWN_PROPERTY_FIELDS = new Set(['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds', 'visibility', 'group', 'header', 'tooltip']);
 /** Phase 15.4: the optional presentation texts of a declared property and their length caps. */
@@ -1357,7 +1357,7 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
   }
 }
 
-function validateBehaviorRecord(b: unknown, path: string, errors: ModelErrorV2[], version = 2): void {
+function validateBehaviorRecord(b: unknown, path: string, errors: ModelErrorV2[], version = 2, graphs?: unknown): void {
   if (!isPlainObject(b)) {
     errors.push(fieldType(path, b, 'object'));
     return;
@@ -1380,8 +1380,9 @@ function validateBehaviorRecord(b: unknown, path: string, errors: ModelErrorV2[]
     if (props === undefined) errors.push(fieldMissing(`${path}/declaration/properties`, 'properties'));
     else if (!Array.isArray(props)) errors.push(fieldType(`${path}/declaration/properties`, props, 'array'));
     else {
-      if (props.length < 1 || props.length > MAX_PROPERTIES) {
-        errors.push(limitsError(`${path}/declaration/properties`, 'properties', props.length, MAX_PROPERTIES, `a declaration must have 1-${MAX_PROPERTIES} properties`));
+      // Phase 19.1: 0–32 (a script may declare no property).
+      if (props.length > MAX_PROPERTIES) {
+        errors.push(limitsError(`${path}/declaration/properties`, 'properties', props.length, MAX_PROPERTIES, `a declaration has at most ${MAX_PROPERTIES} properties`));
       }
       const seen = new Set<string>();
       for (let i = 0; i < props.length; i++) {
@@ -1411,11 +1412,33 @@ function validateBehaviorRecord(b: unknown, path: string, errors: ModelErrorV2[]
   else if (typeof published !== 'number' || !Number.isInteger(published) || published < 0 || published > Number.MAX_SAFE_INTEGER) {
     errors.push(withFound({ code: 'number_out_of_range', path: `${path}/publishedRevision`, message: 'publishedRevision must be an integer in [0, 2^53-1]', expected: 'integer in [0, 2^53-1]' }, published));
   }
-  // Phase 19.0 (v4): the visual script graph.
+  // Phase 19.0 (v4): the visual script graph; phase 19.1: its functions (calls resolve
+  // against them and the project's shared functions).
   const graph = b['graph'];
+  const functions = b['functions'];
   if (graph !== undefined) {
     if (version !== 4) errors.push(unexpectedField(`${path}/graph`, 'graph', 'a visual script graph needs a v4 project'));
-    else validateGraphData(GRAPH_KINDS['behavior']!, graph, `${path}/graph`, errors, behaviorGraphContext(graph));
+    else validateGraphData(GRAPH_KINDS['behavior']!, graph, `${path}/graph`, errors, behaviorGraphContext(graph, { functions, graphs }));
+  }
+  if (functions !== undefined) {
+    if (graph === undefined || version !== 4) errors.push(unexpectedField(`${path}/functions`, 'functions', 'functions belong to a visual script (a behavior with a graph)'));
+    else if (!Array.isArray(functions) || functions.length > BEHAVIOR_GRAPH_LIMITS.functions) {
+      errors.push(fieldValue(`${path}/functions`, functions, `a list of at most ${BEHAVIOR_GRAPH_LIMITS.functions} functions`, 'functions is a short list'));
+    } else {
+      const ids = new Set<string>();
+      functions.forEach((f, i) => {
+        const fp = `${path}/functions/${i}`;
+        if (!isPlainObject(f)) return errors.push(fieldType(fp, f, 'object'));
+        for (const k of Object.keys(f)) if (k !== 'functionId' && k !== 'graph') errors.push(unexpectedField(`${fp}/${pointerSegment(k)}`, k, 'functionId, graph'));
+        const id = f['functionId'];
+        if (typeof id !== 'string' || !BEHAVIOR_FUNCTION_ID_RE.test(id)) errors.push(fieldValue(`${fp}/functionId`, id, 'an id (a-z, 0-9, _ and -)', 'a function id is an id'));
+        else if (ids.has(id)) errors.push(withFound({ code: 'id_duplicate', path: `${fp}/functionId`, message: 'function ids are unique in a script', expected: 'a unique functionId' }, id));
+        else ids.add(id);
+        const g = f['graph'];
+        validateGraphData(GRAPH_KINDS['behavior-function']!, g, `${fp}/graph`, errors, behaviorGraphContext(g, { functions, graphs, script: graph }));
+        if (isPlainObject(g) && Array.isArray(g['nodes']) && g['nodes'].length === 0) errors.push(fieldValue(`${fp}/graph/nodes`, [], 'at least one node', 'a function without nodes does not exist (it is removed)'));
+      });
+    }
   }
   for (const k of Object.keys(b)) {
     if (!KNOWN_BEHAVIOR_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_BEHAVIOR_FIELDS].join(', ')));
@@ -1769,6 +1792,10 @@ function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
     publishedRevision: b.publishedRevision,
     // Phase 19.0: the visual script (absent for other behaviors: older records stay byte-identical).
     ...(b.graph !== undefined ? { graph: canonicalGraphData(b.graph) } : {}),
+    // Phase 19.1: its functions (sorted by id; absent when there are none).
+    ...(b.functions !== undefined && b.functions.length > 0
+      ? { functions: [...b.functions].sort((x, y) => (x.functionId < y.functionId ? -1 : x.functionId > y.functionId ? 1 : 0)).map((f) => ({ functionId: f.functionId, graph: canonicalGraphData(f.graph) })) }
+      : {}),
   };
 }
 
@@ -2132,7 +2159,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       if (behaviors.length > MAX_BEHAVIORS) errors.push(limitsError('/behaviors', 'behaviors', behaviors.length, MAX_BEHAVIORS, `the catalog may hold at most ${MAX_BEHAVIORS} behavior records`));
       const seen = new Set<string>();
       for (let i = 0; i < behaviors.length; i++) {
-        validateBehaviorRecord(behaviors[i], `/behaviors/${i}`, errors, version);
+        validateBehaviorRecord(behaviors[i], `/behaviors/${i}`, errors, version, doc['graphs']);
         const b = behaviors[i];
         if (isPlainObject(b) && typeof b['behaviorId'] === 'string') {
           if (seen.has(b['behaviorId'])) errors.push(withFound({ code: 'id_duplicate', path: `/behaviors/${i}/behaviorId`, message: 'behaviorId is already used (first occurrence wins)', expected: 'a unique behaviorId' }, b['behaviorId']));

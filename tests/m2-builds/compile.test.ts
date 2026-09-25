@@ -125,6 +125,11 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
         pinnedModules: M2_PINNED_MODULES,
         limits: RUN_LIMITS,
       });
+      // Phase 19.1: a behavior may declare no property (the packet-33 "empty" case compiles now).
+      if (c.declaration === 'empty') {
+        expect(result.ok, c.caseId).toBe(true);
+        continue;
+      }
       expect(result.ok, c.caseId).toBe(false);
       if (!result.ok) expectMatches(c.expect, result as unknown as Record<string, unknown>).forEach((p) => expect(p).toBe(''));
     }

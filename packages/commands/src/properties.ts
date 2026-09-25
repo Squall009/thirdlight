@@ -518,18 +518,8 @@ export function checkOverrideValue(
 export function validateDeclaration(
   declaration: PropertyDeclaration,
 ): { ok: true; declaration: PropertyDeclaration } | { ok: false; error: CommandError } {
+  // Phase 19.1: 0–32 properties (a behavior may declare none; it was 1–32).
   const properties = declaration.properties as readonly unknown[];
-  if (properties.length === 0) {
-    return {
-      ok: false,
-      error: fieldValue(
-        '/args/declaration/properties',
-        [],
-        'at least one declared property',
-        'a behavior with no declared properties is invalid (project-model §20.8.5)',
-      ),
-    };
-  }
   if (properties.length > 32) {
     return {
       ok: false,

@@ -83,6 +83,7 @@ import {
   type AnimatorEventRecord,
   type BehaviorAnimatorControl,
   type BehaviorAnimatorHandle,
+  type BehaviorMessage,
   type BehaviorSceneControl,
   type BehaviorSpawnControl,
   type CameraInfo,
@@ -128,6 +129,8 @@ import {
 
 /** runtime.md §3.1 default (the M1 constant). */
 const DEFAULT_FIXED_STEP_HZ = 120;
+/** Phase 19.1: a script message name (the timer-name syntax). */
+const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
 /** runtime.md §5 (normative M1 constant). */
@@ -1252,6 +1255,29 @@ class RuntimeInstance implements Runtime {
       if (typeof name === 'string' && name.length > 0 && name.length <= 64) this.blocks?.emit(name);
     },
     on: (name: string): boolean => this.blocks?.signaled(String(name)) ?? false,
+  });
+  /** Phase 19.1: script messages (`ctx.messages`; the behavior host passes sender and receiver). */
+  private readonly messageControl = Object.freeze({
+    send: (from: string, name: unknown, value: unknown, target: unknown): boolean => {
+      if (typeof name !== 'string' || !MESSAGE_NAME_RE.test(name)) return false;
+      let v: number | string | boolean | null;
+      if (value === undefined || value === null) v = null;
+      else if (typeof value === 'number') {
+        if (!Number.isFinite(value)) return false;
+        v = value;
+      } else if (typeof value === 'string') {
+        if (value.length > 256) return false;
+        v = value;
+      } else if (typeof value === 'boolean') v = value;
+      else return false;
+      let to: string | null = null;
+      if (target !== undefined && target !== null && target !== '') {
+        if (typeof target !== 'string' || target.length > 128) return false;
+        to = target;
+      }
+      return this.blocks?.sendMessage({ name, value: v, from, stepIndex: this.stepIndex }, to) ?? false;
+    },
+    received: (to: string, name: unknown): readonly BehaviorMessage[] => (typeof name === 'string' ? (this.blocks?.messagesFor(to, name) ?? []) : []),
   });
   private readonly gameControl = Object.freeze({
     counter: (name: string): number => this.blocks?.counter(String(name)) ?? 0,
@@ -3190,6 +3216,7 @@ class RuntimeInstance implements Runtime {
           animators: this.animatorControl,
           animatorEvents: this.animatorEvents,
           signals: this.signalControl,
+          messages: this.messageControl,
           game: this.gameControl,
           audio: this.audioControl,
           save: this.saveControl,

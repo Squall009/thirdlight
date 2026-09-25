@@ -785,7 +785,7 @@ export function createBackend(
     // Phase 19.0: `graph: true` — the source is generated from the behavior's
     // visual-script graph (as stored now); then the same preparation and
     // publication as any source (trust per exact digest, one command).
-    let graphSource: { bytes: Uint8Array; lineNodes: (string | null)[] } | null = null;
+    let graphSource: { bytes: Uint8Array; lineNodes: Record<string, (string | null)[]> } | null = null;
     if (value.graph !== undefined) {
       if (value.graph !== true || value.stageId !== undefined || value.bytesBase64 !== undefined) {
         sendError(res, sessionError('field_value', 'validation', 'graph must be true and comes without stageId/bytesBase64 (the source is generated from the stored graph)', { path: '/graph' }));
@@ -892,12 +892,14 @@ export function createBackend(
     if (typeof behaviorId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(behaviorId)) {
       return { error: sessionError('field_value', 'validation', 'behaviorId must use the project-model ID syntax', { path: '/behaviorId' }) };
     }
-    const found = service.query({ op: 'queryBehaviors', projectId, args: { behaviorId, includeDeclaration: true, limit: 1, offset: 0 } }) as unknown as { ok: boolean; error?: CommandError; behaviors?: { behaviorId: string; graph?: unknown }[] };
+    const found = service.query({ op: 'queryBehaviors', projectId, args: { behaviorId, includeDeclaration: true, limit: 1, offset: 0 } }) as unknown as { ok: boolean; error?: CommandError; behaviors?: { behaviorId: string; graph?: unknown; functions?: unknown }[] };
     if (!found.ok && found.error?.code !== 'behavior_not_found') return { error: workspaceError(found.error as CommandError) };
     const record = found.behaviors?.find((b) => b.behaviorId === behaviorId);
     if (record === undefined) return { error: sessionError('field_value', 'not_found', `no behavior "${behaviorId}"`, { path: '/behaviorId' }), status: 404 };
     if (record.graph === undefined) return { error: sessionError('field_value', 'validation', `behavior "${behaviorId}" is not a visual script (it has no graph)`, { path: '/graph' }) };
-    return { result: generateGraphSource(record.graph as Parameters<typeof generateGraphSource>[0]) };
+    // Phase 19.1: with the script's functions and the project's shared functions (their code is part of the digest-bound source).
+    const config = service.query({ op: 'queryGameConfig', projectId }) as unknown as { graphs?: unknown };
+    return { result: generateGraphSource(record.graph as Parameters<typeof generateGraphSource>[0], { functions: record.functions, graphs: config.graphs ?? [] }) };
   };
 
   /** Phase 16.3: the compile-only check of `POST …/content/behaviors/source` (`check: true`). */

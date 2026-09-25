@@ -90,15 +90,35 @@ export interface PhysicsPort {
 
 /** The restricted view handed to modules in `StepContext` (physics.md §5). */
 export interface PhysicsStepClient {
-  /** Controller phase only; a second stage for one entity is `duplicate_move`. */
+  /**
+   * Controller phase only; a second stage for one entity is `duplicate_move`.
+   * @graphNode skip scripts never run in the controller phase
+   */
   stageCharacterMove(entityId: string, delta: Vec2): void;
-  /** The last completed step's result, or `undefined` before the first step. */
+  /**
+   * The last completed step's result, or `undefined` before the first step.
+   * @graphPure
+   * @graphNode Character result
+   */
   characterResult(entityId: string): CharacterMoveResult | undefined;
-  /** Phase 9.9: a ray against the level's colliders (bounded per step; null when nothing is hit). */
+  /**
+   * Phase 9.9: a ray against the level's colliders (bounded per step; null when nothing is hit).
+   * @graphNode Raycast
+   * @graphDefault direction [1, 0, 0]
+   * @graphDefault maxDistance 10
+   */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
-  /** Phase 9.9: the entities whose colliders overlap a box (center, half extents) — counted with the rays. */
+  /**
+   * Phase 9.9: the entities whose colliders overlap a box (center, half extents) — counted with the rays.
+   * @graphNode Overlap box
+   * @graphDefault half [0.5, 0.5, 0]
+   */
   overlapBox?(center: Vec2, half: Vec2): string[];
-  /** Phase 9.9: the entities whose colliders overlap a circle — counted with the rays. */
+  /**
+   * Phase 9.9: the entities whose colliders overlap a circle — counted with the rays.
+   * @graphNode Overlap circle
+   * @graphDefault radius 0.5
+   */
   overlapCircle?(center: Vec2, radius: number): string[];
 }
 
