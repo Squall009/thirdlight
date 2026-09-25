@@ -29,6 +29,7 @@
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
+import { setEmissiveLook } from './node-materials';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
@@ -269,8 +270,11 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
   // Phase 9.4: project materials (shared by boxes, models and instance sets).
+  // Phase 17.2: every backend but `legacy` draws with WebGPURenderer, which needs node materials
+  // (known before the renderer exists: the preference decides the renderer class).
+  const nodeMaterials = (opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE) !== 'legacy';
   const materialLibrary: MaterialLibrary | null =
-    opts.materials !== undefined ? createMaterialLibrary({ loadTexture: opts.materials.loadTexture }) : null;
+    opts.materials !== undefined ? createMaterialLibrary({ loadTexture: opts.materials.loadTexture, nodeMaterials }) : null;
   if (materialLibrary !== null && opts.materials !== undefined) {
     materialLibrary.setMaterials(opts.materials.defs);
     materialLibrary.setWind(opts.materials.wind);
@@ -284,6 +288,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             const t = (entityDocs.get(id)?.components as { light?: { type?: string } } | undefined)?.light?.type;
             return t === 'ambient' || t === 'hemisphere';
           }),
+          { nodeMaterials },
         )
       : null;
   /** Phase 9.9: entities the runtime hides (collected, defeated). */
@@ -777,31 +782,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return { emissive: act.emissive, emissiveIntensity: typeof act.emissiveIntensity === 'number' ? act.emissiveIntensity : 1 };
   };
   const setActivation = (id: string, look: { emissive: string; emissiveIntensity: number } | null): void => {
-    objects.get(id)?.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      // A project material is shared: the glow gets this mesh its own copy first.
-      if (mesh.isMesh === true && mesh.userData['__tlSourceMaterial'] !== undefined && mesh.userData['__tlOwnMaterial'] !== true && !Array.isArray(mesh.material)) {
-        const shared = mesh.material;
-        const own = shared.clone();
-        own.onBeforeCompile = shared.onBeforeCompile;
-        own.customProgramCacheKey = shared.customProgramCacheKey;
-        mesh.material = own;
-        mesh.userData['__tlOwnMaterial'] = true;
-      }
-      const mat = mesh.material as (THREE.Material & { emissive?: THREE.Color; emissiveIntensity?: number }) | undefined;
-      if (mat === undefined || Array.isArray(mat) || mat.emissive === undefined) return;
-      if (mat.userData.baseEmissive === undefined) {
-        mat.userData.baseEmissive = mat.emissive.getHex();
-        mat.userData.baseEmissiveIntensity = mat.emissiveIntensity ?? 1;
-      }
-      if (look === null) {
-        mat.emissive.setHex(mat.userData.baseEmissive as number);
-        mat.emissiveIntensity = mat.userData.baseEmissiveIntensity as number;
-      } else {
-        mat.emissive.set(look.emissive);
-        mat.emissiveIntensity = look.emissiveIntensity;
-      }
-    });
+    // A project material is shared: the glow gets each mesh its own copy first (phase 9.4 rule).
+    const obj = objects.get(id);
+    if (obj !== undefined) setEmissiveLook(obj, look);
   };
   const syncCheckpointLook = (): void => {
     const getGameView = (opts.runtime as { getGameView?: () => { ok: boolean; view?: { checkpointId?: string | null } } }).getGameView;

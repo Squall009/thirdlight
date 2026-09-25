@@ -1494,12 +1494,21 @@ renderer is rebuilt on a new one (at most 3 times, then it reports `failed`:
 reload the page); a lost WebGL context is rebuilt when the browser restores
 it.
 
-Until phases 17.2–17.3 port them to TSL, `WebGPURenderer` does not draw the
-project materials' custom shading (foliage wind, kit world-aligned UVs and
-macro normal, water), post-processing, the gradient and procedural skies,
-fog volumes or the lightmap ambient hook; colour and texture skies, fog,
-lights, shadows, models, instances and tone mapping draw. The environment's
-diagnostics name what is left out. Thumbnails render with the backend the
+Project materials draw the same on every backend: on `WebGPURenderer` the
+material library builds node materials (TSL) for each shader type —
+standard, foliage wind (COLOR_0 + the global wind), kit (world-X UVs, the
+UV1 macro normal), unlit, water — and lightmaps (UV1, the bake's range, the
+lights a bake holds left out), the Scene view's selection tint and the
+checkpoint glow work there too. A pixel test compares each against WebGL
+reference images (`tests/e2e/shader-parity/`). Until phase 17.3 ports them,
+`WebGPURenderer` does not draw post-processing, the gradient and procedural
+skies or fog volumes; colour and texture skies, fog, lights, shadows,
+models, instances and tone mapping draw. The environment's diagnostics name
+what is left out.
+
+The kit's macro normal map now shows with the WebGL renderer too: before
+phase 17.2 it was silently never applied (a shader-hook bug), so kit pieces
+with a macro normal map look bumpier than before on every backend. Thumbnails render with the backend the
 editor had when it drew the first one; the lightmap baker still uses WebGL.
 Real-GPU looks and frame times: owner look pending.
 
@@ -1522,14 +1531,18 @@ Projects in an older layout are upgraded the first time they are opened
 npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
-npx playwright test --project=webgpu        # the renderer spec with headless WebGPU
+npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
+node tests/e2e/shader-parity/capture.mjs    # re-capture the WebGL shader reference images (rarely)
 ```
 
 `npm run test:e2e` runs both Playwright projects: `default` (every spec,
 Chromium with WebGL 2 on SwiftShader and no WebGPU, so `auto` covers the
-WebGL 2 fallback) and `webgpu` (`tests/e2e/renderer.e2e.ts` again with
+WebGL 2 fallback) and `webgpu` (the renderer-sensitive specs again with
 `--enable-unsafe-webgpu --enable-features=Vulkan --use-vulkan=swiftshader`:
-Dawn's SwiftShader adapter).
+Dawn's SwiftShader adapter). The materials, textures and lightmaps specs run
+once per renderer variant: `legacy` and `webgl2` (forced with `?renderer=`)
+in `default`, `webgpu` in `webgpu`; the shader-parity spec compares every
+shader type with its WebGL reference image on WebGL 2 and on WebGPU.
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

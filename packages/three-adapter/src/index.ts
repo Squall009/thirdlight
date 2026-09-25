@@ -162,6 +162,16 @@ export {
   type MaterialShaderName,
   type WindLike,
 } from './material-library';
+// Phase 17.2: node-material (TSL) helpers and the per-mesh looks (selection tint, checkpoint glow).
+export {
+  cloneMaterial,
+  isNodeMaterial,
+  SELECTION_HIGHLIGHT_EMISSIVE,
+  setEmissiveLook,
+  setSelectionHighlight,
+  toNodeMaterial,
+  withoutAmbientLight,
+} from './node-materials';
 // Phase 9.5: sky, fog, fog volumes, tone mapping and the post stack.
 export {
   createEnvironmentRenderer,

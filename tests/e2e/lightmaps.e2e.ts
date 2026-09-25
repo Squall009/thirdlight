@@ -5,6 +5,12 @@
  * the bake host) in the Lighting window the cube's shadow is in the ground's
  * lightmap (the sun is then no longer realtime), and a lit spot keeps about
  * the brightness the realtime sun gave it.
+ *
+ * Phase 17.2: the preview bake runs once per renderer variant
+ * (renderer-variants.ts): Play draws the lightmaps with the legacy
+ * WebGLRenderer, or as node materials on WebGPURenderer (WebGL 2 / WebGPU),
+ * including the no-ambient copies (the bake holds the ambient light). The
+ * browser baker itself stays on WebGL until 17.4.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -13,6 +19,7 @@ import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
 let be: E2EBackend;
 let seq = 0;
@@ -67,9 +74,10 @@ interface Scene {
   play: () => Promise<Image>;
 }
 
-async function openScene(page: Page): Promise<Scene> {
-  await page.goto(be.editorUrl);
+async function openScene(page: Page, variant: RendererVariant = 'legacy'): Promise<Scene> {
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   const ground = String((await cmd('createEntity', { kind: 'box', name: 'ground', box: { size: [12, 0.5, 8], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
   const cube = String((await cmd('createEntity', { kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
   // The camera looks down on the ground at 30° (a side-view game camera sits higher than eye level).
@@ -82,6 +90,7 @@ async function openScene(page: Page): Promise<Scene> {
   const play = async (): Promise<Image> => {
     await page.getByTitle('Start an isolated play preview').click();
     await expect(frame).toBeVisible();
+    await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
     await page.waitForTimeout(2500);
     const img = decodePng(await frame.screenshot());
     await page.getByTitle('Stop the play preview').click();
@@ -98,10 +107,11 @@ async function bakeOf(): Promise<{ atlases: string[]; entries: { entityId: strin
   return Object.values(config['lighting'] as Record<string, { atlases: string[]; entries: { entityId: string }[]; bakedLights: string[]; source: string; bounces: number }>)[0]!;
 }
 
-test('Bake preview puts the static cube\'s shadow into the ground\'s lightmap; Play shows it', async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube's shadow into the ground's lightmap; Play shows it (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
   test.setTimeout(240_000);
   be = await startBackend();
-  const { ground, cube, play } = await openScene(page);
+  const { ground, cube, play } = await openScene(page, variant);
 
   // Play before the bake: baked lights are realtime until a bake holds them — no shadow.
   const before = await play();
@@ -125,7 +135,7 @@ test('Bake preview puts the static cube\'s shadow into the ground\'s lightmap; P
   const after = await play();
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);
-  console.log(`[lightmaps] preview: before lit ${beforeLit.toFixed(1)} shadow ${beforeShadow.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
+  console.log(`[lightmaps] ${variant} preview: before lit ${beforeLit.toFixed(1)} shadow ${beforeShadow.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
   expect(afterShadow).toBeLessThan(afterLit * 0.75);
   expect(afterLit / beforeLit).toBeGreaterThan(0.6);
   expect(afterLit / beforeLit).toBeLessThan(1.5);
@@ -141,6 +151,7 @@ test('Bake preview puts the static cube\'s shadow into the ground\'s lightmap; P
 
 test('Bake final runs Blender Cycles on the bake host; its lightmap shows the shadow in Play', async ({ page }) => {
   test.skip(!haveBlender, 'no Blender for the final bake on this machine');
+  test.skip(test.info().project.name === 'webgpu', 'the renderer variants are covered by the preview bake');
   test.setTimeout(900_000);
   be = await startBackend('e2e-0001', undefined, { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
   const { ground, cube, play } = await openScene(page);

@@ -19,6 +19,7 @@ import {
   lightmappedMaterial,
   lightmapTexture,
   refreshLightmappedMaterial,
+  setSelectionHighlight,
   type BakeLightInput,
   type BakeMeshInput,
   type EnvironmentLike,
@@ -332,7 +333,7 @@ export class Viewport {
           const original = mesh.material;
           const list = Array.isArray(original) ? original : [original];
           const copies = list.map((m) => {
-            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient));
+            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient, this.nodeMaterials()));
             const c = r.copies.get(m) ?? null;
             if (c !== null) refreshLightmappedMaterial(c, m);
             return c ?? m;
@@ -557,6 +558,12 @@ export class Viewport {
   private readonly boxMaterials = new Map<string, { key: string; undo: () => void }>();
   setMaterialLibrary(library: MaterialLibrary | null): void {
     this.materialLibrary = library;
+    library?.setNodeMaterials(this.nodeMaterials());
+  }
+
+  /** Phase 17.2: every backend but `legacy` is WebGPURenderer, which draws node materials only. */
+  private nodeMaterials(): boolean {
+    return this.rendererChoice.preference !== 'legacy';
   }
 
   private syncBoxMaterial(e: ProjectedEntity, obj: THREE.Object3D): void {
@@ -719,7 +726,19 @@ export class Viewport {
       this.rendererChoice = { preference, source };
       return;
     }
+    const nodeBefore = this.nodeMaterials();
     this.rendererChoice = { preference, source };
+    if (nodeBefore !== this.nodeMaterials()) {
+      // Phase 17.2: project materials and lightmapped copies are rebuilt for the other renderer class.
+      this.unapplyLightmaps();
+      for (const rec of this.lightmapCopies.values()) {
+        rec.map.dispose();
+        for (const c of rec.copies.values()) c?.dispose();
+      }
+      this.lightmapCopies.clear();
+      this.materialLibrary?.setNodeMaterials(this.nodeMaterials());
+      this.applyLightmaps();
+    }
     const old = this.root;
     const next = document.createElement('canvas');
     for (const a of [...old.attributes]) if (!a.name.startsWith('data-tl-renderer')) next.setAttribute(a.name, a.value);
@@ -1162,10 +1181,7 @@ export class Viewport {
       // materials and project materials are shared by every placement.
       const mesh = c as THREE.Mesh;
       if ((mesh as { entityId?: string }).entityId === undefined || mesh.userData['__tlSourceMaterial'] !== undefined) return;
-      const mat = mesh.material as THREE.MeshLambertMaterial | undefined;
-      if (mat && 'emissive' in mat) {
-        mat.emissive.setHex(on ? 0x2a4a80 : 0x000000);
-      }
+      setSelectionHighlight(mesh.material, on);
     });
   }
 
