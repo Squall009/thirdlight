@@ -109,8 +109,11 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
   await page.getByRole('combobox', { name: 'shader' }).selectOption('foliage');
   await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('foliage');
+  // One step up, not the maximum: the fixture's pieces bend as a whole (full weight), and at
+  // windBend 4 with wind strength 10 they swing ~5 m, out of the frame for ~2 s of every
+  // ~3.7 s sway — two screenshots that both land there read "no motion" (the load-only flake).
   await page.getByRole('slider', { name: 'windBend slider' }).focus();
-  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowRight');
   await expect(page.locator('.tl-param[data-param="windBend"]')).toHaveClass(/is-set/);
 
   // Strong wind.
