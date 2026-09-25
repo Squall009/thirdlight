@@ -301,7 +301,10 @@ function EditorApp(): JSX.Element {
     const d = activeDoc(workspace);
     return d !== null && d.kind === 'animator' ? d.id : null;
   })();
-  useEffect(() => setAnimatorSelection({ ownerId: '', ids: [] }), [activeAnimatorId]);
+  useEffect(() => {
+    setAnimatorSelection({ ownerId: '', ids: [] });
+    setAnimatorFocus(null);
+  }, [activeAnimatorId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
   const graphIssues = useMemo(
     () =>
@@ -2936,6 +2939,7 @@ function EditorApp(): JSX.Element {
       onTarget: (ownerId) => {
         setAnimatorTargets((t) => ({ ...t, [controllerId]: ownerId }));
         setAnimatorSelection({ ownerId, ids: [] });
+        setAnimatorFocus(null);
       },
       onGraphEdit: animatorGraphEdit,
       onSelection: (ownerId, ids) => setAnimatorSelection({ ownerId, ids }),
@@ -3569,6 +3573,7 @@ function EditorApp(): JSX.Element {
               onTarget={(ownerId) => {
                 setAnimatorTargets((t) => ({ ...t, [activeAnimatorId]: ownerId }));
                 setAnimatorSelection({ ownerId, ids: [] });
+                setAnimatorFocus(null);
               }}
               onFocus={(id) => setAnimatorFocus({ id, nonce: Date.now() })}
             />

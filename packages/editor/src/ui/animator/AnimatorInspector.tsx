@@ -62,14 +62,16 @@ export function AnimatorInspector(p: AnimatorInspectorProps): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setError(null), [p.ids.join(','), p.ownerId]);
   const c = p.controller;
-  const target: AnimatorOwnerTarget = parseAnimatorOwnerId(p.ownerId) ?? { controllerId: c.controllerId, layer: 0 };
+  const asked = parseAnimatorOwnerId(p.ownerId);
+  // A graph that is gone (a removed layer or blend tree) falls back to the base layer, like the tab.
+  const target: AnimatorOwnerTarget = asked !== null && asked.controllerId === c.controllerId && animatorGraphOf(c, asked) !== null ? asked : { controllerId: c.controllerId, layer: 0 };
   const view = animatorGraphOf(c, target);
   const kind = view !== null ? p.kinds[view.kindId] : undefined;
   const model = rigOf(c, p.models) ?? '';
   const clips = useClipChoices(model, p.models, p.clipsOf);
   if (view === null || kind === undefined) return <div className="tl-inspector__empty">Loading…</div>;
   const graph = view.graph;
-  const edit = (ops: GraphOp[]): void => void p.onGraphEdit(p.ownerId, ops).then(setError);
+  const edit = (ops: GraphOp[]): void => void p.onGraphEdit(animatorOwnerId(target), ops).then(setError);
   const layerIndex = 'blendState' in target ? 0 : target.layer;
   const layer = 'blendState' in target ? null : animatorLayerOf(c, target.layer);
   const stateName = (id: string): string => (id === ANIMATOR_ANY || id === '*' ? 'Any State' : layer?.states.find((s) => s.id === id)?.name ?? id);
@@ -155,7 +157,7 @@ export function AnimatorInspector(p: AnimatorInspectorProps): JSX.Element {
         kind={kind}
         graph={graph}
         ids={p.ids}
-        onEdit={(ops) => p.onGraphEdit(p.ownerId, ops)}
+        onEdit={(ops) => p.onGraphEdit(animatorOwnerId(target), ops)}
         extension={extension}
         empty={<div className="tl-inspector__empty">{'blendState' in target ? 'Select a clip of the blend tree, or the Blend node.' : 'Select a state or a transition wire. Right click the graph (or + Node) to add a state; drag from a state’s output to another state for a transition.'}</div>}
       />

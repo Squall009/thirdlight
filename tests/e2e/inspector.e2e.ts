@@ -205,10 +205,13 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await expect.poll(comp(id, 'model')).toEqual({ asset: { assetId: model } });
   await expect(inspector(page).locator('.tl-inspector__kind')).toHaveText('model');
   // An animator for the model: a controller made in the Animator window, picked in the Inspector.
-  await page.getByRole('tab', { name: 'Animator' }).click();
+  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(model);
   await page.getByRole('button', { name: 'New controller' }).click();
   await expect.poll(async () => (((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as unknown[]) ?? []).length).toBe(1);
+  // Phase 16.2: the new controller opens as a centre tab (the Inspector then shows the graph); back to the Scene.
+  await expect(page.getByRole('tab', { name: 'Animator: New animator', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await select(page, id);
   await add(page, 'Animator');
   await inspector(page).getByLabel('animator controller', { exact: true }).selectOption({ index: 1 });
