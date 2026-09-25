@@ -72,7 +72,7 @@ moved after the renderer phase by the owner, 2026-09-24.) Read
 | Item | Status | Commits |
 |---|---|---|
 | 18.0 data | done 2026-09-25 | 936074f |
-| 18.1 node catalogue | todo | |
+| 18.1 node catalogue | done 2026-09-25 | 936074f |
 | 18.2 editor | todo | |
 | 18.3 runtime and export | todo | |
 | 18.4 tests and wrap-up | todo | |
