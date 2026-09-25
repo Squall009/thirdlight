@@ -37,6 +37,7 @@ import {
   diagnoseGraph,
   fitView,
   fixedTypesOf,
+  freePlace,
   groupAround as groupAroundBase,
   GROUP_HEADER,
   groupRect,
@@ -50,6 +51,7 @@ import {
   overlaps,
   pasteItems,
   planConnection as planConnectionBase,
+  planDropOnNode,
   portPoint as portPointBase,
   portsResolver,
   staticPorts,
@@ -575,6 +577,12 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
           if (plan.ok) connectTo = plan;
         }
       }
+      if (connectTo === null) {
+        // Not placed by a wire drop: keep clear of the nodes already there, so its ports never sit on theirs.
+        const fresh = staticPorts(kind, { id, type, position, ...withData }, portContext);
+        const r = nodeRectBase(kind, { id, type, position, ...withData }, position, () => fresh);
+        position = freePlace(position, { w: r.w, h: r.h }, g.nodes.map((n) => nodeRect(kind, n)), snapOn);
+      }
       ops.push({ op: 'addNodes', nodes: [{ id, type, position, ...withData }] });
       if (connectTo !== null) {
         if (connectTo.replaces.length > 0) ops.push({ op: 'disconnect', ids: connectTo.replaces });
@@ -601,6 +609,18 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     [edit, kind],
   );
 
+  const connectToNode = useCallback(
+    async (from: PortEnd, nodeId: string): Promise<boolean> => {
+      const plan = planDropOnNode(kind, graphRef.current, from, nodeId, portsRef.current);
+      if (!plan.ok) {
+        setStatus({ text: `cannot connect: ${plan.reason}`, error: true });
+        return false;
+      }
+      return connect(from, from.side === 'out' ? { ...plan.to, side: 'in' } : { ...plan.from, side: 'out' });
+    },
+    [connect, kind],
+  );
+
   // ---- pointer input ----------------------------------------------------------------------
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>): void => {
@@ -621,8 +641,13 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     if (ev.button !== 0) return;
     const hit = hitTest(p);
     const sel = selectionRef.current;
+    // A text selection left in the page would make the browser start a native
+    // drag of it on this press (then cancel the pointer and so our gesture).
+    window.getSelection()?.removeAllRanges();
     (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
     if (hit.type === 'port') {
+      // A new wire gesture: the last gesture's result no longer describes what is on screen.
+      setStatus(null);
       dragRef.current = { mode: 'wire', from: hit.end, at: p, target: null, ok: null };
       requestDraw();
       return;
@@ -757,6 +782,12 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       requestDraw();
       if (d.target !== null) {
         void connect(d.from, d.target);
+        return;
+      }
+      // Dropped on another node's body: its best port on the other side, or why none fits.
+      const over = hitTest(d.at);
+      if (over.type === 'node' && over.id !== d.from.node) {
+        void connectToNode(d.from, over.id);
         return;
       }
       // Dropped on empty space: the catalogue, filtered to what can take this wire.
@@ -1134,11 +1165,16 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
         onPointerUp={onPointerUp}
         onPointerCancel={() => {
           pointerDownRef.current = false;
+          if (dragRef.current?.mode === 'wire') setStatus({ text: 'wire cancelled: nothing connected', error: false });
           dragRef.current = null;
           movedRef.current = new Map();
           requestDraw();
         }}
         onDoubleClick={onDoubleClick}
+        onDragStart={(ev) => {
+          // Pressing and moving on the stage is a graph gesture (wire, move, box), never a native drag of what is under the pointer.
+          ev.preventDefault();
+        }}
         onDragOver={(ev) => {
           if (onDropItem !== undefined) ev.preventDefault();
         }}

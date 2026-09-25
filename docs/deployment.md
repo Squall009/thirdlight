@@ -809,8 +809,11 @@ or comment. Deleting a graph closes its tab.
 - **Adding nodes:** right click or press Space over the graph (or **+ Node**)
   for the catalogue: type to filter, arrows + Enter or a click to add. Drag
   from a port to empty space: the catalogue lists only the nodes that can
-  take that wire and connects the new node.
-- **Wires:** drag from an output to an input (or the other way). Ports are
+  take that wire and connects the new node. A node added where another
+  node already is moves to the nearest clear spot.
+- **Wires:** drag from an output to an input (or the other way). Dropping a
+  wire on a node's body connects it to the first port there that takes it,
+  or says why none does. Ports are
   coloured by type; a wire that needs an implicit conversion is dashed and
   names it (e.g. number→vector). An incompatible type or a wire that would
   close a cycle (in kinds without cycles) is refused with the reason in the

@@ -419,6 +419,36 @@ export function planConnection(
   return { ok: true, from: { node: out.node, port: out.port }, to: { node: inp.node, port: inp.port }, replaces, conversion: c.conversion };
 }
 
+/**
+ * A wire from `from` dropped on the body of node `nodeId` (not on a port):
+ * the connection to the node's best port on the other side — the first one
+ * that takes the wire without replacing a wire, else the first that takes it
+ * at all — or why none can.
+ */
+export function planDropOnNode(
+  kind: GraphKindDef,
+  graph: GraphData,
+  from: PortEnd,
+  nodeId: string,
+  portsOf?: PortsOf,
+): ReturnType<typeof planConnection> {
+  const n = graph.nodes.find((x) => x.id === nodeId);
+  if (n === undefined) return { ok: false, reason: 'unknown node' };
+  if (nodeId === from.node) return { ok: false, reason: 'a node cannot connect to itself here' };
+  const ports = (portsOf ?? defaultPortsOf(kind))(n);
+  const side = from.side === 'out' ? 'in' : 'out';
+  const list = side === 'in' ? ports.inputs : ports.outputs;
+  const label = nodeDefOf(kind, n.type)?.label ?? n.type;
+  const fromDef = portDef(kind, graph, from.node, from.port, from.side, portsOf);
+  const what = fromDef !== undefined ? `a ${portTypeLabel(kind, fromDef.type)} ${from.side === 'out' ? 'output' : 'input'}` : 'this wire';
+  if (list.length === 0) return { ok: false, reason: `${label} has no ${side === 'in' ? 'inputs' : 'outputs'}` };
+  const plans = list.map((p) => planConnection(kind, graph, from, { node: nodeId, port: p.id, side }, portsOf));
+  const best = plans.find((p) => p.ok && p.replaces.length === 0) ?? plans.find((p) => p.ok);
+  if (best !== undefined) return best;
+  const reasons = [...new Set(plans.map((p) => (p.ok ? '' : p.reason)))];
+  return { ok: false, reason: reasons.length === 1 ? `${label}: ${reasons[0]}` : `${label} has no ${side === 'in' ? 'input' : 'output'} that takes ${what}` };
+}
+
 /** The implicit conversion an edge uses (null = none). */
 export function edgeConversion(kind: GraphKindDef, graph: GraphData, e: GraphEdge, portsOf?: PortsOf): GraphConversion | null {
   const po = portDef(kind, graph, e.from.node, e.from.port, 'out', portsOf);
@@ -604,6 +634,48 @@ export const contains = (outer: Rect, r: Rect): boolean => r.x >= outer.x && r.y
 
 export function snap(v: number, on: boolean): number {
   return on ? Math.round(v / GRID) * GRID : Math.round(v);
+}
+
+/** Clear space kept around a new node's body: port circles stick out of the body edges, so two ports can't sit on top of each other. */
+export const PLACE_GAP = 2 * GRID;
+
+/** How far (in grid steps, each way) `freePlace` looks for a free spot around the asked-for one. */
+export const PLACE_SEARCH = 40;
+
+/**
+ * Where a node of size `size` asked for at `at` goes so that it doesn't cover
+ * any of `others` (node bodies, kept `PLACE_GAP` apart): `at` itself if free,
+ * else the nearest free grid spot around it (ties: right, then below — graphs
+ * of every kind read left to right, top to bottom), so the node stays where
+ * the user was looking. Only if nothing within `PLACE_SEARCH` steps is free,
+ * it goes right, past everything it would overlap. Snapped when `snapOn`.
+ */
+export function freePlace(at: GraphPoint, size: { w: number; h: number }, others: readonly Rect[], snapOn: boolean): GraphPoint {
+  const reach = PLACE_SEARCH * GRID;
+  const area: Rect = { x: at[0] - reach - PLACE_GAP, y: at[1] - reach - PLACE_GAP, w: size.w + 2 * (reach + PLACE_GAP), h: size.h + 2 * (reach + PLACE_GAP) };
+  const near = others.filter((r) => overlaps(area, r));
+  const free = (x: number, y: number, list: readonly Rect[]): boolean => {
+    const me: Rect = { x: x - PLACE_GAP, y: y - PLACE_GAP, w: size.w + 2 * PLACE_GAP, h: size.h + 2 * PLACE_GAP };
+    return !list.some((r) => overlaps(me, r));
+  };
+  if (free(at[0], at[1], near)) return [snap(at[0], snapOn), snap(at[1], snapOn)];
+  const steps: [number, number][] = [];
+  for (let i = -PLACE_SEARCH; i <= PLACE_SEARCH; i++) for (let j = -PLACE_SEARCH; j <= PLACE_SEARCH; j++) if (i !== 0 || j !== 0) steps.push([i, j]);
+  steps.sort((a, b) => a[0] * a[0] + a[1] * a[1] - (b[0] * b[0] + b[1] * b[1]) || b[0] - a[0] || b[1] - a[1]);
+  for (const [i, j] of steps) {
+    const x = at[0] + i * GRID;
+    const y = at[1] + j * GRID;
+    if (free(x, y, near)) return [snap(x, snapOn), snap(y, snapOn)];
+  }
+  let x = at[0];
+  const y = at[1];
+  // Each pass moves x right past at least one rect, so this ends after at most others.length passes.
+  for (let pass = 0; pass <= others.length; pass++) {
+    const hit = others.filter((r) => !free(x, y, [r]));
+    if (hit.length === 0) break;
+    x = Math.max(...hit.map((r) => r.x + r.w)) + PLACE_GAP;
+  }
+  return [snap(snapOn ? Math.ceil(x / GRID) * GRID : Math.ceil(x), snapOn), snap(y, snapOn)];
 }
 
 /** A wire's cubic segments (through its reroute points), as [p0, c1, c2, p1] tuples. */

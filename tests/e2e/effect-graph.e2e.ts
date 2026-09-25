@@ -113,8 +113,22 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await drag(page, await centre(port(page, 'output', 'out', 'then')), await centre(port(page, bb!, 'in', 'in')));
   await expect.poll(wires).toEqual([`initialize.then>${life}.in`, `output.then>${bb}.in`, `spawn.then>${burst}.in`, `update.then>${sizeCurve}.in`].sort());
   // A spawn chain cannot feed an output block: refused in the editor, nothing sent.
+  // A text selection left in the page (here: all of it) must not turn the press into a native drag that cancels the wire gesture.
+  await page.evaluate(() => {
+    const r = document.createRange();
+    r.selectNodeContents(document.body);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(r);
+  });
   await drag(page, await centre(port(page, burst!, 'out', 'then')), await centre(port(page, bb!, 'in', 'in')));
   await expect(page.locator('.tl-graph__status')).toContainText('cannot connect');
+  expect(await wires()).toHaveLength(4);
+  // Dropped on a block's body (not a port): refused with the reason too; each gesture replaces the last message.
+  await drag(page, await centre(port(page, 'spawn', 'out', 'then')), await centre(node(page, sizeCurve!)));
+  await expect(page.locator('.tl-graph__status')).toContainText('cannot connect: Size over life');
+  const bbBox = (await node(page, bb!).boundingBox())!;
+  await drag(page, await centre(port(page, burst!, 'out', 'then')), { x: bbBox.x + bbBox.width / 2, y: bbBox.y + bbBox.height - 6 });
+  await expect(page.locator('.tl-graph__status')).toContainText('cannot connect: Billboard');
   expect(await wires()).toHaveLength(4);
 
   // The Inspector edits a number field of the burst and the size curve (curve widget).
