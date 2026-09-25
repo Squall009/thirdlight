@@ -38,7 +38,7 @@ import {
 import { canonicalDocument } from './canonical';
 import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
-import { buildM3Bundle, PINNED_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN } from './export-bundle';
+import { buildM3Bundle, buildSimWorkerBundle, PINNED_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN } from './export-bundle';
 import { assertRelativeClosure, scanGlbContainer, scanImageContainer, scanMusicContainer, scanWavContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
 import { publishTree, resolveExportTarget, type TreeFile } from './export-io';
 import type { ExportContext } from './export-types';
@@ -48,6 +48,8 @@ import { checkBundleGraphM3 } from './graph';
 const M3_SCHEMA_VERSION = 2;
 const ENGINE_VERSION = '0.1.0';
 const BUNDLE_NAME = 'js/main.js';
+/** Phase 22.0: the simulation worker (runtime + physics + scripts off the page's main thread). */
+const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
@@ -193,6 +195,14 @@ export async function exportProjectM3(
       modules: built.modules.slice(0, 8),
     });
   }
+  // Phase 22.0: the simulation worker bundle (next to the bootstrap: same directory, same rules).
+  const workerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-sim-worker.ts');
+  const worker = await buildSimWorkerBundle(workerEntry);
+  if (!worker.ok) {
+    return fail('export_bundle_graph_forbidden', 'internal', 'the simulation worker bundle build failed (resolution/boundary defect)', {
+      modules: worker.modules.slice(0, 8),
+    });
+  }
 
   // The §5.4.1 binding 3 reference build + the pinned Rapier compat probe.
   const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
@@ -235,6 +245,12 @@ export async function exportProjectM3(
   if (!graph.ok) {
     return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the M3 export bundle graph', {
       modules: graph.forbidden.slice(0, 8),
+    });
+  }
+  const workerGraph = checkBundleGraphM3(worker.metafile, workerEntry);
+  if (!workerGraph.ok) {
+    return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the simulation worker bundle graph', {
+      modules: workerGraph.forbidden.slice(0, 8),
     });
   }
 
@@ -305,6 +321,16 @@ export async function exportProjectM3(
       { reason: `counts=${JSON.stringify(counts)}` },
     );
   }
+  // Phase 22.0: the worker bundle carries the same forbidden-pattern gate (the Rapier WASM is inlined: no URL).
+  const workerCounts = textPatternCounts(new TextDecoder().decode(worker.bytes), patterns);
+  if (workerCounts.a + workerCounts.b + workerCounts.c + workerCounts.e + workerCounts.g + workerCounts.i !== 0) {
+    return fail(
+      'export_bundle_forbidden_content',
+      'internal',
+      `forbidden content in the simulation worker bundle (a=${workerCounts.a} b=${workerCounts.b} c=${workerCounts.c} e=${workerCounts.e} g=${workerCounts.g} i=${workerCounts.i})`,
+      { reason: `counts=${JSON.stringify(workerCounts)}` },
+    );
+  }
   const textFiles = [
     { name: 'index.html', text: INDEX_HTML },
     { name: MANIFEST_NAME, text: new TextDecoder().decode(manifestBytes) },
@@ -334,6 +360,7 @@ export async function exportProjectM3(
   const closureEntries = [
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },
+    { path: WORKER_BUNDLE_NAME, digest: digestBytes(worker.bytes), byteLength: worker.bytes.length },
     { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
     { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
@@ -397,6 +424,7 @@ export async function exportProjectM3(
   const files: TreeFile[] = [
     { name: 'index.html', bytes: indexBytes },
     { name: BUNDLE_NAME, bytes: built.bytes },
+    { name: WORKER_BUNDLE_NAME, bytes: worker.bytes },
     { name: MANIFEST_NAME, bytes: manifestBytes },
     { name: SCENE_NAME, bytes: closure.sceneBytes },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),

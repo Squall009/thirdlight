@@ -185,6 +185,39 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
 /** Rejection used to unwind a cancelled initialization. */
 const CANCELLED = Symbol('physics-init-cancelled');
 
+/**
+ * Phase 22.3: the Rapier module's WebAssembly memory, noted when the library
+ * instantiates it (its only allocation arena: every world, body and collider
+ * lives there). The library does not expose it, so the first init watches
+ * `WebAssembly.instantiate` for the instance it creates and restores the
+ * function right after.
+ */
+let wasmMemory: { buffer: ArrayBuffer } | null = null;
+let memoryWatched = false;
+
+function watchInstantiate(): () => void {
+  const wasm = (globalThis as { WebAssembly?: { instantiate: (...a: unknown[]) => Promise<unknown> } }).WebAssembly;
+  if (memoryWatched || wasm === undefined || typeof wasm.instantiate !== 'function') return () => undefined;
+  memoryWatched = true;
+  const original = wasm.instantiate;
+  wasm.instantiate = function (this: unknown, ...a: unknown[]) {
+    return original.apply(this, a).then((r) => {
+      const inst = (r as { instance?: { exports?: Record<string, unknown> } }).instance ?? (r as { exports?: Record<string, unknown> });
+      const mem = inst?.exports?.['memory'] as { buffer?: unknown } | undefined;
+      if (mem !== undefined && wasmMemory === null && mem.buffer instanceof ArrayBuffer) wasmMemory = mem as { buffer: ArrayBuffer };
+      return r;
+    });
+  };
+  return () => {
+    if (wasm.instantiate !== original) wasm.instantiate = original;
+  };
+}
+
+/** Phase 22.3: the physics engine's WebAssembly memory in bytes (null before the first init, or when it could not be seen). */
+export function physicsMemoryBytes(): number | null {
+  return wasmMemory !== null ? wasmMemory.buffer.byteLength : null;
+}
+
 function awaitInit(signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -201,14 +234,17 @@ function awaitInit(signal?: AbortSignal): Promise<void> {
     // No module-level adapter state: the library's own `init()` is idempotent
     // and safe to call concurrently (verified), so a cancelled init leaves
     // nothing behind and a later init succeeds.
+    const unwatch = watchInstantiate();
     RAPIER.init().then(
       () => {
+        unwatch();
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);
         resolve();
       },
       (error: unknown) => {
+        unwatch();
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);

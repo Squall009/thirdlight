@@ -70,6 +70,8 @@ describe('public exports', () => {
       'PhysicsPortError',
       'RAPIER_PIN',
       'createPhysicsPort',
+      // Phase 22.3: the Rapier WebAssembly memory size (the simulation worker's growth limit).
+      'physicsMemoryBytes',
     ]);
   });
 

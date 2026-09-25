@@ -269,6 +269,8 @@ function EditorApp(): JSX.Element {
   const viewportHostRef = useRef<HTMLDivElement | null>(null);
   /** Phase 17.1: the page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
   const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));
+  /** Phase 22.0: the page's ?threads= flag (where Play runs its simulation), passed on to the play page. */
+  const urlThreads = useRef(/[?&]threads=([A-Za-z0-9]{1,16})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
   /** Phase 17.1: the Scene view's renderer (backend, state, reason) and the play's, from its observation. */
   const [sceneRenderer, setSceneRenderer] = useState<RendererInfo | null>(null);
   const [playRenderer, setPlayRenderer] = useState<Record<string, unknown> | null>(null);
@@ -3465,10 +3467,10 @@ function EditorApp(): JSX.Element {
     return add !== undefined && (add.kind === 'menu' || add.kind === 'pick') ? (JSON.parse(JSON.stringify(add.value)) as Record<string, unknown>) : {};
   };
   // The play loads from its own content locator on the preview origin.
-  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page (phase 21.3: and ?batching=off).
+  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page (phase 21.3: and ?batching=off; phase 22.0: and ?threads=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}`
       : null;
 
   const v4Reason = 'gameplay components need a v4 project (scenes)';
@@ -3764,7 +3766,7 @@ function EditorApp(): JSX.Element {
                 className="tl-app__preview-frame"
                 src={previewSrc}
                 title="Thirdlight play preview"
-                allow="gamepad"
+                allow="gamepad; cross-origin-isolated"
               />
             </div>
           )}

@@ -145,3 +145,174 @@ Decision log (22.1):
 - 2026-09-25 (22.1): fallback to inline — `?workers=off` (for comparisons and support), no `Worker` or `OffscreenCanvas`, a worker script that does not load within 30 s or errors (then no worker is tried again until reload, so no job waits twice), a worker that dies during a job (the job reruns inline from the caller's own data), and for the bake a worker canvas without a renderer (`bake_unsupported`). A job that fails in the worker reports its error (no silent rerun).
 - 2026-09-25 (22.1): the e2e bound — no long task above 400 ms during a scatter of 50 000 copies (click → set drawn + 3 s) and a preview bake (click → `tl:bake:rendered`), with the load average logged. Generous and relative to this host: the pre-22.1 bake measured 785–980 ms there (so the bound catches it moving back), while the load on this shared CPU-rendered host (8–25) stretches every task several times; the scatter was never above ~120 ms, so for it the bound only guards against a regression. The Scene view's atlas upload after the bake is logged, not bounded (rendering).
 - 2026-09-25 (run): 22.1 was built in parallel with 21.3/21.5 and 22.0 and merged first (editor-only worker seams).
+### Results (22.0 + 22.3)
+
+- Determinism: `tests/integration/m22-worker/parity.test.ts` runs a neutral
+  level (player on Rapier, pickups, a patrolling stompable enemy, a moving
+  platform, a one-way shelf, a checkpoint, a plate and door, a script that
+  spawns coins on a timer and plays sounds) in the page and in the worker (a
+  Node worker thread running the same game-host worker core as the browser
+  bundles) and compares a digest of every executed step's committed state
+  (game view, every transform bit for bit, counters, hidden entities, the
+  scene set, the save state): identical for 1200+ steps with a recorded
+  replay in frames of 0–3 steps, and with live per-step input one step per
+  frame. The blocks suites (`m9-blocks`, 16 + 1 cases), the saves suite and
+  the Sprout play-through run in both modes (Sprout: the same level times,
+  deaths, counters and spawned coins in both).
+- e2e (`tests/e2e/sim-worker.e2e.ts`): Play runs in the worker by default
+  (transforms by messages; the editor is not isolated by default), with
+  `?threads=off` in the page; in both a held key moves the player within
+  2 frames (upper bound measured through the relays, which add their own
+  round trips) and a pickup's sound request reaches the page's audio owner
+  and plays; with `THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1` Play is
+  `crossOriginIsolated` and uses shared memory; the export runs in the
+  worker (messages), in the page with `?threads=off`, and in the worker with
+  shared memory under COOP/COEP headers, started and moved by the keyboard
+  (pixels observed). The existing Play/export/flow/blocks/debugger/MCP e2e
+  specs run in worker mode (the default).
+- Harness (`node tools/perf/run.mjs --classes medium,large --surfaces play
+  --renderers webgl2 --threads worker,off`), Play in the editor's preview on
+  this CPU-rendered (SwiftShader) host shared with other agents; "before" =
+  `threads=off` (the unchanged in-page composition), "after" = the worker,
+  both in the same run. Main thread = the preview process's CDP
+  `TaskDuration` per rendered frame (its workers excluded; the idle editor
+  shares the process). Reports `~/.cache/thirdlight-perf/reports/22-play-medium-large.json`
+  (run 1, worker first; load 11.0 → 14.1) and `22-play-medium-large-2.json`
+  (run 2, off first; load 11.2 → 17.0). Commit d496734 + this branch
+  (before the asset-read overlap below).
+
+  | Play (webgl2) | medium off → worker | large off → worker |
+  |---|---|---|
+  | run 1: frame mean / p95 (ms) | 635 / 1467 → 638 / 1333 | 767 / 1467 → 226 / 1167 |
+  | run 1: frames drawn in the 5 s window | 8 → 7 | 2 → 9 |
+  | run 1: main thread per frame (ms) | 44.1 → 37.2 | 211.8 → 130.8 |
+  | run 1: first frame after "Play" (ms) | 1364 → 2453 | 7356 → 15 527 |
+  | run 2: frame mean / p95 (ms) | 571 / 1350 → 786 / 1700 | — (no frame drawn in the window) → 928 / 2617 |
+  | run 2: frames drawn in the 5 s window | 8 → 6 | 0 → 3 |
+  | run 2: main thread per frame (ms) | 42.7 → 45.6 | (275 ms in the window) → 182.2 |
+  | run 2: first frame after "Play" (ms) | 1868 → 1534 | 17 407 → 8592 |
+
+  Reading: on this host the frame rate is set by the CPU-rendered GPU
+  process (a handful of frames per 5 s; the page's main thread is 5–23 %
+  busy), and the page's main-thread time per frame is dominated by the
+  render side (the adapter's sync of 2 000 / 16 000 objects and three's
+  submission), so the gain cannot be separated from the noise: medium moves
+  within it (the simulation is ≤ 1.4 ms of a frame there: ≤ 8 catch-up steps
+  × 0.17 ms, 21.2), large shows less main-thread time per frame in run 1
+  (212 → 131 ms; the simulation's share is ≤ 8 × 1.36 ms ≈ 11 ms) and more
+  frames drawn in both runs, but with 0–9 frames per window this is not a
+  measurement to lean on. The first-frame numbers flip with the order (the
+  first measurement of a class pays the cold start), so worker start-up is
+  not measurably slower; since these runs the worker composes while the
+  page reads the assets. What is certain by construction: the page's main
+  thread no longer runs any simulation step (the worker does), and a long
+  step no longer blocks input or a frame. Real-GPU frame times: owner look
+  pending.
+
+### Decision log
+
+- 2026-09-25 (22.0): the whole simulation moves as one unit — runtime with
+  its fixed steps, Rapier, gameplay blocks, animators, timers, spawns, effect
+  and sound requests, the project's scripts — composed in the worker by the
+  same `composeGameRuntime` the in-page host uses (extracted from
+  `createGameHost.mount`) — one place for the deterministic simulation, no
+  second composition.
+- 2026-09-25 (22.0): game flow, HUD, menus, audio, saves (localStorage) and
+  rendering stay on the page and read the worker's committed state through a
+  `Runtime`-shaped mirror (`startRemoteSimulation`), so `createGameHost` (and
+  the three-adapter, unchanged) present it exactly as an in-page runtime; the
+  host gets it through the new `GameHostConfig.runtimeFactory`. The flow's
+  effects on the simulation are commands (startLevel, setPaused, run
+  start/replay, scene loads, viewport) that reach the worker in order before
+  the next tick and apply at its next step boundary — the boundary they reach
+  in single-thread mode — so a flow driven by the same inputs gives the same
+  run (the Sprout and save suites pass identically in both modes).
+- 2026-09-25 (22.0): live input is sampled once per frame on the page (the
+  browser input owner is DOM-bound, and sampling per step would need the page
+  to predict the worker's step count) and expanded per step in the worker:
+  the first step of a tick gets the sample, the rest its continuation
+  (pressed → held, released → none — what a second sample in the same frame
+  returns), and a tick without a step merges into the next keeping every
+  edge. Recorded input (replays, the MCP input exercise) runs per step in the
+  worker exactly as recorded. The first frame after start samples nothing
+  (it runs the settle pre-roll or installs the clock, as in the page).
+- 2026-09-25 (22.0): the page drives the worker's manual clock: one tick per
+  animation frame with the page's clock, at most one tick in flight (a slow
+  step never queues frames; the next tick covers more time with the
+  runtime's bounded catch-up), and the host's frame (menus, HUD, sound,
+  render) runs as soon as the worker's frame arrives — no added frame of
+  latency.
+- 2026-09-25 (22.0): transport — messages by default: per frame only what
+  changed (the committed view when a step committed one, hidden/fading
+  entities, poses, counters, save state, queued sound and effect requests,
+  the scene set when rebuilt with each batch's entities sent once and spawned
+  entities by a stable token so the renderer keeps its objects); transforms
+  as Float64 (the page reads exactly the simulation's values — bots,
+  observations and the parity test compare them), the full array or only the
+  moved entities when fewer than 25 % moved, buffers returned for reuse. A
+  two-slot SharedArrayBuffer carries the transforms only when the page is
+  cross-origin isolated (one frame in flight makes one slot always free).
+- 2026-09-25 (22.0): cross-origin isolation for Play is opt-in
+  (`THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1`: COOP + COEP on the editor page and
+  every preview-origin response, CORP cross-origin on the play page, the
+  iframe allows `cross-origin-isolated`). Off by default: the Play iframe is
+  only isolated when the editor page is too, and isolating the editor blocks
+  any cross-origin resource without CORP — a deployment decision; the
+  message path gives the same results. Exports need nothing (COOP/COEP from
+  the host enable shared memory; without them messages are used).
+- 2026-09-25 (22.0): where the code lives — the worker core, the mirror,
+  the per-tick input, the protocol and the threading choice are in
+  `game-host` (DOM-free, no physics-rapier or dynamic-import edge: the two
+  platform pieces — `createPhysicsPort` and the script importer — are
+  injected by two small entries, `editor/src/preview/sim-worker.ts` (Play,
+  `dist/preview/sim-worker.js`, served as `/sim-worker.js`) and
+  `exporter/src/export-sim-worker.ts` (the export's `js/sim-worker.js`); Node
+  tests use a third one over worker_threads). No new workspace package (it
+  would change the shared lockfile/node_modules).
+- 2026-09-25 (22.0): the worker is a separate bundle file, not a blob of
+  source inside the main bundle — no second copy of Rapier/runtime in the
+  page's bundle, no blob URL; the preview CSP gains `worker-src 'self'`.
+  Rapier's WASM is inlined in that bundle (no URL); the export graph check
+  and the forbidden-content scan run on it like on `js/main.js`.
+- 2026-09-25 (22.0): project setting `sim_thread` (Engine → Simulation
+  thread: 1 worker, 2 main thread; optional, absent = worker) through the
+  settings descriptors; `?threads=off|on` overrides it (the editor passes its
+  flag on to Play); no worker available → single thread. Every page logs its
+  mode and transport; `tl_game_observe`/`tl_diagnostics` report
+  `simulation {mode, transport, isolated}`, an export `window.__thirdlightThreading`.
+- 2026-09-25 (22.0): the visual-script debugger (19.2) and the MCP input
+  exercise run where the simulation runs: `PlayDebugger` and
+  `RelayActionSource` moved to `game-host` (the editor UI keeps the
+  debugger's wire types; it may not import the game host). What only the
+  simulation can answer (script property values, the debugger, fresh
+  diagnostics, physics rays) goes through one async surface (`SimAccess`) in
+  both modes; the preview's observe/control/debug/diagnostics relays await it.
+- 2026-09-25 (22.0): the mirror answers run-command validity with the game
+  session's own rule on the mirrored state (so `control('start')` still
+  refuses synchronously); a level switch the worker refuses is logged
+  instead of refused synchronously (rare: the page checks the scenes exist).
+- 2026-09-25 (22.0): the worker composes while the page reads and verifies
+  the assets (they overlap); an asset failure disposes the worker before
+  anything plays.
+- 2026-09-25 (22.0): `sound.played {sfx, ui}` added to the observation's
+  sound block (sounds the page's audio owner started) — the observable that
+  a request made in the simulation reached the audio owner.
+- 2026-09-25 (22.0): tests that captured script results in test variables
+  (script queries, saves) now have the script keep them in `ctx.save` (a
+  worker's script cannot reach the test's closures); the Sprout bot asks its
+  rays in one batch per decision (the same rays, the same order). Single-mode
+  ticks in the shared harness are awaited too, so scene loads resolve a few
+  steps earlier than before — Sprout's level 2 time 15.9 → 15.8 s, identical
+  in both modes.
+- 2026-09-25 (22.3): Rapier runs in the worker with its WASM inside the
+  worker bundle. Its WebAssembly memory is observed (physics-rapier watches
+  `WebAssembly.instantiate` during the first init; the library exposes no
+  handle) and capped at 512 MiB (`PHYSICS_MEMORY_CAP_BYTES`, an engine
+  limit): past it the worker stops the simulation with
+  `physics_memory_limit` instead of growing without bound. Stopping Play or
+  leaving an export disposes the runtime (which frees the Rapier world) and
+  acknowledges before the worker ends. The physics query budget and overlap
+  queries are unchanged (the script-queries suite runs in both modes).
+- 2026-09-25 (22.0): harness `--threads worker,off` and a `mainThread`
+  metric (CDP `TaskDuration` per frame) added; metrics of `threads=off` runs
+  get a `.threads-off` key suffix (the default worker keeps the old keys).

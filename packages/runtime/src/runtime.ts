@@ -1767,6 +1767,11 @@ class RuntimeInstance implements Runtime {
     return this.paused;
   }
 
+  /** Phase 22.0: the last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
+  get interpolationAlpha(): number {
+    return this.stateName === 'failed' ? 0 : this.lastAlpha;
+  }
+
   /**
    * Phase 19.2 (Play debugging): hold the simulation at the next step
    * boundary (true) or let it run on (false). Frames still render and reach
@@ -2905,6 +2910,12 @@ class RuntimeInstance implements Runtime {
   }
 
   /** Why a scene op cannot be requested (null: it can). */
+  /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
+  sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
+    if (this.stateName === 'disposed') return 'runtime is disposed';
+    return this.sceneOpProblem(op, sceneId);
+  }
+
   private sceneOpProblem(op: 'load' | 'unload', sceneId: unknown, options?: SceneLoadOptions): string | null {
     if (this.sceneRows === null) return 'this game has no scene catalog (a v4 project runs with one)';
     if (typeof sceneId !== 'string' || !this.sceneStatus.has(sceneId)) return `unknown scene ${JSON.stringify(String(sceneId))}`;

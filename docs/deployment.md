@@ -1957,6 +1957,82 @@ bundle (`js/main.js` about 0.8 MB smaller unminified, see
 WebGPU (Dawn on SwiftShader) are slower than the old WebGL renderer was;
 real-GPU looks and frame times: owner look pending.
 
+## Simulation thread (worker)
+
+Since phase 22 the game's simulation — the runtime with its fixed steps,
+Rapier physics, the gameplay blocks, animators, timers, spawns, effect and
+sound requests, and the project's scripts — runs in a dedicated **worker**,
+in Play and in exported games. The page keeps what needs the page: input
+(keyboard, pads; sampled once per frame and sent with the frame), sound (the
+worker sends the sound requests; the page's audio owner plays them), the
+HUD, menus, game flow and saves (`localStorage`), and rendering (the worker
+sends each frame's interpolated transforms, visibility, fades, animator
+poses, counters and effect requests). A long simulation step no longer
+delays a frame or an input event. Results are identical to running in the
+page: the same fixed steps with the same inputs (a test compares a digest of
+every step's state in both modes), recorded replays and bots included.
+
+**Where it runs.** In this order:
+
+1. the page URL flag: `?threads=off` (also `single`, `main`) forces the page's
+   main thread, `?threads=on` (`worker`) the worker — on the editor's URL it
+   is passed on to Play (like `?renderer=`); on an exported game's URL it
+   applies directly;
+2. the project setting **Engine → Simulation thread** (`sim_thread`: Worker /
+   Main thread);
+3. otherwise the worker.
+
+A browser that cannot start the worker (no `Worker`, a blocked script) plays
+in the page instead. Every Play and export page logs its choice to the
+console, e.g. `[thirdlight] simulation: worker (the default); transforms by
+messages (cross-origin isolated: no)`; `tl_game_observe` and
+`tl_diagnostics` report it as `simulation: { mode, transport, isolated }`,
+and an exported page has it in `window.__thirdlightThreading`.
+
+**Files.** Play loads the worker from the preview origin (`/sim-worker.js`,
+built next to the preview bundle; the preview CSP allows `worker-src
+'self'`). An export ships it as `js/sim-worker.js` next to `js/main.js`;
+Rapier's WebAssembly is inside that bundle (no fetch, no URL), and the export
+scan checks it like the main bundle. The compiled scripts are imported by
+the worker from the same `behaviors/<digest>.js` files as before.
+
+**Shared memory (optional).** The per-frame transforms go as messages
+(transferred typed arrays; only the entities that moved when few did). Where
+the page is *cross-origin isolated* they go through a `SharedArrayBuffer`
+instead — the same results, one copy less per frame:
+
+- *Exported games:* serve the game with
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` (every file of the export is
+  same-origin, so nothing else is needed). Without these headers the game
+  works exactly the same with messages.
+- *Play:* start the backend with `THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1`. The
+  editor page and every preview-origin response then carry COOP + COEP (the
+  play page also `Cross-Origin-Resource-Policy: cross-origin`, as it is
+  embedded by the editor). Off by default: it changes how the editor page is
+  isolated (a cross-origin resource the editor would load without CORP
+  headers would be blocked), and Play works the same without it.
+
+**Limits (22.3).** The physics engine's WebAssembly memory may grow to
+512 MiB (`PHYSICS_MEMORY_CAP_BYTES`, an engine limit far above any 2D level);
+past it the worker stops the simulation with `physics_memory_limit` instead
+of growing without bound. Stopping Play (or leaving an exported page) frees
+the worker's runtime and Rapier world before the worker ends. The physics
+query budget (32 rays and overlaps per step) and overlap queries are the
+same in the worker.
+
+**What stays different.** Commands from the page (a level switch, pause, a
+scene load, run start/replay) reach the worker in order and apply at its next
+step boundary, as in the page; a level switch the worker refuses is logged
+(`simulation worker refused startLevel …`) instead of being refused
+synchronously. Frames are rendered as soon as the worker's frame arrives
+(at most one frame in flight), so a key press moves the player within the
+same few frames as in single-thread mode (an e2e test measures it).
+
+**Measuring.** `node tools/perf/run.mjs --surfaces play,export --threads
+worker,off` measures Play and the export in both modes; the report adds the
+page's main-thread task time per frame (`mainThread`).
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated
@@ -1987,7 +2063,7 @@ node tools/perf/run.mjs --compare tests/perf/baseline.json   # exit 1 on a regre
 ```
 
 Options: `--classes`, `--renderers legacy,webgl2,webgpu,auto`, `--surfaces
-play,export,editor,sim`, `--record-ms`, `--warmup-ms`, `--commands`,
+play,export,editor,sim`, `--threads worker,off` (phase 22: Play and the export in the worker and/or with `?threads=off`), `--record-ms`, `--warmup-ms`, `--commands`,
 `--sim-steps`, `--viewport WxH` (default 1280x720), `--seed`, `--keep`,
 `--out FILE`, `--write-baseline FILE`. For each class and renderer it
 measures:

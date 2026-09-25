@@ -49,6 +49,8 @@ export {
   GAME_CONTROL_ACTIONS,
   GAME_HOST_MESSAGES,
   createGameHost,
+  composeGameRuntime,
+  type GameRuntimeArgs,
   cueEventsForView,
   linkBehaviorModules,
   mapSoundStatus,
@@ -102,4 +104,15 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
   type ManifestSceneRow,
   type SceneCatalogIo,
 } from './scene-catalog';
+// Phase 22.0: the simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
+export { runSimWorker, type SimWorkerDeps } from './sim-worker';
+export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions } from './sim-remote';
+export { createLocalSimAccess, type SimAccess, type SimRay } from './sim-access';
+export { browserWorkerAvailable, createBrowserSimWorker, workerGlobalEndpoint } from './sim-browser';
+export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
+export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
+export { TickInputSource, continueFrame, mergePhase } from './tick-input';
+export { stepDigest } from './step-digest';
+export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
+export { RelayActionSource } from './relay-input';
 export { DEFAULT_PROMPT_INPUT, hudPrompts, keyLabel, padButtonLabel, withKeyBinding, withPadBinding, withSavedBindings, type HudPromptState } from './bindings';

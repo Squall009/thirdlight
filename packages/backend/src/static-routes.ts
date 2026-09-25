@@ -61,16 +61,31 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     // 'wasm-unsafe-eval': the game's physics (Rapier) is WebAssembly.
     // blob: (connect/img): GLTFLoader hands a GLB's embedded textures to the
     // image decoder as blob: URLs of bytes already in the page. worker-src
-    // blob:: three's Draco/KTX2 decoders run in workers built from blob: URLs.
+    // blob:: three's Draco/KTX2 decoders run in workers built from blob: URLs;
+    // 'self' (phase 22.0): the game's simulation worker (/sim-worker.js).
     // 'unsafe-eval' only for a play whose models carry KTX2/Basis textures:
     // three's Basis transcoder (Emscripten embind) builds functions at run
     // time, and its worker inherits this policy.
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'" +
     (allowEval ? " 'unsafe-eval'" : '') +
     (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
-    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src blob:; " +
+    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src 'self' blob:; " +
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
     `frame-ancestors ${config.authoringOrigin}`;
+
+  /**
+   * Phase 22.0: cross-origin isolation (opt-in, `crossOriginIsolation`). The
+   * editor page and everything on the preview origin get COOP same-origin +
+   * COEP require-corp; the play page (a cross-origin iframe of the editor)
+   * also says it may be embedded (CORP cross-origin). Then the play page is
+   * `crossOriginIsolated` and its simulation worker shares memory.
+   */
+  const isolationHeaders = (res: ServerResponse, embeddable = false): void => {
+    if (config.crossOriginIsolation !== true) return;
+    res.setHeader('cross-origin-opener-policy', 'same-origin');
+    res.setHeader('cross-origin-embedder-policy', 'require-corp');
+    if (embeddable) res.setHeader('cross-origin-resource-policy', 'cross-origin');
+  };
 
   const locatorBaseHeaders = (res: ServerResponse): void => {
     res.setHeader('referrer-policy', 'no-referrer');
@@ -102,5 +117,5 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
   // ---------- request dispatch ----------
 
 
-  return { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml };
+  return { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders };
 }

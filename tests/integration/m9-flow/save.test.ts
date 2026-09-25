@@ -4,12 +4,18 @@
  * storage (a reloaded page) shows Continue and resumes at the checkpoint with
  * the coin still collected and counted, the lives kept, and a script's
  * `ctx.save` value back. The settings (music volume) survive too.
+ *
+ * Phase 22.0: in both threading modes — with the simulation in the worker the
+ * saves are still written by the page (its storage), from the run state the
+ * worker reports, and a loaded save goes back to the worker with the level.
+ * The script keeps what it read back in the save too (`readBack`): a worker's
+ * script cannot write into the test's variables.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { createGameHost, type SaveStorage } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec } from '@thirdlight/runtime';
+import { type SaveStorage } from '@thirdlight/game-host';
+
+import { behaviorModule, MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -47,41 +53,28 @@ const ENTITIES: Any[] = [
   { id: 'goal-0001', components: { transform: at(25, 1), gameZone: { role: 'goal', size: [1, 2] } } },
 ];
 
-async function page(storage: SaveStorage, diary: unknown[]) {
-  const physics = await createPhysicsPort({
-    character: { x: 0, y: 0.91 },
-    statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 20, hy: 0.5 }, position: { x: 10, y: -0.5 }, rotationZ: 0 }],
-    solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-  } as Any);
-  if (!physics.ok) throw new Error(JSON.stringify(physics.error));
-  // A script that writes a value into the save once, and reports what it reads.
-  const script = createBehaviorModuleSpec({
-    declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] } as Any,
-    artifact: {
-      behaviorId: 'diary',
-      sourceDigest: 'a'.repeat(64),
-      manifestDigest: 'b'.repeat(64),
-      outputDigest: 'c'.repeat(64),
-      ownedTransforms: [],
-      requiredModules: [],
-      enginePins: [],
-      namespace: {
-        default: {
-          instantiate: () => ({}),
-          step: (_s: unknown, ctx: Any) => {
-            const seen = ctx.save?.get('firstVisit');
-            if (seen === undefined && ctx.stepIndex > 200) ctx.save?.set('firstVisit', ctx.stepIndex);
-            if (ctx.stepIndex % 50 === 0) diary.push(seen ?? null);
-          },
-        },
-      },
-    } as Any,
-  });
+/** A script that writes a value into the save once, and keeps what it reads back after a load. */
+const DIARY = `
+export default {
+  instantiate() { return {}; },
+  step(_s, ctx) {
+    const seen = ctx.save && ctx.save.get('firstVisit');
+    if (seen === undefined && ctx.stepIndex > 200) ctx.save.set('firstVisit', ctx.stepIndex);
+    if (typeof seen === 'number' && ctx.save.get('readBack') === undefined && ctx.stepIndex % 50 === 0) ctx.save.set('readBack', seen);
+  },
+};
+`;
+
+const live: Harness[] = [];
+afterEach(async () => {
+  for (const h of live.splice(0)) await h.dispose();
+});
+
+async function page(mode: Mode, storage: SaveStorage) {
   let move = 0;
   const ui: Any = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
   const container = new FakeNode();
-  const host = createGameHost({
+  const h = await startHarness(mode, {
     snapshot: {
       snapshotId: 'save@r1',
       projectId: 'save',
@@ -91,9 +84,13 @@ async function page(storage: SaveStorage, diary: unknown[]) {
       game: { configVersion: 2, title: 'Save Test', objective: 'o', instructions: 'i', playerId: 'player-0001', cameraId: 'cam-main', spawnId: 'spawn-0001', cues: { start: null, jump: null, checkpoint: null, death: null, goal: null } },
     },
     settings: SETTINGS,
-    physics: physics.port,
-    behaviorModules: [script],
-    adapter: () => null,
+    physics: {
+      character: { x: 0, y: 0.91 },
+      statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 20, hy: 0.5 }, position: { x: 10, y: -0.5 }, rotationZ: 0 }],
+      solver: { hz: 120, gravityY: SETTINGS.gravity_y },
+      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
+    },
+    behaviors: [behaviorModule('diary', DIARY, { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] })],
     input: {
       sample: (stepIndex: number) => ({ stepIndex, moveX: move, jump: 'none' }),
       sampleMenu: () => ({ confirm: false, mute: false, confirmNeedsRelease: false }),
@@ -105,39 +102,36 @@ async function page(storage: SaveStorage, diary: unknown[]) {
       },
       dispose: () => undefined,
     },
-    audio: { registerCue: () => ({ ok: true }), submit: () => ({ ok: true }), unlock: async () => ({ state: 'blocked' }), setMuted: () => ({}), setHidden: () => ({}), status: () => ({ state: 'blocked', reason: 'autoplay_denied' }), dispose: () => ({ ok: true }), liveVoices: () => 0, setVolume: () => undefined },
-    readArtifact: async () => new ArrayBuffer(0),
-    container,
-    buildId: 'b',
-    document: { createElement: () => new FakeNode() },
-    flow: { levels: [{ id: 'meadow-1', name: 'Meadow 1', scenes: ['scene-main'], spawnId: 'spawn-0001' }], lives: { start: 3, max: 5 } },
-    saveStorage: storage,
-    saveNamespace: 'thirdlight:save',
-  } as Any);
-  const mounted = host.mount();
-  if (!mounted.ok) throw new Error(JSON.stringify(mounted.error));
-  const rt: Any = host.runtime;
+    host: {
+      audio: { registerCue: () => ({ ok: true }), submit: () => ({ ok: true }), unlock: async () => ({ state: 'blocked' }), setMuted: () => ({}), setHidden: () => ({}), status: () => ({ state: 'blocked', reason: 'autoplay_denied' }), dispose: () => ({ ok: true }), liveVoices: () => 0, setVolume: () => undefined },
+      container,
+      document: { createElement: () => new FakeNode() },
+      flow: { levels: [{ id: 'meadow-1', name: 'Meadow 1', scenes: ['scene-main'], spawnId: 'spawn-0001' }], lives: { start: 3, max: 5 } },
+      saveStorage: storage,
+      saveNamespace: 'thirdlight:save',
+    },
+  });
+  live.push(h);
+  const rt: Any = h.rt;
   let now = 0;
   const tick = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) {
       now += DT;
-      const r = rt.tick(now);
-      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      await h.tick(now);
     }
     await new Promise((r) => setTimeout(r, 0));
   };
   const menu = (): FakeNode => container.children.find((c) => c.attrs['class']?.startsWith('tl-flow')) as FakeNode;
-  const obs = (): Any => (host.observe() as Any).observation;
+  const obs = (): Any => (h.host.observe() as Any).observation;
   const px = (): number => rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'player-0001').position[0];
-  return { host, rt, tick, ui, menu, obs, px, setMove: (m: number) => (move = m) };
+  return { host: h.host, rt, tick, ui, menu, obs, px, setMove: (m: number) => (move = m) };
 }
 
-describe('saves (real host, Rapier, a reloaded page)', () => {
+describe.each(MODES)('saves (real host, Rapier, a reloaded page; threading: %s)', (mode) => {
   it('a checkpoint autosaves; a new page continues there with the coin collected, the lives and a script value', async () => {
     const map = new Map<string, string>();
     const storage: SaveStorage = { get: (k) => map.get(k) ?? null, set: (k, v) => void map.set(k, v), remove: (k) => void map.delete(k) };
-    const diary1: unknown[] = [];
-    const first = await page(storage, diary1);
+    const first = await page(mode, storage);
     await first.tick(10);
     expect(first.menu().allText()).not.toContain('Continue');
     first.ui.submit = true; // New game
@@ -177,8 +171,7 @@ describe('saves (real host, Rapier, a reloaded page)', () => {
     first.host.dispose();
 
     // The page reloads: a new host on the same storage.
-    const diary2: unknown[] = [];
-    const second = await page(storage, diary2);
+    const second = await page(mode, storage);
     await second.tick(10);
     expect(second.obs().flow.volumes.music).toBeCloseTo(0.7, 5); // the settings came back
     expect(second.menu().allText()).toContain('Continue — Meadow 1');
@@ -200,13 +193,13 @@ describe('saves (real host, Rapier, a reloaded page)', () => {
     expect(second.rt.gameCounters().counters).toMatchObject({ coins: 1 });
     expect(second.rt.hiddenEntities().has('coin-0001')).toBe(true);
     await second.tick(120);
-    expect(diary2.some((v) => typeof v === 'number')).toBe(true); // ctx.save.get returned the saved step
+    expect(typeof second.rt.runState().values['readBack']).toBe('number'); // ctx.save.get returned the saved step
   });
 
   it('a damaged autosave is reported and ignored', async () => {
     const map = new Map<string, string>([['thirdlight:save:auto', '{"sum":"00000000","body":"{}"}']]);
     const storage: SaveStorage = { get: (k) => map.get(k) ?? null, set: (k, v) => void map.set(k, v), remove: (k) => void map.delete(k) };
-    const g = await page(storage, []);
+    const g = await page(mode, storage);
     await g.tick(5);
     expect(g.menu().allText()).toContain('Damaged save ignored: Autosave');
     expect(g.menu().allText()).not.toContain('Continue');

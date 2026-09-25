@@ -62,6 +62,10 @@ export interface SurfaceResult {
   idle?: { windowMs: number; framesDrawn: number; drawCalls: number; settledMs: number };
   /** Editor only (phase 21.3): what the Scene view's last sync did (its `data-sync`) after the command round trips. */
   lastSync?: Record<string, unknown>;
+  /** Phase 22.0: where Play/the export ran its simulation (the page's ?threads= flag). */
+  threads?: 'worker' | 'off';
+  /** Phase 22.0: the page's main-thread task time per rendered frame (ms) and its share of the window. */
+  mainThread?: { taskMsPerFrame: number; busyShare: number };
   notes: string[];
   loadavg: number[];
 }
@@ -132,15 +136,42 @@ async function record(target: Page | Frame, opts: SurfaceOptions): Promise<PageS
   return target.evaluate(readSample, true);
 }
 
+/**
+ * Phase 22.0: the page's main-thread work while recording — the renderer
+ * process's `TaskDuration` (CDP Performance metrics: every task on its main
+ * thread, not its workers) per rendered frame and as a share of the window.
+ * A cross-origin iframe in its own process is measured there; one sharing the
+ * editor's process (same site) includes the (idle) editor's tasks.
+ */
+async function recordWithMainThread(page: Page, target: Page | Frame, opts: SurfaceOptions): Promise<{ sample: PageSample; mainThread: SurfaceResult['mainThread'] }> {
+  let cdp;
+  try {
+    cdp = target === page ? await page.context().newCDPSession(page) : await page.context().newCDPSession(target as Frame);
+  } catch {
+    cdp = await page.context().newCDPSession(page);
+  }
+  await cdp.send('Performance.enable');
+  const metrics = async (): Promise<Record<string, number>> => Object.fromEntries(((await cdp.send('Performance.getMetrics')) as { metrics: { name: string; value: number }[] }).metrics.map((m) => [m.name, m.value]));
+  const a = await metrics();
+  const t0 = performance.now();
+  const sample = await record(target, opts);
+  const b = await metrics();
+  const wall = performance.now() - t0;
+  const taskMs = ((b['TaskDuration'] ?? 0) - (a['TaskDuration'] ?? 0)) * 1000;
+  await cdp.detach().catch(() => undefined);
+  const frames = Math.max(1, sample.frames.length);
+  return { sample, mainThread: { taskMsPerFrame: Math.round((taskMs / frames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 } };
+}
+
 /** Play: the editor's isolated preview (iframe), started through the play relay. */
-export async function measurePlay(browser: Browser, be: PerfBackend, projectId: string, renderer: RendererName, opts: SurfaceOptions): Promise<SurfaceResult> {
+export async function measurePlay(browser: Browser, be: PerfBackend, projectId: string, renderer: RendererName, opts: SurfaceOptions, threads: 'worker' | 'off' = 'worker'): Promise<SurfaceResult> {
   const context = await browser.newContext({ viewport: opts.viewport });
   await context.addInitScript(installPerfInstrumentation);
   const page = await context.newPage();
   const notes: string[] = ['heap: the editor and the preview share one renderer process (same site), so the heap is editor + game'];
   const relay = async (path: string, body: unknown = {}) => be.post(`/api/v1/projects/${projectId}/play/${path}`, body);
   try {
-    await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}#token=${be.token}`);
+    await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}#token=${be.token}`);
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 120_000 });
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 60_000 });
     const t0 = Date.now();
@@ -153,13 +184,15 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
     await relay(`${psid}/control`, { command: 'start' });
     const firstEpoch = await poll(async () => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Play frame');
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    const sample = await record(frame!, opts);
+    const { sample, mainThread } = await recordWithMainThread(page, frame!, opts);
     const la = await loadavg();
     const diag = (await relay(`${psid}/diagnostics`)).json['diagnostics'] as { renderer?: { gpu?: { geometries: number; textures: number; programs: number } } } | undefined;
     const state = String((await relay(`${psid}/observe`)).json['state']);
     const out = result('play', renderer, sample, { firstFrameMs: firstEpoch! - t0, readyMs }, notes, la);
     if (diag?.renderer?.gpu !== undefined) out.three = diag.renderer.gpu;
     out.state = state;
+    out.threads = threads;
+    if (mainThread !== undefined) out.mainThread = mainThread;
     await page.getByTitle('Stop the play preview').click().catch(() => undefined);
     return out;
   } finally {
@@ -168,7 +201,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
 }
 
 /** The standalone export, served statically (the backend is not involved). */
-export async function measureExport(browser: Browser, exportDir: string, renderer: RendererName, opts: SurfaceOptions): Promise<SurfaceResult> {
+export async function measureExport(browser: Browser, exportDir: string, renderer: RendererName, opts: SurfaceOptions, threads: 'worker' | 'off' = 'worker'): Promise<SurfaceResult> {
   const site = await serveDir(exportDir);
   const context = await browser.newContext({ viewport: opts.viewport });
   await context.addInitScript(installPerfInstrumentation);
@@ -176,7 +209,7 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(`${site.url}?renderer=${renderer}`);
+    await page.goto(`${site.url}?renderer=${renderer}${threads === 'off' ? '&threads=off' : ''}`);
     const first = await poll(async () => page.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null), (v) => v !== null, 180_000, 'the first export frame');
     // Start the run like a player (the fixed menu overlay: click by coordinates).
     const notes: string[] = [];
@@ -189,10 +222,13 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
       notes.push('the run did not start; measured the title screen');
     }
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    const sample = await record(page, opts);
+    const { sample, mainThread } = await recordWithMainThread(page, page, opts);
     const la = await loadavg();
     if (errors.length > 0) notes.push(`page errors: ${errors.slice(0, 3).join(' | ')}`);
-    return result('export', renderer, sample, { firstFrameMs: first!, domContentLoadedMs: sample.nav?.domContentLoaded ?? -1, loadMs: sample.nav?.load ?? -1 }, notes, la);
+    const out = result('export', renderer, sample, { firstFrameMs: first!, domContentLoadedMs: sample.nav?.domContentLoaded ?? -1, loadMs: sample.nav?.load ?? -1 }, notes, la);
+    out.threads = threads;
+    if (mainThread !== undefined) out.mainThread = mainThread;
+    return out;
   } finally {
     await context.close();
     await site.close();

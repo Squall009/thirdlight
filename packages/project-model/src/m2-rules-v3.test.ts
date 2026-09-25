@@ -278,6 +278,8 @@ describe('gameplay settings resolution (§21.5)', () => {
       'animation_crossfade_s',
       // Phase 17.1: the renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
       'render_backend',
+      // Phase 22.0: where the simulation runs (1 a worker, 2 the main thread).
+      'sim_thread',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });
@@ -287,7 +289,7 @@ describe('gameplay settings resolution (§21.5)', () => {
     // Phase 17.4: 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
     const legacy = resolveGameplaySettings({ settings: { render_backend: 0 } });
     expect(legacy.ok && legacy.normalized.render_backend).toBe(0);
-    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }]) {
+    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }]) {
       expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
     }
   });

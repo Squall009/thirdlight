@@ -78,14 +78,28 @@ import {
   type HostDomNode,
   type FlowConfigLike,
   browserSaveStorage,
+  browserWorkerAvailable,
+  createBrowserSimWorker,
+  createLocalSimAccess,
+  resolveThreadingMode,
+  resolveTransport,
+  RelayActionSource,
+  startRemoteSimulation,
+  threadingLogLine,
+  type RemoteSimulation,
+  type SimAccess,
 } from '@thirdlight/game-host';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
-import { PlayDebugger } from './play-debug';
-import { RelayActionSource } from './relay-input';
+
+/**
+ * Phase 22.0: the simulation worker's script on the preview origin (a static
+ * file next to the decoders, built from `./sim-worker.ts`).
+ */
+const PREVIEW_SIM_WORKER_PATH = '/sim-worker.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
@@ -157,8 +171,14 @@ export interface M3PreviewConfig {
 
 export interface M3PreviewHandle {
   readonly host: GameHost;
-  /** The exclusive-test input source (bounded input-exercise relays). */
-  readonly relay: RelayActionSource;
+  /**
+   * Phase 22.0: the simulation's async surface (script values, the debugger,
+   * diagnostics, the exclusive input exercise) — the page's runtime in
+   * single-thread mode, the worker otherwise.
+   */
+  readonly access: SimAccess;
+  /** Phase 22.0: where the simulation runs, and why. */
+  readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean };
   /** The render adapter (screenshots, diagnostics), when one was created. */
   readonly adapter: SceneAdapter | null;
   /** The player entity id (for position observations), when a game is played. */
@@ -406,31 +426,84 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const withBounds = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
-  // 3. The wrapper's read phase (L2): every declared asset read ONCE and
-  //    re-hashed to its manifest sourceDigest (the adapter never receives
-  //    unverified bytes).
-  const assetBytes = await readDeclaredAssets(manifest, cfg.contentRoot, onProgress);
-
-  // 4. The single shared production composition (delivery.md §3.2) with the
-  //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
   const settings = manifest.settings;
-  const models = buildModelsBlock(manifest, snapshot, assetBytes, cfg.contentRoot);
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
   const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && (snapshot.game ?? null) !== null) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
   }
+  // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
+  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
+  focusGameSurface(cfg.canvas);
+  const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
+  const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
+  const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
+
+  // Phase 22.0: the simulation runs in a worker unless the page (?threads=off),
+  // the project (sim_thread) or the browser says otherwise.
+  const threading = resolveThreadingMode({ url: pageSearch(), setting: settings.sim_thread, workerAvailable: browserWorkerAvailable() });
+  let threadMode = threading.mode;
+  let threadReason = threading.reason;
+  const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
+  let remoteStart: Promise<RemoteSimulation> | null = null;
+  if (threadMode === 'worker') {
+    const worker = createBrowserSimWorker(new URL(PREVIEW_SIM_WORKER_PATH, location.href).href);
+    if (worker === null) {
+      threadMode = 'single';
+      threadReason = 'the browser refused to start the worker: single thread';
+    } else {
+      // The worker composes the simulation while the page reads the assets (below).
+      remoteStart = startRemoteSimulation({
+          worker,
+          init: {
+            snapshot,
+            settings,
+            physics: physicsConfig,
+            modules: moduleIds,
+            // The worker imports each compiled script from the locator (absolute same-origin URLs).
+            behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(`${cfg.contentRoot}${r.path}`, location.href).href])) },
+            shared: resolveTransport(globalThis as never) === 'shared',
+          },
+          input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
+          ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
+          driver: 'raf',
+        });
+      remoteStart.catch(() => undefined); // awaited below
+    }
+  }
+
+  // 3. The wrapper's read phase (L2): every declared asset read ONCE and
+  //    re-hashed to its manifest sourceDigest (the adapter never receives
+  //    unverified bytes).
+  let assetBytes: Map<string, ArrayBuffer>;
+  try {
+    assetBytes = await readDeclaredAssets(manifest, cfg.contentRoot, onProgress);
+  } catch (e) {
+    void remoteStart?.then((r) => r.dispose(), () => undefined);
+    throw e;
+  }
+  // 4. The single shared production composition (delivery.md §3.2) with the
+  //    §2.1 `models` block (or none — the loader-free M1/M2/M3 surface).
+  const models = buildModelsBlock(manifest, snapshot, assetBytes, cfg.contentRoot);
+
+  let remote: RemoteSimulation | null = null;
+  if (remoteStart !== null) {
+    try {
+      remote = await remoteStart;
+    } catch (e) {
+      threadMode = 'single';
+      threadReason = `the worker could not start (${e instanceof Error ? e.message : String(e)}): single thread`;
+    }
+  }
+  console.info(threadingLogLine(threadMode, threadReason, remote?.transport ?? null, isolated));
+
   let physics: RapierPhysicsPort | undefined;
-  if (physicsConfig !== null) {
+  if (remote === null && physicsConfig !== null) {
     const init = await createPhysicsPort(physicsConfig);
     if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
     physics = init.port;
   }
-
-  // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? DEFAULT_INPUT_CONFIG });
-  focusGameSurface(cfg.canvas);
   const relay = new RelayActionSource(browserInput);
   const input = {
     sample: (stepIndex: number) => relay.sample(stepIndex),
@@ -453,18 +526,15 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // A holder object: the factory (host-called inside `mount()`) assigns
   // `current`, which the settle gate below reads after the mount.
   const adapterRef: { current: SceneAdapter | null } = { current: null };
-  // The project's compiled behaviors (same-origin modules under the locator).
-  const behaviorModules = await linkBehaviorModules(
-    (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [],
-    (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [],
-    (path) => import(/* @vite-ignore */ `${cfg.contentRoot}${path}`),
-  );
+  // The project's compiled behaviors (same-origin modules under the locator); in worker mode the worker links them.
+  const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ `${cfg.contentRoot}${path}`));
   const config: GameHostConfig = {
     snapshot,
     settings,
     behaviorModules,
-    modules: (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [],
+    modules: moduleIds,
     ...(physics !== undefined ? { physics } : {}),
+    ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
     adapter: (runtime) => {
       const a = createSceneAdapter(cfg.canvas, {
         runtime,
@@ -520,7 +590,11 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   globalThis.addEventListener?.('pointerdown', unlockOnce, { once: true });
   globalThis.addEventListener?.('keydown', unlockOnce, { once: true });
   const mount = host.mount();
-  if (!mount.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
+  if (!mount.ok) {
+    void remote?.dispose();
+    physics?.dispose();
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
+  }
 
   // 5. The models settle (delivery.md §2.8 step 10): the preview reports
   //    ready ONLY after the prepares settle. A hard failure (L3–L5) is a
@@ -549,14 +623,17 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   };
 
   const game = snapshot.game as { playerId?: unknown } | null | undefined;
+  const stepHz = settings.fixed_step_hz ?? 120;
   return {
     host,
-    relay,
+    access: remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz }),
+    threading: { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated },
     adapter: adapterRef.current,
     playerId: typeof game?.playerId === 'string' ? game.playerId : null,
     identity,
-    stepHz: settings.fixed_step_hz ?? 120,
+    stepHz,
     dispose: () => {
+      // The host disposes its runtime — in worker mode the mirror, which ends the worker (22.3: the physics world is freed there).
       host.dispose();
       physics?.dispose();
     },
@@ -687,24 +764,18 @@ export function bootstrapPreviewM3(): void {
   // ---- relays from the editor (MCP / backend tools) ----------------------------
   const notReady = { ok: false as const, error: { code: 'not_ready', message: 'the play is not ready' } };
 
-  // Phase 19.2: one visual-script debugger per running play (reads the runtime; the editor runs no game code).
-  const debuggers = new WeakMap<M3PreviewHandle, PlayDebugger>();
-  const debuggerOf = (h: M3PreviewHandle): PlayDebugger => {
-    let d = debuggers.get(h);
-    if (d === undefined) {
-      d = new PlayDebugger(h.host.runtime, Math.max(1, Math.round(h.stepHz / 2)));
-      debuggers.set(h, d);
-    }
-    return d;
-  };
+  // Phase 19.2: one visual-script debugger per running play, where the
+  // simulation runs (phase 22.0: in the page or in the worker; the editor runs no game code).
   bridge.on('tl.debug.request', (m) => {
     const body = m as { relayId: string; behaviorId: string; entityId?: string; breakpoints: string[]; command?: 'pause' | 'resume' | 'step' };
-    if (handle === null) {
+    const h = handle;
+    if (h === null) {
       bridge.sendDebugResult(playId, body.relayId, notReady);
       return;
     }
-    const result = debuggerOf(handle).request({ behaviorId: body.behaviorId, breakpoints: body.breakpoints, ...(body.entityId !== undefined ? { entityId: body.entityId } : {}), ...(body.command !== undefined ? { command: body.command } : {}) });
-    bridge.sendDebugResult(playId, body.relayId, { ok: true, result });
+    void h.access.debugRequest({ behaviorId: body.behaviorId, breakpoints: body.breakpoints, ...(body.entityId !== undefined ? { entityId: body.entityId } : {}), ...(body.command !== undefined ? { command: body.command } : {}) }).then((result) => {
+      bridge.sendDebugResult(playId, body.relayId, result === null ? notReady : { ok: true, result: result as never });
+    });
   });
 
   bridge.on('tl.input.request', (m) => {
@@ -713,9 +784,7 @@ export function bootstrapPreviewM3(): void {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;
     }
-    const d = handle.host.runtime.getDiagnostics();
-    const firstStep = (d.ok ? d.diagnostics.stepIndex : 0) + 1;
-    const accepted = handle.relay.beginTest(body.frames, firstStep, (from, to) => {
+    const accepted = handle.access.beginInputTest(body.frames, (from, to) => {
       bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
     });
     if (!accepted) bridge.sendInputResult(playId, body.requestId, { ok: false, error: { code: 'input_relay_conflict', message: 'a relay is already active' } });
@@ -731,25 +800,32 @@ export function bootstrapPreviewM3(): void {
 
   bridge.on('tl.diagnostics.request', (m) => {
     const body = m as { relayId: string };
-    if (handle === null) {
+    const h = handle;
+    if (h === null) {
       bridge.sendDiagnosticsResult(playId, body.relayId, notReady);
       return;
     }
-    const rd = handle.host.runtime.getDiagnostics();
-    const ad = handle.adapter?.diagnostics();
-    bridge.sendDiagnosticsResult(playId, body.relayId, {
-      ok: true,
-      diagnostics: {
-        runtime: rd.ok ? rd.diagnostics : { error: rd.error.code },
-        renderer: ad === undefined ? null : ad.ok ? ad.diagnostics : { error: ad.error.code },
-        buildId: handle.identity.buildId,
-        frameDrops: bridge.drops,
-      },
+    void h.access.diagnostics().then((rd) => {
+      const ad = h.adapter?.diagnostics();
+      bridge.sendDiagnosticsResult(playId, body.relayId, {
+        ok: true,
+        diagnostics: {
+          runtime: rd.ok ? rd.diagnostics : { error: rd.error.code },
+          renderer: ad === undefined ? null : ad.ok ? ad.diagnostics : { error: ad.error.code },
+          buildId: h.identity.buildId,
+          frameDrops: bridge.drops,
+          // Phase 22.0: where the simulation runs.
+          simulation: { ...h.threading },
+        },
+      });
     });
   });
 
   /** The §20 wire observation (+ the player position), or null without a game. */
-  const observation = (h: M3PreviewHandle, entityId?: string): Record<string, unknown> | null => {
+  const observation = async (h: M3PreviewHandle, entityId?: string): Promise<Record<string, unknown> | null> => {
+    // Phase 22.0: the parts only the simulation can answer (asked of the worker in worker mode).
+    const behaviors = entityId !== undefined ? await behaviorValues(h.access, entityId) : null;
+    const debug = await h.access.debugObservation();
     const gv = h.host.runtime.getGameView();
     const obs = h.host.observe();
     if (!gv.ok || !obs.ok) return null;
@@ -774,8 +850,10 @@ export function bootstrapPreviewM3(): void {
       deathCount: v.deathCount,
       eventCount: v.eventCount,
       eventDropped: v.eventDropped,
-      inputMode: h.relay.testActive ? 'test' : 'physical',
+      inputMode: h.access.inputTestActive ? 'test' : 'physical',
       sound: obs.observation.sound,
+      // Phase 22.0: where the simulation runs (worker | single) and how its frames reach the page.
+      simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
       events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
       ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1] } } : {}),
       // Phase 12 (c): the loaded scenes and the ones on their way.
@@ -795,34 +873,37 @@ export function bootstrapPreviewM3(): void {
       ...rendererObservation(h),
       ...effectsObservation(h),
       // Phase 15.4: the requested entity's script property values (public and private), read-only.
-      ...(entityId !== undefined ? { behaviors: behaviorValues(h.host.runtime, entityId) } : {}),
+      ...(behaviors !== null ? { behaviors } : {}),
       // Phase 19.2: the visual-script debugger (held at a step boundary, the breakpoint node it holds on).
-      ...debugObservation(debuggers.get(h) ?? null, h),
+      ...(debug !== null && debug !== undefined ? { debug } : {}),
     };
-  };
-  const debugObservation = (d: PlayDebugger | null, h: M3PreviewHandle): { debug?: unknown } => {
-    const o = (d ?? (h.host.runtime.debugHeld === true ? debuggerOf(h) : null))?.observation() ?? null;
-    return o !== null ? { debug: o } : {};
   };
 
   bridge.on('tl.game.observe', (m) => {
     const body = m as { relayId: string; entityId?: string };
-    const o = handle === null ? null : observation(handle, body.entityId);
-    if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has no game session' } });
-    else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
+    const h = handle;
+    void (h === null ? Promise.resolve(null) : observation(h, body.entityId)).then((o) => {
+      if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has no game session' } });
+      else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
+    });
   });
 
   bridge.on('tl.game.control', (m) => {
     const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep'; sceneId?: string };
-    if (handle === null) {
+    const h = handle;
+    if (h === null) {
       bridge.sendGameResult('control', playId, body.relayId, notReady);
       return;
     }
+    void control(h, body);
+  });
+
+  const control = async (handle: M3PreviewHandle, body: { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep'; sceneId?: string }): Promise<void> => {
     // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
     if (body.command === 'debugPause' || body.command === 'debugResume' || body.command === 'debugStep') {
       // Phase 19.2: the debugger's hold / release / single step (Play only; an export has no relay).
-      debuggerOf(handle).control(body.command);
+      await handle.access.debugControl(body.command);
       const view = handle.host.runtime.getGameView();
       r = { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 };
     } else if (body.command === 'loadScene' || body.command === 'unloadScene') {
@@ -849,10 +930,10 @@ export function bootstrapPreviewM3(): void {
         command: body.command,
         state: r.state,
         acceptedAtStep: r.acceptedAtStep,
-        inputMode: handle.relay.testActive ? 'test' : 'physical',
+        inputMode: handle.access.inputTestActive ? 'test' : 'physical',
       },
     });
-  });
+  };
 
   bridge.on('tl.play.stop', () => {
     generation += 1; // fence any in-flight composition
@@ -885,9 +966,9 @@ function gameCounters(runtime: unknown): { counters?: Record<string, number>; he
  * the observation stays inside its 16 KiB bound). Read from the running
  * runtime — the editor never runs game code.
  */
-function behaviorValues(runtime: unknown, entityId: string): { entityId: string; scripts: unknown[] } {
+async function behaviorValues(access: SimAccess, entityId: string): Promise<{ entityId: string; scripts: unknown[] }> {
   type View = { behaviorId: string; properties: { key: string; label: string; type: string; visibility: string; value: unknown }[] };
-  const views = (runtime as { behaviorProperties?: (id: string) => View[] }).behaviorProperties?.(entityId) ?? [];
+  const views = (await access.behaviorProperties(entityId)) as View[];
   const clip = (v: unknown): unknown => (typeof v === 'string' && v.length > 64 ? `${v.slice(0, 63)}…` : Array.isArray(v) ? [...v] : v);
   return {
     entityId,

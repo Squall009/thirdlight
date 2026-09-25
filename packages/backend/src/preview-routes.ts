@@ -19,10 +19,12 @@ export interface PreviewRoutesContext {
   readonly locatorBaseHeaders: (res: ServerResponse) => void;
   readonly previewTemplate: () => string;
   readonly previewShellHtml: (playSessionId: string, contentId: string, nonce: string) => string;
+  /** Phase 22.0: COOP + COEP when the deployment asks for cross-origin isolation (`embeddable`: the play page itself). */
+  readonly isolationHeaders: (res: ServerResponse, embeddable?: boolean) => void;
 }
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
-  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml } = ctx;
+  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = ctx;
 
   /** `trusted`: the page request came from a trusted network — the editor then asks for no token. */
   const serveEditorPage = (res: ServerResponse, trusted = false): void => {
@@ -83,6 +85,8 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
       sendJson(res, 405, { ok: false, error: sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }) });
       return;
     }
+    // Phase 22.0: every preview-origin response (the play page, its bundle, the worker script, artifacts).
+    isolationHeaders(res);
     try {
       // M2 locator shell by play session (sessions.md §17.2.1).
       if (p === '/play' || p.startsWith('/play/')) {
@@ -107,6 +111,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         res.setHeader('content-security-policy', previewCsp(nonce, needsBasis(set)));
         res.setHeader('referrer-policy', 'no-referrer');
         res.setHeader('cache-control', 'no-store');
+        isolationHeaders(res, true);
         res.end(previewShellHtml(psid, contentId, nonce));
         return;
       }
@@ -138,6 +143,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           res.setHeader('content-security-policy', previewCsp(nonce, needsBasis(set)));
           res.setHeader('referrer-policy', 'no-referrer');
           res.setHeader('cache-control', 'no-store');
+          isolationHeaders(res, true);
           res.end(previewShellHtml(set.playSessionId, set.contentId, nonce));
           return;
         }
