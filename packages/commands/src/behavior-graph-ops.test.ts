@@ -113,6 +113,19 @@ describe('a visual-script behavior', () => {
     ok(s0, 'graphEdit', edit([{ id: 'x', from: ['add', 'result'], to: ['a', 'message'] }]));
   });
 
+  it('one edit may declare a variable and wire its Get by type (the edit validates against its own result)', () => {
+    const s0 = withScript();
+    const add = (varType: string) => ({
+      owner,
+      ops: [
+        { op: 'addNodes', nodes: [{ id: 'v2', type: varType, position: [0, -280], data: { name: 'armed' } }, { id: 'get', type: 'var.get', position: [0, 200], data: { variable: 'armed' } }, { id: 'br', type: 'flow.branch', position: [240, 200] }] },
+        { op: 'connect', edges: [{ id: 'w', from: { node: 'get', port: 'value' }, to: { node: 'br', port: 'condition' } }] },
+      ],
+    });
+    ok(s0, 'graphEdit', add('var.boolean'));
+    expect(refusal(s0, 'graphEdit', add('var.string')).message).toMatch(/text output cannot feed a boolean input/);
+  });
+
   it('a behavior without a graph has no behavior graph; a graph is only accepted at creation', () => {
     const s = ok(fresh(), 'publishBehavior', { behaviorId: 'plain', displayName: 'Plain', mode: 'declaration-create', declaration: DECL }).state;
     expect(refusal(s, 'graphEdit', { owner: { kind: 'behavior', id: 'plain' }, ops: [{ op: 'moveNodes', moves: [{ id: 'start', position: [0, 0] }] }] }).code).toBe('reference_missing');

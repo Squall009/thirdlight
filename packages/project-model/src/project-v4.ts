@@ -34,6 +34,7 @@ import type { Manifest as M1Manifest } from './types';
 import type { ContentCatalogV3, ContentCatalogV4, GameConfig, SceneEntityV3, SceneV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
 import type { GameFlow } from './flow';
+import { materialOverrideErrors } from './materials';
 
 /** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
 export interface ProjectManifestV2 {
@@ -266,6 +267,17 @@ export function composeV4(
     });
   }
 
+  // Phase 18.0: overrides name public parameters of the project's graph materials.
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      const o = e.components.materialParams;
+      if (o === undefined) return;
+      for (const x of materialOverrideErrors(o, content.materials ?? [])) {
+        errors.push(sceneError(s.sceneId, withFound({ code: x.code as never, path: `/entities/${i}/components/materialParams${x.path}`, message: x.message, expected: 'a public parameter of a graph material, with a value that fits it' }, x.found)));
+      }
+    });
+  }
+
   // Phase 14.1: a prefab's gameplay components name project things too.
   (content.prefabs ?? []).forEach((d, di) => {
     d.entities.forEach((e, ei) => {
@@ -276,6 +288,7 @@ export function composeV4(
       };
       if (c.animator !== undefined && !controllerIds.has(c.animator.controller)) bad('animator/controller', 'reference_missing', 'the animator names no controller of this project', 'a controllerId in content.animators', c.animator.controller);
       for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
+      if (c.materialParams !== undefined) for (const x of materialOverrideErrors(c.materialParams, content.materials ?? [])) bad(`materialParams${x.path}`, x.code, x.message, 'a public parameter of a graph material, with a value that fits it', x.found);
       if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
       const cue = (c.pickup as { cue?: string } | undefined)?.cue;
       if (cue !== undefined && soundKinds.get(cue) !== 'audio') bad('pickup/cue', 'asset_reference_missing', 'a pickup cue plays an audio asset of this project', 'an audio assetId', cue);

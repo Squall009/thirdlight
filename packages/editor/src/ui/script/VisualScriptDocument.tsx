@@ -16,11 +16,12 @@
  * 19.2 replaces this with the full visual-script editor (variable list,
  * compile errors drawn on nodes, Play debugging). Browser-only (React).
  */
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDiagnosticView } from '../../session/behavior-publication';
+import { behaviorPortContext } from '../../session/behavior-graph';
 import type { BehaviorDeclarationView } from '../../session/prefab-projection';
 import type { ScriptPublishOutcome } from './ScriptDocument';
 
@@ -52,6 +53,8 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
   const [publishing, setPublishing] = useState<ScriptPublishOutcome | { kind: 'working' } | null>(null);
   const seq = useRef(0);
   const graphKey = behavior?.graph !== undefined ? JSON.stringify(behavior.graph) : '';
+  // The graph's variables type its Get/Set ports (the framework's data-dependent ports).
+  const portContext = useMemo(() => behaviorPortContext(behavior?.graph), [behavior?.graph]);
 
   const runCheck = useCallback(async () => {
     const mine = ++seq.current;
@@ -107,6 +110,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
           onEdit={(ops) => p.onEdit(behaviorId, ops)}
           onSelection={p.onSelection}
           focus={p.focus}
+          portContext={portContext}
         />
       </div>
       <div className="tl-vscript__side">

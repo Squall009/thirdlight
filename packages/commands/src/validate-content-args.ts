@@ -512,6 +512,7 @@ const OWNED: readonly OwnedComponent[] = [
   'enemy',
   'audioSource',
   'faceMovement',
+  'materialParams',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -539,12 +540,13 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'enemy',
   'audioSource',
   'faceMovement',
+  'materialParams',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 const COMPONENT_EXPECTED =
-  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials"';
+  'one of "box", "camera", "model", "collider", "controller", "gameZone", "playerSpawn", "cameraFollow", "light", "surface", "modelAnimation", "instances", "materials", "materialParams"';
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
@@ -627,7 +629,7 @@ export function validateSetComponentArgs(
   }
   for (const key of keys) {
     // A material mapping's keys are material names (the model validates them).
-    if (component === 'materials') break;
+    if (component === 'materials' || component === 'materialParams') break;
     if (!fields.includes(key)) {
       return {
         ok: false,
@@ -709,6 +711,7 @@ export function validateSetComponentArgs(
     component === 'modelAnimation' ||
     component === 'instances' ||
     component === 'materials' ||
+    component === 'materialParams' ||
     component === 'fogVolume' ||
     component === 'animator' ||
     component === 'mover' ||

@@ -26,7 +26,7 @@ describe('generateGraphSource', () => {
       [
         { id: 'start', type: 'event.start', position: [0, 0] },
         { id: 'add', type: 'api.game.add', position: [200, 0], data: { name: 'coins' } },
-        { id: 'get', type: 'get.number', position: [0, 100], data: { variable: 'amount' } },
+        { id: 'get', type: 'var.get', position: [0, 100], data: { variable: 'amount' } },
         { id: 'secret', type: 'var.boolean', position: [0, -100], data: { name: 'armed', visibility: 'private', default: true, group: 'Rules', tooltip: 'Starts armed' } },
       ],
       [
@@ -81,14 +81,14 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
       { id: 'seq', type: 'flow.sequence', position: [200, 0] },
       { id: 'branch', type: 'flow.branch', position: [400, 0] },
       { id: 'loop', type: 'flow.for', position: [400, 200], data: { first: 1, last: 3 } },
-      { id: 'setn', type: 'set.number', position: [600, 200], data: { variable: 'amount' } },
-      { id: 'getn', type: 'get.number', position: [200, 400], data: { variable: 'amount' } },
+      { id: 'setn', type: 'var.set', position: [600, 200], data: { variable: 'amount' } },
+      { id: 'getn', type: 'var.get', position: [200, 400], data: { variable: 'amount' } },
       { id: 'vb', type: 'var.boolean', position: [0, -100], data: { name: 'flag' } },
-      { id: 'getb', type: 'get.boolean', position: [200, 500], data: { variable: 'flag' } },
-      { id: 'setb', type: 'set.boolean', position: [600, 0], data: { variable: 'flag' } },
+      { id: 'getb', type: 'var.get', position: [200, 500], data: { variable: 'flag' } },
+      { id: 'setb', type: 'var.set', position: [600, 0], data: { variable: 'flag' } },
       { id: 'vs', type: 'var.string', position: [0, -50], data: { name: 'label', default: 'hi' } },
-      { id: 'gets', type: 'get.string', position: [200, 600], data: { variable: 'label' } },
-      { id: 'sets', type: 'set.string', position: [800, 0], data: { variable: 'label' } },
+      { id: 'gets', type: 'var.get', position: [200, 600], data: { variable: 'label' } },
+      { id: 'sets', type: 'var.set', position: [800, 0], data: { variable: 'label' } },
       { id: 'add', type: 'math.add', position: [300, 400] },
       { id: 'sub', type: 'math.subtract', position: [300, 450] },
       { id: 'mul', type: 'math.multiply', position: [300, 500] },
@@ -145,6 +145,14 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
     expect(out).toContain('c.game?.add(');
     expect(out).toContain('c.signals?.on(');
     expect(out).not.toContain('property.');
+  });
+
+  it("an unwired Set variable writes its Value text read as the variable's type", async () => {
+    const g = graph([{ id: 'start', type: 'event.start', position: [0, 0] }, { id: 'set', type: 'var.set', position: [200, 0], data: { variable: 'amount', value: '7.5' } }], [['start', 'then', 'set', 'in']]);
+    const r = generateGraphSource(g);
+    expect(r.ok && r.container.files[0]!.text).toContain('const a0 = 7.5;');
+    const bad = generateGraphSource(graph([{ id: 'start', type: 'event.start', position: [0, 0] }, { id: 'set', type: 'var.set', position: [200, 0], data: { variable: 'amount', value: 'seven' } }], [['start', 'then', 'set', 'in']]));
+    expect(!bad.ok && bad.problems[0]).toMatchObject({ nodeId: 'set', message: expect.stringContaining('not a number') });
   });
 
   it('a TypeScript source that is not generated has no sourceKind', async () => {

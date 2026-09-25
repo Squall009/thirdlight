@@ -10,7 +10,7 @@
  */
 import { useEffect, useState, type JSX, type ReactNode } from 'react';
 
-import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portTypeLabel, type GraphData, type GraphKindDef, type GraphOp } from './model';
+import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portsResolver, portTypeLabel, type GraphContext, type GraphData, type GraphKindDef, type GraphOp, type PortsOf } from './model';
 import type { GraphFieldDef, GraphNode, GraphValue } from '@thirdlight/project-model';
 
 interface Props {
@@ -22,9 +22,14 @@ interface Props {
   extension?: (id: string) => ReactNode | null;
   /** Phase 16.2: shown when nothing is selected. */
   empty?: ReactNode;
+  /** Phase 18.1: what data-dependent ports read outside the graph (see GraphEditor). */
+  portContext?: GraphContext;
+  /** Phase 18.1: the choices for a field that names an asset (`GraphFieldDef.asset`); absent = a text box. */
+  assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
 }
 
-export function GraphInspector({ kind, graph, ids, onEdit, extension, empty }: Props): JSX.Element {
+export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, portContext, assetOptions }: Props): JSX.Element {
+  const portsOf = portsResolver(kind, graph, portContext);
   const [error, setError] = useState<string | null>(null);
   const edit = (ops: GraphOp[]): void => {
     void onEdit(ops).then(setError);
@@ -41,7 +46,7 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty }: P
   const comment = (graph.comments ?? []).find((c) => c.id === id);
   return (
     <div className="tl-graph-inspector" aria-label="Graph item">
-      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} />}
+      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} portsOf={portsOf} {...(assetOptions !== undefined ? { assetOptions } : {})} />}
       {edge !== undefined && (
         <>
           <div className="tl-inspector__title">Wire</div>
@@ -49,8 +54,8 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty }: P
             {edge.from.node}.{edge.from.port} → {edge.to.node}.{edge.to.port}
           </p>
           {(() => {
-            const conv = edgeConversion(kind, graph, edge);
-            const out = portDef(kind, graph, edge.from.node, edge.from.port, 'out');
+            const conv = edgeConversion(kind, graph, edge, portsOf);
+            const out = portDef(kind, graph, edge.from.node, edge.from.port, 'out', portsOf);
             return <p className="tl-hint">{conv !== null ? `Implicit conversion: ${conv.label}` : `Type: ${portTypeLabel(kind, out?.type ?? '')}`}</p>;
           })()}
           <p className="tl-hint">{(edge.reroutes ?? []).length} reroute point(s) — double-click the wire to add one.</p>
@@ -87,9 +92,10 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty }: P
   );
 }
 
-function NodeFields({ kind, graph, node, edit }: { kind: GraphKindDef; graph: GraphData; node: GraphNode; edit: (ops: GraphOp[]) => void }): JSX.Element {
+function NodeFields({ kind, graph, node, edit, portsOf, assetOptions }: { kind: GraphKindDef; graph: GraphData; node: GraphNode; edit: (ops: GraphOp[]) => void; portsOf: PortsOf; assetOptions?: (assetKind: string) => readonly { id: string; label: string }[] }): JSX.Element {
   const def = nodeDefOf(kind, node.type);
-  const problems = diagnoseGraph(kind, graph).filter((p) => p.nodeId === node.id);
+  const problems = diagnoseGraph(kind, graph, portsOf).filter((p) => p.nodeId === node.id);
+  const ports = portsOf(node);
   const setField = (f: GraphFieldDef, v: GraphValue): void => {
     const data = { ...(node.data ?? {}) };
     // A value equal to the field default is not stored (absent = default).
@@ -118,7 +124,19 @@ function NodeFields({ kind, graph, node, edit }: { kind: GraphKindDef; graph: Gr
         return (
           <label key={f.key} className="tl-field">
             <span>{f.label}</span>
-            {f.type === 'boolean' ? (
+            {f.type === 'color' ? (
+              <input type="color" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value.toLowerCase())} />
+            ) : f.type === 'string' && f.asset !== undefined && assetOptions !== undefined ? (
+              <select className="tl-input" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value)}>
+                <option value="">(none)</option>
+                {assetOptions(f.asset).map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+                {String(v) !== '' && !assetOptions(f.asset).some((o) => o.id === v) && <option value={String(v)}>{String(v)} (missing)</option>}
+              </select>
+            ) : f.type === 'boolean' ? (
               <input type="checkbox" aria-label={f.label} checked={v === true} onChange={(e) => setField(f, e.target.checked)} />
             ) : f.type === 'enum' ? (
               <select className="tl-input" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value)}>
@@ -144,9 +162,9 @@ function NodeFields({ kind, graph, node, edit }: { kind: GraphKindDef; graph: Gr
       })}
       {def !== undefined && (
         <p className="tl-hint">
-          Inputs: {def.inputs.map((p) => `${p.label} (${portTypeLabel(kind, p.type)}${p.multi === true ? ', many' : ''}${p.required === true ? ', required' : ''})`).join(', ') || 'none'}
+          Inputs: {ports.inputs.map((p) => `${p.label} (${portTypeLabel(kind, p.type)}${p.multi === true ? ', many' : ''}${p.required === true ? ', required' : ''})`).join(', ') || 'none'}
           <br />
-          Outputs: {def.outputs.map((p) => `${p.label} (${portTypeLabel(kind, p.type)})`).join(', ') || 'none'}
+          Outputs: {ports.outputs.map((p) => `${p.label} (${portTypeLabel(kind, p.type)})`).join(', ') || 'none'}
         </p>
       )}
     </>

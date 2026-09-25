@@ -739,6 +739,15 @@ export class SessionClient {
             return;
           }
           this.graphs = this.graphs.map((g) => (g === doc ? { ...g, graph: next } : g));
+        } else if (change.owner.kind === 'material') {
+          // Phase 18.0: a graph material's graph.
+          const m = this.materials.find((x) => x.materialId === change.owner.id);
+          const next = m?.graph !== undefined ? applyGraphOpsLocal(m.graph, change.ops) : null;
+          if (m === undefined || next === null) {
+            void this.fullResync().then(() => this.cb.onSceneChanged());
+            return;
+          }
+          this.materials = this.materials.map((x) => (x === m ? { ...x, graph: next } : x));
         }
       } else if (change.type === 'setLighting') {
         if (change.next === null) delete this.lighting[change.sceneId];

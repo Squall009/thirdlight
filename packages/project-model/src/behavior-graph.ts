@@ -10,8 +10,12 @@
  * The node catalogue is data built from three tables:
  *
  * - the hand-written core nodes (events, flow, maths, logic, log),
- * - the variable nodes, generated per value type (`var.<t>` declares one,
- *   `get.<t>` / `set.<t>` read and write it),
+ * - the variable nodes: `var.<t>` declares a variable of value type t (one
+ *   node type per value type: its default field has that type); `var.get` /
+ *   `var.set` read and write one by name — their value ports take the
+ *   variable's type through the framework's data-dependent ports
+ *   (`typeFrom` with the `variable` lookup of `behaviorGraphContext`, the
+ *   graph's own declarations),
  * - the API nodes (`BEHAVIOR_API_NODES`): each names a `ctx` member path,
  *   its arguments and its result; the compiler emits every API node from
  *   this data alone, so a new entry needs no compiler change (phase 19.1
@@ -29,7 +33,7 @@
  * variable, empty names) are compile diagnostics (`checkBehaviorGraph`),
  * never edit refusals: a graph is edited through incomplete states.
  */
-import type { GraphData, GraphFieldDef, GraphKindDef, GraphNode, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
+import type { GraphContext, GraphData, GraphFieldDef, GraphKindDef, GraphNode, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
 import type { DeclaredProperty, PropertyDeclaration } from './types-v2';
 
 // ---- limits (engine limits, not tuning values) -------------------------------------------
@@ -152,40 +156,50 @@ function inlineField(id: string, label: string, type: BehaviorValueType, value: 
 
 const VISIBILITY_FIELD: GraphFieldDef = { key: 'visibility', label: 'Visibility', type: 'enum', options: ['public', 'private'], default: 'public' };
 
-function variableNodes(t: BehaviorValueType): GraphNodeDef[] {
+/** A variable's declaration node, one type per value type (its default field has that type). */
+function variableNode(t: BehaviorValueType): GraphNodeDef {
   const L = VALUE_TYPE_LABEL[t];
-  const nameField: GraphFieldDef = { key: 'variable', label: 'Variable', type: 'string', default: '', maxLength: 64 };
-  return [
-    {
-      type: `var.${t}`,
-      label: `${L} variable`,
-      category: 'Variables',
-      description: `Declares a ${L.toLowerCase()} variable of each object carrying the script. Public: its start value is a property shown and set per object in the Inspector; private: it starts at the default.`,
-      inputs: [],
-      outputs: [],
-      titleField: 'name',
-      fields: [
-        { key: 'name', label: 'Name', type: 'string', default: '', maxLength: 64 },
-        inlineField('default', 'Default', t, VALUE_DEFAULT[t]),
-        VISIBILITY_FIELD,
-        { key: 'label', label: 'Label', type: 'string', default: '', maxLength: 64 },
-        { key: 'group', label: 'Group', type: 'string', default: '', maxLength: 64 },
-        { key: 'tooltip', label: 'Tooltip', type: 'string', default: '', maxLength: 256 },
-      ],
-    },
-    { type: `get.${t}`, label: `Get ${L.toLowerCase()}`, category: 'Variables', description: `Reads a ${L.toLowerCase()} variable.`, inputs: [], outputs: [dataOut('value', 'value', t)], titleField: 'variable', fields: [nameField] },
-    {
-      type: `set.${t}`,
-      label: `Set ${L.toLowerCase()}`,
-      category: 'Variables',
-      description: `Writes a ${L.toLowerCase()} variable (it keeps the value until the next write or a new run).`,
-      inputs: [EXEC_IN, dataIn('value', 'value', t)],
-      outputs: [execOut('then', ''), dataOut('value', 'value', t)],
-      titleField: 'variable',
-      fields: [nameField, inlineField('value', 'Value', t, VALUE_DEFAULT[t])],
-    },
-  ];
+  return {
+    type: `var.${t}`,
+    label: `${L} variable`,
+    category: 'Variables',
+    description: `Declares a ${L.toLowerCase()} variable of each object carrying the script. Public: its start value is a property shown and set per object in the Inspector; private: it starts at the default.`,
+    inputs: [],
+    outputs: [],
+    titleField: 'name',
+    fields: [
+      { key: 'name', label: 'Name', type: 'string', default: '', maxLength: 64 },
+      inlineField('default', 'Default', t, VALUE_DEFAULT[t]),
+      VISIBILITY_FIELD,
+      { key: 'label', label: 'Label', type: 'string', default: '', maxLength: 64 },
+      { key: 'group', label: 'Group', type: 'string', default: '', maxLength: 64 },
+      { key: 'tooltip', label: 'Tooltip', type: 'string', default: '', maxLength: 256 },
+    ],
+  };
 }
+
+/**
+ * The value port of Get/Set variable: typed by the named variable's value
+ * type (`behaviorGraphContext`); `any` while the name declares nothing (the
+ * compile check reports it), so renaming or deleting a variable never
+ * strands its wires.
+ */
+const variablePort = (id: string, label: string): GraphPortDef => ({ id, label, type: 'any', typeFrom: { field: 'variable', lookup: 'variable' } });
+const VARIABLE_NAME_FIELD: GraphFieldDef = { key: 'variable', label: 'Variable', type: 'string', default: '', maxLength: 64 };
+
+const VARIABLE_ACCESS_NODES: readonly GraphNodeDef[] = [
+  { type: 'var.get', label: 'Get variable', category: 'Variables', description: 'Reads a variable (its output takes the variable\'s type).', inputs: [], outputs: [variablePort('value', 'value')], titleField: 'variable', fields: [VARIABLE_NAME_FIELD] },
+  {
+    type: 'var.set',
+    label: 'Set variable',
+    category: 'Variables',
+    description: 'Writes a variable (it keeps the value until the next write or a new run). Unwired, it writes "Value": a number, true/false or text for the variable\'s type (empty = 0, false or empty text).',
+    inputs: [EXEC_IN, variablePort('value', 'value')],
+    outputs: [execOut('then', ''), variablePort('value', 'value')],
+    titleField: 'variable',
+    fields: [VARIABLE_NAME_FIELD, { key: 'value', label: 'Value', type: 'string', default: '', maxLength: 256 }],
+  },
+];
 
 function apiNodeDef(s: BehaviorApiNodeSpec): GraphNodeDef {
   return {
@@ -273,14 +287,17 @@ export const BEHAVIOR_GRAPH_KIND: GraphKindDef = {
     { id: 'number', label: 'number', color: '#7fb3ff' },
     { id: 'boolean', label: 'boolean', color: '#e67e9b' },
     { id: 'string', label: 'text', color: '#f2b544' },
+    { id: 'any', label: 'any (no such variable)', color: '#9a9a9a' },
   ],
   conversions: [
     { from: 'number', to: 'string', label: 'number → text' },
     { from: 'boolean', to: 'string', label: 'boolean → text ("true"/"false")' },
     { from: 'boolean', to: 'number', label: 'boolean → number (0 or 1)' },
   ],
+  // Only a Get/Set variable naming no variable has an `any` port (see variablePort).
+  anyType: 'any',
   categories: ['Events', 'Flow', 'Variables', 'Maths', 'Logic', 'Game', 'Signals', 'Debug'],
-  nodes: [...CORE_NODES, ...BEHAVIOR_VALUE_TYPES.flatMap(variableNodes), ...BEHAVIOR_API_NODES.map(apiNodeDef)],
+  nodes: [...CORE_NODES, ...BEHAVIOR_VALUE_TYPES.map(variableNode), ...VARIABLE_ACCESS_NODES, ...BEHAVIOR_API_NODES.map(apiNodeDef)],
   allowCycles: false,
   maxNodes: BEHAVIOR_GRAPH_LIMITS.nodes,
   owner: 'behavior',
@@ -295,10 +312,41 @@ export interface BehaviorGraphProblem {
   message: string;
 }
 
-/** The value type of a variable / get / set node type (`var.number` → number), or null. */
-export function variableTypeOf(nodeType: string): { role: 'var' | 'get' | 'set'; type: BehaviorValueType } | null {
-  const m = /^(var|get|set)\.(number|boolean|string)$/.exec(nodeType);
-  return m === null ? null : { role: m[1] as 'var' | 'get' | 'set', type: m[2] as BehaviorValueType };
+/** The value type a variable declaration node type declares (`var.number` → number), or null. */
+export function variableTypeOf(nodeType: string): BehaviorValueType | null {
+  const m = /^var\.(number|boolean|string)$/.exec(nodeType);
+  return m === null ? null : (m[1] as BehaviorValueType);
+}
+
+/** A Get/Set variable node type (`var.get` / `var.set`). */
+export const isVariableAccess = (nodeType: string): boolean => nodeType === 'var.get' || nodeType === 'var.set';
+
+/**
+ * The validation context of a behavior graph: the `variable` lookup types a
+ * Get/Set variable's value port by the variable its `variable` field names
+ * (the first declaration of that name in declaration order). Read from the
+ * graph as it is (malformed nodes are skipped; validation reports them).
+ */
+export function behaviorGraphContext(graph: unknown): GraphContext {
+  const nodes = typeof graph === 'object' && graph !== null && Array.isArray((graph as { nodes?: unknown }).nodes) ? ((graph as { nodes: unknown[] }).nodes) : [];
+  const types = new Map<string, BehaviorValueType>();
+  const decls = nodes
+    .filter((n): n is GraphNode => typeof n === 'object' && n !== null && typeof (n as GraphNode).type === 'string' && variableTypeOf((n as GraphNode).type) !== null && Array.isArray((n as GraphNode).position))
+    .sort((a, b) => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const n of decls) {
+    const name = n.data?.['name'];
+    if (typeof name === 'string' && name !== '' && !types.has(name)) types.set(name, variableTypeOf(n.type)!);
+  }
+  return { lookup: (name, value) => (name === 'variable' ? (types.get(value) ?? null) : null) };
+}
+
+/** The value a Set variable's inline text means for a variable of type t, or an error. */
+export function parseVariableValue(t: BehaviorValueType, text: string): { ok: true; value: GraphValue } | { ok: false; message: string } {
+  if (t === 'string') return { ok: true, value: text };
+  if (t === 'boolean') return text === '' || text === 'false' ? { ok: true, value: false } : text === 'true' ? { ok: true, value: true } : { ok: false, message: `"${text}" is not true or false` };
+  if (text.trim() === '') return { ok: true, value: 0 };
+  const v = Number(text);
+  return Number.isFinite(v) ? { ok: true, value: v } : { ok: false, message: `"${text}" is not a number` };
 }
 
 function field(node: GraphNode, key: string, fallback: GraphValue): GraphValue {
@@ -309,7 +357,7 @@ function field(node: GraphNode, key: string, fallback: GraphValue): GraphValue {
 /** Variable declaration nodes in declaration order: top to bottom, then left to right, then id. */
 export function variableNodesOf(graph: GraphData): GraphNode[] {
   return graph.nodes
-    .filter((n) => variableTypeOf(n.type)?.role === 'var')
+    .filter((n) => variableTypeOf(n.type) !== null)
     .sort((a, b) => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
@@ -334,7 +382,7 @@ export function variableLabel(name: string): string {
 export function behaviorGraphDeclaration(graph: GraphData): PropertyDeclaration {
   return {
     properties: variableNodesOf(graph).map((n) => {
-      const t = variableTypeOf(n.type)!.type;
+      const t = variableTypeOf(n.type)!;
       const name = String(field(n, 'name', ''));
       const label = String(field(n, 'label', ''));
       const group = String(field(n, 'group', ''));
@@ -360,7 +408,7 @@ export function checkBehaviorGraph(graph: GraphData): BehaviorGraphProblem[] {
   const vars = variableNodesOf(graph);
   const declared = new Map<string, BehaviorValueType>();
   for (const n of vars) {
-    const t = variableTypeOf(n.type)!.type;
+    const t = variableTypeOf(n.type)!;
     const name = String(field(n, 'name', ''));
     if (!BEHAVIOR_VARIABLE_NAME_RE.test(name)) {
       out.push({ severity: 'error', nodeId: n.id, message: `variable name "${name}" must start with a lower-case letter and use a-z, 0-9 and _ (at most 64)` });
@@ -381,13 +429,15 @@ export function checkBehaviorGraph(graph: GraphData): BehaviorGraphProblem[] {
 
   const wired = new Set(graph.edges.map((e) => `${e.to.node}\u0000${e.to.port}`));
   for (const n of graph.nodes) {
-    const vt = variableTypeOf(n.type);
-    if (vt !== null && vt.role !== 'var') {
+    if (isVariableAccess(n.type)) {
       const name = String(field(n, 'variable', ''));
       const t = declared.get(name);
       if (name === '') out.push({ severity: 'error', nodeId: n.id, message: 'choose the variable this node reads or writes' });
       else if (t === undefined) out.push({ severity: 'error', nodeId: n.id, message: `no variable named "${name}" is declared` });
-      else if (t !== vt.type) out.push({ severity: 'error', nodeId: n.id, message: `"${name}" is a ${VALUE_TYPE_LABEL[t].toLowerCase()} variable, not a ${VALUE_TYPE_LABEL[vt.type].toLowerCase()} one` });
+      else if (n.type === 'var.set' && !wired.has(`${n.id}\u0000value`)) {
+        const parsed = parseVariableValue(t, String(field(n, 'value', '')));
+        if (!parsed.ok) out.push({ severity: 'error', nodeId: n.id, message: `${parsed.message} (the value for ${VALUE_TYPE_LABEL[t].toLowerCase()} variable "${name}")` });
+      }
     }
     const api = BEHAVIOR_API_NODES.find((s) => s.type === n.type);
     for (const a of api?.args ?? []) {
@@ -397,6 +447,13 @@ export function checkBehaviorGraph(graph: GraphData): BehaviorGraphProblem[] {
     }
   }
 
+  // An `any` port (a Get/Set naming no variable) must not join the exec flow.
+  for (const e of graph.edges) {
+    const fromExec = isExecPort(graph, e.from.node, e.from.port);
+    const toNode = graph.nodes.find((x) => x.id === e.to.node);
+    const toExec = toNode !== undefined && BEHAVIOR_GRAPH_KIND.nodes.find((d) => d.type === toNode.type)?.inputs.find((p) => p.id === e.to.port)?.type === 'exec';
+    if (fromExec !== toExec) out.push({ severity: 'error', nodeId: fromExec ? e.to.node : e.from.node, message: 'an exec wire connects only exec ports' });
+  }
   // Flow nodes no event reaches never run.
   const execNode = (n: GraphNode): boolean => BEHAVIOR_GRAPH_KIND.nodes.find((d) => d.type === n.type)?.inputs.some((p) => p.type === 'exec') === true;
   const reached = new Set<string>();

@@ -10,13 +10,20 @@
  * panel): each of a model's materials, or "*" for all of them, can use a
  * project material.
  *
+ * Phase 18.0: graph materials — "+ new graph material" (a PBR output graph),
+ * "Convert to graph" (a standard or unlit material as an equivalent graph),
+ * and a graph material opens as a "Material: <name>" centre tab (double-click
+ * its tile or "Open graph").
+ *
  * Browser-only (React).
  */
 import { useEffect, useState, type DragEvent, type JSX } from 'react';
-import type { MaterialDef, MaterialParamType, MaterialParamValue, MaterialShader } from '@thirdlight/project-model';
+import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader } from '@thirdlight/project-model';
+import { ParameterValue } from './material/MaterialDocument';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../session/material-schema';
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
+import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph } from '../session/material-graph';
 
 /** The DataTransfer type a material tile drags (onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
@@ -34,6 +41,8 @@ interface Props {
   onSave: (material: MaterialDef) => void;
   onDelete: (materialId: string) => void;
   error: string | null;
+  /** Phase 18.0: open a graph material's tab. */
+  onOpen: (materialId: string) => void;
 }
 
 const SLOT_LABEL: Record<string, string> = {
@@ -64,12 +73,22 @@ export function MaterialsPanel(p: Props): JSX.Element {
     p.onSave(def);
     p.onSelect(def.materialId);
   };
+  const createGraph = (): void => {
+    const name = `Graph material ${p.materials.filter((m) => m.graph !== undefined).length + 1}`;
+    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() };
+    p.onSave(def);
+    p.onSelect(def.materialId);
+    p.onOpen(def.materialId);
+  };
   return (
     <div className="tl-panel tl-materials">
       <div className="tl-panel__title">
         Materials
         <button className="tl-btn tl-btn--small" onClick={create} title="A new standard material (then pick a shader type)">
           + new material
+        </button>
+        <button className="tl-btn tl-btn--small" onClick={createGraph} title="A new material built as a node graph (opens its tab)">
+          + new graph material
         </button>
       </div>
       <div className="tl-assets__body">
@@ -82,6 +101,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
                 data-material-id={m.materialId}
                 title={`${m.name} (${m.shader}) — drag onto an object in the Scene view`}
                 onClick={() => p.onSelect(m.materialId)}
+                onDoubleClick={() => m.graph !== undefined && p.onOpen(m.materialId)}
                 draggable
                 onDragStart={(ev) => {
                   ev.dataTransfer.setData(MATERIAL_DRAG_TYPE, m.materialId);
@@ -92,7 +112,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
                   <span className="tl-material-swatch" style={{ background: swatch(m) }} />
                 </span>
                 <span className="tl-tile__name">{m.name}</span>
-                <span className="tl-tile__meta">{m.shader}</span>
+                <span className="tl-tile__meta">{m.graph !== undefined ? 'graph' : m.shader}</span>
               </li>
             ))}
             {p.materials.length === 0 && <li className="tl-row tl-row--empty">no materials yet</li>}
@@ -101,7 +121,21 @@ export function MaterialsPanel(p: Props): JSX.Element {
         </div>
         <div className="tl-assets__side">
           {selected !== null ? (
-            <MaterialInspector key={selected.materialId} material={selected} textures={p.textures} onSave={p.onSave} onDelete={p.onDelete} />
+            selected.graph !== undefined ? (
+              <div className="tl-material-inspector" aria-label={`material ${selected.name}`}>
+                <p className="tl-hint">
+                  “{selected.name}” is a graph material ({selected.graph.nodes.length} node{selected.graph.nodes.length === 1 ? '' : 's'}, {(selected.parameters ?? []).length} exposed parameter{(selected.parameters ?? []).length === 1 ? '' : 's'}).
+                </p>
+                <button className="tl-btn tl-btn--small" onClick={() => p.onOpen(selected.materialId)}>
+                  Open graph
+                </button>
+                <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => p.onDelete(selected.materialId)} title="Delete (refused while an object or an asset uses it)">
+                  delete material
+                </button>
+              </div>
+            ) : (
+              <MaterialInspector key={selected.materialId} material={selected} textures={p.textures} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
+            )
           ) : (
             <p className="tl-inspector__hint">Select a material to edit it.</p>
           )}
@@ -111,7 +145,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
   );
 }
 
-function MaterialInspector(props: { material: MaterialDef; textures: readonly TextureOption[]; onSave: Props['onSave']; onDelete: Props['onDelete'] }): JSX.Element {
+function MaterialInspector(props: { material: MaterialDef; textures: readonly TextureOption[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen'] }): JSX.Element {
   const m = props.material;
   const schema = MATERIAL_PARAMS[m.shader];
   const slots = MATERIAL_TEXTURE_SLOTS[m.shader];
@@ -195,6 +229,20 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
           </select>
         </label>
       ))}
+      <button
+        className="tl-btn tl-btn--small"
+        disabled={!CONVERTIBLE_SHADERS.includes(m.shader)}
+        title={CONVERTIBLE_SHADERS.includes(m.shader) ? 'Rebuild this material as a node graph with the same values and textures (one undo)' : `The ${m.shader} shader becomes a built-in graph template in phase 18.2`}
+        onClick={() => {
+          const r = convertToGraph(m);
+          if (r.ok) {
+            props.onSave(r.material);
+            props.onOpen(m.materialId);
+          }
+        }}
+      >
+        Convert to graph
+      </button>
       <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object or an asset uses it)">
         delete material
       </button>
@@ -305,6 +353,13 @@ export function MaterialMappingEditor(props: {
   mapping: Readonly<Record<string, string>> | null;
   materials: readonly MaterialDef[];
   onChange: (mapping: Record<string, string> | null) => void;
+  /**
+   * Phase 18.0: the object's overrides of its graph materials' public
+   * parameters (the `materialParams` component) — shown for the graph
+   * materials the mapping (or `inherited`, the model asset's default
+   * mapping) uses; absent = no override section (e.g. an asset's defaults).
+   */
+  overrides?: { value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void };
 }): JSX.Element {
   const rows = ['*', ...props.sourceNames];
   const current = props.mapping ?? {};
@@ -330,6 +385,46 @@ export function MaterialMappingEditor(props: {
             ))}
           </select>
         </label>
+      ))}
+      {props.overrides !== undefined && <ParameterOverrides mapping={current} materials={props.materials} {...props.overrides} />}
+    </div>
+  );
+}
+
+/** Phase 18.0: per-object values for the public parameters of the graph materials an object uses. */
+function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; materials: readonly MaterialDef[]; value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void }): JSX.Element | null {
+  const used = [...new Set([...Object.values(p.inherited ?? {}), ...Object.values(p.mapping)])];
+  const graphs = used.map((id) => p.materials.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some((x) => x.visibility !== 'private'));
+  if (graphs.length === 0) return null;
+  const set = (materialId: string, key: string, v: MaterialParameterValue | undefined): void => {
+    const next: Record<string, Record<string, MaterialParameterValue>> = Object.fromEntries(Object.entries(p.value ?? {}).map(([k, o]) => [k, { ...o }]));
+    const own = next[materialId] ?? {};
+    if (v === undefined) delete own[key];
+    else own[key] = v;
+    if (Object.keys(own).length > 0) next[materialId] = own;
+    else delete next[materialId];
+    p.onChange(Object.keys(next).length > 0 ? next : null);
+  };
+  return (
+    <div className="tl-material-overrides" aria-label="material parameter overrides">
+      {graphs.map((m) => (
+        <div key={m.materialId}>
+          <div className="tl-subhead">{m.name}: parameters</div>
+          {(m.parameters ?? [])
+            .filter((x) => x.visibility !== 'private')
+            .map((x) => {
+              const over = p.value?.[m.materialId]?.[x.key];
+              return (
+                <div key={x.key} className={over !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
+                  <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
+                  <ParameterValue key={JSON.stringify(over ?? x.default)} param={{ ...x, default: over ?? x.default }} textures={p.textures} label={`${m.name} ${x.key}`} onCommit={(v) => set(m.materialId, x.key, v)} />
+                  <button className="tl-btn tl-btn--small tl-param__reset" disabled={over === undefined} aria-label={`reset ${m.name} ${x.key}`} title="Use the material's value" onClick={() => set(m.materialId, x.key, undefined)}>
+                    ↺
+                  </button>
+                </div>
+              );
+            })}
+        </div>
       ))}
     </div>
   );

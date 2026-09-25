@@ -267,6 +267,8 @@ export interface PrefabComponentsV4Extra {
   collider?: EntityComponentsV3['collider'];
   surface?: EntityComponentsV3['surface'];
   materials?: EntityComponentsV3['materials'];
+  /** Phase 18.0: overrides of graph-material parameters. */
+  materialParams?: EntityComponentsV3['materialParams'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

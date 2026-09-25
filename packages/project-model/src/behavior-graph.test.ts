@@ -7,10 +7,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { behaviorGraphDeclaration, BEHAVIOR_GRAPH_KIND, checkBehaviorGraph } from './behavior-graph';
+import { behaviorGraphContext, behaviorGraphDeclaration, BEHAVIOR_GRAPH_KIND, checkBehaviorGraph } from './behavior-graph';
 import { canonicalContentV3, validateContentV3, validateContentV4 } from './content';
 import { GRAPH_KINDS } from './graph-kinds';
-import { validateGraphData, type GraphData, type GraphNode } from './graph';
+import { resolveGraphPorts, validateGraphData, type GraphData, type GraphNode } from './graph';
 import type { ModelErrorV2 } from './errors';
 
 const n = (id: string, type: string, data?: GraphNode['data'], position: [number, number] = [0, 0]): GraphNode => ({ id, type, position, ...(data !== undefined ? { data } : {}) });
@@ -27,7 +27,6 @@ describe('the behavior graph kind', () => {
     expect(BEHAVIOR_GRAPH_KIND.owner).toBe('behavior');
     expect(BEHAVIOR_GRAPH_KIND.allowCycles).toBe(false);
     expect(BEHAVIOR_GRAPH_KIND.conversions.some((c) => c.from === 'exec' || c.to === 'exec')).toBe(false);
-    expect(BEHAVIOR_GRAPH_KIND.anyType).toBeUndefined();
     // Every exec output takes one wire; every exec input takes many.
     for (const d of BEHAVIOR_GRAPH_KIND.nodes) {
       for (const p of d.outputs) if (p.type === 'exec') expect(p.single, `${d.type}.${p.id}`).toBe(true);
@@ -52,17 +51,38 @@ describe('the behavior graph kind', () => {
     expect(errors({ nodes: [n('z', 'math.compare', { op: '~' })], edges: [] }).map((e) => e.code)).toEqual(['field_value']);
   });
 
-  it('compile checks: variable names, types and uniqueness, at least one variable, required names; unreached flow is a warning', () => {
+  it('compile checks: variable names and uniqueness, at least one variable, Get/Set naming a variable, Set values, required names; unreached flow is a warning', () => {
     const v = n('v', 'var.number', { name: 'count' });
     expect(checkBehaviorGraph({ nodes: [n('s', 'event.start')], edges: [] })).toEqual([{ severity: 'error', message: expect.stringContaining('at least one variable') }]);
     const p = checkBehaviorGraph({
-      nodes: [v, n('v2', 'var.boolean', { name: 'count' }), n('v3', 'var.string', { name: 'Bad Name' }), n('g', 'get.boolean', { variable: 'count' }), n('g2', 'get.number', { variable: 'ghost' }), n('g3', 'set.number'), n('e', 'api.signals.emit')],
+      nodes: [v, n('v2', 'var.boolean', { name: 'count' }), n('v3', 'var.string', { name: 'Bad Name' }), n('g', 'var.get'), n('g2', 'var.get', { variable: 'ghost' }), n('g3', 'var.set', { variable: 'count', value: 'lots' }), n('e', 'api.signals.emit')],
       edges: [],
     });
     expect(p.filter((x) => x.severity === 'error').map((x) => x.nodeId)).toEqual(['v2', 'v3', 'g', 'g2', 'g3', 'e']);
+    expect(p.find((x) => x.nodeId === 'g3')?.message).toContain('"lots" is not a number');
     expect(p.filter((x) => x.severity === 'warning').map((x) => x.nodeId)).toEqual(['g3', 'e']);
-    // A wired name is fine even when the inline one is empty.
-    expect(checkBehaviorGraph({ nodes: [v, n('s', 'event.start'), n('e', 'api.signals.emit'), n('gs', 'get.number', { variable: 'count' })], edges: [w('1', 's', 'then', 'e', 'in'), w('2', 'gs', 'value', 'e', 'name')] })).toEqual([]);
+    // A wired name is fine even when the inline one is empty; a Set with a number text is fine.
+    expect(checkBehaviorGraph({ nodes: [v, n('s', 'event.start'), n('e', 'api.signals.emit'), n('gs', 'var.get', { variable: 'count' }), n('set', 'var.set', { variable: 'count', value: '2.5' })], edges: [w('1', 's', 'then', 'e', 'in'), w('2', 'gs', 'value', 'e', 'name'), w('3', 'e', 'then', 'set', 'in')] })).toEqual([]);
+  });
+
+  it("Get/Set variable ports take the variable's type (data-dependent ports through the graph's own context)", () => {
+    const vars = [n('vn', 'var.number', { name: 'count' }), n('vb', 'var.boolean', { name: 'armed' })];
+    const valid = (g: GraphData): string[] => {
+      const out: ModelErrorV2[] = [];
+      validateGraphData(BEHAVIOR_GRAPH_KIND, g, '', out, behaviorGraphContext(g));
+      return out.map((e) => e.code);
+    };
+    const ports = resolveGraphPorts(BEHAVIOR_GRAPH_KIND, { nodes: [...vars, n('g', 'var.get', { variable: 'armed' }), n('s', 'var.set', { variable: 'count' }), n('x', 'var.get', { variable: 'ghost' })], edges: [] }, behaviorGraphContext({ nodes: vars }));
+    expect(ports.get('g')?.outputs[0]?.type).toBe('boolean');
+    expect(ports.get('s')?.inputs.map((p) => p.type)).toEqual(['exec', 'number']);
+    expect(ports.get('x')?.outputs[0]?.type).toBe('any');
+    // A boolean variable feeds a Branch condition; a number one cannot (no number → boolean conversion).
+    const branch = n('b', 'flow.branch');
+    expect(valid({ nodes: [...vars, branch, n('g', 'var.get', { variable: 'armed' })], edges: [w('1', 'g', 'value', 'b', 'condition')] })).toEqual([]);
+    expect(valid({ nodes: [...vars, branch, n('g', 'var.get', { variable: 'count' })], edges: [w('1', 'g', 'value', 'b', 'condition')] })).toEqual(['field_value']);
+    // A Get naming no variable is "any": its wires survive a rename or a delete (the compile check reports it).
+    expect(valid({ nodes: [vars[1]!, branch, n('g', 'var.get', { variable: 'count' })], edges: [w('1', 'g', 'value', 'b', 'condition')] })).toEqual([]);
+    expect(checkBehaviorGraph({ nodes: [vars[1]!, branch, n('g', 'var.get', { variable: 'count' })], edges: [w('1', 'g', 'value', 'b', 'condition')] }).filter((x) => x.severity === 'error').map((x) => x.nodeId)).toEqual(['g']);
   });
 
   it('the declaration: one property per variable, top to bottom; private and texts carried over', () => {

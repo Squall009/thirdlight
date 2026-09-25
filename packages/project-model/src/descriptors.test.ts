@@ -398,6 +398,7 @@ const PARTNERS: Record<string, Obj> = {
   cameraFollow: { camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
   surface: { box: { size: [1, 1, 1] } },
   materials: { box: { size: [1, 1, 1] } },
+  materialParams: { box: { size: [1, 1, 1] } },
   animator: { model: { asset: { assetId: 'model-a' } } },
   modelAnimation: { model: { asset: { assetId: 'model-a' } } },
 };
@@ -421,6 +422,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   model: [{ asset: { assetId: 'model-a' }, piece: 'Tree' }],
   box: [{ size: [1, 2, 3], material: { color: '#aabbcc' } }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
+  materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10 }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
@@ -502,9 +504,23 @@ const BINDINGS: { type: string; binding: Obj }[] = [
 ];
 const INPUT_BASES: J[] = BINDINGS.map((b) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }] }));
 
-const MATERIAL_BASES: J[] = MATERIAL_SHADERS.map((s) => [
-  { materialId: 'mat-a', name: 'Material', shader: s, params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])), textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])) },
-]);
+const MATERIAL_BASES: J[] = [
+  ...MATERIAL_SHADERS.map((s) => [
+    { materialId: 'mat-a', name: 'Material', shader: s, params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])), textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])) },
+  ]),
+  // Phase 18.0: a graph material with an exposed parameter.
+  [
+    {
+      materialId: 'mat-g',
+      name: 'Graph material',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      parameters: [{ key: 'speed', type: 'float', default: 1, min: 0, max: 10, visibility: 'private', label: 'Speed', group: 'Motion', tooltip: 'How fast it moves.' }],
+      graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
+    },
+  ],
+];
 
 const CLIP = (name: string) => ({ assetId: 'model-a', clip: name, duration: 1 });
 function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; firstState: 'clip' | 'blend1d'; layerFirst: 'clip' | 'blend1d' | 'empty'; cond: 'number' | 'bool' | 'trigger' }): J {
@@ -735,7 +751,7 @@ describe('descriptor registry (phase 15.0)', () => {
     for (const c of DESCRIPTORS.components) {
       if (c.name === 'folder') continue;
       const value = (COMPONENT_BASES[c.name] ?? [])[0];
-      const comps: Obj = { transform: T, ...(c.name === 'animator' || c.name === 'modelAnimation' ? { model: { asset: { assetId: 'model-a' } } } : {}), ...(c.name === 'surface' || c.name === 'materials' ? { box: { size: [1, 1, 1] } } : {}), [c.name]: value };
+      const comps: Obj = { transform: T, ...(c.name === 'animator' || c.name === 'modelAnimation' ? { model: { asset: { assetId: 'model-a' } } } : {}), ...(c.name === 'surface' || c.name === 'materials' || c.name === 'materialParams' ? { box: { size: [1, 1, 1] } } : {}), [c.name]: value };
       const def = { prefabId: 'pre-a', displayName: 'P', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', components: comps }] };
       const errs = errorsOf((e) => validatePrefabDefinitions([def], '', e, 4)).filter((e) => e.path.startsWith(`/0/entities/0/components/${c.name}`) && /forbidden|unknown/.test(e.code));
       expect(errs.length === 0, `${c.name} on a prefab entity`).toBe(c.prefab);

@@ -23,7 +23,7 @@
  * bytes are linked into the bundle by the caller.
  */
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, GameFlow, InputConfig, LightingMap, MaterialDef } from '@thirdlight/project-model';
-import { animatorsForRuntime, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
+import { animatorsForRuntime, materialsForRuntime, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameConfig, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, resolveRequiredModules } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected packet-33 compiler port (structural; no behavior-build edge). */
@@ -436,7 +436,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
     // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
-    ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined ? { materials: (input.content as { materials: MaterialDef[] }).materials } : {}),
+    // Phase 18.0: without a graph material's graph and parameters until the graph compiler (18.3) — the renderer draws its shader fallback.
+    ...((input.content as { materials?: MaterialDef[] } | null)?.materials !== undefined ? { materials: materialsForRuntime((input.content as { materials: MaterialDef[] }).materials) } : {}),
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
     // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),

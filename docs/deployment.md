@@ -840,6 +840,130 @@ groups, 256 comments, 16 reroute points per wire, 64 graphs per project;
 graphs count toward the 1 MiB content cap (about 70 bytes per node and 80 per
 wire).
 
+## Material graphs
+
+A material can be built as a node graph (phase 18.0/18.1). Bottom dock →
+**Materials**: **+ new graph material** makes one (a graph with a **PBR
+output**) and opens it as a **Material: <name>** centre tab; a standard or
+unlit material's **Convert to graph** rebuilds it as a graph with the same
+values and textures (foliage, kit and water become built-in templates in
+18.2). Double-click a graph material's tile (or **Open graph**) to open its
+tab. The tab is the graph editor (every gesture in "Graph editing") with the
+material catalogue; the Inspector on the right edits the selected node
+(texture fields pick from the project's textures, colours use a colour
+picker). **Remove graph** turns it back into its shader material.
+
+**Rendering waits for the graph compiler.** Until the WebGPU renderer
+(phase 17.4) and the graph compiler (18.3) land, the Scene view, Play and
+exports draw a graph material with its shader part (`shader`, `params`,
+`textures`); the tab says so. The graph is project data now and is what 18.3
+compiles.
+
+**The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
+Colour, Parameter, Time, UV (set 0/1), Vertex colour, Position and Normal
+(object/world/view), View direction, Camera distance, Screen UV, Instance
+index, Global wind; *Maths* — add, subtract, multiply, divide, min, max,
+power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
+step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
+combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
+filter, colour space), Normal map, Triplanar, Flipbook, Noise (value,
+gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp;
+*Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
+Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
+PBR output (base colour, metalness, roughness, normal, emissive, AO,
+opacity, alpha clip) or Unlit output (one of them per material), Vertex
+offset; the render flags (double-sided, transparent, casts shadows) are
+fields of the surface output. Port types are float, vec2, vec3, vec4 and
+texture; every value width converts to every other (a float fills every
+component, a wider vector keeps its first components, a narrower one is
+padded with 0 and w = 1 — shown dashed on the wire); a texture only feeds a
+texture input. Maths nodes have a **Type** field, `auto` by default: they
+take the widest width among their wires (a texture's rgb × a colour is a
+vec3). Every input has a default (a constant, or the mesh's UV, position,
+normal, view direction, screen position or time), so nothing is left
+undefined. Rules (a refused edit changes nothing): known node types and
+fields, compatible port types, no cycles, at most 512 nodes, one surface
+output, one vertex offset.
+
+**Exposed parameters** (left of the graph): key, type (float, vec2–4,
+colour, texture), default, range, visibility (public/private, like script
+properties). A **Parameter** node reads one (its type is the parameter's).
+Objects override the **public** ones: select an object that uses the
+material (its own material mapping or its model's default one) — the
+Inspector's **Materials** section lists each graph material's public
+parameters; a value set there is stored on the object (the
+`materialParams` component) and ↺ goes back to the material's value.
+
+**Material functions** (reusable sub-graphs) are standalone graphs of kind
+**Material function** (Graphs → pick the kind → Create graph). Their
+**Function input** (name, type, default) and **Function output** (name,
+type) nodes become the ports of every **Function call** node (field
+*Function* = the function's graph id; a new call runs the first function).
+Functions may call functions, but never in a cycle; a function cannot drop a
+port a material wires, and a used function cannot be deleted.
+
+MCP: `setMaterial` takes `graph` and `parameters`; `graphEdit {owner:
+{kind: "material", id: materialId}, ops}` edits the graph (one undo);
+`setComponent "materialParams" {<materialId>: {<key>: value}}` sets
+overrides; functions are `setGraph` with kind `material-function`. The
+catalogues are in `tl_content_query target="game" includeDescriptors`
+(`graphKinds.material`, `graphKinds["material-function"]`).
+
+## Visual scripts
+
+A behavior can be written as a node graph instead of TypeScript (phase
+19.0). Bottom dock → **Behaviors**: type a name next to **+ Visual script**
+and press it; the new behavior opens as a **Graph: <name>** centre tab (the
+graph editor above, with the visual-script catalogue) holding an **On
+start** node and one public number variable "value". Double-click a visual
+script's tile (it says "visual script") to open it again. The Inspector on
+the right edits the selected node's fields.
+
+- **Flow:** events start the flow along the white **exec** wires — **On
+  start** runs on the script's first step and again at the start of every
+  run (a new game or a replay: every run starts with fresh script state),
+  **On step** every fixed step (after the On start nodes of that step).
+  Each exec output takes one wire (a **Sequence** has four outputs, run top
+  to bottom); an exec input takes any number. **Branch** continues on true
+  or false; **For** runs its body once per whole number from first to last
+  and then "completed" — a script may run at most 10 000 loop iterations per
+  step, more stops the play with a script error naming the loop node.
+- **Data:** coloured wires carry numbers, true/false and text (a number or
+  true/false feeds a text input as text, true/false feeds a number as 1/0).
+  An input without a wire uses the value set on the node. Graphs have no
+  cycles: a value cannot feed itself, and repetition happens only inside a
+  For node. Nodes: Add, Subtract, Multiply, Divide (÷0 gives 0), Compare,
+  And, Or, Not, Log, Add to counter, Counter value, Emit signal, Signal
+  received (the full catalogue follows in 19.1).
+- **Variables:** a Number/Boolean/Text variable node declares one (its name
+  is the property key: lower case, a-z, 0-9, _). Public variables are the
+  script's properties — shown and set per object in the Inspector like any
+  script property; private ones start at their default. **Get variable** /
+  **Set variable** name a variable; their value port takes its type (a Get
+  naming no variable is grey and connects to anything until fixed). The
+  script's properties come only from its variables (the Behaviors tab
+  refuses a different declaration for a visual script).
+- **Check and publish:** a moment after each change the backend compiles
+  the graph (to TypeScript, with the same compiler, limits, output scan and
+  engine pins as a TypeScript script); problems are listed beside the graph
+  with their node (click one to frame it) — e.g. an empty counter name, a
+  Get naming no variable, a node no event reaches (a warning). **Publish**
+  shows the trust notice for a new digest, then publishes (one
+  `publishBehavior`, one undo step); Play and exports run the published
+  script, which the stored source record marks `kind: "graph"`. Editing
+  the graph never changes the published script until you publish again.
+- **Errors in Play:** a script error from a visual script names the node
+  that was running (`nodeId` in the play diagnostics and `tl_diagnostics`).
+
+Every graph gesture is one `graphEdit {owner: {kind: "behavior", id:
+behaviorId}, ops}` command (one undo step; MCP edits appear in the open tab).
+MCP creates one with `publishBehavior {mode: "declaration-create", …,
+graph: {nodes, edges}}`; publishing is `POST
+/api/v1/projects/<id>/content/behaviors/source {graph: true, behaviorId,
+displayName, expectedRevision, requestId}` (`{check: true, graph: true,
+behaviorId}` compiles without publishing and returns the digest to
+acknowledge). Limits: 256 nodes and 32 variables per visual script.
+
 ## Input actions
 
 The game reads named **actions**, not keys (bottom dock → Input): `move`

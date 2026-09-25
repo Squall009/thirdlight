@@ -30,10 +30,14 @@ import {
   BEHAVIOR_API_NODES,
   BEHAVIOR_GRAPH_KIND,
   BEHAVIOR_GRAPH_LIMITS,
+  behaviorGraphContext,
   behaviorGraphDeclaration,
   checkBehaviorGraph,
+  isVariableAccess,
   nodeDef,
+  parseVariableValue,
   portCompatibility,
+  resolveGraphPorts,
   validateGraphData,
   variableTypeOf,
   type BehaviorGraphProblem,
@@ -112,7 +116,9 @@ class Emitter {
  */
 export function generateGraphSource(graph: GraphData): GraphSourceResult {
   const structural: ModelErrorV2[] = [];
-  validateGraphData(BEHAVIOR_GRAPH_KIND, graph, '', structural);
+  // The graph's own variables type its Get/Set ports (the framework's data-dependent ports).
+  const ctx = behaviorGraphContext(graph);
+  validateGraphData(BEHAVIOR_GRAPH_KIND, graph, '', structural, ctx);
   if (structural.length > 0) {
     const list = Array.isArray((graph as { nodes?: unknown }).nodes) ? (graph.nodes as { id?: unknown }[]) : [];
     return {
@@ -129,6 +135,8 @@ export function generateGraphSource(graph: GraphData): GraphSourceResult {
   if (errors.length > 0) return { ok: false, problems: errors };
 
   const nodes = [...graph.nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const resolved = resolveGraphPorts(BEHAVIOR_GRAPH_KIND, graph, ctx);
+  const portsOf = (n: GraphNode): { inputs: readonly GraphPortDef[]; outputs: readonly GraphPortDef[] } => resolved.get(n.id) ?? { inputs: [], outputs: [] };
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const defOf = (n: GraphNode): GraphNodeDef => nodeDef(BEHAVIOR_GRAPH_KIND, n.type)!;
   const index = new Map(nodes.map((n, i) => [n.id, i]));
@@ -163,11 +171,17 @@ export function generateGraphSource(graph: GraphData): GraphSourceResult {
   const readInput = (n: GraphNode, port: GraphPortDef): string => {
     const from = incoming.get(`${n.id}\u0000${port.id}`);
     if (from === undefined) {
+      // Set variable: its inline text read as the variable's type (the checks accepted it).
+      if (n.type === 'var.set' && port.id === 'value') {
+        const t = port.type === 'number' || port.type === 'boolean' ? port.type : 'string';
+        const parsed = parseVariableValue(t, String(field(n, 'value', '')));
+        return lit(parsed.ok ? parsed.value : null);
+      }
       const v = field(n, port.id, port.type === 'number' ? 0 : port.type === 'boolean' ? false : '');
       return lit(v);
     }
     const src = byId.get(from.node)!;
-    const out = defOf(src).outputs.find((p) => p.id === from.port)!;
+    const out = portsOf(src).outputs.find((p) => p.id === from.port)!;
     const expr = readOutput(src, out);
     if (out.type === port.type) return expr;
     const conv = portCompatibility(BEHAVIOR_GRAPH_KIND, out.type, port.type);
@@ -219,22 +233,22 @@ export function generateGraphSource(graph: GraphData): GraphSourceResult {
 
   for (const n of nodes) {
     const d = defOf(n);
-    const vt = variableTypeOf(n.type);
-    if (vt?.role === 'var') continue;
+    const ports = portsOf(n);
+    if (variableTypeOf(n.type) !== null) continue;
     const name = fnName(n);
     const id = q(n.id);
     em.line('');
     if (!isEvent(n) && !isExec(d)) {
       // A data node: evaluated where it is read (inputs first, then this node).
-      if (d.outputs.length !== 1) return { ok: false, problems: [{ severity: 'error', nodeId: n.id, message: `internal: a data node has one output ("${n.type}")` }] };
+      if (ports.outputs.length !== 1) return { ok: false, problems: [{ severity: 'error', nodeId: n.id, message: `internal: a data node has one output ("${n.type}")` }] };
       em.line(`function ${name}(s: S, c: any, r: R): any {`, n.id);
-      const args = d.inputs.map((p, i) => {
+      const args = ports.inputs.map((p, i) => {
         em.line(`  const a${i} = ${readInput(n, p)};`, n.id);
         return `a${i}`;
       });
       em.line(`  r.n = ${id};`, n.id);
       let expr: string | null = null;
-      if (vt?.role === 'get') expr = `s.v[${q(String(field(n, 'variable', '')))}]`;
+      if (n.type === 'var.get') expr = `s.v[${q(String(field(n, 'variable', '')))}]`;
       else if (n.type === 'math.add') expr = `${args[0]} + ${args[1]}`;
       else if (n.type === 'math.subtract') expr = `${args[0]} - ${args[1]}`;
       else if (n.type === 'math.multiply') expr = `${args[0]} * ${args[1]}`;
@@ -257,7 +271,7 @@ export function generateGraphSource(graph: GraphData): GraphSourceResult {
     }
     // An event or exec node: a function run by the flow.
     em.line(`function ${name}(s: S, c: any, r: R): void {`, n.id);
-    const args = d.inputs
+    const args = ports.inputs
       .filter((p) => p.type !== 'exec')
       .map((p, i) => {
         em.line(`  const a${i} = ${readInput(n, p)};`, n.id);
@@ -287,7 +301,7 @@ export function generateGraphSource(graph: GraphData): GraphSourceResult {
       em.line('  }', n.id);
       em.line(`  r.n = ${id};`, n.id);
       follow(n, 'completed', '  ', em);
-    } else if (vt?.role === 'set') {
+    } else if (isVariableAccess(n.type)) {
       const key = q(String(field(n, 'variable', '')));
       em.line(`  s.v[${key}] = ${args[0]};`, n.id);
       store('value', `${args[0]}`);

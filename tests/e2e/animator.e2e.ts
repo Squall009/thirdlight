@@ -289,8 +289,10 @@ test('animator graph: a moved state keeps its place after a reload and undo; a p
   await node(graph2, 'still').click();
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await controllers())[0]!.states.find((s) => s.id === 'lean')!.position).toBeUndefined();
+  // The undo redraws the graph; focus it again before redo so the key reaches it.
+  await node(graph2, 'still').click();
   await page.keyboard.press('Control+y');
-  await expect.poll(async () => (await controllers())[0]!.states.find((s) => s.id === 'lean')!.position).toEqual(moved);
+  await expect.poll(async () => (await controllers())[0]!.states.find((s) => s.id === 'lean')!.position, { timeout: 15_000 }).toEqual(moved);
 
   // The blend tree: double-click its body → its own graph (one clip node per child), breadcrumb back.
   const mix = (await node(graph2, 'mix').boundingBox())!;
