@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { applyLightmap, lightmappedMaterial, refreshLightmappedMaterial } from './lightmaps';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { cloneMaterial, isNodeMaterial, setEmissiveLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, toNodeMaterial, withoutAmbientLight } from './node-materials';
+import { cloneMaterial, isNodeMaterial, setEmissiveLook, setSelectionHighlight, SELECTION_HIGHLIGHT_EMISSIVE, SHARED_MATERIAL_KEY, toNodeMaterial, withoutAmbientLight } from './node-materials';
 
 type NodeProps = { positionNode: unknown; emissiveNode: unknown; normalNode: unknown; colorNode: unknown; contextNode: unknown; aoNode: unknown };
 const props = (m: THREE.Material): NodeProps => m as unknown as NodeProps;
@@ -152,6 +152,20 @@ describe('per-mesh looks', () => {
     setEmissiveLook(a, null);
     expect(own.emissive.getHex()).toBe(0);
     expect(own.emissiveIntensity).toBe(1);
+  });
+
+  it('phase 21.3: a material marked shared (deduplicated boxes, a model shared by its placements) is copied before it glows', () => {
+    const shared = new THREE.MeshLambertMaterial({ color: 0x808080 });
+    shared.userData[SHARED_MATERIAL_KEY] = true;
+    const a = mesh(shared);
+    const b = mesh(shared);
+    setEmissiveLook(a, { emissive: '#00ff00', emissiveIntensity: 1 });
+    expect(a.material).not.toBe(shared);
+    expect(b.material).toBe(shared);
+    expect(shared.emissive.getHex()).toBe(0);
+    expect((a.material as THREE.MeshLambertMaterial).emissive.getHexString()).toBe('00ff00');
+    // The copy is the mesh's own (not marked shared).
+    expect((a.material as THREE.Material).userData[SHARED_MATERIAL_KEY]).toBeUndefined();
   });
 
   it('the selection tint sets and clears the emissive of an own material', () => {

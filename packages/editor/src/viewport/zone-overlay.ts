@@ -96,6 +96,8 @@ export class ZoneOverlay {
   private readonly blocks = new THREE.Group();
   /** Phase 9.12: every collider's 2D outline (the Gizmos menu toggles them). */
   private readonly colliders = new THREE.Group();
+  /** Phase 21.3: collider outlines drawn (their merged line objects hold every one). */
+  private colliderOutlines = 0;
   /** Phase 14.0: the entities of the last sync (the handles read the selected one). */
   private entities: readonly ProjectedEntity[] = [];
   /** Phase 14.0: each player's capsule (drawn with the collider outlines, clickable). */
@@ -278,6 +280,15 @@ export class ZoneOverlay {
   }
 
   /**
+   * Phase 21.3: the latest entities when nothing the overlay draws changed
+   * (the Scene view's incremental sync): a later selection reads its handles
+   * from the current objects without a rebuild.
+   */
+  setEntities(entities: readonly ProjectedEntity[]): void {
+    this.entities = entities;
+  }
+
+  /**
    * Phase 9.9: a mover's path (a line through its stops, a dot per stop) and
    * the outline of each trigger, switch, enemy and sized pickup area.
    */
@@ -291,6 +302,10 @@ export class ZoneOverlay {
       this.disposeGroup(c as THREE.Group);
     }
     // Phase 9.12: every collider's outline on the game plane (box or polygon, turned about Z).
+    // Phase 21.3: all outlines of one colour are one line-segment object (one draw call, not one per
+    // collider); `userData.outlines` keeps each entity's range of vertices.
+    this.colliderOutlines = 0;
+    const merged = { solid: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> }, oneWay: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> } };
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
       if (shape === undefined) continue;
@@ -300,10 +315,20 @@ export class ZoneOverlay {
       const angle = 2 * Math.atan2(N(q[2]), N(q[3]));
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const pts = [...corners, corners[0]!].map(([a, b]) => new THREE.Vector3(N(e.position[0]) + N(a) * cos - N(b) * sin, N(e.position[1]) + N(a) * sin + N(b) * cos, 0.03));
-      const oneWay = (e.collider as { oneWay?: boolean }).oneWay === true;
-      const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: oneWay ? 0x8fb573 : COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.85 }));
-      outline.name = `collider-outline:${e.id}`;
+      const at = ([a, b]: number[]): [number, number, number] => [N(e.position[0]) + N(a) * cos - N(b) * sin, N(e.position[1]) + N(a) * sin + N(b) * cos, 0.03];
+      const target = (e.collider as { oneWay?: boolean }).oneWay === true ? merged.oneWay : merged.solid;
+      const start = target.points.length / 3;
+      for (let i = 0; i < corners.length; i += 1) target.points.push(...at(corners[i]!), ...at(corners[(i + 1) % corners.length]!));
+      target.ranges[e.id] = { start, count: target.points.length / 3 - start };
+      this.colliderOutlines += 1;
+    }
+    for (const [kind, m] of Object.entries(merged)) {
+      if (m.points.length === 0) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(m.points, 3));
+      const outline = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: kind === 'oneWay' ? 0x8fb573 : COLLIDER_COLOR, depthTest: false, transparent: true, opacity: 0.85 }));
+      outline.name = `collider-outlines:${kind}`;
+      outline.userData['outlines'] = m.ranges;
       outline.renderOrder = 9;
       this.colliders.add(outline);
     }
@@ -396,7 +421,7 @@ export class ZoneOverlay {
     return {
       moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)),
       count: this.blocks.children.length,
-      colliders: this.colliders.children.length,
+      colliders: this.colliderOutlines + this.capsules.size,
       capsules: this.capsules.size,
       sizeHandles: this.sizeHandles.children.length,
       chaseBands: this.blocks.children.filter((c) => c.name.startsWith('enemy-chase:')).length,

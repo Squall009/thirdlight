@@ -124,6 +124,9 @@ export function metricsOf(report: Pick<Report, 'benchmarks' | 'calibration'>): R
       }
       if (s.load['firstFrameMs'] !== undefined) m[`${k}.firstFrame/cpu`] = { value: r3(s.load['firstFrameMs'] / cpu), kind: 'ratio' };
       if (s.surface !== 'editor') m[`${k}.drawCalls`] = { value: s.drawCalls.p50, kind: 'count' };
+      // Phase 21.3: the editor's orbit draw calls, and frames drawn by the idle Scene view (render on demand: 0).
+      if (s.surface === 'editor' && s.drawCalls.n > 0) m[`${k}.drawCalls`] = { value: s.drawCalls.p50, kind: 'count' };
+      if (s.idle !== undefined) m[`${k}.idleFrames`] = { value: s.idle.framesDrawn, kind: 'count' };
       m[`${k}.programs`] = { value: s.live.programs + s.live.pipelines, kind: 'count' };
       m[`${k}.textures`] = { value: s.live.textures, kind: 'count' };
       m[`${k}.buffers`] = { value: s.live.buffers, kind: 'count' };
@@ -282,7 +285,7 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
                 opts.log(`perf: ${cls} hierarchy ${o.hierarchy.domRows} rows in the DOM (${o.hierarchy.entities} entities), select p50 ${o.hierarchy.selectMs.p50} ms, rename p50 ${o.hierarchy.renameMs.p50} ms, scroll frame mean ${o.hierarchy.scrollFrameMs.mean} ms, scroll step p50 ${o.hierarchy.scrollStepMs.p50} ms`);
                 opts.log(`perf: ${cls} command http p50 ${o.command.httpMs.p50} ms, apply→frame p50 ${o.command.applyFrameMs.p50} ms, long tasks ${o.command.longTaskMsPerCommand} ms/cmd, ws ${o.command.wsBytesPerCommand} B/cmd, written ${o.command.bytesWrittenPerCommand} B in ${o.command.filesWrittenPerCommand} files/cmd (wchar ${o.command.wcharPerCommand}), material ws ${o.material?.wsBytes ?? '-'} B${o.notes.length > 0 ? `; notes: ${o.notes.join(' | ')}` : ''}`);
               }
-              opts.log(`perf: ${cls} editor (${r}) orbit frame mean ${e.surface.frameMs.mean} ms${commands > 0 ? `, command p95 ${e.commandMs.p95} ms` : ''}`);
+              opts.log(`perf: ${cls} editor (${r}) orbit frame mean ${e.surface.frameMs.mean} ms, ${e.surface.drawCalls.p50} draws${e.surface.idle !== undefined ? `, idle ${e.surface.idle.framesDrawn} frames in ${e.surface.idle.windowMs} ms` : ""}${commands > 0 ? `, command p95 ${e.commandMs.p95} ms` : ""}${e.surface.lastSync !== undefined ? `, last sync ${JSON.stringify(e.surface.lastSync)}` : ""}`);
             });
           }
         }

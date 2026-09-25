@@ -102,7 +102,10 @@ describe('zone overlay gameplay helpers', () => {
     const ramp = { ...entity('ramp', undefined), collider: { shape: { type: 'polygon', vertices: [[0, 0], [2, 0], [2, 1]] } } } as ProjectedEntity;
     overlay.sync([lift, ramp]);
     expect(overlay.blockHelpers().colliders).toBe(2);
-    expect((scene.getObjectByName('collider-outline:lift') as THREE.Line).geometry.getAttribute('position').count).toBe(5);
+    // Phase 21.3: one line-segment object per colour holds every outline (the lift's box: 4 segments, 8 vertices).
+    const outlines = scene.getObjectByName('collider-outlines:solid') as THREE.LineSegments;
+    expect(outlines.geometry.getAttribute('position').count).toBe(8 + 6);
+    expect((outlines.userData['outlines'] as Record<string, { start: number; count: number }>)['lift']).toEqual({ start: 0, count: 8 });
     // Only the selection has grips.
     expect(overlay.pickHandle(...screen(2, 0))).toBeNull();
     overlay.setSelected('lift');

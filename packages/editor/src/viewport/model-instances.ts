@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import {
   buildInstanceSet,
   createVisualResourceStore,
+  markBatchable,
   injectedResolver,
   type BuiltInstanceSet,
   type CreateInstanceOptions,
@@ -140,12 +141,18 @@ export class ModelInstances {
    * remove one instance per `assetId` reference. Entity IDs and transforms are
    * the projection's; a reimport changes only the resolved version.
    */
-  sync(entities: readonly ProjectedEntity[]): void {
+  sync(entities: readonly ProjectedEntity[], delta?: { readonly changed: ReadonlySet<string>; readonly removed: ReadonlySet<string> }): void {
     if (this.disposed) return;
     this.entities = entities;
+    this.byId = null;
     const wanted = new Set<string>();
-    for (const e of entities) {
+    // Phase 21.3: with a delta only the changed entities are looked at (the rest kept their objects).
+    const list: readonly ProjectedEntity[] = delta === undefined ? entities : [...delta.changed].map((id) => this.entityById(id)).filter((e): e is ProjectedEntity => e !== undefined);
+    for (const e of list) {
       const assetId = e.assetId ?? e.instances?.assetId;
+      if (!assetId || e.instances !== undefined) {
+        if (delta !== undefined && this.live.has(e.id)) this.detach(e.id);
+      }
       if (!assetId) continue;
       if (e.instances !== undefined) this.ensureBuffer(e.instances.buffer);
       else wanted.add(e.id);
@@ -172,11 +179,20 @@ export class ModelInstances {
       const liveNow = this.live.get(e.id);
       if (liveNow !== undefined) this.syncMaterials(liveNow, e);
     }
-    for (const [entityId, live] of [...this.live]) {
-      if (wanted.has(entityId)) continue;
-      this.detach(entityId);
-    }
+    if (delta === undefined) {
+      for (const entityId of [...this.live.keys()]) {
+        if (wanted.has(entityId)) continue;
+        this.detach(entityId);
+      }
+    } else for (const id of delta.removed) this.detach(id);
     this.syncSets();
+  }
+
+  /** Phase 21.3: the projected entity by id (a map made once per entity list). */
+  private byId: Map<string, ProjectedEntity> | null = null;
+  private entityById(id: string): ProjectedEntity | undefined {
+    if (this.byId === null) this.byId = new Map(this.entities.map((e) => [e.id, e]));
+    return this.byId.get(id);
   }
 
   /** The object's material mapping: the asset's default overlaid by the object's own. */
@@ -297,6 +313,11 @@ export class ModelInstances {
     return this.sets.get(entityId)?.built.meshes ?? [];
   }
 
+  /** Phase 21.3: the built instance set (its chunks map a picked instance back to a copy). */
+  instanceSet(entityId: string): BuiltInstanceSet | null {
+    return this.sets.get(entityId)?.built ?? null;
+  }
+
   /** Phase 15.2: a loaded instance buffer (the copies' transforms), if here. */
   instanceBuffer(digest: string): Float32Array | undefined {
     return this.buffers.get(digest);
@@ -360,13 +381,14 @@ export class ModelInstances {
     const holder = created.instance.root;
     holder.name = entityId;
     (holder as { entityId?: string }).entityId = entityId;
+    // Phase 21.3: placements of the same piece and material are drawn instanced (the Scene view's batcher).
+    markBatchable(holder);
     const parent = this.options.parentFor?.(entityId) ?? null;
     (parent ?? this.scene).add(holder);
     const live: LiveInstance = { instance: created.instance, holder, key, materialsKey: '', undoMaterials: null };
     this.live.set(entityId, live);
-    const ent = this.entities.find((x) => x.id === entityId);
-    if (ent !== undefined) this.syncMaterials(live, ent);
-    const e = this.entities.find((x) => x.id === entityId);
+    const e = this.entityById(entityId);
+    if (e !== undefined) this.syncMaterials(live, e);
     if (e && parent === null) this.applyTransform(holder, e);
     this.options.onChanged?.();
   }

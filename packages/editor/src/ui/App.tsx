@@ -85,7 +85,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, materialGraphProblems, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, materialGraphProblems, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
@@ -822,6 +822,8 @@ function EditorApp(): JSX.Element {
     if (matsKey !== materialsKeyRef.current) {
       materialsKeyRef.current = matsKey;
       materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
+      // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
+      viewportRef.current?.requestRender();
     }
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
@@ -1193,25 +1195,14 @@ function EditorApp(): JSX.Element {
     };
   }, [assets]);
 
-  // Phase 9.4: animated materials (wind, water) need frames while they are in view.
-  useEffect(() => {
-    let raf = 0;
-    const start = performance.now();
-    const loop = (): void => {
-      const lib = materialLibraryRef.current;
-      if (lib !== null && lib.animated()) {
-        lib.tick((performance.now() - start) / 1000);
-        viewportRef.current?.requestRender();
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // Phase 9.4: animated materials (wind, water) need frames while they are in view — phase 21.3:
+  // the Scene view ticks them with its own frames and keeps drawing only while one is animated
+  // (render on demand: no animation-frame loop while nothing changes).
 
   const framedRef = useRef(false);
   useEffect(() => {
-    viewportRef.current?.syncEntities(entities);
+    // Phase 21.3: only what changed since the last sync (the projection's dirty ids; a hydrate syncs all).
+    viewportRef.current?.syncEntities(entities, clientRef.current?.projection.takeDirty());
     const lit = viewportRef.current?.getLighting();
     if (lit !== undefined) setLightingMode(lit);
     if (!framedRef.current && entities.length > 0) {
@@ -3478,10 +3469,10 @@ function EditorApp(): JSX.Element {
     return add !== undefined && (add.kind === 'menu' || add.kind === 'pick') ? (JSON.parse(JSON.stringify(add.value)) as Record<string, unknown>) : {};
   };
   // The play loads from its own content locator on the preview origin.
-  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page.
+  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page (phase 21.3: and ?batching=off).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
-      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}`
+      ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}`
       : null;
 
   const v4Reason = 'gameplay components need a v4 project (scenes)';

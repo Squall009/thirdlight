@@ -141,7 +141,10 @@ export interface EnvironmentRenderer {
   render(camera: THREE.Camera): void;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel };
+  /** Phase 21.3: `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number };
+  /** Phase 21.3: the MSAA samples of the last frame path (allocation-free, for a per-frame read). */
+  samples(): number;
   dispose(): void;
 }
 
@@ -172,6 +175,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let composerKey = '';
   let fallback: string | null = null;
   let passNames: string[] = [];
+  /** Phase 21.3: the MSAA samples of the last built frame path. */
+  let samplesNow = renderer.samples;
   const pmrem: PmremLike = new NodePMREMGenerator(renderer) as unknown as PmremLike;
   let skyMesh: THREE.Mesh | null = null;
   let skyDome: THREE.Mesh | null = null;
@@ -381,6 +386,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
+    samplesNow = renderer.samples;
     if (!isPost && !noMsaa && !displayBackground) return;
     const g = post?.grading;
     const perspective = camera instanceof THREE.PerspectiveCamera;
@@ -412,6 +418,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const p = buildPostPipeline(renderer, scene, camera, plan);
       p.setSize(width, height, renderer.getPixelRatio());
       pipeline = p;
+      samplesNow = plan.samples;
       // A plain frame (the background pass, or no MSAA at low quality) is not post-processing.
       passNames = isPost ? [...p.passes] : [];
       fallback = null;
@@ -488,8 +495,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // The node passes follow the canvas size themselves (only the depth of field's pixel blur needs it).
       pipeline?.setSize(width, height, renderer.getPixelRatio());
     },
+    samples: () => samplesNow,
     diagnostics() {
-      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality() };
+      return { post: passNames.length > 0, passes: [...passNames], fallback, quality: quality(), samples: samplesNow };
     },
     dispose() {
       disposed = true;

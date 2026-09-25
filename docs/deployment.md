@@ -2048,8 +2048,8 @@ steady loop's allocation sites.
   entities it touched, the Hierarchy rebuilds its rows only when the tree's
   shape or names change and draws only the rows in view (above 400 rows),
   and the editor's panels keep what did not change, so a transform edit does
-  not redraw every panel. The Scene view still re-syncs every object after
-  each change (phase 21.3, rendering).
+  not redraw every panel. The Scene view syncs only the changed objects
+  (phase 21.3, below).
 - *Commands.* A command runs against its one scene; only that scene's file
   (and, when content changed, `content.json`) is written, in the one-item-per-
   line layout above. Unchanged scenes are no longer re-serialized to find out
@@ -2057,6 +2057,50 @@ steady loop's allocation sites.
 - *Thumbnails.* The cache keeps its per-project count (a write no longer lists
   the cache) and answers revalidation (`ETag` / `If-None-Match`) with 304.
 - The editor bundle uses React's production build.
+
+**Rendering (phase 21.3).**
+
+- *Automatic instancing.* Play, exports and the Scene view draw repeated
+  objects together: boxes, and the meshes of placed models, that share a
+  geometry, a material and their shadow flags become one instanced draw
+  (boxes of any size share one unit box scaled by their size; boxes with the
+  same colour or surface values share one material). Nothing to set up and
+  nothing changes in the picture: every object stays an object — selection,
+  picking, the gizmo, bounds, bakes and per-object looks (the selection
+  tint, a checkpoint's glow, a fade, a lightmap, per-object graph material
+  parameters) work as before; an object with its own look is drawn on its
+  own. A group needs at least four members; transparent, skinned and morphed
+  objects are always drawn on their own; detailed geometry (256 triangles
+  and up) is grouped per 64 m cell so off-screen parts are still culled.
+  `?batching=off` on the editor, Play or export URL draws one object per
+  draw call (for comparisons).
+- *Instance sets* are drawn in chunks of about 2048 copies (at most 64 per
+  set): chunks out of view are culled, and a model with levels of detail
+  draws each chunk at the level its distance asks for (before, every level
+  of every copy was drawn).
+- *Render on demand.* The Scene view draws only when something changed: an
+  edit, a camera move, a selection, an arriving model or texture, an
+  animated material (wind, water) or a playing effect preview. Left alone it
+  draws nothing (three's own animation-frame tick still runs, drawing
+  nothing). After an edit it syncs only the objects the edit touched.
+- *MSAA is the quality level's choice.* The environment's (or the player's)
+  quality level decides: low draws without MSAA, medium and high with it
+  (a post stack uses its own anti-aliasing instead). The Scene view follows
+  the project's level with the editor lighting too, and Play applies a
+  player's level also in projects without an environment.
+- *Textures.* Decoded textures get mipmaps (three's default trilinear
+  filtering); imported GLB files may carry KTX2/Basis textures (read by the
+  importer and transcoded in the browser). Encoding textures to KTX2 on
+  import is not available: no pinned encoder is installed (three ships only
+  the transcoder).
+- *What the view reports.* The Scene view's canvas carries `data-frames`
+  (frames drawn), `data-draw-calls` and `data-triangles` (the last frame),
+  `data-batches` (instanced groups, objects drawn through them, marked
+  objects drawn alone), `data-msaa` (samples) and `data-sync` (what the last
+  sync touched). Play's diagnostics (`tl_diagnostics`) carry `batching` and
+  `frame` (draw calls, triangles); an export's canvas carries
+  `data-tl-draws` and `data-tl-msaa`. The harness adds the Scene view's
+  frames while idle and its draw calls while orbiting.
 
 ## Upgrade
 
