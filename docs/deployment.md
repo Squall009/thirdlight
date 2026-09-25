@@ -1093,9 +1093,19 @@ refused, naming the script). MCP creates a script with `publishBehavior
 {mode: "declaration-create", …, graph: {nodes, edges}}`; publishing is `POST
 /api/v1/projects/<id>/content/behaviors/source {graph: true, behaviorId,
 displayName, expectedRevision, requestId}` (`{check: true, graph: true,
-behaviorId}` compiles without publishing and returns the digest to
-acknowledge). Limits: 256 nodes per graph, 32 functions and 32 properties
+behaviorId}` compiles without publishing and returns the `sourceDigest`;
+a new digest must be acknowledged first with `acknowledgeBehaviorTrust
+{sourceDigest}`, the same step the editor's trust notice takes). The
+published record (`tl_content_query target="behaviors" behaviorId
+includeDeclaration: true`) shows `source.kind: "graph"`; attach the script
+with `setBehaviorProperties` and play it with `tl_play_start` like any
+behavior. Limits: 256 nodes per graph, 32 functions and 32 properties
 per script; Delay nodes use timers named `vs.delay.<n>`.
+
+**Exports:** an exported game runs a visual script exactly like a
+TypeScript one — the published module is part of the export (a
+`behaviors/<digest>.js` file) and runs from a plain static server with no
+editor backend; debugging exists in Play only.
 
 ## Visual effects (particle graphs)
 

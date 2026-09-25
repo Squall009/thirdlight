@@ -19,8 +19,13 @@
  *   Play sound with the sound picked from the project's audio), published and
  *   played: the coin is counted and the magenta door disappears (pixels). The
  *   sound request itself is not observable headless (unverified).
+ * - 19.3: the same project exported and served statically with the backend
+ *   stopped: the door disappears (pixels) and the HUD shows "Coins 1".
  */
 import { createHash } from 'node:crypto';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -270,4 +275,60 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   await expect.poll(async () => magenta(frame), { timeout: 15_000 }).toBeLessThan(shut / 10);
   expect((await observe()).state).toBe('playing');
   await page.getByTitle('Stop the play preview').click();
+
+  // 19.3: the export runs the same graph, served statically with the backend stopped:
+  // the door disappears (pixels) and the HUD counts the coin.
+  const exported = await be.admin(`projects/${be.projectId}/export`);
+  expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+  const dir = join(be.exportRoot, String(exported.json.outputDir));
+  await page.close();
+  await be.halt();
+  const site = await serveDir(dir);
+  const game = await page.context().newPage();
+  const loaded: string[] = [];
+  const errors: string[] = [];
+  game.on('response', (r) => loaded.push(`${r.status()} ${r.url()}`));
+  game.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await game.goto(site.url);
+    const hud = game.locator('#hud-root');
+    await expect(hud).toContainText('to start', { timeout: 30_000 });
+    await expect.poll(async () => magenta(game), { timeout: 20_000 }).toBeGreaterThan(40);
+    const closed = await magenta(game);
+    expect(await hud.textContent()).not.toContain('Coins');
+    await game.locator('canvas#game').click();
+    await game.keyboard.press('Enter');
+    await expect(hud).toContainText('to jump', { timeout: 30_000 });
+    await expect(hud).toContainText('Coins 1', { timeout: 30_000 });
+    await expect.poll(async () => magenta(game), { timeout: 15_000 }).toBeLessThan(closed / 10);
+    // The graph behavior's module came from the static site (nothing else was contacted).
+    expect(loaded.some((l) => /^200 .*\/behaviors\/[0-9a-f]{64}\.js$/.test(l)), loaded.join('\n')).toBe(true);
+    expect(loaded.every((l) => l.split(' ')[1]!.startsWith(site.url))).toBe(true);
+    expect(errors).toEqual([]);
+    await expect(game.getByText(/error/i)).toHaveCount(0);
+  } finally {
+    await site.close();
+  }
 });
+
+/** A plain static file server: the exported game gets nothing else. */
+function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
+  const server: Server = createServer((req, reply) => {
+    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
+    const file = join(dir, rel);
+    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
+      reply.statusCode = 404;
+      reply.end();
+      return;
+    }
+    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
+    createReadStream(file).pipe(reply);
+  });
+  return new Promise((ok) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as { port: number }).port;
+      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
+    });
+  });
+}

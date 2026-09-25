@@ -3,7 +3,12 @@
  * charter §7 tool categories — inspect the selection, edit, diagnostics,
  * pick a browser session, start/stop play, bounded input, observations and
  * screenshots.
+ * Phase 19.3: a visual script built entirely over MCP (publishBehavior with a
+ * graph, graphEdit), published through the editor's HTTP source route and
+ * played with the MCP play tools; the editor shows the same graph (one
+ * mutation path).
  */
+import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -121,4 +126,67 @@ test('an MCP agent files entities into folders and sets folder flags; the editor
   await expect(playerRow.locator('.tl-row__flag--static')).toHaveCount(0);
   await call('tl_command', { op: 'undo', expectedRevision: await rev(), args: {} });
   await expect.poll(async () => ((await call('tl_inspect', { target: 'entity', entityId: player.id })).body as { parentChain: string[] }).parentChain).toEqual([]);
+});
+
+test('an MCP agent builds a visual script with graphEdit, publishes it through the source route and plays it; the editor shows the same graph', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const rev = async (): Promise<number> => (await call('tl_inspect', { target: 'project' })).body.revision as number;
+  const ok = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const res = await call('tl_command', { op, expectedRevision: await rev(), args });
+    expect(res.isError, JSON.stringify(res.body)).toBe(false);
+    return res.body;
+  };
+
+  // Create the script (On start only), then add "Add to counter" and its exec wire in one graphEdit.
+  await ok('publishBehavior', { behaviorId: 'mcp-gifts', displayName: 'MCP gifts', mode: 'declaration-create', declaration: { properties: [] }, graph: { nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] } });
+  await ok('graphEdit', {
+    owner: { kind: 'behavior', id: 'mcp-gifts' },
+    ops: [
+      { op: 'addNodes', nodes: [{ id: 'give', type: 'api.game.add', position: [260, 0], data: { name: 'gifts', amount: 4 } }] },
+      { op: 'connect', edges: [{ id: 'w1', from: { node: 'start', port: 'then' }, to: { node: 'give', port: 'in' } }] },
+    ],
+  });
+  // A wire the kind forbids (an exec output into a number input) is refused by the same validator the editor's edits go through.
+  const bad = await call('tl_command', { op: 'graphEdit', expectedRevision: await rev(), args: { owner: { kind: 'behavior', id: 'mcp-gifts' }, ops: [{ op: 'connect', edges: [{ id: 'w2', from: { node: 'give', port: 'then' }, to: { node: 'give', port: 'amount' } }] }] } });
+  expect(bad.isError).toBe(true);
+
+  // The editor shows the MCP-built graph (the behavior list, then its Graph tab) and its compile check passes.
+  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'MCP gifts' }).dblclick();
+  await expect(page.getByRole('tab', { name: 'Graph: MCP gifts' })).toHaveAttribute('aria-selected', 'true');
+  const view = page.getByLabel('visual script', { exact: true });
+  await expect(page.locator('[data-node-id="give"]')).toBeVisible();
+  await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
+
+  // Publish through the HTTP source route: compile check → trust acknowledgment (over MCP) → publish.
+  const route = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/behaviors/source`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },
+      body: JSON.stringify(body),
+    });
+    const json = (await r.json()) as Record<string, unknown>;
+    expect(r.status, JSON.stringify(json)).toBe(200);
+    return json;
+  };
+  const digest = String((await route({ check: true, graph: true, behaviorId: 'mcp-gifts' }))['sourceDigest']);
+  await ok('acknowledgeBehaviorTrust', { sourceDigest: digest });
+  await route({ graph: true, behaviorId: 'mcp-gifts', displayName: 'MCP gifts', expectedRevision: await rev(), requestId: `req-${randomBytes(16).toString('hex')}` });
+  const listed = (await call('tl_content_query', { target: 'behaviors', behaviorId: 'mcp-gifts', includeDeclaration: true })).body as { behaviors: { source?: { kind?: string; sourceDigest?: string } }[] };
+  expect(listed.behaviors[0]?.source).toMatchObject({ kind: 'graph', sourceDigest: digest });
+  await expect(view.getByText('published', { exact: true })).toBeVisible({ timeout: 20_000 });
+
+  // Attach it to a new box and play with the MCP tools: On start adds 4 to "gifts".
+  const box = String((await ok('createEntity', { kind: 'box', name: 'Gift box', transform: { position: [6, 1, 0] } }))['createdId']);
+  await ok('setBehaviorProperties', { entityId: box, behaviorId: 'mcp-gifts', values: {} });
+  const sessionId = ((await call('tl_sessions')).body.sessions as Array<{ sessionId: string; connected: boolean }>).find((s) => s.connected)!.sessionId;
+  const started = await call('tl_play_start', { demo: false, sessionId });
+  expect(started.isError, JSON.stringify(started.body)).toBe(false);
+  const playSessionId = String(started.body.playSessionId);
+  await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 30_000 }).toBe('awaitingStart');
+  expect((await call('tl_game_control', { playSessionId, command: 'start' })).isError).toBe(false);
+  await expect.poll(async () => ((await call('tl_game_observe', { playSessionId })).body.counters as Record<string, number> | undefined)?.['gifts'], { timeout: 30_000 }).toBe(4);
+  expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
 });
