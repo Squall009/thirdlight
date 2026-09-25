@@ -14,6 +14,8 @@
 import {
   addBoxLightmapUv,
   createEnvironmentRenderer,
+  createRenderer,
+  DEFAULT_RENDERER_PREFERENCE,
   lightmappedMaterial,
   lightmapTexture,
   refreshLightmappedMaterial,
@@ -24,6 +26,10 @@ import {
   type FogVolumeLike,
   type LightingBakeLike,
   type MaterialLibrary,
+  type RendererHandle,
+  type RendererInfo,
+  type RendererPreference,
+  type RendererPreferenceSource,
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -72,6 +78,8 @@ export interface ViewportCallbacks {
   onCopyTransform?: (entityId: string, index: number, t: CopyTransform) => void;
   /** Phase 15.2: a brush stroke on the selected instance set — new copies at these points (the set's local space). */
   onBrushStroke?: (entityId: string, points: [number, number, number][]) => void;
+  /** Phase 17.1: the Scene view's renderer changed state (initialising, ready, lost, replaced). */
+  onRendererChange?: (info: RendererInfo) => void;
 }
 
 const GROUND_SIZE = 20;
@@ -121,8 +129,12 @@ function boxColor(e: ProjectedEntity): number {
 export class Viewport {
   readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
-  private readonly renderer: THREE.WebGLRenderer;
-  private readonly root: HTMLCanvasElement;
+  /** Phase 17.1: the renderer (the three-adapter factory's); replaced with the canvas on a backend change. */
+  private rendererHandle: RendererHandle;
+  private rendererChoice: { preference: RendererPreference; source: RendererPreferenceSource };
+  /** The renderer generation the environment renderer was built for. */
+  private environmentGeneration = 0;
+  private root: HTMLCanvasElement;
   private readonly meshes = new Map<string, THREE.Object3D>();
   private readonly cb: ViewportCallbacks;
   private selectedId: string | null = null;
@@ -152,11 +164,12 @@ export class Viewport {
   private renderQueued = false;
   private readonly raycaster = new THREE.Raycaster();
 
-  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean } = {}) {
+  constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean; renderer?: { preference: RendererPreference; source: RendererPreferenceSource } } = {}) {
     this.root = canvas;
     this.cb = cb;
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.rendererChoice = options.renderer ?? { preference: DEFAULT_RENDERER_PREFERENCE, source: 'default' };
+    this.rendererHandle = this.makeRenderer(canvas);
     this.scene.background = new THREE.Color(0x14161c);
 
     this.ground = new THREE.Mesh(
@@ -527,7 +540,8 @@ export class Viewport {
     }
     // The sun of a procedural sky sits opposite the scene's directional light.
     const key = entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
-    this.environment?.setKeyLightDirection(key?.light?.direction ?? null);
+    this.keyLightDirection = key?.light?.direction ?? null;
+    this.environment?.setKeyLightDirection(this.keyLightDirection);
     this.fogVolumeData = new Map(entities.filter((e) => e.fogVolume !== undefined).map((e) => [e.id, e.fogVolume!]));
     const lightingBefore = this.lighting;
     if (!this.lightingChosen) this.lighting = this.sceneLights.size > 0 ? 'game' : 'editor';
@@ -659,11 +673,86 @@ export class Viewport {
       const setId = this.selectedId !== null && this.projected.find((x) => x.id === this.selectedId)?.instances !== undefined ? this.selectedId : null;
       this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
       this.root.setAttribute('data-gizmo-grab', JSON.stringify(this.gizmoGrab()));
-      if (this.environment !== null && this.lighting === 'game') {
-        this.environment.setFogVolumes(this.fogVolumesNow());
-        this.environment.render(this.camera);
-      } else this.renderer.render(this.scene, this.camera);
+      // Phase 17.1: WebGPURenderer initialises asynchronously (the handle asks for a frame when ready).
+      const renderer = this.rendererHandle.ready() ? this.rendererHandle.current() : null;
+      if (renderer === null) return;
+      const environment = this.ensureEnvironment();
+      if (environment !== null && this.lighting === 'game') {
+        environment.setFogVolumes(this.fogVolumesNow());
+        environment.render(this.camera);
+      } else renderer.render(this.scene, this.camera);
     });
+  }
+
+  // ---- Phase 17.1: the renderer backend --------------------------------------------
+  private makeRenderer(canvas: HTMLCanvasElement): RendererHandle {
+    const handle = createRenderer({
+      canvas,
+      preference: this.rendererChoice.preference,
+      source: this.rendererChoice.source,
+      antialias: true,
+      alpha: true,
+      // Transparent where nothing is drawn (the scene background covers the view).
+      clearColor: 0x000000,
+      clearAlpha: 0,
+    });
+    handle.onChange(() => {
+      if (this.rendererHandle !== handle) return;
+      if (handle.ready()) this.resize();
+      this.cb.onRendererChange?.(handle.info());
+    });
+    return handle;
+  }
+
+  /** The Scene view's renderer choice (backend, state, reason). */
+  rendererInfo(): RendererInfo {
+    return this.rendererHandle.info();
+  }
+
+  /**
+   * Phase 17.1: draw with another backend. A canvas keeps the context type it
+   * was first given (WebGL or WebGPU), so the canvas is replaced by a fresh
+   * one in the same place, with the same attributes and listeners.
+   */
+  setRendererChoice(preference: RendererPreference, source: RendererPreferenceSource): void {
+    if (preference === this.rendererChoice.preference) {
+      this.rendererChoice = { preference, source };
+      return;
+    }
+    this.rendererChoice = { preference, source };
+    const old = this.root;
+    const next = document.createElement('canvas');
+    for (const a of [...old.attributes]) if (!a.name.startsWith('data-tl-renderer')) next.setAttribute(a.name, a.value);
+    this.unbindCanvasEvents();
+    this.environment?.dispose();
+    this.environment = null;
+    this.rendererHandle.dispose();
+    old.replaceWith(next);
+    this.root = next;
+    this.bindCanvasEvents();
+    this.orbit.disconnect();
+    this.orbit.connect(next);
+    this.gizmo.disconnect();
+    this.gizmo.connect(next);
+    this.zones.setCanvas(next);
+    this.rendererHandle = this.makeRenderer(next);
+    this.resize();
+    this.cb.onRendererChange?.(this.rendererHandle.info());
+  }
+
+  /** The environment renderer for the current renderer (rebuilt when the renderer was replaced). */
+  private ensureEnvironment(): EnvironmentRenderer | null {
+    const renderer = this.rendererHandle.current();
+    if (this.environmentSource === null || renderer === null) return null;
+    if (this.environment !== null && this.environmentGeneration === this.rendererHandle.generation()) return this.environment;
+    this.environment?.dispose();
+    this.environmentGeneration = this.rendererHandle.generation();
+    const env = createEnvironmentRenderer(renderer, this.scene, { loadTexture: this.environmentSource, onChange: () => this.requestRender() });
+    env.resize(Math.max(1, this.root.clientWidth || this.root.width), Math.max(1, this.root.clientHeight || this.root.height));
+    env.setKeyLightDirection(this.keyLightDirection);
+    env.set(this.lighting === 'game' ? this.environmentValue : null);
+    this.environment = env;
+    return env;
   }
 
   private readTarget(): GizmoTransform {
@@ -1130,12 +1219,23 @@ export class Viewport {
   }
 
   private bindEvents(): void {
+    this.bindCanvasEvents();
+    window.addEventListener('resize', this.onWindowResize);
+  }
+
+  private bindCanvasEvents(): void {
     // Capture phase: the zone overlay routes before the orbit/gizmo controls.
     this.root.addEventListener('pointerdown', this.onPointerDown, { capture: true });
     this.root.addEventListener('pointermove', this.onPointerMove, { capture: true });
     this.root.addEventListener('pointerup', this.onPointerUp, { capture: true });
     this.root.addEventListener('contextmenu', this.onContextMenu);
-    window.addEventListener('resize', this.onWindowResize);
+  }
+
+  private unbindCanvasEvents(): void {
+    this.root.removeEventListener('pointerdown', this.onPointerDown, { capture: true });
+    this.root.removeEventListener('pointermove', this.onPointerMove, { capture: true });
+    this.root.removeEventListener('pointerup', this.onPointerUp, { capture: true });
+    this.root.removeEventListener('contextmenu', this.onContextMenu);
   }
 
   private onContextMenu = (e: Event): void => e.preventDefault();
@@ -1524,8 +1624,9 @@ export class Viewport {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     for (const sp of this.sprites) fitSprite(sp, this.camera.aspect);
-    this.renderer.setSize(w, h, false);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    const renderer = this.rendererHandle.current();
+    renderer?.setSize(w, h, false);
+    renderer?.setPixelRatio(window.devicePixelRatio);
     this.environment?.resize(w, h);
     this.requestRender();
   }
@@ -1536,13 +1637,15 @@ export class Viewport {
    */
   private environment: EnvironmentRenderer | null = null;
   private environmentValue: EnvironmentLike | null = null;
+  /** The scene's directional light direction (the procedural sky's sun). */
+  private keyLightDirection: readonly [number, number, number] | null = null;
+  /** The texture loader of the environment (null until an environment was set). */
+  private environmentSource: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
   setEnvironment(value: EnvironmentLike | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
     this.environmentValue = value;
-    if (this.environment === null) {
-      this.environment = createEnvironmentRenderer(this.renderer, this.scene, { loadTexture, onChange: () => this.requestRender() });
-      this.environment.resize(Math.max(1, this.root.clientWidth || this.root.width), Math.max(1, this.root.clientHeight || this.root.height));
-    }
-    this.environment.set(this.lighting === 'game' ? value : null);
+    this.environmentSource = loadTexture;
+    // Phase 17.1: built for the current renderer (null while WebGPURenderer initialises; the first frame builds it).
+    this.ensureEnvironment()?.set(this.lighting === 'game' ? value : null);
     this.requestRender();
   }
   private fogVolumesNow(): FogVolumeLike[] {
@@ -1565,16 +1668,15 @@ export class Viewport {
     }
     this.meshes.clear();
     this.zones.dispose();
-    this.root.removeEventListener('pointerdown', this.onPointerDown, { capture: true });
-    this.root.removeEventListener('pointermove', this.onPointerMove, { capture: true });
-    this.root.removeEventListener('pointerup', this.onPointerUp, { capture: true });
-    this.root.removeEventListener('contextmenu', this.onContextMenu);
+    this.unbindCanvasEvents();
     window.removeEventListener('resize', this.onWindowResize);
     this.gizmo.detach();
     this.gizmo.dispose();
     this.orbit.dispose();
     this.disposeMesh(this.ground);
-    this.renderer.dispose();
+    this.environment?.dispose();
+    this.environment = null;
+    this.rendererHandle.dispose();
   }
 }
 

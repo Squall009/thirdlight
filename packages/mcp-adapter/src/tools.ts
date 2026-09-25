@@ -113,7 +113,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the compiler derives the declaration from the code, which wins over a JSON declaration sent with the source. ' +
       'Prefabs: ' +
       'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
-      'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2). Scenes: createScene {name, sceneId?}, ' +
+      'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 0|1|2|3 (0: WebGL legacy renderer, 1: auto = WebGPU else WebGL 2, 2: WebGPU, 3: WebGL 2 on the WebGPU renderer; a page URL flag ?renderer=legacy|auto|webgpu|webgl2 overrides it). Scenes: createScene {name, sceneId?}, ' +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
       'scenes the game starts with; the camera, player, lights and start spawn live only in start scenes). ' +
       'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
@@ -363,7 +363,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only). timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -410,7 +410,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
       'export failures, external file edits) and whether editing is paused. With playSessionId: bounded ' +
-      'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview.',
+      'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
+      'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason).',
     inputSchema: {
       type: 'object',
       properties: { playSessionId: { type: 'string' } },

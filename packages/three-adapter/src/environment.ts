@@ -14,6 +14,12 @@
  * lost context), rendering falls back to the direct path and
  * `diagnostics().fallback` says why; gameplay never depends on it.
  *
+ * Phase 17.1: on three's WebGPURenderer (the `webgpu`/`webgl2` backends, not
+ * yet the default) the scene, colour and texture skies, fog and tone mapping
+ * draw; the post stack, the gradient and procedural skies and fog volumes are
+ * WebGL-only shaders until phase 17.3 ports them to TSL — they are left out
+ * and `diagnostics().fallback` names what is missing.
+ *
  * Pure three.js + examples; textures come from the injected loader.
  */
 import * as THREE from 'three';
@@ -27,6 +33,7 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -291,7 +298,20 @@ void main() {
 }`,
 };
 
-export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
+/** The PMREM calls used here (three's WebGL generator and the node renderer's have the same shape). */
+interface PmremLike {
+  fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number): { texture: THREE.Texture; dispose(): void };
+  fromEquirectangular(texture: THREE.Texture): { texture: THREE.Texture; dispose(): void };
+  fromCubemap(texture: THREE.CubeTexture): { texture: THREE.Texture; dispose(): void };
+  dispose(): void;
+}
+
+export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer | WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
+  /** Phase 17.1: three's WebGPURenderer (either backend): no EffectComposer, no ShaderMaterial. */
+  const nodeRenderer = (renderer as { isWebGPURenderer?: boolean }).isWebGPURenderer === true;
+  const glRenderer = renderer as THREE.WebGLRenderer;
+  /** Phase 17.1: what the node renderer leaves out of the current environment (null: nothing). */
+  let nodeGap: string | null = null;
   let env: EnvironmentLike | null = null;
   let qualityOverride: QualityLevel | null = null;
   let keyLight: [number, number, number] | null = null;
@@ -306,10 +326,10 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
   let gradingPass: ShaderPass | null = null;
   let depthTarget: THREE.WebGLRenderTarget | null = null;
   const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  const pmrem: PmremLike = nodeRenderer ? (new NodePMREMGenerator(renderer as WebGPURenderer) as unknown as PmremLike) : (new THREE.PMREMGenerator(glRenderer) as unknown as PmremLike);
   let skyMesh: Sky | null = null;
   let skyDome: THREE.Mesh | null = null;
-  let envMap: THREE.WebGLRenderTarget | null = null;
+  let envMap: { texture: THREE.Texture; dispose(): void } | null = null;
   /** The cube/equirect background built from a sky texture (freed with the sky). */
   let skyTexture: THREE.Texture | null = null;
   let skyKey = '';
@@ -380,6 +400,13 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     applyEnvIntensity(sky);
     if (sky.mode === 'color') {
       scene.background = new THREE.Color(sky.color ?? '#7ec8ff');
+      return;
+    }
+    if (nodeRenderer && (sky.mode === 'procedural' || sky.mode === 'gradient')) {
+      // Phase 17.1: these skies are GLSL ShaderMaterials the node renderer
+      // cannot draw (phase 17.3 ports them): the gradient's horizon colour
+      // stands in as a plain background, the procedural sky draws nothing.
+      if (sky.mode === 'gradient') scene.background = new THREE.Color(sky.horizonColor ?? '#bfe3ff');
       return;
     }
     if (sky.mode === 'procedural') {
@@ -522,13 +549,24 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
   const buildComposer = (camera: THREE.Camera): void => {
     const w = wanted();
     const post = env?.post;
+    if (nodeRenderer) {
+      // Phase 17.1: EffectComposer and its passes are WebGL-only (phase 17.3 moves post to TSL).
+      const skyMode = env?.sky?.mode;
+      const gaps = [
+        ...(anyPost(w) ? ['post-processing'] : []),
+        ...(skyMode === 'procedural' || skyMode === 'gradient' ? [`the ${skyMode} sky`] : []),
+        ...(w.fogVolumes ? ['fog volumes'] : []),
+      ];
+      nodeGap = gaps.length > 0 ? `not drawn on the WebGPU renderer yet (phase 17.3): ${gaps.join(', ')}` : null;
+      return;
+    }
     const key = JSON.stringify({ w, post, q: quality(), size: [width, height], cam: camera.uuid });
     if (key === composerKey && (composer !== null || !anyPost(w))) return;
     composerKey = key;
     disposeComposer();
     if (!anyPost(w)) return;
     try {
-      const c = new EffectComposer(renderer);
+      const c = new EffectComposer(glRenderer);
       c.setPixelRatio(Math.min(QUALITY_PROFILE[quality()].pixelRatio, globalThis.devicePixelRatio ?? 1));
       c.setSize(width, height);
       c.addPass(new RenderPass(scene, camera));
@@ -619,10 +657,10 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
     const prevBackground = scene.background;
     scene.overrideMaterial = depthOnly;
     scene.background = null;
-    renderer.setRenderTarget(depthTarget);
-    renderer.clear();
-    renderer.render(scene, camera);
-    renderer.setRenderTarget(null);
+    glRenderer.setRenderTarget(depthTarget);
+    glRenderer.clear();
+    glRenderer.render(scene, camera);
+    glRenderer.setRenderTarget(null);
     scene.overrideMaterial = prevOverride;
     scene.background = prevBackground;
   };
@@ -686,7 +724,7 @@ export function createEnvironmentRenderer(renderer: THREE.WebGLRenderer, scene: 
       composerKey = '';
     },
     diagnostics() {
-      return { post: composer !== null, passes: [...passNames], fallback, quality: quality() };
+      return { post: composer !== null, passes: [...passNames], fallback: nodeRenderer ? nodeGap : fallback, quality: quality() };
     },
     dispose() {
       disposed = true;

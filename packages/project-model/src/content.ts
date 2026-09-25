@@ -1420,6 +1420,8 @@ export interface SettingsKeySpec {
   integer?: boolean;
   /** Phase 15.3: exactly one of these values. */
   values?: readonly number[];
+  /** Phase 17.1: display text for each of `values` (same order), e.g. a backend name. */
+  valueLabels?: readonly string[];
   /**
    * Phase 15.3: an engine setting resolved only when the project sets it
    * (absent: the engine uses `default`), so a project that never sets it
@@ -1458,6 +1460,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   { key: 'music_fade_s', type: 'number', default: 1, min: 0, max: 10, unit: 's', optional: true, group: 'Audio', label: 'Music fade', tooltip: 'Seconds a music change crossfades (0: cut).' },
   // 0.2 s: a quick blend between two animation roles (idle, run, airborne).
   { key: 'animation_crossfade_s', type: 'number', default: 0.2, min: 0, max: 2, unit: 's', optional: true, group: 'Animation', label: 'Animation blend', tooltip: 'Seconds a model blends between its idle, run and airborne animations (animator transitions set their own).' },
+  // Phase 17.1: the renderer backend of Play, the export and the Scene view
+  // (three-adapter RENDER_BACKEND_SETTING_VALUES). 0, the WebGL renderer: what
+  // every project drew with before WebGPU (the default until phase 17.4).
+  { key: 'render_backend', type: 'number', default: 0, values: [0, 1, 2, 3], valueLabels: ['WebGL (legacy)', 'Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2 (WebGPU renderer)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Renderer', tooltip: 'Which renderer draws the game and the Scene view: the WebGL renderer, WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. A page URL flag ?renderer=legacy|auto|webgpu|webgl2 overrides it.' },
 ];
 
 /** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */

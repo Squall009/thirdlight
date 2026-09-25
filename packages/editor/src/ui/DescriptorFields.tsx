@@ -22,6 +22,7 @@ import {
   getAt,
   groupFields,
   checkNumber,
+  intChoiceLabel,
   intChoices,
   parseNumberInput,
   pickedValue,
@@ -222,7 +223,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
             <SelectWidget
               aria={aria}
               value={typeof shown === 'number' ? String(shown) : ''}
-              options={choices.map((v) => ({ value: String(v), label: f.unit !== undefined ? `${v} ${f.unit}` : String(v) }))}
+              options={choices.map((v) => ({ value: String(v), label: intChoiceLabel(f, v) }))}
               none={optional && f.default === undefined ? '—' : null}
               onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, Number(v)))}
             />

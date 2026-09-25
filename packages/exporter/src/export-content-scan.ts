@@ -22,7 +22,7 @@
  *
  * Pure byte/string processing: no I/O.
  */
-import { type ScanHit } from './scan';
+import { nodeSpecifierOffsets, type ScanHit } from './scan';
 
 export interface ScanPatterns {
   authoringOrigin: string;
@@ -231,7 +231,8 @@ export function textPatternCounts(text: string, p: ScanPatterns): M2ScanCounts {
     b: countOccurrences(text, p.previewOrigin),
     c: countOccurrences(text, '/api/v1/'),
     d: countOccurrences(text, 'fetch('),
-    e: countOccurrences(text, 'node:'),
+    // Phase 17.1: a Node built-in module specifier (not an object key named `node`).
+    e: nodeSpecifierOffsets(text).length,
     f: countOccurrences(text, '__dirname') + countOccurrences(text, 'process.'),
     g: countOccurrences(text, '/mcp'),
     h: countOccurrences(text, 'http://') + countOccurrences(text, 'https://') + countOccurrences(text, 'file://'),

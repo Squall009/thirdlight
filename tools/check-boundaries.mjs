@@ -153,6 +153,13 @@ export const NODE_SIDE_ALLOWED = {
         'examples/jsm/postprocessing/GTAOPass.js',
         'examples/jsm/postprocessing/BokehPass.js',
         'examples/jsm/shaders/FXAAShader.js',
+        // Phase 17.1 (renderer-factory.ts, environment.ts): three's WebGPURenderer
+        // (WebGPU with its WebGL 2 backend) and its node PMREM generator; TSL
+        // for the node materials and post of phases 17.2/17.3. Part of the
+        // pinned three@0.186.0 package, not examples; the export scan record
+        // (exporter/src/scan.ts) is measured with them.
+        'webgpu',
+        'tsl',
       ],
     },
     node: [],

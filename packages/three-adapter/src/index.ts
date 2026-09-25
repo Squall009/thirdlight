@@ -17,6 +17,33 @@
  */
 export { createSceneAdapter, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions, type ScreenshotResult } from './adapter';
 export { ERROR_CODES, type AdapterError, type AdapterErrorCode } from './errors';
+// Phase 17.1: the one renderer factory (Play/export, the Scene view, previews).
+export {
+  createRenderer,
+  decideBackend,
+  DEFAULT_RENDERER_PREFERENCE,
+  isNodeRenderer,
+  MAX_RENDERER_RECOVERIES,
+  pageSearch,
+  probeWebGpu,
+  RENDER_BACKEND_SETTING_VALUES,
+  RENDERER_PREFERENCES,
+  RENDERER_URL_PARAM,
+  rendererMemory,
+  rendererPreferenceFromSetting,
+  rendererPreferenceFromUrl,
+  resolveRendererPreference,
+  type AnyRenderer,
+  type CreateRendererOptions,
+  type RendererBackend,
+  type RendererFactoryDeps,
+  type RendererHandle,
+  type RendererInfo,
+  type RendererPreference,
+  type RendererPreferenceSource,
+  type RendererState,
+  type WebGpuProbe,
+} from './renderer-factory';
 // Packet 69: the M4 delivered-rendering `models` block (presentation.md
 // §41.9 row, C64-4 — "the M4 `models` block on `createSceneAdapter`
 // options": the resolved model-asset map, the per-`modelAnimation`-entity

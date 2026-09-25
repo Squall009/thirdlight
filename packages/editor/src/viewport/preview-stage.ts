@@ -2,23 +2,31 @@
  * The asset preview stage: a separate small renderer + scene for previewing
  * an asset (model/material/animation) without touching the edited scene.
  *
- * Browser-only: uses a canvas + WebGL via three.js.
+ * Phase 17.1: the renderer comes from the three-adapter factory with the
+ * editor's backend choice (frames wait until WebGPURenderer is ready).
+ *
+ * Browser-only: uses a canvas + WebGL/WebGPU via three.js.
  */
+import { createRenderer, type RendererHandle } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+import { editorRendererChoice } from './renderer-choice';
 
 export class PreviewStage {
   readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
-  private readonly renderer: THREE.WebGLRenderer;
+  private readonly renderer: RendererHandle;
   private readonly orbit: OrbitControls;
   private readonly canvas: HTMLCanvasElement;
   private raf = 0;
+  private sizedFor = -1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    const choice = editorRendererChoice();
+    // Opaque black where nothing is drawn (what WebGLRenderer cleared to); the scene background covers it.
+    this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: true, clearColor: 0x000000, clearAlpha: 1 });
     this.scene.background = new THREE.Color(0x1b1e26);
     const key = new THREE.DirectionalLight(0xffffff, 1.4);
     key.position.set(3, 5, 4);
@@ -30,8 +38,10 @@ export class PreviewStage {
     this.orbit.update();
     const loop = (): void => {
       this.raf = requestAnimationFrame(loop);
-      this.resize();
-      this.renderer.render(this.scene, this.camera);
+      const r = this.renderer.ready() ? this.renderer.current() : null;
+      if (r === null) return;
+      this.resize(r);
+      r.render(this.scene, this.camera);
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -52,13 +62,17 @@ export class PreviewStage {
     this.orbit.update();
   }
 
-  private resize(): void {
+  private resize(r: NonNullable<ReturnType<RendererHandle['current']>>): void {
+    if (this.sizedFor !== this.renderer.generation()) {
+      this.sizedFor = this.renderer.generation();
+      r.setPixelRatio(window.devicePixelRatio);
+    }
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     if (w === 0 || h === 0) return;
-    const size = this.renderer.getSize(new THREE.Vector2());
+    const size = r.getSize(new THREE.Vector2());
     if (size.x === w && size.y === h) return;
-    this.renderer.setSize(w, h, false);
+    r.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }

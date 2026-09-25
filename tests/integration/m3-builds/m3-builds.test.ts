@@ -206,7 +206,9 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
     // recorded-exception contributions — not forbidden.)
     const outDir = join(exportRoot, 'm3b21@r1');
     const bundleText = new TextDecoder().decode(readFileSync(join(outDir, 'js/main.js')));
-    for (const needle of ['node:', '/api/v1/', '/mcp', 'http://authoring.invalid', 'http://preview.invalid', 'secret-token-value-123']) {
+    // Phase 17.1: pattern e is a Node built-in module specifier (three's node materials have `node:` object keys).
+    expect(bundleText.match(/["'`]node:/g) ?? []).toEqual([]);
+    for (const needle of ['/api/v1/', '/mcp', 'http://authoring.invalid', 'http://preview.invalid', 'secret-token-value-123']) {
       expect(bundleText.includes(needle), `bundle contains forbidden ${needle}`).toBe(false);
     }
   });

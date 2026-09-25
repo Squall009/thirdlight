@@ -12,30 +12,37 @@
  *      the lockfile registry integrity equal to the recorded sha512).
  *   2. Flags — the build used exactly the export.md §5.3 pinned option set
  *      (enforced by the exporter's build call, not re-checkable here).
- *   3. Reference build — a reference full-core three bundle (the entry
- *      `import * as THREE from 'three';`, same pinned options) re-scans to
- *      exactly the table's counts (re-verifies the record against the
- *      current install before the real bundle is judged).
+ *   3. Reference build — a reference full three bundle (the entry imports
+ *      `three`, `three/webgpu` and `three/tsl` — phase 17.1: the engine links
+ *      the WebGPU renderer — same pinned options) re-scans to exactly the
+ *      table's counts (re-verifies the record against the current install
+ *      before the real bundle is judged).
  *   4. Real-bundle exact counts — as recorded below.
  * Any hit outside the binding conditions is a failure, not an exception
  * (export.md §5.4.1 "No silent exceptions").
  *
+ * Pattern e (`node:`) — phase 17.1: a Node built-in MODULE SPECIFIER, i.e. a
+ * string literal that starts with `node:` (`import 'node:fs'`,
+ * `from "node:path"`, `require('node:fs')`, `import(`node:os`)`). three's
+ * node-material code has object keys named `node` (`{ node: this }`), which
+ * are not module references and are not matched.
+ *
  * Pure string/byte processing: no I/O (the bytes are passed in).
  */
 
-/** The §5.4.1 recorded-exception table (pinned three@0.186.0, pinned flags). */
+/** The §5.4.1 recorded-exception table (pinned three@0.186.0, pinned flags; phase 17.1: three + three/webgpu + three/tsl). */
 export const THREE_RECORD = {
   version: '0.186.0',
   /** dependencies.md §7 / export.md §5.4.1: npm registry integrity of three@0.186.0. */
   integrity: 'sha512-cr/fIM2ddMSVbYVgkfD4jLJv7Fh/8ZTjvo+7gQeSVGUZHxpx9FDwoL5iC7hUz/LiRA8wMbqfnb90xKfm1/HHkQ==',
   /** d — `fetch(` in the pinned three code (two loader fetches + one warn literal). */
   fetch: 3,
-  /** f — `process.` (two warn literals + one doc comment); `__dirname`: 0. */
-  processDot: 3,
-  /** h — `http://` (XHTML namespace + two doc comments). */
-  http: 3,
-  /** h — `https://` (23 doc-comment reference links). */
-  https: 23,
+  /** f — `process.` (two warn literals + one doc comment in three core; 13 prose/doc uses such as "the build process." in the WebGPU renderer); `__dirname`: 0. */
+  processDot: 16,
+  /** h — `http://` (XHTML namespace + two doc comments; one more doc comment in the WebGPU renderer). */
+  http: 4,
+  /** h — `https://` (23 doc-comment reference links in three core; 4 more in the WebGPU renderer and TSL). */
+  https: 27,
   /** h — `file://`: absent. */
   file: 0,
   /** j — `XMLHttpRequest` (three doc comments); `WebSocket`: 0. */
@@ -152,14 +159,17 @@ export function scanExportFiles(
       ['XMLHttpRequest', THREE_RECORD.xhr],
       ['WebSocket', THREE_RECORD.ws],
       ['/api/v1/', 0],
-      ['node:', 0],
       ['/mcp', 0],
       ...tokenPatterns(p).map((t): [string, number] => [t, 0]),
       ...originPatterns(p).map((t): [string, number] => [t, 0]),
     ];
     const mismatch = expected.find(([needle, want]) => countOccurrences(ref, needle) !== want);
-    if (mismatch === undefined) {
+    const nodeRefs = nodeSpecifierOffsets(ref).length;
+    if (mismatch === undefined && nodeRefs === 0) {
       referenceOk = true;
+    } else if (mismatch === undefined) {
+      referenceOk = false;
+      reason = `reference three bundle scan deviates: 'node:' module specifiers expected 0, found ${nodeRefs}`;
     } else {
       referenceOk = false;
       reason = `reference three bundle scan deviates: '${mismatch[0]}' expected ${mismatch[1]}, found ${countOccurrences(ref, mismatch[0])}`;
@@ -187,10 +197,13 @@ export function scanExportFiles(
     // Absolute (strict) patterns — 0 hits everywhere, including the bundle
     // (a/b/c/e/g/i and the non-exception parts of f/h/j). One report per
     // pattern (the first hit) keeps the ≤ 4 hit budget meaningful.
-    for (const needle of [p.authoringOrigin, p.previewOrigin, '/api/v1/', 'node:', '/mcp', 'WebSocket', '__dirname', ...p.tokenValues]) {
+    for (const needle of [p.authoringOrigin, p.previewOrigin, '/api/v1/', '/mcp', 'WebSocket', '__dirname', ...p.tokenValues]) {
       if (needle.length === 0) continue;
       if (countOccurrences(text, needle) > 0) record(needle, kthOffset(text, needle, 0), text);
     }
+    // e — a Node built-in module specifier (strict 0 in every file).
+    const nodeRefs = nodeSpecifierOffsets(text);
+    if (nodeRefs.length > 0) record('node:', nodeRefs[0]!, text);
 
     if (!isBundle) {
       // Non-bundle files: every pattern is strict-0.
@@ -238,6 +251,21 @@ export function scanExportFiles(
     hits: scanHits,
     binding: { identityOk, referenceOk, reason },
   };
+}
+
+/**
+ * Pattern e: the offsets of every string literal that starts with `node:`
+ * (a quote — single, double or backtick — directly followed by `node:`).
+ * Catches `import 'node:fs'`, `export * from "node:fs"`, `require("node:fs")`
+ * and `import(`node:fs`)` alike; an object key (`{ node: x }`, minified
+ * `{node:x}`, or JSON `"node":`) has no quote before `node` and is not a
+ * module reference.
+ */
+export function nodeSpecifierOffsets(text: string): number[] {
+  const out: number[] = [];
+  const re = /["'`]node:/g;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) out.push(m.index + 1);
+  return out;
 }
 
 function tokenPatterns(p: ScanPatterns): string[] {

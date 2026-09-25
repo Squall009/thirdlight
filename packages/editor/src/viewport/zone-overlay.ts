@@ -79,7 +79,7 @@ const N = (v: number | undefined): number => v ?? 0;
 export class ZoneOverlay {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
-  private readonly canvas: HTMLCanvasElement;
+  private canvas: HTMLCanvasElement;
   private readonly root: THREE.Group;
   /** The live zone/spawn/bounds objects, keyed by entity id. */
   private readonly objects = new Map<string, THREE.Group>();
@@ -110,6 +110,11 @@ export class ZoneOverlay {
   /** Phase 15.2: the descriptors (the handles come from them) and each entity's scene node (its frame). */
   private registry: DescriptorRegistry | null = null;
   private nodeFor: (entityId: string) => THREE.Object3D | null = () => null;
+
+  /** Phase 17.1: the Scene view replaced its canvas (another renderer backend). */
+  setCanvas(canvas: HTMLCanvasElement): void {
+    this.canvas = canvas;
+  }
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement) {
     this.scene = scene;

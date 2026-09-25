@@ -4,10 +4,15 @@
  * The PNG goes to the backend's thumbnail cache, so the next editor just
  * downloads it. Renders run one at a time.
  *
- * Browser-only (three.js + WebGL).
+ * Phase 17.1: the renderer comes from the three-adapter factory with the
+ * editor's backend choice (a thumbnail waits until WebGPURenderer is ready).
+ *
+ * Browser-only (three.js + WebGL/WebGPU).
  */
 import * as THREE from 'three';
-import type { PreparedVisualResource, VertexColorMode } from '@thirdlight/three-adapter';
+import { createRenderer, isNodeRenderer, type PreparedVisualResource, type RendererHandle, type VertexColorMode } from '@thirdlight/three-adapter';
+
+import { editorRendererChoice } from './renderer-choice';
 
 /** Thumbnail edge in pixels (tiles show it at half size on HiDPI screens). */
 export const THUMBNAIL_SIZE = 128;
@@ -37,8 +42,18 @@ function idle(): Promise<void> {
   });
 }
 
+/** A PNG data URL as a Blob (null when it is not one). */
+function dataUrlBlob(url: string): Blob | null {
+  const prefix = 'data:image/png;base64,';
+  if (!url.startsWith(prefix)) return null;
+  const bin = atob(url.slice(prefix.length));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'image/png' });
+}
+
 export class ThumbnailRenderer {
-  private renderer: THREE.WebGLRenderer | null = null;
+  private renderer: RendererHandle | null = null;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
   private readonly queue: Job[] = [];
@@ -114,11 +129,15 @@ export class ThumbnailRenderer {
         const canvas = document.createElement('canvas');
         canvas.width = THUMBNAIL_SIZE;
         canvas.height = THUMBNAIL_SIZE;
-        this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
-        this.renderer.setPixelRatio(1);
-        this.renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
-        this.renderer.setClearColor(0x000000, 0);
+        const choice = editorRendererChoice();
+        // A transparent background: the tile's own colour shows around the model.
+        this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, alpha: true, antialias: true, preserveDrawingBuffer: true, clearColor: 0x000000, clearAlpha: 0, loseContextOnDispose: true });
       }
+      if (!(await this.renderer.whenReady()) || this.disposed) return null;
+      const renderer = this.renderer.current();
+      if (renderer === null) return null;
+      renderer.setPixelRatio(1);
+      renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
       this.scene.add(instance.root);
       instance.root.updateMatrixWorld(true);
       const box = resource.bounds(piece);
@@ -132,8 +151,10 @@ export class ThumbnailRenderer {
       this.camera.far = distance + sphere.radius * 2;
       this.camera.lookAt(sphere.center);
       this.camera.updateProjectionMatrix();
-      this.renderer.render(this.scene, this.camera);
-      const canvas = this.renderer.domElement;
+      renderer.render(this.scene, this.camera);
+      const canvas = renderer.domElement;
+      // WebGPURenderer keeps no drawing buffer: the PNG is read in the same task as the render.
+      if (isNodeRenderer(renderer)) return dataUrlBlob(canvas.toDataURL('image/png'));
       return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
     } finally {
       this.scene.remove(instance.root);
@@ -146,7 +167,6 @@ export class ThumbnailRenderer {
     for (const p of this.urls.values()) void p.then((u) => u !== null && URL.revokeObjectURL(u));
     this.urls.clear();
     this.renderer?.dispose();
-    this.renderer?.forceContextLoss();
     this.renderer = null;
   }
 }

@@ -276,11 +276,15 @@ describe('gameplay settings resolution (§21.5)', () => {
       'audio_voices',
       'music_fade_s',
       'animation_crossfade_s',
+      // Phase 17.1: the renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
+      'render_backend',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });
     expect(engine.ok && Object.keys(engine.normalized)).toEqual(['gravity_y', 'run_speed', 'jump_velocity', 'max_fall_speed', 'max_slope_climb_deg', 'min_slope_slide_deg', 'fixed_step_hz', 'audio_voices']);
-    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }]) {
+    const backend = resolveGameplaySettings({ settings: { render_backend: 3 } });
+    expect(backend.ok && backend.normalized.render_backend).toBe(3);
+    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }]) {
       expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
     }
   });

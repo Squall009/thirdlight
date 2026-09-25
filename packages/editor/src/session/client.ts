@@ -524,6 +524,9 @@ export class SessionClient {
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
         const flow = (g as { flow?: GameFlow | null }).flow;
         this.flow = flow !== undefined && flow !== null ? structuredClone(flow) : null;
+        // Phase 17.1: the settings map travels with the game block (null before: only changes carried it).
+        const settings = (g as { settings?: Record<string, unknown> }).settings;
+        if (settings !== undefined && settings !== null && typeof settings === 'object') this.settings = { ...settings };
         const graphs = (g as { graphs?: GraphDocument[] }).graphs;
         this.graphs = Array.isArray(graphs) ? structuredClone(graphs) : [];
         const kinds = (g as { graphKinds?: Record<string, GraphKindDef> }).graphKinds;

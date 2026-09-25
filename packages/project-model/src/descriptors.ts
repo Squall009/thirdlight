@@ -136,6 +136,8 @@ export interface IntFieldDescriptor extends FieldBase {
   readonly step?: number;
   /** Phase 15.3: only these values (a choice of numbers, e.g. a step rate). */
   readonly values?: readonly number[];
+  /** Phase 17.1: what each of `values` is called (same order; shown instead of the number). */
+  readonly valueLabels?: readonly string[];
 }
 export interface BoolFieldDescriptor extends FieldBase {
   readonly type: 'bool';
@@ -1355,12 +1357,12 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
     ...(s.min !== undefined ? { min: s.min } : {}),
     ...(s.max !== undefined ? { max: s.max } : {}),
     ...(s.group !== undefined ? { group: s.group } : {}),
-    unit: settingsUnit(s.unit),
+    ...(s.unit !== '' ? { unit: settingsUnit(s.unit) } : {}),
     default: s.default,
   };
   const label = s.label ?? settingsLabel(s.key);
   const tooltip = s.tooltip ?? `${s.key} (${s.unit}).`;
-  if (s.integer === true) return int(s.key, label, tooltip, { ...common, ...(s.values !== undefined ? { values: [...s.values] } : {}) });
+  if (s.integer === true) return int(s.key, label, tooltip, { ...common, ...(s.values !== undefined ? { values: [...s.values] } : {}), ...(s.valueLabels !== undefined ? { valueLabels: [...s.valueLabels] } : {}) });
   return num(s.key, label, tooltip, {
     ...common,
     ...(s.minExclusive === true ? { minExclusive: true } : {}),
