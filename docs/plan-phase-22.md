@@ -74,7 +74,7 @@ without concurrency hazards and without changing game results. Read
 
 | Item | Status | Commits |
 |---|---|---|
-| 22.0 simulation worker | todo | |
+| 22.0 simulation worker | done 2026-09-25 | 56e7124, 4d6cb8b |
 | 22.1 editor workers | done 2026-09-25 | 61edf98 |
 | 22.2 render worker spike | todo | |
 | 22.3 physics details | todo | |
