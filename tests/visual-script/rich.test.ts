@@ -82,7 +82,7 @@ const RICH: GraphData = {
     node('get-total-2', 'var.get', { variable: 'total' }),
     node('tripled', 'api.game.add', { name: 'tripled' }),
     node('dice', 'random.integer', { min: 1, max: 6 }),
-    node('roll', 'flow.switch', { on: 'int', case1: '1', case2: '6' }),
+    node('roll', 'flow.switch', { on: 'int', cases: '1, 6' }),
     node('ones', 'api.game.add', { name: 'ones' }),
     node('sixes', 'api.game.add', { name: 'sixes' }),
     node('other', 'api.game.add', { name: 'other' }),
@@ -91,7 +91,7 @@ const RICH: GraphData = {
     // Sequence B.
     node('seq-b', 'flow.sequence'),
     node('get-mode', 'var.get', { variable: 'mode' }),
-    node('mood', 'flow.switch', { on: 'text', case1: 'calm', case2: 'busy' }),
+    node('mood', 'flow.switch', { on: 'text', cases: 'calm, busy' }),
     node('once', 'flow.doonce'),
     node('once-add', 'api.game.add', { name: 'once' }),
     node('delay', 'flow.delay', { seconds: 0.1 }),

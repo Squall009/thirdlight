@@ -54,6 +54,10 @@ export interface Scene {
   highlighted?: ReadonlySet<string>;
   /** Phase 18.1: every node's resolved ports (data-dependent ports). */
   portsOf: PortsOf;
+  /** Phase 19.2: nodes carrying a breakpoint (a red dot on the header). */
+  breakpoints?: ReadonlySet<string>;
+  /** Phase 19.2: the node a paused debugger stands on (a thick outline and a ▶). */
+  current?: string | null;
 }
 
 const COLORS = {
@@ -71,7 +75,37 @@ const COLORS = {
   comment: '#3a3524',
   commentLine: '#6b5f36',
   lit: '#f2b544',
+  breakpoint: '#e5484d',
+  current: '#46d18a',
 };
+
+/** Phase 19.2: a port type drawn as control flow (thicker wires with arrows). */
+function isFlowType(kind: GraphKindDef, type: string): boolean {
+  return kind.portTypes.find((t) => t.id === type)?.flow === true;
+}
+
+/** An arrowhead at the middle of each wire segment, pointing along the flow. */
+function drawArrows(ctx: CanvasRenderingContext2D, segs: readonly (readonly GraphPoint[])[], color: string, size: number): void {
+  ctx.fillStyle = color;
+  for (const s of segs) {
+    // The cubic's point and tangent at t = 0.5.
+    const [p0, p1, p2, p3] = s as [GraphPoint, GraphPoint, GraphPoint, GraphPoint];
+    const x = (p0[0] + 3 * p1[0] + 3 * p2[0] + p3[0]) / 8;
+    const y = (p0[1] + 3 * p1[1] + 3 * p2[1] + p3[1]) / 8;
+    const dx = (p3[0] + p2[0] - p1[0] - p0[0]) * 0.75;
+    const dy = (p3[1] + p2[1] - p1[1] - p0[1]) * 0.75;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) continue;
+    const ux = dx / len;
+    const uy = dy / len;
+    ctx.beginPath();
+    ctx.moveTo(x + ux * size, y + uy * size);
+    ctx.lineTo(x - ux * size - uy * size * 0.8, y - uy * size + ux * size * 0.8);
+    ctx.lineTo(x - ux * size + uy * size * 0.8, y - uy * size - ux * size * 0.8);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
 
 export function positionOf(scene: Scene, id: string, fallback: GraphPoint): GraphPoint {
   return scene.moved.get(id) ?? fallback;
@@ -163,11 +197,15 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
     const bb = { x: Math.min(...xs) - 60, y: Math.min(...ys) - 60, w: Math.max(...xs) - Math.min(...xs) + 120, h: Math.max(...ys) - Math.min(...ys) + 120 };
     if (!overlaps(bb, viewRect)) continue;
     const outDef = scene.portsOf(a).outputs.find((p) => p.id === e.from.port);
-    const color = portTypeColor(kind, outDef?.type ?? '');
+    const flow = isFlowType(kind, outDef?.type ?? '');
+    // Phase 19.2: a flow wire between two nodes that just ran (Play debugging) glows.
+    const active = flow && scene.highlighted?.has(a.id) === true && scene.highlighted.has(b.id);
+    const color = active ? COLORS.lit : portTypeColor(kind, outDef?.type ?? '');
     const conv = edgeConversion(kind, graph, e, scene.portsOf);
     const hot = scene.selected.has(e.id) || scene.hoverEdge === e.id || scene.selected.has(a.id) || scene.selected.has(b.id);
     ctx.strokeStyle = scene.selected.has(e.id) ? COLORS.select : color;
-    ctx.lineWidth = (hot ? 3 : 2) * Math.max(px, 1);
+    // Phase 19.2: control-flow wires are thicker than data wires, with arrows along the flow.
+    ctx.lineWidth = (flow ? (hot ? 4.5 : 3.5) : hot ? 3 : 2) * Math.max(px, 1);
     ctx.setLineDash(conv !== null ? [8, 5] : []);
     ctx.beginPath();
     const segs = wireSegments(from, to, reroutes);
@@ -177,6 +215,7 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
     }
     ctx.stroke();
     ctx.setLineDash([]);
+    if (flow && view.zoom >= 0.3) drawArrows(ctx, segs, scene.selected.has(e.id) ? COLORS.select : color, 6 * Math.max(px, 1));
     for (const p of reroutes) {
       ctx.fillStyle = color;
       ctx.beginPath();
@@ -252,9 +291,20 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
   ctx.fillStyle = COLORS.header;
   ctx.fillRect(r.x, r.y, r.w, HEADER);
   const lit = scene.highlighted?.has(n.id) === true;
-  ctx.strokeStyle = selected ? COLORS.select : lit ? COLORS.lit : problems.some((p) => p.severity === 'error') ? COLORS.err : COLORS.nodeLine;
-  ctx.lineWidth = (selected || lit ? 2.5 : 1) * px;
+  const current = scene.current === n.id;
+  ctx.strokeStyle = current ? COLORS.current : selected ? COLORS.select : lit ? COLORS.lit : problems.some((p) => p.severity === 'error') ? COLORS.err : COLORS.nodeLine;
+  ctx.lineWidth = (current ? 4 : selected || lit ? 2.5 : 1) * px;
   ctx.strokeRect(r.x, r.y, r.w, r.h);
+  if (current) {
+    // Phase 19.2: where the paused debugger stands.
+    ctx.fillStyle = COLORS.current;
+    ctx.beginPath();
+    ctx.moveTo(r.x - 16, r.y + 4);
+    ctx.lineTo(r.x - 4, r.y + HEADER / 2);
+    ctx.lineTo(r.x - 16, r.y + HEADER - 4);
+    ctx.closePath();
+    ctx.fill();
+  }
   if (detail) {
     ctx.fillStyle = COLORS.dim;
     ctx.font = '10px sans-serif';
@@ -262,6 +312,13 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
     ctx.fillStyle = COLORS.text;
     ctx.font = 'bold 12px sans-serif';
     ctx.fillText(clip(nodeTitle(kind, n), 20), r.x + 18, r.y + 17);
+  }
+  if (scene.breakpoints?.has(n.id) === true) {
+    // Phase 19.2: a breakpoint — a red dot on the header's right, left of the problem badge.
+    ctx.fillStyle = COLORS.breakpoint;
+    ctx.beginPath();
+    ctx.arc(r.x + r.w - (problems.length > 0 ? 28 : 12), r.y + HEADER / 2, 6, 0, Math.PI * 2);
+    ctx.fill();
   }
   if (problems.length > 0) {
     // The problem badge: red for an error, yellow for a warning.

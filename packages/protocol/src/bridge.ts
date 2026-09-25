@@ -26,6 +26,7 @@ export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
   'tl.diagnostics.request',
   'tl.game.control',
   'tl.game.observe',
+  'tl.debug.request',
   'tl.ping',
 ] as const;
 export type BridgeEditorToPreviewType = (typeof BRIDGE_EDITOR_TO_PREVIEW_TYPES)[number];
@@ -40,6 +41,7 @@ export const BRIDGE_PREVIEW_TO_EDITOR_TYPES = [
   'tl.diagnostics.result',
   'tl.game.control.result',
   'tl.game.observe.result',
+  'tl.debug.result',
   'tl.error',
   'tl.pong',
 ] as const;
@@ -55,6 +57,17 @@ export const BRIDGE_LOAD_PROGRESS_MAX_BYTES = 1_024;
 /** §17.6: `tl.input.request` frames/bytes cap. */
 export const BRIDGE_INPUT_MAX_FRAMES = 600;
 export const BRIDGE_INPUT_MAX_BYTES = 16_384;
+/** Phase 19.2: breakpoints in one `tl.debug.request` (node ids as the debugger names them, `fn:<id>/<node>` inside a function). */
+export const BRIDGE_DEBUG_MAX_BREAKPOINTS = 64;
+/** Phase 19.2: the `tl.debug.result` body bound. */
+export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
+/** Phase 19.2: what a debug request may ask of the running play besides reading. */
+export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
+/** Phase 19.2: game-control commands (§20.1 plus the debugger's pause / resume / step). */
+const GAME_CONTROL = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'];
+const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
+const DEBUG_NODE_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
 
 type Verdict = { ok: true } | { ok: false; reason: string; path?: string };
 
@@ -208,14 +221,31 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
-      if (type === 'tl.game.control' && !['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave'].includes(String(m['command']))) {
-        return { ok: false, reason: 'command must be start, replay, mute, unmute, loadScene or unloadScene', path: '/command' };
+      if (type === 'tl.game.control' && !GAME_CONTROL.includes(String(m['command']))) {
+        return { ok: false, reason: `command must be one of ${GAME_CONTROL.join(', ')}`, path: '/command' };
       }
       if (type === 'tl.game.observe' && m['entityId'] !== undefined && (typeof m['entityId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['entityId']))) {
         return { ok: false, reason: 'entityId must be an entity id', path: '/entityId' };
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
+      }
+      return { ok: true };
+    }
+    case 'tl.debug.request': {
+      // Phase 19.2: the visual-script debugger — which behavior (and object) it watches, its breakpoints, an optional command.
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'behaviorId', 'entityId', 'breakpoints', 'command']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      if (typeof m['behaviorId'] !== 'string' || !ENTITY_ID_RE.test(m['behaviorId'])) return { ok: false, reason: 'behaviorId must be a behavior id', path: '/behaviorId' };
+      if (m['entityId'] !== undefined && (typeof m['entityId'] !== 'string' || !ENTITY_ID_RE.test(m['entityId']))) return { ok: false, reason: 'entityId must be an entity id', path: '/entityId' };
+      const bps = m['breakpoints'];
+      if (!Array.isArray(bps) || bps.length > BRIDGE_DEBUG_MAX_BREAKPOINTS || !bps.every((b) => typeof b === 'string' && DEBUG_NODE_RE.test(b))) {
+        return { ok: false, reason: `breakpoints must list at most ${BRIDGE_DEBUG_MAX_BREAKPOINTS} node ids`, path: '/breakpoints' };
+      }
+      if (m['command'] !== undefined && !(BRIDGE_DEBUG_COMMANDS as readonly string[]).includes(String(m['command']))) {
+        return { ok: false, reason: `command must be one of ${BRIDGE_DEBUG_COMMANDS.join(', ')}`, path: '/command' };
       }
       return { ok: true };
     }
@@ -345,6 +375,16 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
       if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
       if (JSON.stringify(m['result'] ?? null).length > 16_384) return { ok: false, reason: 'result exceeds the 16 KiB bound', path: '/result' };
+      return { ok: true };
+    }
+    case 'tl.debug.result': {
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'ok', 'result', 'error']);
+      if (bad) return { ok: false, reason: bad.reason, path: bad.path };
+      if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
+      if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
+      if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
+      if (JSON.stringify(m['result'] ?? null).length > BRIDGE_DEBUG_RESULT_MAX_BYTES) return { ok: false, reason: `result exceeds the ${BRIDGE_DEBUG_RESULT_MAX_BYTES}-byte bound`, path: '/result' };
       return { ok: true };
     }
     case 'tl.error': {

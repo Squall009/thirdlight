@@ -180,6 +180,31 @@ export class Bridge {
     this.postLocal({ v: 2, type: kind === 'control' ? 'tl.game.control.result' : 'tl.game.observe.result', playSessionId, relayId, ...body });
   }
 
+  /**
+   * Phase 19.2: the visual-script debugger's poll (editor side): the behavior
+   * (and object) it watches, its breakpoints and an optional pause / resume /
+   * step. The preview answers from the running game (`tl.debug.result`).
+   */
+  requestDebug(playSessionId: string, relayId: string, body: { behaviorId: string; entityId?: string; breakpoints: readonly string[]; command?: 'pause' | 'resume' | 'step' }): void {
+    if (this.direction !== 'editor') throw new Error('requestDebug is editor-side only');
+    this.postLocal({
+      v: 2,
+      type: 'tl.debug.request',
+      playSessionId,
+      relayId,
+      behaviorId: body.behaviorId,
+      ...(body.entityId !== undefined ? { entityId: body.entityId } : {}),
+      breakpoints: [...body.breakpoints],
+      ...(body.command !== undefined ? { command: body.command } : {}),
+    });
+  }
+
+  /** Phase 19.2: answer a debug request (preview side). */
+  sendDebugResult(playSessionId: string, relayId: string, body: { ok: true; result: unknown } | { ok: false; error: { code: string; message?: string } }): void {
+    if (this.direction !== 'preview') throw new Error('sendDebugResult is preview-side only');
+    this.postLocal({ v: 2, type: 'tl.debug.result', playSessionId, relayId, ...body });
+  }
+
   /** Request diagnostics (editor side). */
   requestDiagnostics(playSessionId: string, relayId: string): void {
     if (this.direction !== 'editor') throw new Error('requestDiagnostics is editor-side only');

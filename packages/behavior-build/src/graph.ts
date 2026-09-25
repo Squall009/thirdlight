@@ -60,6 +60,7 @@ import {
   nodeDef,
   parseVariableValue,
   portCompatibility,
+  repeatItems,
   resolveGraphPorts,
   scopedNodeId,
   validateGraphData,
@@ -91,6 +92,17 @@ import type { BehaviorCompileFailure, BehaviorCompileInput, BehaviorCompileResul
 import { GRAPH_SOURCE_BANNER } from './graph-banner';
 
 export { GRAPH_SOURCE_BANNER };
+
+/** Phase 19.2: generator options. */
+export interface GraphSourceOptions {
+  /**
+   * A Play debug build: the module also records, per instance, the nodes it
+   * enters each step, the values read along data wires and local variables
+   * (`debug(state)` returns them). Only the backend's Play build asks for it;
+   * published sources and exports are always generated without it.
+   */
+  debug?: boolean;
+}
 
 export type GraphSourceResult =
   | {
@@ -160,11 +172,20 @@ function zero(type: string): string {
   }
 }
 
+/** Phase 19.2 (Play debug builds only): `r.n = "<id>";` — where the generated code enters a node. */
+const ENTER_RE = /^(\s*)r\.n = ("(?:[^"\\]|\\.)*");$/;
+
 class Emitter {
   readonly lines: string[] = [];
   readonly nodes: (string | null)[] = [];
   bytes = 0;
+  /** Phase 19.2: a Play debug build — every node entry also records the node in the instance's trace. */
+  constructor(readonly debug = false) {}
   line(text: string, nodeId: string | null = null): void {
+    if (this.debug) {
+      const m = ENTER_RE.exec(text);
+      if (m !== null) text = `${m[1]}r.n = ${m[2]}; T(s, ${m[2]});`;
+    }
     this.lines.push(text);
     this.nodes.push(nodeId);
     this.bytes += utf8Encode(text).length + 1;
@@ -183,12 +204,12 @@ class Emitter {
 class ChunkEmitter extends Emitter {
   readonly chunks: Emitter[] = [];
   override line(text: string, nodeId: string | null = null): void {
-    if (this.chunks.length === 0) this.chunks.push(new Emitter());
+    if (this.chunks.length === 0) this.chunks.push(new Emitter(this.debug));
     this.chunks[this.chunks.length - 1]!.line(text, nodeId);
   }
   override boundary(): void {
     const cur = this.chunks[this.chunks.length - 1];
-    if (cur === undefined || cur.bytes > CHUNK_BYTES) this.chunks.push(new Emitter());
+    if (cur === undefined || cur.bytes > CHUNK_BYTES) this.chunks.push(new Emitter(this.debug));
   }
 }
 
@@ -356,8 +377,39 @@ function rint(s: S, a: number, b: number): number {
   return hi < lo ? lo : lo + Math.floor(rnd(s) * (hi - lo + 1));
 }`;
 
+/**
+ * Phase 19.2: the helpers a Play debug build adds (never in a published or
+ * exported module — those are generated without `debug`). Per instance, in
+ * its state (`s.db`): the node ids entered in the current step, in order
+ * (at most DBG_TRACE, then only counted), the last step each node ran, the
+ * last value read along each data wire, and the last value of each local
+ * variable. Write-only for the script: nothing here changes what it does.
+ */
+const DEBUG_HELPERS = `const DBG_TRACE = 256;
+type DB = { k: number; t: string[]; x: number; l: Record<string, number>; w: Record<string, any>; lv: Record<string, any> };
+function T(s: S, id: string): void {
+  const d = s.db;
+  if (d.t.length < DBG_TRACE) d.t.push(id);
+  else d.x++;
+  d.l[id] = d.k;
+}
+function W(s: S, key: string, v: any): any {
+  s.db.w[key] = v;
+  return v;
+}
+function LV(s: S, key: string, v: any): void {
+  s.db.lv[key] = v;
+}`;
+
+/** The helpers file of a build (a debug build types the state's debug record and adds its helpers). */
+function helpersText(debug: boolean): string {
+  if (!debug) return RUNTIME_HELPERS;
+  const withDb = RUNTIME_HELPERS.replace(/^(type S = \{.*)( \};)$/m, '$1; db: DB$2');
+  return `${withDb}\n${DEBUG_HELPERS}`;
+}
+
 /** The value names the helpers export (every generated file imports them). */
-const HELPER_NAMES = [...RUNTIME_HELPERS.matchAll(/^(?:function|const) ([A-Za-z0-9_]+)/gm)].map((m) => m[1]!);
+const helperNames = (debug: boolean): string[] => [...helpersText(debug).matchAll(/^(?:function|const) ([A-Za-z0-9_]+)/gm)].map((m) => m[1]!);
 
 /** The code of one graph (the script, a function or a shared function). */
 class GraphCode {
@@ -365,7 +417,7 @@ class GraphCode {
   readonly byId: Map<string, GraphNode>;
   readonly index: Map<string, number>;
   readonly ports: ReturnType<typeof resolveGraphPorts>;
-  readonly incoming = new Map<string, { node: string; port: string }>();
+  readonly incoming = new Map<string, { node: string; port: string; edge: string }>();
   readonly outgoing = new Map<string, { node: string; port: string }[]>();
   readonly wired = new Set<string>();
   /** Variables of this graph stored in the frame (locals) vs. the instance state. */
@@ -384,7 +436,7 @@ class GraphCode {
     this.index = new Map(this.nodes.map((n, i) => [n.id, i]));
     this.ports = resolveGraphPorts(sg.kind, sg.graph, sg.ctx);
     for (const e of sg.graph.edges) {
-      this.incoming.set(`${e.to.node}\u0000${e.to.port}`, e.from);
+      this.incoming.set(`${e.to.node}\u0000${e.to.port}`, { node: e.from.node, port: e.from.port, edge: e.id });
       this.wired.add(`${e.to.node}\u0000${e.to.port}`);
       const k = `${e.from.node}\u0000${e.from.port}`;
       const l = this.outgoing.get(k) ?? [];
@@ -466,7 +518,9 @@ class GraphCode {
     if (from === undefined) return this.inline(n, port);
     const src = this.byId.get(from.node)!;
     const out = this.portsOf(src).outputs.find((p) => p.id === from.port)!;
-    const expr = this.readOutput(src, out);
+    const raw = this.readOutput(src, out);
+    // Phase 19.2 (Play debug builds): the value that moved along the wire (before any conversion).
+    const expr = this.gen.debug ? `W(s, ${q(this.sid(from.edge))}, ${raw})` : raw;
     if (out.type === port.type) return expr;
     if (portCompatibility(this.sg.kind, out.type, port.type) === null) return expr; // refused by the structural check
     if (port.type === 'string') return out.type === 'vector' ? `vs(${expr})` : `String(${expr})`;
@@ -955,13 +1009,15 @@ class GraphCode {
         const int = this.field(n, 'on', 'text') === 'int';
         em.line(`  const v = ${int ? `Math.trunc(${a.get('value')})` : a.get('value')};`, sid);
         let first = true;
-        for (let i = 1; i <= BEHAVIOR_GRAPH_LIMITS.switchCases; i++) {
-          const c = this.str(n, `case${i}`).trim();
-          if (c === '') continue;
-          em.line(`  ${first ? 'if' : '} else if'} (v === ${int ? lit(Math.trunc(Number(c)) || 0) : q(this.str(n, `case${i}`))}) {`, sid);
-          this.follow(n, `case${i}`, '    ', em);
-          first = false;
-        }
+        // Phase 19.2: one output per listed case (ports case1…caseN).
+        repeatItems(this.str(n, 'cases'))
+          .slice(0, BEHAVIOR_GRAPH_LIMITS.switchCases)
+          .forEach((c, i) => {
+            if (c === '') return;
+            em.line(`  ${first ? 'if' : '} else if'} (v === ${int ? lit(Math.trunc(Number(c)) || 0) : q(c)}) {`, sid);
+            this.follow(n, `case${i + 1}`, '    ', em);
+            first = false;
+          });
         if (first) this.follow(n, 'default', '  ', em);
         else {
           em.line('  } else {', sid);
@@ -973,7 +1029,10 @@ class GraphCode {
       }
       case 'var.set': {
         const a = open('in');
-        em.line(`  ${this.varRef(this.str(n, 'variable'))} = ${a.get('value')};`, sid);
+        const vname = this.str(n, 'variable');
+        em.line(`  ${this.varRef(vname)} = ${a.get('value')};`, sid);
+        // Phase 19.2 (Play debug builds): a local's last value for the watch list (per-object variables are in the state).
+        if (this.gen.debug && this.locals.has(vname)) em.line(`  LV(s, ${q(this.sid(vname))}, ${a.get('value')});`, sid);
         store('value', a.get('value')!);
         this.follow(n, 'then', '  ', em);
         close();
@@ -1171,7 +1230,11 @@ class ScriptCode {
   readonly functionNames = new Map<string, string>();
   readonly delayNames = new Map<string, string>();
 
-  constructor(graphs: BehaviorScriptGraph[]) {
+  /** `debug`: phase 19.2's Play debug build (trace, wire values, locals). */
+  constructor(
+    graphs: BehaviorScriptGraph[],
+    readonly debug = false,
+  ) {
     this.graphs = graphs;
     graphs.forEach((sg, i) => {
       const code = new GraphCode(this, sg, i === 0 ? '' : `f${i}_`);
@@ -1199,7 +1262,8 @@ class ScriptCode {
  * node-attributed problems) a graph that is structurally invalid for its
  * kind or fails the compile checks (`checkBehaviorGraph`).
  */
-export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {}): GraphSourceResult {
+export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {}, options: GraphSourceOptions = {}): GraphSourceResult {
+  const debug = options.debug === true;
   const graphs = behaviorScriptGraphs(graph, env);
   const structural: BehaviorGraphProblem[] = [];
   for (const sg of graphs) {
@@ -1217,10 +1281,11 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
   const errors = checked.filter((p) => p.severity === 'error');
   if (errors.length > 0) return { ok: false, problems: errors };
 
-  const script = new ScriptCode(graphs);
+  const script = new ScriptCode(graphs, debug);
   const main = script.scriptCode!;
-  const em = new Emitter();
-  const nodesEm = new ChunkEmitter();
+  const em = new Emitter(debug);
+  const nodesEm = new ChunkEmitter(debug);
+  const HELPER_NAMES = helperNames(debug);
   const declaration = behaviorGraphDeclaration(graph);
   const phases = behaviorNodePhases(graphs);
   try {
@@ -1266,6 +1331,7 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     em.line('      g: {},');
     em.line('      d: {},');
     em.line('      rng: seed(String(inst.entityId)),');
+    if (debug) em.line('      db: { k: -1, t: [], x: 0, l: {}, w: {}, lv: {} },');
     em.line('    };');
     em.line('  },');
     em.line('  step(s: S, c: any): void {');
@@ -1273,6 +1339,12 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     em.line('    if (s.k !== c.stepIndex) {');
     em.line('      s.k = c.stepIndex;');
     em.line('      s.it = 0;');
+    if (debug) {
+      // Phase 19.2: a new step starts the instance's trace again.
+      em.line('      s.db.k = c.stepIndex;');
+      em.line('      s.db.t = [];');
+      em.line('      s.db.x = 0;');
+    }
     em.line('    }');
     em.line("    const r: R = { n: '' };");
     em.line('    try {');
@@ -1307,6 +1379,12 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     em.line('      throw tag(e, r.n);');
     em.line('    }');
     em.line('  },');
+    if (debug) {
+      // Phase 19.2: what Play's debugger reads (the runtime's behaviorDebug); never called by a step.
+      em.line('  debug(s: S): unknown {');
+      em.line('    return { step: s.db.k, trace: s.db.t, dropped: s.db.x, last: s.db.l, wires: s.db.w, locals: s.db.lv, vars: s.v };');
+      em.line('  },');
+    }
     em.line('};');
     em.line('');
   } catch (e) {
@@ -1314,7 +1392,7 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     throw e;
   }
 
-  const helpers = RUNTIME_HELPERS.split('\n').map((l) => (/^(function|const|type) /.test(l) ? `export ${l}` : l));
+  const helpers = helpersText(debug).split('\n').map((l) => (/^(function|const|type) /.test(l) ? `export ${l}` : l));
   const files: { path: string; text: string }[] = [
     { path: ENTRY_PATH, text: em.lines.join('\n') },
     { path: HELPERS_PATH, text: ['/* eslint-disable */', ...helpers, ''].join('\n') },
@@ -1374,9 +1452,9 @@ export type BehaviorGraphCompileResult =
  */
 export async function compileBehaviorGraph(
   compiler: BehaviorCompiler,
-  input: { behaviorId: string; graph: GraphData; env?: BehaviorScriptEnv; limits?: BehaviorCompileInput['limits'] },
+  input: { behaviorId: string; graph: GraphData; env?: BehaviorScriptEnv; limits?: BehaviorCompileInput['limits']; debug?: boolean },
 ): Promise<BehaviorGraphCompileResult> {
-  const gen = generateGraphSource(input.graph, input.env);
+  const gen = generateGraphSource(input.graph, input.env, { debug: input.debug === true });
   if (!gen.ok) return { ok: false, failure: graphProblemsFailure(gen.problems), containerBytes: null, warnings: [] };
   const result = await compiler.compile({
     behaviorId: input.behaviorId,

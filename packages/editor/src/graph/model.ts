@@ -214,6 +214,36 @@ export function graphInterface(kind: GraphKindDef, graph: GraphData): NodePorts 
   return { inputs: side(itf.input), outputs: side(itf.output) };
 }
 
+/** Phase 19.2: the items of a repeated port's text field (project-model `repeatItems`). */
+export function repeatItems(value: string): string[] {
+  return value.trim() === '' ? [] : value.split(',').map((x) => x.trim());
+}
+
+/**
+ * Phase 19.2: the ports a repeated port stands for on a node (project-model
+ * `repeatedPorts`, parity-tested): a number field is the count, a text field
+ * a comma-separated list (one port per item, labelled with it); ids
+ * `<id>1`, `<id>2`, …
+ */
+export function repeatedPorts(def: GraphNodeDef, node: GraphNode, port: GraphPortDef): GraphPortDef[] {
+  const rep = port.repeat;
+  if (rep === undefined) return [port];
+  const f = def.fields?.find((x) => x.key === rep.field);
+  const v = f !== undefined ? fieldValue(node, f) : 0;
+  const { repeat: _r, ...base } = port;
+  void _r;
+  const out: GraphPortDef[] = [];
+  if (typeof v === 'number') {
+    const n = Number.isFinite(v) ? Math.max(0, Math.min(rep.max, Math.trunc(v))) : 0;
+    for (let i = 1; i <= n; i++) out.push({ ...base, id: `${port.id}${i}`, label: `${port.label} ${i}`.trim() });
+  } else if (typeof v === 'string') {
+    repeatItems(v)
+      .slice(0, rep.max)
+      .forEach((item, i) => out.push({ ...base, id: `${port.id}${i + 1}`, label: item !== '' ? item : `${port.label} ${i + 1}`.trim() }));
+  }
+  return out;
+}
+
 type Slot = GraphPortDef | { port: GraphPortDef; auto: string };
 
 function declared(kind: GraphKindDef, def: GraphNodeDef, node: GraphNode, port: GraphPortDef, ctx: GraphContext | undefined): { type: string } | { auto: string } {
@@ -244,8 +274,9 @@ export function resolvePorts(kind: GraphKindDef, graph: { nodes: readonly GraphN
   for (const node of graph.nodes) {
     const def = nodeDefOf(kind, node.type);
     if (def === undefined) continue;
-    let inputs: readonly GraphPortDef[] = def.inputs;
-    let outputs: readonly GraphPortDef[] = def.outputs;
+    // Phase 19.2: repeated ports first (their copies are ordinary ports).
+    let inputs: readonly GraphPortDef[] = def.inputs.some((p) => p.repeat !== undefined) ? def.inputs.flatMap((p) => repeatedPorts(def, node, p)) : def.inputs;
+    let outputs: readonly GraphPortDef[] = def.outputs.some((p) => p.repeat !== undefined) ? def.outputs.flatMap((p) => repeatedPorts(def, node, p)) : def.outputs;
     const pf = def.portsFrom;
     if (pf !== undefined) {
       const f = def.fields?.find((x) => x.key === pf.field);

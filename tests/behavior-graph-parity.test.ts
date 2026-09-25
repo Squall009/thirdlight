@@ -8,7 +8,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { behaviorGraphContext, behaviorGraphDeclaration, BEHAVIOR_GRAPH_KIND, GRAPH_KINDS, validateGraphData, type GraphData, type GraphDocument, type ModelErrorV2 } from '@thirdlight/project-model';
+import { behaviorGraphContext, behaviorGraphDeclaration, BEHAVIOR_GRAPH_KIND, GRAPH_KINDS, repeatedPorts, repeatItems, resolveGraphPorts, TEST_GRAPH_KIND, validateGraphData, type GraphData, type GraphDocument, type GraphKindDef, type ModelErrorV2 } from '@thirdlight/project-model';
+
+import * as editorModel from '../packages/editor/src/graph/model';
 
 import { behaviorPortContext, newBehaviorGraph, parseBehaviorOwnerId } from '../packages/editor/src/session/behavior-graph';
 import { parseBehaviorOwnerId as commandsParse } from '../packages/commands/src/graph-ops';
@@ -79,6 +81,53 @@ describe('behavior graph parity (editor ↔ project-model)', () => {
 
   it('owner ids of script functions parse alike', () => {
     for (const id of ['door', 'door#open', 'door#', '#x']) expect(parseBehaviorOwnerId(id)).toEqual(commandsParse(id));
+  });
+
+  it('phase 19.2: repeated ports (a port count from a node field) resolve alike, and wires to them validate', () => {
+    // The Switch: one exec output per listed case (text list), ids case1..caseN, the item as the label.
+    const g: GraphData = {
+      nodes: [
+        { id: 'ev', type: 'event.start', position: [0, 0] },
+        { id: 'sw', type: 'flow.switch', position: [200, 0], data: { cases: 'red, , blue' } },
+        { id: 'sd', type: 'flow.switch', position: [200, 200] },
+        { id: 'se', type: 'flow.switch', position: [200, 400], data: { cases: '' } },
+        { id: 'log', type: 'debug.log', position: [400, 0] },
+      ],
+      edges: [
+        { id: 'e1', from: { node: 'ev', port: 'then' }, to: { node: 'sw', port: 'in' } },
+        { id: 'e2', from: { node: 'sw', port: 'case3' }, to: { node: 'log', port: 'in' } },
+      ],
+    };
+    const ctx = behaviorGraphContext(g);
+    const backend = resolveGraphPorts(BEHAVIOR_GRAPH_KIND, g, ctx);
+    const ed = editorModel.resolvePorts(BEHAVIOR_GRAPH_KIND, g, behaviorPortContext(g));
+    for (const [id, ports] of backend) expect(ed.get(id), id).toEqual(ports);
+    expect(backend.get('sw')!.outputs.map((p) => `${p.id}:${p.label}:${p.type}`)).toEqual(['case1:red:exec', 'case2:case 2:exec', 'case3:blue:exec', 'default:default:exec']);
+    expect(backend.get('sd')!.outputs.map((p) => p.id)).toEqual(['case1', 'case2', 'case3', 'default']);
+    expect(backend.get('se')!.outputs.map((p) => p.id)).toEqual(['default']);
+    const errors: ModelErrorV2[] = [];
+    validateGraphData(BEHAVIOR_GRAPH_KIND, g, '', errors, ctx);
+    expect(errors).toEqual([]);
+    // Fewer cases strand the wire on case3: refused (a later case's wire needs its port).
+    const fewer: GraphData = { ...g, nodes: g.nodes.map((n) => (n.id === 'sw' ? { ...n, data: { cases: 'red' } } : n)) };
+    const refused: ModelErrorV2[] = [];
+    validateGraphData(BEHAVIOR_GRAPH_KIND, fewer, '', refused, behaviorGraphContext(fewer));
+    expect(refused.length).toBeGreaterThan(0);
+
+    // A number field is a count (clamped to 0..max), in both copies.
+    const kind: GraphKindDef = {
+      ...TEST_GRAPH_KIND,
+      kind: 'repeat-test',
+      nodes: [{ type: 'mix', label: 'Mix', category: 'Test', inputs: [{ id: 'in', label: 'in', type: TEST_GRAPH_KIND.portTypes[0]!.id, repeat: { field: 'count', max: 4 } }], outputs: [], fields: [{ key: 'count', label: 'Count', type: 'number', default: 2 }] }],
+    };
+    for (const count of [undefined, 0, 3, 9, -2, 2.7]) {
+      const n = { id: 'm', type: 'mix', position: [0, 0] as [number, number], ...(count !== undefined ? { data: { count } } : {}) };
+      const def = kind.nodes[0]!;
+      expect(editorModel.repeatedPorts(def, n, def.inputs[0]!), String(count)).toEqual(repeatedPorts(def, n, def.inputs[0]!));
+      expect(editorModel.resolvePorts(kind, { nodes: [n], edges: [] }).get('m')).toEqual(resolveGraphPorts(kind, { nodes: [n], edges: [] }).get('m'));
+    }
+    expect(resolveGraphPorts(kind, { nodes: [{ id: 'm', type: 'mix', position: [0, 0], data: { count: 9 } }], edges: [] }).get('m')!.inputs.map((p) => p.id)).toEqual(['in1', 'in2', 'in3', 'in4']);
+    for (const v of ['', ' a ', 'a,b', ',', 'a,,b ']) expect(editorModel.repeatItems(v)).toEqual(repeatItems(v));
   });
 
   it('the new-script template is valid and declares what its variables make', () => {

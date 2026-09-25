@@ -84,6 +84,7 @@ import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
+import { PlayDebugger } from './play-debug';
 import { RelayActionSource } from './relay-input';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
@@ -162,6 +163,8 @@ export interface M3PreviewHandle {
    * revision, the manifest buildId + contentDigest (64-hex, bound by the
    * buildId check) and the runtime stepIndex after the settle pre-roll. */
   readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
+  /** Phase 19.2: fixed steps per second (the debugger's "recently active" window is half a second of them). */
+  readonly stepHz: number;
   dispose(): void;
 }
 
@@ -534,6 +537,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     adapter: adapterRef.current,
     playerId: typeof game?.playerId === 'string' ? game.playerId : null,
     identity,
+    stepHz: settings.fixed_step_hz ?? 120,
     dispose: () => {
       host.dispose();
       physics?.dispose();
@@ -665,6 +669,26 @@ export function bootstrapPreviewM3(): void {
   // ---- relays from the editor (MCP / backend tools) ----------------------------
   const notReady = { ok: false as const, error: { code: 'not_ready', message: 'the play is not ready' } };
 
+  // Phase 19.2: one visual-script debugger per running play (reads the runtime; the editor runs no game code).
+  const debuggers = new WeakMap<M3PreviewHandle, PlayDebugger>();
+  const debuggerOf = (h: M3PreviewHandle): PlayDebugger => {
+    let d = debuggers.get(h);
+    if (d === undefined) {
+      d = new PlayDebugger(h.host.runtime, Math.max(1, Math.round(h.stepHz / 2)));
+      debuggers.set(h, d);
+    }
+    return d;
+  };
+  bridge.on('tl.debug.request', (m) => {
+    const body = m as { relayId: string; behaviorId: string; entityId?: string; breakpoints: string[]; command?: 'pause' | 'resume' | 'step' };
+    if (handle === null) {
+      bridge.sendDebugResult(playId, body.relayId, notReady);
+      return;
+    }
+    const result = debuggerOf(handle).request({ behaviorId: body.behaviorId, breakpoints: body.breakpoints, ...(body.entityId !== undefined ? { entityId: body.entityId } : {}), ...(body.command !== undefined ? { command: body.command } : {}) });
+    bridge.sendDebugResult(playId, body.relayId, { ok: true, result });
+  });
+
   bridge.on('tl.input.request', (m) => {
     const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; moveX: number; jump: string }> };
     if (handle === null) {
@@ -753,7 +777,13 @@ export function bootstrapPreviewM3(): void {
       ...rendererObservation(h),
       // Phase 15.4: the requested entity's script property values (public and private), read-only.
       ...(entityId !== undefined ? { behaviors: behaviorValues(h.host.runtime, entityId) } : {}),
+      // Phase 19.2: the visual-script debugger (held at a step boundary, the breakpoint node it holds on).
+      ...debugObservation(debuggers.get(h) ?? null, h),
     };
+  };
+  const debugObservation = (d: PlayDebugger | null, h: M3PreviewHandle): { debug?: unknown } => {
+    const o = (d ?? (h.host.runtime.debugHeld === true ? debuggerOf(h) : null))?.observation() ?? null;
+    return o !== null ? { debug: o } : {};
   };
 
   bridge.on('tl.game.observe', (m) => {
@@ -764,14 +794,19 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.game.control', (m) => {
-    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave'; sceneId?: string };
+    const body = m as { relayId: string; command: 'start' | 'replay' | 'mute' | 'unmute' | 'loadScene' | 'unloadScene' | 'clearSave' | 'debugPause' | 'debugResume' | 'debugStep'; sceneId?: string };
     if (handle === null) {
       bridge.sendGameResult('control', playId, body.relayId, notReady);
       return;
     }
     // Phase 12 (c): a scene request goes to the runtime like a script's ctx.scenes.
     let r: ReturnType<GameHost['control']>;
-    if (body.command === 'loadScene' || body.command === 'unloadScene') {
+    if (body.command === 'debugPause' || body.command === 'debugResume' || body.command === 'debugStep') {
+      // Phase 19.2: the debugger's hold / release / single step (Play only; an export has no relay).
+      debuggerOf(handle).control(body.command);
+      const view = handle.host.runtime.getGameView();
+      r = { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 };
+    } else if (body.command === 'loadScene' || body.command === 'unloadScene') {
       const s = handle.host.scene(body.command === 'loadScene' ? 'load' : 'unload', String(body.sceneId ?? ''));
       const view = handle.host.runtime.getGameView();
       r = s.ok ? { ok: true, state: view.ok ? view.view.state : 'awaitingStart', acceptedAtStep: view.ok ? view.view.stepIndex : 0 } : s;

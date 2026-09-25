@@ -26,9 +26,11 @@ interface Props {
   portContext?: GraphContext;
   /** Phase 18.1: the choices for a field that names an asset (`GraphFieldDef.asset`); absent = a text box. */
   assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
+  /** Phase 19.2: the choices of a text field the host knows (e.g. a call node's function: the script's functions); undefined = a text box. */
+  fieldOptions?: (field: GraphFieldDef, node: GraphNode) => readonly { id: string; label: string }[] | undefined;
 }
 
-export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, portContext, assetOptions }: Props): JSX.Element {
+export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, portContext, assetOptions, fieldOptions }: Props): JSX.Element {
   const portsOf = portsResolver(kind, graph, portContext);
   const [error, setError] = useState<string | null>(null);
   const edit = (ops: GraphOp[]): void => {
@@ -46,7 +48,7 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
   const comment = (graph.comments ?? []).find((c) => c.id === id);
   return (
     <div className="tl-graph-inspector" aria-label="Graph item">
-      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} portsOf={portsOf} {...(assetOptions !== undefined ? { assetOptions } : {})} />}
+      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} portsOf={portsOf} {...(assetOptions !== undefined ? { assetOptions } : {})} {...(fieldOptions !== undefined ? { fieldOptions } : {})} />}
       {edge !== undefined && (
         <>
           <div className="tl-inspector__title">Wire</div>
@@ -92,7 +94,23 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
   );
 }
 
-function NodeFields({ kind, graph, node, edit, portsOf, assetOptions }: { kind: GraphKindDef; graph: GraphData; node: GraphNode; edit: (ops: GraphOp[]) => void; portsOf: PortsOf; assetOptions?: (assetKind: string) => readonly { id: string; label: string }[] }): JSX.Element {
+function NodeFields({
+  kind,
+  graph,
+  node,
+  edit,
+  portsOf,
+  assetOptions,
+  fieldOptions,
+}: {
+  kind: GraphKindDef;
+  graph: GraphData;
+  node: GraphNode;
+  edit: (ops: GraphOp[]) => void;
+  portsOf: PortsOf;
+  assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
+  fieldOptions?: (field: GraphFieldDef, node: GraphNode) => readonly { id: string; label: string }[] | undefined;
+}): JSX.Element {
   const def = nodeDefOf(kind, node.type);
   const problems = diagnoseGraph(kind, graph, portsOf).filter((p) => p.nodeId === node.id);
   const ports = portsOf(node);
@@ -121,10 +139,21 @@ function NodeFields({ kind, graph, node, edit, portsOf, assetOptions }: { kind: 
       </label>
       {(def?.fields ?? []).map((f) => {
         const v = fieldValue(node, f);
+        const choices = f.type === 'string' ? fieldOptions?.(f, node) : undefined;
         return (
           <label key={f.key} className="tl-field">
             <span>{f.label}</span>
-            {f.type === 'color' ? (
+            {choices !== undefined ? (
+              <select className="tl-input" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value)}>
+                <option value="">(none)</option>
+                {choices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+                {String(v) !== '' && !choices.some((o) => o.id === v) && <option value={String(v)}>{String(v)} (missing)</option>}
+              </select>
+            ) : f.type === 'color' ? (
               <input type="color" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value.toLowerCase())} />
             ) : f.type === 'string' && f.asset !== undefined && assetOptions !== undefined ? (
               <select className="tl-input" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value)}>

@@ -25,8 +25,35 @@ import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/
 import { buildContentClosureM3, type ContentClosureM3 } from '@thirdlight/exporter';
 import type { RuntimeContentManifestV2 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
-import type { BehaviorCompiler } from '@thirdlight/behavior-build';
+import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
 import { sha256HexBytes, type PlayArtifact } from './play-content';
+
+/**
+ * Phase 19.2: the Play debug build of a visual script (the closure's
+ * `debugVariant`): its stored graph generated with the debugger's recording
+ * and compiled by the same compiler — only while that graph still generates
+ * exactly the published source (same digest), so the nodes the debugger
+ * shows are the ones that run. Otherwise (a TypeScript behavior, unpublished
+ * graph edits, a debug build over a bound) null: Play runs the ordinary
+ * module and the debugger says the script is not debuggable. Exports never
+ * get this (they have no debugVariant), so they carry no debug hooks.
+ */
+export function playDebugVariant(service: WorkspaceService, compiler: BehaviorCompiler, projectId: string) {
+  let graphs: unknown = undefined;
+  return async (input: { behaviorId: string; sourceDigest: string; row: Readonly<Record<string, unknown>> }): Promise<{ outputBytes: Uint8Array; outputDigest: string } | null> => {
+    const source = input.row['source'] as { kind?: unknown } | null | undefined;
+    const graph = input.row['graph'];
+    if (source?.kind !== 'graph' || graph === undefined) return null;
+    if (graphs === undefined) graphs = (service.query({ op: 'queryGameConfig', projectId }) as unknown as { graphs?: unknown }).graphs ?? [];
+    const env = { functions: input.row['functions'] as never, graphs: graphs as never };
+    const plain = generateGraphSource(graph as never, env);
+    if (!plain.ok || sha256HexBytes(plain.containerBytes) !== input.sourceDigest) return null;
+    const debug = generateGraphSource(graph as never, env, { debug: true });
+    if (!debug.ok) return null;
+    const compiled = await compiler.compile({ behaviorId: input.behaviorId, declaration: input.row['declaration'] as never, containerBytes: debug.containerBytes, pinnedModules: compiler.pinnedModules });
+    return compiled.ok ? { outputBytes: compiled.outputBytes, outputDigest: compiled.outputDigest } : null;
+  };
+}
 
 export interface BuildPlayContentM3Input {
   service: WorkspaceService;
@@ -90,9 +117,11 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       },
     };
   }
+  // Phase 19.2: Play runs visual scripts as debug builds (trace, wire values) when their graph matches the publication.
+  const playCompiler = { pinnedModules: compiler.pinnedModules, compile: compiler.compile.bind(compiler), debugVariant: playDebugVariant(service, compiler, projectId) };
   const built = await buildContentClosureM3({
     service,
-    compiler: compiler as Parameters<typeof buildContentClosureM3>[0]['compiler'],
+    compiler: playCompiler as unknown as Parameters<typeof buildContentClosureM3>[0]['compiler'],
     projectId,
     revision: input.revision,
     capturedAt: input.capturedAt,
