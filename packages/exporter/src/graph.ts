@@ -4,7 +4,7 @@
  *
  * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap-m3.ts
  * only), the shared production composition `game-host` and its packages —
- * `runtime`, `platformer`, `platformer-game`, `three-adapter`,
+ * `runtime`, `platformer`, `platformer-game`, `three-adapter` (with its phase-20.2 `effects`),
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
  * `@dimforge/rapier2d-compat`, and the per-snapshot virtual module the export
  * build generates in memory (`thirdlight:export-artifacts`).
@@ -36,7 +36,7 @@ function toRepoRel(p: string): string {
   return i >= 0 ? p.slice(i) : p;
 }
 
-const ALLOWED_PACKAGES = ['runtime', 'three-adapter', 'project-model', 'input', 'platformer', 'physics-rapier', 'game-host', 'platformer-game'];
+const ALLOWED_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'platformer', 'physics-rapier', 'game-host', 'platformer-game'];
 
 function allowed(p: string): boolean {
   if (ALLOWED_PACKAGES.some((name) => p.includes(`packages/${name}/src/`))) return true;

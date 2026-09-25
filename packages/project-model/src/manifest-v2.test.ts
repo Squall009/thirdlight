@@ -127,12 +127,12 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
     // `tags` (phase 12 b) is present only when the project defines tags.
-    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'prefabs' && k !== 'input' && k !== 'flow' && k !== 'scenes' && k !== 'buffers'));
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'prefabs' && k !== 'input' && k !== 'flow' && k !== 'scenes' && k !== 'buffers'));
     expect(keys[keys.length - 1]).toBe('buildId');
     const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'enemy' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
-      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'prefabs' && k !== 'input' && k !== 'flow' && k !== 'scenes' && k !== 'buffers'));
+      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'materials' && k !== 'materialFunctions' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'prefabs' && k !== 'input' && k !== 'flow' && k !== 'scenes' && k !== 'buffers'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
     expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_2);
@@ -341,7 +341,7 @@ describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(33); // incl. the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs, the 9.8 input and the 9.10 flow
+    expect(MANIFEST_KEYS_V2).toHaveLength(34); // incl. the optional phase-12 tags, scenes, buffers, the phase-9.4 materials, the 18.3 materialFunctions, the 20.2 effects, environment, the 9.6 lighting, the 9.7 animators, the 14.1 prefabs, the 9.8 input and the 9.10 flow
     expect(MANIFEST_KEYS_V2).toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');

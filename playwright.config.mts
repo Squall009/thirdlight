@@ -62,6 +62,9 @@ export default defineConfig({
         '**/material-graph-render.e2e.ts',
         '**/material-graph-play.e2e.ts',
         '**/material-preview.e2e.ts',
+        // Phase 20.2: effects on the WebGPU compute executor.
+        '**/effects-gpu.e2e.ts',
+        '**/effects-runtime.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

@@ -62,6 +62,7 @@ import {
   type ShadowReason,
 } from './lighting';
 import { createFadeTracker } from './fade';
+import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
 import {
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
@@ -130,6 +131,20 @@ export interface SceneAdapterOptions {
     /** Tests only: stubbed renderer constructors and WebGPU probe. */
     readonly deps?: Partial<RendererFactoryDeps>;
   };
+  /**
+   * Phase 20.2: the game's visual effects (the manifest's `effects`). The
+   * adapter plays `effect` components (play on start; their signals) and the
+   * runtime's effect requests (scripts, gameplay hooks) — on the WebGPU
+   * compute executor when the renderer draws on WebGPU, else on the CPU
+   * executor. Absent: effects are not drawn.
+   */
+  effects?: {
+    readonly defs: readonly EffectDefLike[];
+    readonly wind?: EffectsPlayerOptions['wind'];
+    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+    /** A model asset's scene (mesh particles, mesh-surface shapes). */
+    readonly loadModel?: (assetId: string) => Promise<THREE.Object3D | null>;
+  };
 }
 
 /** Adapter diagnostics block (runtime.md §8, separate block; the M3
@@ -167,6 +182,8 @@ export interface SceneAdapterDiagnostics {
    *  until a renderer exists. Flat counts while a scene runs — growth means
    *  something is allocated per frame and never freed. */
   gpu?: { geometries: number; textures: number; programs: number };
+  /** Phase 20.2: the effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
+  effects?: EffectsDiagnostics;
 }
 
 export interface ScreenshotResult {
@@ -225,6 +242,7 @@ interface CanvasLike {
   clientHeight?: number;
   width?: number;
   height?: number;
+  setAttribute?: (name: string, value: string) => void;
 }
 
 interface OwnedResources {
@@ -296,6 +314,9 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
   }
   return { models, pieces, animations, instances };
 }
+
+/** Phase 20.2: what a particle material holder wears until the project material library dresses it. */
+const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
@@ -418,6 +439,34 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
+  // --- Phase 20.2: visual effects --------------------------------------------
+  /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
+  const effectMaterials = new Map<string, THREE.Mesh>();
+  const effects: EffectsPlayer | null =
+    opts.effects !== undefined
+      ? createEffectsPlayer({
+          scene,
+          defs: opts.effects.defs,
+          wind: opts.effects.wind ?? opts.materials?.wind ?? null,
+          loadTexture: opts.effects.loadTexture,
+          ...(opts.effects.loadModel !== undefined ? { loadModel: opts.effects.loadModel } : {}),
+          projectMaterial: (id: string) => {
+            if (materialLibrary === null || id === '') return null;
+            let holder = effectMaterials.get(id);
+            if (holder === undefined) {
+              holder = new THREE.Mesh(new THREE.BufferGeometry(), EFFECT_MATERIAL_PLACEHOLDER);
+              materialLibrary.apply(holder, { '*': id });
+              effectMaterials.set(id, holder);
+            }
+            // Still the placeholder: no such project material (the particles fall back to their built-in shading).
+            return holder.material === EFFECT_MATERIAL_PLACEHOLDER ? null : (holder.material as THREE.Material);
+          },
+        })
+      : null;
+  /** Entities carrying an `effect` component (hidden ones stop spawning). */
+  const effectEntities = new Set<string>();
+  let effectsLastNow: number | null = null;
+  let effectsMark = '';
   /** Phase 21.2: the transform sync for `forEachInterpolated` (one function for the adapter's life). */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     const obj = objects.get(id);
@@ -545,8 +594,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const parent = e.parentId ? objects.get(e.parentId) : undefined;
     (parent ?? scene).add(obj);
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
+    // Phase 20.2: an effect component plays from the object (on start unless it waits for a signal or a script).
+    const fx = (e.components as { effect?: EffectComponentLike }).effect;
+    if (effects !== null && fx !== undefined) {
+      effectEntities.add(e.id);
+      effects.attach(e.id, obj, fx, fx.playOnStart !== false);
+    }
   };
   const releaseEntity = (id: string): void => {
+    if (effects !== null) {
+      effects.detach(id);
+      effectEntities.delete(id);
+    }
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
     materialUndo.get(id)?.();
@@ -800,6 +859,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     r.setPixelRatio(pixelRatio);
     const inf = handle.info();
     renderBackend = inf.api;
+    // Phase 20.2: the effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
+    effects?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     if (shadowState.shadows === 'on') shadowProbeDone = false;
   }
@@ -1003,6 +1064,26 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     fades.apply(objects, (opts.runtime as { entityOpacity?: () => ReadonlyMap<string, number> }).entityOpacity?.());
+    // Phase 20.2: the effect requests of the steps since the last frame (presentation only), then the effects step.
+    if (effects !== null) {
+      for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => objects.get(id));
+      for (const id of effectEntities) effects.setAttachedActive(id, !hiddenIds.has(id));
+      const perf = globalThis.performance;
+      const now = perf !== undefined ? perf.now() : 0;
+      const paused = (opts.runtime as { isPaused?: boolean }).isPaused === true;
+      const frameSeconds = effectsLastNow === null || paused ? 0 : Math.max(0, (now - effectsLastNow) / 1000);
+      effectsLastNow = now;
+      if (camera !== null) effects.update(frameSeconds, camera, (now - clockStart) / 1000);
+      // The canvas reports the executor and what plays (an export has no other in-page diagnostics surface).
+      const d = effects.diagnostics();
+      const mark = `${d.executor ?? 'none'}|${d.playing}|${d.particles}`;
+      if (mark !== effectsMark && typeof canvasLike?.setAttribute === 'function') {
+        effectsMark = mark;
+        canvasLike.setAttribute('data-tl-effects', d.executor ?? 'none');
+        canvasLike.setAttribute('data-tl-effects-playing', String(d.playing));
+        canvasLike.setAttribute('data-tl-effects-particles', String(d.particles));
+      }
+    }
     if (localShadowLights > 0 && !live.shadowMap.enabled) {
       live.shadowMap.enabled = true;
       live.shadowMap.type = THREE.PCFShadowMap;
@@ -1184,6 +1265,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
+    if (effects !== null && !disposed) d.effects = effects.diagnostics();
     return {
       ok: true,
       diagnostics: d,
@@ -1194,6 +1276,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
     for (const rec of animatorPlayers.values()) rec.player.dispose();
+    effects?.dispose();
+    for (const h of effectMaterials.values()) h.geometry.dispose();
+    effectMaterials.clear();
     fades.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();

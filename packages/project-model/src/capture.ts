@@ -23,6 +23,7 @@ import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
 import { materialFunctionsForRuntime, materialTextureRefs, type MaterialDef } from './materials';
+import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
@@ -127,6 +128,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const g of materialFunctionsForRuntime(materialDefs, (content as { graphs?: GraphDocument[] }).graphs ?? [])) {
     for (const r of graphAssetRefs(MATERIAL_FUNCTION_GRAPH_KIND, g.graph)) if (r.asset === 'texture') setRef(r.id);
   }
+  // Phase 20.2: the textures and models the project's effects draw and sample travel with the game.
+  for (const fx of (content as { effects?: EffectDef[] }).effects ?? []) for (const r of effectAssetRefs(fx)) setRef(r.id);
   // Phase 9.10: the flow's music and menu logo.
   const flow = (content as { flow?: GameFlow }).flow;
   if (flow !== undefined) {

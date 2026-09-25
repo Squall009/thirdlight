@@ -9,6 +9,7 @@
     "./gltf-loader": "./src/gltf-loader.ts"
   },
   "dependencies": {
+    "@thirdlight/effects": "0.1.0",
     "@thirdlight/runtime": "0.1.0",
     "three": "0.186.0"
   },

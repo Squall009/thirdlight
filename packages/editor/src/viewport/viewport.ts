@@ -13,6 +13,7 @@
 
 import {
   addBoxLightmapUv,
+  createEffectsPlayer,
   createEnvironmentRenderer,
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
@@ -21,6 +22,9 @@ import {
   refreshLightmappedMaterial,
   setSelectionHighlight,
   type BakeLightInput,
+  type EffectComponentLike,
+  type EffectDefLike,
+  type EffectsPlayer,
   type BakeMeshInput,
   type EnvironmentLike,
   type EnvironmentRenderer,
@@ -663,6 +667,94 @@ export class Viewport {
     this.requestRender();
   }
 
+  // ---- Phase 20.2: the edit-mode effect preview ------------------------------------
+  private effectsPlayer: EffectsPlayer | null = null;
+  private effectTarget: { id: string; component: EffectComponentLike } | null = null;
+  private effectAttached: { id: string; obj: THREE.Object3D; key: string } | null = null;
+  private effectRenderer: unknown = null;
+  private effectLastNow: number | null = null;
+
+  /**
+   * Play the selected object's effect in the Scene view (the Gizmos menu's
+   * toggle): the same player Play uses, on this view's renderer (WebGPU
+   * compute or the CPU executor). A finished one-shot starts again. Off (or
+   * no effect on the selection): nothing plays.
+   */
+  setEffectPreview(on: boolean, defs: readonly EffectDefLike[], target: { id: string; component: EffectComponentLike } | null, loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
+    if (!on) {
+      this.effectsPlayer?.dispose();
+      this.effectsPlayer = null;
+      this.effectAttached = null;
+      this.effectRenderer = null;
+      this.effectTarget = null;
+      this.root.setAttribute('data-effects', JSON.stringify({ preview: false }));
+      this.requestRender();
+      return;
+    }
+    if (this.effectsPlayer === null) {
+      const lib = (): MaterialLibrary | null => this.materialLibrary;
+      const holders = new Map<string, THREE.Mesh>();
+      const placeholder = new THREE.MeshBasicMaterial();
+      this.effectsPlayer = createEffectsPlayer({
+        scene: this.scene as never,
+        defs,
+        loadTexture: loadTexture ?? (async () => null),
+        replayFinished: true,
+        projectMaterial: (id) => {
+          const l = lib();
+          if (l === null || id === '') return null;
+          let h = holders.get(id);
+          if (h === undefined) {
+            h = new THREE.Mesh(new THREE.BufferGeometry(), placeholder);
+            l.apply(h, { '*': id });
+            holders.set(id, h);
+          }
+          return h.material === placeholder ? null : (h.material as never);
+        },
+      });
+    } else this.effectsPlayer.setDefs(defs);
+    this.effectTarget = target;
+    this.requestRender();
+  }
+
+  /** Attach the preview to the selected object (again when its node or component changed). */
+  private syncEffectTarget(): void {
+    const p = this.effectsPlayer;
+    if (p === null) return;
+    const t = this.effectTarget;
+    const obj = t !== null ? (this.meshes.get(t.id) ?? null) : null;
+    const key = t !== null ? JSON.stringify(t.component) : '';
+    const a = this.effectAttached;
+    if (a !== null && (t === null || a.id !== t.id || a.obj !== obj || a.key !== key)) {
+      p.detach(a.id);
+      this.effectAttached = null;
+    }
+    if (t !== null && obj !== null && this.effectAttached === null) {
+      // The preview plays whatever the component's start setting (a signal or script would start it in the game).
+      p.attach(t.id, obj, { ...t.component, playOnStart: true }, true);
+      this.effectAttached = { id: t.id, obj, key };
+    }
+  }
+
+  /** One preview step before a frame is drawn; true while something plays (the view keeps drawing). */
+  private stepEffects(renderer: unknown): boolean {
+    const p = this.effectsPlayer;
+    if (p === null) return false;
+    if (this.effectRenderer !== renderer) {
+      p.setRenderer(renderer as never, this.rendererHandle.info().api === 'webgpu' ? 'webgpu' : 'webgl2');
+      this.effectRenderer = renderer;
+      this.effectAttached = null;
+    }
+    this.syncEffectTarget();
+    const now = performance.now();
+    const dt = this.effectLastNow === null ? 0 : Math.max(0, (now - this.effectLastNow) / 1000);
+    this.effectLastNow = now;
+    p.update(dt, this.camera as never);
+    const d = p.diagnostics();
+    this.root.setAttribute('data-effects', JSON.stringify({ preview: true, executor: d.executor, playing: d.playing, particles: d.particles }));
+    return p.active;
+  }
+
   /** Schedule one render on the next animation frame (coalesces bursts). */
   requestRender(): void {
     if (this.renderQueued) return;
@@ -679,11 +771,15 @@ export class Viewport {
       // Phase 17.1: WebGPURenderer initialises asynchronously (the handle asks for a frame when ready).
       const renderer = this.rendererHandle.ready() ? this.rendererHandle.current() : null;
       if (renderer === null) return;
+      // Phase 20.2: the effect preview steps before the frame and keeps the view drawing while it plays.
+      const playing = this.stepEffects(renderer);
       const environment = this.ensureEnvironment();
       if (environment !== null && this.lighting === 'game') {
         environment.setFogVolumes(this.fogVolumesNow());
         environment.render(this.camera);
       } else renderer.render(this.scene, this.camera);
+      if (playing) this.requestRender();
+      else this.effectLastNow = null;
     });
   }
 
@@ -1663,6 +1759,8 @@ export class Viewport {
   private fogVolumeData = new Map<string, NonNullable<ProjectedEntity['fogVolume']>>();
 
   dispose(): void {
+    this.effectsPlayer?.dispose();
+    this.effectsPlayer = null;
     for (const m of this.meshes.values()) {
       m.parent?.remove(m);
       this.disposeMesh(m);

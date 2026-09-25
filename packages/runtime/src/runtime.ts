@@ -97,6 +97,7 @@ import {
   type SceneSetView,
   type SceneStatus,
   type GameCameraBounds,
+  type EffectRequest,
   type GameSessionPort,
   type GameView,
   type GameplaySettings,
@@ -1393,6 +1394,52 @@ class RuntimeInstance implements Runtime {
       this.audioQueue.push({ assetId, volume: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1, stepIndex: this.stepIndex });
     },
   });
+  // ---- Phase 20.2: visual effect requests (presentation only) ----
+  /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
+  private effectQueue: EffectRequest[] = [];
+  /** The last play handle handed out (never reset while the game runs: handles stay unique). */
+  private effectHandle = 0;
+  /** Script plays in the current step (at most 32). */
+  private effectPlaysStep = -1;
+  private effectPlaysThisStep = 0;
+  private pushEffect(r: Omit<EffectRequest, 'stepIndex' | 'handle'> & { handle?: number }): number {
+    const handle = r.op === 'play' ? ++this.effectHandle : (r.handle ?? 0);
+    const req: EffectRequest = Object.freeze({ ...r, handle, stepIndex: this.stepIndex + 1, position: Object.freeze([r.position[0], r.position[1], r.position[2]]) as unknown as readonly [number, number, number] });
+    this.effectQueue.push(req);
+    // Nobody takes them (no renderer, e.g. a headless run): keep only the newest.
+    if (this.effectQueue.length > 256) this.effectQueue.splice(0, this.effectQueue.length - 256);
+    return handle;
+  }
+  private readonly effectsControl = Object.freeze({
+    play: (effectId: string, options?: { position?: readonly number[]; entityId?: string; params?: Readonly<Record<string, number | readonly number[] | string>> }): number => {
+      if (typeof effectId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(effectId)) return 0;
+      if (this.effectPlaysStep !== this.stepIndex) {
+        this.effectPlaysStep = this.stepIndex;
+        this.effectPlaysThisStep = 0;
+      }
+      if (this.effectPlaysThisStep >= 32) return 0;
+      this.effectPlaysThisStep += 1;
+      const p = options?.position;
+      const position: [number, number, number] = [Number(p?.[0] ?? 0), Number(p?.[1] ?? 0), Number(p?.[2] ?? 0)].map((v) => (Number.isFinite(v) ? v : 0)) as [number, number, number];
+      const entityId = typeof options?.entityId === 'string' && options.entityId !== '' ? options.entityId : null;
+      let params: Record<string, number | readonly number[] | string> | null = null;
+      if (options?.params !== undefined && options.params !== null && typeof options.params === 'object') {
+        params = {};
+        for (const [k, v] of Object.entries(options.params).slice(0, 32)) {
+          if (typeof v === 'number' && Number.isFinite(v)) params[k] = v;
+          else if (typeof v === 'string' && v.length <= 16) params[k] = v;
+          else if (Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x))) params[k] = Object.freeze([...v]);
+        }
+        params = Object.freeze(params);
+      }
+      return this.pushEffect({ op: 'play', effectId, entityId, position, params, source: 'script' });
+    },
+    stop: (target: number | string): void => {
+      if (typeof target === 'number' && Number.isInteger(target) && target > 0) this.pushEffect({ op: 'stop', effectId: '', handle: target, entityId: null, position: [0, 0, 0], params: null, source: 'script' });
+      else if (typeof target === 'string' && target !== '') this.pushEffect({ op: 'stop', effectId: '', handle: 0, entityId: target, position: [0, 0, 0], params: null, source: 'script' });
+    },
+  });
+
   /** Exit zones the player is inside (entry is edge-triggered). */
   private exitsInside = new Set<string>();
   /** An exit's spawn: the player moves there once `waitFor` are loaded. */
@@ -1522,6 +1569,7 @@ class RuntimeInstance implements Runtime {
           if (rt.session !== null && rt.session.runState === 'playing') rt.session.beginRespawn(rt.stepIndex + 1, 'hazard');
         },
         playCue: (assetId: string) => rt.audioControl.play(assetId),
+        effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
         animator: (id: string) => {
           const own = rt.animatorMachines.get(id)?.machine;
           if (own !== undefined) return own;
@@ -1689,6 +1737,18 @@ class RuntimeInstance implements Runtime {
     // Phase 14.1: saves never keep spawned entities (a new run has none).
     const authored = (ids: string[]): string[] => ids.filter((id) => !this.spawnedEntities.has(id));
     return { checkpointId: this.session?.checkpointTotal ?? null, ...b, collected: authored(b.collected), defeated: authored(b.defeated), values: Object.fromEntries(this.saveStore) };
+  }
+
+  /**
+   * Phase 20.2: the effect requests since the last call (scripts'
+   * `ctx.effects`, effect components' signals, gameplay hooks), in the order
+   * they were made; the adapter plays them. Taking them changes nothing the
+   * simulation computes.
+   */
+  takeEffectRequests(): EffectRequest[] {
+    const out = this.effectQueue;
+    this.effectQueue = [];
+    return out;
   }
 
   /** Phase 9.10: the sounds scripts played (`ctx.audio.play`) since the last call; the host plays them. */
@@ -3373,6 +3433,7 @@ class RuntimeInstance implements Runtime {
           throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a checkpoint zone`);
         }
         session.activateCheckpoint(rt.stepIndex + 1, zoneEntityId);
+        rt.zoneEffect(zoneEntityId, 'checkpoint');
       },
       reachGoal: (zoneEntityId: string): void => {
         requireGameplayPhase();
@@ -3385,8 +3446,14 @@ class RuntimeInstance implements Runtime {
           throw new GameplayInvalidError(`entity "${zoneEntityId}" is not a goal zone`);
         }
         session.reachGoal(rt.stepIndex + 1, zoneEntityId);
+        rt.zoneEffect(zoneEntityId, 'goal');
       },
     });
+  }
+
+  /** Phase 20.2: a checkpoint or goal reached plays its zone's effect where the zone is. */
+  private zoneEffect(zoneEntityId: string, source: 'checkpoint' | 'goal'): void {
+    this.blocks?.zoneReached(zoneEntityId, source);
   }
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
@@ -3478,6 +3545,7 @@ class RuntimeInstance implements Runtime {
       fields['messages'] = { value: this.messageControl, enumerable: true };
       fields['game'] = { value: this.gameControl, enumerable: true };
       fields['audio'] = { value: this.audioControl, enumerable: true };
+      fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).

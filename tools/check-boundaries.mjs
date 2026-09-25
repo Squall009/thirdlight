@@ -133,7 +133,10 @@ export const NODE_SIDE_ALLOWED = {
   // and never part of the deterministic simulation (phase 20 decision).
   effects: { packages: ['project-model'], external: [], node: [] },
   'three-adapter': {
-    packages: ['runtime'],
+    // Phase 20.2: + effects — the visual-effect executors (WebGPU compute and
+    // the CPU fallback) compile and step effect graphs with the shared
+    // reference semantics of @thirdlight/effects (runtime-safe, pure).
+    packages: ['runtime', 'effects'],
     external: ['three', '@types/three'],
     // dependencies.md §4.2/§7 (the GLTFLoader note): only the pinned
     // three@0.186.0 package's own GLTFLoader subpath is approved; the empty

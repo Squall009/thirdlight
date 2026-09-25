@@ -222,8 +222,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'update.collide.plane|depth, update.size.curve, update.color.gradient, update.velocity.curve, update.kill.plane|sphere|box|speed; output.billboard|mesh|ribbon|light); ' +
       'number/vector/colour fields of a block are also inputs of the same id fed by value nodes (value.float|vec3|color|parameter {key}|random|randomVec3|curve|gradient|attribute|time, ' +
       'math.*). Curve fields are [t0, v0, t1, v1, …] (t 0-1 ascending), gradient fields [t, r, g, b, a, …] (0-1). Edit a system graph with graphEdit {owner: {kind: "effect", ' +
-      'id: "<effectId>/<systemId>"}, ops}. Objects play one with setComponent "effect" {effectId, playOnStart? (default true), params?: {<public key>: value}}. The effects are in ' +
-      'tl_content_query target="game" (effects); the runtime executors arrive with phase 20.2. ' +
+      'id: "<effectId>/<systemId>"}, ops}. Objects play one with setComponent "effect" {effectId, playOnStart? (default true), params?: {<public key>: value}, signal? (restarts it), ' +
+      'stopSignal? (stops spawning)}. Gameplay hooks name an effect too: pickup.effect (collected), enemy.hitEffect / defeatEffect, health.hitEffect (the player is hit), ' +
+      'gameZone.effect (a checkpoint or goal reached); scripts call ctx.effects.play(effectId, {position?, entityId?, params?}) → handle and ctx.effects.stop(handle | entityId). ' +
+      'Play and exports draw them (WebGPU compute on WebGPU, the CPU executor on WebGL 2 with lower caps; see tl_diagnostics renderer.effects). The effects are in ' +
+      'tl_content_query target="game" (effects). ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',
@@ -409,7 +412,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Read one bounded §20 observation document (<= 16 KiB, <= 32 events) from an explicitly presented play ' +
       'session. The values come from the committed read-only GameView; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` (coins, gems, keys, defeated…) and `health` the gameplay blocks\' run state; `spawned` {count, ids (first 64)} the live entities scripts spawned; `flow` (a game with levels) the screen (title/playing/paused/settings/levelComplete/gameOver/finished), level, lives, music and volumes (music, sfx, ui), menuSounds {played, last}, ambience (the assets looping now; `loops` shows them as ambience:<n>), pad (buttons the player rebound in the settings), and with score rules `score` {game, level, best per level id}; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only). timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value.',
     inputSchema: {
@@ -457,7 +460,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
       'export failures, external file edits) and whether editing is paused. With playSessionId: bounded ' +
       'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
-      'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason).',
+      'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
+      'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU.',
     inputSchema: {
       type: 'object',
       properties: { playSessionId: { type: 'string' } },

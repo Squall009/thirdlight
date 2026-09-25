@@ -21,7 +21,7 @@
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, validateGraphData, type GraphContext, type GraphData } from './graph';
 import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
-import { MATERIAL_PARAMETER_KEY_RE, materialParameterValueError } from './materials';
+import { graphForRuntime, MATERIAL_PARAMETER_KEY_RE, materialParameterValueError } from './materials';
 
 export const EFFECT_PARAMETER_TYPES = ['float', 'vec3', 'color'] as const;
 export type EffectParameterType = (typeof EFFECT_PARAMETER_TYPES)[number];
@@ -77,6 +77,10 @@ export interface EffectComponent {
   playOnStart?: boolean;
   /** Overrides of public parameters (absent = none). */
   params?: Record<string, number | number[] | string>;
+  /** Phase 20.2: (re)starts the effect when this signal is emitted (a switch, trigger or script sends it). */
+  signal?: string;
+  /** Phase 20.2: stops spawning when this signal is emitted (living particles finish their lives). */
+  stopSignal?: string;
 }
 
 /** Engine limits (not tuning values). */
@@ -109,6 +113,8 @@ export const EFFECT_DEFAULTS = {
 };
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** A signal name (the switches' and triggers' syntax). */
+const SIGNAL_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -300,7 +306,11 @@ export function parseEffectSystemOwnerId(id: string): { effectId: string; system
 
 export function validateEffectComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'an effect component is { effectId, playOnStart?, params? }', value);
-  onlyKeys(value, ['effectId', 'playOnStart', 'params'], path, errors, 'effect component');
+  onlyKeys(value, ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'], path, errors, 'effect component');
+  for (const k of ['signal', 'stopSignal'] as const) {
+    const v = value[k];
+    if (v !== undefined && (typeof v !== 'string' || !SIGNAL_RE.test(v))) err(errors, 'field_value', `${path}/${k}`, `${k} is a signal name`, v);
+  }
   const id = value['effectId'];
   if (id === undefined) err(errors, 'field_missing', `${path}/effectId`, 'an effect component names an effect', undefined, 'effectId');
   else if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'id_invalid', `${path}/effectId`, 'effectId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', id);
@@ -327,6 +337,9 @@ export function canonicalEffectComponent(c: EffectComponent): EffectComponent {
     // true is the default and omitted.
     ...(c.playOnStart === false ? { playOnStart: false } : {}),
     ...(params !== undefined && Object.keys(params).length > 0 ? { params } : {}),
+    // Phase 20.2: last, so an existing component keeps its exact canonical bytes.
+    ...(c.signal !== undefined ? { signal: c.signal } : {}),
+    ...(c.stopSignal !== undefined ? { stopSignal: c.stopSignal } : {}),
   };
 }
 
@@ -348,5 +361,69 @@ export function effectComponentErrors(c: EffectComponent, effects: readonly Effe
       if (bad !== null) out.push({ path: `/params/${k}`, code: 'field_value', message: `${k} must be ${bad}`, found: v });
     }
   }
+  return out;
+}
+
+// ---- Phase 20.2: the runtime view and gameplay hooks ----------------------------------------
+
+/**
+ * The effects a game carries (the manifest's `effects`): every system graph
+ * without editor-only text (comments, groups, reroutes, collapsed flags) —
+ * the executors compile the graphs; positions are kept (canonical data).
+ */
+export function effectsForRuntime(effects: readonly EffectDef[]): EffectDef[] {
+  return canonicalEffects(effects).map((e) => ({
+    ...e,
+    systems: e.systems.map((s) => ({ ...s, graph: graphForRuntime(s.graph) })),
+  }));
+}
+
+/** The assets an effect's graphs name (billboard/ribbon textures, mesh models, mesh-surface shapes). */
+export function effectAssetRefs(effect: EffectDef): { asset: 'texture' | 'model'; id: string }[] {
+  const out: { asset: 'texture' | 'model'; id: string }[] = [];
+  for (const s of effect.systems) {
+    for (const n of s.graph.nodes) {
+      const data = (n as { data?: Record<string, unknown> }).data ?? {};
+      const def = EFFECT_GRAPH_KIND.nodes.find((d) => d.type === n.type);
+      for (const f of def?.fields ?? []) {
+        const kind = (f as { asset?: string }).asset;
+        const v = data[f.key];
+        if ((kind === 'texture' || kind === 'model') && typeof v === 'string' && v !== '') out.push({ asset: kind, id: v });
+      }
+    }
+  }
+  return out;
+}
+
+/** The project materials an effect's Output blocks shade with (shading `material`). */
+export function effectMaterialRefs(effect: EffectDef): string[] {
+  const out = new Set<string>();
+  for (const s of effect.systems) {
+    for (const n of s.graph.nodes) {
+      const data = (n as { data?: Record<string, unknown> }).data ?? {};
+      if (data['shading'] === 'material' && typeof data['material'] === 'string' && data['material'] !== '') out.add(data['material']);
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * The effects an entity's gameplay hooks name (phase 20.2), as
+ * [component-relative path, effectId]: pickup `effect` (collected), enemy
+ * `hitEffect`/`defeatEffect`, health `hitEffect` (the player is hit), game
+ * zone `effect` (a checkpoint or goal reached).
+ */
+export function effectHookRefs(components: Readonly<Record<string, unknown>>): [string, string][] {
+  const out: [string, string][] = [];
+  const at = (component: string, key: string): void => {
+    const c = components[component] as Record<string, unknown> | undefined;
+    const v = c?.[key];
+    if (typeof v === 'string') out.push([`${component}/${key}`, v]);
+  };
+  at('pickup', 'effect');
+  at('enemy', 'hitEffect');
+  at('enemy', 'defeatEffect');
+  at('health', 'hitEffect');
+  at('gameZone', 'effect');
   return out;
 }

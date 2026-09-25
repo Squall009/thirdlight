@@ -221,3 +221,20 @@ export {
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
 // Phase 9.7: poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike } from './animator-player';
+// Phase 20.2: visual effects — the player (Play, exports, the Scene view's edit-mode preview) and its executors.
+export {
+  createEffectsPlayer,
+  effectsOptionFrom,
+  EFFECT_CAPS,
+  POOL_PER_EFFECT,
+  type EffectAssetRowLike,
+  type EffectCaps,
+  type EffectComponentLike,
+  type EffectDefLike,
+  type EffectRequestLike,
+  type EffectsDiagnostics,
+  type EffectsPlayer,
+  type EffectsPlayerOptions,
+} from './effects-player';
+export { GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
+export { EFFECT_LIGHT_LIMIT } from './effects-draw';

@@ -35,7 +35,7 @@ import type { ContentCatalogV3, ContentCatalogV4, GameConfig, SceneEntityV3, Sce
 import { isFolderEntity } from './types-v3';
 import type { GameFlow } from './flow';
 import { materialOverrideErrors } from './materials';
-import { effectComponentErrors } from './effects';
+import { effectComponentErrors, effectHookRefs } from './effects';
 
 /** Phase 12 (c): `project.json` schemaVersion 2 — scenes are the files in `scenes/`. */
 export interface ProjectManifestV2 {
@@ -289,6 +289,15 @@ export function composeV4(
       }
     });
   }
+  // Phase 20.2: gameplay hooks (pickup collected, enemy hit/defeated, player hit, checkpoint/goal reached) name project effects.
+  const effectIds = new Set((content.effects ?? []).map((e) => e.effectId));
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      for (const [path, id] of effectHookRefs(e.components as unknown as Record<string, unknown>)) {
+        if (!effectIds.has(id)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/${path}`, message: 'the hook names no effect of this project', expected: 'an effectId in content.effects' }, id)));
+      }
+    });
+  }
 
   // Phase 14.1: a prefab's gameplay components name project things too.
   (content.prefabs ?? []).forEach((d, di) => {
@@ -302,6 +311,7 @@ export function composeV4(
       for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
       if (c.materialParams !== undefined) for (const x of materialOverrideErrors(c.materialParams, content.materials ?? [])) bad(`materialParams${x.path}`, x.code, x.message, 'a public parameter of a graph material, with a value that fits it', x.found);
       if (c.effect !== undefined) for (const x of effectComponentErrors(c.effect, content.effects ?? [])) bad(`effect${x.path}`, x.code, x.message, 'an effect of this project and its public parameters', x.found);
+      for (const [path, id] of effectHookRefs(c as unknown as Record<string, unknown>)) if (!effectIds.has(id)) bad(path, 'reference_missing', 'the hook names no effect of this project', 'an effectId in content.effects', id);
       if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
       const cue = (c.pickup as { cue?: string } | undefined)?.cue;
       if (cue !== undefined && soundKinds.get(cue) !== 'audio') bad('pickup/cue', 'asset_reference_missing', 'a pickup cue plays an audio asset of this project', 'an audio assetId', cue);
