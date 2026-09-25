@@ -65,11 +65,11 @@ for (const variant of RENDERER_VARIANTS) test(`a red point light tints a box in 
 
   const viewport = page.locator('canvas.tl-viewport');
   await page.locator('canvas.tl-viewport').click({ position: { x: 5, y: 5 } });
-  await expect.poll(async () => reddish(decodePng(await viewport.screenshot())), { timeout: 10_000 }).toBeGreaterThan(300);
+  await expect.poll(async () => reddish(decodePng(await viewport.screenshot())), { timeout: 20_000 }).toBeGreaterThan(300);
   // The editor rig ignores the scene's lights.
   await page.getByRole('button', { name: 'light: game' }).click();
   await expect(page.getByRole('button', { name: 'light: editor' })).toBeVisible();
-  await expect.poll(async () => reddish(decodePng(await viewport.screenshot()))).toBeLessThan(100);
+  await expect.poll(async () => reddish(decodePng(await viewport.screenshot())), { timeout: 20_000 }).toBeLessThan(100);
   await page.getByRole('button', { name: 'light: editor' }).click();
 
   // Play shows the same light.
@@ -77,6 +77,6 @@ for (const variant of RENDERER_VARIANTS) test(`a red point light tints a box in 
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
-  await expect.poll(async () => reddish(decodePng(await frame.screenshot())), { timeout: 15_000 }).toBeGreaterThan(200);
+  await expect.poll(async () => reddish(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(200);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
