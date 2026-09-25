@@ -148,9 +148,12 @@ const cases: Record<string, () => void | Promise<void>> = {
     library.setMaterials([def('kit', 'kit', { uvPeriod: 2, macroNormalScale: 1.5, roughness: 0.6 }, { map: 'ramp', normalMap: 'bumps', macroNormalMap: 'macro' })]);
     // Separate pieces along X: the texture continues across them (world-X UV).
     for (let i = 0; i < 4; i++) library.apply(put(new THREE.Mesh(box(0.8), src()), -1.35 + i * 0.9, 0.9, 0.3), { '*': 'kit' });
-    const inst = new THREE.InstancedMesh(box(0.8), src(), 4);
+    // 1100 instances: more than a uniform buffer holds on either backend (three's attribute path);
+    // the first 4 are the visible row, the rest sit far below the view.
+    const inst = new THREE.InstancedMesh(box(0.8), src(), 1100);
     const m = new THREE.Matrix4();
-    for (let i = 0; i < 4; i++) inst.setMatrixAt(i, m.makeTranslation(-1.35 + i * 0.9, 0, -0.2));
+    for (let i = 0; i < 1100; i++) inst.setMatrixAt(i, i < 4 ? m.makeTranslation(-1.35 + i * 0.9, 0, -0.2) : m.makeTranslation(i * 0.01, -100, 0));
+    inst.frustumCulled = false;
     library.apply(put(inst, 0, 0, 0), { '*': 'kit' });
   },
   unlit() {
