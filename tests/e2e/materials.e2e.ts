@@ -3,6 +3,10 @@
  * (COLOR_0 as wind data) set as an asset's default makes its pieces move in
  * the Scene view, in Play and in the export; a standard material with a
  * texture shows the texture on a box.
+ *
+ * Phase 17.2: runs once per renderer variant (renderer-variants.ts): the
+ * legacy WebGLRenderer, and node materials on WebGPURenderer (WebGL 2 in the
+ * default project, WebGPU in the webgpu project).
  */
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -15,6 +19,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
+import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { menu } from './ui';
 
 let be: E2EBackend;
@@ -78,14 +83,16 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
-test('a foliage material moves in the wind (editor, Play, export); a texture shows on a box', async ({ page }) => {
-  test.setTimeout(180_000);
+for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export); a texture shows on a box (${variant})`, async ({ page }) => {
+  onlyInItsProject(variant);
+  test.setTimeout(240_000);
   const kit = join(dir, 'kit.glb');
   writeFileSync(kit, multiPieceGlb(KIT_PIECES));
   const checker = join(dir, 'checker.png');
   writeFileSync(checker, makePng(64, 64, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [30, 60, 230, 255] : [240, 240, 240, 255])));
-  await page.goto(be.editorUrl);
+  await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   await importFile(page, kit);
   await importFile(page, checker);
   const kitTile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').filter({ hasText: 'kit' });
@@ -134,7 +141,9 @@ test('a foliage material moves in the wind (editor, Play, export); a texture sho
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
+  await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect.poll(() => motion(frame), { timeout: 20_000 }).toBeGreaterThan(30);
+  await expect.poll(async () => bluePixels(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(100);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
 
@@ -149,7 +158,8 @@ test('a foliage material moves in the wind (editor, Play, export); a texture sho
   const errors: string[] = [];
   exported.on('pageerror', (e) => errors.push(e.message));
   try {
-    await exported.goto(site.url);
+    await exported.goto(`${site.url}${exportQueryFor(variant)}`);
+    await expectRendererBackend(exported.locator('canvas').first(), variant);
     await expect.poll(() => motion(exported), { timeout: 20_000 }).toBeGreaterThan(30);
     expect(errors).toEqual([]);
   } finally {
