@@ -69,7 +69,7 @@ Read `docs/roadmap.md` (principles) first.
 
 | Item | Status | Commits |
 |---|---|---|
-| 20.0 data | todo | |
+| 20.0 data | done 2026-09-25 | 7a00184 |
 | 20.1 node catalogue | todo | |
 | 20.2 runtime executors | todo | |
 | 20.3 editor | todo | |
