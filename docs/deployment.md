@@ -855,16 +855,34 @@ material catalogue; the Inspector on the right edits the selected node
 (texture fields pick from the project's textures, colours use a colour
 picker). **Remove graph** turns it back into its shader material.
 
-**Rendering waits for the graph compiler.** Until the WebGPU renderer
-(phase 17.4) and the graph compiler (18.3) land, the Scene view, Play and
-exports draw a graph material with its shader part (`shader`, `params`,
-`textures`); the tab says so. The graph is project data now and is what 18.3
-compiles.
+**Rendering (phase 18.3).** The Scene view, Play and exports compile a
+graph material's graph to a three.js node material (TSL) in the browser, on
+WebGPU and on WebGL 2 alike — nothing generated is stored; the export
+carries the graph (and the material functions it calls) in its manifest,
+without comments and groups. A PBR output becomes a standard node material
+(base colour, metalness, roughness, a tangent-space normal, emissive, AO,
+opacity, alpha clip), an Unlit output a basic one, a Vertex offset moves
+the vertices; *Double-sided*, *Transparent* and *Casts shadows* are the
+output's fields (an object whose material casts no shadow casts none,
+whatever its own flag says, while it wears it). A graph material uses only
+what its graph contains: the model file's own material and textures are not
+used (the `shader`/`params`/`textures` part comes back with **Remove
+graph**). Moving a node or editing a comment never recompiles; editing the
+graph, a parameter or a called function does. An object's value for a
+public parameter is drawn for that object only (one shared material, the
+value read per object); a texture parameter an object overrides gets its own
+compiled copy. Problems found while compiling (a missing texture, a pixel-
+only input such as Screen UV used in a Vertex offset, which reads a fixed
+stand-in there) show on the node. Selected objects and the active
+checkpoint still glow (the object's own emissive is added to the graph's).
 
 **The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
-Colour, Parameter, Time, UV (set 0/1), Vertex colour, Position and Normal
-(object/world/view), View direction, Camera distance, Screen UV, Instance
-index, Global wind; *Maths* — add, subtract, multiply, divide, min, max,
+Colour, Parameter, Time, UV (set 0/1), Vertex colour (a mesh without
+COLOR_0 reads white, or zero with alpha 1 when its field says so — for
+vertex colours used as data), Position and Normal (object/world/view), View
+direction, Object position (the object's or instance's origin in the
+world), Camera distance, Screen UV, Instance index, Global wind (direction,
+strength with gusts travelling across the world, turbulence); *Maths* — add, subtract, multiply, divide, min, max,
 power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
 step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,

@@ -35,6 +35,8 @@ import { canonicalInput, validateInput, type InputConfig } from './input';
 import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
+import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
+import { GRAPH_KINDS } from './graph-kinds';
 import { fail, isPlainObject, withFound } from './validate';
 import { validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
@@ -75,7 +77,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply (phase 12): tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'materials', 'materialFunctions', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -94,6 +96,8 @@ export const MANIFEST_KEYS_V2 = [
   'game',
   'tags',
   'materials',
+  // Phase 18.3: the material functions graph materials call (standalone graphs of kind material-function).
+  'materialFunctions',
   'environment',
   'lighting',
   'animators',
@@ -248,6 +252,8 @@ export interface RuntimeContentManifestV2 {
   game: GameConfig | null;
   /** Phase 12 (b): the tag registry, present only when non-empty. */
   tags?: TagDefinition[];
+  /** Phase 18.3: the material functions graph materials call. */
+  materialFunctions?: GraphDocument[];
   /** Phase 14.1: the prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
   /** Phase 12 (c): a v4 project's scene artifacts. */
@@ -553,6 +559,8 @@ export interface CaptureManifestV2Input {
   tags?: readonly TagDefinition[];
   /** Phase 9.4: the project materials (only when non-empty) and the environment (only when set). */
   materials?: readonly MaterialDef[];
+  /** Phase 18.3: the material functions the graph materials call (only when some are called). */
+  materialFunctions?: readonly GraphDocument[];
   environment?: EnvironmentConfig;
   /** Phase 9.6: the scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
@@ -673,6 +681,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     game: input.game,
     ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
     ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
+    ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
     ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
     ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
     ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
@@ -778,9 +787,16 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  if (d['materials'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
+  if (d['materials'] !== undefined || d['materialFunctions'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['flow'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
-    if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors);
+    // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
+    if (d['materialFunctions'] !== undefined) {
+      validateGraphDocuments(GRAPH_KINDS, d['materialFunctions'], '/materialFunctions', matErrors);
+      if (Array.isArray(d['materialFunctions']) && (d['materialFunctions'] as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
+        matErrors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
+      }
+    }
+    if (d['materials'] !== undefined) validateMaterials(d['materials'], '/materials', matErrors, graphDocumentsContext(GRAPH_KINDS, d['materialFunctions']));
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
     if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
     if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);

@@ -23,8 +23,8 @@
  * Every input has a default (a constant or a built-in source such as the
  * mesh's first UV set), so an unconnected input is always defined — the
  * rule "every output connected or defaulted" holds by construction; the
- * graph compiles to three.js TSL in phase 18.3 (`default` strings name its
- * built-in sources).
+ * graph compiles to three.js TSL (three-adapter `material-graph.ts`, phase
+ * 18.3; `default` strings name its built-in sources).
  */
 import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValue } from './graph';
 
@@ -107,10 +107,27 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
   },
   { type: 'time', label: 'Time', category: 'Inputs', description: 'Seconds since the game started (scaled by the game clock).', inputs: [], outputs: [port('time', 'time', 'float')] },
   { type: 'uv', label: 'UV', category: 'Inputs', description: 'A texture coordinate set of the mesh.', inputs: [], outputs: [port('uv', 'uv', 'vec2')], fields: [{ key: 'set', label: 'Set', type: 'enum', options: ['uv0', 'uv1'], default: 'uv0' }] },
-  { type: 'vertexColor', label: 'Vertex colour', category: 'Inputs', description: 'The mesh\'s COLOR_0 attribute (white when absent).', inputs: [], outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')] },
+  {
+    type: 'vertexColor',
+    label: 'Vertex colour',
+    category: 'Inputs',
+    description: 'The mesh\'s COLOR_0 attribute; a mesh without one reads white (a neutral tint) or zero with alpha 1 (vertex colours used as data, e.g. wind weights).',
+    inputs: [],
+    outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
+    // Phase 18.2: white multiplies to no change (a tint); zero means "no effect" for data channels.
+    fields: [{ key: 'absent', label: 'Without COLOR_0', type: 'enum', options: ['white', 'zero'], default: 'white' }],
+  },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'normal', label: 'Normal', category: 'Inputs', description: 'The surface normal in object, world or view space.', inputs: [], outputs: [port('normal', 'normal', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'viewDirection', label: 'View direction', category: 'Inputs', description: 'The direction from the surface to the camera (normalized).', inputs: [], outputs: [port('direction', 'direction', 'vec3')], fields: [SPACE_FIELD(['world', 'view'], 'world')] },
+  {
+    type: 'objectPosition',
+    label: 'Object position',
+    category: 'Inputs',
+    description: 'The object\'s origin in world space (in an instance set, the drawn instance\'s own origin) — the same for every pixel of one piece.',
+    inputs: [],
+    outputs: [port('position', 'position', 'vec3')],
+  },
   { type: 'cameraDistance', label: 'Camera distance', category: 'Inputs', description: 'Metres from the camera to the surface.', inputs: [], outputs: [port('distance', 'distance', 'float')] },
   { type: 'screenUV', label: 'Screen UV', category: 'Inputs', description: 'The position on the screen (0–1 in both axes).', inputs: [], outputs: [port('uv', 'uv', 'vec2')] },
   { type: 'instanceIndex', label: 'Instance index', category: 'Inputs', description: 'The index of the drawn instance in an instance set (0 for a single object).', inputs: [], outputs: [port('index', 'index', 'float')] },

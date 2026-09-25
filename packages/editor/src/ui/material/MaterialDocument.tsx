@@ -8,9 +8,8 @@
  * - Left: the exposed parameters (key, type, default, range, visibility) —
  *   Parameter nodes read them, objects override the public ones. Each change
  *   is one `setMaterial`.
- * - The live preview pane arrives with the graph compiler (18.3) on the
- *   WebGPU renderer (17.4); until then a note says the Scene view and Play
- *   draw the material with its shader.
+ * - Phase 18.3: the Scene view, Play and exports draw the graph (compiled to
+ *   TSL); the live preview pane is 18.2.
  *
  * Browser-only (React).
  */
@@ -73,7 +72,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
         </button>
       </div>
       <p className="tl-hint tl-material-doc__note" role="note">
-        Preview arrives with the WebGPU renderer (phase 17.4) and the graph compiler (phase 18.3); until then the Scene view, Play and exports draw this material with its {m.shader} shader.
+        The Scene view, Play and exports draw this graph (compiled to a node material); the {m.shader} shader part is used only after Remove graph.
       </p>
       {p.error !== null && (
         <p className="tl-error" role="alert">

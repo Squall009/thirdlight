@@ -84,7 +84,7 @@ import type { ZoneTool } from '../viewport/zone-overlay';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { AnimatorController, DescriptorRegistry, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
@@ -766,12 +766,13 @@ function EditorApp(): JSX.Element {
     const env = c.getEnvironment();
     setMaterials(mats);
     setEnvironment(env);
-    // Phase 18.0: the renderer gets the shader part only (a graph renders with its shader until 18.3), so a graph edit never rebuilds the Scene view's materials.
-    const libMats = mats.map(({ graph: _g, parameters: _p, ...rest }) => rest);
-    const matsKey = JSON.stringify(libMats);
+    // Phase 18.3: graph materials compile to TSL in the Scene view too (the library recompiles only when a
+    // graph's compile input changes — moving a node does not), with the material functions they call.
+    const libFunctions = c.getGraphs().filter((g) => g.kind === 'material-function');
+    const matsKey = JSON.stringify([mats, libFunctions]);
     if (matsKey !== materialsKeyRef.current) {
       materialsKeyRef.current = matsKey;
-      materialLibraryRef.current?.setMaterials(libMats as unknown as MaterialDefLike[]);
+      materialLibraryRef.current?.setMaterials(mats as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
     }
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
