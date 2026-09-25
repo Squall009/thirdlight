@@ -1,0 +1,1 @@
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "lib": ["ES2022", "ESNext.Disposable", "DOM", "DOM.Iterable"], "types": ["node"], "noEmit": true }, "files": ["page.ts", "render-worker.ts", "sim-worker.ts", "run.ts"] }

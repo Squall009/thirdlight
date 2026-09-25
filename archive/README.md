@@ -22,3 +22,17 @@ stack with the WebGL sky/PMREM/fog-volume passes, the WebGL lightmap baker,
 and the shader-parity reference capture script. The shader and environment
 parity reference images it drew stay in `tests/e2e/*-parity/refs/` as the
 contract the TSL shading is compared with.
+
+`spike-22-render-worker/` holds the phase 22.2 spike, which was not adopted:
+the exported game drawn by a render worker on an OffscreenCanvas, fed
+straight from the simulation worker. It contains:
+
+- `page.ts`: the export bootstrap with `?render=worker|main`;
+- `render-worker.ts` and `sim-worker.ts`: the worker entries;
+- `build.mjs`: makes the variant of an export;
+- `run.mjs` / `run.ts`: the measurement runner, built on the phase 21
+  harness pieces;
+- `summarize.mjs`: prints a report;
+- `results/`: the measured data.
+
+The numbers and the decision are in `docs/plan-phase-22.md` §5.

@@ -209,6 +209,112 @@ Decision log (22.1):
   step no longer blocks input or a frame. Real-GPU frame times: owner look
   pending.
 
+### Results (22.2 render worker spike, 2026-09-25) — not adopted
+
+What was built (`archive/spike-22-render-worker/`, outside the build and the
+tests): a variant of the export page. The canvas goes to a render worker
+(`transferControlToOffscreen`) that draws with the same `createSceneAdapter`
+and options as the page (one shared options function), on WebGL 2 or WebGPU.
+The simulation worker sends each frame to the page as before and also sends a
+structured-clone copy straight to the render worker over a MessageChannel, so
+the page's main thread does not relay it. The render worker keeps its own
+`FrameMirror`. Input sampling, audio, HUD, menus, flow and saves stay on the
+page. Quality, level look and title camera offset reach the worker as
+messages. `?render=main` is the product composition with the same probes.
+Play was not spiked. It composes the same host and adapter, but its relays
+call the adapter synchronously (`captureScreenshot` for `tl_screenshot`,
+`diagnostics` for the play diagnostics). Those calls would have to become
+round trips to the render worker. The spike renders correctly: screenshots
+(`--shots`) of the page's and the render worker's frames show the same
+scene. Viewed: medium on WebGL 2 and large on WebGPU; only the particles
+differ, since they are captured at different moments.
+
+Measured with `node archive/spike-22-render-worker/run.mjs` (phase 21 pieces:
+the benchmark generator and builder, the export, the API instrumentation,
+installed in the render worker too). Classes medium and large, Chromium on
+SwiftShader, 1280×720, 2 repeats in rotating order, a 5 s window per mode
+while the run plays. Modes:
+
+- product: the untouched export.
+- main: the spike page with `?render=main`.
+- worker-co: the render worker drawing the newest frame in a zero-delay task.
+- worker-raf: the render worker drawing on its own animation frame.
+
+Metrics:
+
+- main thread: CDP `TaskDuration` of the page per drawn frame.
+- audio: the simulation posting a frame → the page's host taking its audio
+  requests.
+- sim→drawn: the simulation posting a frame → that frame drawn.
+- key→moved: a key's event time stamp → the first drawn frame in which the
+  player's x moved (the input-to-photon proxy). It is also given in drawn
+  frames.
+
+Load average 10.1–17.8 at the start, 14.5–15.8 at the end, on a host shared
+with other agents' runs. Report:
+`archive/spike-22-render-worker/results/run2-2026-09-25.json`. Frames per
+repeat; the other columns the lower of the two repeats' values
+(`summarize.mjs`):
+
+| Class / backend / mode | frames drawn in 5 s (repeat 1, 2) | main thread ms/frame (busy) | audio p50 / p95 ms | sim→drawn p50 / p95 ms | key→moved p50 / max ms | frames |
+|---|---|---|---|---|---|---|
+| medium webgl2 product | 10, 3 | 22.7 (2.4 %) | — | — | — | — |
+| medium webgl2 main | 8, 4 | 22.7 (1.8 %) | 0.2 / 0.9 | 12 / 27 | 176 / 394 | 1 |
+| medium webgl2 worker-co | 9, 5 | 1.2 (0.1 %) | 0.2 / 0.2 | 21 / 41 | 135 / 894 | 1 |
+| medium webgl2 worker-raf | 7, 12 | 1.1 (0.3 %) | 0.1 / 0.4 | 27 / 909 | 206 / 320 | 1 |
+| medium webgpu product | 4, 4 | 44.8 (3.5 %) | — | — | — | — |
+| medium webgpu main | 4, 4 | 41.8 (3.3 %) | 0.1 / 0.4 | 21 / 31 | 353 / 389 | 1 |
+| medium webgpu worker-co | 4, 2 | 1.2 (0 %) | 0.1 / 0.4 | 22 / 28 | 278 / 970 | 1 |
+| medium webgpu worker-raf | 5, 3 | 1.2 (0.1 %) | 0.1 / 0.1 | 33 / 50 | 423 / 909 | 1 |
+| large webgl2 product | 5, 3 | 90.3 (5.3 %) | — | — | — | — |
+| large webgl2 main | 5, 4 | 83.1 (6.6 %) | 0.1 / 0.1 | 68 / 86 | 359 / 996 | 1 |
+| large webgl2 worker-co | 6, 12 | 0.8 (0.2 %) | 0.4 / 3 | 81 / 102 | 970 / 2669 | 1 |
+| large webgl2 worker-raf | 4, 4 | 3.4 (0.3 %) | 0.1 / 0.4 | 974 / 1430 | 526 / 1857 | 1–2 |
+| large webgpu product | 2, 3 | 97.2 (5 %) | — | — | — | — |
+| large webgpu main | 2, 3 | 110.8 (4.4 %) | 0 / 0.2 | 54 / 76 | 1053 / 1248 | 1 |
+| large webgpu worker-co | 4, 0 | 0.7 (0 %) | (no frame in one window) | 74 (one repeat) | 841 / 1275 | 1 |
+| large webgpu worker-raf | 4, 2 | 1.6 (0.1 %) | 0.1 / 0.1 | 1689 / 1712 | 904 / 2018 | 1–2 |
+
+A first run (`results/run1-2026-09-25.txt`, medium, stopped part way) measured
+a third pacing: the render worker drawing every frame as it arrived, as the
+page host does. It kept up on the small benchmark and failed on medium. The
+page no longer waited for a draw, so it ticked the simulation every animation
+frame, and frames queued behind the slow draws: sim→drawn p50 11.8 s and
+41 s, with 4 and 2 of 6 key presses never seen moving within 4 s.
+
+Reading:
+
+- **Main thread.** The page's main thread goes from 23–111 ms per drawn
+  frame to about 1 ms. That follows from how the spike is built. But the
+  page's main thread was only 2–7 % busy in the current mode.
+- **Frame rate.** On this host the frame rate is set by the CPU-rendered GPU
+  process: 0–12 frames per 5 s in every mode. The differences between modes
+  are within the spread between repeats of the same mode (medium webgl2
+  main: 8 and 4 frames).
+- **Latency.** The worker adds no measurable audio latency (sub-ms in all
+  modes). Every mode shows the move in the first drawn frame after the key.
+  Its milliseconds are the frame time and within the noise. The worker's
+  sim→drawn delay is equal to or longer than the page's (it also carries a
+  second copy of the frame).
+- **Stalls.** The worker modes showed stalls that main mode never did: a
+  5 s window with no frame and no host frame at all (large webgpu
+  worker-co, and a small webgpu smoke run with 4 host frames in 3 s). The
+  cause was not found.
+
+So the spike does not win on the benchmarks here, and it adds real costs:
+
+- a second pipeline to keep equal to the page's, with an async adapter
+  surface for Play's relays;
+- a per-frame copy of the transforms;
+- a pacing choice that makes latency unbounded when it is wrong;
+- stalls that were not explained.
+
+Real-GPU numbers: owner look pending. On a real GPU the three.js submission on
+the main thread (the 23–111 ms per frame measured here are mostly the
+adapter's sync and submission of 2 000 / 16 000 objects) is what a render
+worker would remove. Revisit when a real-GPU host shows the page's main
+thread as the frame-rate limit.
+
 ### Decision log
 
 - 2026-09-25 (22.0): the whole simulation moves as one unit — runtime with
@@ -316,3 +422,44 @@ Decision log (22.1):
 - 2026-09-25 (22.0): harness `--threads worker,off` and a `mainThread`
   metric (CDP `TaskDuration` per frame) added; metrics of `threads=off` runs
   get a `.threads-off` key suffix (the default worker keeps the old keys).
+- 2026-09-25 (22.2): the render worker spike is **not adopted**. It is
+  archived under `archive/spike-22-render-worker/`. That folder is outside
+  the build, the typecheck and the tests, and has its own `tsconfig.json`
+  for a manual `tsc -p`. No product code changed.
+  - What it measured on this host: no frame-rate win. Frames drawn per 5 s
+    are the same within the repeat-to-repeat spread, because the
+    CPU-rendered GPU process sets the frame rate. Audio request latency is
+    unchanged (sub-ms). Key-to-moved is the first drawn frame in every mode.
+  - What it did gain: the page's main thread goes from 23–111 ms per frame
+    to about 1 ms. But the page was only 2–7 % busy in the current mode.
+  - Why that is not enough: unexplained whole-pipeline stalls in the worker
+    modes, a per-frame copy of the transforms, and an async adapter surface
+    that Play's relays would need.
+  - Results are in §5 above. Revisit on a real-GPU host where the page's
+    main thread limits the frame rate.
+- 2026-09-25 (22.2): scope — the export only. Play composes the same host
+  and adapter; its synchronous adapter calls (screenshot, diagnostics) are
+  the extra work adoption would need. The two workers talk directly over a
+  MessageChannel: the simulation worker sends the render worker a
+  structured-clone copy of every frame message, before the page's copy
+  transfers the transform buffer. The render worker keeps its own
+  `FrameMirror`, so the main thread relays nothing. The simulation's
+  shared-memory transport was not adapted for two readers.
+- 2026-09-25 (22.2): pacing is the part that decides latency once the page
+  no longer draws, because the page then ticks the simulation every
+  animation frame. Three pacings were measured:
+  - drawing each frame as it arrives, as the page host does: frames queued
+    behind slow draws, 11.8–41 s behind on medium;
+  - drawing on the worker's animation frame: up to ~1.7 s behind on large;
+  - drawing the newest state in a zero-delay task queued after the frames
+    that are already waiting (coalesce): as close as the page. The spike
+    defaults to this.
+- 2026-09-25 (22.2): the latency probes live only in the spike page and
+  worker:
+  - input: a key's event time stamp (so a busy main thread counts) → the
+    first drawn frame in which the player's x changed, in ms and in drawn
+    frames;
+  - audio: the simulation's post time stamp on each frame → the page's host
+    taking its audio requests (every frame, with or without sounds);
+  - frame intervals: the phase 21 API instrumentation, also installed in
+    the render worker, plus the adapter's own render times.

@@ -1,0 +1,18 @@
+spike222: load 8.01 7.57 6.64; classes medium,large; renderers webgl2,webgpu; repeats 2
+spike222: medium built in 2131 ms
+spike222: medium webgl2 product #0: frame mean 1844.367 p95 2449.9 ms (3 drawn; adapter - ms, - renders), main thread 53.24 ms/frame (busy 3%), audio p50/p95 -/- ms, sim->drawn p50/p95 -/- ms, input p50 - ms / - frames (max - ms / -, missed -), first frame 830 ms, load 9.11
+spike222: medium webgl2 main #0: frame mean 1955.467 p95 2899.8 ms (3 drawn; adapter 1982.4 ms, 3 renders), main thread 84.2 ms/frame (busy 5%), audio p50/p95 1.2/6 ms, sim->drawn p50/p95 77.8/83.4 ms, input p50 1071 ms / 1 frames (max 1964.1 ms / 1, missed 0), first frame 947 ms, load 14.33
+spike222: medium webgl2 worker #0: frame mean 199.98 p95 299.9 ms (6 drawn; adapter 173.774 ms, 129 renders), main thread 0.84 ms/frame (busy 0%), audio p50/p95 0.2/4.4 ms, sim->drawn p50/p95 11800.8/24707 ms, input p50 583.8 ms / 1 frames (max 2876.9 ms / 1, missed 4), first frame 1072 ms, load 14.83
+spike222: medium webgl2 worker-raf #0: frame mean 343.744 p95 916.7 ms (16 drawn; adapter 295.8 ms, 17 renders), main thread 1.23 ms/frame (busy 0%), audio p50/p95 0.3/3.1 ms, sim->drawn p50/p95 26.7/906.4 ms, input p50 851.3 ms / 1 frames (max 2035.3 ms / 2, missed 0), first frame 1028 ms, load 15.16
+spike222: medium webgl2 main #1: frame mean 2416.6 p95 2516.6 ms (2 drawn; adapter 2542.3 ms, 2 renders), main thread 57.62 ms/frame (busy 2%), audio p50/p95 0.2/0.3 ms, sim->drawn p50/p95 16.4/31.4 ms, input p50 429.3 ms / 1 frames (max 1465.6 ms / 1, missed 0), first frame 723 ms, load 16.17
+spike222: medium webgl2 worker #1: frame mean 0 p95 0 ms (0 drawn; adapter 612.383 ms, 201 renders), main thread 2.07 ms/frame (busy 0%), audio p50/p95 0.1/1.8 ms, sim->drawn p50/p95 41246.4/89021.6 ms, input p50 1326.8 ms / 1 frames (max 4961.6 ms / 1, missed 2), first frame 1394 ms, load 18.42
+spike222: medium webgl2 worker-raf #1: frame mean 392.3 p95 1633.3 ms (13 drawn; adapter 302.017 ms, 13 renders), main thread 1.06 ms/frame (busy 0%), audio p50/p95 0.1/3.8 ms, sim->drawn p50/p95 36.1/1497.1 ms, input p50 188.8 ms / 1 frames (max 1137 ms / 1, missed 0), first frame 980 ms, load 13.92
+spike222: medium webgl2 product #1: frame mean 1599.933 p95 2533.3 ms (3 drawn; adapter - ms, - renders), main thread 65.06 ms/frame (busy 4%), audio p50/p95 -/- ms, sim->drawn p50/p95 -/- ms, input p50 - ms / - frames (max - ms / -, missed -), first frame 707 ms, load 14.69
+spike222: medium webgpu product #0: frame mean 1488.867 p95 1516.7 ms (3 drawn; adapter - ms, - renders), main thread 66.86 ms/frame (busy 4%), audio p50/p95 -/- ms, sim->drawn p50/p95 -/- ms, input p50 - ms / - frames (max - ms / -, missed -), first frame 1160 ms, load 17.54
+spike222: medium webgpu main #0: frame mean 1533.267 p95 1550 ms (3 drawn; adapter 1542.65 ms, 3 renders), main thread 58.93 ms/frame (busy 4%), audio p50/p95 0.1/1.8 ms, sim->drawn p50/p95 31.2/36.5 ms, input p50 861.7 ms / 1 frames (max 1236.9 ms / 1, missed 0), first frame 1124 ms, load 20.33
+spike222: FAILED medium webgpu worker #0: browserContext.close: Target page, context or browser has been closed
+spike222: FAILED medium webgpu worker-raf #0: browser.newContext: Target page, context or browser has been closed
+spike222: FAILED medium webgpu main #1: browser.newContext: Target page, context or browser has been closed
+spike222: FAILED medium webgpu worker #1: browser.newContext: Target page, context or browser has been closed
+spike222: FAILED medium webgpu worker-raf #1: browser.newContext: Target page, context or browser has been closed
+spike222: FAILED medium webgpu product #1: browser.newContext: Target page, context or browser has been closed
