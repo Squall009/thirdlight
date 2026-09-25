@@ -1,0 +1,2560 @@
+{
+  "startedAt": "2026-09-25T16-14-36-535Z",
+  "loadStart": [
+    10.08,
+    16.89,
+    17.82
+  ],
+  "loadEnd": [
+    15.77,
+    14.48,
+    14.89
+  ],
+  "options": {
+    "classes": [
+      "medium",
+      "large"
+    ],
+    "renderers": [
+      "webgl2",
+      "webgpu"
+    ],
+    "repeats": 2,
+    "recordMs": 5000,
+    "warmupMs": 2000,
+    "trials": 6,
+    "viewport": [
+      1280,
+      720
+    ],
+    "modes": [
+      "product",
+      "main",
+      "worker-co",
+      "worker-raf"
+    ]
+  },
+  "results": [
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "product",
+      "repeat": 0,
+      "firstFrameMs": 949,
+      "frameMs": {
+        "n": 10,
+        "p50": 783.3,
+        "p95": 816.7,
+        "p99": 816.7,
+        "max": 816.7,
+        "mean": 489.99
+      },
+      "framesDrawn": 10,
+      "drawCalls": {
+        "n": 10,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 227,
+        "taskMsPerFrame": 22.7,
+        "busyShare": 0.045
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        13.1,
+        16.9,
+        17.79
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "main",
+      "repeat": 0,
+      "firstFrameMs": 667,
+      "frameMs": {
+        "n": 8,
+        "p50": 716.7,
+        "p95": 916.6,
+        "p99": 916.6,
+        "max": 916.6,
+        "mean": 608.3
+      },
+      "framesDrawn": 8,
+      "drawCalls": {
+        "n": 8,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 289,
+        "taskMsPerFrame": 36.18,
+        "busyShare": 0.057
+      },
+      "audioLatencyMs": {
+        "n": 8,
+        "p50": 0.2,
+        "p95": 0.9,
+        "p99": 0.9,
+        "max": 0.9,
+        "mean": 0.325
+      },
+      "renderLagMs": {
+        "n": 8,
+        "p50": 29.6,
+        "p95": 46,
+        "p99": 46,
+        "max": 46,
+        "mean": 32.013
+      },
+      "adapterFrameMs": {
+        "n": 7,
+        "p50": 696.3,
+        "p95": 927.3,
+        "p99": 927.3,
+        "max": 927.3,
+        "mean": 567.614
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 176,
+          "p95": 393.6,
+          "p99": 393.6,
+          "max": 393.6,
+          "mean": 215.133
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        11.78,
+        16.05,
+        17.46
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "worker-co",
+      "repeat": 0,
+      "firstFrameMs": 883,
+      "frameMs": {
+        "n": 8,
+        "p50": 433.3,
+        "p95": 1533.2,
+        "p99": 1533.2,
+        "max": 1533.2,
+        "mean": 620.8
+      },
+      "framesDrawn": 8,
+      "drawCalls": {
+        "n": 8,
+        "p50": 453,
+        "p95": 681,
+        "p99": 681,
+        "max": 681,
+        "mean": 481.5
+      },
+      "mainThread": {
+        "taskMs": 15,
+        "taskMsPerFrame": 1.72,
+        "busyShare": 0.003
+      },
+      "audioLatencyMs": {
+        "n": 10,
+        "p50": 0.3,
+        "p95": 4.2,
+        "p99": 4.2,
+        "max": 4.2,
+        "mean": 1.03
+      },
+      "renderLagMs": {
+        "n": 9,
+        "p50": 37.9,
+        "p95": 52.7,
+        "p99": 52.7,
+        "max": 52.7,
+        "mean": 41.044
+      },
+      "adapterFrameMs": {
+        "n": 8,
+        "p50": 31.7,
+        "p95": 1525.8,
+        "p99": 1525.8,
+        "max": 1525.8,
+        "mean": 491.7
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 316.9,
+          "p95": 1056.1,
+          "p99": 1056.1,
+          "max": 1056.1,
+          "mean": 547.1
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        12.59,
+        15.58,
+        17.23
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "worker-raf",
+      "repeat": 0,
+      "firstFrameMs": 920,
+      "frameMs": {
+        "n": 6,
+        "p50": 849.9,
+        "p95": 1750,
+        "p99": 1750,
+        "max": 1750,
+        "mean": 736.083
+      },
+      "framesDrawn": 6,
+      "drawCalls": {
+        "n": 6,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 17,
+        "taskMsPerFrame": 2.37,
+        "busyShare": 0.003
+      },
+      "audioLatencyMs": {
+        "n": 9,
+        "p50": 0.1,
+        "p95": 3,
+        "p99": 3,
+        "max": 3,
+        "mean": 0.5
+      },
+      "renderLagMs": {
+        "n": 7,
+        "p50": 27.5,
+        "p95": 908.5,
+        "p99": 908.5,
+        "max": 908.5,
+        "mean": 273.014
+      },
+      "adapterFrameMs": {
+        "n": 6,
+        "p50": 878.2,
+        "p95": 1738.9,
+        "p99": 1738.9,
+        "max": 1738.9,
+        "mean": 738.667
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 206.4,
+          "p95": 319.5,
+          "p99": 319.5,
+          "max": 319.5,
+          "mean": 223.85
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        13.04,
+        15.3,
+        17.06
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "main",
+      "repeat": 1,
+      "firstFrameMs": 784,
+      "frameMs": {
+        "n": 3,
+        "p50": 1666.5,
+        "p95": 1833.2,
+        "p99": 1833.2,
+        "max": 1833.2,
+        "mean": 1466.567
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 91,
+        "taskMsPerFrame": 22.65,
+        "busyShare": 0.018
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.2,
+        "p95": 3.5,
+        "p99": 3.5,
+        "max": 3.5,
+        "mean": 1.025
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 12.2,
+        "p95": 26.7,
+        "p99": 26.7,
+        "max": 26.7,
+        "mean": 18.675
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1661.3,
+        "p95": 1737.5,
+        "p99": 1737.5,
+        "max": 1737.5,
+        "mean": 1432.4
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 864.4,
+          "p95": 1108.1,
+          "p99": 1108.1,
+          "max": 1108.1,
+          "mean": 861.15
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        12.48,
+        14.84,
+        16.83
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "worker-co",
+      "repeat": 1,
+      "firstFrameMs": 917,
+      "frameMs": {
+        "n": 5,
+        "p50": 166.7,
+        "p95": 3233.1,
+        "p99": 3233.1,
+        "max": 3233.1,
+        "mean": 1123.28
+      },
+      "framesDrawn": 5,
+      "drawCalls": {
+        "n": 5,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 6,
+        "taskMsPerFrame": 1.17,
+        "busyShare": 0.001
+      },
+      "audioLatencyMs": {
+        "n": 5,
+        "p50": 0.2,
+        "p95": 0.2,
+        "p99": 0.2,
+        "max": 0.2,
+        "mean": 0.18
+      },
+      "renderLagMs": {
+        "n": 5,
+        "p50": 21.2,
+        "p95": 41.2,
+        "p99": 41.2,
+        "max": 41.2,
+        "mean": 22.88
+      },
+      "adapterFrameMs": {
+        "n": 4,
+        "p50": 98.5,
+        "p95": 2522.6,
+        "p99": 2522.6,
+        "max": 2522.6,
+        "mean": 863.175
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 134.5,
+          "p95": 893.8,
+          "p99": 893.8,
+          "max": 893.8,
+          "mean": 455.133
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        11.24,
+        14.35,
+        16.61
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "worker-raf",
+      "repeat": 1,
+      "firstFrameMs": 915,
+      "frameMs": {
+        "n": 12,
+        "p50": 400,
+        "p95": 1249.9,
+        "p99": 1249.9,
+        "max": 1249.9,
+        "mean": 424.975
+      },
+      "framesDrawn": 12,
+      "drawCalls": {
+        "n": 12,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 14,
+        "taskMsPerFrame": 1.14,
+        "busyShare": 0.003
+      },
+      "audioLatencyMs": {
+        "n": 12,
+        "p50": 0.3,
+        "p95": 0.4,
+        "p99": 0.4,
+        "max": 0.4,
+        "mean": 0.308
+      },
+      "renderLagMs": {
+        "n": 12,
+        "p50": 27.4,
+        "p95": 1225.7,
+        "p99": 1225.7,
+        "max": 1225.7,
+        "mean": 194.408
+      },
+      "adapterFrameMs": {
+        "n": 11,
+        "p50": 41,
+        "p95": 2023.9,
+        "p99": 2023.9,
+        "max": 2023.9,
+        "mean": 389.582
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 812,
+          "p95": 1764.1,
+          "p99": 1764.1,
+          "max": 1764.1,
+          "mean": 823.3
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        12.12,
+        14.18,
+        16.46
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgl2",
+      "mode": "product",
+      "repeat": 1,
+      "firstFrameMs": 729,
+      "frameMs": {
+        "n": 3,
+        "p50": 1733.4,
+        "p95": 1849.9,
+        "p99": 1849.9,
+        "max": 1849.9,
+        "mean": 1483.267
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 121,
+        "taskMsPerFrame": 40.41,
+        "busyShare": 0.024
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        12.67,
+        14.16,
+        16.39
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "product",
+      "repeat": 0,
+      "firstFrameMs": 885,
+      "frameMs": {
+        "n": 4,
+        "p50": 1050,
+        "p95": 1166.6,
+        "p99": 1166.6,
+        "max": 1166.6,
+        "mean": 1087.45
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 179,
+        "taskMsPerFrame": 44.83,
+        "busyShare": 0.035
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        11.29,
+        13.64,
+        16.13
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "main",
+      "repeat": 0,
+      "firstFrameMs": 810,
+      "frameMs": {
+        "n": 4,
+        "p50": 1016.6,
+        "p95": 1116.6,
+        "p99": 1116.6,
+        "max": 1116.6,
+        "mean": 1041.625
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 167,
+        "taskMsPerFrame": 41.82,
+        "busyShare": 0.033
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.1,
+        "p95": 0.4,
+        "p99": 0.4,
+        "max": 0.4,
+        "mean": 0.15
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 20.9,
+        "p95": 31.1,
+        "p99": 31.1,
+        "max": 31.1,
+        "mean": 22.45
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1032.1,
+        "p95": 1106.2,
+        "p99": 1106.2,
+        "max": 1106.2,
+        "mean": 1052.167
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 353.1,
+          "p95": 389.2,
+          "p99": 389.2,
+          "max": 389.2,
+          "mean": 333.267
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        12.02,
+        13.59,
+        16.05
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "worker-co",
+      "repeat": 0,
+      "firstFrameMs": 953,
+      "frameMs": {
+        "n": 4,
+        "p50": 33.3,
+        "p95": 1250,
+        "p99": 1250,
+        "max": 1250,
+        "mean": 604.15
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 7,
+        "taskMsPerFrame": 1.81,
+        "busyShare": 0.001
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.2,
+        "p95": 0.4,
+        "p99": 0.4,
+        "max": 0.4,
+        "mean": 0.2
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 23.6,
+        "p95": 45.1,
+        "p99": 45.1,
+        "max": 45.1,
+        "mean": 28.975
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1111.1,
+        "p95": 1116.9,
+        "p99": 1116.9,
+        "max": 1116.9,
+        "mean": 750.233
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 399.7,
+          "p95": 1274.9,
+          "p99": 1274.9,
+          "max": 1274.9,
+          "mean": 589.633
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        11.89,
+        13.41,
+        15.91
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "worker-raf",
+      "repeat": 0,
+      "firstFrameMs": 855,
+      "frameMs": {
+        "n": 5,
+        "p50": 1183.3,
+        "p95": 1233.3,
+        "p99": 1233.3,
+        "max": 1233.3,
+        "mean": 963.28
+      },
+      "framesDrawn": 5,
+      "drawCalls": {
+        "n": 5,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 8,
+        "taskMsPerFrame": 1.59,
+        "busyShare": 0.002
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.3,
+        "p95": 0.4,
+        "p99": 0.4,
+        "max": 0.4,
+        "mean": 0.325
+      },
+      "renderLagMs": {
+        "n": 5,
+        "p50": 1187.7,
+        "p95": 1249.2,
+        "p99": 1249.2,
+        "max": 1249.2,
+        "mean": 748.46
+      },
+      "adapterFrameMs": {
+        "n": 4,
+        "p50": 1169.1,
+        "p95": 1231,
+        "p99": 1231,
+        "max": 1231,
+        "mean": 897.525
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 492.3,
+          "p95": 3199.4,
+          "p99": 3199.4,
+          "max": 3199.4,
+          "mean": 1115.8
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        13.12,
+        13.55,
+        15.87
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "main",
+      "repeat": 1,
+      "firstFrameMs": 864,
+      "frameMs": {
+        "n": 4,
+        "p50": 1183.2,
+        "p95": 1249.9,
+        "p99": 1249.9,
+        "max": 1249.9,
+        "mean": 1195.8
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 207,
+        "taskMsPerFrame": 51.79,
+        "busyShare": 0.041
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.2,
+        "p95": 0.5,
+        "p99": 0.5,
+        "max": 0.5,
+        "mean": 0.25
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 26,
+        "p95": 43.6,
+        "p99": 43.6,
+        "max": 43.6,
+        "mean": 30.275
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1214.4,
+        "p95": 1217.5,
+        "p99": 1217.5,
+        "max": 1217.5,
+        "mean": 1208.767
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 466.6,
+          "p95": 885.2,
+          "p99": 885.2,
+          "max": 885.2,
+          "mean": 530.933
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        13.58,
+        13.59,
+        15.83
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "worker-co",
+      "repeat": 1,
+      "firstFrameMs": 1039,
+      "frameMs": {
+        "n": 2,
+        "p50": 983.2,
+        "p95": 5649.8,
+        "p99": 5649.8,
+        "max": 5649.8,
+        "mean": 3316.5
+      },
+      "framesDrawn": 2,
+      "drawCalls": {
+        "n": 2,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 2,
+        "taskMsPerFrame": 1.18,
+        "busyShare": 0
+      },
+      "audioLatencyMs": {
+        "n": 2,
+        "p50": 0.1,
+        "p95": 3.7,
+        "p99": 3.7,
+        "max": 3.7,
+        "mean": 1.9
+      },
+      "renderLagMs": {
+        "n": 2,
+        "p50": 21.9,
+        "p95": 27.5,
+        "p99": 27.5,
+        "max": 27.5,
+        "mean": 24.7
+      },
+      "adapterFrameMs": {
+        "n": 1,
+        "p50": 990.3,
+        "p95": 990.3,
+        "p99": 990.3,
+        "max": 990.3,
+        "mean": 990.3
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 277.5,
+          "p95": 969.8,
+          "p99": 969.8,
+          "max": 969.8,
+          "mean": 400.717
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        11.99,
+        13.25,
+        15.68
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "worker-raf",
+      "repeat": 1,
+      "firstFrameMs": 778,
+      "frameMs": {
+        "n": 2,
+        "p50": 2300,
+        "p95": 2416.5,
+        "p99": 2416.5,
+        "max": 2416.5,
+        "mean": 2358.25
+      },
+      "framesDrawn": 2,
+      "drawCalls": {
+        "n": 2,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 4,
+        "taskMsPerFrame": 1.17,
+        "busyShare": 0.001
+      },
+      "audioLatencyMs": {
+        "n": 2,
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.1,
+        "max": 0.1,
+        "mean": 0.1
+      },
+      "renderLagMs": {
+        "n": 3,
+        "p50": 32.5,
+        "p95": 50.1,
+        "p99": 50.1,
+        "max": 50.1,
+        "mean": 35.8
+      },
+      "adapterFrameMs": {
+        "n": 2,
+        "p50": 2274.4,
+        "p95": 2452.5,
+        "p99": 2452.5,
+        "max": 2452.5,
+        "mean": 2363.45
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 423.3,
+          "p95": 909,
+          "p99": 909,
+          "max": 909,
+          "mean": 513.083
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        12.27,
+        13.21,
+        15.61
+      ]
+    },
+    {
+      "cls": "medium",
+      "renderer": "webgpu",
+      "mode": "product",
+      "repeat": 1,
+      "firstFrameMs": 836,
+      "frameMs": {
+        "n": 4,
+        "p50": 1183.3,
+        "p95": 1216.7,
+        "p99": 1216.7,
+        "max": 1216.7,
+        "mean": 1183.275
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 453,
+        "p95": 453,
+        "p99": 453,
+        "max": 453,
+        "mean": 453
+      },
+      "mainThread": {
+        "taskMs": 212,
+        "taskMsPerFrame": 52.98,
+        "busyShare": 0.042
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        13.87,
+        13.51,
+        15.67
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "product",
+      "repeat": 0,
+      "firstFrameMs": 2187,
+      "frameMs": {
+        "n": 5,
+        "p50": 799.9,
+        "p95": 1266.7,
+        "p99": 1266.7,
+        "max": 1266.7,
+        "mean": 759.98
+      },
+      "framesDrawn": 5,
+      "drawCalls": {
+        "n": 5,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 465,
+        "taskMsPerFrame": 92.94,
+        "busyShare": 0.091
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        15.11,
+        13.72,
+        15.62
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "main",
+      "repeat": 0,
+      "firstFrameMs": 2006,
+      "frameMs": {
+        "n": 5,
+        "p50": 1133.3,
+        "p95": 1249.9,
+        "p99": 1249.9,
+        "max": 1249.9,
+        "mean": 999.96
+      },
+      "framesDrawn": 5,
+      "drawCalls": {
+        "n": 5,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 504,
+        "taskMsPerFrame": 100.79,
+        "busyShare": 0.099
+      },
+      "audioLatencyMs": {
+        "n": 5,
+        "p50": 0.2,
+        "p95": 2.8,
+        "p99": 2.8,
+        "max": 2.8,
+        "mean": 0.74
+      },
+      "renderLagMs": {
+        "n": 5,
+        "p50": 83.9,
+        "p95": 107.4,
+        "p99": 107.4,
+        "max": 107.4,
+        "mean": 86.72
+      },
+      "adapterFrameMs": {
+        "n": 4,
+        "p50": 1168.9,
+        "p95": 1246,
+        "p99": 1246,
+        "max": 1246,
+        "mean": 1101.35
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 661.9,
+          "p95": 1966,
+          "p99": 1966,
+          "max": 1966,
+          "mean": 920.783
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        13.04,
+        13.32,
+        15.36
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "worker-co",
+      "repeat": 0,
+      "firstFrameMs": 2375,
+      "frameMs": {
+        "n": 4,
+        "p50": 1216.7,
+        "p95": 1716.6,
+        "p99": 1716.6,
+        "max": 1716.6,
+        "mean": 1237.45
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 580,
+        "p95": 872,
+        "p99": 872,
+        "max": 872,
+        "mean": 653
+      },
+      "mainThread": {
+        "taskMs": 10,
+        "taskMsPerFrame": 1.66,
+        "busyShare": 0.002
+      },
+      "audioLatencyMs": {
+        "n": 5,
+        "p50": 0.4,
+        "p95": 4.1,
+        "p99": 4.1,
+        "max": 4.1,
+        "mean": 1.08
+      },
+      "renderLagMs": {
+        "n": 6,
+        "p50": 81,
+        "p95": 102.4,
+        "p99": 102.4,
+        "max": 102.4,
+        "mean": 86.417
+      },
+      "adapterFrameMs": {
+        "n": 5,
+        "p50": 1210.5,
+        "p95": 1740.5,
+        "p99": 1740.5,
+        "max": 1740.5,
+        "mean": 988.14
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 969.7,
+          "p95": 2668.7,
+          "p99": 2668.7,
+          "max": 2668.7,
+          "mean": 1501.683
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        14.49,
+        13.69,
+        15.34
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "worker-raf",
+      "repeat": 0,
+      "firstFrameMs": 2095,
+      "frameMs": {
+        "n": 3,
+        "p50": 1316.5,
+        "p95": 1366.7,
+        "p99": 1366.7,
+        "max": 1366.7,
+        "mean": 1311.033
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 49,
+        "taskMsPerFrame": 12.16,
+        "busyShare": 0.01
+      },
+      "audioLatencyMs": {
+        "n": 6,
+        "p50": 0.3,
+        "p95": 0.4,
+        "p99": 0.4,
+        "max": 0.4,
+        "mean": 0.35
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 1312.3,
+        "p95": 1429.9,
+        "p99": 1429.9,
+        "max": 1429.9,
+        "mean": 1052.8
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1322.8,
+        "p95": 1368.8,
+        "p99": 1368.8,
+        "max": 1368.8,
+        "mean": 1316
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 526.4,
+          "p95": 1857.3,
+          "p99": 1857.3,
+          "max": 1857.3,
+          "mean": 710.033
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 2,
+          "p99": 2,
+          "max": 2,
+          "mean": 1.333
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        15.18,
+        14.1,
+        15.37
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "main",
+      "repeat": 1,
+      "firstFrameMs": 1695,
+      "frameMs": {
+        "n": 4,
+        "p50": 900,
+        "p95": 1649.9,
+        "p99": 1649.9,
+        "max": 1649.9,
+        "mean": 1087.45
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 332,
+        "taskMsPerFrame": 83.11,
+        "busyShare": 0.066
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.1,
+        "max": 0.1,
+        "mean": 0.1
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 68.3,
+        "p95": 85.6,
+        "p99": 85.6,
+        "max": 85.6,
+        "mean": 67.65
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 887,
+        "p95": 1669.5,
+        "p99": 1669.5,
+        "max": 1669.5,
+        "mean": 1043.233
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 358.7,
+          "p95": 996.1,
+          "p99": 996.1,
+          "max": 996.1,
+          "mean": 506.833
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        11.61,
+        13.34,
+        15.06
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "worker-co",
+      "repeat": 1,
+      "firstFrameMs": 2198,
+      "frameMs": {
+        "n": 7,
+        "p50": 283.4,
+        "p95": 1233.3,
+        "p99": 1233.3,
+        "max": 1233.3,
+        "mean": 554.743
+      },
+      "framesDrawn": 7,
+      "drawCalls": {
+        "n": 7,
+        "p50": 580,
+        "p95": 1748,
+        "p99": 1748,
+        "max": 1748,
+        "mean": 872
+      },
+      "mainThread": {
+        "taskMs": 10,
+        "taskMsPerFrame": 0.84,
+        "busyShare": 0.002
+      },
+      "audioLatencyMs": {
+        "n": 10,
+        "p50": 0.4,
+        "p95": 3,
+        "p99": 3,
+        "max": 3,
+        "mean": 0.62
+      },
+      "renderLagMs": {
+        "n": 12,
+        "p50": 90.8,
+        "p95": 173.9,
+        "p99": 173.9,
+        "max": 173.9,
+        "mean": 101.933
+      },
+      "adapterFrameMs": {
+        "n": 11,
+        "p50": 85.1,
+        "p95": 1268.9,
+        "p99": 1268.9,
+        "max": 1268.9,
+        "mean": 341.318
+      },
+      "input": {
+        "latencyMs": {
+          "n": 5,
+          "p50": 1970.5,
+          "p95": 3053.5,
+          "p99": 3053.5,
+          "max": 3053.5,
+          "mean": 1946.88
+        },
+        "frames": {
+          "n": 5,
+          "p50": 1,
+          "p95": 4,
+          "p99": 4,
+          "max": 4,
+          "mean": 1.6
+        },
+        "missed": 1
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        11.86,
+        13.11,
+        14.88
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "worker-raf",
+      "repeat": 1,
+      "firstFrameMs": 2372,
+      "frameMs": {
+        "n": 4,
+        "p50": 850,
+        "p95": 2466.6,
+        "p99": 2466.6,
+        "max": 2466.6,
+        "mean": 1212.45
+      },
+      "framesDrawn": 4,
+      "drawCalls": {
+        "n": 4,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 14,
+        "taskMsPerFrame": 3.41,
+        "busyShare": 0.003
+      },
+      "audioLatencyMs": {
+        "n": 4,
+        "p50": 0.1,
+        "p95": 0.8,
+        "p99": 0.8,
+        "max": 0.8,
+        "mean": 0.3
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 974.2,
+        "p95": 2560.9,
+        "p99": 2560.9,
+        "max": 2560.9,
+        "mean": 1303.975
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 905.3,
+        "p95": 1340,
+        "p99": 1340,
+        "max": 1340,
+        "mean": 808.867
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 766.8,
+          "p95": 2081.8,
+          "p99": 2081.8,
+          "max": 2081.8,
+          "mean": 975.867
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 2,
+          "p99": 2,
+          "max": 2,
+          "mean": 1.167
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        13.59,
+        13.3,
+        14.85
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgl2",
+      "mode": "product",
+      "repeat": 1,
+      "firstFrameMs": 2312,
+      "frameMs": {
+        "n": 3,
+        "p50": 1266.6,
+        "p95": 1916.6,
+        "p99": 1916.6,
+        "max": 1916.6,
+        "mean": 1238.833
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 271,
+        "taskMsPerFrame": 90.34,
+        "busyShare": 0.053
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgl2"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        14.25,
+        13.49,
+        14.85
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "product",
+      "repeat": 0,
+      "firstFrameMs": 2433,
+      "frameMs": {
+        "n": 2,
+        "p50": 1883.3,
+        "p95": 1949.9,
+        "p99": 1949.9,
+        "max": 1949.9,
+        "mean": 1916.6
+      },
+      "framesDrawn": 2,
+      "drawCalls": {
+        "n": 2,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 254,
+        "taskMsPerFrame": 127.02,
+        "busyShare": 0.05
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        15.32,
+        13.94,
+        14.94
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "main",
+      "repeat": 0,
+      "firstFrameMs": 2207,
+      "frameMs": {
+        "n": 2,
+        "p50": 1766.6,
+        "p95": 1766.6,
+        "p99": 1766.6,
+        "max": 1766.6,
+        "mean": 1766.6
+      },
+      "framesDrawn": 2,
+      "drawCalls": {
+        "n": 2,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 222,
+        "taskMsPerFrame": 110.8,
+        "busyShare": 0.044
+      },
+      "audioLatencyMs": {
+        "n": 2,
+        "p50": 0,
+        "p95": 0.2,
+        "p99": 0.2,
+        "max": 0.2,
+        "mean": 0.1
+      },
+      "renderLagMs": {
+        "n": 2,
+        "p50": 53.7,
+        "p95": 75.6,
+        "p99": 75.6,
+        "max": 75.6,
+        "mean": 64.65
+      },
+      "adapterFrameMs": {
+        "n": 1,
+        "p50": 1756.7,
+        "p95": 1756.7,
+        "p99": 1756.7,
+        "max": 1756.7,
+        "mean": 1756.7
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 1052.6,
+          "p95": 1248.4,
+          "p99": 1248.4,
+          "max": 1248.4,
+          "mean": 975.433
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        14.83,
+        13.96,
+        14.9
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "worker-co",
+      "repeat": 0,
+      "firstFrameMs": 2692,
+      "frameMs": {
+        "n": 3,
+        "p50": 1599.9,
+        "p95": 1699.9,
+        "p99": 1699.9,
+        "max": 1699.9,
+        "mean": 1599.933
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 47,
+        "taskMsPerFrame": 11.78,
+        "busyShare": 0.009
+      },
+      "audioLatencyMs": {
+        "n": 3,
+        "p50": 1.6,
+        "p95": 3.6,
+        "p99": 3.6,
+        "max": 3.6,
+        "mean": 1.833
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 73.7,
+        "p95": 76.8,
+        "p99": 76.8,
+        "max": 76.8,
+        "mean": 74.15
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1594.4,
+        "p95": 1674.8,
+        "p99": 1674.8,
+        "max": 1674.8,
+        "mean": 1594.4
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 840.8,
+          "p95": 1275.3,
+          "p99": 1275.3,
+          "max": 1275.3,
+          "mean": 907.067
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        14.1,
+        13.86,
+        14.83
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "worker-raf",
+      "repeat": 0,
+      "firstFrameMs": 2443,
+      "frameMs": {
+        "n": 3,
+        "p50": 1616.6,
+        "p95": 1666.6,
+        "p99": 1666.6,
+        "max": 1666.6,
+        "mean": 1627.733
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 69,
+        "taskMsPerFrame": 17.15,
+        "busyShare": 0.014
+      },
+      "audioLatencyMs": {
+        "n": 3,
+        "p50": 0.2,
+        "p95": 0.3,
+        "p99": 0.3,
+        "max": 0.3,
+        "mean": 0.233
+      },
+      "renderLagMs": {
+        "n": 4,
+        "p50": 1688.9,
+        "p95": 1712.3,
+        "p99": 1712.3,
+        "max": 1712.3,
+        "mean": 1692.975
+      },
+      "adapterFrameMs": {
+        "n": 3,
+        "p50": 1608.8,
+        "p95": 1649.1,
+        "p99": 1649.1,
+        "max": 1649.1,
+        "mean": 1620.367
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 904.1,
+          "p95": 3279.8,
+          "p99": 3279.8,
+          "max": 3279.8,
+          "mean": 1306.433
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 2,
+          "p99": 2,
+          "max": 2,
+          "mean": 1.167
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        14.36,
+        13.91,
+        14.79
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "main",
+      "repeat": 1,
+      "firstFrameMs": 2200,
+      "frameMs": {
+        "n": 3,
+        "p50": 1833.2,
+        "p95": 3166.5,
+        "p99": 3166.5,
+        "max": 3166.5,
+        "mean": 2272.1
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 341,
+        "taskMsPerFrame": 113.58,
+        "busyShare": 0.067
+      },
+      "audioLatencyMs": {
+        "n": 3,
+        "p50": 0.2,
+        "p95": 0.3,
+        "p99": 0.3,
+        "max": 0.3,
+        "mean": 0.2
+      },
+      "renderLagMs": {
+        "n": 3,
+        "p50": 82.6,
+        "p95": 87.8,
+        "p99": 87.8,
+        "max": 87.8,
+        "mean": 83.1
+      },
+      "adapterFrameMs": {
+        "n": 2,
+        "p50": 1811.2,
+        "p95": 1846,
+        "p99": 1846,
+        "max": 1846,
+        "mean": 1828.6
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 1057.1,
+          "p95": 1359.3,
+          "p99": 1359.3,
+          "max": 1359.3,
+          "mean": 1108.617
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "main",
+        "renderReason": "?render=main"
+      },
+      "notes": [],
+      "loadavg": [
+        15.42,
+        14.17,
+        14.85
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "worker-co",
+      "repeat": 1,
+      "firstFrameMs": 2566,
+      "frameMs": {
+        "n": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "framesDrawn": 0,
+      "drawCalls": {
+        "n": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "mainThread": {
+        "taskMs": 1,
+        "taskMsPerFrame": 0.74,
+        "busyShare": 0
+      },
+      "audioLatencyMs": {
+        "n": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "renderLagMs": {
+        "n": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "adapterFrameMs": {
+        "n": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 1088.7,
+          "p95": 1645,
+          "p99": 1645,
+          "max": 1645,
+          "mean": 1245.45
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 1,
+          "p99": 1,
+          "max": 1,
+          "mean": 1
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        14.85,
+        14.14,
+        14.81
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "worker-raf",
+      "repeat": 1,
+      "firstFrameMs": 3117,
+      "frameMs": {
+        "n": 2,
+        "p50": 1983.3,
+        "p95": 3616.5,
+        "p99": 3616.5,
+        "max": 3616.5,
+        "mean": 2799.9
+      },
+      "framesDrawn": 2,
+      "drawCalls": {
+        "n": 2,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 3,
+        "taskMsPerFrame": 1.62,
+        "busyShare": 0.001
+      },
+      "audioLatencyMs": {
+        "n": 2,
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.1,
+        "max": 0.1,
+        "mean": 0.1
+      },
+      "renderLagMs": {
+        "n": 2,
+        "p50": 2049,
+        "p95": 3678.6,
+        "p99": 3678.6,
+        "max": 3678.6,
+        "mean": 2863.8
+      },
+      "adapterFrameMs": {
+        "n": 1,
+        "p50": 1971.5,
+        "p95": 1971.5,
+        "p99": 1971.5,
+        "max": 1971.5,
+        "mean": 1971.5
+      },
+      "input": {
+        "latencyMs": {
+          "n": 6,
+          "p50": 1188.7,
+          "p95": 2018.3,
+          "p99": 2018.3,
+          "max": 2018.3,
+          "mean": 1357.767
+        },
+        "frames": {
+          "n": 6,
+          "p50": 1,
+          "p95": 2,
+          "p99": 2,
+          "max": 2,
+          "mean": 1.167
+        },
+        "missed": 0
+      },
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false,
+        "render": "worker",
+        "renderReason": "render worker on an OffscreenCanvas (the spike default)"
+      },
+      "notes": [],
+      "loadavg": [
+        15.23,
+        14.3,
+        14.84
+      ]
+    },
+    {
+      "cls": "large",
+      "renderer": "webgpu",
+      "mode": "product",
+      "repeat": 1,
+      "firstFrameMs": 2312,
+      "frameMs": {
+        "n": 3,
+        "p50": 1799.9,
+        "p95": 1833.3,
+        "p99": 1833.3,
+        "max": 1833.3,
+        "mean": 1222.2
+      },
+      "framesDrawn": 3,
+      "drawCalls": {
+        "n": 3,
+        "p50": 580,
+        "p95": 580,
+        "p99": 580,
+        "max": 580,
+        "mean": 580
+      },
+      "mainThread": {
+        "taskMs": 292,
+        "taskMsPerFrame": 97.19,
+        "busyShare": 0.057
+      },
+      "audioLatencyMs": null,
+      "renderLagMs": null,
+      "adapterFrameMs": null,
+      "input": null,
+      "apis": [
+        "webgpu"
+      ],
+      "threading": {
+        "mode": "worker",
+        "reason": "the default",
+        "transport": "message",
+        "isolated": false
+      },
+      "notes": [],
+      "loadavg": [
+        15.77,
+        14.48,
+        14.89
+      ]
+    }
+  ],
+  "errors": []
+}
