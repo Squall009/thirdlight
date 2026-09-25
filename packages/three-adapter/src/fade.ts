@@ -12,6 +12,8 @@ import * as THREE from 'three';
 interface FadedMesh {
   readonly mesh: THREE.Mesh;
   readonly original: THREE.Material | THREE.Material[];
+  /** Phase 21.5: the copies this tracker made (released on restore, whatever the mesh wears by then). */
+  readonly copies: readonly THREE.Material[];
   readonly base: readonly number[];
 }
 
@@ -20,6 +22,8 @@ export interface FadeTracker {
   apply(objects: ReadonlyMap<string, THREE.Object3D>, opacity: ReadonlyMap<string, number> | undefined): void;
   /** Entities currently drawn faded. */
   faded(): readonly string[];
+  /** Phase 21.5: one entity leaves (released while faded): its originals back, its copies released. */
+  release(id: string): void;
   /** Restore every original material and release the copies. */
   dispose(): void;
 }
@@ -29,9 +33,10 @@ export function createFadeTracker(): FadeTracker {
   const restore = (id: string): void => {
     const meshes = faded.get(id);
     if (meshes === undefined) return;
-    for (const { mesh, original } of meshes) {
-      const copies = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      mesh.material = original;
+    for (const { mesh, original, copies } of meshes) {
+      // Only a mesh still wearing the copies gets its originals back (a material undo may have swapped it since).
+      const wearing = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (wearing.every((m) => copies.includes(m))) mesh.material = original;
       for (const c of copies) c.dispose();
     }
     faded.delete(id);
@@ -57,7 +62,7 @@ export function createFadeTracker(): FadeTracker {
               return c;
             });
             mesh.material = Array.isArray(original) ? copies : copies[0]!;
-            list.push({ mesh, original, base: originals.map((m) => m.opacity) });
+            list.push({ mesh, original, copies, base: originals.map((m) => m.opacity) });
           });
           meshes = list;
           faded.set(id, meshes);
@@ -72,6 +77,7 @@ export function createFadeTracker(): FadeTracker {
       }
     },
     faded: () => [...faded.keys()],
+    release: (id) => restore(id),
     dispose() {
       for (const id of [...faded.keys()]) restore(id);
     },

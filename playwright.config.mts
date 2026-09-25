@@ -71,6 +71,8 @@ export default defineConfig({
         '**/editor-workers.e2e.ts',
         // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
         '**/rendering.e2e.ts',
+        // Phase 21.5: leak tests of the renderer-specific paths (previews, backend swap, Play) on WebGPU.
+        '**/memory.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

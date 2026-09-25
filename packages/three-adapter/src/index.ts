@@ -30,6 +30,7 @@ export {
   RENDERER_PREFERENCES,
   RENDERER_URL_PARAM,
   rendererMemory,
+  type RendererMemoryCounts,
   rendererPreferenceFromSetting,
   rendererPreferenceFromUrl,
   resolveRendererPreference,
@@ -260,3 +261,6 @@ export { GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, 
 export { EFFECT_LIGHT_LIMIT } from './effects-draw';
 // Phase 20.3: one effect on a controllable timeline (the Effect tab's preview; same executors as Play).
 export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';
+
+// Phase 21.5: releasing objects that leave the scene for good (render objects, node-made buffers, shadow maps).
+export { disposeObjectTree, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';

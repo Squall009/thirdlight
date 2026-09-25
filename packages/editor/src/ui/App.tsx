@@ -614,7 +614,8 @@ function EditorApp(): JSX.Element {
   const previewSessionRef = useRef<AssetPreviewSession | null>(null);
   const previewStageRef = useRef<PreviewStage | null>(null);
   const previewCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
-    previewStageRef.current?.dispose();
+    // Phase 21.5: the asset browser mounts a new canvas each time: the old one's context goes with it.
+    previewStageRef.current?.dispose(true);
     previewStageRef.current = null;
     if (canvas === null) {
       modelInstancesRef.current?.clearPreview();
@@ -1139,11 +1140,16 @@ function EditorApp(): JSX.Element {
         // A texture's tile is the image itself (its own bytes, no render).
         const key = thumbnailKey(a.assetId, null);
         const v = c.content.resolveVersion(a.assetId);
-        if (v === null || textureTilesRef.current.has(`${a.assetId}@${v.version}`)) continue;
-        textureTilesRef.current.add(`${a.assetId}@${v.version}`);
+        const tile = `${a.assetId}@${v?.version ?? 0}`;
+        if (v === null || textureTilesRef.current.has(tile)) continue;
+        textureTilesRef.current.add(tile);
         void c.assetBytes(a.assetId, v.version).then(
           (bytes) => {
-            if (cancelled) return;
+            // Phase 21.5: a superseded run forgets the tile so the next run fetches it (it was skipped for good).
+            if (cancelled) {
+              textureTilesRef.current.delete(tile);
+              return;
+            }
             const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
             setAssetThumbs((prev) => {
               const old = prev.get(key);

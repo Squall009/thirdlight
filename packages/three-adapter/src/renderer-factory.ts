@@ -29,6 +29,8 @@
  */
 import { WebGPURenderer } from 'three/webgpu';
 
+import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
+
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
 export type RendererPreferenceSource = 'default' | 'setting' | 'url';
 /** What actually draws: WebGPURenderer on WebGPU or on its WebGL 2 backend. */
@@ -223,7 +225,13 @@ export interface RendererHandle {
   whenReady(): Promise<boolean>;
   /** Called on every state change (ready, lost, rebuilt, failed). */
   onChange(listener: () => void): () => void;
-  dispose(): void;
+  /**
+   * Release the renderer (and the WebGPU device the factory probed for it).
+   * `loseContext` overrides `loseContextOnDispose` for this call (phase 21.5:
+   * an owner that knows its canvas is gone — a swapped or unmounted canvas —
+   * releases the WebGL context at once).
+   */
+  dispose(options?: { loseContext?: boolean }): void;
 }
 
 /** The canvas surface the factory needs (a real canvas satisfies it). */
@@ -365,13 +373,43 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   let initialised = false;
   let lost = false;
   let node: NodeRendererLike | null = null;
+  /**
+   * Phase 21.5: the device the factory probed for `node`. three's WebGPUBackend
+   * destroys only a device it requested itself, so the factory destroys the
+   * one it passed in once the renderer is disposed — else every disposed
+   * WebGPU renderer (each Play stop, preview close, backend swap) kept its
+   * device and every buffer on it until the collector found them.
+   */
+  let nodeDevice: GpuDeviceLike | null = null;
+  /** Phase 21.5: the live-renderer registration of `node` (dispose.ts releases per-object buffers in live renderers). */
+  let untrackNode: (() => void) | null = null;
+  /** Phase 21.5: removes `node`'s listeners from the textures it set up (see dispose.ts). */
+  let releaseTextureListeners: (() => void) | null = null;
+  let loseOnDispose = o.loseContextOnDispose === true;
 
   /** The WebGL 2 context's lose extension (taken while the context lives; the handle decides when to use it). */
   let loseExt: LoseContextLike | null = null;
 
+  const destroyDevice = (device: GpuDeviceLike | null, after: unknown): void => {
+    if (device === null || typeof device.destroy !== 'function') return;
+    void Promise.resolve(after)
+      .catch(() => undefined)
+      .then(() => {
+        try {
+          device.destroy!();
+        } catch {
+          /* best effort: a lost device is gone already */
+        }
+      });
+  };
+
   const dropRenderer = (final = false): void => {
     const old = node;
+    const oldDevice = nodeDevice;
+    untrackNode?.();
+    untrackNode = null;
     node = null;
+    nodeDevice = null;
     renderer = null;
     initialised = false;
     if (old === null) return;
@@ -382,13 +420,17 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       const get = ext.get.bind(ext);
       ext.get = (name: string): unknown => (name === 'WEBGL_lose_context' ? null : get(name));
     }
-    const lose = final && o.loseContextOnDispose === true ? loseExt : null;
+    const lose = final && loseOnDispose ? loseExt : null;
+    // Before dispose(): it drops the map the listeners are found through.
+    releaseTextureListeners?.();
+    releaseTextureListeners = null;
     let done: unknown;
     try {
       done = old.dispose();
     } catch {
       /* best effort: the old renderer may sit on a lost device */
     }
+    destroyDevice(oldDevice, done);
     if (lose !== null) {
       void Promise.resolve(done)
         .catch(() => undefined)
@@ -430,10 +472,15 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       r = deps.createNode({ canvas: o.canvas, antialias, alpha, powerPreference, forceWebGL: device === null, ...(device !== null ? { device } : {}), ...(context !== undefined ? { context } : {}), ...(o.trackTimestamp === true ? { trackTimestamp: true } : {}) });
       r.setClearColor(o.clearColor, o.clearAlpha);
     } catch (e) {
+      destroyDevice(device, undefined);
       publish({ backend: null, api: null, state: 'failed', reason: `the renderer could not be created: ${messageOf(e)}` });
       return;
     }
     node = r;
+    nodeDevice = device;
+    untrackNode = trackRenderer(r);
+    // Phase 21.5: the WebGL 2 backend never deletes a vertex array object (see dispose.ts).
+    if (device === null) installVaoSweep(r.backend);
     renderer = r as unknown as AnyRenderer;
     generation += 1;
     lost = false;
@@ -443,6 +490,10 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       () => {
         if (disposed || node !== r) return;
         initialised = true;
+        // Its texture component exists once initialised (before any frame is drawn).
+        releaseTextureListeners = trackTextureListeners(r);
+        // The WebGL 2 backend never deletes a released program or shader (see dispose.ts).
+        installProgramRelease(r);
         const onGpu = r.backend.isWebGPUBackend === true;
         publish({
           backend: onGpu ? 'webgpu' : 'webgl2',
@@ -536,9 +587,10 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    dispose: () => {
+    dispose: (options) => {
       if (disposed) return;
       disposed = true;
+      if (options?.loseContext !== undefined) loseOnDispose = options.loseContext;
       listeners.clear();
       for (const release of releases) release();
       releases.length = 0;
@@ -553,9 +605,32 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
 /**
  * The renderer's live GPU resources. `programs` counts the render pipelines
  * WebGPURenderer holds (its `info.memory` has no program count; the archived
- * WebGL renderer reported `info.programs`).
+ * WebGL renderer reported `info.programs`). Phase 21.5: also the attribute,
+ * storage-buffer, render-target and uniform-buffer counts (the leak tests
+ * compare every count with its baseline).
  */
-export function rendererMemory(r: AnyRenderer): { geometries: number; textures: number; programs: number } {
-  const i = r.info as unknown as { memory?: { geometries?: number; textures?: number; programs?: number } };
-  return { geometries: i.memory?.geometries ?? 0, textures: i.memory?.textures ?? 0, programs: i.memory?.programs ?? 0 };
+export interface RendererMemoryCounts {
+  geometries: number;
+  textures: number;
+  programs: number;
+  attributes: number;
+  indexAttributes: number;
+  storageAttributes: number;
+  renderTargets: number;
+  uniformBuffers: number;
+}
+
+export function rendererMemory(r: AnyRenderer): RendererMemoryCounts {
+  const m = (r.info as unknown as { memory?: Record<string, number | undefined> }).memory ?? {};
+  const n = (k: string): number => (typeof m[k] === 'number' ? (m[k] as number) : 0);
+  return {
+    geometries: n('geometries'),
+    textures: n('textures'),
+    programs: n('programs'),
+    attributes: n('attributes'),
+    indexAttributes: n('indexAttributes'),
+    storageAttributes: n('storageAttributes'),
+    renderTargets: n('renderTargets'),
+    uniformBuffers: n('uniformBuffers'),
+  };
 }

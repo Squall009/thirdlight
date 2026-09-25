@@ -31,6 +31,23 @@ export interface PerfPageState {
   ws: { byType: Record<string, { n: number; bytes: number; max: number }>; applied: number[]; appliedFrame: number[] };
   /** Phase 21.4: long tasks (≥ 50 ms main-thread blocks) as [start, duration]. */
   longTasks: [number, number][];
+  /**
+   * Phase 21.5: the same live counts per WebGL context / WebGPU device (held
+   * weakly, so the instrumentation never keeps a released canvas alive). A
+   * context that was lost or collected, or a destroyed device, frees its
+   * resources without delete calls: `readGpuLive` leaves it out.
+   */
+  contexts: GpuContextRecord[];
+  /** Phase 21.5: workers created and terminated by this frame's scripts. */
+  workers: { created: number; terminated: number };
+}
+
+/** Phase 21.5: one WebGL context or WebGPU device and what it holds now. */
+export interface GpuContextRecord {
+  kind: 'webgl' | 'webgpu';
+  ref: { deref(): object | undefined };
+  destroyed: boolean;
+  live: { programs: number; textures: number; buffers: number; vaos: number };
 }
 
 export function installPerfInstrumentation(): void {
@@ -50,8 +67,43 @@ export function installPerfInstrumentation(): void {
     apis: [],
     ws: { byType: {}, applied: [], appliedFrame: [] },
     longTasks: [],
+    contexts: [],
+    workers: { created: 0, terminated: 0 },
   };
   w.__tlPerf = P;
+  // Phase 21.5: per-context bookkeeping (WeakRef: a context is never kept alive by this map).
+  const ctxOf = new WeakMap<object, GpuContextRecord>();
+  const WR = (globalThis as unknown as { WeakRef?: new (o: object) => { deref(): object | undefined } }).WeakRef;
+  const ctxRecord = (owner: unknown, kind: 'webgl' | 'webgpu'): GpuContextRecord | null => {
+    if (owner === null || typeof owner !== 'object' || WR === undefined) return null;
+    let r = ctxOf.get(owner);
+    if (r === undefined) {
+      r = { kind, ref: new WR(owner), destroyed: false, live: { programs: 0, textures: 0, buffers: 0, vaos: 0 } };
+      ctxOf.set(owner, r);
+      P.contexts.push(r);
+    }
+    return r;
+  };
+  const ctxAdd = (owner: unknown, kind: 'webgl' | 'webgpu', key: 'programs' | 'textures' | 'buffers' | 'vaos', d: number): void => {
+    const r = ctxRecord(owner, kind);
+    if (r !== null) r.live[key] += d;
+  };
+  // Phase 21.5: workers (created / terminated) — a leak test checks none is left behind.
+  const OrigWorker = (globalThis as unknown as { Worker?: typeof Worker }).Worker;
+  if (typeof OrigWorker === 'function') {
+    const WrappedWorker = function (url: string | URL, options?: WorkerOptions): Worker {
+      const wk = new OrigWorker(url, options);
+      P.workers.created += 1;
+      return wk;
+    } as unknown as typeof Worker;
+    WrappedWorker.prototype = OrigWorker.prototype;
+    (globalThis as unknown as { Worker: typeof Worker }).Worker = WrappedWorker;
+    const term = OrigWorker.prototype.terminate;
+    OrigWorker.prototype.terminate = function (this: Worker) {
+      P.workers.terminated += 1;
+      return term.call(this);
+    };
+  }
   // Phase 21.4: WebSocket message sizes by type, and for each `mutation.applied` the delay until the
   // second animation frame after it (the page's own work for the change — projection, React, the
   // Scene view sync — delays that frame). The wrapper adds one listener before the page's own.
@@ -144,6 +196,13 @@ export function installPerfInstrumentation(): void {
     faces.set(face, bytes);
     P.bytes.textures += bytes;
   };
+  // A second delete of the same object is a no-op in WebGL (three deletes a shared interleaved buffer once per attribute).
+  const deletedGl = new WeakSet<object>();
+  const firstDelete = (o: unknown): boolean => {
+    if (o === null || typeof o !== 'object' || deletedGl.has(o)) return false;
+    deletedGl.add(o);
+    return true;
+  };
   const glProtos: object[] = [];
   if (typeof WebGL2RenderingContext !== 'undefined') glProtos.push(WebGL2RenderingContext.prototype);
   if (typeof WebGLRenderingContext !== 'undefined') glProtos.push(WebGLRenderingContext.prototype);
@@ -154,25 +213,27 @@ export function installPerfInstrumentation(): void {
     wrap(proto, 'drawArraysInstanced', (_g, a) => { noteApi(api); draw(triCount(a[0], a[2], a[3])); });
     wrap(proto, 'drawElementsInstanced', (_g, a) => { noteApi(api); draw(triCount(a[0], a[1], a[4])); });
     wrap(proto, 'drawRangeElements', (_g, a) => { noteApi(api); draw(triCount(a[0], a[3])); });
-    wrap(proto, 'createProgram', () => { P.live.programs += 1; });
-    wrap(proto, 'deleteProgram', (_g, a) => { if (a[0]) P.live.programs -= 1; });
-    wrap(proto, 'createTexture', () => { P.live.textures += 1; });
-    wrap(proto, 'deleteTexture', (_g, a) => {
-      if (!a[0]) return;
+    wrap(proto, 'createProgram', (gl) => { P.live.programs += 1; ctxAdd(gl, 'webgl', 'programs', 1); });
+    wrap(proto, 'deleteProgram', (gl, a) => { if (firstDelete(a[0])) { P.live.programs -= 1; ctxAdd(gl, 'webgl', 'programs', -1); } });
+    wrap(proto, 'createTexture', (gl) => { P.live.textures += 1; ctxAdd(gl, 'webgl', 'textures', 1); });
+    wrap(proto, 'deleteTexture', (gl, a) => {
+      if (!firstDelete(a[0])) return;
       P.live.textures -= 1;
+      ctxAdd(gl, 'webgl', 'textures', -1);
       const faces = textureBytes.get(a[0] as object);
       if (faces !== undefined) for (const b of faces.values()) P.bytes.textures -= b;
       textureBytes.delete(a[0] as object);
     });
-    wrap(proto, 'createBuffer', () => { P.live.buffers += 1; });
-    wrap(proto, 'deleteBuffer', (_g, a) => {
-      if (!a[0]) return;
+    wrap(proto, 'createBuffer', (gl) => { P.live.buffers += 1; ctxAdd(gl, 'webgl', 'buffers', 1); });
+    wrap(proto, 'deleteBuffer', (gl, a) => {
+      if (!firstDelete(a[0])) return;
       P.live.buffers -= 1;
+      ctxAdd(gl, 'webgl', 'buffers', -1);
       P.bytes.buffers -= bufferBytes.get(a[0] as object) ?? 0;
       bufferBytes.delete(a[0] as object);
     });
-    wrap(proto, 'createVertexArray', () => { P.live.vaos += 1; });
-    wrap(proto, 'deleteVertexArray', (_g, a) => { if (a[0]) P.live.vaos -= 1; });
+    wrap(proto, 'createVertexArray', (gl) => { P.live.vaos += 1; ctxAdd(gl, 'webgl', 'vaos', 1); });
+    wrap(proto, 'deleteVertexArray', (gl, a) => { if (firstDelete(a[0])) { P.live.vaos -= 1; ctxAdd(gl, 'webgl', 'vaos', -1); } });
     wrap(proto, 'bindBuffer', (g, a) => { state(g as object).buffers.set(a[0] as number, (a[1] as object | null) ?? null); });
     wrap(proto, 'bufferData', (g, a) => {
       const buf = state(g as object).buffers.get(a[0] as number) ?? null;
@@ -213,12 +274,13 @@ export function installPerfInstrumentation(): void {
 
   // ---- WebGPU ---------------------------------------------------------------------
   const g = globalThis as unknown as Record<string, { prototype: object } | undefined>;
-  const gpuBytes = new WeakMap<object, { kind: 'buffers' | 'textures'; bytes: number }>();
-  const track = (obj: unknown, kind: 'buffers' | 'textures', bytes: number): void => {
+  const gpuBytes = new WeakMap<object, { kind: 'buffers' | 'textures'; bytes: number; device: unknown }>();
+  const track = (obj: unknown, kind: 'buffers' | 'textures', bytes: number, device: unknown): void => {
     if (obj === null || typeof obj !== 'object') return;
     P.live[kind] += 1;
     P.bytes[kind] += bytes;
-    gpuBytes.set(obj, { kind, bytes });
+    gpuBytes.set(obj, { kind, bytes, device });
+    ctxAdd(device, 'webgpu', kind, 1);
   };
   const untrack = (obj: unknown): void => {
     const t = obj !== null && typeof obj === 'object' ? gpuBytes.get(obj) : undefined;
@@ -226,15 +288,20 @@ export function installPerfInstrumentation(): void {
     P.live[t.kind] -= 1;
     P.bytes[t.kind] -= t.bytes;
     gpuBytes.delete(obj as object);
+    ctxAdd(t.device, 'webgpu', t.kind, -1);
   };
   const device = g['GPUDevice']?.prototype;
   if (device !== undefined) {
-    wrap(device, 'createBuffer', () => undefined, (_d, a, r) => track(r, 'buffers', Number((a[0] as { size?: number } | undefined)?.size ?? 0)));
-    wrap(device, 'createTexture', () => undefined, (_d, a, r) => {
+    wrap(device, 'createBuffer', () => undefined, (d, a, r) => track(r, 'buffers', Number((a[0] as { size?: number } | undefined)?.size ?? 0), d));
+    wrap(device, 'destroy', (d) => {
+      const r = ctxRecord(d, 'webgpu');
+      if (r !== null) r.destroyed = true;
+    });
+    wrap(device, 'createTexture', () => undefined, (d, a, r) => {
       const desc = (a[0] ?? {}) as { size?: number[] | { width?: number; height?: number; depthOrArrayLayers?: number }; mipLevelCount?: number };
       const size = desc.size;
       const [wd, ht, dp] = Array.isArray(size) ? [size[0] ?? 1, size[1] ?? 1, size[2] ?? 1] : [size?.width ?? 1, size?.height ?? 1, size?.depthOrArrayLayers ?? 1];
-      track(r, 'textures', wd * ht * dp * 4 * ((desc.mipLevelCount ?? 1) > 1 ? 4 / 3 : 1));
+      track(r, 'textures', wd * ht * dp * 4 * ((desc.mipLevelCount ?? 1) > 1 ? 4 / 3 : 1), d);
     });
     wrap(device, 'createRenderPipeline', () => { P.live.pipelines += 1; });
     wrap(device, 'createComputePipeline', () => { P.live.pipelines += 1; });
@@ -330,4 +397,41 @@ export async function readSample(stop: boolean): Promise<PageSample> {
     renderer,
     nav: navEntry !== undefined ? { domContentLoaded: navEntry.domContentLoadedEventEnd, load: navEntry.loadEventEnd } : null,
   };
+}
+
+export interface GpuLive {
+  /** WebGL contexts that are neither lost nor collected (after a gc). */
+  webglContexts: number;
+  /** WebGPU devices that are neither destroyed nor collected. */
+  webgpuDevices: number;
+  programs: number;
+  textures: number;
+  buffers: number;
+  vaos: number;
+  workers: { created: number; terminated: number };
+}
+
+/**
+ * Phase 21.5, in the page: what the live contexts hold now (contexts that are
+ * lost, destroyed or collected freed their resources and are left out).
+ * Call after a garbage collection for the collected ones to drop out.
+ */
+export function readGpuLive(): GpuLive {
+  const P = (window as unknown as { __tlPerf?: PerfPageState }).__tlPerf;
+  const out: GpuLive = { webglContexts: 0, webgpuDevices: 0, programs: 0, textures: 0, buffers: 0, vaos: 0, workers: { created: 0, terminated: 0 } };
+  if (P === undefined) return out;
+  out.workers = { ...P.workers };
+  P.contexts = P.contexts.filter((r) => r.ref.deref() !== undefined);
+  for (const r of P.contexts) {
+    const owner = r.ref.deref() as { isContextLost?: () => boolean } | undefined;
+    if (owner === undefined || r.destroyed) continue;
+    if (r.kind === 'webgl' && typeof owner.isContextLost === 'function' && owner.isContextLost()) continue;
+    if (r.kind === 'webgl') out.webglContexts += 1;
+    else out.webgpuDevices += 1;
+    out.programs += r.live.programs;
+    out.textures += r.live.textures;
+    out.buffers += r.live.buffers;
+    out.vaos += r.live.vaos;
+  }
+  return out;
 }

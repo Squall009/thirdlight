@@ -387,12 +387,21 @@ export class FrameMirror {
       this.spawnedByToken = tokens;
       this.sceneSet = Object.freeze({ revision: w.revision, batches: Object.freeze(batches), status: Object.freeze({ ...w.status }), spawned: Object.freeze(spawned) }) as unknown as SceneSetView;
     }
-    if (s.audio !== undefined) for (const a of s.audio) this.audio.push(a);
-    if (s.effects !== undefined) for (const e of s.effects) this.effects.push(e);
+    // Phase 21.5: bounded like the runtime's own queues (16 sounds, the newest 256 effect requests): a page
+    // that does not take them (scene mode has no game view to drain sounds; headless, no adapter) never grows.
+    if (s.audio !== undefined) for (const a of s.audio) if (this.audio.length < MIRROR_AUDIO_LIMIT) this.audio.push(a);
+    if (s.effects !== undefined) {
+      for (const e of s.effects) this.effects.push(e);
+      if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
+    }
     if (s.diag !== undefined) this.diag = s.diag;
     if (s.memoryBytes !== undefined) this.memoryBytes = s.memoryBytes;
   }
 }
+
+/** Phase 21.5: the runtime's own bounds for queued sound and effect requests (runtime.ts). */
+export const MIRROR_AUDIO_LIMIT = 16;
+export const MIRROR_EFFECT_LIMIT = 256;
 
 function isShared(b: ArrayBufferLike): boolean {
   const Sab = (globalThis as SharedGlobal).SharedArrayBuffer;

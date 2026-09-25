@@ -341,6 +341,57 @@ single meshes.
 
 `tests/perf/baseline.json` was not re-recorded (21.6).
 
+#### 21.5 Memory (2026-09-25)
+
+`tests/e2e/memory.e2e.ts` (both projects: `default` = WebGPURenderer on
+WebGL 2, `webgpu` = WebGPU, SwiftShader), viewport 1280×720, small neutral
+fixtures. Per scenario: two warm-up cycles, a baseline, N cycles, then the
+page must come back (polled up to 20 s): the JS heap of the renderer process
+after `HeapProfiler.collectGarbage` (CDP `Runtime.getHeapUsage`), the WebGL /
+WebGPU objects per *live* context/device (the tools/perf instrumentation,
+extended in 21.5 to keep per-context counts weakly and to count live
+contexts, devices and workers), and the renderer's own `info.memory` counts
+(the Scene view's new `data-memory`; Play's `renderer.gpu` diagnostics, now
+with attributes, storage/uniform buffers and render targets). Before = main
+8818453 + only the new diagnostics (`data-memory`, the wider `rendererMemory`),
+logs `~/.cache/thirdlight-logs/215-before-keep.log` and `215-before-swap.log`
+(**load average 15.8 at the start, 16–23 during, 23.2 at the end**); after =
+this branch merged with main e488f39, `215b-memory.log` (**load 14.4 at the
+start, 6–31 during, 11.0 at the end**; the earlier branch run `215-after3.log`
+at load 7–19 gave the same counts and heap within ±0.3 MiB). "ctx" = live WebGL contexts + WebGPU devices; API counts are
+programs / buffers / vertex arrays at the graphics API; heap in MiB.
+
+| Scenario (cycles) | Before (default) | After (default) | Before (webgpu) | After (webgpu) |
+|---|---|---|---|---|
+| Material tab with preview (50) | heap +4.1; ctx 5 → 16 (browser cap), textures 15 → 48 | heap +1.3; all counts equal | heap +4.5; devices 5 → 55 | heap +1.8; equal |
+| Effect tab with preview (50) | heap +4.3 (every closed tab kept: see below) | heap +0.6; equal | heap +4.5; devices 57 → 107 | heap +1.0; equal |
+| Animator / Script / Graph / Visual-script tabs (50 each) | heap +0.2 to +0.9; equal | heap +0.1 to +0.9; equal | — | — |
+| Asset preview (50) | heap +5.4; ctx 4 → 16, buffers 37 → 128 | heap +1.9; equal | heap +5.3; devices 4 → 54 | heap +1.9; equal |
+| Animator live preview (50) | heap +2.8 | heap +0.6; equal | heap +2.8; devices +49 | heap +0.6; equal |
+| Material preview shapes (50 × 3) | buffers +150, VAOs +150 | equal (programs equal too) | buffers +150 | equal |
+| Editor scene closed/opened (50) | programs 34 → 514, VAOs 32 → 477 | heap +1.9; API counts equal | — | — |
+| Instancing group dissolved/formed (50) | programs +50, buffers +50, VAOs +50 | heap +0.4; equal | — | — |
+| Backend swap (10) | ctx 6 → 16, programs/buffers kept per canvas | heap +0.4; equal (1 context) | ctx 3+3 → 13+13 | heap +0.9; equal |
+| Play start/stop (20) | editor page: VAOs 42 → 51 | heap +0.8; equal | equal | heap +0.5; equal |
+| Play: additive scene load/unload (50), in the page | heap +3.6; programs +250, buffers +50, VAOs +300; renderer attributes 18 → 436 | heap +2.1; all counts equal | — | — |
+| same, simulation worker | heap +3.3; same counts | heap +2.2; equal | heap +3.4; buffers 63 → 113, renderer attributes 18 → 436 | heap +2.3; equal |
+| Play: level restart with a scene loaded (20) | not measured (the first test version's restart was a no-op) | heap +0.4; equal | — | heap +0.6; equal |
+| Play: spawned pairs destroyed (before ~110, after ~120 box + skinned model) | heap +2.1; buffers +642, VAOs +214, uniform buffers 72 → 1194 | heap +0.1 to +0.2; equal | buffers +714, uniform buffers 78 → 1362 | heap +0.3; equal |
+
+What remains in the heap numbers after the fixes (the bound is 3 MiB in the
+editor, 4 MiB in Play): a heap snapshot of 20 Play scene cycles grew 1.3 MiB,
+of which ~1.0 MiB compiled code (V8 keeps optimising while the game runs) and
+performance-timeline entries, ~90 KiB objects (three's node-builder caches:
+~6 uniform nodes per cycle — not chased further). The editor surfaces'
+0.1–1.9 MiB per 50 cycles were not broken down (below the bound; owner look
+if it matters). Real-GPU memory: owner look pending (SwiftShader here).
+
+The whole spec took ~7.5 min in `default` and ~5 min in `webgpu` at load
+7–19, ~10 min and ~4.5 min in the merged run at load 6–31 (longer than the
+plan's "a few minutes": 50 cycles of previews that draw at least one frame
+each on a CPU renderer). `TL_MEMORY_CYCLES=5` caps every scenario's cycles
+for a quick local run (not a leak check: the bounds are sized for 50).
+
 ### Decision log
 
 - 2026-09-25 (21.0): budgets written per scene class for a mid-range desktop (2020-class GPU, 1920×1080, 4-core CPU) — generic sizes, not the demo; frame time is judged at p95.
@@ -398,3 +449,17 @@ single meshes.
 - 2026-09-25 (21.3): shadow cascades — not done (optional): the follow-camera shadow square is already sized by data (17.4 `shadowExtent`, `shadowMapSize`); three's `CSMShadowNode` adds one shadow render per cascade, a new data field with Inspector and handles, and new parity references — not cheap. Lightmap atlas packing — already done by the bakers (every baked object in shared atlases with a scale/offset per object); lightmapped objects keep their own material copy (their rectangle) and are drawn one by one; batching them needs the rectangle as an instance attribute in the lightmap node, not done.
 - 2026-09-25 (21.3): `?batching=off` on the editor, Play (passed on by the editor) and export URLs turns instancing off — a diagnostic comparison (the e2e compares the export's frames with and without: identical, worst channel difference 0), not a setting: instancing never changes the picture.
 - 2026-09-25 (21.3): the batcher's `update` walks the graph for the world matrices before every frame, so both hosts set `scene.matrixWorldAutoUpdate = false` (the renderer's own pass would repeat it: ~10 ms per frame at 15 000 objects in Node); matrices are compared as float32 before a batch is re-uploaded.
+- 2026-09-25 (21.5): leak tests measure at three levels after a CDP garbage collection — the renderer process's JS heap, the graphics API objects per live WebGL context / WebGPU device (the 21.1 instrumentation now keeps per-context counts weakly: a context that is lost or collected, or a destroyed device, freed its objects without delete calls) and the renderer's own counts — and compare them with a baseline taken after two warm-up cycles; contexts, devices and workers must come back exactly, other counts within 2, the heap within 3 MiB (editor) / 4 MiB (Play: compiled code grows while a game runs). Assertions are soft, so one run reports every scenario.
+- 2026-09-25 (21.5): renderer-specific scenarios (previews, backend swap, Play) run in both Playwright projects; renderer-free tabs only in `default`. The Scene view exposes its renderer's counts on the canvas (`data-memory`, written after each drawn frame) and `rendererMemory` reports attributes, storage/uniform buffers and render targets too (Play diagnostics carry them) — diagnostics only.
+- 2026-09-25 (21.5): three 0.186 keeps an object's render objects (pipeline use, bindings, uniform buffers) until the object, its material or its geometry fires `dispose`; geometry disposal only clears a cache. Objects that leave for good now fire their own `dispose()` through one helper (`disposeObjectTree`: every node of the subtree except other entities' objects; lights free their shadow maps; cloned skeletons optionally) — the adapter's entity release (scene unload, destroyed spawns), model instances, instance sets, batches, the Scene view's removed objects and the material preview's shapes. Geometries and materials stay with their owners.
+- 2026-09-25 (21.5): node-made attributes (an instanced batch's interleaved matrices, ≥ 1025 slots) are freed by three only through the geometry of the first render object that used them; batches share the unit box/model geometry, so they were never freed. `releaseNodeAttributes` deletes a released instanced mesh's non-geometry attributes from every live renderer's attribute map (the factory registers live renderers; private API of the pinned three, guarded like 20.3's storage release). A batch whose material is disposed first (its last box went) releases its buffers from the material's `dispose` event — without disposing the mesh there: three calls every listener of an event, also one removed meanwhile, so a second dispose of the same render object would release its shared bind groups twice (a first version of this listener did that: `parameter 1 is not of type 'GPUBuffer'` render failures on WebGPU, each of which also left three's render call depth raised — `_callDepth` is not restored on a throw — so every later shadow pass made a new render context and kept a pass of render objects; the adapter swallows render exceptions into `render_failed`, so the leak test's uniform-buffer count was what showed it).
+- 2026-09-25 (21.5): the renderer factory destroys the WebGPU device it probed once the renderer is disposed (three destroys only a device it requested itself; every closed preview and stopped Play kept one), takes `dispose({loseContext})` for owners whose canvas is gone (asset/animator preview stage when its canvas left the page, the material preview always, the Scene view's swapped canvas), and — before disposing — removes the renderer's `dispose` listeners from the textures it uploaded (three's `Textures.dispose` only drops its map: a texture that outlives the renderer, like the effects' white placeholder or a shared project texture, kept every closed preview's renderer and, through its canvas, the closed pane's React tree).
+- 2026-09-25 (21.5): WebGL 2 backend only: three never deletes vertex array objects (one per attribute set, cached forever) nor released programs/shaders (it drops its cache entry and waits for the collector). The factory wraps the backend's VAO creation to delete VAOs whose attributes are gone (swept before the next VAO after an attribute was destroyed) and makes pipeline/stage releases delete the GL program/shader — private API, guarded.
+- 2026-09-25 (21.5): OrbitControls puts its Control-key listeners on `canvas.getRootNode()` and removes them from the same — a canvas already out of the page is its own root, so the document kept the listeners and every closed preview. `disposeOrbitControls` also removes them from the canvas's document (every preview and the Scene view's swap).
+- 2026-09-25 (21.5): the material library counts which meshes wear each built material (a new source uuid — a shared box material recreated, a model reloaded — made a new build per spawn/scene load) and releases it with its last mesh, together with the texture copies it made; sampler texture copies go with the library; loaded textures stay with their loader. Instance sets release their chunks before their material undo (a released material would take the chunks' render objects first).
+- 2026-09-25 (21.5): per-object looks are released with the object: a fade's own copies (disposed even when a material undo swapped the mesh meanwhile), a checkpoint glow's own copy (`releaseEmissiveLooks`), point/spot light shadow maps (and the adapter's shadow-light count); the Scene view prunes lightmapped material copies of removed objects and swapped materials and releases the edit-mode effect preview's material holders (their library `apply` undo was dropped).
+- 2026-09-25 (21.5): a Play composition (`startM3Preview`) releases what it attached on every path — the host, the physics port, the worker, the input listeners, the focus listener (`focusGameSurface` returns its release), the audio owner (context, loops, music) and the unlock listeners — so a new snapshot in the same Play page does not keep the old one's; the host stops the loops and music it started on the wrapper's audio owner and revokes the menu logo's object URL. Play stop removes the iframe (and with it the page) as before. The export page composes once (not changed).
+- 2026-09-25 (21.5): smaller bounds: the simulation worker's page mirror keeps queued sounds (16) and effect requests (newest 256) like the runtime's own queues; the visual resource store folds released resources' final counters instead of keeping every retired model reachable; superseded thumbnail URLs are revoked; a cancelled texture tile is fetched again; `modelPieces` of removed entities are pruned.
+- 2026-09-25 (21.5): accepted, not fixed: three counts a node-made attribute again whenever a render object is rebuilt (a light entering the view rebuilds an instanced batch: four new attribute objects on the same GPU buffer) and never counts the old ones out — the Scene view's `attributes` count drifts without a GPU buffer leaking (the API buffer counts stay equal), so the test skips that one count; `ModelInstances` keeps a prepared model per asset for the session (a cache bounded by the project's assets); unsaved script drafts are kept per behavior (intended).
+- 2026-09-25 (21.5): three keys render contexts by attachment state, MRT id and call depth and never forgets one: a post pipeline rebuilt with SSAO (its scene pass has its own MRT node) left the old MRT's contexts and their render objects behind. The environment's pipeline dispose now releases them (`releaseMrtContexts`; unit-tested with stubs — the leak tests' projects use no SSAO, so no e2e number).
+- 2026-09-25 (21.5): the leak spec keeps the plan's 50 cycles per scenario (no trimming): its time goes to the preview scenarios, whose every cycle must draw a frame on the CPU renderer; fewer cycles would let a one-object-per-cycle leak hide inside the ±2 count tolerance. The bounds were not changed after merging main (22.1/22.2): every count came back exactly in both projects.

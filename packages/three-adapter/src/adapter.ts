@@ -29,7 +29,8 @@ import type { MaterialFunctionLike } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike, type MaterialLibrary, type MaterialOverridesLike, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
-import { setEmissiveLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { releaseEmissiveLooks, setEmissiveLook, SHARED_MATERIAL_KEY } from './node-materials';
+import { disposeObjectTree } from './dispose';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { createEnvironmentRenderer, environmentHasLook, layerEnvironment, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import * as THREE from 'three';
@@ -68,6 +69,7 @@ import {
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
   rendererMemory,
+  type RendererMemoryCounts,
   type AnyRenderer,
   type RendererFactoryDeps,
   type RendererHandle,
@@ -188,7 +190,7 @@ export interface SceneAdapterDiagnostics {
   /** The renderer's live GPU resources (three's `renderer.info`); ABSENT
    *  until a renderer exists. Flat counts while a scene runs — growth means
    *  something is allocated per frame and never freed. */
-  gpu?: { geometries: number; textures: number; programs: number };
+  gpu?: RendererMemoryCounts;
   /** Phase 20.2: the effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
   effects?: EffectsDiagnostics;
   /** Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame. */
@@ -450,6 +452,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
+  /** Phase 21.5: which entity an object is (a release stops at other entities' objects parented below). */
+  const ownerOf = new WeakMap<THREE.Object3D, string>();
   // --- Phase 20.2: visual effects --------------------------------------------
   /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
   const effectMaterials = new Map<string, THREE.Mesh>();
@@ -637,6 +641,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     objects.set(e.id, obj);
+    ownerOf.set(obj, e.id);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
     // Phase 18.3: with the object's values for its graph materials' public parameters.
@@ -659,13 +664,25 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       effects.detach(id);
       effectEntities.delete(id);
     }
+    const obj = objects.get(id);
+    // Phase 21.5: per-object looks first (a fade's and a glow's own copies), then the shared paths undo.
+    fades.release(id);
+    if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
     materialUndo.get(id)?.();
     materialUndo.delete(id);
-    const obj = objects.get(id);
     obj?.removeFromParent();
+    if (obj !== undefined) {
+      obj.traverse((o) => {
+        if ((o instanceof THREE.PointLight || o instanceof THREE.SpotLight) && o.castShadow) localShadowLights = Math.max(0, localShadowLights - 1);
+      });
+      // Phase 21.5: its render objects (a material that outlives it — a project material, a shared box
+      // material — would keep them), a light's shadow map; other entities' objects below it are theirs.
+      disposeObjectTree(obj, { skip: (o) => o !== obj && ownerOf.get(o) !== undefined });
+    }
     objects.delete(id);
+    if (obj !== undefined) ownerOf.delete(obj);
     entityDocs.delete(id);
     const own = entityResources.get(id);
     if (own !== undefined) {

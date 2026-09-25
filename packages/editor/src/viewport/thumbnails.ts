@@ -60,6 +60,8 @@ export class ThumbnailRenderer {
   private readonly queue: Job[] = [];
   private running = false;
   private readonly urls = new Map<string, Promise<string | null>>();
+  /** Phase 21.5: the newest `digest|piece` key per `asset|piece`. */
+  private readonly latest = new Map<string, string>();
   private disposed = false;
 
   constructor(private readonly source: ThumbnailSource) {
@@ -76,6 +78,17 @@ export class ThumbnailRenderer {
     if (p === undefined) {
       p = this.load(assetId, digest, piece);
       this.urls.set(k, p);
+      // Phase 21.5: a new version of the same asset (and piece) replaces the old one's URL, which is revoked.
+      const slot = `${assetId}|${piece ?? ''}`;
+      const previous = this.latest.get(slot);
+      this.latest.set(slot, k);
+      if (previous !== undefined && previous !== k) {
+        const old = this.urls.get(previous);
+        this.urls.delete(previous);
+        void old?.then((u) => {
+          if (u !== null) URL.revokeObjectURL(u);
+        });
+      }
     }
     return p;
   }

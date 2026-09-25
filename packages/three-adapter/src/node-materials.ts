@@ -200,6 +200,19 @@ const OWN_KEY = '__tlOwnMaterial';
 export const SHARED_MATERIAL_KEY = '__tlSharedMaterial';
 
 /**
+ * Phase 21.5: release the own copies `setEmissiveLook` made under `root` (the
+ * object leaves the scene; a shared material is never disposed here).
+ */
+export function releaseEmissiveLooks(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh !== true || mesh.userData[OWN_KEY] !== true) return;
+    delete mesh.userData[OWN_KEY];
+    if (!Array.isArray(mesh.material)) mesh.material.dispose();
+  });
+}
+
+/**
  * An emissive look on every mesh under `root` (the checkpoint glow), or back
  * to each material's own emissive (`look` null). A mesh wearing a shared
  * project material (or a material marked shared, phase 21.3) first gets its

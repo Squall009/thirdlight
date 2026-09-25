@@ -42,6 +42,7 @@ import {
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { disposeOrbitControls } from './controls';
 
 import { editorRendererChoice } from './renderer-choice';
 
@@ -437,7 +438,7 @@ export class EffectPreview {
       ledger.last = { baseline: this.baseline, after };
     }
     publishLedger();
-    this.orbit.dispose();
+    disposeOrbitControls(this.orbit);
     this.environment?.dispose();
     this.grid.geometry.dispose();
     (this.grid.material as THREE.Material).dispose();

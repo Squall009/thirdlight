@@ -10,6 +10,7 @@
 import { createRenderer, type RendererHandle } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { disposeOrbitControls } from './controls';
 
 import { editorRendererChoice } from './renderer-choice';
 
@@ -21,6 +22,8 @@ export class PreviewStage {
   private readonly canvas: HTMLCanvasElement;
   private raf = 0;
   private sizedFor = -1;
+  private readonly grid = new THREE.GridHelper(4, 8, 0x333844, 0x23262f);
+  private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -31,7 +34,7 @@ export class PreviewStage {
     const key = new THREE.DirectionalLight(0xffffff, 1.4);
     key.position.set(3, 5, 4);
     this.scene.add(key, new THREE.AmbientLight(0xa0b0c8, 0.7));
-    this.scene.add(new THREE.GridHelper(4, 8, 0x333844, 0x23262f));
+    this.scene.add(this.grid);
     this.camera.position.set(2, 1.5, 2.5);
     this.orbit = new OrbitControls(this.camera, canvas);
     this.orbit.target.set(0, 0.5, 0);
@@ -77,9 +80,19 @@ export class PreviewStage {
     this.camera.updateProjectionMatrix();
   }
 
-  dispose(): void {
+  /**
+   * Release the stage. Phase 21.5: a canvas that left the page (the preview
+   * pane closed) also gives up its WebGL context at once — browsers keep ~16
+   * and drop the oldest past that, possibly the Scene view's; a restart on
+   * the same canvas (an edited controller) keeps it for the next stage.
+   */
+  dispose(loseContext: boolean = !this.canvas.isConnected): void {
+    if (this.disposed) return;
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
-    this.orbit.dispose();
-    this.renderer.dispose();
+    disposeOrbitControls(this.orbit);
+    this.grid.geometry.dispose();
+    (this.grid.material as THREE.Material).dispose();
+    this.renderer.dispose({ loseContext });
   }
 }

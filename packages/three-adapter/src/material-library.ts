@@ -135,7 +135,45 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
   let defs = new Map<string, MaterialDefLike>();
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
-  const built = new Map<string, { material: THREE.Material; defKey: string }>();
+  const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean }>();
+  /**
+   * Phase 21.5: meshes wearing each built material (by key) and the keys each
+   * mesh wears — a built material and its texture copies are released with
+   * its last mesh. A source material that is recreated (a shared box material
+   * freed with its last box and made again, a model reloaded) has a new uuid,
+   * so without this every spawn or scene load left a built material behind.
+   */
+  const builtRefs = new Map<string, number>();
+  const heldKeys = new WeakMap<THREE.Object3D, readonly string[]>();
+  /** Phase 21.5: the texture copies each built material owns (released with it). */
+  const ownTextures = new WeakMap<THREE.Material, THREE.Texture[]>();
+  /** Phase 21.5: built materials already released (a texture arriving later is not put on them). */
+  const retired = new WeakSet<THREE.Material>();
+  const ownTexture = (m: THREE.Material, t: THREE.Texture): THREE.Texture => {
+    const list = ownTextures.get(m);
+    if (list === undefined) ownTextures.set(m, [t]);
+    else list.push(t);
+    return t;
+  };
+  const disposeBuilt = (m: THREE.Material): void => {
+    retired.add(m);
+    m.dispose();
+    for (const t of ownTextures.get(m) ?? []) t.dispose();
+    ownTextures.delete(m);
+  };
+  const releaseKey = (key: string): void => {
+    const n = (builtRefs.get(key) ?? 0) - 1;
+    if (n > 0) {
+      builtRefs.set(key, n);
+      return;
+    }
+    builtRefs.delete(key);
+    const b = built.get(key);
+    if (b === undefined) return;
+    built.delete(key);
+    if (b.animated) animatedCount = Math.max(0, animatedCount - 1);
+    disposeBuilt(b.material);
+  };
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   const applied = new Map<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
   let functions = new Map<string, MaterialFunctionLike>();
@@ -209,7 +247,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {
         const t = m[slot];
-        if (t !== null && t.channel === 0) m[slot] = prepared(t, slot === 'map' || slot === 'emissiveMap', def, 0);
+        if (t !== null && t.channel === 0) m[slot] = ownTexture(m, prepared(t, slot === 'map' || slot === 'emissiveMap', def, 0));
       }
     }
     loadSlot(def, m, 'map', 'map', true);
@@ -217,8 +255,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     loadSlot(def, m, 'emissiveMap', 'emissiveMap', true);
     if (def.textures['ormMap'] !== undefined) {
       void texture(def.textures['ormMap']).then((t) => {
-        if (t === null || disposed) return;
-        const orm = prepared(t, false, def, 0);
+        if (t === null || disposed || retired.has(m)) return;
+        const orm = ownTexture(m, prepared(t, false, def, 0));
         m.roughnessMap = orm;
         m.metalnessMap = orm;
         m.aoMap = orm;
@@ -252,8 +290,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const id = def.textures[slot];
     if (id === undefined) return;
     void texture(id).then((t) => {
-      if (t === null || disposed) return;
-      (m as unknown as Record<string, THREE.Texture | null>)[key] = prepared(t, colour, def, 0);
+      if (t === null || disposed || retired.has(m)) return;
+      (m as unknown as Record<string, THREE.Texture | null>)[key] = ownTexture(m, prepared(t, colour, def, 0));
       refreshNodes(m);
       m.needsUpdate = true;
       options.onChange?.();
@@ -354,8 +392,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const macroId = def.textures['macroNormalMap'];
     if (macroId !== undefined) {
       void texture(macroId).then((t) => {
-        if (t === null || disposed) return;
-        const c = t.clone();
+        if (t === null || disposed || retired.has(m)) return;
+        const c = ownTexture(m, t.clone());
         c.colorSpace = THREE.NoColorSpace;
         c.flipY = false;
         c.needsUpdate = true;
@@ -496,9 +534,12 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const dk = defKeyOf(def);
     const have = built.get(key);
     if (have !== undefined && have.defKey === dk) return have.material;
-    if (have !== undefined) have.material.dispose();
+    if (have !== undefined) {
+      if (have.animated) animatedCount = Math.max(0, animatedCount - 1);
+      disposeBuilt(have.material);
+    }
     const m = build(def, source);
-    built.set(key, { material: m, defKey: dk });
+    built.set(key, { material: m, defKey: dk, animated: def.shader === 'foliage' || def.shader === 'water' });
     return m;
   };
 
@@ -516,6 +557,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       /** Phase 18.3: this mesh's parameter values by compiled digest; whether a graph material casts no shadow. */
       const values: Record<string, Readonly<Record<string, unknown>>> = {};
       let noShadow = false;
+      const keys: string[] = [];
       const next = list.map((src) => {
         const id = mapping === null ? undefined : (mapping[src.name] ?? mapping['*']);
         const def = id === undefined ? undefined : defs.get(id);
@@ -529,9 +571,17 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
           return e.material;
         }
         const m = id === undefined ? null : materialFor(id, src);
-        if (m !== null) changed = true;
+        if (m !== null) {
+          changed = true;
+          keys.push(`${id}|${src.uuid}`);
+        }
         return m ?? src;
       });
+      // Phase 21.5: count the new holds before releasing the old ones (a material kept stays built).
+      for (const k of keys) builtRefs.set(k, (builtRefs.get(k) ?? 0) + 1);
+      for (const k of heldKeys.get(mesh) ?? []) releaseKey(k);
+      if (keys.length > 0) heldKeys.set(mesh, keys);
+      else heldKeys.delete(mesh);
       if (Object.keys(values).length > 0) data[OVERRIDES_KEY] = values;
       else delete data[OVERRIDES_KEY];
       // The graph's "casts shadows" flag (the object's own flag is kept to restore).
@@ -561,7 +611,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const [key, b] of [...built]) {
         const def = defs.get(key.split('|')[0] as string);
         if (def === undefined || defKeyOf(def) !== b.defKey) {
-          b.material.dispose();
+          disposeBuilt(b.material);
           built.delete(key);
         } else if (def.shader === 'foliage' || def.shader === 'water') animatedCount += 1;
       }
@@ -611,10 +661,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     dispose() {
       disposed = true;
-      for (const b of built.values()) b.material.dispose();
+      for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
+      builtRefs.clear();
       for (const e of graphEntries.values()) e.material.dispose();
       graphEntries.clear();
+      // Phase 21.5: the sampler copies are the library's (the loaded textures belong to the loader).
+      for (const t of samplerTextures.values()) t.dispose();
+      samplerTextures.clear();
       applied.clear();
     },
   };

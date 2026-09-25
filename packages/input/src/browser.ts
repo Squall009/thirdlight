@@ -82,13 +82,17 @@ function neutral(stepIndex: number): ActionFrame {
 /**
  * Make the game surface receive keyboard input: a canvas is not focusable by
  * default, so keys would never reach the keydown listener. Gives it a tab
- * stop, focuses it now and whenever it is clicked.
+ * stop, focuses it now and whenever it is clicked. Returns the release of
+ * the click listener (phase 21.5: a page that composes the game again on the
+ * same canvas — a new Play snapshot — must not pile up listeners).
  */
-export function focusGameSurface(el: HTMLElement): void {
+export function focusGameSurface(el: HTMLElement): () => void {
   if (el.tabIndex < 0) el.tabIndex = 0;
   el.style.outline = 'none';
-  el.addEventListener('pointerdown', () => el.focus());
+  const onDown = (): void => el.focus();
+  el.addEventListener('pointerdown', onDown);
   el.focus();
+  return () => el.removeEventListener('pointerdown', onDown);
 }
 
 /**

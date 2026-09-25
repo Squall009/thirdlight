@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import {
   buildInstanceSet,
+  disposeObjectTree,
   createVisualResourceStore,
   markBatchable,
   injectedResolver,
@@ -332,8 +333,9 @@ export class ModelInstances {
   private detachSet(entityId: string): void {
     const set = this.sets.get(entityId);
     if (set === undefined) return;
-    set.undoMaterials?.();
+    // Phase 21.5: the chunks first (a material released with its last user would take their render objects).
     set.built.dispose();
+    set.undoMaterials?.();
     set.template.dispose();
     this.sets.delete(entityId);
     this.options.onChanged?.();
@@ -399,7 +401,10 @@ export class ModelInstances {
     live.undoMaterials?.();
     live.instance.dispose();
     live.holder.parent?.remove(live.holder);
+    // Phase 21.5: the holder's own render objects (the instance released its nodes).
+    disposeObjectTree(live.holder);
     this.live.delete(entityId);
+    this.failedKeys.delete(entityId);
     this.options.onChanged?.();
   }
 

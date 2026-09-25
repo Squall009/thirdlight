@@ -2235,6 +2235,49 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   `data-tl-draws` and `data-tl-msaa`. The harness adds the Scene view's
   frames while idle and its draw calls while orbiting.
 
+**Memory (phase 21.5).** What is opened and closed again gives its memory
+back: an editor session with many tab, preview and Play round trips, and a
+game that loads and unloads scenes or spawns and destroys objects for a long
+time, stay at the memory they started with.
+
+- *Closed tabs and previews* (the Material and Effect tabs' previews, the
+  asset browser's model preview, the Animator's live preview) release their
+  renderer at once — also the WebGL context or the WebGPU device (before,
+  browsers kept up to ~16 WebGL contexts and then dropped the oldest, which
+  could be the Scene view's) — and nothing keeps the closed pane reachable.
+  Switching the renderer backend (the project setting) replaces the Scene
+  view's canvas the same way.
+- *Play stop and new Play snapshots* release the game's input listeners, its
+  sound (the audio context, looping sounds, music) and the page listeners; the
+  simulation worker ends with the play.
+- *Scene unloads, level restarts and destroyed spawns* release their objects
+  in the renderer (render objects, shadow maps, instancing buffers, per-object
+  material copies of fades and checkpoint glows) as well as the objects
+  themselves; a project material's built copy goes with its last object.
+- *The Scene view* releases what a closed editor scene or a removed object
+  used (also lightmapped material copies) and the edit-mode effect preview's
+  material holders.
+- Three.js (0.186) itself keeps some GPU objects until the garbage collector
+  finds them (WebGL programs, shaders and vertex arrays) or never frees them
+  (a texture shared between renderers kept every renderer that drew it); the
+  engine releases these explicitly through the renderer's internals of the
+  pinned three version (guarded: another version would only lose the early
+  release).
+
+`tests/e2e/memory.e2e.ts` checks it: each document tab kind opened and closed
+50×, the preview panes 50×, an editor scene closed and opened 50×, instancing
+groups formed and dissolved 50×, the backend swapped 10×, Play started and
+stopped 20×, and in one Play session an additive scene loaded and unloaded
+50×, a level restarted 20× and ~100 spawned pairs destroyed — the JS heap
+(after a garbage collection), the WebGL/WebGPU objects per live context and
+the renderer's own counts come back to where they were. The Scene view's
+canvas carries the renderer's counts in `data-memory`; Play's diagnostics
+(`tl_diagnostics` renderer.gpu) carry the same counts. Run it after
+`npm run build` with `npx playwright test tests/e2e/memory.e2e.ts` (both
+projects; 10–15 min on a CPU renderer; `[memory] …` lines print each
+scenario's baseline and end counts); `TL_MEMORY_CYCLES=5` shortens it for a
+quick smoke run.
+
 ## Upgrade
 
 ```sh

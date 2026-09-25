@@ -13,6 +13,7 @@ import {
   createEnvironmentRenderer,
   createMaterialLibrary,
   createRenderer,
+  disposeObjectTree,
   type EnvironmentLike,
   type EnvironmentRenderer,
   type GraphProblem,
@@ -25,6 +26,7 @@ import {
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { disposeOrbitControls } from './controls';
 
 import { editorRendererChoice } from './renderer-choice';
 
@@ -51,6 +53,9 @@ export class MaterialPreview {
   private materialId: string | null = null;
   private shapeObject: THREE.Object3D | null = null;
   private ownedGeometry: THREE.BufferGeometry | null = null;
+  /** Phase 21.5: the primitive's own material (released with its shape). */
+  private ownedMaterial: THREE.Material | null = null;
+  private disposed = false;
   private raf = 0;
   private sizedFor = -1;
   private readonly start = performance.now();
@@ -61,7 +66,9 @@ export class MaterialPreview {
     private readonly options: MaterialPreviewOptions,
   ) {
     const choice = editorRendererChoice();
-    this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: true, clearColor: 0x000000, clearAlpha: 1 });
+    // Phase 21.5: the canvas is never reused (a tab mounts a new one): its WebGL context is released at
+    // once instead of waiting for the collector (browsers drop the oldest contexts past ~16).
+    this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: true, clearColor: 0x000000, clearAlpha: 1, loseContextOnDispose: true });
     this.library = createMaterialLibrary({ loadTexture: options.loadTexture });
     this.scene.background = new THREE.Color(0x1b1e26);
     this.key.position.set(3, 5, 4);
@@ -118,18 +125,27 @@ export class MaterialPreview {
 
   /** A primitive, or a model's root (`model`; the caller keeps ownership of it). */
   setShape(shape: PreviewShape, model?: THREE.Object3D | null): void {
+    // A React cleanup may reset the shape after the preview was disposed (effects clean up in order).
+    if (this.disposed) return;
     this.undo?.();
     this.undo = null;
-    if (this.shapeObject !== null) this.holder.remove(this.shapeObject);
+    if (this.shapeObject !== null) {
+      this.holder.remove(this.shapeObject);
+      // Phase 21.5: the primitive's render objects (it wore the library's material, which lives on).
+      if (this.ownedGeometry !== null) disposeObjectTree(this.shapeObject);
+    }
     this.ownedGeometry?.dispose();
     this.ownedGeometry = null;
+    this.ownedMaterial?.dispose();
+    this.ownedMaterial = null;
     let obj: THREE.Object3D;
     if (shape === 'model' && model !== undefined && model !== null) obj = model;
     else {
       const g = shape === 'plane' ? new THREE.PlaneGeometry(2, 2) : shape === 'cube' ? new THREE.BoxGeometry(1.3, 1.3, 1.3) : new THREE.SphereGeometry(0.9, 64, 32);
       if (shape === 'plane') g.rotateX(-Math.PI / 3);
       this.ownedGeometry = g;
-      obj = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xc8c8c8 }));
+      this.ownedMaterial = new THREE.MeshStandardMaterial({ color: 0xc8c8c8 });
+      obj = new THREE.Mesh(g, this.ownedMaterial);
     }
     this.shapeObject = obj;
     this.holder.add(obj);
@@ -187,12 +203,24 @@ export class MaterialPreview {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.undo?.();
-    this.orbit.dispose();
+    this.undo = null;
+    if (this.shapeObject !== null) {
+      this.holder.remove(this.shapeObject);
+      if (this.ownedGeometry !== null) disposeObjectTree(this.shapeObject);
+    }
+    this.shapeObject = null;
+    disposeOrbitControls(this.orbit);
     this.environment?.dispose();
+    this.environment = null;
     this.library.dispose();
     this.ownedGeometry?.dispose();
+    this.ownedGeometry = null;
+    this.ownedMaterial?.dispose();
+    this.ownedMaterial = null;
     this.renderer.dispose();
   }
 }

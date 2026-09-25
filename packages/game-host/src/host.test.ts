@@ -751,6 +751,28 @@ describe('viewport and disposal (B15 lifecycle)', () => {
     expect(() => host.runtime).toThrow(); // the seam is gone
   });
 
+  it('phase 21.5: dispose stops the loops it started on the wrapper-owned audio owner', () => {
+    const base = harness();
+    const loops: [string, string | null, number][] = [];
+    const snapshot = hostSnapshot() as { scene: { schemaVersion: number; entities: unknown[] }; game: Record<string, unknown> };
+    snapshot.scene.schemaVersion = 4;
+    delete snapshot.game['level'];
+    delete snapshot.game['killY'];
+    snapshot.game['configVersion'] = 2;
+    snapshot.scene.entities.push({ id: 'brook-0001', components: { transform: { position: [4, 0, 0], ...T }, audioSource: { assetId: 'brook', volume: 1, range: 10 } } });
+    const host = createGameHost({
+      ...base.config,
+      snapshot: snapshot as unknown as RuntimeSnapshot,
+      audio: { ...base.audio, setLoop: (key: string, assetId: string | null, gain: number) => void loops.push([key, assetId, gain]) } as GameAudioOwner,
+    });
+    const mounted = host.mount();
+    expect(mounted, JSON.stringify(mounted)).toEqual({ ok: true });
+    for (let i = 0; i < 5; i += 1) host.runtime.tick(i / 60);
+    expect(loops.some(([key, asset]) => key === 'brook-0001' && asset === 'brook')).toBe(true);
+    host.dispose();
+    expect(loops[loops.length - 1]).toEqual(['brook-0001', null, 0]);
+  });
+
   it('a new host on the same snapshot re-mounts cleanly (the wrapper resources are reused)', () => {
     const { host, container, input, audio } = harness();
     host.mount();

@@ -23,6 +23,7 @@ import * as THREE from 'three';
 
 import { instanceCapacity } from './batching';
 import type { ModelInstance } from './visual';
+import { disposeObjectTree } from './dispose';
 
 /** Floats per copy in an instance buffer. */
 export const INSTANCE_BUFFER_FLOATS = 10;
@@ -224,14 +225,9 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
       return out.isEmpty() ? null : out;
     },
     dispose(): void {
-      for (const mesh of meshes) {
-        try {
-          mesh.dispose();
-        } catch {
-          /* best effort */
-        }
-      }
       group.removeFromParent();
+      // Phase 21.5: every chunk mesh and LOD node: render objects and the node-made instance buffers.
+      disposeObjectTree(group);
     },
   };
 }

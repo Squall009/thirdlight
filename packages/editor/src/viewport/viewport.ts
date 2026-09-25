@@ -20,6 +20,8 @@ import {
   createEffectsPlayer,
   createEnvironmentRenderer,
   createRenderer,
+  disposeObjectTree,
+  rendererMemory,
   DEFAULT_RENDERER_PREFERENCE,
   lightmappedMaterial,
   lightmapTexture,
@@ -46,6 +48,7 @@ import {
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
@@ -344,11 +347,15 @@ export class Viewport {
         const t = this.projected.find((e) => e.id === id)?.light?.type;
         return t === 'ambient' || t === 'hemisphere';
       });
+    // Phase 21.5: copies this pass does not put on a mesh are released (an entity removed or
+    // not realized, a material swapped for another): they are rebuilt when needed again.
+    const visited = new Set<string>();
     for (const [entityId, entry] of this.lightmapEntries) {
       const atlas = this.atlasTexture(entry.atlas);
       if (atlas === null) continue;
       const root = this.models?.instanceFor(entityId) ?? this.meshes.get(entityId) ?? null;
       if (root === null) continue;
+      visited.add(entityId);
       let rec = this.lightmapCopies.get(entityId);
       if (rec !== undefined && rec.atlas !== atlas) {
         rec.map.dispose();
@@ -360,6 +367,7 @@ export class Viewport {
         this.lightmapCopies.set(entityId, rec);
       }
       const r = rec;
+      const used = new Set<THREE.Material>();
       const ignoreAmbient = ambientBaked(entry.bake);
       const visit = (o: THREE.Object3D): void => {
         // Another entity's node below this one keeps its own lightmap.
@@ -370,6 +378,7 @@ export class Viewport {
           const original = mesh.material;
           const list = Array.isArray(original) ? original : [original];
           const copies = list.map((m) => {
+            used.add(m);
             if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient));
             const c = r.copies.get(m) ?? null;
             if (c !== null) refreshLightmappedMaterial(c, m);
@@ -384,6 +393,17 @@ export class Viewport {
         for (const c of o.children) visit(c);
       };
       visit(root);
+      for (const [m, c] of [...r.copies]) {
+        if (used.has(m)) continue;
+        c?.dispose();
+        r.copies.delete(m);
+      }
+    }
+    for (const [entityId, rec] of [...this.lightmapCopies]) {
+      if (visited.has(entityId)) continue;
+      rec.map.dispose();
+      for (const c of rec.copies.values()) c?.dispose();
+      this.lightmapCopies.delete(entityId);
     }
   }
 
@@ -707,6 +727,27 @@ export class Viewport {
   private effectAttached: { id: string; obj: THREE.Object3D; key: string } | null = null;
   private effectRenderer: unknown = null;
   private effectLastNow: number | null = null;
+  /** Phase 21.5: the material holders the preview asked the library for (released with the preview). */
+  private effectHolders: { holders: Map<string, { mesh: THREE.Mesh; undo: () => void }>; placeholder: THREE.Material } | null = null;
+
+  /** Phase 21.5: release the edit-mode effect preview (player, library holders, placeholder). */
+  private releaseEffectPreview(): void {
+    this.effectsPlayer?.dispose();
+    this.effectsPlayer = null;
+    this.effectAttached = null;
+    this.effectRenderer = null;
+    this.effectTarget = null;
+    const h = this.effectHolders;
+    this.effectHolders = null;
+    if (h !== null) {
+      for (const { mesh, undo } of h.holders.values()) {
+        undo();
+        mesh.geometry.dispose();
+      }
+      h.holders.clear();
+      h.placeholder.dispose();
+    }
+  }
 
   /**
    * Play the selected object's effect in the Scene view (the Gizmos menu's
@@ -716,19 +757,16 @@ export class Viewport {
    */
   setEffectPreview(on: boolean, defs: readonly EffectDefLike[], target: { id: string; component: EffectComponentLike } | null, loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
     if (!on) {
-      this.effectsPlayer?.dispose();
-      this.effectsPlayer = null;
-      this.effectAttached = null;
-      this.effectRenderer = null;
-      this.effectTarget = null;
+      this.releaseEffectPreview();
       this.root.setAttribute('data-effects', JSON.stringify({ preview: false }));
       this.requestRender();
       return;
     }
     if (this.effectsPlayer === null) {
       const lib = (): MaterialLibrary | null => this.materialLibrary;
-      const holders = new Map<string, THREE.Mesh>();
+      const holders = new Map<string, { mesh: THREE.Mesh; undo: () => void }>();
       const placeholder = new THREE.MeshBasicMaterial();
+      this.effectHolders = { holders, placeholder };
       this.effectsPlayer = createEffectsPlayer({
         scene: this.scene as never,
         defs,
@@ -739,11 +777,11 @@ export class Viewport {
           if (l === null || id === '') return null;
           let h = holders.get(id);
           if (h === undefined) {
-            h = new THREE.Mesh(new THREE.BufferGeometry(), placeholder);
-            l.apply(h, { '*': id });
+            const mesh = new THREE.Mesh(new THREE.BufferGeometry(), placeholder);
+            h = { mesh, undo: l.apply(mesh, { '*': id }) };
             holders.set(id, h);
           }
-          return h.material === placeholder ? null : (h.material as never);
+          return h.mesh.material === placeholder ? null : (h.mesh.material as never);
         },
       });
     } else this.effectsPlayer.setDefs(defs);
@@ -826,6 +864,8 @@ export class Viewport {
       this.framesDrawn += 1;
       const b = this.batcher.diagnostics();
       this.root.setAttribute('data-frames', String(this.framesDrawn));
+      // Phase 21.5: the renderer's live resource counts after the frame (the leak tests read them).
+      this.root.setAttribute('data-memory', JSON.stringify(rendererMemory(renderer)));
       this.root.setAttribute('data-draw-calls', String(Math.max(0, info.drawCalls - drawsBefore)));
       this.root.setAttribute('data-triangles', String(Math.max(0, info.triangles - trianglesBefore)));
       this.root.setAttribute('data-batches', `${b.groups} ${b.batched} ${b.single}`);
@@ -878,11 +918,14 @@ export class Viewport {
     this.unbindCanvasEvents();
     this.environment?.dispose();
     this.environment = null;
-    this.rendererHandle.dispose();
+    // Phase 21.5: the old canvas is never drawn to again: its WebGL context goes now (the WebGPU device is destroyed either way).
+    this.rendererHandle.dispose({ loseContext: true });
     old.replaceWith(next);
     this.root = next;
     this.bindCanvasEvents();
     this.orbit.disconnect();
+    // Phase 21.5: the old canvas already left the page: its document keeps OrbitControls' key listeners otherwise.
+    releaseControlKeyListeners(this.orbit);
     this.orbit.connect(next);
     this.gizmo.disconnect();
     this.gizmo.connect(next);
@@ -1309,6 +1352,9 @@ export class Viewport {
       }
     };
     visit(obj);
+    // Phase 21.5: the nodes themselves — the renderer keeps an object's render objects (pipeline,
+    // bindings, uniforms) while its material lives on (a project material, a shared box look).
+    disposeObjectTree(obj, { skip: (c) => (c as { entityId?: string }).entityId !== own });
   }
 
   /** Set the selected entity (drives the gizmo + the zone overlay handle). */
@@ -1930,8 +1976,25 @@ export class Viewport {
   private fogVolumeData = new Map<string, NonNullable<ProjectedEntity['fogVolume']>>();
 
   dispose(): void {
-    this.effectsPlayer?.dispose();
-    this.effectsPlayer = null;
+    this.releaseEffectPreview();
+    this.unapplyLightmaps();
+    for (const rec of this.lightmapCopies.values()) {
+      rec.map.dispose();
+      for (const c of rec.copies.values()) c?.dispose();
+    }
+    this.lightmapCopies.clear();
+    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
+    this.atlasTextures.clear();
+    for (const { light, parent } of this.sceneLights.values()) {
+      parent.remove(light);
+      light.dispose();
+    }
+    this.sceneLights.clear();
+    this.copyHighlight?.removeFromParent();
+    this.copyHighlight?.dispose();
+    this.copyHighlight = null;
+    this.grid.geometry.dispose();
+    (this.grid.material as THREE.Material).dispose();
     for (const m of this.meshes.values()) {
       m.parent?.remove(m);
       this.disposeMesh(m);
@@ -1942,7 +2005,7 @@ export class Viewport {
     window.removeEventListener('resize', this.onWindowResize);
     this.gizmo.detach();
     this.gizmo.dispose();
-    this.orbit.dispose();
+    disposeOrbitControls(this.orbit);
     this.disposeMesh(this.ground);
     this.environment?.dispose();
     this.environment = null;

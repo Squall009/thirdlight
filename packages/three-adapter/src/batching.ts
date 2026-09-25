@@ -38,6 +38,7 @@
 import * as THREE from 'three';
 
 import { OVERRIDES_KEY } from './material-graph';
+import { disposeObjectTree, releaseNodeAttributes } from './dispose';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
 export const BATCHED_LAYER = 30;
@@ -204,6 +205,8 @@ interface Group {
   members: THREE.Mesh[];
   scales: (readonly number[] | null)[];
   seen: number;
+  /** Phase 21.5: stops listening to the batch material's `dispose`. */
+  unlisten: () => void;
 }
 
 export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOptions = {}): AutoBatcher {
@@ -242,8 +245,10 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     }
   };
   const release = (g: Group): void => {
+    g.unlisten();
     g.mesh.removeFromParent();
-    g.mesh.dispose();
+    // Phase 21.5: its render objects and its instance-matrix buffers (≥ 1025 slots: node-made) go too.
+    disposeObjectTree(g.mesh);
   };
 
   const visit = (o: THREE.Object3D, camera: THREE.Camera): void => {
@@ -328,7 +333,24 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           mesh.raycast = () => undefined;
           mesh.matrixAutoUpdate = false;
           if (g !== undefined) release(g);
-          g = { key, mesh, members: [], scales: [], seen: frame };
+          // Phase 21.5: a material disposed before the next frame (its last box went) would take the
+          // batch's render objects with it, and with them the only way to its instance buffers: the
+          // batch goes first (this listener runs before the renderer's, added at the first draw).
+          const material = p.parts.material;
+          const created: Group = { key, mesh, members: [], scales: [], seen: frame, unlisten: () => undefined };
+          const onMaterialDispose = (): void => {
+            if (groups.get(key) !== created) return;
+            // Only the instance buffers here: the material's own `dispose` event disposes the batch's
+            // render objects (a second dispose from here — the object's — would release their shared
+            // bindings twice: three calls every listener of an event, also one removed meanwhile).
+            created.unlisten();
+            releaseNodeAttributes(new Set([created.mesh]));
+            created.mesh.removeFromParent();
+            groups.delete(key);
+          };
+          material.addEventListener('dispose', onMaterialDispose);
+          created.unlisten = () => material.removeEventListener('dispose', onMaterialDispose);
+          g = created;
           groups.set(key, g);
           root.add(mesh);
           membershipChanged = true;

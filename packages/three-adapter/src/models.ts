@@ -66,7 +66,7 @@ import {
 } from './visual';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
-import { SHARED_MATERIAL_KEY } from './node-materials';
+import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -669,8 +669,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {
-    set.undoMaterials?.();
+    // Phase 21.5: the chunks go before their materials may (a material released with its last user takes the
+    // chunks' render objects, and with them the way to their instance buffers).
     set.built.dispose(); // the instance matrices (geometry/materials belong to the resource)
+    set.undoMaterials?.();
     try {
       set.template.dispose();
     } catch {
@@ -702,6 +704,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   function disposeAttached(rec: AttachedModel): void {
     if (rec.disposed) return;
     rec.disposed = true;
+    // Phase 21.5: a glow's own material copies go first (the material undo below restores the shared ones).
+    releaseEmissiveLooks(rec.instance.root);
     rec.undoMaterials?.();
     if (rec.controller !== null) {
       try {
@@ -902,6 +906,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         modelEntities.delete(id);
         modelAnimationEntities.delete(id);
         instanceEntities.delete(id);
+        modelPieces.delete(id);
       }
       for (const assetId of touched) releaseAssetIfUnused(assetId);
       for (const digest of [...buffers.keys()]) {

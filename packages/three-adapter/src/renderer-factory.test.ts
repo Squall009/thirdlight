@@ -31,6 +31,7 @@ import {
   type WebGpuProbe,
 } from './renderer-factory';
 import { createSceneAdapter } from './index';
+import { liveRenderers } from './dispose';
 import { baseScene, cloneJson, snapshotOf } from './test-scene';
 
 const flush = async (): Promise<void> => {
@@ -303,6 +304,54 @@ describe('createRenderer', () => {
     no.made[0]!.resolveInit();
     await flush();
     expect(h2.info()).toMatchObject({ backend: 'webgl2', state: 'ready', reason: 'default auto: the page is not a secure context: WebGL 2 backend' });
+  });
+
+  it('phase 21.5: the probed WebGPU device is destroyed with its renderer (dispose and a WebGL 2 fallback); live renderers are tracked', async () => {
+    const dev = device();
+    const s = stubDeps({ ok: true, device: dev, adapterName: 'GPU X' });
+    const h = createRenderer({ canvas: null, preference: 'webgpu', source: 'url', clearColor: 0, clearAlpha: 1, deps: s.deps });
+    await flush();
+    s.made[0]!.resolveInit();
+    await flush();
+    expect(liveRenderers()).toContain(s.made[0]);
+    expect(dev.destroyed).toBe(false);
+    h.dispose();
+    await flush();
+    expect(s.made[0]!.disposed).toBe(true);
+    expect(dev.destroyed).toBe(true);
+    expect(liveRenderers()).not.toContain(s.made[0]);
+
+    const dev2 = device();
+    const f = stubDeps({ ok: true, device: dev2, adapterName: 'GPU X' });
+    createRenderer({ canvas: null, preference: 'webgpu', source: 'url', clearColor: 0, clearAlpha: 1, deps: f.deps });
+    await flush();
+    f.made[0]!.rejectInit(new Error('adapter vanished'));
+    await flush();
+    // The WebGL 2 fallback runs without the device: it is released at once.
+    expect(dev2.destroyed).toBe(true);
+    expect(liveRenderers()).toContain(f.made[1]);
+    expect(liveRenderers()).not.toContain(f.made[0]);
+  });
+
+  it('phase 21.5: dispose({ loseContext }) overrides loseContextOnDispose for a canvas that is gone', async () => {
+    let lost = 0;
+    const ext = { loseContext: () => (lost += 1) };
+    const gl = { getExtension: (n: string) => (n === 'WEBGL_lose_context' ? ext : null) };
+    const { canvas } = eventCanvas();
+    const h = createRenderer({
+      canvas: { ...canvas, getContext: (type: string) => (type === 'webgl2' ? gl : null) },
+      preference: 'webgl2',
+      source: 'default',
+      clearColor: 0,
+      clearAlpha: 1,
+      deps: {
+        createNode: (params) => ({ params, backend: { isWebGPUBackend: false }, init: () => Promise.resolve(), setClearColor: () => undefined, onDeviceLost: () => undefined, dispose: () => undefined }),
+      },
+    });
+    expect(await h.whenReady()).toBe(true);
+    h.dispose({ loseContext: true });
+    await flush();
+    expect(lost).toBe(1);
   });
 
   it('webgpu: an init failure on WebGPU rebuilds on the WebGL 2 backend', async () => {

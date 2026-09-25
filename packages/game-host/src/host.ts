@@ -624,6 +624,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number }[] = [];
   const liveLoops = new Set<string>();
+  /** Phase 21.5: the menu logo's object URL (revoked on dispose). */
+  let logoUrl: string | null = null;
   const musicAsked = new Set<string>();
   const serviceAudioSources = (rt: Runtime): void => {
     if (config.audio.setLoop === undefined) return;
@@ -988,7 +990,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       if (typeof logoPath === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
         void config.readArtifact(logoPath)
           .then((buffer) => {
-            if (!disposed && flowCtl !== null) flowCtl.setLogo(urls.createObjectURL!(new Blob([buffer])));
+            if (disposed || flowCtl === null) return;
+            logoUrl = urls.createObjectURL!(new Blob([buffer]));
+            flowCtl.setLogo(logoUrl);
           })
           .catch(() => undefined);
       }
@@ -1120,6 +1124,32 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       runtime = null;
     }
+    // Phase 21.5: what this host started on the wrapper-owned audio owner
+    // stops with it — the loops of audio sources and the level's ambience,
+    // and the flow's music — so a new composition on the same owner (a new
+    // Play snapshot) does not keep the old one's loops playing.
+    if (config.audio.setLoop !== undefined) {
+      for (const id of [...liveLoops, ...liveAmbience]) {
+        try {
+          config.audio.setLoop(id, null, 0);
+        } catch {
+          /* a closed context: nothing plays */
+        }
+      }
+    }
+    liveLoops.clear();
+    liveAmbience.clear();
+    if (flowCtl !== null) {
+      try {
+        config.audio.playMusic?.(null, 0);
+      } catch {
+        /* a closed context: nothing plays */
+      }
+    }
+    if (logoUrl !== null) {
+      (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(logoUrl);
+      logoUrl = null;
+    }
     if (hud !== null) {
       flowCtl?.dispose();
       flowCtl = null;
@@ -1137,8 +1167,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     // The injected input owner and audio owner are WRAPPER-owned: the host
     // does not dispose them (a new host on the same snapshot reuses them —
-    // delivery.md §3.1). Their residual audio voices are short cues that
-    // end on their own; the wrapper's final dispose closes the context.
+    // delivery.md §3.1). Its loops and music were stopped above; residual
+    // cues end on their own; the wrapper's final dispose closes the context.
   };
 
   return {

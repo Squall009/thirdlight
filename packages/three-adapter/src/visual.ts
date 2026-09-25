@@ -37,6 +37,7 @@ import { adapterError, type AdapterError, type AdapterErrorCode } from './errors
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
 import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D, stripCollisionNodes, type VertexColorMode } from './pieces';
+import { disposeObjectTree } from './dispose';
 
 /**
  * The approved visual descriptor: the immutable, path-free per-version facts a
@@ -540,6 +541,10 @@ function createInstanceHandle(
       instanceDisposed.add(instance);
       holder.remove(glbRoot);
       holder.removeFromParent();
+      // Phase 21.5: the clone's nodes leave for good — their render objects (the resource's materials and
+      // geometry outlive them) and the clone's own skeletons go with them.
+      disposeObjectTree(glbRoot, { ownedSkeletons: true });
+      disposeObjectTree(holder);
       ledger.release('instance');
       hooks.onInstanceDisposed();
       return { ok: true as const };
@@ -1105,8 +1110,28 @@ export function createVisualResourceStore(): VisualResourceStore {
   const latest = new Map<string, InternalHandle>();
   const pending = new Map<string, InternalHandle>();
   const resources = new Map<string, PreparedVisualResource>();
-  /** Every resource this store ever created (live or retired), for the aggregate. */
-  const created: PreparedVisualResource[] = [];
+  /** Every resource this store created that may still hold something (live, or retired with live instances). */
+  let created: PreparedVisualResource[] = [];
+  /**
+   * Phase 21.5: the final counters of resources that are retired and fully
+   * released — folded into one total and dropped, so a retired resource (its
+   * parsed model, geometry arrays and images) is not kept reachable for the
+   * store's lifetime only to be counted; the aggregate stays the same.
+   */
+  let retiredTotal: ResourceOwnership = mergeOwnership([]);
+  const compact = (): void => {
+    const keep: PreparedVisualResource[] = [];
+    const done: ResourceOwnership[] = [];
+    const current = new Set(resources.values());
+    for (const r of created) {
+      const report = r.ownership();
+      if (!current.has(r) && report.outstanding === 0 && report.allocations > 0) done.push(report);
+      else keep.push(r);
+    }
+    if (done.length === 0) return;
+    retiredTotal = mergeOwnership([retiredTotal, ...done]);
+    created = keep;
+  };
   let disposed = false;
 
   return {
@@ -1137,6 +1162,7 @@ export function createVisualResourceStore(): VisualResourceStore {
         previousResource.dispose();
         resources.delete(assetId);
       }
+      compact();
       const handle = startVisualLoad(source, options, {
         onResource: (resource) => {
           created.push(resource);
@@ -1175,7 +1201,8 @@ export function createVisualResourceStore(): VisualResourceStore {
     ownership() {
       // Every resource reports its own live ledger (a retired resource keeps
       // its final counters), so a disposal count test can prove balance.
-      return mergeOwnership(created.map((resource) => resource.ownership()));
+      compact();
+      return mergeOwnership([retiredTotal, ...created.map((resource) => resource.ownership())]);
     },
   };
 }

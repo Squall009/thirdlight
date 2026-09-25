@@ -58,6 +58,7 @@ import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
+import { releaseMrtContexts } from './dispose';
 
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy); values stay three objects. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -187,7 +188,9 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   disposables.push(scenePass);
   if (plan.resolutionScale !== 1) scenePass.setResolutionScale(plan.resolutionScale);
   const wantsAo = plan.ssao !== null && perspective;
-  if (wantsAo) scenePass.setMRT(mrt({ output, normal: normalView }));
+  // Phase 21.5: the MRT node is kept so the render contexts drawn with it can be released with the pipeline.
+  const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
+  if (wantsAo) scenePass.setMRT(sceneMrt);
   const depth: N = scenePass.getTextureNode('depth');
   let color: N = scenePass.getTextureNode('output');
 
@@ -427,6 +430,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       pipeline.dispose();
       (lutNode.value as THREE.Texture).dispose();
       for (const d of disposables) d.dispose();
+      releaseMrtContexts(renderer, sceneMrt);
     },
   };
 }
