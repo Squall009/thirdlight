@@ -16,6 +16,10 @@
  * - A control: the cases without their shader nodes (what WebGPURenderer drew
  *   while the archived hooks were ignored) do NOT match.
  *
+ * - Phase 18.2: every shader type converted to a graph material ("Convert
+ *   to graph", the built-in templates) and drawn by the graph compiler
+ *   matches the same references with the same rule, on both backends.
+ *
  * The tolerance rule is logged in docs/plan-phase-17.md §6 (17.2).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -45,11 +49,11 @@ test.afterAll(async () => {
   await harness?.close();
 });
 
-async function render(page: Page, backend: string, name: string, control = false): Promise<{ img: Image; png: Buffer; backend: string }> {
+async function render(page: Page, backend: string, name: string, control = false, graph = false): Promise<{ img: Image; png: Buffer; backend: string }> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.setViewportSize({ width: SIZE, height: SIZE });
-  await page.goto(`${base}?backend=${backend}&case=${name}${control ? '&control=1' : ''}`);
+  await page.goto(`${base}?backend=${backend}&case=${name}${control ? '&control=1' : ''}${graph ? '&graph=1' : ''}`);
   await expect.poll(() => page.evaluate(() => (window as unknown as { __shaderCase?: unknown }).__shaderCase !== undefined), { timeout: 45_000 }).toBe(true);
   const result = await page.evaluate(() => (window as unknown as { __shaderCase: { ok: boolean; backend?: string; reason?: string; error?: string } }).__shaderCase);
   expect(result.ok, result.error).toBe(true);
@@ -97,6 +101,19 @@ for (const name of CASES) {
     const auto = await render(page, 'auto', name);
     expect(auto.backend).toBe('webgl2');
     expect(within(compare(name, 'auto', auto)), `auto ${name}`).toBe(true);
+  });
+}
+
+/** Phase 18.2: the shader types whose materials convert to graphs. */
+const GRAPH_CASES = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
+
+for (const name of GRAPH_CASES) {
+  test(`${name}: the material converted to a graph matches the WebGL reference`, async ({ page }) => {
+    test.setTimeout(120_000);
+    const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+    const got = await render(page, backend, name, false, true);
+    expect(got.backend).toBe(backend);
+    expect(within(compare(name, `graph-${backend}`, got)), `graph ${backend} ${name}`).toBe(true);
   });
 }
 

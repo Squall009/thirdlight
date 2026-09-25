@@ -61,6 +61,7 @@ export default defineConfig({
         // Phase 18.3: material graphs on WebGPU.
         '**/material-graph-render.e2e.ts',
         '**/material-graph-play.e2e.ts',
+        '**/material-preview.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

@@ -104,7 +104,7 @@ describe('material graphs: editor vs project-model', () => {
     }
   });
 
-  it('a new graph material and converted standard/unlit materials validate in the backend', () => {
+  it('a new graph material and converted materials of every shader type validate in the backend', () => {
     const check = (m: MaterialDef): ModelErrorV2[] => {
       const errors: ModelErrorV2[] = [];
       validateMaterials([m], '', errors);
@@ -137,6 +137,38 @@ describe('material graphs: editor vs project-model', () => {
       for (const port of ['baseColor', 'roughness', 'metalness', 'normal', 'emissive', 'ao', 'opacity', 'alphaClip']) expect(into(port), port).toBe(true);
       expect(s.material.graph!.nodes.find((n) => n.id === 'output')!.data).toEqual({ doubleSided: true });
     }
-    expect(convertToGraph({ ...plain, shader: 'foliage' }).ok).toBe(false);
+    // Phase 18.2: every shader type converts (the built-in templates), with and without textures, and validates.
+    const textures = { map: 'tex-a', normalMap: 'tex-n', ormMap: 'tex-o', emissiveMap: 'tex-e' };
+    const variants: MaterialDef[] = [
+      { ...plain, materialId: 'mat-f', shader: 'foliage', params: { windBend: 2, subsurface: 0.5, color: '#44aa33' }, textures },
+      { ...plain, materialId: 'mat-f0', shader: 'foliage' },
+      { ...plain, materialId: 'mat-k', shader: 'kit', params: { uvPeriod: 2, macroNormalScale: 1.5, tiling: [2, 1] }, textures: { ...textures, macroNormalMap: 'tex-m' } },
+      { ...plain, materialId: 'mat-k0', shader: 'kit', textures: { map: 'tex-a' } },
+      { ...plain, materialId: 'mat-w', shader: 'water', params: { flow: [0.1, 0], waveScale: 3, fresnel: 2, doubleSided: true }, textures: { normalMap: 'tex-n' } },
+      { ...plain, materialId: 'mat-w0', shader: 'water' },
+    ];
+    for (const m of variants) {
+      const r = convertToGraph(m);
+      expect(r.ok, m.materialId).toBe(true);
+      if (!r.ok) continue;
+      expect(check(r.material), `${m.materialId}: ${JSON.stringify(check(r.material)[0])}`).toEqual([]);
+      expect(r.material.shader).toBe(m.shader);
+    }
+    const f = convertToGraph(variants[0]!);
+    if (f.ok) {
+      // Wind values are public parameters; the wind is a world-space vertex offset reading COLOR_0 as data.
+      expect(f.material.parameters!.map((x) => x.key)).toEqual(['subsurface', 'windBend', 'flutterFrequency', 'windFlutter']);
+      expect(f.material.parameters!.find((x) => x.key === 'windBend')!.default).toBe(2);
+      expect(f.material.graph!.nodes.find((n) => n.type === 'vertexOffset')!.data).toEqual({ space: 'world' });
+      expect(f.material.graph!.nodes.find((n) => n.type === 'vertexColor')!.data).toEqual({ absent: 'zero' });
+      expect(f.material.graph!.nodes.find((n) => n.id === 'output')!.data).toEqual({ doubleSided: true });
+    }
+    const k = convertToGraph(variants[2]!);
+    if (k.ok) expect(k.material.graph!.nodes.some((n) => n.type === 'objectPosition')).toBe(true);
+    const w = convertToGraph(variants[4]!);
+    if (w.ok) expect(w.material.graph!.nodes.find((n) => n.id === 'output')!.data).toEqual({ doubleSided: true, transparent: true });
+    // A material that already declares a template's key keeps it; the template uses a constant there.
+    const clash = convertToGraph({ ...variants[1]!, parameters: [{ key: 'windBend', type: 'color', default: '#ffffff' }] });
+    expect(clash.ok && check(clash.material)).toEqual([]);
   });
 });

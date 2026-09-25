@@ -23,7 +23,7 @@ import { ParameterValue } from './material/MaterialDocument';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../session/material-schema';
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
-import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph } from '../session/material-graph';
+import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph, templateMaterial } from '../session/material-graph';
 
 /** The DataTransfer type a material tile drags (onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
@@ -65,8 +65,19 @@ function swatch(m: MaterialDef): string {
   return typeof c === 'string' ? c : m.shader === 'water' ? '#1d5f8a' : '#c8c8c8';
 }
 
+/** Phase 18.2: what "+ new graph material" starts from — an empty PBR output or a shader type's built-in template. */
+const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
+  { value: '', label: 'empty (PBR output)' },
+  { value: 'standard', label: 'template: standard' },
+  { value: 'foliage', label: 'template: foliage wind' },
+  { value: 'kit', label: 'template: world-aligned kit' },
+  { value: 'unlit', label: 'template: unlit' },
+  { value: 'water', label: 'template: water' },
+];
+
 export function MaterialsPanel(p: Props): JSX.Element {
   const selected = p.materials.find((m) => m.materialId === p.selectedId) ?? null;
+  const [template, setTemplate] = useState('');
   const create = (): void => {
     const name = `Material ${p.materials.length + 1}`;
     const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: 'standard', params: {}, textures: {} };
@@ -75,7 +86,8 @@ export function MaterialsPanel(p: Props): JSX.Element {
   };
   const createGraph = (): void => {
     const name = `Graph material ${p.materials.filter((m) => m.graph !== undefined).length + 1}`;
-    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() };
+    const materialId = newMaterialId(p.materials, name);
+    const def: MaterialDef = template === '' ? { materialId, name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() } : templateMaterial(template, materialId, name);
     p.onSave(def);
     p.onSelect(def.materialId);
     p.onOpen(def.materialId);
@@ -90,6 +102,13 @@ export function MaterialsPanel(p: Props): JSX.Element {
         <button className="tl-btn tl-btn--small" onClick={createGraph} title="A new material built as a node graph (opens its tab)">
           + new graph material
         </button>
+        <select className="tl-input tl-input--small" aria-label="graph material template" value={template} onChange={(e) => setTemplate(e.target.value)} title="What a new graph material starts from: an empty PBR output, or a shader type as a graph (the same look)">
+          {GRAPH_TEMPLATES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="tl-assets__body">
         <div className="tl-assets__main">
@@ -232,7 +251,7 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
       <button
         className="tl-btn tl-btn--small"
         disabled={!CONVERTIBLE_SHADERS.includes(m.shader)}
-        title={CONVERTIBLE_SHADERS.includes(m.shader) ? 'Rebuild this material as a node graph with the same values and textures (one undo)' : `The ${m.shader} shader becomes a built-in graph template in phase 18.2`}
+        title="Rebuild this material as a node graph that looks the same (its values, textures and — for wind, kit and water — public parameters; one undo)"
         onClick={() => {
           const r = convertToGraph(m);
           if (r.ok) {

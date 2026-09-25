@@ -844,16 +844,39 @@ wire).
 
 ## Material graphs
 
-A material can be built as a node graph (phase 18.0/18.1). Bottom dock →
-**Materials**: **+ new graph material** makes one (a graph with a **PBR
-output**) and opens it as a **Material: <name>** centre tab; a standard or
-unlit material's **Convert to graph** rebuilds it as a graph with the same
-values and textures (foliage, kit and water become built-in templates in
-18.2). Double-click a graph material's tile (or **Open graph**) to open its
-tab. The tab is the graph editor (every gesture in "Graph editing") with the
-material catalogue; the Inspector on the right edits the selected node
-(texture fields pick from the project's textures, colours use a colour
-picker). **Remove graph** turns it back into its shader material.
+A material can be built as a node graph (phase 18). Bottom dock →
+**Materials** lists every material (a graph material's tile says *graph*):
+**+ new graph material** makes one and opens it as a **Material: <name>**
+centre tab — from the menu beside it, an empty graph (a **PBR output**) or a
+built-in template: *standard*, *foliage wind*, *world-aligned kit*, *unlit*
+or *water* (the shader types as graphs, with their defaults). Any shader
+material's **Convert to graph** rebuilds it as a graph that looks the same:
+its values and textures wired in, and for foliage, kit and water their wind,
+UV period / macro normal and water values as public exposed parameters
+(objects may override them). The pixel parity test draws every shader type
+both ways on WebGL 2 and WebGPU and holds them to the renderer's parity rule.
+Values a shader material leaves unset convert to what it draws with on a
+box (three's standard material: roughness 1, emissive intensity 1, normal
+scale 1); a material on a model also used the file's own values and
+textures, which a graph does not contain. Double-click a graph material's
+tile (or **Open graph**) to open its tab. The tab is the graph editor (every
+gesture in "Graph editing") with the material catalogue; the Inspector on
+the right edits the selected node (texture fields pick from the project's
+textures, colours use a colour picker). **Remove graph** turns it back into
+its shader material.
+
+**The Material tab** (phase 18.2): on the left a live **Preview** — the
+material on a *sphere*, *plane*, *cube* or a *model* of the project (pick
+it below), in the project environment (sky, image-based light, fog, tone
+mapping and post; a neutral backdrop when the project has none), drawn on
+the editor's renderer and compiled exactly as the Scene view and the game do
+(drag to orbit; the line under it names the backend and counts compile
+errors) — then the **exposed parameters**; in the middle the graph. A
+problem shows as a badge on its node (the graph's rules and the compiler's:
+a missing texture, function or parameter, a sampling node without a
+texture, a pixel-only input in a vertex offset) and in the bottom dock's
+**Problems** tab ("material error"/"material warning"; a click opens the
+material's tab at the node).
 
 **Rendering (phase 18.3).** The Scene view, Play and exports compile a
 graph material's graph to a three.js node material (TSL) in the browser, on
