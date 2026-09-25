@@ -55,6 +55,7 @@ import type {
   AnimatorEventRecord,
   BehaviorAnimatorHandle,
   BehaviorAudio,
+  BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
   BehaviorSave,
@@ -133,6 +134,8 @@ export interface BehaviorContext {
   readonly game?: BehaviorGameState;
   /** Play sounds (presentation only, never part of the simulation). */
   readonly audio?: BehaviorAudio;
+  /** Play visual effects (presentation only, never part of the simulation). */
+  readonly effects?: BehaviorEffects;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
   /**
@@ -844,6 +847,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.game !== undefined) fields['game'] = { value: src.game, enumerable: true };
         // Phase 9.10: sounds (played by the host; the simulation never waits on them).
         if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
+        // Phase 20.2: visual effects (played by the renderer; the simulation never reads them back).
+        if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
         // Phase 9.11: values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
         // Phase 14.1: prefab copies in the running game.

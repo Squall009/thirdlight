@@ -8,7 +8,10 @@ import { describe, expect, it } from 'vitest';
 
 import { curveValueError, gradientValueError, validateGraphData } from './graph';
 import { EFFECT_CONTEXTS, EFFECT_CONTEXT_FLOWS, EFFECT_GRAPH_KIND, newEffectSystemGraph } from './effect-graph-kinds';
-import { canonicalEffect, canonicalEffectComponent, effectComponentErrors, parseEffectSystemOwnerId, validateEffect, validateEffectComponent, type EffectDef } from './effects';
+import { canonicalEffect, canonicalEffectComponent, effectAssetRefs, effectComponentErrors, effectHookRefs, effectMaterialRefs, effectsForRuntime, parseEffectSystemOwnerId, validateEffect, validateEffectComponent, type EffectDef } from './effects';
+import { canonicalEnemy, canonicalHealth, canonicalPickup, validateEnemyComponent, validateHealthComponent, validatePickupComponent } from './blocks';
+import { validateGameZoneComponent } from './scene-v3';
+import { captureManifestV2, validateManifestV2 } from './manifest-v2';
 import { GRAPH_KINDS } from './graph-kinds';
 import { validateContentV4 } from './content';
 import type { ModelErrorV2 } from './errors';
@@ -124,5 +127,65 @@ describe('effects', () => {
     const none = validateContentV4({ ...base, effects: [] });
     expect(none.ok).toBe(true);
     if (none.ok) expect((none.normalized as unknown as Record<string, unknown>)['effects']).toBeUndefined();
+  });
+
+  it('phase 20.2: the component starts and stops on signals (canonical: the new fields last)', () => {
+    expect(errs((e) => validateEffectComponent({ effectId: 'fx-a', playOnStart: false, signal: 'go', stopSignal: 'halt' }, '', e))).toEqual([]);
+    expect(errs((e) => validateEffectComponent({ effectId: 'fx-a', signal: 'bad signal!' }, '', e))[0]!.path).toBe('/signal');
+    expect(Object.keys(canonicalEffectComponent({ stopSignal: 'halt', signal: 'go', effectId: 'fx-a', params: { tint: '#00FF00' } }))).toEqual(['effectId', 'params', 'signal', 'stopSignal']);
+    // An existing component keeps its exact canonical bytes.
+    expect(JSON.stringify(canonicalEffectComponent({ effectId: 'fx-a', playOnStart: false }))).toBe('{"effectId":"fx-a","playOnStart":false}');
+  });
+
+  it('phase 20.2: gameplay hooks name effects (pickup, enemy, health, checkpoint/goal zones)', () => {
+    expect(errs((e) => validatePickupComponent({ kind: 'coin', value: 1, effect: 'fx-a' }, '', e))).toEqual([]);
+    expect(errs((e) => validatePickupComponent({ kind: 'coin', value: 1, effect: 'Not an id' }, '', e))[0]!.path).toBe('/effect');
+    expect(errs((e) => validateHealthComponent({ max: 3, hitEffect: 'fx-a' }, '', e))).toEqual([]);
+    const enemy = { patrol: 'edges', speed: 1, size: [1, 1], contactDamage: 1, stompable: true, health: 1 };
+    expect(errs((e) => validateEnemyComponent({ ...enemy, hitEffect: 'fx-a', defeatEffect: 'fx-b' }, '', e))).toEqual([]);
+    expect(canonicalPickup({ kind: 'coin', value: 1, effect: 'fx-a' } as never)).toEqual({ kind: 'coin', value: 1, effect: 'fx-a' });
+    expect(canonicalHealth({ max: 3, hitEffect: 'fx-a' } as never)).toEqual({ max: 3, hitEffect: 'fx-a' });
+    expect(Object.keys(canonicalEnemy({ ...enemy, defeatEffect: 'fx-b', hitEffect: 'fx-a' } as never)).slice(-2)).toEqual(['hitEffect', 'defeatEffect']);
+    const zone = (z: Record<string, unknown>): string[] => {
+      const e: { path: string }[] = [];
+      validateGameZoneComponent(z, '', e as never, 4);
+      return e.map((x) => x.path);
+    };
+    expect(zone({ role: 'goal', size: [1, 1], effect: 'fx-a' })).toEqual([]);
+    expect(zone({ role: 'hazard', size: [1, 1], effect: 'fx-a' })).toEqual(['/effect']);
+    expect(effectHookRefs({ pickup: { effect: 'fx-a' }, enemy: { hitEffect: 'fx-b', defeatEffect: 'fx-c' }, health: { hitEffect: 'fx-d' }, gameZone: { effect: 'fx-e' } })).toEqual([
+      ['pickup/effect', 'fx-a'],
+      ['enemy/hitEffect', 'fx-b'],
+      ['enemy/defeatEffect', 'fx-c'],
+      ['health/hitEffect', 'fx-d'],
+      ['gameZone/effect', 'fx-e'],
+    ]);
+  });
+
+  it('phase 20.2: the runtime view (manifest effects): graphs without editor text, the assets and materials the graphs name', () => {
+    const withText: EffectDef = { ...FX, systems: [{ ...FX.systems[0]!, graph: { ...FX.systems[0]!.graph, comments: [{ id: 'c', position: [0, 0], size: [100, 50], text: 'note' }] } as never }] };
+    const rt = effectsForRuntime([withText]);
+    expect((rt[0]!.systems[0]!.graph as unknown as Record<string, unknown>)['comments']).toBeUndefined();
+    expect(rt[0]!.systems[0]!.graph.nodes).toHaveLength(5);
+    expect(effectAssetRefs(FX)).toEqual([{ asset: 'texture', id: 'tex-a' }]);
+    const nodes = [...FX.systems[0]!.graph.nodes.slice(0, 4), { id: 'bb', type: 'output.billboard', position: [0, 0] as [number, number], data: { shading: 'material', material: 'mat-a' } }];
+    const shaded: EffectDef = { ...FX, systems: [{ ...FX.systems[0]!, graph: { ...FX.systems[0]!.graph, nodes } }] };
+    expect(effectMaterialRefs(shaded)).toEqual(['mat-a']);
+  });
+
+  it('phase 20.2: the manifest carries the effects (an optional key, validated)', () => {
+    const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+    const DIGEST = '0123456789abcdef'.repeat(4);
+    const input = { projectId: 'demo-0001', revision: 1, capturedAt: '2026-09-25T10:00:00Z', sceneDigest: DIGEST, contentDigest: DIGEST, assets: [], behaviors: [], settings: SETTINGS, game: null, media: { cues: { start: null, jump: null, checkpoint: null, death: null, goal: null }, animation: [] }, moduleIds: [] };
+    const plain = captureManifestV2(input as never);
+    expect(plain.ok).toBe(true);
+    if (plain.ok) expect('effects' in plain.manifest).toBe(false);
+    const withFx = captureManifestV2({ ...input, effects: effectsForRuntime([FX]) } as never);
+    expect(withFx.ok).toBe(true);
+    if (!withFx.ok) return;
+    expect((withFx.manifest as unknown as { effects: EffectDef[] }).effects.map((e) => e.effectId)).toEqual(['fx-a']);
+    expect(validateManifestV2(withFx.manifest).ok).toBe(true);
+    const broken = { ...withFx.manifest, effects: [{ ...FX, duration: -1 }] };
+    expect(validateManifestV2(broken).ok).toBe(false);
   });
 });

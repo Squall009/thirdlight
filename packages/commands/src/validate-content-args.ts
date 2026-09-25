@@ -467,7 +467,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   collider: ['shape', 'oneWay'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: which way the player faces at this spawn (v4).
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
@@ -483,11 +483,11 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
   switch: ['mode', 'signal', 'size', 'once'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
-  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
+  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
+  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 20.0: the effect played from the entity.
-  effect: ['effectId', 'playOnStart', 'params'],
+  effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
 };
 
 const OWNED: readonly OwnedComponent[] = [

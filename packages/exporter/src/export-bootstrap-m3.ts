@@ -57,9 +57,9 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
@@ -82,6 +82,8 @@ interface ExportManifestV2 {
   materials?: MaterialDefLike[];
   /** Phase 18.3: the material functions graph materials call. */
   materialFunctions?: MaterialFunctionLike[];
+  /** Phase 20.2: the visual effects (particle system graphs). */
+  effects?: EffectDefLike[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -125,7 +127,7 @@ const sha256Hex = sha256HexAsync;
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const out: Record<string, unknown> = {};
@@ -358,6 +360,18 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
                   return buf !== undefined ? decodeTexture(buf) : Promise.resolve(null);
                 },
               },
+            }
+          : {}),
+        // Phase 20.2: the visual effects (textures and models from the verified bytes).
+        ...(manifest.effects !== undefined && manifest.effects.length > 0
+          ? {
+              effects: effectsOptionFrom({
+                defs: manifest.effects,
+                wind: manifest.environment?.wind ?? null,
+                assets: (manifest.assets ?? []) as never,
+                bytes: (assetId: string, version: number) => assetBytesByKey.get(`${assetId}@${version}`),
+                ...(JSON.stringify(manifest.effects).includes('"model"') ? { loader: createGltfLoaderPort({ decoderBase: './decoders/' }) } : {}),
+              }),
             }
           : {}),
         // Phase 9.4: project materials and wind (textures from the verified bytes).

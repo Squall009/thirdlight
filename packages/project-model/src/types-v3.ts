@@ -90,6 +90,8 @@ export interface GameZoneComponent {
   load?: string[];
   unload?: string[];
   spawnId?: string;
+  /** Phase 20.2, v4 checkpoints and goals: a project effect played where the zone is when it is reached (visual only). */
+  effect?: string;
 }
 
 /**

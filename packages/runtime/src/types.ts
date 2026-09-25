@@ -580,6 +580,8 @@ export interface StepContext {
   readonly game?: BehaviorGameState;
   /** Phase 9.10: play a sound (an audio asset) — presentation only, never part of the simulation. */
   readonly audio?: BehaviorAudio;
+  /** Phase 20.2: play visual effects — presentation only, never part of the simulation. */
+  readonly effects?: BehaviorEffects;
   /** Phase 9.11: values kept in the player's save. */
   readonly save?: BehaviorSave;
   /** Phase 14.1: spawn prefab copies into the running game and destroy them. */
@@ -762,6 +764,45 @@ export interface BehaviorAudio {
    * @graphDefault volume 1
    */
   play(assetId: string, options?: { volume?: number }): void;
+}
+
+/**
+ * Phase 20.2: one request to the renderer's effect player (`ctx.effects`,
+ * the `effect` component's signals, gameplay hooks). Presentation only:
+ * requests are recorded in step order and taken by the adapter; nothing in
+ * the simulation reads them back (replays do not depend on effects).
+ */
+export interface EffectRequest {
+  readonly op: 'play' | 'stop';
+  /** play: the project effect; stop by entity: '' . */
+  readonly effectId: string;
+  /** play: the new play's handle (> 0); stop: the handle stopped (0 = every play on `entityId`). */
+  readonly handle: number;
+  /** The entity it plays on (it follows the entity), or null (at `position` in world space). */
+  readonly entityId: string | null;
+  /** World position (no entity), or the offset from the entity (metres). */
+  readonly position: readonly [number, number, number];
+  /** Overrides of the effect's public parameters (null = none). */
+  readonly params: Readonly<Record<string, number | readonly number[] | string>> | null;
+  /** What asked: a script, the entity's `effect` component (its signal), or a gameplay hook. */
+  readonly source: 'script' | 'component' | 'pickup' | 'enemyHit' | 'enemyDefeat' | 'playerHit' | 'checkpoint' | 'goal';
+  /** The step it was asked in (1-based like the step being simulated). */
+  readonly stepIndex: number;
+}
+
+/** Phase 20.2: `ctx.effects` — play visual effects (presentation only, never part of the simulation). */
+export interface BehaviorEffects {
+  /**
+   * Play a project effect (particles) once: on `entityId` (it follows the object; `position` is then an offset from it) or, without one, at `position` in world metres. `params` override its public parameters. Returns a handle for `stop`, or 0 when refused (a bad id, more than 32 plays in one step).
+   * @graphNode Play effect
+   * @graphLabel effectId effect
+   */
+  play(effectId: string, options?: { position?: readonly number[]; entityId?: string; params?: Readonly<Record<string, number | readonly number[] | string>> }): number;
+  /**
+   * Stop spawning: a play's handle, or an object's id (every effect playing on it, its effect component included). Living particles finish their lives.
+   * @graphNode Stop effect
+   */
+  stop(target: number | string): void;
 }
 
 /** Phase 9.9: `ctx.signals`. */
@@ -957,6 +998,8 @@ export interface Runtime {
   entityOpacity?(): ReadonlyMap<string, number>;
   /** Phase 9.10: the sounds scripts played since the last call. */
   takeAudioRequests?(): { assetId: string; volume: number; stepIndex: number }[];
+  /** Phase 20.2: the effect requests (scripts, effect-component signals, gameplay hooks) since the last call; the adapter plays them. */
+  takeEffectRequests?(): EffectRequest[];
   /** Phase 9.9: the run's counters and the player's health. */
   gameCounters?(): { counters: Record<string, number>; health: { current: number; max: number } | null };
   /** Manual driver only (runtime.md §3.5); rAF driver ⇒ `tick_not_allowed`. */

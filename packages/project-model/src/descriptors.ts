@@ -605,6 +605,8 @@ const gameZone: ComponentDescriptor = {
     list('load', 'Load scenes', 'Scenes loaded when the player enters.', scene('*', 'Scene', 'A scene to load.'), { when: when('role', 'exit'), maxItems: MAX_EXIT_SCENES, unique: true }),
     list('unload', 'Unload scenes', 'Scenes unloaded when the player enters.', scene('*', 'Scene', 'A scene to unload.'), { when: when('role', 'exit'), maxItems: MAX_EXIT_SCENES, unique: true }),
     entity('spawnId', 'Arrive at', 'Where the player arrives (absent: stays where it is).', { when: when('role', 'exit'), component: 'playerSpawn', anyScene: true }),
+    // Phase 20.2: a visual effect where the zone is when it is reached (visual only).
+    ref('effect', 'Effect when reached', 'A project effect played where the zone is when the player reaches it (none: no effect).', 'effect', { when: when('role', 'checkpoint', 'goal') }),
   ], { rules: ['An exit loads or unloads at least one scene.'] }),
   // Phase 15.5: a hazard is a 1.5 × 0.5 m strip (a stride wide, low enough for the default 1.25 m jump); a goal 2 m square
   // (easy to walk into for the default 1.8 m character) — the editor's zone defaults (`DEFAULT_ZONE_SIZE`).
@@ -850,6 +852,9 @@ const effectComponent: ComponentDescriptor = {
     ref('effectId', 'Effect', 'The project effect.', 'effect', { required: true }),
     bool('playOnStart', 'Play on start', 'Starts when the scene starts (off: a trigger or script plays it).', { default: true, omitDefault: true }),
     map('params', 'Parameters', 'Values for the effect\'s public parameters (absent: the effect\'s defaults).', 'Parameter', json('*', 'Value', 'A value of the parameter\'s type (a number, 3 numbers or "#rrggbb").', { typedBy: 'effectParameter' }), { keyFormat: 'identifier', maxEntries: EFFECT_LIMITS.parameters }),
+    // Phase 20.2: triggers.
+    signal('signal', 'Play on signal', 'Starts (or restarts) the effect when this signal is sent (a switch, trigger or script).'),
+    signal('stopSignal', 'Stop on signal', 'Stops spawning when this signal is sent; living particles finish.'),
   ]),
   add: { kind: 'pick', value: {}, pick: ['effectId'] },
   handles: [],
@@ -969,6 +974,8 @@ const health: ComponentDescriptor = {
     num('knockback', 'Knockback', 'A hit pushes the player away at this speed (0: none).', { min: 0, max: 20, step: 0.5, unit: 'm/s', default: 0 }),
     num('knockbackTime', 'Knockback time', 'How long a knockback pushes (easing out).', { ...BL.knockbackTime, step: 0.05, unit: 's', default: BD.knockbackTime }),
     num('hitBounce', 'Hit bounce', 'A hit throws the player up at this speed (0: none).', { ...BL.hitBounce, step: 0.5, unit: 'm/s', default: BD.hitBounce }),
+    // Phase 20.2: a visual effect where the player is when it is hit.
+    ref('hitEffect', 'Hit effect', 'A project effect played where the player is when it takes a hit (none: no effect).', 'effect'),
   ], { rules: ['start ≤ max'] }),
   // Phase 15.5: 3 hits (the common small health pool) with 1 s of grace after each.
   add: { kind: 'menu', value: { max: 3, invulnerableSeconds: 1 } },
@@ -989,6 +996,8 @@ const pickup: ComponentDescriptor = {
     vec2('size', 'Size', 'The area that collects it (absent: its model\'s recorded bounds, else 1 × 1 m).', { min: 0.05, max: 20, step: 0.05, unit: 'm', default: [...BD.pickupSize], labels: ['w', 'h'], handle: 'box2' }),
     enm('respawn', 'Comes back', 'Never, or when the player respawns after a death.', PICKUP_RESPAWN, { default: 'never' }),
     asset('cue', 'Sound', 'Played when collected.', ['audio']),
+    // Phase 20.2: a visual effect where it was when it is collected.
+    ref('effect', 'Effect', 'A project effect played where it was when it is collected (none: no effect).', 'effect'),
   ]),
   // Phase 15.5: a coin worth 1; no size, so it collects over its model's bounds (else 1 × 1 m).
   add: { kind: 'menu', value: { kind: 'coin', value: 1 } },
@@ -1019,6 +1028,9 @@ const enemy: ComponentDescriptor = {
     num('defeatTime', 'Defeat time', 'How long the squash or fade takes.', { group: 'Defeat', when: when('defeat', 'squash', 'fade'), ...BL.defeatTime, step: 0.05, unit: 's', default: BD.defeatTime }),
     num('wallProbe', 'Wall probe', 'How far ahead of its front it looks for a wall to turn at.', { group: 'Walking', when: when('patrol', 'edges'), ...BL.wallProbe, step: 0.01, unit: 'm', default: BD.wallProbe }),
     num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its feet, it looks for floor ahead (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Walking', when: when('patrol', 'edges'), ...BL.ledgeProbe, step: 0.05, unit: 'm', default: BD.ledgeProbe }),
+    // Phase 20.2: visual effects where it is when it is hurt and when it is defeated.
+    ref('hitEffect', 'Hit effect', 'A project effect played where it is when a stomp hurts it (none: no effect).', 'effect', { group: 'Defeat' }),
+    ref('defeatEffect', 'Defeat effect (particles)', 'A project effect played where it is when it is defeated (none: no effect).', 'effect', { group: 'Defeat' }),
   ]),
   // Phase 15.5: a 0.8 m body the default 1.8 m character jumps on with its 1.25 m jump, walking edge to edge at
   // 1.5 m/s (slower than the 4 m/s run, so it can be escaped), one hit of damage, one stomp.

@@ -42,7 +42,7 @@ import type {
 
 /** §23.3 registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage'],
+  gameZone: ['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect'],
   // Phase 15.2: a v4 spawn's facing (optional).
   playerSpawn: ['facing'],
   cameraFollow: ['deadZone', 'smoothing', 'bounds', 'distance', 'maxSpeed'],
@@ -60,13 +60,13 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode'],
   switch: ['mode', 'signal', 'size', 'once'],
-  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
-  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
-  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
+  health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'],
+  pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'],
+  enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'],
   // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
   materialParams: [],
   // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).
-  effect: ['effectId', 'playOnStart', 'params'],
+  effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */

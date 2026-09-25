@@ -87,7 +87,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, materialGraphProblems, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -586,6 +586,8 @@ function EditorApp(): JSX.Element {
   // Phase 9.12: the Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
+  // Phase 20.2: the Scene view plays the selected object's effect (edit mode; the Gizmos menu toggles it).
+  const [effectPreview, setEffectPreview] = useState(false);
   const localRelaysRef = useRef(new Set<string>());
   /** Phase 15.4: the editor's own observation requests (the Play debug view), by relay id. */
   const debugWaitersRef = useRef(new Map<string, (r: Record<string, unknown> | null) => void>());
@@ -3386,6 +3388,14 @@ function EditorApp(): JSX.Element {
     return { ...base, ...t, components: base.components['transform'] !== undefined ? { ...base.components, transform: t } : base.components };
   }, [entities, selectedId, liveTransform]);
   // The tree's shape (entities added or removed, parents, order, names, flags, kinds) and the open scenes.
+  // Phase 20.2: the edit-mode effect preview follows the toggle, the selection's effect component and the effects.
+  const selectedEffect = selectedEntity !== null ? (selectedEntity.components['effect'] as EffectComponent | undefined) : undefined;
+  const selectedEffectKey = selectedEffect !== undefined && selectedEntity !== null ? `${selectedEntity.id}|${JSON.stringify(selectedEffect)}` : '';
+  useEffect(() => {
+    const target = selectedEffect !== undefined && selectedEntity !== null ? { id: selectedEntity.id, component: selectedEffect } : null;
+    viewportRef.current?.setEffectPreview(effectPreview, effects as never, target, loadTextureRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectPreview, effects, selectedEffectKey]);
   const structureKey = `${clientRef.current?.projection.structureVersion ?? 0}|${clientRef.current?.getSceneView().open.join(',') ?? ''}`;
   // Flags depend on parents and own flags only: recomputed with the shape, not on every transform edit.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3604,6 +3614,7 @@ function EditorApp(): JSX.Element {
         { label: `Light ranges: ${gizmos.lights ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, lights: !g.lights })) },
         { label: `Collider outlines: ${gizmos.colliders ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, colliders: !g.colliders })) },
         { label: `Gameplay paths and areas: ${gizmos.gameplay ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, gameplay: !g.gameplay })) },
+        { label: `Play selected effects: ${effectPreview ? 'on' : 'off'}`, onSelect: () => setEffectPreview((v) => !v) },
       ],
     },
     {

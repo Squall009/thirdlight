@@ -1232,22 +1232,89 @@ an object still plays cannot be deleted). In the tab:
 **Playing an effect:** select an object, **+ Add component → Effect** and
 pick the effect. **Play on start** (on by default) starts it with the scene;
 the **Parameters** rows set this object's values for the effect's public
-parameters (× goes back to the effect's value).
+parameters (× goes back to the effect's value). **Play on signal** restarts
+it whenever that signal is sent (a switch, trigger or script) and **Stop on
+signal** stops its spawning (living particles finish) — turn Play on start
+off for an effect that waits for its signal.
+
+**Gameplay hooks** name an effect too (optional *Effect* fields in the
+Inspector): a **Pickup**'s effect plays where it was when it is collected,
+an **Enemy**'s *Hit effect* when a stomp hurts it and its *Defeat effect
+(particles)* when it is defeated, the player's **Health** *Hit effect* when
+it takes a hit, and a checkpoint or goal **Zone**'s *Effect when reached*.
+Scripts play and stop effects: `ctx.effects.play(effectId, {position?,
+entityId?, params?})` returns a handle (0 when refused: a bad id or more
+than 32 plays in one step) — with `entityId` the effect follows that object
+and `position` is an offset from it, else `position` is a world point —
+and `ctx.effects.stop(handle | entityId)` ends spawning. Visual scripts have
+the same nodes (**Play effect**, **Stop effect**, category *Effects*; the
+entity defaults to the script's own object). All of these are presentation
+events: they are recorded in step order and played by the renderer, and the
+game simulation never reads them back (replays do not depend on effects).
+
+**Where effects play.** Play (the preview) and exported games draw every
+effect of the project (the export's `manifest.json` carries them in
+`effects`; their textures and models travel with the game). The **Scene
+view** plays the selected object's effect while **Gizmos → Play selected
+effects** is on (a finished one-shot starts again; off stops it).
+
+**Executors and caps.** One graph, two executors:
+
+- **WebGPU** (the renderer draws on WebGPU): the graph runs as TSL compute
+  passes over storage buffers — per system an update pass and a spawn pass
+  (the CPU counts births with the rate carry, bursts and distance; the GPU
+  initialises them with the reference's random stream, so a particle
+  starts and moves as the CPU reference would, to float precision — checked
+  particle by particle in the tests); a free list of slots is the pool;
+  alpha and premultiplied outputs are sorted back to front each frame on
+  the GPU (bitonic sort, up to 65 536 slots per system; beyond that they
+  draw unsorted). Caps: 262 144 particles per system, 1 048 576 over all
+  playing effects, 64 playing effects.
+- **CPU** (the WebGL 2 backend; on WebGPU also the effects that use what
+  only the CPU runs: *From event* spawns, *Mesh surface* shapes,
+  ribbons/trails and lights — their data is used on the CPU): the reference
+  evaluator of `@thirdlight/effects` over typed arrays, drawn instanced,
+  sorted back to front on the CPU. Lower caps: 4 096 particles per system,
+  16 384 over all playing effects, 64 playing effects.
+
+A system's *max particles* is capped to its executor's cap; a play past the
+total or the instance cap is refused (counted in the diagnostics). Point
+lights: 16 shared by all effects (a fixed pool, so the lit materials never
+recompile). A frame longer than 1/30 s is split into up to four steps.
+*Collide with scene (depth)* is honoured on WebGPU only (the depth of the
+last frame the player drew); *Soft particles* fade against the scene depth
+on WebGPU only. Output block inputs (a billboard's axis, soft distance, a
+ribbon's width, a light's intensity and range) are read once per frame
+(their field, or their wire in the spawn context), not per particle.
+Effects outside their bounds box (around their origin) are not drawn (they
+keep simulating).
+
+**Diagnostics.** `tl_diagnostics` has `renderer.effects` — the executor
+(`webgpu` | `cpu`), its caps, what plays and how many particles (GPU counts
+are read back every half second), refused plays, effect ids no effect of
+the game has, and per playing effect its executor (and why an effect runs
+on the CPU on WebGPU); `tl_game_observe` has a compact `effects` block. The
+game canvas carries `data-tl-effects` (the executor), `data-tl-effects-playing`
+and `data-tl-effects-particles`.
 
 Every graph gesture is one `graphEdit {owner: {kind: "effect", id:
 "<effectId>/<systemId>"}, ops}` (one undo step); `setEffect {effect}`
 creates or replaces an effect (settings, parameters, systems with their
 graphs — adding or removing a system is a `setEffect`), `deleteEffect
 {effectId}`, `renameEffect {effectId, name}`; the component is
-`setComponent "effect" {effectId, playOnStart?, params?}`. The effects
-travel in `queryGameConfig` (`effects`) and `tl_content_query
-target="game"`. Limits: 128 effects, 16 systems and 32 parameters per
-effect, 256 nodes per system graph, up to 1 048 576 max particles per
-system (the CPU fallback's lower cap comes with 20.2).
+`setComponent "effect" {effectId, playOnStart?, params?, signal?,
+stopSignal?}`; the hooks are plain component fields (`pickup.effect`,
+`enemy.hitEffect` / `defeatEffect`, `health.hitEffect`, `gameZone.effect`;
+naming no effect of the project is refused, and so is deleting an effect
+something names). The effects travel in `queryGameConfig` (`effects`) and
+`tl_content_query target="game"`. Limits: 128 effects, 16 systems and 32
+parameters per effect, 256 nodes per system graph, up to 1 048 576 max
+particles per system (capped by the executor, see above).
 
 The CPU reference semantics of every node live in the runtime-safe package
-`@thirdlight/effects` (deterministic per seed; unit-tested), which the
-executors of 20.2 use.
+`@thirdlight/effects` (deterministic per seed; unit-tested); the CPU
+executor runs it and the WebGPU executor mirrors it (three-adapter
+`effects-gpu.ts`).
 
 ## Input actions
 
@@ -1873,7 +1940,7 @@ effect-heavy (20 effects, 50 000 particles) — are generated
 deterministically (`tools/perf/generate.ts`, seed 21) and built through the
 real HTTP API into a throwaway data root under
 `~/.cache/thirdlight-perf/runs/` (deleted after the run unless `--keep`).
-Effects are generated but not drawn until phase 20.2.
+Effects are generated with their emitter objects; since phase 20.2 Play and exports draw them.
 
 **Run the harness** (needs `dist/`; not part of `npm test` or the default
 Playwright run):

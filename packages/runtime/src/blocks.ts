@@ -100,6 +100,8 @@ interface Pickup extends Box {
   counter: string | null;
   respawnOnDeath: boolean;
   cue: string | null;
+  /** Phase 20.2: the effect played where it was when collected (null: none). */
+  effect: string | null;
   taken: boolean;
 }
 
@@ -131,6 +133,18 @@ interface Enemy {
   squash: number;
   /** The authored Y scale (the squash scales it). */
   scaleY: number;
+  /** Phase 20.2: effects played where it is when a stomp hurts it and when it is defeated (null: none). */
+  hitEffect: string | null;
+  defeatEffect: string | null;
+}
+
+/** Phase 20.2: a request to the renderer's effect player (presentation only). */
+export interface BlocksEffectRequest {
+  op: 'play' | 'stop';
+  effectId: string;
+  entityId: string | null;
+  position: Vec3;
+  source: 'component' | 'pickup' | 'enemyHit' | 'enemyDefeat' | 'playerHit' | 'checkpoint' | 'goal';
 }
 
 export interface BlocksHost {
@@ -154,6 +168,8 @@ export interface BlocksHost {
   kill(): void;
   /** Play an audio asset through the sfx bus (after the step). */
   playCue?(assetId: string): void;
+  /** Phase 20.2: play or stop a visual effect (presentation only; the simulation never reads it back). */
+  effect?(request: BlocksEffectRequest): void;
   /** The animator of an entity (or of one of its children), for parameters. */
   animator(entityId: string): { set(name: string, v: number | boolean): boolean; trigger(name: string): boolean } | null;
   /** Phase 15.3: the gap the player's controller keeps from the world (its `skin`; default 0.01 m). */
@@ -192,7 +208,11 @@ export class GameplayBlocks {
   /** Phase 9.13: models that face where their parent goes (yaw about +Y, radians). */
   private readonly facers = new Map<string, { right: number; left: number; rate: number; yaw: number; lastX: number | null }>();
   private readonly counters = new Map<string, number>();
-  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number; hitBounce: number; knockbackSteps: number } | null = null;
+  private health: { max: number; start: number; current: number; invulnerable: number; invulnerableUntil: number; knockback: number; hitBounce: number; knockbackSteps: number; hitEffect: string | null } | null = null;
+  /** Phase 20.2: entities whose `effect` component (re)starts or stops on a signal. */
+  private readonly effectTriggers = new Map<string, { effectId: string; signal: string | null; stop: string | null }>();
+  /** Phase 20.2: checkpoint/goal zones' effects (played when reached). */
+  private readonly zoneEffects = new Map<string, string>();
   /** Phase 15.3: fading entities (a defeated enemy with `defeat: "fade"`): id -> opacity 0-1. */
   private readonly opacity = new Map<string, number>();
   /** The gap a pushing mover keeps from the player (the controller's skin plus a margin). */
@@ -253,6 +273,7 @@ export class GameplayBlocks {
       const p = e.components.transform.position;
       const zone = c['gameZone'];
       if (zone !== undefined && zone['role'] === 'hazard' && typeof zone['damage'] === 'number') this.hazardDamage.set(e.id, zone['damage'] as number);
+      if (zone !== undefined && typeof zone['effect'] === 'string') this.zoneEffects.set(e.id, zone['effect'] as string);
       const col = c['collider'];
       if (col !== undefined && col['oneWay'] === true) this.oneWay.add(e.id);
       const face = c['faceMovement'];
@@ -327,6 +348,7 @@ export class GameplayBlocks {
           counter: typeof pk['counter'] === 'string' ? (pk['counter'] as string) : null,
           respawnOnDeath: pk['respawn'] === 'death',
           cue: typeof pk['cue'] === 'string' ? (pk['cue'] as string) : null,
+          effect: typeof pk['effect'] === 'string' ? (pk['effect'] as string) : null,
           taken: false,
         });
       }
@@ -359,6 +381,8 @@ export class GameplayBlocks {
           ledgeProbe: num(en['ledgeProbe'], D.ledgeProbe),
           squash: 0,
           scaleY: e.components.transform.scale[1] ?? 1,
+          hitEffect: typeof en['hitEffect'] === 'string' ? (en['hitEffect'] as string) : null,
+          defeatEffect: typeof en['defeatEffect'] === 'string' ? (en['defeatEffect'] as string) : null,
         });
       }
       const h = c['health'];
@@ -374,7 +398,13 @@ export class GameplayBlocks {
           knockback: num(h['knockback'], 0),
           hitBounce: num(h['hitBounce'], D.hitBounce),
           knockbackSteps: Math.max(1, Math.round(num(h['knockbackTime'], D.knockbackTime) * this.host.hz)),
+          hitEffect: typeof h['hitEffect'] === 'string' ? (h['hitEffect'] as string) : null,
         };
+      }
+      // Phase 20.2: an effect component that a signal starts or stops.
+      const fx = c['effect'];
+      if (fx !== undefined && (typeof fx['signal'] === 'string' || typeof fx['stopSignal'] === 'string')) {
+        this.effectTriggers.set(e.id, { effectId: String(fx['effectId']), signal: typeof fx['signal'] === 'string' ? (fx['signal'] as string) : null, stop: typeof fx['stopSignal'] === 'string' ? (fx['stopSignal'] as string) : null });
       }
     }
   }
@@ -393,6 +423,8 @@ export class GameplayBlocks {
       this.opacity.delete(id);
       this.parents.delete(id);
       this.facers.delete(id);
+      this.effectTriggers.delete(id);
+      this.zoneEffects.delete(id);
     }
   }
 
@@ -597,6 +629,13 @@ export class GameplayBlocks {
       this.messagesPrev = Object.freeze(this.messagesNow);
       this.messagesNow = [];
     }
+    // Phase 20.2: effect components started or stopped by last step's signals (entity order: deterministic).
+    if (this.effectTriggers.size > 0 && this.signalsPrev.size > 0) {
+      for (const [id, t] of this.effectTriggers) {
+        if (t.stop !== null && this.signalsPrev.has(t.stop)) this.host.effect?.({ op: 'stop', effectId: '', entityId: id, position: [0, 0, 0], source: 'component' });
+        if (t.signal !== null && this.signalsPrev.has(t.signal)) this.host.effect?.({ op: 'play', effectId: t.effectId, entityId: id, position: [0, 0, 0], source: 'component' });
+      }
+    }
     if (this.movers.size === 0 && this.knock.steps <= 0) {
       // Nothing moves the player this step: no carry, no poses.
       this.carry = NO_CARRY;
@@ -744,6 +783,7 @@ export class GameplayBlocks {
       p.taken = true;
       this.hidden.add(p.id);
       if (p.cue !== null) this.host.playCue?.(p.cue);
+      if (p.effect !== null) this.playAt(p.effect, p.id, 'pickup');
       if (p.kind === 'heart') {
         if (this.health !== null) this.health.current = Math.min(this.health.max, this.health.current + p.value);
       } else {
@@ -760,6 +800,7 @@ export class GameplayBlocks {
       if (e.stompable && delta.y < 0 && feetBefore >= top - e.stompTolerance) {
         e.health -= 1;
         this.pendingBounce = e.stompBounce;
+        if (e.hitEffect !== null) this.playAt(e.hitEffect, e.id, 'enemyHit');
         const anim = this.host.animator(e.id);
         anim?.trigger('hurt');
         if (e.health <= 0) {
@@ -770,6 +811,7 @@ export class GameplayBlocks {
           anim?.set('defeated', true);
           this.host.animator(e.id)?.set('attacking', false);
           this.addCounter('defeated', 1);
+          if (e.defeatEffect !== null) this.playAt(e.defeatEffect, e.id, 'enemyDefeat');
         }
       } else if (e.contactDamage > 0) {
         this.damage(e.contactDamage, at[0]);
@@ -843,6 +885,7 @@ export class GameplayBlocks {
     this.health.current = Math.max(0, this.health.current - amount);
     this.health.invulnerableUntil = this.step + Math.round(this.health.invulnerable * this.host.hz);
     this.host.animator(this.host.playerId)?.trigger('hurt');
+    if (this.health.hitEffect !== null) this.playAt(this.health.hitEffect, this.host.playerId, 'playerHit');
     if (this.health.current === 0) {
       this.host.kill();
       return 'dead';
@@ -905,6 +948,19 @@ export class GameplayBlocks {
         t.rotation[3] = Math.cos(f.yaw / 2);
       }
     }
+  }
+
+  /** Phase 20.2: a checkpoint or goal reached: its zone's effect where the zone is (no effect: nothing). */
+  zoneReached(zoneId: string, source: 'checkpoint' | 'goal'): void {
+    const effectId = this.zoneEffects.get(zoneId);
+    const at = effectId !== undefined ? this.worldOf(zoneId) : null;
+    if (effectId !== undefined && at !== null) this.host.effect?.({ op: 'play', effectId, entityId: null, position: at, source });
+  }
+
+  /** Phase 20.2: play an effect where an entity is now (world position; it does not follow the entity). */
+  private playAt(effectId: string, entityId: string, source: BlocksEffectRequest['source']): void {
+    const at = this.worldOf(entityId);
+    if (at !== null) this.host.effect?.({ op: 'play', effectId, entityId: null, position: at, source });
   }
 
   private worldOf(id: string): Vec3 | null {

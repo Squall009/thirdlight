@@ -79,9 +79,9 @@ import {
   type FlowConfigLike,
   browserSaveStorage,
 } from '@thirdlight/game-host';
-import { createSceneAdapter, decodeTexture, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
+import { createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { PlayDebugger } from './play-debug';
@@ -107,6 +107,8 @@ export interface PreviewManifestV2 {
   materials?: MaterialDefLike[];
   /** Phase 18.3: the material functions graph materials call. */
   materialFunctions?: MaterialFunctionLike[];
+  /** Phase 20.2: the visual effects (particle system graphs). */
+  effects?: EffectDefLike[];
   environment?: EnvironmentLike & { wind?: WindLike };
   /** Phase 9.6: the scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
@@ -360,7 +362,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   }
   const buildIdKeys = [
     'manifestVersion', 'type', 'projectId', 'revision', 'snapshotId', 'capturedAt', 'sceneDigest', 'contentDigest',
-    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
+    'gameDigest', 'settingsDigest', 'mediaDigest', 'settings', 'game', 'tags', 'materials', 'materialFunctions', 'effects', 'environment', 'lighting', 'animators', 'prefabs', 'input', 'flow', 'scenes', 'buffers', 'assets', 'media', 'behaviors', 'modules',
     'enginePins', 'recipes', 'toolchain', 'buildOptionsDigest',
   ];
   const preimage: Record<string, unknown> = {};
@@ -473,6 +475,18 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
           : {}),
         ...materialsOptionOf(manifest, assetBytes),
+        // Phase 20.2: the visual effects (textures and models from the verified bytes).
+        ...(manifest.effects !== undefined && manifest.effects.length > 0
+          ? {
+              effects: effectsOptionFrom({
+                defs: manifest.effects,
+                wind: manifest.environment?.wind ?? null,
+                assets: manifest.assets,
+                bytes: (assetId: string, version: number) => assetBytes.get(`${assetId}@${version}`),
+                ...(JSON.stringify(manifest.effects).includes('"model"') ? { loader: createGltfLoaderPort({ decoderBase: '/decoders/' }) } : {}),
+              }),
+            }
+          : {}),
       });
       adapterRef.current = a;
       return a;
@@ -777,6 +791,7 @@ export function bootstrapPreviewM3(): void {
       ...(obs.observation.titleView !== undefined ? { titleView: { scene: obs.observation.titleView.scene, cameraOffset: [...obs.observation.titleView.cameraOffset] } } : {}),
       // Phase 17.1: the renderer backend that draws this play, and why.
       ...rendererObservation(h),
+      ...effectsObservation(h),
       // Phase 15.4: the requested entity's script property values (public and private), read-only.
       ...(entityId !== undefined ? { behaviors: behaviorValues(h.host.runtime, entityId) } : {}),
       // Phase 19.2: the visual-script debugger (held at a step boundary, the breakpoint node it holds on).
@@ -888,6 +903,13 @@ function rendererObservation(h: M3PreviewHandle): { renderer?: Record<string, un
   const d = h.adapter?.diagnostics();
   const r = d !== undefined && d.ok ? d.diagnostics.renderer : undefined;
   return r !== undefined ? { renderer: { ...r } } : {};
+}
+
+/** Phase 20.2: the effect player — its executor (webgpu | cpu) and caps, what plays (compact: no per-effect list). */
+function effectsObservation(h: M3PreviewHandle): { effects?: Record<string, unknown> } {
+  const d = h.adapter?.diagnostics();
+  const e = d !== undefined && d.ok ? d.diagnostics.effects : undefined;
+  return e !== undefined ? { effects: { executor: e.executor, caps: e.caps, playing: e.playing, particles: e.particles, refused: e.refused, lights: e.lights } } : {};
 }
 
 function spawnedObservation(runtime: unknown): { spawned?: { count: number; ids: string[] } } {

@@ -59,6 +59,14 @@ export interface EffectMesh {
 }
 
 export interface EffectInstanceOptions extends CompileOptions {
+  /**
+   * Phase 20.2: plan births only (the WebGPU executor): each step computes
+   * how many particles each system's origin spawn blocks give (rates with
+   * their carried fractions, bursts, per metre moved) in chain order, and
+   * hands out serial numbers for them — without simulating particles on
+   * the CPU (the GPU does). `plans()` returns the last step's plan.
+   */
+  planOnly?: boolean;
   /** Overrides of public parameters (private keys are ignored). */
   params?: Readonly<Record<string, number | number[] | string>>;
   /** The global wind the Wind block follows (absent: the engine default). */
@@ -72,6 +80,19 @@ export interface StepInput {
   origin?: EffectOrigin;
   /** Seconds of game time for the wind's gusts (absent: the effect's own time). */
   worldTime?: number;
+}
+
+/**
+ * Phase 20.2: one step's origin births of a system, in chain order (the
+ * WebGPU executor initialises them on the GPU): consecutive runs of births
+ * — `distance` runs are spread along the path the origin moved (birth k of n
+ * at (k + 1) / n), the others are born at the current origin.
+ */
+export interface SpawnPlan {
+  /** The serial number of the first birth (births are numbered consecutively). */
+  serialBase: number;
+  count: number;
+  runs: { count: number; distance: boolean }[];
 }
 
 /** What an event carries to the systems that spawn from it (world space, linear colour). */
@@ -189,6 +210,8 @@ export class SystemState {
 }
 
 type Val = number[];
+/** One birth: at the origin (t along the path moved this step; `distance` births of one block are spread) or from an event. */
+type Birth = { kind: 'origin'; t: number; distance?: boolean; n?: number } | { kind: 'event'; event: EffectEvent; block: CompiledNode };
 const WIDTH: Record<string, number> = { float: 1, vec3: 3, color: 4 };
 
 /** Convert a value between port types (float → vec3/colour splat, vec3 ↔ colour). */
@@ -230,6 +253,9 @@ export class EffectInstance {
   private readonly noise: GradientNoise;
   private readonly wind: WindConfig;
   private readonly meshCache = new Map<string, { pos: number[]; tris: number[]; cumulative: number[] } | null>();
+  private lastPlans: SpawnPlan[] = [];
+  /** The origin before the last step (the path `spawn.distance` spreads births along). */
+  private prevOrigin: EffectOrigin = IDENTITY_ORIGIN;
 
   constructor(
     readonly effect: EffectDef,
@@ -292,10 +318,30 @@ export class EffectInstance {
       s.lastEvents = s.events;
       s.events = { death: [], birth: [], collision: [] };
     }
-    this.systems.forEach((s, i) => {
-      this.update(s, dt);
-      this.spawn(s, i, t0, t1, dt, prev);
-    });
+    this.prevOrigin = prev;
+    if (this.options.planOnly === true) {
+      this.lastPlans = this.systems.map((s, i) => {
+        const births = this.planBirths(s, i, t0, t1, dt, prev);
+        const runs: SpawnPlan['runs'] = [];
+        for (const b of births) {
+          if (b.kind !== 'origin') continue;
+          const distance = b.distance === true;
+          const last = runs[runs.length - 1];
+          if (last !== undefined && last.distance === distance && !distance) last.count += 1;
+          else if (last !== undefined && distance && last.distance && b.t !== 1 / (b.n ?? 1)) last.count += 1;
+          else runs.push({ count: 1, distance });
+        }
+        const count = runs.reduce((a, r) => a + r.count, 0);
+        const plan = { serialBase: s.nextSerial, count, runs };
+        s.nextSerial += count;
+        return plan;
+      });
+    } else {
+      this.systems.forEach((s, i) => {
+        this.update(s, dt);
+        this.spawn(s, i, t0, t1, dt, prev);
+      });
+    }
     this.time = t1;
     this.stepIndex += 1;
   }
@@ -648,11 +694,63 @@ export class EffectInstance {
 
   // ---- spawn ----------------------------------------------------------------------------------
 
+  /** Phase 20.2: the last step's origin births per system (plan-only instances). */
+  plans(): readonly SpawnPlan[] {
+    return this.lastPlans;
+  }
+
+  /** The origin now and before the last step (world space). */
+  origins(): { current: EffectOrigin; previous: EffectOrigin } {
+    return { current: this.origin, previous: this.prevOrigin };
+  }
+
+  /** Phase 20.2: a public parameter's value as the graphs read it (linear colour; null = not declared). */
+  parameter(key: string): readonly number[] | null {
+    return this.params.get(key) ?? null;
+  }
+
+  /**
+   * Phase 20.2: an Output block's number / vector / colour input (its field,
+   * or its wire read once for the whole system — like a Spawn input: no
+   * particle, the effect time, parameters). The renderers read Output inputs
+   * this way, once per frame.
+   */
+  outputInput(systemIndex: number, block: CompiledNode, key: string): number[] {
+    const sys = this.systems[systemIndex];
+    if (sys === undefined) return [0];
+    const w = block.wired[key];
+    if (w === undefined) {
+      const f = block.fields[key];
+      return Array.isArray(f) ? [...f] : typeof f === 'string' ? hexToLinear(f) : [Number(f)];
+    }
+    const ctx: EvalCtx = { sys, p: -1, seed: hash32(this.effect.seed, systemIndex, this.stepIndex, 0x0a7) };
+    return convertValue(this.value(ctx, w.nodeId, w.portId), w.fromType, w.toType);
+  }
+
+  /** The global wind the Wind block follows. */
+  windConfig(): WindConfig {
+    return this.wind;
+  }
+
+  /** The game time the wind's gusts use this step. */
+  windTime(): number {
+    return this.worldTime;
+  }
+
   private spawn(sys: SystemState, index: number, t0: number, t1: number, dt: number, prev: EffectOrigin): void {
+    const births = this.planBirths(sys, index, t0, t1, dt, prev);
+    for (const birth of births) {
+      if (sys.count >= sys.capacity) break;
+      this.initialize(sys, index, birth, prev);
+    }
+  }
+
+  /** The births of one step, in chain order (the Spawn chain's blocks add up). */
+  private planBirths(sys: SystemState, index: number, t0: number, t1: number, dt: number, prev: EffectOrigin): Birth[] {
     const chain = sys.program.chains.spawn;
-    if (chain.length === 0) return;
+    if (chain.length === 0) return [];
     const ctx: EvalCtx = { sys, p: -1, seed: hash32(this.effect.seed, index, this.stepIndex, 0x5ea) };
-    const births: ({ kind: 'origin'; t: number } | { kind: 'event'; event: EffectEvent; block: CompiledNode })[] = [];
+    const births: Birth[] = [];
     const active = this.spawning();
     for (const b of chain) {
       switch (b.type) {
@@ -678,7 +776,7 @@ export class EffectInstance {
           sys.distanceCarry += Math.max(0, this.num(b, 'perMeter', ctx)) * moved;
           const n = Math.floor(sys.distanceCarry + 1e-9);
           sys.distanceCarry = Math.max(0, sys.distanceCarry - n);
-          for (let k = 0; k < n; k++) births.push({ kind: 'origin', t: (k + 1) / n });
+          for (let k = 0; k < n; k++) births.push({ kind: 'origin', t: (k + 1) / n, distance: true, n });
           break;
         }
         case 'spawn.event': {
@@ -695,10 +793,7 @@ export class EffectInstance {
           break;
       }
     }
-    for (const birth of births) {
-      if (sys.count >= sys.capacity) break;
-      this.initialize(sys, index, birth, prev);
-    }
+    return births;
   }
 
   /** How many burst times of the block fall in the effect-time interval [t0, t1). */
@@ -726,7 +821,7 @@ export class EffectInstance {
     return n;
   }
 
-  private initialize(sys: SystemState, index: number, birth: { kind: 'origin'; t: number } | { kind: 'event'; event: EffectEvent; block: CompiledNode }, prev: EffectOrigin): void {
+  private initialize(sys: SystemState, index: number, birth: Birth, prev: EffectOrigin): void {
     const i = sys.count;
     sys.count += 1;
     const serial = sys.nextSerial++;

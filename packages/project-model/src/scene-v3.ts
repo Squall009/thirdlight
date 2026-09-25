@@ -123,7 +123,7 @@ export const MAX_ENTITIES_V4 = 16_384;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
 const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 const KNOWN_GAMEZONE_FIELDS = new Set(['role', 'size', 'safeSpawnId', 'activation']);
-const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage']);
+const KNOWN_GAMEZONE_FIELDS_V4 = new Set(['role', 'size', 'safeSpawnId', 'activation', 'load', 'unload', 'spawnId', 'damage', 'effect']);
 /** Phase 12 (c): at most this many scene ids in one exit's load or unload list. */
 export const MAX_EXIT_SCENES = 16;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
@@ -346,6 +346,12 @@ export function validateGameZoneComponent(c: unknown, path: string, errors: Mode
   if (version === 4 && damage !== undefined) {
     if (role !== 'hazard') errors.push(unexpectedField(`${path}/damage`, 'damage', 'nothing (only a hazard does damage)'));
     else if (typeof damage !== 'number' || !Number.isInteger(damage) || damage < 0 || damage > 1000) errors.push(fieldValue(`${path}/damage`, damage, 'an integer 0–1000', 'damage is a whole number (0: instant death)'));
+  }
+  // Phase 20.2, v4: a checkpoint or goal may play a project effect where it is when it is reached (visual only).
+  const effect = c['effect'];
+  if (version === 4 && effect !== undefined) {
+    if (role !== 'checkpoint' && role !== 'goal') errors.push(unexpectedField(`${path}/effect`, 'effect', 'nothing (only a checkpoint or a goal plays an effect when reached)'));
+    else if (typeof effect !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(effect)) errors.push(fieldValue(`${path}/effect`, effect, 'an effect id', 'effect names a project effect'));
   }
   const known = version === 4 ? KNOWN_GAMEZONE_FIELDS_V4 : KNOWN_GAMEZONE_FIELDS;
   for (const k of Object.keys(c)) {
@@ -1045,6 +1051,7 @@ function canonicalGameZone(c: unknown): GameZoneComponent {
   if (o['unload'] !== undefined) out.unload = [...(o['unload'] as string[])];
   if (o['spawnId'] !== undefined) out.spawnId = o['spawnId'] as string;
   if (o['damage'] !== undefined) out.damage = o['damage'] as number;
+  if (o['effect'] !== undefined) out.effect = o['effect'] as string;
   return out;
 }
 
