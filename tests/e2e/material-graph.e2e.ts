@@ -6,8 +6,8 @@
  * colour (the multiply takes the vec3 width of its wires), each gesture is
  * one graphEdit on owner kind `material` (checked in the backend), the
  * graph survives a reload and one Ctrl+Z undoes the last wire. "Convert to
- * graph" turns a standard material into an equivalent graph. The graph's
- * rendering waits for the graph compiler (18.3): the tab says so.
+ * graph" turns a standard material into an equivalent graph. Phase 18.3:
+ * the graph renders (material-graph-play.e2e.ts checks the pixels).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -94,8 +94,8 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('graph');
   const stage = page.locator('.tl-graph__stage');
   await expect(stage).toBeVisible();
-  // 17.4 has not landed: the tab says where the preview comes from.
-  await expect(page.getByRole('note')).toContainText('Preview arrives with the WebGPU renderer');
+  // Phase 18.3: the graph renders (the note says so).
+  await expect(page.getByRole('note')).toContainText('draw this graph');
   const [out] = await nodesOfType('pbr', 1);
   await expect(node(page, out!)).toBeVisible();
   await expect(port(page, out!, 'in', 'baseColor')).toHaveAttribute('aria-label', /base colour \(vec3\)/);

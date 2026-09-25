@@ -62,7 +62,7 @@ import {
   createVisualResourceStore,
 } from './visual';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
-import type { MaterialLibrary } from './material-library';
+import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -204,6 +204,8 @@ export interface ModelsRealizationContext {
   /** Phase 9.4: project materials, and an entity's own material mapping. */
   readonly materialLibrary?: MaterialLibrary | null;
   readonly entityMaterials?: (entityId: string) => Readonly<Record<string, string>> | null;
+  /** Phase 18.3: an entity's values for its graph materials' public parameters (`materialParams`). */
+  readonly entityMaterialParams?: (entityId: string) => MaterialOverridesLike | null;
   /** Phase 12 (c): more entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
   /** Phase 9.6: a model instance (phase 17.4: or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
@@ -439,7 +441,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const applyMaterials = (entityId: string, assetId: string, root: THREE.Object3D): (() => void) | null => {
     const lib = ctx.materialLibrary;
     const mapping = mappingFor(entityId, assetId);
-    return lib !== undefined && lib !== null && mapping !== null ? lib.apply(root, mapping) : null;
+    return lib !== undefined && lib !== null && mapping !== null ? lib.apply(root, mapping, ctx.entityMaterialParams?.(entityId) ?? null) : null;
   };
   const instanceOptions = (assetId: string, piece: string | undefined): CreateInstanceOptions => ({
     ...(piece !== undefined ? { piece } : {}),

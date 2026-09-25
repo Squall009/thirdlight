@@ -839,6 +839,10 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 
 /* Phase 18.0: the Material tab (graph materials). */
 .tl-material-doc__note { margin: 0; font-size: 12px; }
+.tl-material-preview { display: flex; flex-direction: column; gap: 4px; }
+.tl-material-preview .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tl-material-preview__canvas { width: 100%; aspect-ratio: 1; display: block; border: 1px solid var(--line); border-radius: var(--radius); background: #000; touch-action: none; }
+.tl-material-preview__status { font-size: 11px; }
 .tl-material-params { display: flex; flex-direction: column; gap: 6px; }
 .tl-material-params .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .tl-material-param { display: grid; grid-template-columns: 1fr 70px; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); }

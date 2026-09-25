@@ -18,6 +18,14 @@
  *
  * Wind and time are one shared uniform block updated by `tick()`.
  *
+ * Phase 18.3: a material with a `graph` is a graph material: its node graph
+ * compiles to TSL (`material-graph.ts`) into one shared node material per
+ * canonical digest (graph, parameters, the functions it calls — moving a
+ * node never recompiles); the file's material is not used. Objects override
+ * public parameters per drawn object (uniforms read `mesh.userData`), a
+ * texture override gets its own compiled variant; shared materials never
+ * change for one object (phase 9.4 rule).
+ *
  * Phase 17.4: node materials only (every view draws with `WebGPURenderer`);
  * the `onBeforeCompile` twins of phases 9.4–17.3 are archived in
  * `archive/webgl-renderer-17/`. The pixel-parity e2e compares the node
@@ -30,6 +38,20 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
 
+import {
+  applyGraphNodes,
+  buildGraphMaterial,
+  compileMaterialGraph,
+  digestOf,
+  materialGraphCanonical,
+  OVERRIDES_KEY,
+  type CompiledMaterialGraph,
+  type GraphProblem,
+  type MaterialFunctionLike,
+  type MaterialGraphLike,
+  type MaterialParameterLike,
+  type SamplerLike,
+} from './material-graph';
 import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -41,7 +63,17 @@ export interface MaterialDefLike {
   readonly shader: MaterialShaderName;
   readonly params: Readonly<Record<string, number | boolean | string | readonly [number, number]>>;
   readonly textures: Readonly<Record<string, string>>;
+  /** Phase 18.3: the exposed parameters of a graph material. */
+  readonly parameters?: readonly MaterialParameterLike[];
+  /** Phase 18.3: a node graph (a graph material; `shader`/`params`/`textures` are then unused). */
+  readonly graph?: MaterialGraphLike;
 }
+
+/** Phase 18.3: an object's values for public parameters, by materialId then parameter key. */
+export type MaterialOverridesLike = Readonly<Record<string, Readonly<Record<string, number | readonly number[] | string>>>>;
+
+/** Phase 18.3: marks a mesh whose graph material does not cast shadows (the shadow flags respect it). */
+export const MATERIAL_NO_SHADOW_KEY = '__tlMaterialNoShadow';
 
 export interface WindLike {
   readonly direction: readonly [number, number];
@@ -59,7 +91,8 @@ export interface MaterialLibraryOptions {
 }
 
 export interface MaterialLibrary {
-  setMaterials(defs: readonly MaterialDefLike[]): void;
+  /** The project materials and (phase 18.3) the material functions graph materials call. */
+  setMaterials(defs: readonly MaterialDefLike[], functions?: readonly MaterialFunctionLike[]): void;
   setWind(wind: WindLike | null): void;
   /** Advance the shared clock (seconds since start). */
   tick(seconds: number): void;
@@ -68,9 +101,13 @@ export interface MaterialLibrary {
   /**
    * Use project materials on every mesh under `root`: a mesh material named
    * `n` takes `mapping[n]`, else `mapping["*"]`. Returns a function that
-   * restores the file's materials and stops tracking `root`.
+   * restores the file's materials and stops tracking `root`. Phase 18.3:
+   * `overrides` are the object's values for its graph materials' public
+   * parameters (the `materialParams` component).
    */
-  apply(root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null): () => void;
+  apply(root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides?: MaterialOverridesLike | null): () => void;
+  /** Phase 18.3: a graph material's compile problems (null: no such graph material, or not built yet). */
+  graphProblems(materialId: string): readonly GraphProblem[] | null;
   dispose(): void;
 }
 
@@ -100,7 +137,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
   const built = new Map<string, { material: THREE.Material; defKey: string }>();
   const textures = new Map<string, Promise<THREE.Texture | null>>();
-  const applied = new Map<THREE.Object3D, Readonly<Record<string, string>> | null>();
+  const applied = new Map<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
+  let functions = new Map<string, MaterialFunctionLike>();
   let animatedCount = 0;
   let disposed = false;
   /** Node materials whose nodes depend on textures that arrive later (rebuilt on arrival). */
@@ -361,6 +399,96 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     nm.colorNode = TSL.vec4(TSL.mix(shallow, c.rgb, TSL.clamp(f.mul(1.5), 0, 1)), c.a);
   }
 
+  // ---- Phase 18.3: graph materials ---------------------------------------------------
+
+  interface GraphEntry {
+    readonly canonical: string;
+    readonly digest: string;
+    readonly def: MaterialDefLike;
+    readonly material: THREE.Material;
+    compiled: CompiledMaterialGraph;
+  }
+  /** Compiled graph materials by digest (shared by every material and object with the same compile input). */
+  const graphEntries = new Map<string, GraphEntry>();
+  /** Texture assets as loaded (null: unavailable); absent = not asked yet or loading. */
+  const loadedTextures = new Map<string, THREE.Texture | null>();
+  /** Textures prepared for a sampler (colour space, wrapping, filter). */
+  const samplerTextures = new Map<string, THREE.Texture>();
+  const fnOf = (id: string): MaterialFunctionLike | null => functions.get(id) ?? null;
+
+  const samplerTexture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
+    if (!loadedTextures.has(assetId)) {
+      void texture(assetId).then((t) => {
+        if (disposed || loadedTextures.has(assetId)) return;
+        loadedTextures.set(assetId, t);
+        // Recompile the graphs that drew a fallback while it was on its way.
+        let changed = false;
+        for (const e of graphEntries.values()) {
+          if (!e.compiled.pending.includes(assetId)) continue;
+          recompile(e);
+          changed = true;
+        }
+        if (changed) options.onChange?.();
+      });
+      return 'loading';
+    }
+    const base = loadedTextures.get(assetId) ?? null;
+    if (base === null) return null;
+    const key = `${assetId}|${sampler.colorSpace}|${sampler.wrap}|${sampler.filter}`;
+    let t = samplerTextures.get(key);
+    if (t === undefined) {
+      t = base.clone();
+      t.colorSpace = sampler.colorSpace === 'srgb' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      const wrap = sampler.wrap === 'clamp' ? THREE.ClampToEdgeWrapping : sampler.wrap === 'mirror' ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping;
+      t.wrapS = wrap;
+      t.wrapT = wrap;
+      t.flipY = false;
+      t.channel = 0;
+      // Linear keeps the texture's own filtering (mipmaps when it has them).
+      if (sampler.filter === 'nearest') {
+        t.magFilter = THREE.NearestFilter;
+        t.minFilter = THREE.NearestFilter;
+      }
+      t.needsUpdate = true;
+      samplerTextures.set(key, t);
+    }
+    return t;
+  };
+
+  const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph =>
+    compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture: samplerTexture, fn: fnOf, overrideKey: digest });
+  function recompile(e: GraphEntry): void {
+    e.compiled = compileEntry(e.def, e.digest);
+    applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
+  }
+
+  /** The shared compiled material of a graph material (a texture override makes a variant). */
+  const graphMaterial = (def: MaterialDefLike): GraphEntry => {
+    const canonical = materialGraphCanonical({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, fnOf);
+    const digest = digestOf(canonical);
+    const have = graphEntries.get(digest);
+    if (have !== undefined && have.canonical === canonical) return have;
+    if (have !== undefined) have.material.dispose();
+    const compiled = compileEntry(def, digest);
+    const material = buildGraphMaterial(compiled, def.name);
+    const e: GraphEntry = { canonical, digest, def, material, compiled };
+    graphEntries.set(digest, e);
+    return e;
+  };
+
+  /** A graph material's definition with an object's texture overrides as its defaults (null: none apply). */
+  const textureVariant = (def: MaterialDefLike, values: Readonly<Record<string, unknown>> | undefined): MaterialDefLike | null => {
+    if (values === undefined || def.parameters === undefined) return null;
+    let changed = false;
+    const parameters = def.parameters.map((p) => {
+      const v = values[p.key];
+      if (p.type !== 'texture' || p.visibility === 'private' || typeof v !== 'string' || v === p.default) return p;
+      changed = true;
+      return { ...p, default: v };
+    });
+    return changed ? { ...def, parameters } : null;
+  };
+
   const materialFor = (materialId: string, source: THREE.Material | null): THREE.Material | null => {
     const def = defs.get(materialId);
     if (def === undefined) return null;
@@ -374,7 +502,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     return m;
   };
 
-  const assign = (root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null): void => {
+  /** Digests in use by applied meshes (the rest are dropped after a material change). */
+  let usedDigests = new Set<string>();
+
+  const assign = (root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null = null): void => {
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -382,12 +513,35 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       const original = (data[SOURCE] as THREE.Material | THREE.Material[] | undefined) ?? mesh.material;
       const list = Array.isArray(original) ? original : [original];
       let changed = false;
+      /** Phase 18.3: this mesh's parameter values by compiled digest; whether a graph material casts no shadow. */
+      const values: Record<string, Readonly<Record<string, unknown>>> = {};
+      let noShadow = false;
       const next = list.map((src) => {
         const id = mapping === null ? undefined : (mapping[src.name] ?? mapping['*']);
+        const def = id === undefined ? undefined : defs.get(id);
+        if (def?.graph !== undefined) {
+          const own = overrides?.[def.materialId];
+          const e = graphMaterial(textureVariant(def, own) ?? def);
+          usedDigests.add(e.digest);
+          if (own !== undefined) values[e.digest] = own;
+          if (!e.compiled.flags.castShadows) noShadow = true;
+          changed = true;
+          return e.material;
+        }
         const m = id === undefined ? null : materialFor(id, src);
         if (m !== null) changed = true;
         return m ?? src;
       });
+      if (Object.keys(values).length > 0) data[OVERRIDES_KEY] = values;
+      else delete data[OVERRIDES_KEY];
+      // The graph's "casts shadows" flag (the object's own flag is kept to restore).
+      if (noShadow && data[MATERIAL_NO_SHADOW_KEY] === undefined) {
+        data[MATERIAL_NO_SHADOW_KEY] = mesh.castShadow;
+        mesh.castShadow = false;
+      } else if (!noShadow && data[MATERIAL_NO_SHADOW_KEY] !== undefined) {
+        mesh.castShadow = data[MATERIAL_NO_SHADOW_KEY] === true;
+        delete data[MATERIAL_NO_SHADOW_KEY];
+      }
       if (changed) {
         data[SOURCE] = original;
         mesh.material = Array.isArray(original) ? next : (next[0] as THREE.Material);
@@ -399,8 +553,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
 
   return {
-    setMaterials(list) {
+    setMaterials(list, fns) {
       defs = new Map(list.map((d) => [d.materialId, d]));
+      if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));
       // Rebuild lazily: drop materials whose definition changed or vanished.
       animatedCount = 0;
       for (const [key, b] of [...built]) {
@@ -410,7 +565,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
           built.delete(key);
         } else if (def.shader === 'foliage' || def.shader === 'water') animatedCount += 1;
       }
-      for (const [root, mapping] of applied) assign(root, mapping);
+      usedDigests = new Set();
+      for (const [root, a] of applied) assign(root, a.mapping, a.overrides);
+      // Phase 18.3: compiled graphs no applied mesh uses any more (a later apply recompiles).
+      for (const [digest, e] of [...graphEntries]) {
+        if (usedDigests.has(digest)) continue;
+        e.material.dispose();
+        graphEntries.delete(digest);
+      }
       options.onChange?.();
     },
     setWind(wind) {
@@ -425,20 +587,34 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       nodeGlobals.time.value = seconds;
     },
     animated() {
-      return animatedCount > 0 && applied.size > 0;
+      if (applied.size === 0) return false;
+      if (animatedCount > 0) return true;
+      for (const e of graphEntries.values()) if (e.compiled.animated) return true;
+      return false;
     },
-    apply(root, mapping) {
-      applied.set(root, mapping);
-      assign(root, mapping);
+    apply(root, mapping, overrides = null) {
+      const record = { mapping, overrides: overrides ?? null };
+      applied.set(root, record);
+      assign(root, mapping, record.overrides);
       return () => {
+        // Only the latest apply of a root restores it (an older undo after a re-apply does nothing).
+        if (applied.get(root) !== record) return;
         applied.delete(root);
         assign(root, null);
       };
+    },
+    graphProblems(materialId) {
+      const def = defs.get(materialId);
+      if (def?.graph === undefined) return null;
+      const canonical = materialGraphCanonical({ graph: def.graph, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, fnOf);
+      return graphEntries.get(digestOf(canonical))?.compiled.problems ?? null;
     },
     dispose() {
       disposed = true;
       for (const b of built.values()) b.material.dispose();
       built.clear();
+      for (const e of graphEntries.values()) e.material.dispose();
+      graphEntries.clear();
       applied.clear();
     },
   };

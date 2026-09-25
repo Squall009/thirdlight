@@ -13,7 +13,7 @@
  * defaults, like the surface presets).
  */
 import type { ModelErrorV2 } from './errors';
-import { canonicalGraphData, nodeFieldValue, validateGraphData, type GraphContext, type GraphData } from './graph';
+import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
 import { MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
@@ -117,8 +117,8 @@ export interface MaterialDef {
   /**
    * Phase 18.0: a node graph (graph kind `material`). A material with a graph
    * is a graph material: at render time the graph replaces `shader`, `params`
-   * and `textures` (kept as the fallback until the graph compiler lands in
-   * 18.3, and for "convert back").
+   * and `textures` (phase 18.3 compiles it to TSL; the shader part stays for
+   * "Remove graph").
    */
   graph?: GraphData;
 }
@@ -385,13 +385,59 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
 }
 
 /**
- * Phase 18.0: the materials as the runtime gets them until the graph
- * compiler lands (18.3): without `graph` and `parameters` — the renderer
- * draws a graph material with its shader fallback, and editor-only graph
- * text (comments, group titles) never reaches a build.
+ * A graph as the runtime compiles it: nodes (with positions — a function's
+ * ports are ordered by them) and wires, without the editor-only parts
+ * (groups, comments, reroute points, collapsed flags).
+ */
+export function graphForRuntime(g: GraphData): GraphData {
+  return {
+    nodes: g.nodes.map((n) => ({ id: n.id, type: n.type, position: [n.position[0], n.position[1]], ...(n.data !== undefined ? { data: n.data } : {}) })),
+    edges: g.edges.map((e) => ({ id: e.id, from: { node: e.from.node, port: e.from.port }, to: { node: e.to.node, port: e.to.port } })),
+  };
+}
+
+/**
+ * The materials as the runtime gets them. Phase 18.0 stripped graphs until
+ * the compiler existed; phase 18.3: a graph material carries its graph (the
+ * runtime compiles it to TSL) and its parameters, without the editor-only
+ * graph text (comments, group titles).
  */
 export function materialsForRuntime(list: readonly MaterialDef[]): MaterialDef[] {
-  return list.map(({ graph: _g, parameters: _p, ...rest }) => rest);
+  return list.map((m) => (m.graph !== undefined ? { ...m, graph: graphForRuntime(m.graph) } : m));
+}
+
+/**
+ * Phase 18.3: the material functions (standalone graphs of kind
+ * `material-function`) the graph materials call, directly or through other
+ * functions, as the runtime gets them (`graphForRuntime`).
+ */
+export function materialFunctionsForRuntime(materials: readonly MaterialDef[], graphs: readonly GraphDocument[]): GraphDocument[] {
+  const byId = new Map(graphs.filter((g) => g.kind === 'material-function').map((g) => [g.graphId, g]));
+  const reached = new Map<string, GraphDocument>();
+  const walk = (g: GraphData): void => {
+    for (const n of g.nodes) {
+      const id = n.type === 'call' ? n.data?.['function'] : undefined;
+      if (typeof id !== 'string' || reached.has(id)) continue;
+      const doc = byId.get(id);
+      if (doc === undefined) continue;
+      reached.set(id, { graphId: doc.graphId, kind: doc.kind, name: doc.name, graph: graphForRuntime(doc.graph) });
+      walk(doc.graph);
+    }
+  };
+  for (const m of materials) if (m.graph !== undefined) walk(m.graph);
+  return [...reached.values()].sort((a, b) => (a.graphId < b.graphId ? -1 : a.graphId > b.graphId ? 1 : 0));
+}
+
+/**
+ * Phase 18.3: the texture assets a material uses — its slots, and for a
+ * graph material its graph's texture fields and its texture parameters'
+ * defaults (the functions it calls are counted with the graphs).
+ */
+export function materialTextureRefs(m: MaterialDef): string[] {
+  const out = new Set(Object.values(m.textures));
+  if (m.graph !== undefined) for (const r of graphAssetRefs(MATERIAL_GRAPH_KIND, m.graph)) if (r.asset === 'texture') out.add(r.id);
+  for (const p of m.parameters ?? []) if (p.type === 'texture' && typeof p.default === 'string' && p.default !== '') out.add(p.default);
+  return [...out].sort();
 }
 
 /**

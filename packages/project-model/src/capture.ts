@@ -20,6 +20,9 @@ import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
 import { flowAssetRefs, type GameFlow } from './flow';
 import { animatorAssetIds, type AnimatorController } from './animator';
+import { graphAssetRefs, type GraphDocument } from './graph';
+import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
+import { materialFunctionsForRuntime, materialTextureRefs, type MaterialDef } from './materials';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
@@ -91,7 +94,14 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
       if (typeof v === 'string') setRef(v);
     }
   };
+  // Phase 18.3: an object may override a graph material's public texture parameter with another texture.
+  const materialDefs = (content as { materials?: MaterialDef[] }).materials ?? [];
+  const textureKeys = new Map(materialDefs.map((m) => [m.materialId, new Set((m.parameters ?? []).filter((p) => p.type === 'texture').map((p) => p.key))]));
   const addEntity = (e: SceneV3['entities'][number]): void => {
+    const overrides = (e.components as { materialParams?: Record<string, Record<string, unknown>> }).materialParams;
+    for (const [materialId, values] of Object.entries(overrides ?? {})) {
+      for (const [key, v] of Object.entries(values)) if (textureKeys.get(materialId)?.has(key) === true && typeof v === 'string' && v !== '') setRef(v);
+    }
     const model = e.components.model;
     if (model) setRef(model.asset.assetId);
     if (e.components.behavior) addBehavior(e.components.behavior.behaviorId, e.components.behavior.values);
@@ -112,8 +122,10 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);
   // Phase 9.4: every texture a project material uses travels with the game.
-  for (const m of (content as { materials?: { textures: Record<string, string> }[] }).materials ?? []) {
-    for (const id of Object.values(m.textures)) setRef(id);
+  // Phase 18.3: a graph material's texture fields and parameters too, and those of the functions it calls.
+  for (const m of materialDefs) for (const id of materialTextureRefs(m)) setRef(id);
+  for (const g of materialFunctionsForRuntime(materialDefs, (content as { graphs?: GraphDocument[] }).graphs ?? [])) {
+    for (const r of graphAssetRefs(MATERIAL_FUNCTION_GRAPH_KIND, g.graph)) if (r.asset === 'texture') setRef(r.id);
   }
   // Phase 9.10: the flow's music and menu logo.
   const flow = (content as { flow?: GameFlow }).flow;

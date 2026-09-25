@@ -148,7 +148,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
-      '"material": the graph replaces shader/params/textures at render time — the graph compiler arrives with 18.3, until then it renders with its shader) and ' +
+      '"material": the graph replaces shader/params/textures at render time: it compiles to a node material in the Scene view, Play and exports; the file\'s own material is not used) and ' +
       'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}] ' +
       '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +
       'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused). Material functions (reusable sub-graphs) are standalone graphs of kind ' +

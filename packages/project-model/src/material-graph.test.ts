@@ -12,7 +12,7 @@ import type { ModelErrorV2 } from './errors';
 import { graphDocumentsContext, resolveGraphPorts, validateGraphDocuments, type GraphContext, type GraphData, type GraphDocument, type GraphNode } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
 import { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_VALUE_TYPES } from './material-graph-kinds';
-import { canonicalMaterials, materialGraphContext, materialOverrideErrors, materialsForRuntime, validateMaterials, type MaterialDef, type MaterialParameter } from './materials';
+import { canonicalMaterials, materialGraphContext, materialFunctionsForRuntime, materialOverrideErrors, materialsForRuntime, materialTextureRefs, validateMaterials, type MaterialDef, type MaterialParameter } from './materials';
 
 const errorsOf = (f: (e: ModelErrorV2[]) => void): ModelErrorV2[] => {
   const e: ModelErrorV2[] = [];
@@ -60,7 +60,7 @@ describe('the material node catalogue (data)', () => {
     const types = new Set(MATERIAL_GRAPH_KIND.nodes.map((d) => d.type));
     const expected = [
       // inputs
-      'float', 'vec2', 'vec3', 'vec4', 'color', 'parameter', 'time', 'uv', 'vertexColor', 'position', 'normal', 'viewDirection', 'cameraDistance', 'screenUV', 'instanceIndex', 'wind',
+      'float', 'vec2', 'vec3', 'vec4', 'color', 'parameter', 'time', 'uv', 'vertexColor', 'position', 'normal', 'viewDirection', 'cameraDistance', 'screenUV', 'instanceIndex', 'wind', 'objectPosition',
       // maths
       'add', 'subtract', 'multiply', 'divide', 'dot', 'cross', 'normalize', 'length', 'lerp', 'clamp', 'saturate', 'smoothstep', 'step', 'min', 'max', 'abs', 'floor', 'fract', 'sin', 'cos', 'power', 'remap', 'split', 'combine', 'swizzle', 'oneMinus',
       // textures
@@ -218,9 +218,29 @@ describe('exposed parameters and the canonical form', () => {
     expect(canonicalMaterials(canonicalMaterials([g]))).toEqual(canonicalMaterials([g]));
   });
 
-  it('the runtime view drops the graph and the parameters (18.3 compiles them)', () => {
-    const g = mat({ nodes: [OUT], edges: [], comments: [{ id: 'k', text: 'see https://example.invalid', position: [0, 0] }] }, [{ key: 'x', type: 'float', default: 0 }]);
-    expect(materialsForRuntime([g])).toEqual([{ materialId: 'mat-a', name: 'A', shader: 'standard', params: {}, textures: {} }]);
+  it('the runtime view keeps the graph (18.3 compiles it) and the parameters, without editor-only text', () => {
+    const g = mat(
+      { nodes: [{ ...OUT, collapsed: true }], edges: [], comments: [{ id: 'k', text: 'see https://example.invalid', position: [0, 0] }], groups: [{ id: 'g', title: 'Look', color: '#336699', rect: [0, 0, 10, 10] }] },
+      [{ key: 'x', type: 'float', default: 0 }],
+    );
+    const [r] = materialsForRuntime([g]);
+    expect(r!.parameters).toEqual([{ key: 'x', type: 'float', default: 0 }]);
+    expect(r!.graph).toEqual({ nodes: [{ id: OUT.id, type: OUT.type, position: OUT.position }], edges: [] });
+    expect(JSON.stringify(r)).not.toContain('example.invalid');
+  });
+
+  it('the runtime gets the material functions the graphs reach (through other functions too), and their textures count', () => {
+    const call = (id: string, fn: string): GraphData['nodes'][number] => ({ id, type: 'call', position: [0, 0], data: { function: fn } });
+    const graphs: GraphDocument[] = [
+      { graphId: 'f-a', kind: 'material-function', name: 'A', graph: { nodes: [call('c', 'f-b')], edges: [], comments: [{ id: 'k', text: 'note', position: [0, 0] }] } },
+      { graphId: 'f-b', kind: 'material-function', name: 'B', graph: { nodes: [{ id: 's', type: 'sampleTexture', position: [0, 0], data: { texture: 'tex-fn' } }], edges: [] } },
+      { graphId: 'f-unused', kind: 'material-function', name: 'C', graph: { nodes: [], edges: [] } },
+    ];
+    const m = mat({ nodes: [OUT, call('c1', 'f-a'), { id: 's', type: 'sampleTexture', position: [0, 0], data: { texture: 'tex-graph' } }], edges: [] }, [{ key: 'map', type: 'texture', default: 'tex-param' }]);
+    const fns = materialFunctionsForRuntime([m], graphs);
+    expect(fns.map((f) => f.graphId)).toEqual(['f-a', 'f-b']);
+    expect(fns[0]!.graph.comments).toBeUndefined();
+    expect(materialTextureRefs(m)).toEqual(['tex-graph', 'tex-param']);
   });
 });
 
