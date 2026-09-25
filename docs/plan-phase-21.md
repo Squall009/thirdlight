@@ -131,7 +131,7 @@ Effects are generated now but drawn only after 20.2.
 | 21.0 budgets and benchmarks | done 2026-09-25 | f5f331c |
 | 21.1 harness | done 2026-09-25 | f5f331c |
 | 21.2 runtime | done 2026-09-25 | 3ad4207 |
-| 21.3 rendering | todo | |
+| 21.3 rendering | done 2026-09-25 | baa4685 |
 | 21.4 editor and backend | done 2026-09-25 | 0f81af6, 37ff8b7, b6efa32 |
 | 21.5 memory | todo | |
 | 21.6 wrap-up | todo | |
