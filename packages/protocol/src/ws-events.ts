@@ -121,18 +121,38 @@ export function makeMutationApplied(payload: {
   });
 }
 
+/**
+ * Phase 21.4: where a snapshot too large for one WebSocket frame is fetched
+ * (GET, owner token): `play.started` carries this reference instead of the
+ * snapshot, so a large project's Play starts instead of waiting on a frame
+ * the backend cannot send (`WS_OUT_FRAME_MAX`).
+ */
+export interface PlaySnapshotRef {
+  /** Absolute path on the authoring origin: `/api/v1/projects/<projectId>/play/<playSessionId>/snapshot`. */
+  path: string;
+  /** The snapshot's UTF-8 JSON byte length. */
+  bytes: number;
+}
+
+/** The authoring-origin path a play's out-of-band snapshot is served from. */
+export function playSnapshotPath(projectId: string, playSessionId: string): string {
+  return `/api/v1/projects/${projectId}/play/${playSessionId}/snapshot`;
+}
+
 export function makePlayStarted(payload: {
   playSessionId: string;
   startedBy: Origin | null;
-  snapshot: RuntimeSnapshotDoc;
+  /** The snapshot inline, or (phase 21.4) a reference to fetch it by when it does not fit one frame. */
+  snapshot: RuntimeSnapshotDoc | { ref: PlaySnapshotRef };
   /** The play-content locator, so an editor can present a play another client started. */
   playContent?: { contentId: string; buildId: string; path: string };
 }): string {
+  const snap = payload.snapshot as { ref?: PlaySnapshotRef };
   return emit({
     type: 'play.started',
     playSessionId: payload.playSessionId,
     startedBy: payload.startedBy,
-    snapshot: payload.snapshot,
+    ...(snap.ref !== undefined ? { snapshotRef: snap.ref } : { snapshot: payload.snapshot }),
     ...(payload.playContent !== undefined ? { playContent: payload.playContent } : {}),
   });
 }
@@ -626,6 +646,14 @@ function checkAckFields(
  */
 export const WS_IN_FRAME_MAX = 64 * 1024;
 export const WS_SCREENSHOT_ACK_MAX = 1.5 * 1024 * 1024;
+/**
+ * Outgoing (server → client) frames are at most 1 MiB — a documented limit
+ * that keeps one message from stalling the socket. Phase 21.4: nothing is
+ * silently held over it: a large Play snapshot goes by reference
+ * (`PlaySnapshotRef`, fetched over HTTP), an oversized change record is
+ * replaced by `workspace.resync` (the editor re-reads over HTTP), and any
+ * other oversized frame is dropped with a visible problem.
+ */
 export const WS_OUT_FRAME_MAX = 1024 * 1024;
 
 export function inboundFrameAllowed(frameLength: number): boolean {

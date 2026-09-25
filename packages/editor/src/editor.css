@@ -134,6 +134,10 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
 .tl-hierarchy__filter:focus { border-color: var(--select); outline: none; }
 .tl-hierarchy__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+/* Phase 21.4: a long list is windowed; its rows have the fixed heights Hierarchy.tsx lays out with. */
+.tl-hierarchy__list.is-windowed .tl-row { height: 24px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+.tl-hierarchy__list.is-windowed .tl-scene-header { height: 28px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+.tl-hierarchy__spacer { padding: 0; margin: 0; border: 0; pointer-events: none; }
 .tl-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer;
   color: var(--text); white-space: nowrap; }
 .tl-row { border-left: 2px solid transparent; }

@@ -14,14 +14,9 @@
     },
     "game": null,
     "scenes": [
-      {
-        "sceneId": "scene-main",
-        "name": "Main"
-      }
+      {"sceneId":"scene-main","name":"Main"}
     ],
-    "startScenes": [
-      "scene-main"
-    ]
+    "startScenes": ["scene-main"]
   },
   "retry": {
     "recordVersion": 2,

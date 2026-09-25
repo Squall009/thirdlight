@@ -25,6 +25,12 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 export interface ThumbnailCache {
   read(projectId: string, digest: string, piece: string | null): Uint8Array | null;
+  /**
+   * Phase 21.4: a validator for one cached thumbnail (changes when the file is
+   * rewritten), for HTTP revalidation (`ETag` / `If-None-Match` → 304); null
+   * when none is cached.
+   */
+  etag(projectId: string, digest: string, piece: string | null): string | null;
   /** Store one PNG; returns an error message when the bytes are refused. */
   write(projectId: string, digest: string, piece: string | null, png: Uint8Array): string | null;
 }
@@ -53,16 +59,33 @@ export function createThumbnailCache(dataRoot: string): ThumbnailCache {
   const root = join(dataRoot, 'cache', 'thumbnails');
   const dirOf = (projectId: string, digest: string): string | null =>
     PROJECT_RE.test(projectId) && DIGEST_RE.test(digest) ? join(root, projectId, digest) : null;
+  // Phase 21.4: the per-project count is walked once, then kept (a write no
+  // longer lists the whole cache). Another process adding files is only
+  // counted at the next restart — the bound is a disk-use guard, not exact.
+  const counts = new Map<string, number>();
   const countFor = (projectId: string): number => {
+    const known = counts.get(projectId);
+    if (known !== undefined) return known;
     let n = 0;
     try {
       for (const d of readdirSync(join(root, projectId))) n += readdirSync(join(root, projectId, d)).length;
     } catch {
       /* no cache yet */
     }
+    counts.set(projectId, n);
     return n;
   };
   return {
+    etag(projectId, digest, piece) {
+      const dir = dirOf(projectId, digest);
+      if (dir === null) return null;
+      try {
+        const st = statSync(join(dir, `${thumbnailKey(piece)}.png`));
+        return `"t-${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+      } catch {
+        return null;
+      }
+    },
     read(projectId, digest, piece) {
       const dir = dirOf(projectId, digest);
       if (dir === null) return null;
@@ -82,9 +105,16 @@ export function createThumbnailCache(dataRoot: string): ThumbnailCache {
       if (countFor(projectId) >= THUMBNAILS_PER_PROJECT_MAX) return `the thumbnail cache holds at most ${THUMBNAILS_PER_PROJECT_MAX} images per project`;
       mkdirSync(dir, { recursive: true });
       const path = join(dir, `${thumbnailKey(piece)}.png`);
+      let existed = false;
+      try {
+        existed = statSync(path).isFile();
+      } catch {
+        existed = false;
+      }
       const tmp = `${path}.${process.pid}.tmp`;
       writeFileSync(tmp, png);
       renameSync(tmp, path);
+      if (!existed) counts.set(projectId, countFor(projectId) + 1);
       return null;
     },
   };

@@ -85,6 +85,12 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
   const digest = (asset.asset?.versions ?? asset.versions ?? [])[0]!.sourceDigest;
   const thumb = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/thumbnails/${digest}`, { headers: { authorization: `Bearer ${be.token}` } });
   expect(thumb.status).toBe(200);
+  // Phase 21.4: revalidation — the cached thumbnail's ETag answers 304 without the bytes.
+  const etag = thumb.headers.get('etag');
+  expect(etag).toMatch(/^"t-/);
+  const again = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/thumbnails/${digest}`, { headers: { authorization: `Bearer ${be.token}`, 'if-none-match': etag! } });
+  expect(again.status).toBe(304);
+  expect((await again.arrayBuffer()).byteLength).toBe(0);
   const png = decodePng(Buffer.from(await thumb.arrayBuffer()));
   expect(png.width).toBe(128);
   // Transparent corners, an opaque model in the middle.

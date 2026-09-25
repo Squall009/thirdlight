@@ -27,6 +27,10 @@ export interface PerfPageState {
   live: { programs: number; pipelines: number; textures: number; buffers: number; vaos: number };
   bytes: { buffers: number; textures: number };
   apis: string[];
+  /** Phase 21.4: WebSocket messages the page received (by `type`), and when each `mutation.applied` arrived. */
+  ws: { byType: Record<string, { n: number; bytes: number; max: number }>; applied: number[]; appliedFrame: number[] };
+  /** Phase 21.4: long tasks (≥ 50 ms main-thread blocks) as [start, duration]. */
+  longTasks: [number, number][];
 }
 
 export function installPerfInstrumentation(): void {
@@ -44,8 +48,45 @@ export function installPerfInstrumentation(): void {
     live: { programs: 0, pipelines: 0, textures: 0, buffers: 0, vaos: 0 },
     bytes: { buffers: 0, textures: 0 },
     apis: [],
+    ws: { byType: {}, applied: [], appliedFrame: [] },
+    longTasks: [],
   };
   w.__tlPerf = P;
+  // Phase 21.4: WebSocket message sizes by type, and for each `mutation.applied` the delay until the
+  // second animation frame after it (the page's own work for the change — projection, React, the
+  // Scene view sync — delays that frame). The wrapper adds one listener before the page's own.
+  const OrigWS = window.WebSocket;
+  if (typeof OrigWS === 'function') {
+    const onMessage = (ev: MessageEvent): void => {
+      const at = performance.now();
+      const data = typeof ev.data === 'string' ? ev.data : '';
+      const bytes = typeof ev.data === 'string' ? new TextEncoder().encode(ev.data).length : ((ev.data as { byteLength?: number; size?: number }).byteLength ?? (ev.data as { size?: number }).size ?? 0);
+      const type = /^\{"type":"([^"]{1,64})"/.exec(data)?.[1] ?? 'other';
+      const row = (P.ws.byType[type] ??= { n: 0, bytes: 0, max: 0 });
+      row.n += 1;
+      row.bytes += bytes;
+      row.max = Math.max(row.max, bytes);
+      if (type === 'mutation.applied') {
+        P.ws.applied.push(at);
+        requestAnimationFrame(() => requestAnimationFrame(() => P.ws.appliedFrame.push(performance.now() - at)));
+      }
+    };
+    const Wrapped = function (url: string | URL, protocols?: string | string[]): WebSocket {
+      const ws = protocols === undefined ? new OrigWS(url) : new OrigWS(url, protocols);
+      ws.addEventListener('message', onMessage);
+      return ws;
+    } as unknown as typeof WebSocket;
+    Wrapped.prototype = OrigWS.prototype;
+    for (const k of ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'] as const) Object.defineProperty(Wrapped, k, { value: OrigWS[k] });
+    (window as unknown as { WebSocket: typeof WebSocket }).WebSocket = Wrapped;
+  }
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) P.longTasks.push([e.startTime, e.duration]);
+    }).observe({ type: 'longtask', buffered: true });
+  } catch {
+    /* long tasks are not observable here */
+  }
   const noteApi = (name: string): void => {
     if (!P.apis.includes(name)) P.apis.push(name);
   };

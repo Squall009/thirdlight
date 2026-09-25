@@ -21,6 +21,8 @@ export interface PerfBackend {
   token: string;
   dataRoot: string;
   exportRoot: string;
+  /** The backend process id (phase 21.4: its /proc/<pid>/io write counter). */
+  pid: number;
   /** POST JSON to a path under the origin (project token, editor origin). */
   post(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }>;
   get(path: string): Promise<{ status: number; body: Buffer }>;
@@ -154,6 +156,7 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
     token,
     dataRoot,
     exportRoot,
+    pid: child.pid ?? -1,
     post,
     get: async (path) => {
       const r = await fetch(`${origin}${path}`, { headers });

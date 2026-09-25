@@ -536,15 +536,30 @@ export function pickedValue(c: ComponentDescriptor, draft: Obj): { ok: true; val
 /** Every signal name the scene's components send or wait for (suggestions for signal fields). */
 export function collectSignals(reg: DescriptorRegistry, bags: readonly Obj[]): string[] {
   const found = new Set<string>();
+  for (const bag of bags) for (const sig of bagSignals(reg, bag)) found.add(sig);
+  return [...found].sort();
+}
+
+/**
+ * Phase 21.4: one component bag's signals, cached per bag object (the
+ * editor's projection replaces a bag only when it changes), so collecting
+ * over thousands of entities after an edit re-walks only the edited one.
+ */
+const signalCache = new WeakMap<Obj, { reg: DescriptorRegistry; signals: readonly string[] }>();
+function bagSignals(reg: DescriptorRegistry, bag: Obj): readonly string[] {
+  const hit = signalCache.get(bag);
+  if (hit !== undefined && hit.reg === reg) return hit.signals;
+  const found: string[] = [];
   const walk = (f: FieldDescriptor, v: unknown): void => {
     if (v === undefined || v === null) return;
-    if (f.type === 'signal' && typeof v === 'string' && v !== '') found.add(v);
+    if (f.type === 'signal' && typeof v === 'string' && v !== '') found.push(v);
     else if (f.type === 'object' && isObj(v)) for (const g of f.fields) walk(g, v[g.key]);
     else if (f.type === 'list' && Array.isArray(v)) for (const x of v) walk(f.item, x);
     else if (f.type === 'map' && isObj(v)) for (const x of Object.values(v)) walk(f.value, x);
   };
-  for (const bag of bags) for (const c of reg.components) walk(c.value, bag[c.name]);
-  return [...found].sort();
+  for (const c of reg.components) walk(c.value, bag[c.name]);
+  signalCache.set(bag, { reg, signals: found });
+  return found;
 }
 
 export interface EntityOption {

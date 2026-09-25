@@ -146,6 +146,7 @@ export {
   makeMutationApplied,
   makePong,
   makePlayStarted,
+  playSnapshotPath,
   makePlayStopRequest,
   makePlayStopped,
   makeScreenshotRequest,
@@ -153,6 +154,7 @@ export {
   type InboundEvent,
   type PlayStopReason,
   type PlayStopRequestReason,
+  type PlaySnapshotRef,
   type RuntimeSnapshotDoc,
   type ServerEventType,
   type ClientEventType,
@@ -279,3 +281,6 @@ export {
   type LightmapPacking,
   type LightmapPlacement,
 } from './bake';
+
+// Phase 21.4: the change record on the WS (no previous side; keyed lists as deltas).
+export { WIRE_LIST_KEYS, fromWireChange, toWireChange, type WireListDelta } from './wire-change';

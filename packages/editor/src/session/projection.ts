@@ -261,9 +261,68 @@ export class Projection {
   private startSet: string[] = [];
   /** Set when the gap rule fires; the client must resync. */
   needsResync = false;
+  /**
+   * Phase 21.4: incremental updates. Every applied change replaces only the
+   * entity objects it touched (copy-on-write: an untouched entity keeps its
+   * object identity, so memoised views skip it), bumps `version`, and bumps
+   * `structureVersion` when what the tree shows changed (entities added or
+   * removed, parents, order, names, flags, kinds). The ids a change touched
+   * accumulate until `takeDirty()`.
+   */
+  private versionN = 0;
+  private structureN = 0;
+  private listCache: ProjectedEntity[] | null = null;
+  private dirtyIds = new Set<string>();
+  private dirtyAll = true;
+
+  /** Bumped by every hydrate and every applied change. */
+  get version(): number {
+    return this.versionN;
+  }
+
+  /** Bumped when the tree's shape or labels changed (not by a transform or component value edit). */
+  get structureVersion(): number {
+    return this.structureN;
+  }
+
+  /**
+   * The entity ids changed since the last call (`all`: a hydrate replaced
+   * everything). Consumers that sync incrementally read this once per update.
+   */
+  takeDirty(): { all: boolean; ids: ReadonlySet<string> } {
+    const out = { all: this.dirtyAll, ids: this.dirtyIds };
+    this.dirtyAll = false;
+    this.dirtyIds = new Set();
+    return out;
+  }
+
+  /** Copy-on-write: a fresh object for the entity about to change (undefined when unknown). */
+  private edit(id: string): ProjectedEntity | undefined {
+    const old = this.entities.get(id);
+    if (old === undefined) return undefined;
+    const next: ProjectedEntity = { ...old, components: { ...old.components } };
+    this.entities.set(id, next);
+    this.touch(id);
+    return next;
+  }
+
+  private touch(id: string): void {
+    this.dirtyIds.add(id);
+    this.listCache = null;
+  }
+
+  private structural(): void {
+    this.structureN += 1;
+    this.listCache = null;
+  }
 
   /** Hydrate from authoritative full state (establish / queryEntities / resync). */
   hydrate(full: FullState): void {
+    this.versionN += 1;
+    this.structureN += 1;
+    this.listCache = null;
+    this.dirtyAll = true;
+    this.dirtyIds = new Set();
     this.entities.clear();
     this.order = [];
     full.entities.forEach((e, i) => {
@@ -308,13 +367,18 @@ export class Projection {
     return this.entities.get(id);
   }
 
-  /** All projected entities in document order. */
+  /**
+   * All projected entities in document order. Phase 21.4: the same array
+   * until something changes (callers must not mutate it).
+   */
   listEntities(): ProjectedEntity[] {
+    if (this.listCache !== null) return this.listCache;
     const out: ProjectedEntity[] = [];
     for (const id of this.order) {
       const e = this.entities.get(id);
       if (e) out.push(e);
     }
+    this.listCache = out;
     return out;
   }
 
@@ -335,16 +399,21 @@ export class Projection {
       this.lastSeen = Math.max(this.lastSeen, ev.revision);
       return { deduped: true, gap: false, applied: false };
     }
-    const before = this.sceneRows.length > 0 ? new Set(this.entities.keys()) : null;
+    const created: string[] = [];
+    this.created = created;
     const ok = this.applyChange(ev.change);
+    this.created = null;
+    this.versionN += 1;
+    this.listCache = null;
     if (ok) {
       this.applied.add(ev.requestId);
       this.lastSeen = Math.max(this.lastSeen, ev.revision);
       // Phase 12 (c): entities that just appeared live in the edited scene
-      // (or their parent's; the first scene as the last resort).
-      if (before !== null) {
-        for (const [id, p] of this.entities) {
-          if (before.has(id)) continue;
+      // (or their parent's; the first scene as the last resort), parents first.
+      if (this.sceneRows.length > 0) {
+        for (const id of created) {
+          const p = this.entities.get(id);
+          if (p === undefined) continue;
           p.sceneId = ev.sceneId ?? (p.parentId !== null ? this.entities.get(p.parentId)?.sceneId : undefined) ?? this.sceneRows[0]?.sceneId;
         }
       }
@@ -352,18 +421,41 @@ export class Projection {
     return { deduped: false, gap: false, applied: ok };
   }
 
+  /** The ids a change in progress created (the scene assignment above reads them). */
+  private created: string[] | null = null;
+
+  /** A new entity object (created, pasted, restored, instantiated). */
+  private add(p: ProjectedEntity, at?: number): void {
+    this.entities.set(p.id, p);
+    if (at === undefined) this.order.push(p.id);
+    else this.order.splice(at, 0, p.id);
+    this.created?.push(p.id);
+    this.touch(p.id);
+  }
+
   private applyChange(change: ChangeData): boolean {
+    const structureBefore = this.structureN;
+    const kinds = new Map<string, ProjectedEntity['kind']>();
+    const result = this.applyChangeInner(change, kinds);
+    // A component added or removed can change what the tree shows (the kind icon).
+    if (this.structureN === structureBefore) {
+      for (const [id, k] of kinds) if (this.entities.get(id)?.kind !== k) this.structural();
+    }
+    return result;
+  }
+
+  private applyChangeInner(change: ChangeData, kinds: Map<string, ProjectedEntity['kind']>): boolean {
     switch (change.type) {
       case 'createEntity': {
         for (const entity of [change.entity, ...(change.children ?? [])]) {
           if (this.entities.has(entity.id)) continue; // idempotent
-          this.entities.set(entity.id, toProjected(entity));
-          this.order.push(entity.id);
+          this.add(toProjected(entity));
         }
+        this.structural();
         return true;
       }
       case 'setTransform': {
-        const p = this.entities.get(change.id);
+        const p = this.edit(change.id);
         if (!p) return false;
         p.position = [...change.next.position];
         p.rotation = [...change.next.rotation];
@@ -372,7 +464,7 @@ export class Projection {
         return true;
       }
       case 'updateEntity': {
-        const p = this.entities.get(change.id);
+        const p = this.edit(change.id);
         if (!p) return false;
         p.name = change.next.name ?? p.id;
         p.parentId = change.next.parentId;
@@ -387,11 +479,12 @@ export class Projection {
           syncRawTransform(p);
         }
         if (change.order !== null) this.order = [...change.order.next];
+        this.structural();
         return true;
       }
       case 'moveEntities': {
         for (const m of change.entities) {
-          const p = this.entities.get(m.id);
+          const p = this.edit(m.id);
           if (!p) return false;
           p.parentId = m.next.parentId;
           if (m.next.transform !== null) {
@@ -402,30 +495,33 @@ export class Projection {
           }
         }
         this.order = [...change.order.next];
+        this.structural();
         return true;
       }
       case 'pasteEntities': {
         for (const entity of change.entities) {
           if (this.entities.has(entity.id)) continue;
-          this.entities.set(entity.id, toProjected(entity));
-          this.order.push(entity.id);
+          this.add(toProjected(entity));
         }
+        this.structural();
         return true;
       }
       case 'deleteEntity': {
         const ids = new Set(change.deletedIds);
-        for (const id of ids) this.entities.delete(id);
+        for (const id of ids) {
+          this.entities.delete(id);
+          this.touch(id);
+        }
         this.order = this.order.filter((id) => !ids.has(id));
+        this.structural();
         return true;
       }
       case 'restoreSubtree': {
         for (const e of change.entities) {
           const p = toProjected(e);
-          if (!this.entities.has(p.id)) {
-            this.entities.set(p.id, p);
-            this.order.push(p.id);
-          }
+          if (!this.entities.has(p.id)) this.add(p);
         }
+        this.structural();
         return true;
       }
       // ---- M2 scene changes (packet 27) ---------------------------------
@@ -438,13 +534,15 @@ export class Projection {
           const p = toProjected(entry.entity as unknown as EntityV3);
           if (this.entities.has(p.id)) continue; // idempotent
           const at = Math.max(0, Math.min(this.order.length, entry.index));
-          this.order.splice(at, 0, p.id);
-          this.entities.set(p.id, p);
+          this.add(p, at);
         }
+        this.structural();
         return true;
       }
       case 'setComponent': {
-        const p = this.entities.get(change.id);
+        const k = this.entities.get(change.id)?.kind;
+        if (k !== undefined) kinds.set(change.id, k);
+        const p = this.edit(change.id);
         if (!p) return false;
         // Phase 15.1: the raw bag first (every component, box/camera/model added or removed too).
         if (change.next === null) delete p.components[change.component];
@@ -567,9 +665,10 @@ export class Projection {
         // Phase 12 (c): the scene list and start set (files come and go with it).
         this.sceneRows = change.next.scenes.map((r) => ({ sceneId: r.sceneId, name: r.name }));
         this.startSet = [...change.next.startScenes];
+        this.structural();
         return true;
       case 'applySurfacePreset': {
-        const p = this.entities.get(change.id);
+        const p = this.edit(change.id);
         if (!p) return false;
         if (change.next === null) delete p.surface;
         else p.surface = { ...(change.next as SurfaceComponent) };
@@ -583,7 +682,7 @@ export class Projection {
   }
 
   private applySetBehaviorProperties(change: SetBehaviorPropertiesChange): boolean {
-    const p = this.entities.get(change.id);
+    const p = this.edit(change.id);
     if (!p) return false;
     const next = change.next;
     if (next === null) {

@@ -90,4 +90,31 @@ describe('thumbnail cache', () => {
     expect(cache.read('demo', '../../etc', null)).toBeNull();
     expect(checkThumbnailPng(png(8, 8))).toBeNull();
   });
+
+  it('phase 21.4: an ETag per cached thumbnail that changes when it is rewritten (null when none)', () => {
+    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    dirs.push(root);
+    const cache = createThumbnailCache(root);
+    expect(cache.etag('demo', DIGEST, null)).toBeNull();
+    expect(cache.write('demo', DIGEST, null, png(16, 16))).toBeNull();
+    const first = cache.etag('demo', DIGEST, null);
+    expect(first).toMatch(/^"t-[0-9a-z]+-[0-9a-z]+"$/);
+    expect(cache.etag('demo', DIGEST, null)).toBe(first);
+    expect(cache.write('demo', DIGEST, null, png(32, 32))).toBeNull();
+    expect(cache.etag('demo', DIGEST, null)).not.toBe(first);
+    expect(cache.etag('demo', '../../etc', null)).toBeNull();
+  });
+
+  it('phase 21.4: the per-project count is kept (a rewrite does not count twice; new files do)', () => {
+    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    dirs.push(root);
+    const cache = createThumbnailCache(root);
+    for (let i = 0; i < 3; i += 1) expect(cache.write('demo', DIGEST, `piece-${i}`, png(8, 8))).toBeNull();
+    // Rewriting the same thumbnails many times stays within any bound.
+    for (let i = 0; i < 50; i += 1) expect(cache.write('demo', DIGEST, 'piece-0', png(8, 8))).toBeNull();
+    // A fresh cache over the same root walks the files once and agrees.
+    const again = createThumbnailCache(root);
+    expect(again.write('demo', DIGEST, 'piece-3', png(8, 8))).toBeNull();
+    expect(again.read('demo', DIGEST, 'piece-3')).not.toBeNull();
+  });
 });

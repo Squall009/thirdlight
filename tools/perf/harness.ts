@@ -18,6 +18,7 @@ import { BENCH_CLASSES, BUDGETS, type BenchClass } from './classes';
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launch, measureCalibration, measureEditor, measureExport, measurePlay, type RendererName, type SurfaceOptions, type SurfaceResult } from './browser';
 import { buildBenchmark, type BuildResult } from './build';
+import type { EditorOpsResult } from './editor-ops';
 import { DEFAULT_SEED, GENERATOR_VERSION, generate } from './generate';
 import { runSimChild } from './sim-run';
 import type { SimResult } from './sim';
@@ -50,6 +51,8 @@ export interface BenchReport {
   exportMs?: number;
   surfaces: SurfaceResult[];
   commandMs?: Summary;
+  /** Phase 21.4: the Hierarchy, command costs in the editor and on disk, WebSocket sizes. */
+  editorOps?: EditorOpsResult;
   sim?: SimResult | { ok: false; error: string };
   errors: string[];
 }
@@ -128,6 +131,18 @@ export function metricsOf(report: Pick<Report, 'benchmarks' | 'calibration'>): R
       if (s.heapMiB !== null) m[`${k}.heapMiB`] = { value: s.heapMiB, kind: 'memory' };
     }
     if (b.commandMs !== undefined && b.commandMs.n > 0) m[`${cls}.command.p95/cpu`] = { value: r3(b.commandMs.p95 / cpu), kind: 'ratio' };
+    const ops = b.editorOps;
+    if (ops !== undefined) {
+      m[`${cls}.hierarchy.domRows`] = { value: ops.hierarchy.domRows, kind: 'count' };
+      if (ops.hierarchy.selectMs.n > 0) m[`${cls}.hierarchy.selectP50/cpu`] = { value: r3(ops.hierarchy.selectMs.p50 / cpu), kind: 'ratio' };
+      if (ops.hierarchy.renameMs.n > 0) m[`${cls}.hierarchy.renameP50/cpu`] = { value: r3(ops.hierarchy.renameMs.p50 / cpu), kind: 'ratio' };
+      if (ops.hierarchy.scrollStepMs.n > 0) m[`${cls}.hierarchy.scrollStepP50/cpu`] = { value: r3(ops.hierarchy.scrollStepMs.p50 / cpu), kind: 'ratio' };
+      if (ops.command.applyFrameMs.n > 0) m[`${cls}.command.applyFrameP50/cpu`] = { value: r3(ops.command.applyFrameMs.p50 / cpu), kind: 'ratio' };
+      m[`${cls}.command.wsKiB`] = { value: r3(ops.command.wsBytesPerCommand / 1024), kind: 'count' };
+      m[`${cls}.command.writtenKiB`] = { value: r3(ops.command.bytesWrittenPerCommand / 1024), kind: 'count' };
+      m[`${cls}.command.filesWritten`] = { value: ops.command.filesWrittenPerCommand, kind: 'count' };
+      if (ops.material !== null) m[`${cls}.material.wsKiB`] = { value: r3(ops.material.wsBytes / 1024), kind: 'count' };
+    }
     if (b.sim !== undefined && b.sim.ok) {
       const s = b.sim;
       m[`${cls}.sim.stepP50/cpu`] = { value: r3(s.stepMs.p50 / s.calibrationMs), kind: 'ratio' };
@@ -261,6 +276,12 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
               const e = await measureEditor(browser, be, 'bench', r, { ...surf, commands, entityId: probe });
               bench.surfaces.push(e.surface);
               if (commands > 0) bench.commandMs = e.commandMs;
+              if (e.ops !== undefined) {
+                bench.editorOps = e.ops;
+                const o = e.ops;
+                opts.log(`perf: ${cls} hierarchy ${o.hierarchy.domRows} rows in the DOM (${o.hierarchy.entities} entities), select p50 ${o.hierarchy.selectMs.p50} ms, rename p50 ${o.hierarchy.renameMs.p50} ms, scroll frame mean ${o.hierarchy.scrollFrameMs.mean} ms, scroll step p50 ${o.hierarchy.scrollStepMs.p50} ms`);
+                opts.log(`perf: ${cls} command http p50 ${o.command.httpMs.p50} ms, apply→frame p50 ${o.command.applyFrameMs.p50} ms, long tasks ${o.command.longTaskMsPerCommand} ms/cmd, ws ${o.command.wsBytesPerCommand} B/cmd, written ${o.command.bytesWrittenPerCommand} B in ${o.command.filesWrittenPerCommand} files/cmd (wchar ${o.command.wcharPerCommand}), material ws ${o.material?.wsBytes ?? '-'} B${o.notes.length > 0 ? `; notes: ${o.notes.join(' | ')}` : ''}`);
+              }
               opts.log(`perf: ${cls} editor (${r}) orbit frame mean ${e.surface.frameMs.mean} ms${commands > 0 ? `, command p95 ${e.commandMs.p95} ms` : ''}`);
             });
           }

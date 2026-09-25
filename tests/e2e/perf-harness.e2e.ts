@@ -66,6 +66,17 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect(ed.surface.drawCalls.p50).toBeGreaterThan(0);
   expect(ed.commandMs.n).toBe(5);
   expect(ed.commandMs.p95).toBeGreaterThan(0);
+  // Phase 21.4: the editor-side costs — Hierarchy, change application, bytes on the wire and on disk.
+  const ops = ed.ops!;
+  expect(ops.hierarchy.domRows).toBe(100);
+  expect(ops.hierarchy.selectMs.n).toBe(5);
+  expect(ops.hierarchy.renameMs.n).toBe(3);
+  expect(ops.command.applyFrameMs.n).toBe(5);
+  expect(ops.command.wsBytesPerCommand).toBeGreaterThan(0);
+  // A transform edit writes only the one scene file it touched.
+  expect(ops.command.filesWrittenPerCommand).toBe(1);
+  expect(ops.command.bytesWrittenPerCommand).toBeGreaterThan(0);
+  expect(ops.material?.wsBytes).toBeGreaterThan(0);
 
   await be.stop();
   const sim = await runSimChild(join(root, 'data', 'projects', 'bench'), { warmup: 30, steps: 60, window: 20, windows: 3 });
