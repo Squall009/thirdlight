@@ -10,7 +10,7 @@
 import { CLASS_SPECS, type BenchClass, type ClassSpec } from './classes';
 
 /** Bump when the generated content changes (it keys the cached projects and the baseline). */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;
 export const DEFAULT_SEED = 21;
 
 /** One entity value for `pasteEntities` (ids are local; the backend assigns real ones). */
@@ -94,15 +94,17 @@ const GROUP_CHILDREN = 15;
 /** Width of one scene's section of the lane (m). */
 const SCENE_WIDTH = 120;
 /**
- * Colliders over all start scenes: the model allows 256 in a scene and in
- * the merged start set (Play and the export refuse more), so a class keeps
- * 200 over its scenes.
+ * Colliders per scene: the model allows 256 in a scene (MAX_COLLIDERS; the
+ * start scenes loaded together have no collider limit of their own), so each
+ * scene keeps 200 — the 10-scene large class carries 2000 (generator v2; v1
+ * kept 200 over all scenes after a misread of the limit in 21.0).
  */
-const COLLIDERS_TOTAL = 200;
+const COLLIDERS_PER_SCENE = 200;
 /**
  * Scripts that move their object do it on one step in four (their slot from
- * the entity id): the runtime lets one behavior commit at most 64 intents per
- * step over all its instances, so hundreds of moving instances are staggered.
+ * the entity id). Since 21.2 the runtime's per-step intent cap scales with the
+ * script instances (5 each), so this is no longer needed to stay under a cap;
+ * it stays so the benchmark keeps measuring the same work as its baseline.
  */
 const HASH_SLOT = '  instantiate(_p: unknown, inst: any) { let h = 0; for (const c of inst.entityId) h = (h * 31 + c.charCodeAt(0)) | 0; return { slot: Math.abs(h) % 4, yaw: 0, y0: null as number | null }; },';
 /** Id numbers per prefix (the backend numbers `<prefix>-0001..9999`). */
@@ -338,7 +340,7 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
         case 'block': {
           counts.block! += 1;
           // Along the lane: floor strips and platforms carry colliders (up to the per-scene cap); behind it: scenery.
-          if (colliders < Math.floor(COLLIDERS_TOTAL / spec.scenes) && rnd() < 0.35) {
+          if (colliders < COLLIDERS_PER_SCENE && rnd() < 0.35) {
             colliders += 1;
             counts.collider! += 1;
             const floor = colliders % 3 === 1;

@@ -21,7 +21,7 @@ import type {
   StepContext,
 } from '@thirdlight/runtime';
 import { PLATFORMER_GAME_MODULE_ID } from './constants';
-import { stepZones } from './zones';
+import { decideZones } from './zones';
 
 /** Build the stateless session module instance. */
 export function createGameSessionModule(
@@ -54,22 +54,15 @@ export function createGameSessionModule(
       const content = port.content;
       const segment = port.lastMotionSegment(content.player.entityId);
       if (segment === undefined) return; // no completed motion segment yet
-      const decision = stepZones({
-        run: { checkpointId: run.checkpointId },
-        zones: content.zones,
-        // v4 has no kill height (falls are hazard zones or script rules).
-        killY: content.game.killY ?? Number.NEGATIVE_INFINITY,
-        from: segment.from,
-        to: segment.to,
-        capsule: content.player.capsule,
-      });
+      // v4 has no kill height (falls are hazard zones or script rules).
+      const decision = decideZones(run.checkpointId, content.zones, content.game.killY ?? Number.NEGATIVE_INFINITY, segment.from, segment.to, content.player.capsule);
       if (decision.kind === 'death') {
         if (decision.cause === 'hazard') port.beginRespawn('hazard', decision.zoneId);
         else port.beginRespawn('fall');
         return;
       }
       if (decision.kind === 'checkpoint') {
-        // `stepZones` already applied the single-activation guard; the port
+        // `decideZones` already applied the single-activation guard; the port
         // re-validates it as the run-state commit rule (§4.5).
         port.activateCheckpoint(decision.zoneId);
         return;

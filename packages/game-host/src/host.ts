@@ -508,6 +508,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
+  /** Phase 21.2: one entity's interpolated transform into `out` (the allocation-free read when the runtime has it). */
+  const playerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const sourceAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+  const readTransform = (rt: Runtime, id: string, out: { position: number[]; rotation: number[]; scale: number[] }): boolean => {
+    if (rt.readInterpolated !== undefined) return rt.readInterpolated(id, out.position, out.rotation, out.scale);
+    const st = rt.getInterpolatedState();
+    const t = st.ok ? st.state.transforms.find((x) => x.id === id) : undefined;
+    if (t === undefined) return false;
+    for (let k = 0; k < 3; k += 1) out.position[k] = t.position[k]!;
+    for (let k = 0; k < 4; k += 1) out.rotation[k] = t.rotation[k]!;
+    for (let k = 0; k < 3; k += 1) out.scale[k] = t.scale[k]!;
+    return true;
+  };
+
   /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number }[] = [];
@@ -541,14 +555,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
         }
       }
     }
-    const state = rt.getInterpolatedState();
-    const transforms = state.ok ? state.state.transforms : [];
+    if (sources.length === 0 && liveLoops.size === 0) return;
+    // Phase 21.2: only the player and the sources are read (no per-frame copy of every transform).
     const playerId = config.snapshot.game?.playerId;
-    const player = transforms.find((t) => t.id === playerId);
+    const player = playerId !== undefined && readTransform(rt, playerId, playerAt) ? playerAt : undefined;
     const seen = new Set<string>();
     for (const s of sources) {
-      const t = transforms.find((x) => x.id === s.id);
-      if (t === undefined) continue;
+      if (!readTransform(rt, s.id, sourceAt)) continue;
+      const t = sourceAt;
       const dx = player !== undefined ? Math.abs(t.position[0]! - player.position[0]!) : 0;
       const near = s.range / 4;
       const gain = s.volume * Math.max(0, Math.min(1, 1 - (dx - near) / Math.max(1e-6, s.range - near)));
@@ -610,8 +624,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     let offset: [number, number, number] = [0, 0, 0];
     if (tv.scene !== null) {
       const batch = rt.sceneSet?.().batches.find((b) => b.sceneId === tv.scene);
-      const st = rt.getInterpolatedState();
-      const player = st.ok ? st.state.transforms.find((t) => t.id === config.snapshot.game?.playerId) : undefined;
+      const playerId = config.snapshot.game?.playerId;
+      const player = playerId !== undefined && readTransform(rt, playerId, playerAt) ? playerAt : undefined;
       const anchor = batch !== undefined ? titleAnchor(batch.entities) : null;
       if (anchor !== null && player !== undefined) offset = [anchor[0] - player.position[0]!, anchor[1] - player.position[1]!, anchor[2] - player.position[2]!];
     }
@@ -621,6 +635,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     titleOffset = offset;
     config.setCameraOffset?.(offset);
+  };
+
+  /** The committed game view (no copy when the runtime can hand out the frozen one); null without a game session. */
+  const gameViewOf = (rt: Runtime): GameView | null => {
+    if (rt.peekGameView !== undefined) return rt.peekGameView();
+    const res = rt.getGameView();
+    return res.ok ? res.view : null;
   };
 
   const hostFrame = (): void => {
@@ -634,13 +655,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (flowCtl !== null) {
       // Phase 9.10: the flow's menus take the confirm and the ui edges.
       const ui = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
-      const res = runtime.getGameView();
-      if (res.ok) {
+      const flowView = gameViewOf(runtime);
+      if (flowView !== null) {
         // The ui queue carries submit (Enter, pad A) in order with the
         // navigation; an owner without it falls back to the menu confirm.
         const onMenu = flowCtl.screen !== 'playing';
         const submit = config.input.sampleUi !== undefined ? ui.submit : ui.submit || (onMenu && menu.confirm);
-        const used = flowCtl.frame(res.view, { ...ui, submit });
+        const used = flowCtl.frame(flowView, { ...ui, submit });
         if (used) config.input.markConfirmConsumed();
       }
       if (menu.mute) {
@@ -681,12 +702,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // (2) The committed view → cues, HUD, adapter. Committed-view-only:
     // no runtime internals, no scene-graph mutation (C41-1). Scene mode has
     // no game view: it only renders.
-    const res = runtime.getGameView();
-    if (res.ok === false) {
+    // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
+    const view = gameViewOf(runtime);
+    if (view === null) {
       adapter?.renderFrame();
       return;
     }
-    const view = res.view;
     // `won` too: the goal event commits on the step the run is won (cue ids
     // are played at most once, so re-submitting a frame is harmless).
     if (view.state === 'playing' || view.state === 'respawning' || view.state === 'won') {

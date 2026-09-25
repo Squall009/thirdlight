@@ -64,8 +64,10 @@ describe('benchmark generator', () => {
           for (const part of splitBySize(batch)) expect(JSON.stringify(part).length).toBeLessThan(60_000);
         }
       }
-      // Loaded together the start scenes hold at most 256 colliders and 16 point lights.
-      expect(all.filter((e) => e.components['collider'] !== undefined).length).toBeLessThanOrEqual(256);
+      // Phase 21.2 (generator v2): the collider limit is per scene, so every scene
+      // carries its own share — the 10-scene large class 2000 colliders.
+      if (cls === 'large') expect(all.filter((e) => e.components['collider'] !== undefined).length).toBe(2000);
+      // Loaded together the start scenes hold at most 16 point lights.
       expect(all.filter((e) => (e.components['light'] as { type?: string } | undefined)?.type === 'point').length).toBeLessThanOrEqual(16);
       // Unit quaternions (the model checks within 1e-4).
       for (const e of all) {

@@ -5,6 +5,7 @@
   "limits": {
     "intentsPerInstanceStep": 5,
     "intentsPerStep": 64,
+    "intentsPerStepRule": "phase 21.2: max(intentsPerStep, intentsPerInstanceStep x live behavior instances)",
     "perEntityAxisStep": 1,
     "logsPerInstance": 32,
     "logsPerStep": 16
@@ -274,13 +275,12 @@
     },
     {
       "caseId": "L05-intent-per-step-cap",
-      "title": "17 instances each emitting 4 intents in one step (68 > 64)",
+      "title": "17 instances each emitting 4 intents in one step (68 > 64, within the scaled cap max(64, 5 x 17) = 85; phase 21.2 — it failed at 64 before)",
       "instances": 17,
       "intentsPerInstance": 4,
       "expect": {
-        "accepted": 64,
-        "reason": "behavior_intent_limit",
-        "detail": "per_step"
+        "accepted": 68,
+        "reason": null
       }
     },
     {

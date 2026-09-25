@@ -150,35 +150,89 @@ function clampFrustum(v: number, min: number, max: number, half: number): number
  * writes nothing).
  */
 export function followCamera(input: CameraFollowInput): CameraFollowResult {
-  const { camera: C, player: P, deadZone: dz, smoothing: k, bounds, level, fovY, aspect } = input;
-  const halfH = (input.distance ?? CAMERA_Z) * Math.tan((fovY * Math.PI) / 180 / 2);
-  const cap = input.maxStep ?? CAMERA_MAX_STEP;
+  const o = newFollowScratch();
+  followInto(o, input.camera.x, input.camera.y, input.player.x, input.player.y, input.deadZone, input.smoothing, input.bounds, input.level, input.fovY, input.aspect, input.snap === true, input.distance, input.maxStep);
+  return {
+    target: Object.freeze({ x: o.tx, y: o.ty }),
+    smoothed: Object.freeze({ x: o.sx, y: o.sy }),
+    capped: Object.freeze({ x: o.cx, y: o.cy }),
+    bounded: Object.freeze({ x: o.ax, y: o.ay }),
+    position: Object.freeze({ x: o.px, y: o.py }),
+    moved: o.moved,
+    halfH: o.halfH,
+    halfW: o.halfW,
+  };
+}
+
+/** Phase 21.2: every stage of the pipeline as numbers (one reused record per camera module). */
+interface FollowScratch {
+  tx: number;
+  ty: number;
+  sx: number;
+  sy: number;
+  cx: number;
+  cy: number;
+  ax: number;
+  ay: number;
+  px: number;
+  py: number;
+  moved: boolean;
+  halfH: number;
+  halfW: number;
+}
+
+function newFollowScratch(): FollowScratch {
+  return { tx: 0, ty: 0, sx: 0, sy: 0, cx: 0, cy: 0, ax: 0, ay: 0, px: 0, py: 0, moved: false, halfH: 0, halfW: 0 };
+}
+
+/** The §7.2 pipeline into `o` (`followCamera`'s arithmetic, without objects). */
+function followInto(
+  o: FollowScratch,
+  Cx: number,
+  Cy: number,
+  Px: number,
+  Py: number,
+  dz: { readonly x: number; readonly y: number },
+  k: number,
+  bounds: CameraBounds2,
+  level: CameraBounds2,
+  fovY: number,
+  aspect: number,
+  snap: boolean,
+  distance: number | undefined,
+  maxStep: number | undefined,
+): void {
+  const halfH = (distance ?? CAMERA_Z) * Math.tan((fovY * Math.PI) / 180 / 2);
+  const cap = maxStep ?? CAMERA_MAX_STEP;
   const halfW = halfH * aspect;
-  const Tx = C.x + overflow(P.x - C.x, dz.x);
-  const Ty = C.y + overflow(P.y - C.y, dz.y);
+  const Tx = Cx + overflow(Px - Cx, dz.x);
+  const Ty = Cy + overflow(Py - Cy, dz.y);
   // `k = 0` (the documented "hard snap") and the reset snap are exact
   // targets and bypass the cap (§7.2); the cap applies only while
   // smoothing is active (0 < k < 1).
-  const hard = input.snap === true || k === 0;
-  const Sx = hard ? Tx : C.x + k * (Tx - C.x);
-  const Sy = hard ? Ty : C.y + k * (Ty - C.y);
-  const sx = hard ? Sx : C.x + clampN(Sx - C.x, -cap, cap);
-  const sy = hard ? Sy : C.y + clampN(Sy - C.y, -cap, cap);
+  const hard = snap || k === 0;
+  const Sx = hard ? Tx : Cx + k * (Tx - Cx);
+  const Sy = hard ? Ty : Cy + k * (Ty - Cy);
+  const sx = hard ? Sx : Cx + clampN(Sx - Cx, -cap, cap);
+  const sy = hard ? Sy : Cy + clampN(Sy - Cy, -cap, cap);
   const ax = clampN(sx, bounds.minX, bounds.maxX);
   const ay = clampN(sy, bounds.minY, bounds.maxY);
   const px = clampFrustum(ax, level.minX, level.maxX, halfW);
   const py = clampFrustum(ay, level.minY, level.maxY, halfH);
-  const moved = Math.abs(px - C.x) > CAMERA_SNAP_EPS || Math.abs(py - C.y) > CAMERA_SNAP_EPS;
-  return {
-    target: Object.freeze({ x: Tx, y: Ty }),
-    smoothed: Object.freeze({ x: Sx, y: Sy }),
-    capped: Object.freeze({ x: sx, y: sy }),
-    bounded: Object.freeze({ x: ax, y: ay }),
-    position: Object.freeze(moved ? { x: px, y: py } : { x: C.x, y: C.y }),
-    moved,
-    halfH,
-    halfW,
-  };
+  const moved = Math.abs(px - Cx) > CAMERA_SNAP_EPS || Math.abs(py - Cy) > CAMERA_SNAP_EPS;
+  o.tx = Tx;
+  o.ty = Ty;
+  o.sx = Sx;
+  o.sy = Sy;
+  o.cx = sx;
+  o.cy = sy;
+  o.ax = ax;
+  o.ay = ay;
+  o.px = moved ? px : Cx;
+  o.py = moved ? py : Cy;
+  o.moved = moved;
+  o.halfH = halfH;
+  o.halfW = halfW;
 }
 
 /**
@@ -307,31 +361,21 @@ export function createGameCameraModule(
     return bad;
   };
 
-  const apply = (state: { curr: Map<string, { position: [number, number, number] }> }, aspect: number, player: { x: number; y: number }, snap: boolean): void => {
+  /** Phase 21.2: one reused pipeline record (the step makes no objects). */
+  const scratch = newFollowScratch();
+  const apply = (state: { curr: Map<string, { position: [number, number, number] }> }, aspect: number, playerX: number, playerY: number, snap: boolean): void => {
     const cam = state.curr.get(cameraId);
     if (cam === undefined) {
       throw new Error(`${PLATFORMER_GAME_CAMERA_MODULE_ID}: the camera entity "${cameraId}" is missing from curr`);
     }
-    const r = followCamera({
-      camera: { x: cam.position[0], y: cam.position[1] },
-      player,
-      deadZone,
-      smoothing,
-      bounds,
-      level,
-      fovY,
-      aspect,
-      snap,
-      distance,
-      maxStep,
-    });
-    if (r.moved) {
+    followInto(scratch, cam.position[0], cam.position[1], playerX, playerY, deadZone, smoothing, bounds, level, fovY, aspect, snap, distance, maxStep);
+    if (scratch.moved) {
       // The only writes the camera module ever performs (§7.1/§3.4):
       // `position.x/y` of the camera entity, and (phase 15.3) `position.z`
       // when `cameraFollow.distance` is authored; without it the z stays the
       // authored depth. Rotation and scale are never written.
-      cam.position[0] = r.position.x;
-      cam.position[1] = r.position.y;
+      cam.position[0] = scratch.px;
+      cam.position[1] = scratch.py;
     }
     if (writeZ !== null && cam.position[2] !== writeZ) cam.position[2] = writeZ;
   };
@@ -352,7 +396,7 @@ export function createGameCameraModule(
       if (playerT === undefined) {
         throw new Error(`${PLATFORMER_GAME_CAMERA_MODULE_ID}: the player entity "${playerId}" is missing from curr`);
       }
-      apply(ctx.state, viewport.aspect, { x: playerT.position[0], y: playerT.position[1] }, false);
+      apply(ctx.state, viewport.aspect, playerT.position[0], playerT.position[1], false);
     },
     /**
      * The R6 reset barrier (gameplay.md §5.1/§7.4): the §7.2 pipeline with
@@ -363,7 +407,7 @@ export function createGameCameraModule(
      */
     reset(ctx: ModuleResetContext): void {
       if (viewportInvalid(ctx.viewport)) return; // §7.5 defensive no-op
-      apply(ctx.state, ctx.viewport.aspect, { x: ctx.playerCenter.x, y: ctx.playerCenter.y }, true);
+      apply(ctx.state, ctx.viewport.aspect, ctx.playerCenter.x, ctx.playerCenter.y, true);
     },
     dispose(): void {
       /* stateless: nothing to release */

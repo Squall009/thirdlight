@@ -36,7 +36,7 @@ import { canonicalFlow, validateFlow, type GameFlow } from './flow';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
 import { sha256Hex, sha256HexOfText } from './sha256';
 import { fail, isPlainObject, withFound } from './validate';
-import { validateSceneV3, validateSceneV4 } from './scene-v3';
+import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
@@ -360,7 +360,10 @@ export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'musi
  */
 export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScenes?: readonly unknown[]): ModelResultV2<MediaBlock> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
-  const s = v4 ? validateSceneV4(scene) : validateSceneV3(scene);
+  // Phase 21.2: with the project's scenes given, `scene` is the start scenes
+  // merged (what the game starts with): the per-scene limits (colliders,
+  // zones, spawns, the entity cap) apply to each scene below, not to their sum.
+  const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
   if (!s.ok) return { ok: false, errors: s.errors };
   const c = v4 ? validateContentV4(content) : validateContentV3(content);
   if (!c.ok) return { ok: false, errors: c.errors };
@@ -463,7 +466,10 @@ export function captureContentViewV3(
   allScenes?: readonly unknown[],
 ): ModelResultV2<CapturedContentViewV3> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
-  const s = v4 ? validateSceneV4(scene) : validateSceneV3(scene);
+  // Phase 21.2: with the project's scenes given, `scene` is the start scenes
+  // merged (what the game starts with): the per-scene limits (colliders,
+  // zones, spawns, the entity cap) apply to each scene below, not to their sum.
+  const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
   if (!s.ok) return fail(s.errors);
   const c = v4 ? validateContentV4(content) : validateContentV3(content);
   if (!c.ok) return fail(c.errors);

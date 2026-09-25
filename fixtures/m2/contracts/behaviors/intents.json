@@ -5,6 +5,7 @@
   "limits": {
     "intentsPerInstanceStep": 5,
     "intentsPerStep": 64,
+    "intentsPerStepRule": "phase 21.2: max(intentsPerStep, intentsPerInstanceStep x live behavior instances)",
     "perEntityAxisStep": 1,
     "logsPerInstance": 32,
     "logsPerStep": 16
@@ -581,12 +582,9 @@
     },
     {
       "caseId": "I16-per-step-cap",
-      "title": "70 intents across 14 instances in one step exceeds the per-step cap of 64",
+      "title": "70 intents across 14 instances in one step: within the scaled per-step cap max(64, 5 x 14) = 70 (phase 21.2 — it exceeded the fixed cap of 64 before)",
       "expect": {
-        "ok": false,
-        "code": "module_error",
-        "reason": "behavior_intent_limit",
-        "detail": "per_step"
+        "ok": true
       },
       "step": {
         "intentPhase": [

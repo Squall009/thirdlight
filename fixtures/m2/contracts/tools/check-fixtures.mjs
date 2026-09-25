@@ -1731,7 +1731,7 @@ function p18ValidateOne(c, phase, limits, state) {
   }
   if (seen.size > limits.intentsPerInstanceStep) return { ok: false, code: 'module_error', reason: 'behavior_intent_limit', detail: 'per_instance' };
   state.committed++;
-  if (state.committed > limits.intentsPerStep) return { ok: false, code: 'module_error', reason: 'behavior_intent_limit', detail: 'per_step' };
+  if (state.committed > state.stepCap) return { ok: false, code: 'module_error', reason: 'behavior_intent_limit', detail: 'per_step' };
   if (intent.kind === 'control_move') { state.move = p18QuantizeMove(intent.value); state.moveWriter = c.moduleId; }
   if (intent.kind === 'control_jump') { state.jump = intent.value; state.jumpWriter = c.moduleId; }
   if (intent.kind === 'transform') state.transformWrites.push({ moduleId: c.moduleId, entityId: intent.entityId, position: { ...intent.position } });
@@ -1739,7 +1739,11 @@ function p18ValidateOne(c, phase, limits, state) {
 }
 
 function p18ReplayStep(step, limits) {
-  const state = { perInstance: new Map(), channelWriter: new Map(), committed: 0, move: null, jump: null, moveWriter: null, jumpWriter: null, transformWrites: [] };
+  // Phase 21.2: the per-step cap scales with the step's instances (one per module id here):
+  // max(intentsPerStep, intentsPerInstanceStep x instances).
+  const instances = new Set([...(step.intentPhase ?? []), ...(step.transformPhase ?? [])].map((c) => c.moduleId)).size;
+  const stepCap = Math.max(limits.intentsPerStep, limits.intentsPerInstanceStep * instances);
+  const state = { perInstance: new Map(), channelWriter: new Map(), committed: 0, stepCap, move: null, jump: null, moveWriter: null, jumpWriter: null, transformWrites: [] };
   for (const [phase, list] of [['intent', step.intentPhase ?? []], ['transform', step.transformPhase ?? []]]) {
     for (const c of list) {
       const verdict = p18ValidateOne(c, phase, limits, state);
@@ -1795,9 +1799,11 @@ function p18RuntimeFailures() {
     } else {
       const perInstanceCap = doc.limits.intentsPerInstanceStep;
       const total = f.instances * f.intentsPerInstance;
-      const accepted = Math.min(f.instances * Math.min(f.intentsPerInstance, perInstanceCap), doc.limits.intentsPerStep);
-      const reason = f.intentsPerInstance > perInstanceCap ? 'behavior_intent_limit' : total > doc.limits.intentsPerStep ? 'behavior_intent_limit' : null;
-      const detail = f.intentsPerInstance > perInstanceCap ? 'per_instance' : total > doc.limits.intentsPerStep ? 'per_step' : null;
+      // Phase 21.2: the per-step cap scales with the instances.
+      const stepCap = Math.max(doc.limits.intentsPerStep, perInstanceCap * f.instances);
+      const accepted = Math.min(f.instances * Math.min(f.intentsPerInstance, perInstanceCap), stepCap);
+      const reason = f.intentsPerInstance > perInstanceCap ? 'behavior_intent_limit' : total > stepCap ? 'behavior_intent_limit' : null;
+      const detail = f.intentsPerInstance > perInstanceCap ? 'per_instance' : total > stepCap ? 'per_step' : null;
       if (accepted !== f.expect.accepted) fail('p18-runtime-failures', `${f.caseId}: accepted ${accepted} != ${f.expect.accepted}`);
       if (reason !== f.expect.reason) fail('p18-runtime-failures', `${f.caseId}: reason ${reason} != ${f.expect.reason}`);
       if ((detail ?? null) !== (f.expect.detail ?? null)) fail('p18-runtime-failures', `${f.caseId}: detail ${detail} != ${f.expect.detail}`);

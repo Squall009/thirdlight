@@ -37,6 +37,27 @@ export interface ZoneTest {
  * half-extents). The `d²` comparison against `(R − EPS)²` is the hot path;
  * `d` and the components are reported for the fixtures and diagnostics.
  */
+/** `zoneOverlap(...).overlap` without the report object (the same arithmetic). */
+function sweptOverlap(from: Vec2, to: Vec2, zone: ZoneGeometry, capsule: PlayerCapsule): boolean {
+  const fx = from.x + capsule.offset.x;
+  const tx = to.x + capsule.offset.x;
+  const fy = from.y + capsule.offset.y;
+  const ty = to.y + capsule.offset.y;
+  const rx0 = Math.min(fx, tx);
+  const rx1 = Math.max(fx, tx);
+  const ry0 = Math.min(fy, ty) - capsule.halfHeight;
+  const ry1 = Math.max(fy, ty) + capsule.halfHeight;
+  const zx0 = zone.center.x - zone.half.x;
+  const zx1 = zone.center.x + zone.half.x;
+  const zy0 = zone.center.y - zone.half.y;
+  const zy1 = zone.center.y + zone.half.y;
+  const dx = Math.max(0, rx0 - zx1, zx0 - rx1);
+  const dy = Math.max(0, ry0 - zy1, zy0 - ry1);
+  const d2 = dx * dx + dy * dy;
+  const limit = capsule.radius - ZONE_OVERLAP_EPS;
+  return d2 < limit * limit;
+}
+
 export function zoneOverlap(from: Vec2, to: Vec2, zone: ZoneGeometry, capsule: PlayerCapsule): ZoneTest {
   // The swept centre-line set is exactly the rectangle
   // [rx0, rx1] × [ry0, ry1] (§4.2 derivation), extended by the capsule's
@@ -126,25 +147,55 @@ function byEntityId(a: GameZoneRect, b: GameZoneRect): number {
  * document order.
  */
 export function stepZones(input: StepZonesInput): ZoneDecision {
-  const zones = [...input.zones].sort(byEntityId);
-  const tests = zones.map((zone) => ({ zone, hit: zoneOverlap(input.from, input.to, zone, input.capsule) }));
-  const overlapping = (role: GameZoneRole): (typeof tests)[number][] =>
-    tests.filter((t) => t.zone.role === role && t.hit.overlap);
+  return decideZones(input.run.checkpointId, input.zones, input.killY, input.from, input.to, input.capsule);
+}
 
-  const hazards = overlapping('hazard');
-  if (hazards.length > 0) {
-    return { kind: 'death', cause: 'hazard', zoneId: hazards[0]!.zone.entityId };
+const NO_DECISION: ZoneDecision = Object.freeze({ kind: 'none' });
+
+/** The zones in ascending `entityId` order (the caller's array itself when it already is). */
+function sortedById(zones: readonly GameZoneRect[]): readonly GameZoneRect[] {
+  for (let i = 1; i < zones.length; i += 1) if (byEntityId(zones[i - 1]!, zones[i]!) > 0) return [...zones].sort(byEntityId);
+  return zones;
+}
+
+/**
+ * `stepZones` over plain arguments (phase 21.2: one pass, no per-zone test
+ * objects; the same predicate as `zoneOverlap`, the same first-match order).
+ */
+export function decideZones(
+  checkpointId: string | null,
+  zonesIn: readonly GameZoneRect[],
+  killY: number,
+  from: Vec2,
+  to: Vec2,
+  capsule: PlayerCapsule,
+): ZoneDecision {
+  const zones = sortedById(zonesIn);
+  let hazard: GameZoneRect | null = null;
+  let checkpoint: GameZoneRect | null = null;
+  let goal: GameZoneRect | null = null;
+  for (let i = 0; i < zones.length; i += 1) {
+    const zone = zones[i]!;
+    const role = zone.role;
+    if (role === 'hazard') {
+      if (hazard === null && sweptOverlap(from, to, zone, capsule)) hazard = zone;
+    } else if (role === 'checkpoint') {
+      if (checkpoint === null && sweptOverlap(from, to, zone, capsule)) checkpoint = zone;
+    } else if (role === 'goal') {
+      if (goal === null && sweptOverlap(from, to, zone, capsule)) goal = zone;
+    }
   }
-  if (input.to.y < input.killY) {
+  if (hazard !== null) {
+    return { kind: 'death', cause: 'hazard', zoneId: hazard.entityId };
+  }
+  if (to.y < killY) {
     return { kind: 'death', cause: 'fall' };
   }
-  const checkpoint = overlapping('checkpoint')[0];
-  if (input.run.checkpointId === null && checkpoint !== undefined) {
-    return { kind: 'checkpoint', zoneId: checkpoint.zone.entityId };
+  if (checkpointId === null && checkpoint !== null) {
+    return { kind: 'checkpoint', zoneId: checkpoint.entityId };
   }
-  const goal = overlapping('goal')[0];
-  if (goal !== undefined) {
-    return { kind: 'goal', zoneId: goal.zone.entityId };
+  if (goal !== null) {
+    return { kind: 'goal', zoneId: goal.entityId };
   }
-  return { kind: 'none' };
+  return NO_DECISION;
 }

@@ -182,7 +182,61 @@ export type IntentShapeResult =
   | { ok: true; kind: IntentKind; intent: BehaviorIntent }
   | { ok: false; error: BehaviorIntentError };
 
+const hasOwn = Object.prototype.hasOwnProperty;
+const isNumber = (v: unknown): boolean => typeof v === 'number';
+
+/**
+ * Phase 21.2: the last accepted shape. The behavior host validates a script's
+ * intent and hands the parsed copy (never seen by the script) to the runtime,
+ * which validates it again (§14.4 steps 1–4 are repeated); that second call
+ * returns the same result instead of copying the copy.
+ */
+let lastParsed: BehaviorIntent | null = null;
+let lastResult: IntentShapeResult | null = null;
+
+function accepted(kind: IntentKind, intent: BehaviorIntent): IntentShapeResult {
+  const result: IntentShapeResult = { ok: true, kind, intent };
+  lastParsed = intent;
+  lastResult = result;
+  return result;
+}
+
+/** Own enumerable keys, in `Object.keys` order, without making the array (phase 21.2). */
+function firstUnknownKey(value: Record<string, unknown>, allowed: readonly string[]): string | null {
+  for (const key in value) {
+    if (!hasOwn.call(value, key)) continue;
+    if (!allowed.includes(key)) return key;
+  }
+  return null;
+}
+
+/** The keys are exactly `allowed`, in that order. */
+function exactOrder(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  let i = 0;
+  for (const key in value) {
+    if (!hasOwn.call(value, key)) continue;
+    if (allowed[i] !== key) return false;
+    i += 1;
+  }
+  return i === allowed.length;
+}
+
+/** The keys are all in `order`, each at most once and in that order; returns how many (−1: not). */
+function inOrderCount(value: Record<string, unknown>, order: readonly string[]): number {
+  let last = -1;
+  let n = 0;
+  for (const key in value) {
+    if (!hasOwn.call(value, key)) continue;
+    const rank = order.indexOf(key);
+    if (rank <= last) return -1;
+    last = rank;
+    n += 1;
+  }
+  return n;
+}
+
 export function validateIntentShape(value: unknown): IntentShapeResult {
+  if (value !== null && value === lastParsed && lastResult !== null) return lastResult;
   if (!isPlainObject(value)) {
     return { ok: false, error: invalid('shape', 'an intent must be an object') };
   }
@@ -191,30 +245,28 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
   if (kind === 'pose') return poseShape(value);
-  const keys = Object.keys(value);
   const allowed = INTENT_KEYS[kind];
-  for (const key of keys) {
-    if (!allowed.includes(key)) {
-      return { ok: false, error: invalid('shape', `unknown ${kind} field "${key}" (strict shape)`) };
-    }
+  const unknownKey = firstUnknownKey(value, allowed);
+  if (unknownKey !== null) {
+    return { ok: false, error: invalid('shape', `unknown ${kind} field "${unknownKey}" (strict shape)`) };
   }
   // Canonical key order is also enforced as a data contract: the emitted
   // object's insertion order must match the contract's canonical order.
-  if (keys.length !== allowed.length || keys.some((k, i) => k !== allowed[i])) {
+  if (!exactOrder(value, allowed)) {
     return { ok: false, error: invalid('shape', `intent fields must be in canonical order (${allowed.join(', ')})`) };
   }
-  if (kind === 'respawn') return { ok: true, kind, intent: { kind } };
+  if (kind === 'respawn') return accepted(kind, { kind });
   if (kind === 'control_move') {
     if (typeof value['value'] !== 'number') {
       return { ok: false, error: invalid('shape', 'control_move.value must be a number') };
     }
-    return { ok: true, kind, intent: { kind, value: value['value'] } };
+    return accepted(kind, { kind, value: value['value'] });
   }
   if (kind === 'control_jump') {
     if (typeof value['value'] !== 'string') {
       return { ok: false, error: invalid('shape', 'control_jump.value must be a JumpPhase string') };
     }
-    return { ok: true, kind, intent: { kind, value: value['value'] as JumpPhase } };
+    return accepted(kind, { kind, value: value['value'] as JumpPhase });
   }
   if (typeof value['entityId'] !== 'string') {
     return { ok: false, error: invalid('shape', 'transform.entityId must be a string') };
@@ -223,33 +275,35 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   if (!isPlainObject(position)) {
     return { ok: false, error: invalid('shape', 'transform.position must be an object') };
   }
-  const posKeys = Object.keys(position);
-  if (posKeys.length === 0) {
+  let axes = 0;
+  for (const key in position) if (hasOwn.call(position, key)) axes += 1;
+  if (axes === 0) {
     return { ok: false, error: invalid('shape', 'transform.position needs at least one axis') };
   }
-  for (const key of posKeys) {
-    if (!POSITION_KEYS.has(key)) {
+  for (const key in position) {
+    if (hasOwn.call(position, key) && !POSITION_KEYS.has(key)) {
       return { ok: false, error: invalid('shape', `unknown transform.position axis "${key}"`) };
     }
   }
-  const order = ['x', 'y', 'z'].filter((k) => posKeys.includes(k));
-  if (posKeys.length !== order.length || posKeys.some((k, i) => k !== order[i])) {
+  if (inOrderCount(position, AXIS_ORDER) !== axes) {
     return { ok: false, error: invalid('shape', `transform.position axes must be in x, y, z order`) };
   }
-  for (const key of posKeys) {
-    if (typeof position[key] !== 'number') {
+  for (const key in position) {
+    if (hasOwn.call(position, key) && typeof position[key] !== 'number') {
       return { ok: false, error: invalid('shape', `transform.position.${key} must be a number`) };
     }
   }
   const parsed: { x?: number; y?: number; z?: number } = {};
-  for (const key of posKeys) parsed[key as 'x' | 'y' | 'z'] = position[key] as number;
-  return { ok: true, kind, intent: { kind, entityId: value['entityId'], position: parsed } };
+  for (const key in position) if (hasOwn.call(position, key)) parsed[key as 'x' | 'y' | 'z'] = position[key] as number;
+  return accepted(kind, { kind, entityId: value['entityId'], position: parsed });
 }
 
+const AXIS_ORDER: readonly string[] = ['x', 'y', 'z'];
+
 function poseShape(value: Record<string, unknown>): IntentShapeResult {
-  const keys = Object.keys(value);
-  const order = INTENT_KEYS.pose.filter((k) => keys.includes(k));
-  if (keys.length !== order.length || keys.some((k, i) => k !== order[i])) {
+  let keys = 0;
+  for (const key in value) if (hasOwn.call(value, key)) keys += 1;
+  if (inOrderCount(value, INTENT_KEYS.pose) !== keys) {
     return { ok: false, error: invalid('shape', `pose fields must be among and in the order ${INTENT_KEYS.pose.join(', ')}`) };
   }
   if (typeof value['entityId'] !== 'string') return { ok: false, error: invalid('shape', 'pose.entityId must be a string') };
@@ -258,21 +312,25 @@ function poseShape(value: Record<string, unknown>): IntentShapeResult {
   const r = value['rotation'];
   if (r !== undefined) {
     if (!isPlainObject(r)) return { ok: false, error: invalid('shape', 'pose.rotation must be an object') };
-    const rk = Object.keys(r);
-    const rorder = ROTATION_KEYS.filter((k) => rk.includes(k));
-    if (rk.length === 0 || rk.length !== rorder.length || rk.some((k, i) => k !== rorder[i])) {
+    let rk = 0;
+    for (const key in r) if (hasOwn.call(r, key)) rk += 1;
+    if (rk === 0 || inOrderCount(r, ROTATION_KEYS) !== rk) {
       return { ok: false, error: invalid('shape', 'pose.rotation has yaw, pitch and/or roll, in that order') };
     }
-    if (rk.some((k) => typeof r[k] !== 'number')) return { ok: false, error: invalid('shape', 'pose.rotation angles must be numbers') };
-    intent.rotation = Object.fromEntries(rk.map((k) => [k, r[k] as number])) as PoseIntent['rotation'];
+    for (const key in r) {
+      if (hasOwn.call(r, key) && typeof r[key] !== 'number') return { ok: false, error: invalid('shape', 'pose.rotation angles must be numbers') };
+    }
+    const rotation: { yaw?: number; pitch?: number; roll?: number } = {};
+    for (const key in r) if (hasOwn.call(r, key)) rotation[key as 'yaw' | 'pitch' | 'roll'] = r[key] as number;
+    intent.rotation = rotation;
   }
   const s = value['scale'];
   if (s !== undefined) {
     if (typeof s === 'number') intent.scale = s;
-    else if (Array.isArray(s) && s.length === 3 && s.every((v) => typeof v === 'number')) intent.scale = [s[0] as number, s[1] as number, s[2] as number];
+    else if (Array.isArray(s) && s.length === 3 && s.every(isNumber)) intent.scale = [s[0] as number, s[1] as number, s[2] as number];
     else return { ok: false, error: invalid('shape', 'pose.scale must be a number or [x, y, z]') };
   }
-  return { ok: true, kind: 'pose', intent };
+  return accepted('pose', intent);
 }
 
 /** The runtime's phase names this module reasons about (type-only view). */
@@ -314,19 +372,27 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
   }
   if (intent.kind === 'respawn') return null;
   if (intent.kind === 'pose') {
-    for (const [axis, v] of Object.entries(intent.rotation ?? {})) {
-      if (!Number.isFinite(v) || Math.abs(v) > MAX_DEGREES) return invalid('value', `pose.rotation.${axis} must be finite and |v| <= ${MAX_DEGREES}`);
+    // Phase 21.2: walked in place (no entries/arrays per intent).
+    const rotation = intent.rotation;
+    if (rotation !== undefined) {
+      for (const axis in rotation) {
+        if (!hasOwn.call(rotation, axis)) continue;
+        const v = rotation[axis as 'yaw' | 'pitch' | 'roll'] as number;
+        if (!Number.isFinite(v) || Math.abs(v) > MAX_DEGREES) return invalid('value', `pose.rotation.${axis} must be finite and |v| <= ${MAX_DEGREES}`);
+      }
     }
-    if (intent.scale !== undefined) {
-      const s = typeof intent.scale === 'number' ? [intent.scale] : intent.scale;
-      if (s.some((v) => !Number.isFinite(v) || v < SCALE_MIN || v > SCALE_MAX)) return invalid('value', `pose.scale must be within [${SCALE_MIN}, ${SCALE_MAX}]`);
+    const scale = intent.scale;
+    if (scale !== undefined) {
+      if (typeof scale === 'number' ? !scaleOk(scale) : !scale.every(scaleOk)) return invalid('value', `pose.scale must be within [${SCALE_MIN}, ${SCALE_MAX}]`);
     }
     return null;
   }
   const position = intent.position;
-  const axes = Object.keys(position);
-  if (axes.length === 0) return invalid('value', 'transform.position needs at least one axis');
-  for (const axis of axes) {
+  let axes = 0;
+  for (const axis in position) if (hasOwn.call(position, axis)) axes += 1;
+  if (axes === 0) return invalid('value', 'transform.position needs at least one axis');
+  for (const axis in position) {
+    if (!hasOwn.call(position, axis)) continue;
     const v = position[axis as 'x' | 'y' | 'z'];
     if (typeof v !== 'number' || !Number.isFinite(v)) {
       return invalid('value', `transform.position.${axis} must be finite`);
@@ -336,6 +402,10 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
     }
   }
   return null;
+}
+
+function scaleOk(v: number): boolean {
+  return Number.isFinite(v) && v >= SCALE_MIN && v <= SCALE_MAX;
 }
 
 /** The `control_move` commit quantization (§14.4, matching §12.5.3). */

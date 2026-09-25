@@ -1682,6 +1682,8 @@ These protect the runtime and are not tuning values:
 | Registered sound assets / music tracks | 16 / 64 |
 | Spawns | 64 per step, 1024 alive |
 | Timers | 64 per script instance |
+| Script intents (move, jump, transform, pose, respawn) | 5 per script instance per step; per step at most 64 or 5 × the running script instances, whichever is larger |
+| Colliders | 256 per scene; the start scenes (and scenes loaded later) together have no combined limit |
 | Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport |
 | Model animation run threshold | 0.05 m/s |
 | Shadow-follow extent | 24 m |
@@ -1815,7 +1817,7 @@ mid-range desktop GPU at 1920×1080. Measured numbers are in §4 there.
 
 **Benchmark projects.** Five classes — small (100 entities), medium (2000
 entities, 50 materials, 20 effects), large (16 000 entities over 10 scenes,
-four instance sets of 50 000 copies), script-heavy (500 scripted objects),
+four instance sets of 50 000 copies, 200 colliders per scene), script-heavy (500 scripted objects),
 effect-heavy (20 effects, 50 000 particles) — are generated
 deterministically (`tools/perf/generate.ts`, seed 21) and built through the
 real HTTP API into a throwaway data root under
@@ -1873,6 +1875,31 @@ out the calibrated times (the noisiest here). The always-on checks are
 `tests/perf/plumbing.test.ts` (generator and comparison) and
 `tests/e2e/perf-harness.e2e.ts` (the whole harness on the small benchmark).
 Frame and load times on a real GPU: owner look pending.
+
+**Runtime and simulation (21.2).** The fixed step no longer allocates per
+entity: the step's backup and the committed state are reused copies that are
+overwritten in place (one pass over index-aligned arrays), the motion segments
+are numbers (the frozen segment objects are made only when a module asks for
+one), and the state views, step contexts and script contexts are made once
+per module, phase and script instance and read the step's values live. Intent
+checks, action frames, timers, trigger events, messages, zone decisions, the
+camera follow and the committed game view avoid per-step collections; the
+physics port visits only its one-way and moving colliders. Garbage per steady
+step went from ~1.4 KiB per entity (2.6 MiB at 2000 entities, 21 MiB at 16 000)
+to a constant 13–60 KiB whatever the size (what is left: Rapier's JS glue,
+the physics results and scripts' own intents), and a 16 000-entity step from
+~16 ms to ~1.4 ms; replays and traces are unchanged bit for bit. The render
+side reads the interpolated transforms through `forEachInterpolated` (reused
+arrays; no per-frame copy of every transform) and the host reads the
+committed game view without copying it each frame. Two limits were fixed on
+the way: the per-step intent cap now grows with the script instances (5 each;
+hundreds of moving objects may move every step), and Play and the export
+apply the 256-collider limit per scene instead of to all start scenes
+together (see "Engine limits"). `tests/perf/alloc.test.ts` (always on; needs
+`dist/`) builds the medium benchmark and fails when its steady step allocates
+64 KiB or more; `node tools/perf/run.mjs --surfaces sim` measures every
+class, and the sim child's `profile` input (tools/perf/sim.ts) writes the
+steady loop's allocation sites.
 
 ## Upgrade
 

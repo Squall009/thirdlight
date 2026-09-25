@@ -14,6 +14,7 @@
     "outputBytes": 131072,
     "intentsPerInstanceStep": 5,
     "intentsPerStep": 64,
+    "intentsPerStepRule": "phase 21.2: max(intentsPerStep, intentsPerInstanceStep x live behavior instances)",
     "logsPerInstance": 32,
     "logsPerStep": 16
   },

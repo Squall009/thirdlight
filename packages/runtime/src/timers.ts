@@ -37,7 +37,7 @@ interface Timer {
 
 export class InstanceTimers {
   private readonly timers = new Map<string, Timer>();
-  private firedNow = new Set<string>();
+  private readonly firedNow = new Set<string>();
   /** The step the instance is in (-1: none yet). */
   private step = -1;
   readonly api: BehaviorTimers;
@@ -55,23 +55,29 @@ export class InstanceTimers {
   begin(stepIndex: number): void {
     if (stepIndex === this.step) return;
     this.step = stepIndex;
-    if (this.firedNow.size > 0) this.firedNow = new Set();
-    for (const [name, t] of this.timers) {
-      if (t.due > stepIndex) continue;
-      this.firedNow.add(name);
-      if (!t.repeat) {
-        this.timers.delete(name);
-        continue;
-      }
-      // A repeating timer fires once per step even if steps were skipped.
-      while (t.due <= stepIndex) t.due += t.steps;
-    }
+    // Phase 21.2: cleared in place and walked with one bound callback (no garbage per step).
+    // (Set.clear allocates a fresh table even when empty, so only when needed.)
+    if (this.firedNow.size > 0) this.firedNow.clear();
+    if (this.timers.size > 0) this.timers.forEach(this.fireDue);
   }
+
+  /** One timer at `this.step`: due ones fire; a one-shot is removed (Map.forEach allows it). */
+  private readonly fireDue = (t: Timer, name: string): void => {
+    const stepIndex = this.step;
+    if (t.due > stepIndex) return;
+    this.firedNow.add(name);
+    if (!t.repeat) {
+      this.timers.delete(name);
+      return;
+    }
+    // A repeating timer fires once per step even if steps were skipped.
+    while (t.due <= stepIndex) t.due += t.steps;
+  };
 
   /** A new run: no timer runs, none has fired. */
   clear(): void {
-    this.timers.clear();
-    this.firedNow = new Set();
+    if (this.timers.size > 0) this.timers.clear();
+    if (this.firedNow.size > 0) this.firedNow.clear();
   }
 
   /** Running timers (diagnostics and tests). */

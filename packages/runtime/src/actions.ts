@@ -114,12 +114,13 @@ export function quantizeMove(v: number): number {
 export function validateActionFrame(
   value: unknown,
   expectedStepIndex?: number,
+  previous?: ActionFrame,
 ): { ok: true; frame: ActionFrame } | { ok: false; field: string; message: string } {
   if (!isPlainObject(value)) {
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
-  for (const key of Object.keys(value)) {
-    if (key === 'actions') continue;
+  for (const key in value) {
+    if (!hasOwn.call(value, key) || key === 'actions') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: `unknown action frame field "${key}" (strict shape)` };
     }
@@ -158,19 +159,67 @@ export function validateActionFrame(
   }
   const rawActions = value['actions'];
   if (rawActions === undefined) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase } };
-  if (!isPlainObject(rawActions) || Object.keys(rawActions).length > MAX_FRAME_ACTIONS) {
+  if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
-  const actions: Record<string, ActionValue> = {};
-  for (const [name, a] of Object.entries(rawActions)) {
-    const num = (x: unknown): boolean => typeof x === 'number' && Number.isFinite(x) && x >= -10 && x <= 10;
-    if (!ACTION_NAME_RE.test(name) || !isPlainObject(a) || !num(a['v']) || !JUMP_PHASES.includes(a['p'] as JumpPhase) || (a['x'] !== undefined && !num(a['x'])) || (a['y'] !== undefined && !num(a['y']))) {
+  // Phase 21.2: the frozen action values (and the whole frozen map) of the
+  // previous frame are reused when they are equal — they are immutable, so
+  // sharing them is invisible, and steady input makes no objects per step.
+  const prevActions = previous?.actions;
+  let same = prevActions !== undefined;
+  let index = 0;
+  for (const name in rawActions) {
+    if (!hasOwn.call(rawActions, name)) continue;
+    const a = rawActions[name];
+    if (!ACTION_NAME_RE.test(name) || !isPlainObject(a) || !actionNumber(a['v']) || !JUMP_PHASES.includes(a['p'] as JumpPhase) || (a['x'] !== undefined && !actionNumber(a['x'])) || (a['y'] !== undefined && !actionNumber(a['y']))) {
       return { ok: false, field: `actions/${name}`, message: 'an action value is { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }' };
     }
-    for (const k of Object.keys(a)) if (k !== 'v' && k !== 'x' && k !== 'y' && k !== 'p') return { ok: false, field: `actions/${name}/${k}`, message: `unknown action value field "${k}"` };
-    actions[name] = Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
+    for (const k in a) if (hasOwn.call(a, k) && k !== 'v' && k !== 'x' && k !== 'y' && k !== 'p') return { ok: false, field: `actions/${name}/${k}`, message: `unknown action value field "${k}"` };
+    if (same && !(sameActionValue(prevActions![name], a) && keyAt(prevActions!, index) === name)) same = false;
+    index += 1;
+  }
+  if (same && ownKeyCount(prevActions!) === index) return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: prevActions! } };
+  const actions: Record<string, ActionValue> = {};
+  for (const name in rawActions) {
+    if (!hasOwn.call(rawActions, name)) continue;
+    const a = rawActions[name] as Record<string, unknown>;
+    const prev = prevActions?.[name];
+    actions[name] =
+      prev !== undefined && sameActionValue(prev, a)
+        ? prev
+        : Object.freeze({ v: a['v'] as number, ...(a['x'] !== undefined ? { x: a['x'] as number } : {}), ...(a['y'] !== undefined ? { y: a['y'] as number } : {}), p: a['p'] as JumpPhase });
   }
   return { ok: true, frame: { stepIndex, moveX, jump: jump as JumpPhase, actions: Object.freeze(actions) } };
+}
+
+const hasOwn = Object.prototype.hasOwnProperty;
+
+function actionNumber(x: unknown): boolean {
+  return typeof x === 'number' && Number.isFinite(x) && x >= -10 && x <= 10;
+}
+
+function ownKeyCount(o: object): number {
+  let n = 0;
+  for (const k in o) if (hasOwn.call(o, k)) n += 1;
+  return n;
+}
+
+/** The `index`-th own key of `o` (for-in order, as `Object.keys`). */
+function keyAt(o: object, index: number): string | undefined {
+  let i = 0;
+  for (const k in o) {
+    if (!hasOwn.call(o, k)) continue;
+    if (i === index) return k;
+    i += 1;
+  }
+  return undefined;
+}
+
+/** A validated raw action value equals a frozen one (the same fields; an absent x/y stays absent). */
+function sameActionValue(prev: ActionValue | undefined, a: unknown): boolean {
+  if (prev === undefined) return false;
+  const r = a as Record<string, unknown>;
+  return Object.is(prev.v, r['v']) && prev.p === r['p'] && Object.is(prev.x, r['x']) && Object.is(prev.y, r['y']) && ('x' in prev) === (r['x'] !== undefined) && ('y' in prev) === (r['y'] !== undefined);
 }
 
 /**

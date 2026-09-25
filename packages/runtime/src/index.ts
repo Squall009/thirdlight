@@ -88,6 +88,7 @@ export {
   type InstantiateConfig,
   type InterpolatedState,
   type InterpolatedTransform,
+  type InterpolatedVisitor,
   type ModuleConfig,
   type ModuleResetContext,
   type MotionSegment,

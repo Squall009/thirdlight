@@ -39,9 +39,9 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect((project['scenes'] as { entityCount: number }[])[0]!.entityCount).toBe(100);
 
   const opts: SurfaceOptions = { warmupMs: 300, recordMs: 1500, viewport: { width: 960, height: 540 } };
-  const play = await measurePlay(browser, be, 'bench', 'legacy', opts);
+  const play = await measurePlay(browser, be, 'bench', 'webgl2', opts);
   expect(play.state).toBe('playing');
-  expect(play.rendererChoice?.backend).toBe('legacy');
+  expect(play.rendererChoice?.backend).toBe('webgl2');
   expect(play.apis).toContain('webgl2');
   expect(play.load['firstFrameMs']).toBeGreaterThan(0);
   expect(play.drawCalls.p50).toBeGreaterThan(0);
@@ -53,14 +53,14 @@ test('the harness measures the small benchmark in Play, the export, the editor a
 
   const exported = await be.post('/api/v1/admin/projects/bench/export', {});
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
-  const exp = await measureExport(browser, join(be.exportRoot, String(exported.json['outputDir'])), 'legacy', opts);
+  const exp = await measureExport(browser, join(be.exportRoot, String(exported.json['outputDir'])), 'webgl2', opts);
   expect(exp.notes.filter((n) => n.startsWith('page errors'))).toEqual([]);
   expect(exp.load['firstFrameMs']).toBeGreaterThan(0);
   expect(exp.frameMs.n).toBeGreaterThan(0);
   expect(exp.drawCalls.p50).toBeGreaterThan(0);
 
   const probe = ((await be.project('bench').query('queryEntities', { limit: 200, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[]).find((e) => e.components['box'] !== undefined && e.components['collider'] === undefined && e.components['controller'] === undefined)!.id;
-  const ed = await measureEditor(browser, be, 'bench', 'legacy', { ...opts, commands: 5, entityId: probe });
+  const ed = await measureEditor(browser, be, 'bench', 'webgl2', { ...opts, commands: 5, entityId: probe });
   // Orbiting redraws the Scene view: several frames drew the scene.
   expect(ed.surface.frameMs.n).toBeGreaterThan(2);
   expect(ed.surface.drawCalls.p50).toBeGreaterThan(0);
@@ -77,8 +77,8 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect(sim.bytesPerStep.windows + sim.bytesPerStep.discarded).toBeGreaterThan(0);
 
   const metrics = metricsOf({
-    calibration: { cpuMs: 10, cpuMsEnd: 10, browser: { legacy: { frameMs: { n: 1, p50: 10, p95: 10, p99: 10, max: 10, mean: 10 }, drawCalls: { n: 1, p50: 1, p95: 1, p99: 1, max: 1, mean: 1 } } } },
+    calibration: { cpuMs: 10, cpuMsEnd: 10, browser: { webgl2: { frameMs: { n: 1, p50: 10, p95: 10, p99: 10, max: 10, mean: 10 }, drawCalls: { n: 1, p50: 1, p95: 1, p99: 1, max: 1, mean: 1 } } } },
     benchmarks: { small: { cpuMs: 10, calibration: {}, build: built, counts: plan.counts, surfaces: [play, exp, ed.surface], commandMs: ed.commandMs, sim, errors: [] } },
   });
-  for (const key of ['small.play.legacy.drawCalls', 'small.export.legacy.frameMean/cal', 'small.editor.legacy.heapMiB', 'small.command.p95/cpu', 'small.sim.KiBPerStep']) expect(metrics[key], key).toBeDefined();
+  for (const key of ['small.play.webgl2.drawCalls', 'small.export.webgl2.frameMean/cal', 'small.editor.webgl2.heapMiB', 'small.command.p95/cpu', 'small.sim.KiBPerStep']) expect(metrics[key], key).toBeDefined();
 });

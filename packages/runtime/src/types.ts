@@ -963,6 +963,13 @@ export interface Runtime {
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError };
   getDiagnostics(): { ok: true; diagnostics: RuntimeDiagnostics } | { ok: false; error: RuntimeError };
   getInterpolatedState(): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError };
+  /**
+   * Phase 21.2: the same interpolated transforms without allocating — each
+   * entity (draw order) handed to `visit` in reused arrays. False when disposed.
+   */
+  forEachInterpolated?(visit: InterpolatedVisitor): boolean;
+  /** Phase 21.2: one entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
+  readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
@@ -974,6 +981,12 @@ export interface Runtime {
    * `runtime_disposed` after `dispose()`.
    */
   getGameView(): { ok: true; view: GameView } | { ok: false; error: RuntimeError };
+  /**
+   * Phase 21.2: the committed view itself (deep-frozen, so it cannot alias
+   * anything mutable) without the copy `getGameView` makes — for a host that
+   * reads it every frame. Null where `getGameView` fails.
+   */
+  peekGameView?(): GameView | null;
   /**
    * Queue one run command between frame updates (never during a step).
    * A command invalid for the current run state is rejected immediately
@@ -1018,6 +1031,13 @@ export interface InterpolatedState {
   alpha: number;
   transforms: InterpolatedTransform[];
 }
+
+/**
+ * Phase 21.2: a visitor of `Runtime.forEachInterpolated` — one entity's
+ * interpolated transform in arrays the runtime reuses (read or copy them
+ * during the call; they hold the next entity after it).
+ */
+export type InterpolatedVisitor = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]) => void;
 
 /** The snapshot's camera projection parameters (runtime.md §6 `getCamera`). */
 export interface CameraInfo {

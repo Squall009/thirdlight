@@ -6,7 +6,7 @@
  * allocation windows).
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { REPO } from './backend';
@@ -34,7 +34,9 @@ export function simBundle(): Promise<string> {
       platform: 'node',
       format: 'esm',
       target: 'node22',
-      outfile: out,
+      // Written aside and renamed into place: a harness and a test bundling at
+      // the same time never start a child on a half-written file.
+      outfile: `${out}.${process.pid}.tmp`,
       logLevel: 'warning',
       plugins: [
         {
@@ -46,6 +48,7 @@ export function simBundle(): Promise<string> {
         },
       ],
     });
+    renameSync(`${out}.${process.pid}.tmp`, out);
     return out;
   })();
   return bundled;

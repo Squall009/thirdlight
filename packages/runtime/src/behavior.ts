@@ -514,12 +514,28 @@ interface BehaviorInstance {
   stepLogs: number;
   /** Committed intents in `counterStep`. */
   stepIntents: number;
-  /** Committed channels in `counterStep` (`move`/`jump`/`t:<id>:<axis>`). */
-  committed: Set<string>;
+  /**
+   * Committed channels per entity (phase 21.2: a bit mask tagged with its
+   * step, `(counterStep + 1) * 64 + mask`, so nothing is cleared per step):
+   * position x/y/z = 1/2/4, rotation 8, scale 16.
+   */
+  committed: Map<string, number>;
+  /** Committed non-entity channels (`control_move`, `control_jump`, `respawn`): the tagged step. */
+  committedKinds: Map<string, number>;
   /** Phase 14.2: `ctx.timers` of this instance. */
   timers: InstanceTimers;
   /** Phase 14.2: this step's `ctx.events` (built once per step, shared by its phases). */
-  events: { step: number; list: readonly (AnimatorEventRecord | TriggerEventRecord)[] } | null;
+  events: readonly (AnimatorEventRecord | TriggerEventRecord)[] | null;
+  /** The step `events` belongs to. */
+  eventsStep: number;
+  /**
+   * Phase 21.2: this instance's `ctx` per phase, made once for the runtime's
+   * (reused) step context `src` and read live (step, frame, intents, events).
+   */
+  contexts: Map<SimulationPhase, { src: StepContext; ctx: BehaviorContext }>;
+  /** Phase 21.2: `ctx.log` and `ctx.messages` of this instance (made once). */
+  log: ((level: BehaviorLogLevel, message: string) => void) | null;
+  messages: { src: StepContext; view: BehaviorMessages } | null;
 }
 
 /**
@@ -638,7 +654,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Set(), timers: new InstanceTimers(cfg.fixedStepHz), events: null };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -659,7 +675,6 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           instance.counterStep = stepIndex;
           instance.stepLogs = 0;
           instance.stepIntents = 0;
-          instance.committed.clear();
         }
         // Phase 14.2: the timers due in this step fire (once per step, whatever the phases).
         instance.timers.begin(stepIndex);
@@ -680,11 +695,13 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       };
       /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers. */
       const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly (AnimatorEventRecord | TriggerEventRecord)[] => {
-        if (instance.events !== null && instance.events.step === ctx.stepIndex) return instance.events.list;
-        const clips = ctx.animatorEvents ?? [];
-        const owned = (ctx.triggerEvents ?? []).filter((t: TriggerEventRecord) => ownsTrigger(instance, t.trigger));
+        if (instance.events !== null && instance.eventsStep === ctx.stepIndex) return instance.events;
+        const clips = ctx.animatorEvents ?? NO_EVENTS;
+        const triggers = ctx.triggerEvents;
+        const owned = triggers === undefined || triggers.length === 0 ? NO_EVENTS : triggers.filter((t: TriggerEventRecord) => ownsTrigger(instance, t.trigger));
         const list = owned.length === 0 ? clips : Object.freeze([...clips, ...owned]);
-        instance.events = { step: ctx.stepIndex, list };
+        instance.events = list;
+        instance.eventsStep = ctx.stepIndex;
         return list;
       };
 
@@ -701,32 +718,39 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (phaseError !== null) throw phaseError;
         const valueError = validateIntentValue(intent);
         if (valueError !== null) throw valueError;
-        const channels: string[] = [];
-        if (intent.kind === 'transform') {
+        // The channels this intent writes, as bits (phase 21.2: no per-intent strings or sets).
+        const tag = (instance.counterStep + 1) * 64;
+        let bits = 0;
+        let key: string;
+        let map: Map<string, number>;
+        if (intent.kind === 'transform' || intent.kind === 'pose') {
           if (!owns(instance, intent.entityId)) {
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
-          for (const axis of Object.keys(intent.position)) channels.push(`t:${intent.entityId}:${axis}`);
-        } else if (intent.kind === 'pose') {
-          if (!owns(instance, intent.entityId)) {
-            throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
+          if (intent.kind === 'transform') {
+            for (const axis in intent.position) bits |= axis === 'x' ? 1 : axis === 'y' ? 2 : 4;
+          } else {
+            if (intent.rotation !== undefined) bits |= 8;
+            if (intent.scale !== undefined) bits |= 16;
           }
-          if (intent.rotation !== undefined) channels.push(`p:${intent.entityId}:rotation`);
-          if (intent.scale !== undefined) channels.push(`p:${intent.entityId}:scale`);
+          key = intent.entityId;
+          map = instance.committed;
         } else {
-          channels.push(intent.kind);
+          bits = 1;
+          key = intent.kind;
+          map = instance.committedKinds;
         }
-        for (const channel of channels) {
-          if (instance.committed.has(channel)) {
-            throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `behavior instance "${instance.entityId}" already committed ${channel} in this step`);
-          }
+        const stored = map.get(key);
+        const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
+        if ((have & bits) !== 0) {
+          throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `behavior instance "${instance.entityId}" already committed ${channelName(intent, have & bits)} in this step`);
         }
         instance.stepIntents += 1;
         if (instance.stepIntents > INTENT_LIMITS.perInstancePerStep) {
           throw new BehaviorHostIntentLimit(instance.entityId);
         }
         ctx.emit(intent);
-        for (const channel of channels) instance.committed.add(channel);
+        map.set(key, tag + (have | bits));
       };
 
       const logFor = (instance: BehaviorInstance) => (level: BehaviorLogLevel, message: string): void => {
@@ -754,43 +778,94 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         });
       };
 
-      const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext, world: BehaviorWorldView): void => {
+      /**
+       * Phase 21.2: `ctx.input` of the step's frame — one view per frame object,
+       * shared by every instance and phase of the step.
+       */
+      let inputFrame: ActionFrame | null = null;
+      let inputOfFrame: BehaviorInputView | null = null;
+      const inputFor = (frame: ActionFrame): BehaviorInputView => {
+        if (inputFrame !== frame || inputOfFrame === null) {
+          inputFrame = frame;
+          inputOfFrame = inputView(frame);
+        }
+        return inputOfFrame;
+      };
+      /** Phase 21.2: `ctx.world` per runtime step context (it reads `state.curr` live). */
+      const worlds = new WeakMap<StepContext, BehaviorWorldView>();
+      const worldFor = (ctx: StepContext): BehaviorWorldView => {
+        let w = worlds.get(ctx);
+        if (w === undefined) {
+          w = worldView(ctx);
+          worlds.set(ctx, w);
+        }
+        return w;
+      };
+
+      /**
+       * The frozen `ctx` of one instance in one phase. Made once per runtime
+       * step context (the runtime reuses one per module and phase); the values
+       * that change from step to step are getters reading `src`, so a script
+       * sees exactly what a context made for this call would hold.
+       */
+      const contextFor = (instance: BehaviorInstance, phase: SimulationPhase, src: StepContext): BehaviorContext => {
+        // No closures in this function: V8 would allocate their scope at every call, cache hits included.
+        const cached = instance.contexts.get(phase);
+        if (cached !== undefined && cached.src === src) return cached.ctx;
+        return buildContext(instance, phase, src);
+      };
+      const buildContext = (instance: BehaviorInstance, phase: SimulationPhase, src: StepContext): BehaviorContext => {
+        const fields: PropertyDescriptorMap = {
+          behaviorId: { value: behaviorId, enumerable: true },
+          entityId: { value: instance.entityId, enumerable: true },
+          stepIndex: { get: () => src.stepIndex, enumerable: true },
+          phase: { value: phase, enumerable: true },
+          properties: { value: instance.properties, enumerable: true },
+          action: { get: () => src.action, enumerable: true },
+          intents: { get: () => src.intents, enumerable: true },
+          settings: { value: src.settings, enumerable: true },
+          physics: { value: src.physics, enumerable: true },
+          tags: { value: tags, enumerable: true },
+          world: { value: worldFor(src), enumerable: true },
+        };
+        if (src.scenes !== undefined) fields['scenes'] = { value: src.scenes, enumerable: true };
+        // Phase 9.8: the step's input actions by name.
+        fields['input'] = { get: () => inputFor(src.action), enumerable: true };
+        // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
+        // events and (phase 14.2) the owned triggers' enter/exit events.
+        if (src.animators !== undefined) fields['animator'] = { value: src.animators.of, enumerable: true };
+        if (src.animators !== undefined || src.triggerEvents !== undefined) fields['events'] = { get: () => eventsFor(instance, src), enumerable: true };
+        // Phase 14.2: named step-counted timers of this instance.
+        fields['timers'] = { value: instance.timers.api, enumerable: true };
+        // Phase 9.9: signals and the run's counters.
+        if (src.signals !== undefined) fields['signals'] = { value: src.signals, enumerable: true };
+        // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
+        if (src.messages !== undefined) fields['messages'] = { value: messagesOf(instance, src), enumerable: true };
+        if (src.game !== undefined) fields['game'] = { value: src.game, enumerable: true };
+        // Phase 9.10: sounds (played by the host; the simulation never waits on them).
+        if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
+        // Phase 9.11: values kept in the player's save.
+        if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
+        // Phase 14.1: prefab copies in the running game.
+        if (src.spawner !== undefined) {
+          fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
+          fields['destroy'] = { value: src.spawner.destroy, enumerable: true };
+        }
+        fields['emit'] = { value: emitFor(instance, src, phase), enumerable: true };
+        if (instance.log === null) instance.log = logFor(instance);
+        fields['log'] = { value: instance.log, enumerable: true };
+        const ctx = Object.freeze(Object.defineProperties({}, fields)) as BehaviorContext;
+        instance.contexts.set(phase, { src, ctx });
+        return ctx;
+      };
+      const messagesOf = (instance: BehaviorInstance, src: StepContext): BehaviorMessages => {
+        if (instance.messages === null || instance.messages.src !== src) instance.messages = { src, view: messagesFor(instance, src) };
+        return instance.messages.view;
+      };
+
+      const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
         beginInstanceStep(instance, ctx.stepIndex);
-        const behaviorCtx: BehaviorContext = Object.freeze({
-          behaviorId,
-          entityId: instance.entityId,
-          stepIndex: ctx.stepIndex,
-          phase,
-          properties: instance.properties,
-          action: ctx.action,
-          intents: ctx.intents,
-          settings: ctx.settings,
-          physics: ctx.physics,
-          tags,
-          world,
-          ...(ctx.scenes !== undefined ? { scenes: ctx.scenes } : {}),
-          // Phase 9.8: the step's input actions by name.
-          input: inputView(ctx.action),
-          // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
-          // events and (phase 14.2) the owned triggers' enter/exit events.
-          ...(ctx.animators !== undefined ? { animator: ctx.animators.of } : {}),
-          ...(ctx.animators !== undefined || ctx.triggerEvents !== undefined ? { events: eventsFor(instance, ctx) } : {}),
-          // Phase 14.2: named step-counted timers of this instance.
-          timers: instance.timers.api,
-          // Phase 9.9: signals and the run's counters.
-          ...(ctx.signals !== undefined ? { signals: ctx.signals } : {}),
-          // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
-          ...(ctx.messages !== undefined ? { messages: messagesFor(instance, ctx) } : {}),
-          ...(ctx.game !== undefined ? { game: ctx.game } : {}),
-          // Phase 9.10: sounds (played by the host; the simulation never waits on them).
-          ...(ctx.audio !== undefined ? { audio: ctx.audio } : {}),
-          // Phase 9.11: values kept in the player's save.
-          ...(ctx.save !== undefined ? { save: ctx.save } : {}),
-          // Phase 14.1: prefab copies in the running game.
-          ...(ctx.spawner !== undefined ? { spawn: ctx.spawner.spawn, destroy: ctx.spawner.destroy } : {}),
-          emit: emitFor(instance, ctx, phase),
-          log: logFor(instance),
-        });
+        const behaviorCtx = contextFor(instance, phase, ctx);
         let result: unknown;
         try {
           result = spec.step(instance.state, behaviorCtx);
@@ -841,6 +916,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           for (const instance of instances) {
             instance.timers.clear();
             instance.events = null;
+            instance.eventsStep = -1;
             try {
               spec.dispose?.(readonlyResult, instance.state);
             } catch (e) {
@@ -858,8 +934,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
           if (instances.length === 0) return;
-          const world = worldView(ctx);
-          for (const instance of instances) stepBehavior(instance, phase, ctx, world);
+          for (let i = 0; i < instances.length; i += 1) stepBehavior(instances[i]!, phase, ctx);
         },
         sceneLoaded(entities): void {
           // Phase 12 (c): new carriers get their instance (document order of
@@ -969,6 +1044,20 @@ export class BehaviorHostIntentLimit extends Error {
     super(clipMessage(`behavior instance "${entityId}" exceeded the per-instance intent bound`));
     this.name = 'BehaviorHostIntentLimit';
   }
+}
+
+const NO_EVENTS: readonly never[] = Object.freeze([]);
+
+/** The first committed channel among `bits` of an intent, as the duplicate message names it. */
+function channelName(intent: BehaviorIntent, bits: number): string {
+  if (intent.kind === 'transform') {
+    for (const axis in intent.position) {
+      const bit = axis === 'x' ? 1 : axis === 'y' ? 2 : 4;
+      if ((bits & bit) !== 0) return `t:${intent.entityId}:${axis}`;
+    }
+  }
+  if (intent.kind === 'pose') return `p:${intent.entityId}:${(bits & 8) !== 0 ? 'rotation' : 'scale'}`;
+  return intent.kind;
 }
 
 /**

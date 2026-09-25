@@ -406,6 +406,49 @@ describe('validated intents (runtime.md §14.4/§14.5)', () => {
     // the sixth write was rejected.
     expect(d.intentCommitCount).toBe(5);
   });
+
+  it('phase 21.2: scales the per-step cap with the live instances (20 instances × 4 intents = 80 > 64 is accepted)', () => {
+    const ids = Array.from({ length: 20 }, (_, i) => `box-${String(i + 1).padStart(4, '0')}`);
+    const art = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { phase: string; entityId: string; emit: (i: unknown) => void };
+      if (c.phase !== 'transform') return;
+      c.emit({ kind: 'transform', entityId: c.entityId, position: { x: 1 } });
+      c.emit({ kind: 'transform', entityId: c.entityId, position: { y: 2 } });
+      c.emit({ kind: 'transform', entityId: c.entityId, position: { z: 3 } });
+      c.emit({ kind: 'pose', entityId: c.entityId, rotation: { yaw: 90 } });
+    }, { ownedTransforms: ['@self'] });
+    const h = boot([art], sceneWithBehaviors(ids.map((entityId) => ({ entityId, behaviorId: 'behavior-0001' }))));
+    h.boot();
+    for (let i = 1; i <= 3; i += 1) h.tick(i * DT);
+    const d = h.diag();
+    expect(d.state).toBe('running');
+    expect(d.errors).toEqual([]);
+    expect(20 * 4).toBeGreaterThan(INTENT_LIMITS.perStep);
+    // Every step committed all 80.
+    expect((d.intentCommitCount ?? 0) % 80).toBe(0);
+    expect(d.intentCommitCount).toBeGreaterThanOrEqual(80 * 3);
+  });
+
+  it('phase 21.2: keeps the fixed floor of 64 for intents not bounded per instance (a module without instances)', () => {
+    const boxes = Array.from({ length: 22 }, (_, i) => `box-${String(i + 1).padStart(4, '0')}`);
+    const flood = probeSpec({
+      id: 'thirdlight.test:flood',
+      phases: ['transform'],
+      owners: boxes,
+      step: (_phase, ctx) => {
+        for (const id of boxes) for (const axis of ['x', 'y', 'z']) ctx.emit({ kind: 'transform', entityId: id, position: { [axis]: 1 } });
+      },
+    });
+    const scene = sceneWithBehaviors([]) as { entities: unknown[] };
+    for (const id of boxes) scene.entities.push({ id, components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [1, 1, 1], material: { color: '#ffffff' } } } });
+    const h = boot([], scene, { extraSpecs: [flood] });
+    h.boot();
+    const d = h.diag();
+    expect(d.state).toBe('failed');
+    expect(d.errors[0]?.reason).toBe('behavior_intent_limit');
+    expect(d.errors[0]?.detail).toBe('per_step');
+    expect(d.intentCommitCount).toBe(INTENT_LIMITS.perStep);
+  });
 });
 
 describe('bounded logs (runtime.md §14.8)', () => {

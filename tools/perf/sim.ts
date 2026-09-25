@@ -17,7 +17,7 @@
  * Input: env TL_SIM = JSON { projectDir, warmup, steps, window, windows }.
  * Output: one JSON line on stdout.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PerformanceObserver, performance } from 'node:perf_hooks';
 import v8 from 'node:v8';
@@ -39,6 +39,13 @@ interface SimInput {
   steps: number;
   window: number;
   windows: number;
+  /**
+   * Phase 21.2: write the allocation sites of the steady loop (V8's sampling
+   * heap profiler over `profileSteps` steps after the warm-up, collected
+   * objects included) to this JSON file.
+   */
+  profile?: string;
+  profileSteps?: number;
 }
 
 export interface SimResult {
@@ -188,6 +195,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const bootMs = performance.now() - t0;
 
   for (let i = 0; i < input.warmup; i += 1) tick();
+  if (input.profile !== undefined) await profileSteps(input.profile, input.profileSteps ?? 240, tick);
 
   // Allocation windows (no timing calls inside them).
   const gcs: number[] = [];
@@ -246,6 +254,35 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     state: String(view?.state ?? 'unknown'),
     counters: rt.gameCounters?.() ?? null,
   };
+}
+
+/** The top allocation sites (self bytes per step) of `steps` steps, from V8's sampling heap profiler. */
+async function profileSteps(path: string, steps: number, tick: () => void): Promise<void> {
+  const { Session } = await import('node:inspector');
+  const session = new Session();
+  session.connect();
+  const post = (method: string, params?: object): Promise<Any> =>
+    new Promise((ok, no) => session.post(method, params ?? {}, (e: Error | null, r: Any) => (e ? no(e) : ok(r))));
+  await post('HeapProfiler.enable');
+  // Keep the samples of objects collected during the window: garbage is what we look for.
+  await post('HeapProfiler.startSampling', { samplingInterval: 256, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+  for (let i = 0; i < steps; i += 1) tick();
+  const { profile } = await post('HeapProfiler.stopSampling');
+  session.disconnect();
+  const sites = new Map<string, number>();
+  const walk = (node: Any, stack: string[]): void => {
+    const f = node.callFrame;
+    const here = `${f.functionName || '(anon)'} ${String(f.url).split('/').slice(-2).join('/')}:${f.lineNumber + 1}`;
+    const next = [...stack, here].slice(-4);
+    if (node.selfSize > 0) {
+      const key = next.slice().reverse().join(' < ');
+      sites.set(key, (sites.get(key) ?? 0) + node.selfSize);
+    }
+    for (const c of node.children ?? []) walk(c, next);
+  };
+  walk(profile.head, []);
+  const top = [...sites.entries()].sort((a, b) => b[1] - a[1]).slice(0, 80).map(([site, bytes]) => ({ bytesPerStep: Math.round(bytes / steps), site }));
+  writeFileSync(path, `${JSON.stringify(top, null, 1)}\n`);
 }
 
 const round = (v: number): number => Math.round(v * 1000) / 1000;

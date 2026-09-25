@@ -177,6 +177,56 @@ entities: no instancing of repeated boxes/kit pieces yet), programs are few
 (4 legacy); the editor draws every object (16 233 draw calls at 16k) and a
 command round trip grows with the project size (666 ms p95 at 16k).
 
+#### 21.2 Runtime and simulation (2026-09-25)
+
+Measured with the harness's headless simulation (Node, `--expose-gc`, the
+real game host + platformer + Rapier + the compiled scripts, fixed input:
+run right, jump every 1.5 s; bytes = used-heap growth per steady step over
+windows without a collection, median). Same host, shared with other agents.
+"Before" = report `~/.cache/thirdlight-perf/reports/a2e8-before.json`
+(commit 73a0be6 = main + 21.0/21.1; **load average 15.2 → 16.7**); "after" =
+`a2e8-after-sim.json` (**load 11.2 → 11.3**). Times are raw and noisy; the
+calibrated ratio (step p50 ÷ the harness's fixed CPU workload measured just
+before) compares across the load change.
+
+| Sim, per steady step | small | medium | large | script-heavy | effect-heavy |
+|---|---|---|---|---|---|
+| Garbage before → after | 236 KiB → 19 KiB | 2.64 MiB → 29 KiB | 20.8 MiB → 46 KiB | 2.15 MiB → 61 KiB | 225 KiB → 13 KiB |
+| Step p50 / p95 before (ms) | 0.21 / 0.59 | 1.25 / 3.20 | 16.0 / 29.5 | 4.14 / 8.20 | 0.35 / 0.62 |
+| Step p50 / p95 after (ms) | 0.13 / 0.16 | 0.17 / 0.40 | 1.36 / 1.86 | 0.63 / 0.85 | 0.07 / 0.11 |
+| p50 ÷ CPU calibration before → after | 0.022 → 0.009 | 0.180 → 0.013 | 1.148 → 0.183 | 0.519 → 0.096 | 0.024 → 0.006 |
+
+The large class of the "after" column is generator v2: 2000 colliders (200
+per scene) instead of 200 — the same v1 project measured 40 KiB and 1.55 ms
+(load ~7) after the change. Garbage no longer grows with the entity count;
+what remains per step is constant: Rapier's JS glue (the character
+controller calls a JS filter per candidate collider through wasm-bindgen,
+also without a filter of ours; ~8 KiB at medium), the physics result objects,
+the step's action frame, and the scripts' own intent objects and API results
+(script-heavy: 500 scripts). The budgets' 2 ms per step now holds at 16 000
+entities; the 0 B goal does not (constant remainder above).
+
+Step by step (the kept v1 projects, 1200 timed steps after 240 warm-up;
+load 7–21, so the times only show the trend; not every class was measured
+after every change):
+
+| Change | Class | Garbage per step | Step p50 |
+|---|---|---|---|
+| before | medium | 2.77 MB | 1.17 ms |
+| backup and committed copies reused in place (`TransformMirror`), motion segments as numbers | medium | 402 KB | 1.12 ms |
+| state views, step contexts, the intents view and owner sets made once per module and phase | medium | 140 KB | 0.83 ms |
+| script contexts made once per instance and phase; timers without per-step sets | medium / script-heavy / large | 100 KB / 312 KB / 76 KB | 0.41 / 0.44 / 4.13 ms |
+| physics port: one-way and moving colliders listed once, no per-step maps | medium | 55 KB | 0.76 ms (load 20) |
+| closures out of the cache-hit paths (V8 allocated their scope per call), per-step events, bit-mask intent channels, allocation-free intent checks, `clear()` only when non-empty, quiet game-session boundaries, the host reads the committed view without a copy | small / script-heavy / large | 31 KB / 144 KB / 55 KB | 0.21 / — / 4.13 ms |
+| index-aligned mirror copies and segment records (no lookups by id) | large | 41 KB | 1.55 ms |
+| zones, camera follow, action frames, blocks, segment views without per-step objects | small / medium / script-heavy | 20 KB / 29 KB / 63 KB | 0.13 / 0.30 / 0.66 ms (load 17) |
+
+Determinism: every replay/trace fixture test and the Sprout play-through
+(same result line as before) pass unchanged, and a digest of every
+interpolated transform, the game view and the counters over 1200 steps of
+each benchmark is identical before and after (and `forEachInterpolated`
+equals `getInterpolatedState` value for value).
+
 ### Decision log
 
 - 2026-09-25 (21.0): budgets written per scene class for a mid-range desktop (2020-class GPU, 1920×1080, 4-core CPU) — generic sizes, not the demo; frame time is judged at p95.
@@ -195,3 +245,15 @@ command round trip grows with the project size (666 ms p95 at 16k).
 - 2026-09-25 (21.1): the baseline holds only machine-independent metrics — counts, memory, and times divided by a calibration measured just before each class (a fixed raw-WebGL 2 page for frame times, a fixed arithmetic loop for Node times) — with tolerances counts +10 % (+2), memory +25 % (+2), calibrated times +75 % (+0.25); the opt-in test is `TL_PERF=1` (`TL_PERF_KINDS=count,memory` drops the noisy times). The always-on checks are the generator/plumbing unit tests and one short e2e on the small class.
 - 2026-09-25 (21.1): viewport 1280×720 on this host (1080p on SwiftShader makes the heavy classes take minutes per frame); renderers legacy + webgl2 by default, webgpu/auto opt-in (they add the headless WebGPU flags).
 - 2026-09-25 (21.1): finding — Play of the large project never starts: the backend holds the `play.started` message when it exceeds the 1 MiB WebSocket frame bound (the large snapshot is ~10 MiB; `play-routes.ts` logs "held") and the editor waits forever with no notice. The export of the same project runs. Input for 21.4 (deliver the snapshot by reference or in chunks, and show an error).
+- 2026-09-25 (21.2): reuse instead of snapshot — the step's backup (`prev` after the step) alternates between two `TransformMirror`s and the committed state is a third, overwritten in place; a mirror keeps the source's key order exactly and rebuilds when the runtime's shape counter (bumped on every transform added or removed), the map or its size changes, so readers see what a fresh clone showed. Frozen objects handed to modules (motion segments, intents views, game views, events) stay immutable and fresh per change — only engine-internal copies are reused.
+- 2026-09-25 (21.2): the state views, step contexts and script contexts are made once per module/instance and phase and read the step's values through getters (step index, frame, intents snapshot taken when the module starts, events); a script's `ctx` is the same object every step (and `ctx.input` one view per frame). A context kept across steps now reads the current step instead of a stale copy — no script or test relied on the stale copy.
+- 2026-09-25 (21.2): intents validated by the behavior host are not re-copied by the runtime (the host's parsed copy is never seen by the script; the runtime still runs its phase/value/ownership/duplicate/cap checks), and per-step channel bookkeeping uses bit masks tagged with the step instead of strings in cleared sets — V8's `Map/Set.clear()` allocates a new table even when empty, so every per-step `clear()` is guarded.
+- 2026-09-25 (21.2): a quiet boundary (no reset) no longer builds the boundary game view: the step's commit or a fail-stop replaces it before anything can read it; with a reset it is built as before.
+- 2026-09-25 (21.2): interpolation for rendering is `Runtime.forEachInterpolated` (reused arrays, same `lerp`/`slerp` code as `getInterpolatedState` via the `…Into` forms) and `readInterpolated` for single entities; the three.js adapter change is limited to that read (17.4 works in the adapter). The game host no longer copies every transform per frame for audio sources (it did even without any) and reads the frozen committed view with `peekGameView` instead of a deep copy per read.
+- 2026-09-25 (21.2): Rapier — the character controller's one-way filter is passed only when a one-way collider near the swept capsule could be refused (else it would accept every candidate, the same as none), the one-way/moving collider lists replace per-step walks of every collider through WASM, the query pipeline is still updated by the one `world.step()` per step (no dynamic bodies; statics do not move) and movers keep `setNextKinematic*` once per step. Rapier's compat build calls a JS closure per candidate collider even without a filter (~8 KiB per step at medium) — not fixable from our side in the pinned version.
+- 2026-09-25 (21.2): the intent cap — it was per step over all modules and instances (not per behavior, as 21.0 read it): now `max(64, 5 × live script instances)`; 5 per instance still bounds each script, the floor keeps every run the old cap accepted valid (a larger cap never rejects an accepted run), and the fixed 64 still bounds modules without instances. The contract fixtures (behaviors L05/I16) and their checker follow the new rule.
+- 2026-09-25 (21.2): the collider limit — the model already allowed 256 colliders per scene and none for the merged start set (`validateMergedSceneV4`), but Play and the export captured the merged start scenes with the per-scene validator, so a world of several start scenes was refused above 256 colliders in total (21.0 read that as a start-set limit). The capture now validates the merged start set without the per-scene limits and every scene with them; the generator (v2) keeps 200 colliders per scene, so the large class carries 2000, and plays and exports.
+- 2026-09-25 (21.2): the allocation regression test builds the medium class through the real backend and measures the steady loop in an `--expose-gc` child (bound 64 KiB per step = 32 B per entity; now ~29 KiB) — always on (needs `dist/`, ~4 s); step times are not asserted (shared host), they are in the harness report.
+- 2026-09-25 (21.2): the price of reuse is retained heap, not garbage: one more transform copy (two alternating backups plus the committed copy) and the per-entity segment arrays — ~0.6 KiB per entity (medium +1.1 MiB after a full collection; the large sim heap 69 → 79 MiB with 2000 colliders).
+- 2026-09-25 (21.2): `tests/perf/baseline.json` refreshed where 21.2 changed what is measured: every `*.sim.*` metric from the sim-only "after" run, every `large.*` metric from a full large run on generator v2 (the layout and the collider count changed); generatorVersion 2; the rest stays the 21.1 recording.
+- 2026-09-25 (21.2): after merging 17.4 (the WebGL renderer archived; `?renderer=legacy` now resolves to WebGPURenderer on WebGL 2) the harness e2e measures `webgl2`; the harness's default renderer list still names `legacy` (now the same backend as `webgl2`) — left for the wrap-up, with the baseline's `legacy` keys.

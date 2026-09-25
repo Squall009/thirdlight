@@ -407,6 +407,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
+  /** Phase 21.2: the transform sync for `forEachInterpolated` (one function for the adapter's life). */
+  const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
+    const obj = objects.get(id);
+    if (obj) applyTransformToObject3D(obj, position as AdapterVec3, rotation as AdapterQuat, scale as AdapterVec3);
+  };
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   let camera: THREE.PerspectiveCamera | null = null;
 
@@ -943,19 +948,28 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     adoptRenderer(handle, live);
     // The runtime is the single frame driver: this runs after the step
     // update (runtime.md §6 frame ordering: step → onFrame → render).
-    const st = opts.runtime.getInterpolatedState();
-    if (!st.ok) {
-      return {
-        ok: false,
-        error: adapterError('render_failed', `runtime state unavailable: ${st.error.message}`),
-      };
-    }
-    syncSceneSet();
-    // Transform synchronization: copy the interpolated values into the
-    // Object3Ds (no other transform math — §6).
-    for (const tr of st.state.transforms) {
-      const obj = objects.get(tr.id);
-      if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
+    // Phase 21.2: a runtime that hands out its interpolated transforms in
+    // reused arrays is read without a per-frame copy of every transform.
+    if (opts.runtime.forEachInterpolated !== undefined) {
+      syncSceneSet();
+      if (!opts.runtime.forEachInterpolated(applyInterpolated)) {
+        return { ok: false, error: adapterError('render_failed', 'runtime state unavailable: runtime is disposed') };
+      }
+    } else {
+      const st = opts.runtime.getInterpolatedState();
+      if (!st.ok) {
+        return {
+          ok: false,
+          error: adapterError('render_failed', `runtime state unavailable: ${st.error.message}`),
+        };
+      }
+      syncSceneSet();
+      // Transform synchronization: copy the interpolated values into the
+      // Object3Ds (no other transform math — §6).
+      for (const tr of st.state.transforms) {
+        const obj = objects.get(tr.id);
+        if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
+      }
     }
     applyCameraOffset();
     syncCheckpointLook();

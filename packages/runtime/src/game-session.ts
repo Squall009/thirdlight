@@ -124,6 +124,8 @@ export class GameSession {
   /** The pending run command queue (≤ 1 entry; gameplay.md §2.3). */
   private readonly pending: RunCommand[] = [];
   private events: GameEvent[] = [];
+  /** Phase 21.2: the frozen copy of `events` the views share until the next event. */
+  private eventsView: readonly GameEvent[] | null = null;
   private eventCount = 0;
   private eventDropped = 0;
   private failed = false;
@@ -248,6 +250,8 @@ export class GameSession {
    * reference replay publishes it the same way.
    */
   boundary(stepIndex: number): BoundaryOutcome {
+    // Phase 21.2: a quiet boundary (almost every step) returns one shared outcome.
+    if (this.pending.length === 0 && (this.respawnAtStep === null || this.respawnAtStep !== stepIndex)) return QUIET_BOUNDARY;
     const events: GameEvent[] = [];
     let reset: BoundaryOutcome['reset'] = null;
     // 1. The `replay` command (T6): supersedes a due scheduled reset.
@@ -377,6 +381,7 @@ export class GameSession {
       deathCount: this.deathCount,
     });
     this.events.push(event);
+    this.eventsView = null;
     if (this.events.length > MAX_GAME_EVENTS) {
       this.events.shift();
       this.eventDropped += 1;
@@ -408,15 +413,21 @@ export class GameSession {
       goalReached: this.goalReached,
       deathCount: this.deathCount,
       respawnAtStep: this.respawnAtStep,
-      events: [...this.events],
+      events: (this.eventsView ??= Object.freeze([...this.events])) as GameEvent[],
       eventCount: this.eventCount,
       eventDropped: this.eventDropped,
       failed: this.failed,
-      ...(this.failure !== null ? { failure: { ...this.failure } } : {}),
+      ...(this.failure !== null ? { failure: Object.freeze({ ...this.failure }) } : {}),
     };
-    return deepFreeze(view);
+    // Phase 21.2: frozen member by member (the events are frozen when emitted,
+    // the motion when committed) instead of a walk that allocates key arrays.
+    Object.freeze(view.playerMotion);
+    return Object.freeze(view);
   }
 }
+
+/** Phase 21.2: the outcome of a boundary with nothing to do. */
+const QUIET_BOUNDARY: BoundaryOutcome = Object.freeze({ events: Object.freeze([]) as unknown as GameEvent[], reset: null });
 
 /** The error code a rejected run command carries (gameplay.md §8.1). */
 export const GAME_COMMAND_INVALID_CODE: ErrorCode = 'game_command_invalid';

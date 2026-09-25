@@ -173,6 +173,12 @@ const PUSH_MARGIN = 0.001;
 
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+/** Phase 21.2: the shared frozen empties of a quiet step. */
+const NO_TRIGGER_EVENTS: readonly TriggerEventRecord[] = Object.freeze([]);
+const NO_QUEUED_MESSAGES: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
+const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
+const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
+
 export class GameplayBlocks {
   private readonly movers = new Map<string, Mover>();
   private readonly triggers = new Map<string, Trigger>();
@@ -546,6 +552,8 @@ export class GameplayBlocks {
 
   /** Phase 19.1: the messages of `name` sent in the previous step to every script or to `to`, in send order. */
   messagesFor(to: string, name: string): readonly BehaviorMessage[] {
+    // Phase 21.2: no messages last step (the usual case) answers with one shared empty list.
+    if (this.messagesPrev.length === 0) return NO_MESSAGES;
     const out: BehaviorMessage[] = [];
     for (const m of this.messagesPrev) if (m.message.name === name && (m.to === null || m.to === to)) out.push(m.message);
     return Object.freeze(out);
@@ -572,12 +580,28 @@ export class GameplayBlocks {
   /** Start of a step: signals turn over, movers advance (their colliders are posed for physics). */
   beforeStep(stepIndex: number): void {
     this.step = stepIndex;
+    // Phase 21.2: the two signal sets swap (the new current one is cleared only
+    // when it holds something), and an empty step's events and messages are one
+    // shared frozen empty list — a quiet step makes no collections.
+    const signals = this.signalsPrev;
     this.signalsPrev = this.signalsNow;
-    this.signalsNow = new Set();
-    this.triggerEventsPrev = Object.freeze(this.triggerEventsNow);
-    this.triggerEventsNow = [];
-    this.messagesPrev = Object.freeze(this.messagesNow);
-    this.messagesNow = [];
+    if (signals.size > 0) signals.clear();
+    this.signalsNow = signals;
+    if (this.triggerEventsNow.length === 0) this.triggerEventsPrev = NO_TRIGGER_EVENTS;
+    else {
+      this.triggerEventsPrev = Object.freeze(this.triggerEventsNow);
+      this.triggerEventsNow = [];
+    }
+    if (this.messagesNow.length === 0) this.messagesPrev = NO_QUEUED_MESSAGES;
+    else {
+      this.messagesPrev = Object.freeze(this.messagesNow);
+      this.messagesNow = [];
+    }
+    if (this.movers.size === 0 && this.knock.steps <= 0) {
+      // Nothing moves the player this step: no carry, no poses.
+      this.carry = NO_CARRY;
+      return;
+    }
     const dt = 1 / this.host.hz;
     const ground = this.host.groundEntityId();
     this.carry = { x: 0, y: 0 };

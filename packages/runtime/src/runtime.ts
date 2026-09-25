@@ -53,13 +53,14 @@ import {
   type IntentSet,
   type IntentTransformWrite,
 } from './intents';
-import { DuplicateMoveError, PhaseViolationError, frozenContext, phaseScopedState } from './guard';
-import { lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
+import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
+import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal } from './interp';
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
+import { MotionSegments, TransformMirror } from './step-buffers';
 import {
   DEFAULT_ASPECT,
   GameSession,
@@ -101,6 +102,7 @@ import {
   type GameplaySettings,
   type InterpolatedState,
   type InterpolatedTransform,
+  type InterpolatedVisitor,
   type ModuleConfig,
   type ModelBounds,
   type MotionSegment,
@@ -214,8 +216,13 @@ interface MutableIntentSet {
   moveWriter: string | null;
   jumpWriter: string | null;
   transformWrites: IntentTransformWrite[];
-  /** Committed `(entityId, axis)` keys in this step. */
-  axes: Set<string>;
+  /**
+   * Committed channels per entity in this step (phase 21.2): `axesTag * 64 +
+   * mask` with position x/y/z = 1/2/4, rotation 8, scale 16; a value with an
+   * older tag counts as none, so nothing is cleared per step.
+   */
+  axes: Map<string, number>;
+  axesTag: number;
   /** Accepted intents committed in this step. */
   count: number;
 }
@@ -228,9 +235,21 @@ function emptyMutableIntents(stepIndex: number): MutableIntentSet {
     moveWriter: null,
     jumpWriter: null,
     transformWrites: [],
-    axes: new Set(),
+    axes: new Map(),
+    axesTag: 1,
     count: 0,
   };
+}
+
+function resetMutableIntents(s: MutableIntentSet, stepIndex: number): void {
+  s.stepIndex = stepIndex;
+  s.move = null;
+  s.jump = null;
+  s.moveWriter = null;
+  s.jumpWriter = null;
+  s.transformWrites.length = 0;
+  s.axesTag += 1;
+  s.count = 0;
 }
 
 interface WallAnchor {
@@ -247,6 +266,29 @@ interface ModuleEntry {
   phased: boolean;
   instance: SimulationModule | SimulationPhaseModule;
   owners: readonly string[];
+  /** Phase 21.2: the reused state view and step context per phase. */
+  views?: Map<SimulationPhase, PhaseViews>;
+  /** Phase 21.2: `owners` as a set (remade when `owners` is replaced). */
+  ownerSet?: ReadonlySet<string>;
+  ownerSetSource?: readonly string[];
+}
+
+/** Phase 21.2: a module's owners as a set, remade only when the owners list is replaced. */
+function ownerSetOf(entry: ModuleEntry): ReadonlySet<string> {
+  if (entry.ownerSet === undefined || entry.ownerSetSource !== entry.owners) {
+    entry.ownerSet = new Set(entry.owners);
+    entry.ownerSetSource = entry.owners;
+  }
+  return entry.ownerSet;
+}
+
+/** Phase 21.2: one module's reused views for one phase. */
+interface PhaseViews {
+  state: SimState;
+  /** The step context (phased modules). */
+  ctx: StepContext | null;
+  /** The intents view the module's current call sees. */
+  intents: IntentSet | null;
 }
 
 /** An `ActionSource.sample()` throw (module_error, reason `input_source_threw`). */
@@ -1152,7 +1194,7 @@ class RuntimeInstance implements Runtime {
   /** The committed player motion (gameplay.md §6, C41-1). */
   private playerMotion: PlayerMotion;
   /** The last completed motion segment per entity (the `lastMotionSegment` port). */
-  private lastSegments: Map<string, Readonly<MotionSegment>>;
+  private readonly lastSegments = new MotionSegments();
   /** The player entity id (`content.game.playerId`). */
   private readonly playerEntityId: string;
   /**
@@ -1173,6 +1215,15 @@ class RuntimeInstance implements Runtime {
   private curr: Map<string, TransformState>;
   /** The last fully committed step's transforms (fail-stop rendering). */
   private committed: Map<string, TransformState> | null = null;
+  /**
+   * Phase 21.2: the step's backup (`prev` after the step) alternates between
+   * two reused copies, and the committed state is a third, so a steady step
+   * allocates no transform objects.
+   */
+  private readonly stepMirrors: readonly [TransformMirror, TransformMirror] = [new TransformMirror(), new TransformMirror()];
+  private readonly committedMirror = new TransformMirror();
+  /** Phase 21.2: bumped whenever transforms are added to or removed from `curr` (the mirrors' shape key). */
+  private currShape = 0;
   private stepIndex = 0;
   private simTime = 0;
   private anchor: WallAnchor | null = null;
@@ -1203,6 +1254,19 @@ class RuntimeInstance implements Runtime {
   private lastCharacterResult?: CharacterMoveResult;
   /** The runtime's per-step intent set (runtime.md §14.5). */
   private intents: MutableIntentSet = emptyMutableIntents(-1);
+  /** Phase 21.2: bumped at every commit and step start; the intents view is remade only when it moved. */
+  private intentsVersion = 0;
+  private intentViewVersion = -1;
+  private intentViewCache: IntentSet | null = null;
+  /** Phase 21.2: the per-step intent cap for the current entity order (`intentStepLimit`). */
+  private intentLimit: number = INTENT_LIMITS.perStep;
+  private intentLimitOrder: readonly string[] | null = null;
+  /** Phase 21.2: the frame the current phase runs with (read by the reused step contexts). */
+  private phaseAction: ActionFrame = neutralFrame(0);
+  /** Phase 21.2: the last validated input frame (its frozen action values are reused when equal). */
+  private lastInputFrame: ActionFrame | null = null;
+  private frozenOrderSource: readonly string[] | null = null;
+  private frozenOrderCopy: readonly string[] = Object.freeze([]);
   /** Accepted intents committed in this runtime instance. */
   private intentCommitCount = 0;
   /** The behavior-log ring sink bound to this instance (§14.8.1). */
@@ -1377,7 +1441,6 @@ class RuntimeInstance implements Runtime {
       // gameplay.md §6 (game-view fixture note): awaitingStart/won have no
       // completed step, so the committed motion is { speed: 0, grounded: true }.
       this.playerMotion = Object.freeze({ speed: 0, grounded: true });
-      this.lastSegments = new Map();
       this.sessionPort = this.buildGameSessionPort();
       // The instantiate-time committed view (stepIndex 0, simTime 0).
       this.lastGameView = this.buildGameView(0, 0);
@@ -1387,7 +1450,6 @@ class RuntimeInstance implements Runtime {
       this.lastGameView = null;
       this.viewport = Object.freeze({ width: 0, height: 0, aspect: DEFAULT_ASPECT });
       this.playerMotion = Object.freeze({ speed: 0, grounded: true });
-      this.lastSegments = new Map();
       this.playerEntityId = '';
     }
     this.actions = args.actions;
@@ -1404,7 +1466,8 @@ class RuntimeInstance implements Runtime {
     // Initialized to the instantiate-time state so a fail-stop during the
     // 12-step settle pre-roll (before any step completes) renders only the
     // committed initial state — never the abandoned step's transform.
-    this.committed = cloneCurr(args.curr);
+    this.committedMirror.copyFrom(args.curr, this.currShape);
+    this.committed = this.committedMirror.map;
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string): void =>
       this.recordBehaviorLog(moduleId, level, message);
@@ -1451,8 +1514,8 @@ class RuntimeInstance implements Runtime {
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
         },
         playerDelta: () => {
-          const seg = rt.lastSegments.get(rt.playerEntityId);
-          return seg === undefined ? { x: 0, y: 0 } : { x: seg.to.x - seg.from.x, y: seg.to.y - seg.from.y };
+          const seg = rt.lastSegments.raw(rt.playerEntityId);
+          return seg === undefined ? { x: 0, y: 0 } : { x: seg[2]! - seg[0]!, y: seg[3]! - seg[1]! };
         },
         groundEntityId: () => rt.lastCharacterResult?.groundEntityId ?? null,
         kill: () => {
@@ -1530,9 +1593,9 @@ class RuntimeInstance implements Runtime {
    */
   private stepAnimators(): void {
     if (this.animatorMachines.size === 0) return;
-    const seg = this.lastSegments.get(this.playerEntityId);
-    const vx = seg !== undefined ? (seg.to.x - seg.from.x) * this.hz : 0;
-    const vy = seg !== undefined ? (seg.to.y - seg.from.y) * this.hz : 0;
+    const seg = this.lastSegments.raw(this.playerEntityId);
+    const vx = seg !== undefined ? (seg[2]! - seg[0]!) * this.hz : 0;
+    const vy = seg !== undefined ? (seg[3]! - seg[1]!) * this.hz : 0;
     const grounded = this.playerMotion.grounded;
     const landed = grounded && !this.animatorWasGrounded;
     this.animatorWasGrounded = grounded;
@@ -1808,6 +1871,73 @@ class RuntimeInstance implements Runtime {
     return { ok: true, state: { stepIndex: this.stepIndex, simTime: this.simTime, alpha, transforms } };
   }
 
+  /**
+   * Phase 21.2: the interpolated transform of every entity (draw order), the
+   * values `getInterpolatedState` would return, handed to `visit` in three
+   * arrays the runtime reuses (copy them; they change at the next entity) —
+   * no objects per frame. False when the runtime is disposed.
+   */
+  forEachInterpolated(visit: InterpolatedVisitor): boolean {
+    if (this.stateName === 'disposed') return false;
+    const failed = this.stateName === 'failed' && this.committed !== null;
+    const prev = failed ? this.committed! : this.prev;
+    const curr = failed ? this.committed! : this.curr;
+    const alpha = this.stateName === 'failed' ? 0 : this.lastAlpha;
+    const order = this.order;
+    for (let i = 0; i < order.length; i += 1) {
+      const id = order[i]!;
+      if (this.interpolateInto(id, prev, curr, alpha)) visit(id, this.interpPosition, this.interpRotation, this.interpScale);
+    }
+    return true;
+  }
+
+  /**
+   * Phase 21.2: one entity's interpolated transform into the caller's arrays
+   * (no allocation). False when the runtime is disposed or has no such entity.
+   */
+  readInterpolated(id: string, position: number[], rotation: number[], scale: number[]): boolean {
+    if (this.stateName === 'disposed') return false;
+    const failed = this.stateName === 'failed' && this.committed !== null;
+    const prev = failed ? this.committed! : this.prev;
+    const curr = failed ? this.committed! : this.curr;
+    if (!this.interpolateInto(id, prev, curr, this.stateName === 'failed' ? 0 : this.lastAlpha)) return false;
+    for (let k = 0; k < 3; k += 1) position[k] = this.interpPosition[k]!;
+    for (let k = 0; k < 4; k += 1) rotation[k] = this.interpRotation[k]!;
+    for (let k = 0; k < 3; k += 1) scale[k] = this.interpScale[k]!;
+    return true;
+  }
+
+  private readonly interpPosition: number[] = [0, 0, 0];
+  private readonly interpRotation: number[] = [0, 0, 0, 1];
+  private readonly interpScale: number[] = [1, 1, 1];
+
+  /** The §6 rule for one entity into the reused arrays (see `getInterpolatedState`). */
+  private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
+    const p = prev.get(id);
+    const c = curr.get(id);
+    if (!p || !c) return false;
+    const pos = this.interpPosition;
+    const rot = this.interpRotation;
+    const scl = this.interpScale;
+    if (alpha === 0 || (vec3Equal(p.position, c.position) && vec3Equal(p.scale, c.scale) && quatEqual(p.rotation, c.rotation))) {
+      pos[0] = c.position[0];
+      pos[1] = c.position[1];
+      pos[2] = c.position[2];
+      rot[0] = c.rotation[0];
+      rot[1] = c.rotation[1];
+      rot[2] = c.rotation[2];
+      rot[3] = c.rotation[3];
+      scl[0] = c.scale[0];
+      scl[1] = c.scale[1];
+      scl[2] = c.scale[2];
+    } else {
+      lerpVec3Into(pos, p.position, c.position, alpha);
+      slerpQuatInto(rot, p.rotation, c.rotation, alpha);
+      lerpVec3Into(scl, p.scale, c.scale, alpha);
+    }
+    return true;
+  }
+
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
@@ -1837,6 +1967,12 @@ class RuntimeInstance implements Runtime {
     // A new deep-frozen copy per call (gameplay.md §6): the caller may hold
     // any number of views without aliasing the committed one.
     return { ok: true, view: deepFreeze(structuredClone(this.lastGameView)) };
+  }
+
+  /** Phase 21.2: the deep-frozen committed view without a copy (null where `getGameView` fails). */
+  peekGameView(): GameView | null {
+    if (this.stateName === 'disposed' || this.session === null) return null;
+    return this.lastGameView;
   }
 
   gameCommand(cmd: 'start' | 'replay'): { ok: true } | { ok: false; error: RuntimeError } {
@@ -1994,7 +2130,7 @@ class RuntimeInstance implements Runtime {
     this.committed = null;
     this.entities = new Map();
     this.order = [];
-    this.staged.clear();
+    if (this.staged.size > 0) this.staged.clear();
     this.onFrame = undefined;
     this.anchor = null;
     return { ok: true };
@@ -2193,7 +2329,7 @@ class RuntimeInstance implements Runtime {
       if (!this.runResetBarrier(ordinal)) return false;
       if (!this.runTransfer(ordinal)) return false;
     }
-    this.stepSceneOps = [];
+    if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
     this.respawnRequested = false;
     let action: ActionFrame;
     if (actionOverride !== undefined) {
@@ -2226,12 +2362,17 @@ class RuntimeInstance implements Runtime {
       this.physics?.dropThrough?.(this.timing.dropThroughSteps);
       action = { ...action, jump: 'none' };
     }
-    const backup = cloneCurr(this.curr);
-    this.staged.clear();
+    // Phase 21.2: the pre-step copy goes into the reused buffer `prev` does not hold.
+    const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
+    backupMirror.copyFrom(this.curr, this.currShape);
+    const backup = backupMirror.map;
+    if (this.staged.size > 0) this.staged.clear();
     this.currentPhase = undefined;
     this.currentModuleId = undefined;
     // §14.5: the intent set is cleared at the start of every fixed step.
-    this.intents = emptyMutableIntents(stepIndex);
+    // Phase 21.2: reset in place (the committed writes are frozen copies, never handed out mutable).
+    resetMutableIntents(this.intents, stepIndex);
+    this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
       this.runPhase('controller', action);
@@ -2262,12 +2403,13 @@ class RuntimeInstance implements Runtime {
     this.prev = backup;
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
-    this.committed = cloneCurr(this.curr);
+    this.committedMirror.copyFrom(this.curr, this.currShape);
+    this.committed = this.committedMirror.map;
     // M3 commit (gameplay.md §3.2 item 8): the last completed motion
     // segments, then the frozen committed `GameView` (stepIndex := n+1,
     // simTime = stepIndex / fixedStepHz, single division).
     if (this.isM3) {
-      this.recordMotionSegments(backup);
+      this.recordMotionSegments(backupMirror);
       this.lastGameView = this.buildGameView(this.stepIndex, this.simTime);
     }
     this.stepAnimators();
@@ -2289,8 +2431,10 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
-    const check = validateActionFrame(raw, stepIndex);
+    // Phase 21.2: equal action values of the last frame are shared (immutable).
+    const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
+    this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     return check.frame;
   }
@@ -2335,8 +2479,11 @@ class RuntimeInstance implements Runtime {
       if (this.checkResetFault('R8', ordinal)) return false;
     }
     // R8: the committed view at the boundary (stepIndex = the upcoming step
-    // ordinal; simTime = ordinal / fixedStepHz — the boundary time).
-    this.lastGameView = this.buildGameView(ordinal, ordinal * this.dt);
+    // ordinal; simTime = ordinal / fixedStepHz — the boundary time). Phase
+    // 21.2: a quiet boundary (no reset) changes nothing a view shows but the
+    // step number, and the step's commit (or a fail-stop) replaces the view
+    // before anyone can read it, so it is only built when a reset ran.
+    if (outcome.reset !== null) this.lastGameView = this.buildGameView(ordinal, ordinal * this.dt);
     return true;
   }
 
@@ -2494,14 +2641,11 @@ class RuntimeInstance implements Runtime {
     // segment (e.g. the capsule falling in the pit) must not sweep below
     // killY in the respawn step's §4.2 death check.
     if (this.checkResetFault('R7', ordinal)) return false;
-    this.prev = cloneCurr(this.curr);
-    this.lastSegments.set(
-      player,
-      Object.freeze({
-        from: Object.freeze({ x: target.x, y: target.y }),
-        to: Object.freeze({ x: target.x, y: target.y }),
-      }),
-    );
+    // Phase 21.2: into the reused buffer that holds `prev` (the step's backup is the other one).
+    const prevMirror = this.stepMirrors[this.stepMirrors[1].map === this.prev ? 1 : 0];
+    prevMirror.copyFrom(this.curr, this.currShape);
+    this.prev = prevMirror.map;
+    this.lastSegments.set(player, target.x, target.y, target.x, target.y);
     this.playerMotion = Object.freeze({
       speed: 0,
       grounded: true,
@@ -2675,20 +2819,13 @@ class RuntimeInstance implements Runtime {
    * Also refreshes the committed `playerMotion` (speed = |player segment|
    * × fixedStepHz; grounded = the controller's committed grounding, C41-1).
    */
-  private recordMotionSegments(backup: Map<string, TransformState>): void {
-    for (const id of this.order) {
-      const before = backup.get(id);
-      const after = this.curr.get(id);
-      if (before === undefined || after === undefined) continue;
-      this.lastSegments.set(id, Object.freeze({
-        from: Object.freeze({ x: before.position[0], y: before.position[1] }),
-        to: Object.freeze({ x: after.position[0], y: after.position[1] }),
-      }));
-    }
-    const seg = this.lastSegments.get(this.playerEntityId);
+  private recordMotionSegments(backupMirror: TransformMirror): void {
+    // Phase 21.2: numbers per entity; the frozen segments are made when read.
+    this.lastSegments.record(this.order, backupMirror);
+    const seg = this.lastSegments.raw(this.playerEntityId);
     if (seg !== undefined) {
       this.playerMotion = Object.freeze({
-        speed: Math.hypot(seg.to.x - seg.from.x, seg.to.y - seg.from.y) * this.hz,
+        speed: Math.hypot(seg[2]! - seg[0]!, seg[3]! - seg[1]!) * this.hz,
         grounded: this.lastCharacterResult?.grounded ?? this.playerMotion.grounded,
       });
     }
@@ -2793,6 +2930,7 @@ class RuntimeInstance implements Runtime {
       for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
       this.pendingUnloads.clear();
     }
+    if (this.readyLoads.size === 0) return true;
     for (const [sceneId, entities] of [...this.readyLoads]) {
       this.readyLoads.delete(sceneId);
       const at = this.fetchingLoads.get(sceneId)?.at;
@@ -2855,6 +2993,7 @@ class RuntimeInstance implements Runtime {
       this.entities.set(e.id, data);
       this.prev.set(e.id, cloneTransform(t));
       this.curr.set(e.id, cloneTransform(t));
+      this.currShape += 1;
       this.committed?.set(e.id, cloneTransform(t));
     }
     this.order = [...this.order, ...frozen.map((e) => e.id)];
@@ -2938,9 +3077,11 @@ class RuntimeInstance implements Runtime {
       this.entities.delete(id);
       this.prev.delete(id);
       this.curr.delete(id);
+      this.currShape += 1;
       this.committed?.delete(id);
       this.lastSegments.delete(id);
       this.exitsInside.delete(id);
+      this.intents.axes.delete(id);
     }
     this.order = this.order.filter((id) => !ids.has(id));
     this.entityCount = this.order.length;
@@ -3148,12 +3289,12 @@ class RuntimeInstance implements Runtime {
     const content = this.gameContent;
     const session = this.session;
     if (content === null || session === null || this.sceneRows === null || session.runState !== 'playing') return;
-    const segment = this.lastSegments.get(this.playerEntityId);
+    const segment = this.lastSegments.raw(this.playerEntityId);
     if (segment === undefined) return;
     for (const zone of content.zones) {
       if (zone.role !== 'exit') continue;
       const capsule = content.player.capsule;
-      const inside = capsuleInZone({ x: segment.to.x + capsule.offset.x, y: segment.to.y + capsule.offset.y }, zone, capsule.radius, capsule.halfHeight, GAME_ZONE_OVERLAP_EPS);
+      const inside = capsuleInZone({ x: segment[2]! + capsule.offset.x, y: segment[3]! + capsule.offset.y }, zone, capsule.radius, capsule.halfHeight, GAME_ZONE_OVERLAP_EPS);
       if (!inside) {
         this.exitsInside.delete(zone.entityId);
         continue;
@@ -3249,74 +3390,125 @@ class RuntimeInstance implements Runtime {
   }
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
+    this.phaseAction = action;
     for (const entry of this.entries) {
       if (!entry.phases.includes(phase)) continue;
       this.currentPhase = phase;
       this.currentModuleId = entry.id;
-      const state = phaseScopedState({
-        order: this.order,
-        entities: this.entities,
-        stepIndex: this.stepIndex,
-        simTime: this.simTime,
-        prev: this.prev,
-        curr: this.curr,
-        // Accepted rule (transform) + the M3 extension (gameplay.md §12.2
-        // table): the camera phase is writable for the camera-phase module's
-        // declared owners (exactly the scene camera entity — verified at
-        // instantiate). M2 sets never reach a `camera` phase, so the
-        // accepted rule is unchanged for them.
-        writableOwners: phase === 'transform' || phase === 'camera' ? new Set(entry.owners) : null,
-      });
+      const views = this.phaseViewsOf(entry, phase);
       if (entry.phased) {
-        const ctx: StepContext = frozenContext({
-          stepIndex: this.stepIndex,
-          phase,
-          action,
-          settings: this.settings,
-          physics: this.physicsClient,
-          state,
-          intents: this.intentView(),
-          emit: (intent: BehaviorIntent): void => this.commitIntent(entry, phase, intent),
-          // M3 (gameplay.md §3.3 / runtime.md §15.3): the frozen gameplay
-          // port, present iff this runtime is M3-enabled.
-          ...(this.sessionPort !== null ? { gameplay: this.sessionPort } : {}),
-          ...(this.sceneRows !== null ? { scenes: this.sceneControl } : {}),
-          animators: this.animatorControl,
-          animatorEvents: this.animatorEvents,
-          signals: this.signalControl,
-          messages: this.messageControl,
-          game: this.gameControl,
-          audio: this.audioControl,
-          save: this.saveControl,
-          spawner: this.spawnControl,
-          // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
-          ...(this.blocks !== null ? { triggerEvents: this.blocks.triggerEvents() } : {}),
-        });
-        (entry.instance as SimulationPhaseModule).step(phase, ctx);
+        // The intents committed before this module runs (it does not see its own in `ctx.intents`).
+        views.intents = this.intentView();
+        (entry.instance as SimulationPhaseModule).step(phase, views.ctx!);
       } else {
         // Accepted M1 module participating in an M2 set (implicit
         // transform phase): the M1 `(state, stepIndex)` call is preserved.
-        (entry.instance as SimulationModule).step(state, this.stepIndex + 1);
+        (entry.instance as SimulationModule).step(views.state, this.stepIndex + 1);
       }
     }
   }
 
-  /** A frozen read-only view of the intents committed so far this step. */
+  /** Phase 21.2: the frozen copy of the entity order modules see (remade only when the order changes). */
+  private frozenOrder(): readonly string[] {
+    if (this.frozenOrderSource !== this.order) {
+      this.frozenOrderSource = this.order;
+      this.frozenOrderCopy = Object.freeze([...this.order]);
+    }
+    return this.frozenOrderCopy;
+  }
+
+  /**
+   * Phase 21.2: a module's state view and step context for one phase, made
+   * once and reused every step. They read the step's values when accessed
+   * (step index, time, transforms, the frame, the events) — what a context
+   * made at the call would hold, since the runtime changes none of them while
+   * a module runs.
+   */
+  private phaseViewsOf(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
+    let byPhase = entry.views;
+    if (byPhase === undefined) {
+      byPhase = new Map();
+      entry.views = byPhase;
+    }
+    const cached = byPhase.get(phase);
+    if (cached !== undefined) return cached;
+    // The closures live in another function: V8 would allocate their scope at every call, cache hits included.
+    const made = this.makePhaseViews(entry, phase);
+    byPhase.set(phase, made);
+    return made;
+  }
+
+  private makePhaseViews(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    // Accepted rule (transform) + the M3 extension (gameplay.md §12.2
+    // table): the camera phase is writable for the camera-phase module's
+    // declared owners (exactly the scene camera entity — verified at
+    // instantiate). M2 sets never reach a `camera` phase, so the
+    // accepted rule is unchanged for them.
+    const writablePhase = phase === 'transform' || phase === 'camera';
+    const state = liveScopedState({
+      order: () => rt.frozenOrder(),
+      entities: () => rt.entities,
+      stepIndex: () => rt.stepIndex,
+      simTime: () => rt.simTime,
+      prev: () => rt.prev,
+      curr: () => rt.curr,
+      writableOwners: () => (writablePhase ? ownerSetOf(entry) : null),
+    });
+    const views: PhaseViews = { state, ctx: null, intents: null };
+    if (entry.phased) {
+      const fields: PropertyDescriptorMap = {
+        stepIndex: { get: () => rt.stepIndex, enumerable: true },
+        phase: { value: phase, enumerable: true },
+        action: { get: () => rt.phaseAction, enumerable: true },
+        settings: { value: this.settings, enumerable: true },
+        physics: { value: this.physicsClient, enumerable: true },
+        state: { value: state, enumerable: true },
+        intents: { get: () => views.intents, enumerable: true },
+        emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
+      };
+      // M3 (gameplay.md §3.3 / runtime.md §15.3): the frozen gameplay
+      // port, present iff this runtime is M3-enabled.
+      if (this.sessionPort !== null) fields['gameplay'] = { value: this.sessionPort, enumerable: true };
+      if (this.sceneRows !== null) fields['scenes'] = { value: this.sceneControl, enumerable: true };
+      fields['animators'] = { value: this.animatorControl, enumerable: true };
+      fields['animatorEvents'] = { get: () => rt.animatorEvents, enumerable: true };
+      fields['signals'] = { value: this.signalControl, enumerable: true };
+      fields['messages'] = { value: this.messageControl, enumerable: true };
+      fields['game'] = { value: this.gameControl, enumerable: true };
+      fields['audio'] = { value: this.audioControl, enumerable: true };
+      fields['save'] = { value: this.saveControl, enumerable: true };
+      fields['spawner'] = { value: this.spawnControl, enumerable: true };
+      // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
+      const blocks = this.blocks;
+      if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
+      views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
+    }
+    return views;
+  }
+
+  /**
+   * A frozen read-only view of the intents committed so far this step (phase
+   * 21.2: the same object until the next commit or step).
+   */
   private intentView(): IntentSet {
+    if (this.intentViewCache !== null && this.intentViewVersion === this.intentsVersion) return this.intentViewCache;
     const s = this.intents;
-    const writes = s.transformWrites.map((w) =>
-      Object.freeze({ moduleId: w.moduleId, entityId: w.entityId, position: Object.freeze({ ...w.position }) }),
-    );
-    return Object.freeze({
+    const view: IntentSet = Object.freeze({
       stepIndex: s.stepIndex,
       move: s.move,
       jump: s.jump,
       moveWriter: s.moveWriter,
       jumpWriter: s.jumpWriter,
-      transformWrites: Object.freeze(writes),
+      // The writes are frozen when committed.
+      transformWrites: Object.freeze(s.transformWrites.slice()),
       // Phase 9.9: a stomp/hit bounce for the controller this step.
       ...(this.stepBounce !== null ? { bounce: this.stepBounce } : {}),
     });
+    this.intentViewCache = view;
+    this.intentViewVersion = this.intentsVersion;
+    return view;
   }
 
   /**
@@ -3357,73 +3549,128 @@ class RuntimeInstance implements Runtime {
       this.intents.jumpWriter = entry.id;
       return;
     }
-    if (!entry.owners.includes(intent.entityId)) {
+    if (!ownerSetOf(entry).has(intent.entityId)) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not owned by module "${entry.id}"`);
     }
     const transform = this.curr.get(intent.entityId);
     if (transform === undefined) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" does not exist`);
     }
+    // Phase 21.2: the written channels of an entity are bits in one map entry
+    // tagged with the step (x/y/z 1/2/4, rotation 8, scale 16): no key strings per intent.
+    const axes = this.intents.axes;
+    const tag = this.intents.axesTag * 64;
+    const stored = axes.get(intent.entityId);
+    const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
     if (intent.kind === 'pose') {
-      const parts = [...(intent.rotation !== undefined ? ['rotation'] : []), ...(intent.scale !== undefined ? ['scale'] : [])];
-      for (const part of parts) {
-        if (this.intents.axes.has(`${intent.entityId}\u0000${part}`)) {
-          throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a ${part} write to "${intent.entityId}" in this step`);
-        }
+      if (intent.rotation !== undefined && (have & 8) !== 0) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
+      }
+      if (intent.scale !== undefined && (have & 16) !== 0) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a scale write to "${intent.entityId}" in this step`);
       }
       this.bumpIntentCount();
+      let bits = 0;
       if (intent.rotation !== undefined) {
         const rad = Math.PI / 360; // half-angle per degree
         const y = (intent.rotation.yaw ?? 0) * rad;
         const x = (intent.rotation.pitch ?? 0) * rad;
         const z = (intent.rotation.roll ?? 0) * rad;
         // q = qYaw · qPitch · qRoll
-        const [cy, sy, cx, sx, cz, sz] = [Math.cos(y), Math.sin(y), Math.cos(x), Math.sin(x), Math.cos(z), Math.sin(z)];
-        const qyx = [cy * sx, sy * cx, -sy * sx, cy * cx]; // qYaw · qPitch as [x, y, z, w]
-        transform.rotation[0] = qyx[0]! * cz + qyx[1]! * sz;
-        transform.rotation[1] = qyx[1]! * cz - qyx[0]! * sz;
-        transform.rotation[2] = qyx[3]! * sz + qyx[2]! * cz;
-        transform.rotation[3] = qyx[3]! * cz - qyx[2]! * sz;
+        const cy = Math.cos(y);
+        const sy = Math.sin(y);
+        const cx = Math.cos(x);
+        const sx = Math.sin(x);
+        const cz = Math.cos(z);
+        const sz = Math.sin(z);
+        // qYaw · qPitch as [x, y, z, w]
+        const qx = cy * sx;
+        const qy = sy * cx;
+        const qz = -sy * sx;
+        const qw = cy * cx;
+        transform.rotation[0] = qx * cz + qy * sz;
+        transform.rotation[1] = qy * cz - qx * sz;
+        transform.rotation[2] = qw * sz + qz * cz;
+        transform.rotation[3] = qw * cz - qz * sz;
+        bits |= 8;
       }
       if (intent.scale !== undefined) {
-        const s = typeof intent.scale === 'number' ? [intent.scale, intent.scale, intent.scale] : intent.scale;
-        transform.scale[0] = s[0]!;
-        transform.scale[1] = s[1]!;
-        transform.scale[2] = s[2]!;
+        const sc = intent.scale;
+        if (typeof sc === 'number') {
+          transform.scale[0] = sc;
+          transform.scale[1] = sc;
+          transform.scale[2] = sc;
+        } else {
+          transform.scale[0] = sc[0];
+          transform.scale[1] = sc[1];
+          transform.scale[2] = sc[2];
+        }
+        bits |= 16;
       }
-      for (const part of parts) this.intents.axes.add(`${intent.entityId}\u0000${part}`);
+      axes.set(intent.entityId, tag + (have | bits));
       return;
     }
-    const axes = Object.keys(intent.position).filter(
-      (axis): axis is 'x' | 'y' | 'z' => axis === 'x' || axis === 'y' || axis === 'z',
-    );
-    for (const axis of axes) {
-      if (this.intents.axes.has(`${intent.entityId}\u0000${axis}`)) {
+    const position = intent.position;
+    let bits = 0;
+    for (const axis in position) {
+      const bit = axis === 'x' ? 1 : axis === 'y' ? 2 : axis === 'z' ? 4 : 0;
+      if (bit === 0) continue;
+      if ((have & bit) !== 0) {
         throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a write to "${intent.entityId}".${axis} in this step`);
       }
+      bits |= bit;
     }
     this.bumpIntentCount();
-    for (const axis of axes) {
-      const value = intent.position[axis] as number;
-      if (axis === 'x') transform.position[0] = value;
-      else if (axis === 'y') transform.position[1] = value;
-      else transform.position[2] = value;
-      this.intents.axes.add(`${intent.entityId}\u0000${axis}`);
-    }
-    this.intents.transformWrites.push({
+    if ((bits & 1) !== 0) transform.position[0] = position.x as number;
+    if ((bits & 2) !== 0) transform.position[1] = position.y as number;
+    if ((bits & 4) !== 0) transform.position[2] = position.z as number;
+    axes.set(intent.entityId, tag + (have | bits));
+    // Frozen once here; every `ctx.intents` view shares it.
+    this.intents.transformWrites.push(Object.freeze({
       moduleId: entry.id,
       entityId: intent.entityId,
-      position: { ...intent.position },
-    });
+      position: Object.freeze({ ...intent.position }),
+    }));
   }
 
   /** The per-step intent cap (runtime.md §14.8), then the cumulative count. */
   private bumpIntentCount(): void {
     if (this.intents.count + 1 > INTENT_LIMITS.perStep) {
-      throw new BehaviorIntentError('behavior_intent_limit', 'per_step', `more than ${INTENT_LIMITS.perStep} intents were committed in one step`);
+      const limit = this.intentStepLimit();
+      if (this.intents.count + 1 > limit) {
+        throw new BehaviorIntentError('behavior_intent_limit', 'per_step', `more than ${limit} intents were committed in one step`);
+      }
     }
     this.intents.count += 1;
     this.intentCommitCount += 1;
+    this.intentsVersion += 1;
+  }
+
+  /**
+   * Phase 21.2: the per-step intent cap scales with the live behavior
+   * instances — `max(INTENT_LIMITS.perStep, perInstancePerStep × instances)` —
+   * so every instance may use its own bound in the same step (hundreds of
+   * moving objects), while the floor keeps every run the fixed cap of 64
+   * accepted valid. Instances come and go only with entities, so the count is
+   * re-read when the entity order changes.
+   */
+  private intentStepLimit(): number {
+    if (this.intentLimitOrder !== this.order) {
+      let instances = 0;
+      for (const entry of this.entries) {
+        const probe = entry.instance as { behaviorDiagnostics?: () => { instanceCount?: number } };
+        if (typeof probe.behaviorDiagnostics !== 'function') continue;
+        try {
+          const n = probe.behaviorDiagnostics().instanceCount;
+          if (typeof n === 'number' && Number.isInteger(n) && n > 0) instances += n;
+        } catch {
+          /* a failing diagnostics read counts no instances */
+        }
+      }
+      this.intentLimit = Math.max(INTENT_LIMITS.perStep, INTENT_LIMITS.perInstancePerStep * instances);
+      this.intentLimitOrder = this.order;
+    }
+    return this.intentLimit;
   }
 
   /**
@@ -3514,7 +3761,7 @@ class RuntimeInstance implements Runtime {
         t.position[1] = check.result.position.y;
       }
     }
-    this.staged.clear();
+    if (this.staged.size > 0) this.staged.clear();
   }
 
   private failStopFromError(e: unknown, stepIndex: number): void {

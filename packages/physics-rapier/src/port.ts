@@ -244,33 +244,46 @@ interface ColliderInfo {
   body: RAPIER.RigidBody;
   /** Height of the collider's top above its body origin (for one-way tests). */
   top: number;
+  /** Phase 21.2: a mover's kinematic body (fixed at creation). */
+  kinematic: boolean;
+  /** Phase 21.2: a one-way collider's world top for the current sweep. */
+  topNow: number;
+  /** Phase 21.2: the body's position for the current sweep, and the shape's reach from it. */
+  xNow: number;
+  yNow: number;
+  reach: number;
 }
 
 /** One fixed (or, for a mover, kinematic) body + collider for a collider spec (the body is what removal frees). */
 function addStaticBody(
   world: RAPIER.World,
   spec: RapierStaticColliderSpec,
-): { ok: true; body: RAPIER.RigidBody; collider: RAPIER.Collider; top: number } | { ok: false; detail: string } {
+): { ok: true; body: RAPIER.RigidBody; collider: RAPIER.Collider; top: number; reach: number } | { ok: false; detail: string } {
   const shape = validateColliderShape(spec.shape);
   if (!shape.ok) return { ok: false, detail: shape.detail };
   let desc: RAPIER.ColliderDesc | null;
   const sin = Math.sin(spec.rotationZ);
   const cos = Math.cos(spec.rotationZ);
   let top: number;
+  // Phase 21.2: the farthest point of the shape from the body origin.
+  let reach: number;
   if (shape.shape.type === 'box') {
     desc = RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy);
     top = Math.abs(shape.shape.hx * sin) + Math.abs(shape.shape.hy * cos);
+    reach = Math.hypot(shape.shape.hx, shape.shape.hy);
   } else {
     const buffer = polygonVertexBuffer(shape.shape);
     desc = buffer ? RAPIER.ColliderDesc.convexHull(buffer) : null;
     if (!desc) return { ok: false, detail: 'polygon vertices do not form a convex hull' };
     top = -Infinity;
+    reach = 0;
+    for (const v of (shape.shape as { vertices: readonly (readonly number[])[] }).vertices) reach = Math.max(reach, Math.hypot(v[0] ?? 0, v[1] ?? 0));
     for (const v of (shape.shape as { vertices: readonly (readonly number[])[] }).vertices) top = Math.max(top, (v[0] ?? 0) * sin + (v[1] ?? 0) * cos);
   }
   const bodyDesc = spec.kinematic === true ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
   const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y));
   const collider = world.createCollider(desc.setRotation(spec.rotationZ), body);
-  return { ok: true, body, collider, top };
+  return { ok: true, body, collider, top, reach };
 }
 
 function createAdapter(
@@ -287,6 +300,30 @@ function createAdapter(
   const kinematicAt = new Map<string, Vec2>();
   let kinematicMoved = 0;
   let dropSteps = 0;
+  // Phase 21.2: the one-way and the kinematic colliders, listed when colliders
+  // come or go, so a step visits only those (not every level collider through
+  // WASM) and makes no per-step collections.
+  const oneWayList: ColliderInfo[] = [];
+  const kinematicList: ColliderInfo[] = [];
+  const stilled: RAPIER.RigidBody[] = [];
+  // The one-way predicate of the current sweep (one function; the sweep's feet and rising flag in these).
+  let sweepFeet = 0;
+  let sweepRising = false;
+  const oneWayPredicate = (collider: RAPIER.Collider): boolean => {
+    const info = colliderInfo.get(collider.handle);
+    if (info === undefined || !info.oneWay) return true;
+    if (dropSteps > 0 || sweepRising) return false;
+    return sweepFeet >= info.topNow - ONE_WAY_LANDING_TOLERANCE;
+  };
+  const relist = (): void => {
+    oneWayList.length = 0;
+    kinematicList.length = 0;
+    for (const info of colliderInfo.values()) {
+      if (info.oneWay) oneWayList.push(info);
+      if (info.kinematic) kinematicList.push(info);
+    }
+  };
+  relist();
   // Phase 14.0: the player's capsule; the collider sits at the character position + offset.
   const cap = capsuleOf(config);
   const off = cap.offset;
@@ -462,15 +499,40 @@ function createAdapter(
       const feet = before.y + off.y - feetOffset;
       // The predicate runs inside Rapier's query (a callback from WASM): it
       // must not call back into the world, so the platform tops are read first.
-      const oneWayTops = new Map<number, number>();
-      for (const [handle, info] of colliderInfo) if (info.oneWay) oneWayTops.set(handle, info.body.translation().y + info.top);
-      const oneWayFilter = (collider: RAPIER.Collider): boolean => {
-        const top = oneWayTops.get(collider.handle);
-        if (top === undefined) return true;
-        if (dropSteps > 0 || rising) return false;
-        return feet >= top - ONE_WAY_LANDING_TOLERANCE;
-      };
+      for (let i = 0; i < oneWayList.length; i += 1) {
+        const info = oneWayList[i]!;
+        const t = info.body.translation();
+        info.xNow = t.x;
+        info.yNow = t.y;
+        info.topNow = t.y + info.top;
+      }
+      sweepFeet = feet;
+      sweepRising = rising;
       if (dropSteps > 0) dropSteps -= 1;
+      // Phase 21.2: the predicate (a call from WASM per candidate collider) is
+      // passed only when it could refuse a collider the sweep can reach — a
+      // one-way collider near the capsule's swept box while rising, dropping
+      // through or with its top above the feet. Otherwise it would accept every
+      // candidate, which is the same as no predicate. "Near" is generous: the
+      // shape's reach plus the capsule, the move, the skin, the snap and step
+      // distances and a metre, beyond any box Rapier's query can test.
+      let excludes = false;
+      if (oneWayList.length > 0) {
+        const cx = before.x + off.x;
+        const cy = before.y + off.y;
+        const margin = cap.radius + cap.halfHeight + Math.abs(requested.x) + Math.abs(commandedY) + skin + snapDistance + stepLift + 1;
+        const refuseAll = dropSteps > 0 || rising;
+        for (let i = 0; i < oneWayList.length; i += 1) {
+          const info = oneWayList[i]!;
+          const near = info.reach + margin;
+          if (!(Math.abs(info.xNow - cx) <= near && Math.abs(info.yNow - cy) <= near)) continue;
+          if (refuseAll || !(feet >= info.topNow - ONE_WAY_LANDING_TOLERANCE)) {
+            excludes = true;
+            break;
+          }
+        }
+      }
+      const oneWayFilter = excludes ? oneWayPredicate : undefined;
       // Phase 14.7: Rapier's character controller drags the character along
       // with a kinematic body it touches (the body's velocity along the
       // contact, "kinematic friction"). Against the side of a mover that
@@ -486,8 +548,9 @@ function createAdapter(
       // rest and turned back right after; its next pose is set below, and the
       // world step derives its velocity from that pose as always.
       const centreY = before.y + off.y;
-      const stilled: RAPIER.RigidBody[] = [];
-      for (const info of colliderInfo.values()) {
+      stilled.length = 0;
+      for (let i = 0; i < kinematicList.length; i += 1) {
+        const info = kinematicList[i]!;
         const body = info.body;
         if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
         const v = body.linvel();
@@ -499,7 +562,7 @@ function createAdapter(
         stilled.push(body);
       }
       controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY }, undefined, undefined, oneWayFilter);
-      for (const body of stilled) body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
+      for (let i = 0; i < stilled.length; i += 1) stilled[i]!.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
       const movement = controller.computedMovement();
       const next = { x: before.x + movement.x, y: before.y + movement.y };
       if (
@@ -781,8 +844,9 @@ function createAdapter(
         const added = addStaticBody(world, spec as RapierStaticColliderSpec);
         if (!added.ok) throw new Error(`statics(${spec.entityId}): ${added.detail}`);
         staticBodies.set(spec.entityId, added.body);
-        colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top });
+        colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
       }
+      relist();
     },
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
@@ -794,6 +858,7 @@ function createAdapter(
         world.removeRigidBody(body);
         staticBodies.delete(id);
       }
+      relist();
     },
     dispose(): void {
       if (disposed) return;
@@ -848,7 +913,7 @@ export async function createPhysicsPort(
         return failedResult('invalid_shape', `statics(${spec.entityId}): ${added.detail}`);
       }
       staticBodies.set(spec.entityId, added.body);
-      colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top });
+      colliderInfo.set(added.collider.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
     }
     if (signal?.aborted) {
       world.free();
