@@ -15,9 +15,9 @@ import { animatorAssetIds, canonicalAnimators, validateAnimators, type AnimatorC
 import { canonicalLighting, validateLighting } from './lighting';
 import { canonicalInput, validateInput } from './input';
 import { canonicalFlow, flowAssetRefs, validateFlow, type GameFlow } from './flow';
-import { canonicalGraphDocuments, validateGraphDocuments } from './graph';
+import { canonicalGraphDocuments, graphAssetRefs, graphDocumentsContext, validateGraphDocuments, type GraphData, type GraphKindDef } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
-import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterials } from './materials';
+import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
 import { canonicalSurface, validateSurfaceComponent } from './scene-v3';
@@ -898,7 +898,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
  * lights, zones, spawn markers, instance sets, fog volumes, the player's
  * health) stay out: a copy is never the player, the camera or level wiring.
  */
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
+// Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement', 'materialParams'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'pickup', 'enemy', 'audioSource', 'faceMovement'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -920,6 +921,10 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   if (comps['materials'] !== undefined) {
     validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
     if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/materials`, message: 'a materials component sits only on an entity with a model or a box', expected: 'model|box' });
+  }
+  if (comps['materialParams'] !== undefined) {
+    validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
+    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/materialParams`, message: 'material parameter overrides sit only on an entity with a model or a box', expected: 'model|box' });
   }
   if (comps['animator'] !== undefined) {
     validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
@@ -1776,6 +1781,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   for (const name of PREFAB_BLOCKS) {
     if (x[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(x[name]);
   }
+  if (x.materialParams !== undefined) components.materialParams = canonicalMaterialParams(x.materialParams);
   return {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),
@@ -2133,7 +2139,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
   // Phase 9.4 (v4): project materials, the asset default mappings and the environment.
-  if (doc['materials'] !== undefined) validateMaterials(doc['materials'], '/materials', errors);
+  // Phase 18.1: a graph material may call material functions (standalone graphs).
+  if (doc['materials'] !== undefined) validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']));
   if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
@@ -2285,17 +2292,40 @@ export function canonicalContentV3(c: ContentCatalogV3): ContentCatalogV3 {
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
   const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
   const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));
+  const graphRefs = (kind: GraphKindDef, graph: GraphData, at: string): void => {
+    const nodes = graph.nodes.filter((n) => isPlainObject(n) && typeof n.type === 'string' && (n.data === undefined || isPlainObject(n.data)));
+    for (const r of graphAssetRefs(kind, { nodes, edges: [] })) {
+      if (kindOf.get(r.id) !== r.asset) errors.push(withFound({ code: 'asset_reference_missing', path: `${at}${r.path}`, message: `this node field must name a ${r.asset} asset of this project`, expected: `a ${r.asset} assetId` }, r.id));
+    }
+  };
   const materials = Array.isArray(doc['materials']) ? (doc['materials'] as unknown[]).filter(isPlainObject) : [];
   const materialIds = new Set(materials.map((m) => m['materialId']));
   materials.forEach((m, i) => {
     const textures = m['textures'];
-    if (!isPlainObject(textures)) return;
-    for (const [slot, id] of Object.entries(textures)) {
-      if (kindOf.get(id) !== 'texture') {
-        errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    if (isPlainObject(textures)) {
+      for (const [slot, id] of Object.entries(textures)) {
+        if (kindOf.get(id) !== 'texture') {
+          errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
+        }
       }
     }
+    // Phase 18.0: a graph's texture fields and texture parameters name texture assets.
+    if (isPlainObject(m['graph']) && Array.isArray(m['graph']['nodes'])) graphRefs(GRAPH_KINDS['material']!, m['graph'] as unknown as GraphData, `/materials/${i}/graph`);
+    if (Array.isArray(m['parameters'])) {
+      (m['parameters'] as unknown[]).forEach((p, j) => {
+        if (isPlainObject(p) && p['type'] === 'texture' && typeof p['default'] === 'string' && p['default'] !== '' && kindOf.get(p['default']) !== 'texture') {
+          errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/parameters/${j}/default`, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, p['default']));
+        }
+      });
+    }
   });
+  // Phase 18.1: standalone graphs (material functions) reference assets the same way.
+  if (Array.isArray(doc['graphs'])) {
+    (doc['graphs'] as unknown[]).forEach((g, i) => {
+      const k = isPlainObject(g) && typeof g['kind'] === 'string' ? GRAPH_KINDS[g['kind']] : undefined;
+      if (k !== undefined && isPlainObject(g) && isPlainObject(g['graph']) && Array.isArray(g['graph']['nodes'])) graphRefs(k, g['graph'] as unknown as GraphData, `/graphs/${i}/graph`);
+    });
+  }
   // Phase 9.5: sky images and the grading LUT are texture assets too.
   const env = doc['environment'];
   if (isPlainObject(env)) {

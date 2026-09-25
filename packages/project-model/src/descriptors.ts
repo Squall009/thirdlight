@@ -43,7 +43,8 @@ import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIO
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
 import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
-import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
+import { MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { CAMERA_FOLLOW_DEFAULTS, CAMERA_FOLLOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_EXIT_SCENES, MAX_INTENSITY, MAX_LOCAL_INTENSITY, MAX_ZONE_SPAN, SURFACE_DEFAULTS } from './scene-v3';
 import { GAME_ZONE_ROLES_V4, MAX_INSTANCES, MAX_TAGS } from './types-v3';
 
@@ -236,7 +237,7 @@ export interface ComponentsFieldDescriptor extends FieldBase {
 export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
-  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType';
+  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter';
 }
 
 export type FieldDescriptor =
@@ -803,6 +804,27 @@ const materials: ComponentDescriptor = {
   prefab: true,
 };
 
+// Phase 18.0: per-object overrides of graph-material parameters (extends the material mapping).
+const materialParams: ComponentDescriptor = {
+  name: 'materialParams',
+  label: 'Material parameters',
+  tooltip: 'This object\'s values for the public parameters of its graph materials (the materials keep their own values elsewhere).',
+  category: 'Rendering',
+  value: map(
+    'materialParams',
+    'Material parameters',
+    'Graph material → its overridden parameters.',
+    'Material',
+    map('*', 'Parameters', 'Parameter → value (only public parameters).', 'Parameter', json('*', 'Value', 'A value of the parameter\'s type (number, 2–4 numbers, "#rrggbb" or a texture asset id).', { typedBy: 'materialParameter' }), { keyFormat: 'identifier', minEntries: 1, maxEntries: MAX_MATERIAL_PARAMETERS }),
+    { keyRef: 'material', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS },
+  ),
+  add: { kind: 'tool', tool: 'the Materials section of the Inspector (override a public parameter)' },
+  handles: [],
+  requiresAnyOf: { components: ['model', 'box', 'instances'], reason: 'material parameters belong to the materials of a model, a box or an instance set' },
+  excludes: [],
+  prefab: true,
+};
+
 const fogVolume: ComponentDescriptor = {
   name: 'fogVolume',
   label: 'Fog volume',
@@ -1259,6 +1281,19 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit or water.', MATERIAL_SHADERS, { required: true, default: 'standard' }),
   obj('params', 'Parameters', 'Shader parameter overrides.', MATERIAL_SHADERS.flatMap((s) => Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => paramField(k, t, s))), { required: true, default: {} }),
   obj('textures', 'Textures', 'Texture slots.', MATERIAL_SHADERS.flatMap((s) => MATERIAL_TEXTURE_SLOTS[s].map((slot) => asset(slot, slot.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), `The ${s} shader\'s ${slot} texture.`, ['texture'], { when: when('../shader', s) }))), { required: true, default: {} }),
+  // Phase 18.0: a graph material's exposed parameters and its node graph.
+  list('parameters', 'Exposed parameters', `Up to ${MAX_MATERIAL_PARAMETERS} parameters the graph reads (Parameter nodes); objects may override the public ones.`, obj('*', 'Parameter', 'An exposed parameter.', [
+    str('key', 'Key', 'The name Parameter nodes and overrides use.', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
+    enm('type', 'Type', 'The value type (colour is a vec3 edited as a colour; a texture names a texture asset).', MATERIAL_PARAMETER_TYPES, { required: true, default: 'float' }),
+    json('default', 'Default', 'The material\'s own value (a number, 2–4 numbers, "#rrggbb" or a texture asset id / "").', { required: true, typedBy: 'materialParameter' }),
+    num('min', 'Min', 'The lowest value, within ±1e6 (numbers and vectors).', { when: when('type', 'float', 'vec2', 'vec3', 'vec4') }),
+    num('max', 'Max', 'The highest value, within ±1e6 and at least min (numbers and vectors).', { when: when('type', 'float', 'vec2', 'vec3', 'vec4') }),
+    enm('visibility', 'Visibility', 'Public: objects may override it. Private: the material\'s value only.', ['public', 'private'], { default: 'public', omitDefault: true }),
+    str('label', 'Label', 'Shown instead of the key.', { minLength: 1, maxLength: 64 }),
+    str('group', 'Group', 'A foldable group in the Inspector.', { minLength: 1, maxLength: 64 }),
+    str('tooltip', 'Tooltip', 'Help text.', { minLength: 1, maxLength: 256 }),
+  ]), { maxItems: MAX_MATERIAL_PARAMETERS }),
+  json('graph', 'Graph', 'The node graph (graph kind "material"): nodes, wires, groups and comments, edited in the Material tab with graph edits.', { readOnly: true }),
 ]);
 
 const CLIP = obj('clip', 'Clip', 'A named clip of a model asset.', [
@@ -1449,6 +1484,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   model,
   box,
   materials,
+  materialParams,
   surface,
   instances,
   fogVolume,

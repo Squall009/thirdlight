@@ -128,7 +128,13 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water, params: {...overrides}, textures: {slot: ' +
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
-      'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. setEnvironment {environment: {wind: ' +
+      'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
+      '"material": the graph replaces shader/params/textures at render time — the graph compiler arrives with 18.3, until then it renders with its shader) and ' +
+      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}] ' +
+      '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +
+      'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
+      '"material-function" (setGraph; Function input {name, type, default} / Function output {name, type} nodes are the ports of every Function call {function: graphId} node; ' +
+      'calls may not form a cycle; a function whose ports are wired in a material cannot drop them). setEnvironment {environment: {wind: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +
       'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}, quality?}} ' +
       '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. setLighting {sceneId, ' +

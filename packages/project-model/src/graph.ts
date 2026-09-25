@@ -111,12 +111,44 @@ export interface GraphPortDef {
   single?: boolean;
   /** Input only: an unconnected required input is a diagnostic error. */
   required?: boolean;
+  /**
+   * Phase 18.1: the port's type comes from the node's data (a data-dependent
+   * port); `type` is then the fallback when the rule gives nothing.
+   */
+  typeFrom?: GraphPortTypeRule;
+  /**
+   * Phase 18.1, input only: what an unconnected input reads — a number or a
+   * vector is a constant; a string names a built-in source of the kind
+   * (e.g. a material's `uv0`). Documentation for the kind's compiler and the
+   * editor; the framework never refuses an unconnected defaulted input.
+   */
+  default?: GraphValue;
 }
+
+/**
+ * Phase 18.1: how a data-dependent port gets its type from a node field. In
+ * order: `lookup` (the value names an external declaration the context
+ * types, e.g. a material parameter), `map`, `byLength` (the value's length,
+ * e.g. a swizzle mask "xy" → the 2nd entry), the value `auto` (the widest
+ * type among the wires into the node's ports that share this field, in the
+ * order of the field's options; none → the first option after `auto`), else
+ * the value itself is the type.
+ */
+export interface GraphPortTypeRule {
+  field: string;
+  lookup?: string;
+  map?: Readonly<Record<string, string>>;
+  byLength?: readonly string[];
+}
+
+/** Phase 18.1: the value of a type field that asks for the widest connected type. */
+export const GRAPH_AUTO_TYPE = 'auto';
 
 export interface GraphFieldDef {
   key: string;
   label: string;
-  type: 'number' | 'string' | 'boolean' | 'enum' | 'vector';
+  /** Phase 18.1: `color` is a `#rrggbb` string (lower case). */
+  type: 'number' | 'string' | 'boolean' | 'enum' | 'vector' | 'color';
   default: GraphValue;
   min?: number;
   max?: number;
@@ -126,6 +158,10 @@ export interface GraphFieldDef {
   size?: number;
   /** `string`: the longest value (default 256). */
   maxLength?: number;
+  /** Phase 18.1, `string`: the whole value matches this regular expression (source text). */
+  pattern?: string;
+  /** Phase 18.1, `string`: the value names an asset of this kind (e.g. `texture`); "" = none. Checked against the project's assets. */
+  asset?: string;
 }
 
 export interface GraphNodeDef {
@@ -148,6 +184,41 @@ export interface GraphNodeDef {
   fixed?: boolean;
   /** Phase 16.2: the field whose (non-empty) value is the node's title instead of the type label. */
   titleField?: string;
+  /**
+   * Phase 18.1: at most one node among the types sharing this tag (a
+   * refusal beyond) — e.g. a material's PBR and Unlit outputs. A `required`
+   * type is satisfied by any node of its tag.
+   */
+  exclusive?: string;
+  /**
+   * Phase 18.1: the node's ports are the interface of another graph — the
+   * standalone graph of kind `kind` whose id is the value of `field` (a
+   * sub-graph call). Resolved through the validation context.
+   */
+  portsFrom?: { field: string; kind: string };
+}
+
+/**
+ * Phase 18.1: a graph kind whose graphs can be called (sub-graphs): the
+ * nodes of type `input` become the caller's input ports and those of type
+ * `output` its output ports, ordered by position (top to bottom, then left
+ * to right). A port's id is the interface node's id (so renaming keeps the
+ * callers' wires), its label the `labelField` value (or the id) and its type
+ * the `typeField` value.
+ */
+export interface GraphInterfaceDef {
+  input: string;
+  output: string;
+  labelField: string;
+  typeField: string;
+}
+
+/** Phase 18.1: what validation and port resolution may read outside the graph. */
+export interface GraphContext {
+  /** A standalone graph of `kind` by id (sub-graph calls), or null. */
+  graph?: (kind: string, id: string) => { kind: GraphKindDef; graph: GraphData } | null;
+  /** The port type of an external declaration (`GraphPortTypeRule.lookup`), or null. */
+  lookup?: (name: string, value: string) => string | null;
 }
 
 export interface GraphKindDef {
@@ -172,6 +243,8 @@ export interface GraphKindDef {
    * with an owner cannot be a standalone graph.
    */
   owner?: string;
+  /** Phase 18.1: graphs of this kind can be called from other graphs (sub-graphs). */
+  interface?: GraphInterfaceDef;
 }
 
 // ---- limits ------------------------------------------------------------------------
@@ -198,6 +271,15 @@ export const GRAPH_LIMITS = {
 /** 1-64 characters (64: the longest state/controller id, so an owner's ids can be graph ids). */
 export const GRAPH_ITEM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
+const patternCache = new Map<string, RegExp>();
+function patternOf(src: string): RegExp {
+  let re = patternCache.get(src);
+  if (re === undefined) {
+    re = new RegExp(`^(?:${src})$`);
+    patternCache.set(src, re);
+  }
+  return re;
+}
 
 // ---- small helpers -----------------------------------------------------------------
 
@@ -242,6 +324,159 @@ export function nodeFieldValue(node: GraphNode, field: GraphFieldDef): GraphValu
   return v === undefined ? field.default : v;
 }
 
+// ---- phase 18.1: data-dependent ports ----------------------------------------------------
+
+export interface GraphNodePorts {
+  inputs: readonly GraphPortDef[];
+  outputs: readonly GraphPortDef[];
+}
+const NO_PORTS: GraphNodePorts = { inputs: [], outputs: [] };
+
+const byPosition = (a: GraphNode, b: GraphNode): number => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * The interface of a callable graph (`GraphKindDef.interface`): its input
+ * nodes as input ports and its output nodes as output ports.
+ */
+export function graphInterface(kind: GraphKindDef, graph: GraphData): GraphNodePorts {
+  const itf = kind.interface;
+  if (itf === undefined) return NO_PORTS;
+  const side = (type: string): GraphPortDef[] => {
+    const def = nodeDef(kind, type);
+    const field = (key: string): GraphFieldDef | undefined => def?.fields?.find((f) => f.key === key);
+    const lf = field(itf.labelField);
+    const tf = field(itf.typeField);
+    return graph.nodes
+      .filter((n) => n.type === type)
+      .sort(byPosition)
+      .map((n) => {
+        const label = lf !== undefined ? nodeFieldValue(n, lf) : '';
+        const t = tf !== undefined ? nodeFieldValue(n, tf) : '';
+        return { id: n.id, label: typeof label === 'string' && label !== '' ? label : n.id, type: String(t) };
+      });
+  };
+  return { inputs: side(itf.input), outputs: side(itf.output) };
+}
+
+type Declared = { type: string } | { auto: string };
+type Slot = GraphPortDef | { port: GraphPortDef; auto: string };
+
+function declaredType(kind: GraphKindDef, def: GraphNodeDef, node: GraphNode, port: GraphPortDef, ctx: GraphContext | undefined): Declared {
+  const rule = port.typeFrom;
+  if (rule === undefined) return { type: port.type };
+  const f = def.fields?.find((x) => x.key === rule.field);
+  if (f === undefined) return { type: port.type };
+  const v = nodeFieldValue(node, f);
+  const s = typeof v === 'string' ? v : String(v);
+  if (rule.lookup !== undefined) return { type: ctx?.lookup?.(rule.lookup, s) ?? port.type };
+  if (rule.map !== undefined && Object.prototype.hasOwnProperty.call(rule.map, s)) return { type: rule.map[s]! };
+  if (rule.byLength !== undefined) return { type: rule.byLength[s.length - 1] ?? port.type };
+  if (s === GRAPH_AUTO_TYPE) return { auto: rule.field };
+  return { type: kind.portTypes.some((t) => t.id === s) ? s : port.type };
+}
+
+/** The options of a type field (for `auto` widening). */
+function typeOptions(def: GraphNodeDef, field: string): readonly string[] {
+  return def.fields?.find((f) => f.key === field)?.options ?? [];
+}
+
+/**
+ * Every node's ports with their types resolved (phase 18.1): static ports,
+ * a sub-graph call's interface (`portsFrom`), types from node data
+ * (`typeFrom`) and `auto` types from the wires. Nodes of unknown types have
+ * no ports; malformed edges are ignored (validation reports them).
+ */
+export function resolveGraphPorts(kind: GraphKindDef, graph: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }, ctx?: GraphContext): Map<string, GraphNodePorts> {
+  const out = new Map<string, GraphNodePorts>();
+  const pending = new Map<string, { def: GraphNodeDef; inputs: Slot[]; outputs: Slot[] }>();
+  for (const node of graph.nodes) {
+    const def = nodeDef(kind, node.type);
+    if (def === undefined) continue;
+    let inputs: readonly GraphPortDef[] = def.inputs;
+    let outputs: readonly GraphPortDef[] = def.outputs;
+    const pf = def.portsFrom;
+    if (pf !== undefined) {
+      const f = def.fields?.find((x) => x.key === pf.field);
+      const ref = f !== undefined ? nodeFieldValue(node, f) : '';
+      const target = typeof ref === 'string' && ref !== '' ? (ctx?.graph?.(pf.kind, ref) ?? null) : null;
+      const itf = target !== null ? graphInterface(target.kind, target.graph) : NO_PORTS;
+      inputs = [...inputs, ...itf.inputs];
+      outputs = [...outputs, ...itf.outputs];
+    }
+    let hasAuto = false;
+    const map = (p: GraphPortDef): Slot => {
+      const d = declaredType(kind, def, node, p, ctx);
+      if ('auto' in d) {
+        hasAuto = true;
+        return { port: p, auto: d.auto };
+      }
+      return d.type === p.type ? p : { ...p, type: d.type };
+    };
+    const ins = inputs.map(map);
+    const outs = outputs.map(map);
+    if (hasAuto) pending.set(node.id, { def, inputs: ins, outputs: outs });
+    else out.set(node.id, { inputs: ins as GraphPortDef[], outputs: outs as GraphPortDef[] });
+  }
+  if (pending.size === 0) return out;
+  const incoming = new Map<string, GraphEdge[]>();
+  for (const e of graph.edges) {
+    if (!isPlainObject(e) || !isPlainObject(e.to) || !isPlainObject(e.from) || typeof e.to.node !== 'string' || typeof e.from.node !== 'string') continue;
+    const l = incoming.get(e.to.node) ?? [];
+    l.push(e);
+    incoming.set(e.to.node, l);
+  }
+  const visiting = new Set<string>();
+  const resolve = (id: string): GraphNodePorts | undefined => {
+    const done = out.get(id);
+    if (done !== undefined) return done;
+    const p = pending.get(id);
+    if (p === undefined || visiting.has(id)) return undefined;
+    visiting.add(id);
+    const widest = new Map<string, number>();
+    for (const e of incoming.get(id) ?? []) {
+      const slot = p.inputs.find((x) => ('auto' in x ? x.port.id : x.id) === e.to.port);
+      if (slot === undefined || !('auto' in slot)) continue;
+      // A wire from a node still being resolved (a cycle) does not widen.
+      const src = resolve(e.from.node)?.outputs.find((x) => x.id === e.from.port);
+      if (src === undefined) continue;
+      const i = typeOptions(p.def, slot.auto).indexOf(src.type);
+      if (i >= 0 && src.type !== GRAPH_AUTO_TYPE && i > (widest.get(slot.auto) ?? -1)) widest.set(slot.auto, i);
+    }
+    const fix = (x: Slot): GraphPortDef => {
+      if (!('auto' in x)) return x;
+      const opts = typeOptions(p.def, x.auto);
+      const i = widest.get(x.auto);
+      return { ...x.port, type: i !== undefined ? opts[i]! : (opts.find((o) => o !== GRAPH_AUTO_TYPE) ?? x.port.type) };
+    };
+    const r = { inputs: p.inputs.map(fix), outputs: p.outputs.map(fix) };
+    visiting.delete(id);
+    out.set(id, r);
+    return r;
+  };
+  for (const id of pending.keys()) resolve(id);
+  return out;
+}
+
+/**
+ * Phase 18.1: the asset references in a graph's node data (fields with an
+ * `asset` kind and a non-empty value), with their paths relative to the graph.
+ */
+export function graphAssetRefs(kind: GraphKindDef, graph: GraphData): { path: string; asset: string; id: string }[] {
+  const out: { path: string; asset: string; id: string }[] = [];
+  graph.nodes.forEach((n, i) => {
+    for (const f of nodeDef(kind, n.type)?.fields ?? []) {
+      const v = n.data?.[f.key];
+      if (f.asset !== undefined && typeof v === 'string' && v !== '') out.push({ path: `/nodes/${i}/data/${f.key}`, asset: f.asset, id: v });
+    }
+  });
+  return out;
+}
+
+/** One node's ports without wires (e.g. a node about to be added; `auto` types take their fallback). */
+export function staticNodePorts(kind: GraphKindDef, node: GraphNode, ctx?: GraphContext): GraphNodePorts {
+  return resolveGraphPorts(kind, { nodes: [node], edges: [] }, ctx).get(node.id) ?? NO_PORTS;
+}
+
 function fieldValueError(f: GraphFieldDef, v: unknown): string | null {
   switch (f.type) {
     case 'number':
@@ -249,7 +484,11 @@ function fieldValueError(f: GraphFieldDef, v: unknown): string | null {
       if ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) return `a number ${f.min ?? '-∞'}–${f.max ?? '∞'}`;
       return null;
     case 'string':
-      return typeof v === 'string' && v.length <= (f.maxLength ?? 256) ? null : `a string of at most ${f.maxLength ?? 256} characters`;
+      if (typeof v !== 'string' || v.length > (f.maxLength ?? 256)) return `a string of at most ${f.maxLength ?? 256} characters`;
+      if (f.pattern !== undefined && !(f.asset !== undefined && v === '') && !patternOf(f.pattern).test(v)) return `text matching ${f.pattern}`;
+      return null;
+    case 'color':
+      return typeof v === 'string' && COLOR_RE.test(v) ? null : 'a colour #rrggbb (lower case)';
     case 'boolean':
       return typeof v === 'boolean' ? null : 'true or false';
     case 'enum':
@@ -271,7 +510,7 @@ function fieldValueError(f: GraphFieldDef, v: unknown): string | null {
  * incompatible types, a second edge into a single input, a cycle in a kind
  * that forbids them, or a budget exceeded.
  */
-export function validateGraphData(kind: GraphKindDef, value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateGraphData(kind: GraphKindDef, value: unknown, path: string, errors: ModelErrorV2[], ctx?: GraphContext): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'a graph is { nodes, edges, groups?, comments? }', value);
   onlyKeys(value, ['nodes', 'edges', 'groups', 'comments'], path, errors);
   const ids = new Set<string>();
@@ -291,6 +530,7 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
   const nodes = value['nodes'];
   const maxNodes = Math.min(kind.maxNodes, GRAPH_LIMITS.nodes);
   const nodeTypes = new Map<string, GraphNodeDef>();
+  const goodNodes: GraphNode[] = [];
   if (!Array.isArray(nodes)) err(errors, 'field_type', `${path}/nodes`, 'nodes is a list', nodes);
   else {
     if (nodes.length > maxNodes) err(errors, 'limits_exceeded', `${path}/nodes`, `a ${kind.label} has at most ${maxNodes} nodes`, nodes.length, `at most ${maxNodes}`);
@@ -303,7 +543,10 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
       const def = typeof n['type'] === 'string' ? nodeDef(kind, n['type']) : undefined;
       if (def === undefined) err(errors, 'reference_missing', `${p}/type`, `not a node type of the ${kind.label} catalogue`, n['type']);
       else {
-        if (idOk) nodeTypes.set(n['id'] as string, def);
+        if (idOk) {
+          nodeTypes.set(n['id'] as string, def);
+          if (point(n['position'])) goodNodes.push({ id: n['id'] as string, type: def.type, position: n['position'], ...(isPlainObject(n['data']) ? { data: n['data'] as Record<string, GraphValue> } : {}) });
+        }
         const c = (counts.get(def.type) ?? 0) + 1;
         counts.set(def.type, c);
         if (def.max !== undefined && c === def.max + 1) err(errors, 'limits_exceeded', `${p}/type`, `a ${kind.label} has at most ${def.max} "${def.label}" node${def.max === 1 ? '' : 's'}`, def.type);
@@ -326,6 +569,23 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
         }
       }
     });
+    // Phase 18.1: at most one node per exclusive tag.
+    const tags = new Map<string, number>();
+    for (const def of kind.nodes) if (def.exclusive !== undefined) tags.set(def.exclusive, (tags.get(def.exclusive) ?? 0) + (counts.get(def.type) ?? 0));
+    for (const [tag, c] of tags) {
+      if (c > 1) err(errors, 'limits_exceeded', `${path}/nodes`, `a ${kind.label} has at most one of ${kind.nodes.filter((d) => d.exclusive === tag).map((d) => `"${d.label}"`).join(', ')}`, c, 'at most 1');
+    }
+    // Phase 18.1: a sub-graph call names an existing graph of its kind.
+    goodNodes.forEach((n) => {
+      const def = nodeTypes.get(n.id)!;
+      const pf = def.portsFrom;
+      if (pf === undefined) return;
+      const ref = n.data?.[pf.field];
+      const i = (nodes as unknown[]).findIndex((x) => isPlainObject(x) && x['id'] === n.id);
+      if (typeof ref !== 'string' || ref === '' || (ctx?.graph?.(pf.kind, ref) ?? null) === null) {
+        err(errors, 'reference_missing', `${path}/nodes/${i}/data/${pf.field}`, `"${def.label}" names no ${pf.kind} graph of this project`, ref ?? '', `the id of a ${pf.kind} graph`);
+      }
+    });
     for (const def of kind.nodes) {
       if (def.fixed === true && (counts.get(def.type) ?? 0) !== 1) err(errors, 'field_value', `${path}/nodes`, `every ${kind.label} has exactly one "${def.label}" node (it cannot be added or removed)`, counts.get(def.type) ?? 0, '1');
     }
@@ -337,6 +597,9 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
   if (!Array.isArray(edges)) err(errors, 'field_type', `${path}/edges`, 'edges is a list', edges);
   else {
     if (edges.length > maxEdges) err(errors, 'limits_exceeded', `${path}/edges`, `a ${kind.label} has at most ${maxEdges} edges`, edges.length, `at most ${maxEdges}`);
+    // Phase 18.1: ports come from the node type, a call's sub-graph and the node data.
+    const wellFormed = (edges as unknown[]).filter((e): e is GraphEdge => isPlainObject(e) && isPlainObject(e['from']) && isPlainObject(e['to']) && typeof e['from']['node'] === 'string' && typeof e['from']['port'] === 'string' && typeof e['to']['node'] === 'string' && typeof e['to']['port'] === 'string');
+    const resolved = resolveGraphPorts(kind, { nodes: goodNodes, edges: wellFormed }, ctx);
     const intoSingle = new Set<string>();
     const fromSingle = new Set<string>();
     const pairs = new Set<string>();
@@ -353,7 +616,8 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
         }
         const def = nodeTypes.get(r['node']);
         if (def === undefined) return err(errors, 'reference_missing', `${p}/${end}/node`, 'the edge names no node of this graph', r['node']);
-        const port = (end === 'from' ? def.outputs : def.inputs).find((x) => x.id === r['port']);
+        const ports = resolved.get(r['node']) ?? NO_PORTS;
+        const port = (end === 'from' ? ports.outputs : ports.inputs).find((x) => x.id === r['port']);
         if (port === undefined) return err(errors, 'reference_missing', `${p}/${end}/port`, `"${def.label}" has no ${end === 'from' ? 'output' : 'input'} "${String(r['port'])}"`, r['port']);
         ends[j] = port;
       });
@@ -813,7 +1077,7 @@ export interface GraphDocument {
 export const MAX_GRAPH_DOCUMENTS = 64;
 const DOC_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
-export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[], ctx?: GraphContext): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'a graph document is { graphId, kind, name, graph }', value);
   onlyKeys(value, ['graphId', 'kind', 'name', 'graph'], path, errors);
   if (typeof value['graphId'] !== 'string' || !DOC_ID_RE.test(value['graphId'])) err(errors, 'field_value', `${path}/graphId`, 'graphId is an id (a-z, 0-9, _ and -)', value['graphId']);
@@ -821,14 +1085,52 @@ export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDe
   const kind = typeof value['kind'] === 'string' && Object.prototype.hasOwnProperty.call(kinds, value['kind']) ? kinds[value['kind']] : undefined;
   if (kind === undefined) return err(errors, 'reference_missing', `${path}/kind`, 'not a registered graph kind', value['kind'], Object.keys(kinds).join(', '));
   if (kind.owner !== undefined) return err(errors, 'field_value', `${path}/kind`, `a ${kind.label} belongs to its ${kind.owner} (edit it there with graphEdit {owner: {kind: "${kind.owner}", …}})`, value['kind'], Object.keys(kinds).filter((k) => kinds[k]!.owner === undefined).join(', '));
-  validateGraphData(kind, value['graph'], `${path}/graph`, errors);
+  validateGraphData(kind, value['graph'], `${path}/graph`, errors, ctx);
+}
+
+/**
+ * Phase 18.1: the context standalone graphs give each other (sub-graph
+ * calls): a graph of `kind` by id, read from the list as it is (malformed
+ * entries are skipped; their own validation reports them).
+ */
+export function graphDocumentsContext(kinds: Readonly<Record<string, GraphKindDef>>, list: unknown): GraphContext {
+  const docs = Array.isArray(list) ? list : [];
+  return {
+    graph(kind, id) {
+      const d = docs.find((x) => isPlainObject(x) && x['graphId'] === id && x['kind'] === kind) as Record<string, unknown> | undefined;
+      const k = Object.prototype.hasOwnProperty.call(kinds, kind) ? kinds[kind] : undefined;
+      const g = d?.['graph'];
+      if (k === undefined || !isPlainObject(g) || !Array.isArray(g['nodes']) || !Array.isArray(g['edges'])) return null;
+      const nodes = (g['nodes'] as unknown[]).filter((n): n is GraphNode => isPlainObject(n) && typeof n['id'] === 'string' && typeof n['type'] === 'string' && point(n['position']) && (n['data'] === undefined || isPlainObject(n['data'])));
+      return { kind: k, graph: { nodes, edges: [] } };
+    },
+  };
 }
 
 export function validateGraphDocuments(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length > MAX_GRAPH_DOCUMENTS) return err(errors, 'field_value', path, `graphs is a list of at most ${MAX_GRAPH_DOCUMENTS}`, value);
   const ids = new Set<string>();
+  const ctx = graphDocumentsContext(kinds, value);
+  // Phase 18.1: sub-graph calls between documents must not form a cycle.
+  const calls = new Map<string, string[]>();
+  value.forEach((g) => {
+    if (!isPlainObject(g) || typeof g['graphId'] !== 'string' || typeof g['kind'] !== 'string') return;
+    const k = Object.prototype.hasOwnProperty.call(kinds, g['kind']) ? kinds[g['kind']] : undefined;
+    const graph = g['graph'];
+    if (k === undefined || !isPlainObject(graph) || !Array.isArray(graph['nodes'])) return;
+    const to: string[] = [];
+    for (const n of graph['nodes'] as unknown[]) {
+      if (!isPlainObject(n) || typeof n['type'] !== 'string') continue;
+      const pf = nodeDef(k, n['type'])?.portsFrom;
+      const ref = pf !== undefined && isPlainObject(n['data']) ? n['data'][pf.field] : undefined;
+      if (typeof ref === 'string' && ref !== '') to.push(ref);
+    }
+    calls.set(g['graphId'], to);
+  });
+  const cycle = findCycle(calls);
+  if (cycle !== null) err(errors, 'hierarchy_cycle', path, `graphs cannot call each other in a cycle (${cycle.join(' → ')})`, cycle[0]);
   value.forEach((g, i) => {
-    validateGraphDocument(kinds, g, `${path}/${i}`, errors);
+    validateGraphDocument(kinds, g, `${path}/${i}`, errors, ctx);
     const id = isPlainObject(g) ? g['graphId'] : undefined;
     if (typeof id === 'string') {
       if (ids.has(id)) err(errors, 'id_duplicate', `${path}/${i}/graphId`, 'graph ids are unique', id);

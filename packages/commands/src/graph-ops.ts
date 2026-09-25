@@ -17,14 +17,28 @@
  * from the controller and the result is written back into it, so the
  * command records the same controller change `setAnimator` makes
  * (`setAnimators` previous/next, undone by restoring the previous list).
- * Later phases register the material (18), behavior (19) and effect (20)
- * owners here with the same op set.
+ * Phase 18.0: `material` — a graph material's graph (`content.materials[i].graph`,
+ * owner id = the materialId); the change carries the ops like a standalone
+ * graph (a move in a large graph stays a small record). Material functions
+ * (18.1) are standalone graphs of kind `material-function`; calls in any
+ * graph resolve their ports through the validation context (the project's
+ * standalone graphs and, in a material, its exposed parameters).
+ * Later phases register the behavior (19) and effect (20) owners here with
+ * the same op set.
  */
 import {
   animatorGraphOf,
   applyAnimatorGraph,
   applyGraphOps,
   canonicalAnimators,
+  canonicalMaterials,
+  graphDocumentsContext,
+  materialGraphContext,
+  validateGraphDocuments,
+  validateMaterialGraph,
+  validateMaterials,
+  type GraphContext,
+  type MaterialDef,
   canonicalGraphDocuments,
   GRAPH_KINDS,
   parseAnimatorOwnerId,
@@ -45,12 +59,13 @@ import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, ForwardChange, GraphEditChange, GraphOwner, InverseSpec, SetGraphChange } from './types';
 
 type WithGraphs = ContentDocument & { graphs?: GraphDocument[] };
+type WithMaterials = ContentDocument & { materials?: MaterialDef[] };
 type WithAnimators = ContentDocument & { animators?: AnimatorController[] };
 
 /** Where an owner kind keeps its graph (and which graph kind it is). */
 export interface GraphOwnerAdapter {
-  /** The owner's graph and kind, or null when the owner does not exist. */
-  read(content: ContentDocument, id: string): { kind: GraphKindDef; graph: GraphData } | null;
+  /** The owner's graph and kind (and, phase 18.1, the context it validates in), or null when the owner does not exist. */
+  read(content: ContentDocument, id: string): { kind: GraphKindDef; graph: GraphData; ctx?: GraphContext } | null;
   /** The content with the owner's graph replaced, or why the graph does not fit the owner. */
   write(content: ContentDocument, id: string, graph: GraphData): ContentDocument | { refused: string };
   /**
@@ -68,11 +83,32 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
     read(content, id) {
       const doc = ((content as WithGraphs).graphs ?? []).find((g) => g.graphId === id);
       const kind = doc !== undefined ? GRAPH_KINDS[doc.kind] : undefined;
-      return doc !== undefined && kind !== undefined ? { kind, graph: doc.graph } : null;
+      return doc !== undefined && kind !== undefined ? { kind, graph: doc.graph, ctx: graphDocumentsContext(GRAPH_KINDS, (content as WithGraphs).graphs) } : null;
     },
     write(content, id, graph) {
       const list = ((content as WithGraphs).graphs ?? []).map((g) => (g.graphId === id ? { ...g, graph } : g));
+      // Phase 18.1: graphs that call this one (material functions) must still fit its interface.
+      const why = callersRefusal(content, list);
+      if (why !== null) return { refused: why };
       return { ...(content as WithGraphs), graphs: list } as ContentDocument;
+    },
+  },
+  // Phase 18.0: a graph material's graph (owner id = materialId; a material without a graph has none — convert it with setMaterial).
+  material: {
+    read(content, id) {
+      const m = ((content as WithMaterials).materials ?? []).find((x) => x.materialId === id);
+      const kind = GRAPH_KINDS['material'];
+      if (m === undefined || m.graph === undefined || kind === undefined) return null;
+      return { kind, graph: m.graph, ctx: materialGraphContext(m.parameters, graphDocumentsContext(GRAPH_KINDS, (content as WithGraphs).graphs)) };
+    },
+    write(content, id, graph) {
+      const list = ((content as WithMaterials).materials ?? []).map((m) => (m.materialId === id ? { ...m, graph } : m));
+      // The material rules (every Parameter node names a declared parameter).
+      const m = list.find((x) => x.materialId === id)!;
+      const errors: ModelErrorV2[] = [];
+      validateMaterialGraph(m as unknown as Record<string, unknown>, '', errors, graphDocumentsContext(GRAPH_KINDS, (content as WithGraphs).graphs));
+      if (errors.length > 0) return { refused: `${errors[0]!.message} (at ${errors[0]!.path})` };
+      return { ...(content as WithMaterials), materials: canonicalMaterials(list) } as ContentDocument;
     },
   },
   // Phase 16.2: `<controllerId>` (base layer), `<controllerId>@<n>` (override layer n), `<controllerId>#<stateId>` (a blend tree).
@@ -102,6 +138,25 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
 
 export const GRAPH_OWNER_KINDS: readonly string[] = Object.keys(GRAPH_OWNERS);
 
+/**
+ * Phase 18.1: why a new list of standalone graphs breaks a caller (a graph
+ * material or another graph calling a changed material function: a wired
+ * port gone, a call cycle), or null. The resulting-state check would refuse
+ * it too; this names the caller.
+ */
+function callersRefusal(content: ContentDocument, graphs: readonly GraphDocument[]): string | null {
+  const errors: ModelErrorV2[] = [];
+  validateGraphDocuments(GRAPH_KINDS, graphs, '/graphs', errors);
+  const mats = (content as WithMaterials).materials ?? [];
+  if (errors.length === 0 && mats.length > 0) validateMaterials(mats, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, graphs));
+  if (errors.length === 0) return null;
+  const e = errors[0]!;
+  const m = /^\/materials\/(\d+)/.exec(e.path ?? '');
+  const g = /^\/graphs\/(\d+)/.exec(e.path ?? '');
+  const who = m !== null ? `material "${mats[Number(m[1])]?.name ?? '?'}"` : g !== null ? `graph "${graphs[Number(g[1])]?.name ?? '?'}"` : 'the graphs';
+  return `${who} would break: ${e.message}`;
+}
+
 function modelError(e: ModelErrorV2, prefix: string): CommandError {
   return { code: e.code, cls: 'validation', path: `${prefix}${e.path ?? ''}`, message: e.message, ...(e.found !== undefined ? { found: e.found } : {}), ...(e.expected !== undefined ? { expected: e.expected } : {}) } as unknown as CommandError;
 }
@@ -122,7 +177,7 @@ export function editOwnerGraph(
   const applied = applyGraphOps(current.graph, ops);
   if (!applied.ok) return { ok: false, error: modelError(applied.error, '/args/ops') };
   const errors: ModelErrorV2[] = [];
-  validateGraphData(current.kind, applied.graph, '', errors);
+  validateGraphData(current.kind, applied.graph, '', errors, current.ctx);
   if (errors.length > 0) {
     // The result names graph paths (/nodes/3/…); say which op list produced it.
     const e = errors[0]!;
@@ -168,7 +223,9 @@ export function withGraphDocument(content: ContentDocument, graphId: string, doc
 export function applySetGraph(input: OpInput, args: { graph: GraphDocument }): OpOutcome {
   const catalog = contentOf(input.content) as WithGraphs;
   const errors: ModelErrorV2[] = [];
-  validateGraphDocument(GRAPH_KINDS, args.graph, '', errors);
+  // Phase 18.1: calls resolve against the project's graphs with this one in place.
+  const others = (catalog.graphs ?? []).filter((g) => !(typeof args.graph === 'object' && args.graph !== null && g.graphId === args.graph.graphId));
+  validateGraphDocument(GRAPH_KINDS, args.graph, '', errors, graphDocumentsContext(GRAPH_KINDS, [...others, args.graph]));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0]!, '/args/graph') };
   const graphId = args.graph.graphId;
   const previous = (catalog.graphs ?? []).find((g) => g.graphId === graphId) ?? null;
@@ -185,5 +242,8 @@ export function applyDeleteGraph(input: OpInput, args: { graphId: string }): OpO
   const catalog = contentOf(input.content) as WithGraphs;
   const previous = (catalog.graphs ?? []).find((g) => g.graphId === args.graphId) ?? null;
   if (previous === null) return { ok: false, error: { ...fieldValue('/args/graphId', args.graphId, 'an existing graphId', 'no graph with this id'), code: 'reference_missing' } };
+  // Phase 18.1: a material function still called somewhere stays.
+  const why = callersRefusal(catalog, (catalog.graphs ?? []).filter((g) => g.graphId !== args.graphId));
+  if (why !== null) return { ok: false, error: { ...fieldValue('/args/graphId', args.graphId, 'a graph nothing calls', why), code: 'reference_missing' } };
   return commit(input, withGraphDocument(catalog, args.graphId, null), { type: 'setGraph', graphId: args.graphId, previous: deepClone(previous), next: null }, { kind: 'setGraph', graphId: args.graphId, restore: deepClone(previous) });
 }

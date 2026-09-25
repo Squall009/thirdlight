@@ -274,7 +274,9 @@ export type V3OwnedComponent =
   | 'pickup'
   | 'enemy'
   | 'audioSource'
-  | 'faceMovement';
+  | 'faceMovement'
+  /** Phase 18.0, v4 scenes only: overrides of graph-material parameters. */
+  | 'materialParams';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

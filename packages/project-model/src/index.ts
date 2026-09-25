@@ -343,7 +343,13 @@ export {
   canonicalGraphData,
   canonicalGraphDocuments,
   findCycle,
+  GRAPH_AUTO_TYPE,
   GRAPH_ITEM_ID_RE,
+  graphAssetRefs,
+  graphDocumentsContext,
+  graphInterface,
+  resolveGraphPorts,
+  staticNodePorts,
   GRAPH_LIMITS,
   GRAPH_OP_NAMES,
   MAX_GRAPH_DOCUMENTS,
@@ -357,7 +363,11 @@ export {
   validateGraphOps,
   wouldCycle,
   type GraphComment,
+  type GraphContext,
   type GraphConversion,
+  type GraphInterfaceDef,
+  type GraphNodePorts,
+  type GraphPortTypeRule,
   type GraphData,
   type GraphDocument,
   type GraphEdge,
@@ -375,6 +385,8 @@ export {
   type GraphValue,
 } from './graph';
 export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KIND, GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
+// Phase 18.1: the material node catalogue (material graphs and material functions).
+export { MATERIAL_BUILTIN_SOURCES, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Phase 9.8: input actions.
@@ -445,6 +457,22 @@ export {
   MATERIAL_SLOT_ALL,
   MATERIAL_TEXTURE_SLOTS,
   materialParamError,
+  // Phase 18.0: graph materials (exposed parameters, the graph, the runtime view).
+  canonicalMaterialParameters,
+  MATERIAL_PARAMETER_KEY_RE,
+  materialGraphContext,
+  materialParameterPortType,
+  materialParameterValueError,
+  materialsForRuntime,
+  MAX_MATERIAL_PARAMETERS,
+  validateMaterialGraph,
+  validateMaterialParameters,
+  canonicalMaterialParams,
+  materialOverrideErrors,
+  validateMaterialParamsComponent,
+  type MaterialParamsComponent,
+  type MaterialParameter,
+  type MaterialParameterValue,
   MAX_MATERIALS,
   MAX_MATERIAL_SLOTS,
   validateEnvironment,

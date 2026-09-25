@@ -17,7 +17,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping } from '@thirdlight/project-model';
+import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent } from '@thirdlight/project-model';
 import {
   validateCameraFollowComponent,
   validateInstancesComponent,
@@ -63,6 +63,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   health: ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime'],
   pickup: ['kind', 'value', 'counter', 'size', 'respawn', 'cue'],
   enemy: ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe'],
+  // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
+  materialParams: [],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -114,6 +116,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'enemy',
   'audioSource',
   'faceMovement',
+  // Phase 18.0: v4 scenes only.
+  'materialParams',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -192,6 +196,9 @@ export function validateV3ComponentValue(
       break;
     case 'materials':
       validateMaterialMapping(value, path, errors as unknown as Parameters<typeof validateMaterialMapping>[2]);
+      break;
+    case 'materialParams':
+      validateMaterialParamsComponent(value, path, errors as unknown as Parameters<typeof validateMaterialParamsComponent>[2]);
       break;
     case 'fogVolume':
       validateFogVolumeComponent(value, path, errors as unknown as Parameters<typeof validateFogVolumeComponent>[2]);

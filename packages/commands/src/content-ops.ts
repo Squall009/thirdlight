@@ -769,8 +769,8 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     ? {}
     : (deepClone(currentComponent) as Record<string, unknown>);
   const changedFields: string[] = [];
-  if (args.component === 'materials') {
-    // Phase 9.4: a material mapping is replaced whole (its keys are material names).
+  if (args.component === 'materials' || args.component === 'materialParams') {
+    // Phase 9.4: a material mapping is replaced whole (its keys are material names); phase 18.0: so are the parameter overrides (keys are materialIds).
     for (const k of Object.keys(candidate)) delete candidate[k];
     Object.assign(candidate, deepClone(args.value));
     const before = (currentComponent ?? {}) as Record<string, unknown>;
