@@ -269,6 +269,8 @@ export interface PrefabComponentsV4Extra {
   materials?: EntityComponentsV3['materials'];
   /** Phase 18.0: overrides of graph-material parameters. */
   materialParams?: EntityComponentsV3['materialParams'];
+  /** Phase 20.0: a visual effect played from the entity. */
+  effect?: EntityComponentsV3['effect'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

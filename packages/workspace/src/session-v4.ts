@@ -565,6 +565,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Phase 16.1: standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,
+        // Phase 20.0: visual effects (systems and their graphs).
+        effects: JSON.parse(JSON.stringify((state.content as { effects?: unknown[] }).effects ?? [])) as unknown,
         // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),

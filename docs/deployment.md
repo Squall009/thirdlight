@@ -1025,6 +1025,98 @@ behaviorId}` compiles without publishing and returns the digest to
 acknowledge). Limits: 256 nodes per graph, 32 functions and 32 properties
 per script; Delay nodes use timers named `vs.delay.<n>`.
 
+## Visual effects (particle graphs)
+
+Effects are particle systems authored as node graphs (phase 20.0/20.1).
+They are **visual only**: nothing in an effect changes the game simulation,
+so recorded replays never depend on them. The runtime executors (WebGPU
+compute, and a CPU fallback on WebGL 2) arrive with phase 20.2 and the
+looping preview pane with 20.3: until then effects are authored and stored
+but **not drawn** in the Scene view, Play or exports.
+
+Bottom dock → **Effects**: type a name and press **Create effect**; the
+effect opens as an **Effect: <name>** centre tab (double-click a row or
+**Open** to reopen it; **Rename** and **Delete** are there too — an effect
+an object still plays cannot be deleted). In the tab:
+
+- **Effect settings** (left): the cycle **duration** (bursts and the effect
+  time refer to it), **loop** (off: spawning stops after one cycle and the
+  effect ends when its particles are gone), the random **seed** (the same
+  seed gives the same particles), and the culling **bounds** (a box around
+  the origin). New effects: 2 s, looping, seed 1, a 4 m box 1 m above the
+  origin.
+- **Systems**: **+ System** adds a particle system (up to 16; they run in
+  list order). Each has a name, **max particles** (its capacity, default
+  1000; an executor may cap lower) and its **space** (local: the particles
+  move with the object; world: they stay where they were born). The system
+  tabs choose which graph is shown.
+- **Exposed parameters**: float, vec3 or colour values the graphs read with
+  **Parameter** nodes; public ones can be overridden per object (below),
+  private ones are the effect's own.
+- **The graph** of the shown system (the graph editor above, with the effect
+  catalogue). Every system has four fixed **context** nodes — **Spawn**,
+  **Initialize**, **Update**, **Output** — and each runs a **chain**: wire
+  the context's `then` to a block's `in`, that block's `then` to the next
+  block's `in`, and so on; the chain order is the execution order. A chain
+  only takes blocks of its context (a force cannot go into Initialize, a
+  renderer only into Output); a block off every chain does nothing.
+  - *Spawn*: Constant rate (per second, fractions carry over), Burst (count
+    at a time of the cycle, repeated `cycles` times every `interval`
+    seconds; 0 cycles = forever), Over distance (per metre the object
+    moves), From event (particles born where another system's particles die,
+    are born or collide; they may inherit its velocity and colour).
+  - *Initialize*: positions (Point, Sphere, Box, Circle, Cone, Line, Mesh
+    surface of a model asset — a shape also sets the direction that
+    **Velocity from direction** uses), Velocity, Lifetime, Size, Colour,
+    Colour from gradient, Rotation (angle and spin), Mass.
+  - *Update*: Gravity (−9.81 m/s² by default), Drag, Wind (follows
+    Environment → Wind and its gusts), Vortex, Turbulence (curl noise),
+    Attractor; Collide with plane (bounce, friction, lifetime loss, kill),
+    Collide with scene (depth buffer — **honoured only on WebGPU**, the CPU
+    fallback ignores it); Size over life (a curve), Colour over life (a
+    gradient), Speed limit over life (a curve); kills (behind a plane,
+    inside/outside a sphere or box, when slower than a speed).
+  - *Output*: Billboard (facing the camera, along the velocity or around a
+    fixed axis; texture, flipbook over the life or at a frame rate,
+    blending alpha/additive/premultiplied/multiply/opaque, soft particles,
+    unlit/lit or a project material), Mesh particles (a model asset),
+    Ribbon/trail (a strip through each particle's recent positions, or one
+    ribbon joining the particles in birth order), Lights (a point light on
+    up to 16 of the oldest particles).
+  - Every number, vector and colour field of a block is also an input of
+    the same name: a wire from a value node replaces the field — Float,
+    Vector, Colour, Parameter, Random (fixed per particle), Random vector,
+    Curve and Gradient (read at the particle's normalized age, the effect
+    time or a random position), Particle attribute (position, velocity, age,
+    size, colour, …), Effect time, and maths (add, subtract, multiply,
+    divide, min, max, lerp, one minus, sine, length, normalize, combine,
+    split). A float feeds a vector or a grey colour; a vector and a colour
+    convert both ways.
+- **Curves and gradients** are edited in the Inspector: a curve shows a plot
+  (drag its keys) and a row per key (time 0–1, value; **+ key** adds one in
+  the widest gap); a gradient shows a preview bar and a row per stop (time,
+  colour, alpha; **+ stop**).
+
+**Playing an effect:** select an object, **+ Add component → Effect** and
+pick the effect. **Play on start** (on by default) starts it with the scene;
+the **Parameters** rows set this object's values for the effect's public
+parameters (× goes back to the effect's value).
+
+Every graph gesture is one `graphEdit {owner: {kind: "effect", id:
+"<effectId>/<systemId>"}, ops}` (one undo step); `setEffect {effect}`
+creates or replaces an effect (settings, parameters, systems with their
+graphs — adding or removing a system is a `setEffect`), `deleteEffect
+{effectId}`, `renameEffect {effectId, name}`; the component is
+`setComponent "effect" {effectId, playOnStart?, params?}`. The effects
+travel in `queryGameConfig` (`effects`) and `tl_content_query
+target="game"`. Limits: 128 effects, 16 systems and 32 parameters per
+effect, 256 nodes per system graph, up to 1 048 576 max particles per
+system (the CPU fallback's lower cap comes with 20.2).
+
+The CPU reference semantics of every node live in the runtime-safe package
+`@thirdlight/effects` (deterministic per seed; unit-tested), which the
+executors of 20.2 use.
+
 ## Input actions
 
 The game reads named **actions**, not keys (bottom dock → Input): `move`

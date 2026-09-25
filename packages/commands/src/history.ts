@@ -26,6 +26,7 @@
 import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
+import { effectsOf, withEffect } from './effect-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
   BehaviorComponent,
@@ -88,6 +89,7 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   light: ['type', 'color', 'intensity', 'direction', 'castShadow'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
+  effect: ['effectId', 'playOnStart', 'params'],
 };
 
 /** §23.4 canonical top-level order of `content.game` (authoring §A4.2). */
@@ -535,6 +537,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withGraphDocument(content, inv.graphId, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setEffect') {
+    const before = effectsOf(content).find((e) => e.effectId === inv.effectId) ?? null;
+    const change: ChangeData = { type: 'setEffect', effectId: inv.effectId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withEffect(content, inv.effectId, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setAnimators') {
     const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
     const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(inv.restore) };
@@ -932,6 +940,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = ((content as { graphs?: GraphDocument[] }).graphs ?? []).find((g) => g.graphId === f.graphId) ?? null;
     const change: ChangeData = { type: 'setGraph', graphId: f.graphId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withGraphDocument(content, f.graphId, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setEffect') {
+    const before = effectsOf(content).find((e) => e.effectId === f.effectId) ?? null;
+    const change: ChangeData = { type: 'setEffect', effectId: f.effectId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withEffect(content, f.effectId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setAnimators') {

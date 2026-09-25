@@ -560,7 +560,7 @@ export interface PickerData {
   /** Every object of the project (entity refs may name other scenes). */
   readonly entities: readonly EntityOption[];
   readonly scenes: readonly { sceneId: string; name: string }[];
-  readonly refs: Readonly<Partial<Record<'material' | 'animator' | 'behavior' | 'prefab', readonly { id: string; name: string }[]>>>;
+  readonly refs: Readonly<Partial<Record<'material' | 'animator' | 'behavior' | 'prefab' | 'effect', readonly { id: string; name: string }[]>>>;
   /** The scene of the object being edited (entity refs stay in it unless they may be anywhere). */
   readonly sceneId?: string;
 }

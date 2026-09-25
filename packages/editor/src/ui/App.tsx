@@ -86,7 +86,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -115,6 +115,9 @@ import { GameplayPanel, type GameplayBackendError } from './GameplayPanel';
 import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
+import { EffectsPanel } from './effect/EffectsPanel';
+import { effectPortContext, shownSystem } from './effect/EffectDocument';
+import { newEffect, uniqueId } from '../session/effect-edit';
 import type { VisualScriptCheckResult } from './script/VisualScriptDocument';
 import { behaviorPortContext, newBehaviorGraph } from '../session/behavior-graph';
 import { GraphsPanel } from '../graph/GraphsPanel';
@@ -339,6 +342,17 @@ function EditorApp(): JSX.Element {
     setMaterialSelection([]);
     setMaterialFocus(null);
   }, [activeMaterialId]);
+  // Phase 20.0: the effect of the active centre tab (the selected node of its shown system shows in the right dock).
+  const [effectSelection, setEffectSelection] = useState<readonly string[]>([]);
+  const [effectFocus, setEffectFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const activeEffectId = (() => {
+    const d = activeDoc(workspace);
+    return d !== null && d.kind === 'effect' ? d.id : null;
+  })();
+  useEffect(() => {
+    setEffectSelection([]);
+    setEffectFocus(null);
+  }, [activeEffectId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
   const graphIssues = useMemo(
     () =>
@@ -498,6 +512,10 @@ function EditorApp(): JSX.Element {
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
   // Phase 9.7: the animator controllers.
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
+  // Phase 20.0: the visual effects, the system each Effect tab shows, and the list's last refusal.
+  const [effects, setEffects] = useState<readonly EffectDef[]>([]);
+  const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
+  const [effectError, setEffectError] = useState<string | null>(null);
   // Phase 15.1: the component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
   /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
@@ -695,6 +713,7 @@ function EditorApp(): JSX.Element {
     // Phase 14.4: the project environment with the look level's own parts (wind included).
     applyEnvironmentView();
     setAnimators(c.getAnimators());
+    setEffects(c.getEffects());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
     // The graphs arrive with the game block (the same full-state query).
@@ -2500,6 +2519,14 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     if (bottomTab !== 'environment') setEnvLevelId(null);
   }, [bottomTab]);
+  // Phase 20.0: effect commands (one undo step each).
+  const effectCommand = useCallback(async (op: 'setEffect' | 'deleteEffect' | 'renameEffect', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setEffectError(err);
+    return err === null;
+  }, []);
   const saveAnimator = useCallback(async (controller: AnimatorController) => {
     const c = clientRef.current;
     if (!c) return;
@@ -3153,6 +3180,21 @@ function EditorApp(): JSX.Element {
       focus: materialFocus,
       error: materialError,
     },
+    effect: {
+      effects,
+      kinds: graphKinds,
+      systemOf: (effectId) => effectSystems[effectId] ?? null,
+      onSystem: (effectId, systemId) => {
+        setEffectSystems((m) => ({ ...m, [effectId]: systemId }));
+        setEffectSelection([]);
+      },
+      onEdit: (ownerId, ops) => sendGraphEdit({ kind: 'effect', id: ownerId }, ops),
+      onSave: (effect) => void effectCommand('setEffect', { effect }),
+      onRename: (effectId, name) => void effectCommand('renameEffect', { effectId, name }),
+      onSelection: setEffectSelection,
+      focus: effectFocus,
+      error: effectError,
+    },
     visualScript: {
       kind: graphKinds['behavior'],
       graphs,
@@ -3205,7 +3247,10 @@ function EditorApp(): JSX.Element {
       animator: animators.map((a) => ({ id: a.controllerId, name: a.name })),
       behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
       prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
+      effect: effects.map((e) => ({ id: e.effectId, name: e.name })),
     },
+    // Phase 20.0: an object's effect overrides are edited from its effect's public parameters.
+    effectParameters: Object.fromEntries(effects.map((e) => [e.effectId, (e.parameters ?? []).filter((x) => x.visibility !== 'private')])),
     signals: registry === null ? [] : collectSignals(registry, allEntities.map((e) => e.components)),
     // Phase 15.2: an animator's starting values are edited from its controller's parameters.
     animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
@@ -3557,6 +3602,24 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
+          {bottomTab === 'effects' && (
+            <EffectsPanel
+              effects={effects}
+              openId={activeEffectId}
+              error={effectError}
+              onOpen={(id) => openDocument('effect', id)}
+              onCreate={(name) => {
+                const effectId = uniqueId(name, effects.map((e) => e.effectId), 'effect');
+                void effectCommand('setEffect', { effect: newEffect(effectId, name) }).then((ok) => ok && openDocument('effect', effectId));
+              }}
+              onRename={(effectId, name) => void effectCommand('renameEffect', { effectId, name })}
+              onDelete={(effectId) => {
+                void effectCommand('deleteEffect', { effectId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'effect', id: effectId }) });
+                });
+              }}
+            />
+          )}
           {bottomTab === 'problems' && (
             <ProblemsPanel
               graphIssues={graphIssues}
@@ -3804,6 +3867,25 @@ function EditorApp(): JSX.Element {
               portContext={graphsContext}
               assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
             />
+          </div>
+        ) : activeEffectId !== null && graphKinds['effect'] !== undefined && effects.some((e) => e.effectId === activeEffectId && e.systems.length > 0) ? (
+          <div className="tl-inspector" aria-label="effect graph inspector">
+            <div className="tl-panel__title">Inspector</div>
+            {(() => {
+              const fx = effects.find((e) => e.effectId === activeEffectId)!;
+              const sys = shownSystem(fx, effectSystems[fx.effectId] ?? null)!;
+              return (
+                <GraphInspector
+                  kind={graphKinds['effect']!}
+                  graph={sys.graph}
+                  ids={effectSelection}
+                  onEdit={(ops) => sendGraphEdit({ kind: 'effect', id: `${fx.effectId}/${sys.systemId}` }, ops)}
+                  portContext={effectPortContext(fx.parameters)}
+                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  empty={<div className="tl-inspector__empty">Select a node, wire, group or comment of “{sys.name}”.</div>}
+                />
+              );
+            })()}
           </div>
         ) : activeMaterialId !== null && graphKinds['material'] !== undefined && materials.find((m) => m.materialId === activeMaterialId)?.graph !== undefined ? (
           <div className="tl-inspector" aria-label="material graph inspector">
@@ -4127,7 +4209,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -4143,6 +4225,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'tags', label: 'Tags' },
   { id: 'media', label: 'Media' },
   { id: 'graphs', label: 'Graphs' },
+  // Phase 20.0: visual effects.
+  { id: 'effects', label: 'Effects' },
   { id: 'problems', label: 'Problems' },
 ];
 
