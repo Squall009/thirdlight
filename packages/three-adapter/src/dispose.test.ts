@@ -163,6 +163,37 @@ describe('three 0.186 renderer internals (stubbed)', () => {
     expect(installVaoSweep({})).toBe(false);
   });
 
+  it('installVaoSweep also deletes a destroyed attribute set\'s vertex array without waiting for a new one', async () => {
+    const data = new WeakMap<object, { id: number }>();
+    let id = 0;
+    const deleted: unknown[] = [];
+    const backend = {
+      gl: { deleteVertexArray: (v: unknown) => void deleted.push(v) },
+      vaoCache: {} as Record<string, unknown>,
+      has: (o: object) => data.has(o),
+      get: (o: object) => {
+        let d = data.get(o);
+        if (d === undefined) data.set(o, (d = { id: id++ }));
+        return d;
+      },
+      _getVaoKey(attributes: readonly object[]) {
+        return attributes.map((a) => `:${this.get(a).id}`).join('');
+      },
+      _createVao: (attributes: readonly object[]) => ({ vao: attributes.length }),
+      destroyAttribute: (a: object) => void data.delete(a),
+    };
+    expect(installVaoSweep(backend)).toBe(true);
+    const attrs = [{}];
+    const key = backend._getVaoKey(attrs);
+    const vao = backend._createVao(attrs);
+    backend.vaoCache[key] = vao;
+    backend.destroyAttribute(attrs[0]!);
+    expect(deleted).toEqual([]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deleted).toEqual([vao]);
+    expect(Object.values(backend.vaoCache)).not.toContain(vao);
+  });
+
   it('trackTextureListeners removes the renderer\'s dispose listeners from textures that outlive it', () => {
     const map = new WeakMap<object, { onDispose?: () => void }>();
     const textures = {

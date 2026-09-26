@@ -165,8 +165,11 @@ const VAO_SWEEP_EVERY = 32;
  * guarded: without it nothing changes) to remember each VAO's attributes
  * weakly, and before the next VAO is made after an attribute was destroyed
  * (a geometry disposed; else every 32 creations) deletes the VAOs one of
- * whose attributes is gone — a live attribute set keeps its VAO. Returns
- * whether it was installed.
+ * whose attributes is gone — a live attribute set keeps its VAO. Phase 21.6:
+ * a destroyed or collected attribute also schedules a sweep in its own task,
+ * so the last VAOs of a closed scene go without waiting for a new VAO (the
+ * leak test read 20–31 instead of 18 when none followed). Returns whether it
+ * was installed.
  */
 export function installVaoSweep(backend: unknown): boolean {
   const b = backend as WebGlBackendInternals | null;
@@ -178,13 +181,27 @@ export function installVaoSweep(backend: unknown): boolean {
   let records: { vao: unknown; key: string; attributes: { deref(): object | undefined }[] }[] = [];
   let sinceSweep = 0;
   let destroyed = false;
+  let scheduled = false;
+  const schedule = (): void => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => {
+      scheduled = false;
+      sweep();
+    }, 0);
+  };
   if (typeof b.destroyAttribute === 'function') {
     const destroy = b.destroyAttribute.bind(b);
     b.destroyAttribute = (attribute: object): void => {
       destroyed = true;
       destroy(attribute);
+      schedule();
     };
   }
+  // An attribute three never destroyed (its geometry just became unreachable) is noticed when collected.
+  const FR = (globalThis as { FinalizationRegistry?: new (cb: () => void) => { register(o: object, v: unknown): void } }).FinalizationRegistry;
+  const collected = FR !== undefined ? new FR(schedule) : null;
+  const watched = new WeakSet<object>();
   const sweep = (): void => {
     const keep: typeof records = [];
     for (const r of records) {
@@ -214,6 +231,13 @@ export function installVaoSweep(backend: unknown): boolean {
     }
     const vao = create(attributes);
     records.push({ vao, key: keyOf(attributes), attributes: attributes.map((a) => new WR(a)) });
+    if (collected !== null) {
+      for (const a of attributes) {
+        if (watched.has(a)) continue;
+        watched.add(a);
+        collected.register(a, null);
+      }
+    }
     return vao;
   };
   return true;
