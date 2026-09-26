@@ -19,7 +19,7 @@ import REPLAY from './replay-nondefault.json';
 const ALL_DEFAULTS = {
   controller: { acceleration: 40, deceleration: 60, coyoteTime: 0.05, jumpBuffer: 8 / 120, jumpRelease: 0.5, groundSnap: 0.1, skin: 0.01, autostep: false, autostepHeight: 0.25 },
   health: { hitBounce: 5, knockbackTime: 0.25, invulnerableSeconds: 1 },
-  enemy: { chaseHeight: 2, stompBounce: 9, stompTolerance: 0.2, defeat: 'squash', defeatTime: 0.3, wallProbe: 0.05, ledgeProbe: 0.4 },
+  enemy: { chaseHeight: 2, chaseSpeed: 0, chaseMemory: 0, stompBounce: 9, stompTolerance: 0.2, defeat: 'squash', defeatTime: 0.3, wallProbe: 0.05, ledgeProbe: 0.4 },
   mover: { maxPush: 60 },
   follow: { maxSpeed: 480 },
   game: { respawnDelay: 0.25, dropThroughTime: 0.125, settleTime: 0.1 },

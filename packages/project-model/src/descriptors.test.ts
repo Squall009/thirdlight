@@ -494,7 +494,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { kind: 'custom', value: 2, counter: 'stars' },
   ],
   enemy: [
-    { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6, hitEffect: 'fx-a', defeatEffect: 'fx-a' },
+    { patrol: 'edges', speed: 1.5, size: [0.8, 0.8], contactDamage: 1, stompable: true, health: 2, chase: 3, chaseHeight: 3, chaseSpeed: 4, chaseSight: true, chaseFacing: true, chaseMemory: 0.5, chaseBeyondPatrol: true, stompBounce: 7, stompTolerance: 0.3, defeat: 'fade', defeatTime: 0.5, wallProbe: 0.1, ledgeProbe: 0.6, hitEffect: 'fx-a', defeatEffect: 'fx-a' },
     { patrol: 'points', range: [-2, 2], speed: 1.5, size: [0.8, 0.8], contactDamage: 0, stompable: false, health: 1 },
   ],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }],

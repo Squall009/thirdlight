@@ -58,6 +58,8 @@ export const BLOCK_DEFAULTS = Object.freeze({
   defeat: 'squash' as (typeof DEFEAT_EFFECTS)[number],
   defeatTime: 0.3,
   chaseHeight: 2,
+  chaseSpeed: 0,
+  chaseMemory: 0,
   wallProbe: 0.05,
   ledgeProbe: 0.4,
   maxPush: 60,
@@ -72,6 +74,8 @@ export const BLOCK_TUNING_LIMITS = Object.freeze({
   stompTolerance: { min: 0, max: 5 },
   defeatTime: { min: 0, max: 5 },
   chaseHeight: { min: 0, max: 100 },
+  chaseSpeed: { min: 0, max: 50 },
+  chaseMemory: { min: 0, max: 10 },
   wallProbe: { min: 0, max: 5 },
   ledgeProbe: { min: 0.1, max: 20 },
   maxPush: { min: 1, max: 1000 },
@@ -157,6 +161,16 @@ export interface EnemyComponent {
   chase?: number;
   /** Phase 15.3: notices a chased player within this height of its feet (m; absent: 2). */
   chaseHeight?: number;
+  /** Phase 24.0: the speed it runs at while chasing (m/s; absent or 0: its walking speed). */
+  chaseSpeed?: number;
+  /** Phase 24.0: it only notices a player it can see (nothing solid between them). */
+  chaseSight?: boolean;
+  /** Phase 24.0: it only notices a player in the direction it is walking. */
+  chaseFacing?: boolean;
+  /** Phase 24.0: keeps chasing for this long after it last noticed the player (s; absent: 0). */
+  chaseMemory?: number;
+  /** Phase 24.0: may leave its patrol range while chasing (it walks back when it gives up). */
+  chaseBeyondPatrol?: boolean;
   /** Phase 15.3: a stomp throws the player up at this speed (m/s; absent: 9). */
   stompBounce?: number;
   /** Phase 15.3: a stomp counts when the feet were at most this far below its top (m; absent: 0.2). */
@@ -201,7 +215,7 @@ function fields(v: Record<string, unknown>, allowed: readonly string[], required
 
 const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'] as const;
 const HEALTH_FIELDS = ['max', 'start', 'invulnerableSeconds', 'knockback', 'hitBounce', 'knockbackTime', 'hitEffect'] as const;
-const ENEMY_FIELDS = ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'] as const;
+const ENEMY_FIELDS = ['patrol', 'range', 'speed', 'size', 'contactDamage', 'stompable', 'health', 'chase', 'chaseHeight', 'chaseSpeed', 'chaseSight', 'chaseFacing', 'chaseMemory', 'chaseBeyondPatrol', 'stompBounce', 'stompTolerance', 'defeat', 'defeatTime', 'wallProbe', 'ledgeProbe', 'hitEffect', 'defeatEffect'] as const;
 const PICKUP_FIELDS = ['kind', 'value', 'counter', 'size', 'respawn', 'cue', 'effect'] as const;
 
 /** Phase 15.3: optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
@@ -289,9 +303,12 @@ export function validatePickupComponent(value: unknown, path: string, errors: Mo
 export function validateEnemyComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'enemy is an object', value);
   fields(value, ENEMY_FIELDS, ['patrol', 'speed', 'size', 'contactDamage', 'stompable', 'health'], path, errors);
-  tuning(value, ['chaseHeight', 'stompBounce', 'stompTolerance', 'defeatTime', 'wallProbe', 'ledgeProbe'], path, errors);
+  tuning(value, ['chaseHeight', 'chaseSpeed', 'chaseMemory', 'stompBounce', 'stompTolerance', 'defeatTime', 'wallProbe', 'ledgeProbe'], path, errors);
   effectRef(value, 'hitEffect', path, errors);
   effectRef(value, 'defeatEffect', path, errors);
+  if (value['chaseSight'] !== undefined && typeof value['chaseSight'] !== 'boolean') err(errors, 'field_type', `${path}/chaseSight`, 'chaseSight is true or false', value['chaseSight']);
+  if (value['chaseFacing'] !== undefined && typeof value['chaseFacing'] !== 'boolean') err(errors, 'field_type', `${path}/chaseFacing`, 'chaseFacing is true or false', value['chaseFacing']);
+  if (value['chaseBeyondPatrol'] !== undefined && typeof value['chaseBeyondPatrol'] !== 'boolean') err(errors, 'field_type', `${path}/chaseBeyondPatrol`, 'chaseBeyondPatrol is true or false', value['chaseBeyondPatrol']);
   if (value['defeat'] !== undefined && !(DEFEAT_EFFECTS as readonly unknown[]).includes(value['defeat'])) err(errors, 'field_value', `${path}/defeat`, 'defeat is none, squash or fade', value['defeat']);
   if (value['chase'] !== undefined && !num(value['chase'], 0, 50)) err(errors, 'field_value', `${path}/chase`, 'chase is 0–50 m', value['chase']);
   if (value['patrol'] !== undefined && !(ENEMY_PATROLS as readonly unknown[]).includes(value['patrol'])) err(errors, 'field_value', `${path}/patrol`, 'patrol is points or edges', value['patrol']);
@@ -358,6 +375,12 @@ export const canonicalEnemy = (c: EnemyComponent): EnemyComponent => ({
   health: c.health,
   ...(c.chase !== undefined ? { chase: c.chase } : {}),
   ...(c.chaseHeight !== undefined ? { chaseHeight: c.chaseHeight } : {}),
+  // Phase 24.0: last, so an existing component keeps its exact canonical bytes.
+  ...(c.chaseSpeed !== undefined ? { chaseSpeed: c.chaseSpeed } : {}),
+  ...(c.chaseSight !== undefined ? { chaseSight: c.chaseSight } : {}),
+  ...(c.chaseFacing !== undefined ? { chaseFacing: c.chaseFacing } : {}),
+  ...(c.chaseMemory !== undefined ? { chaseMemory: c.chaseMemory } : {}),
+  ...(c.chaseBeyondPatrol !== undefined ? { chaseBeyondPatrol: c.chaseBeyondPatrol } : {}),
   ...(c.stompBounce !== undefined ? { stompBounce: c.stompBounce } : {}),
   ...(c.stompTolerance !== undefined ? { stompTolerance: c.stompTolerance } : {}),
   ...(c.defeat !== undefined ? { defeat: c.defeat } : {}),

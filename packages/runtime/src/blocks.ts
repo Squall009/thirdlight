@@ -137,6 +137,18 @@ interface Enemy {
   chase: number;
   /** Phase 15.3: the enemy's tuning (its data, else the defaults). */
   chaseHeight: number;
+  /** Phase 24.0: the speed it runs at while chasing (its walking speed when not set). */
+  chaseSpeed: number;
+  /** Phase 24.0: it only notices a player it can see (nothing solid between them). */
+  chaseSight: boolean;
+  /** Phase 24.0: it only notices a player in the direction it is walking. */
+  chaseFacing: boolean;
+  /** Phase 24.0: steps to keep chasing after it last noticed the player. */
+  chaseMemorySteps: number;
+  /** Phase 24.0: while chasing it may leave its patrol range. */
+  chaseBeyondPatrol: boolean;
+  /** Phase 24.0: steps of chase left after it last noticed the player. */
+  memory: number;
   stompBounce: number;
   stompTolerance: number;
   defeat: 'none' | 'squash' | 'fade';
@@ -538,6 +550,7 @@ export class GameplayBlocks {
         const size = en['size'] as number[];
         const range = (en['range'] as number[] | undefined) ?? [0, 0];
         const health = num(en['health'], 1);
+        const speed = num(en['speed'], 1);
         this.enemies.set(e.id, {
           id: e.id,
           start: [p[0], p[1], p[2]],
@@ -545,7 +558,7 @@ export class GameplayBlocks {
           dir: 1,
           patrol: en['patrol'] as Enemy['patrol'],
           range: [p[0] + range[0]!, p[0] + range[1]!],
-          speed: num(en['speed'], 1),
+          speed,
           half: { x: size[0]! / 2, y: size[1]! / 2 },
           contactDamage: num(en['contactDamage'], 1),
           stompable: en['stompable'] === true,
@@ -554,6 +567,13 @@ export class GameplayBlocks {
           defeated: false,
           chase: num(en['chase'], 0),
           chaseHeight: num(en['chaseHeight'], D.chaseHeight),
+          // Phase 24.0: 0 means "the walking speed" (so an untouched enemy keeps its exact old feel).
+          chaseSpeed: num(en['chaseSpeed'], 0) > 0 ? (en['chaseSpeed'] as number) : speed,
+          chaseSight: en['chaseSight'] === true,
+          chaseFacing: en['chaseFacing'] === true,
+          chaseMemorySteps: Math.max(0, Math.round(num(en['chaseMemory'], D.chaseMemory) * this.host.hz)),
+          chaseBeyondPatrol: en['chaseBeyondPatrol'] === true,
+          memory: 0,
           stompBounce: num(en['stompBounce'], D.stompBounce),
           stompTolerance: num(en['stompTolerance'], D.stompTolerance),
           defeat: en['defeat'] === 'none' || en['defeat'] === 'fade' ? (en['defeat'] as 'none' | 'fade') : 'squash',
@@ -630,7 +650,7 @@ export class GameplayBlocks {
     for (const p of this.pickups.values()) p.taken = false;
     for (const e of this.enemies.values()) {
       this.writeSquash(e.id, e.scaleY);
-      Object.assign(e, { x: e.start[0], dir: 1, health: e.maxHealth, defeated: false, squash: 0 });
+      Object.assign(e, { x: e.start[0], dir: 1, health: e.maxHealth, defeated: false, squash: 0, memory: 0 });
       this.writeTransform(e.id, e.start);
     }
     this.hidden.clear();
@@ -1140,32 +1160,54 @@ export class GameplayBlocks {
         }
         continue;
       }
-      // Chase: turn toward a player in range (the patrol limits below still hold).
+      // Chase: notice a player within range, in front (`chaseFacing`), within its
+      // sight (`chaseSight`); keep running them down for `chaseMemory` after that.
       let chasing = false;
       if (e.chase > 0 && player !== null) {
         const dx = player.x + this.pc.ox - e.x;
         const feet = player.y + this.pc.oy - this.pc.hh;
-        if (Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= e.chaseHeight && Math.abs(dx) > 0.05) {
+        const near = Math.abs(dx) <= e.chase && Math.abs(feet - e.start[1]) <= e.chaseHeight && Math.abs(dx) > 0.05;
+        const inFront = !e.chaseFacing || dx * e.dir > 0;
+        if (near && inFront && (!e.chaseSight || this.enemySight(e, player))) {
           e.dir = dx > 0 ? 1 : -1;
+          e.memory = e.chaseMemorySteps;
+          chasing = true;
+        } else if (e.memory > 0) {
+          // It remembers roughly where the player was and keeps coming.
+          e.memory -= 1;
+          if (Math.abs(dx) > 0.05) e.dir = dx > 0 ? 1 : -1;
           chasing = true;
         }
       }
       this.host.animator(e.id)?.set('attacking', chasing);
-      const step = e.speed * dt * e.dir;
+      const speed = chasing ? e.chaseSpeed : e.speed;
+      this.host.animator(e.id)?.set('speed', speed);
+      const step = speed * dt * e.dir;
       let next = e.x + step;
-      if (e.patrol === 'points') {
-        if (next > e.range[1]) {
+      // A points patrol holds it inside its range — unless it is chasing and may
+      // leave its post; a chase that ended outside walks back in.
+      if (e.patrol === 'points' && !(chasing && e.chaseBeyondPatrol)) {
+        if (e.x < e.range[0]) {
+          e.dir = 1;
+          next = e.x + speed * dt;
+        } else if (e.x > e.range[1]) {
+          e.dir = -1;
+          next = e.x - speed * dt;
+        } else if (next > e.range[1]) {
           next = e.range[1];
           e.dir = -1;
         } else if (next < e.range[0]) {
           next = e.range[0];
           e.dir = 1;
         }
-      } else if (this.host.physics?.raycast !== undefined) {
+      }
+      // A wall or a ledge ahead stops it — an edge walker always, a chaser too
+      // (it never walks through a wall or off a platform).
+      if ((chasing || e.patrol === 'edges') && this.host.physics?.raycast !== undefined) {
         const y = e.start[1];
         const front = e.x + e.dir * e.half.x;
         // Phase 15.3: the probe distances are the enemy's data (defaults 0.05 m ahead, 0.4 m down).
-        const wall = this.host.physics.raycast({ x: e.x, y: y + e.half.y }, { x: e.dir, y: 0 }, e.half.x + Math.abs(step) + e.wallProbe);
+        const wall = this.host.physics.raycast({ x: e.x, y: y + e.half.y }, { x: e.dir, y: 0 }, e.half.x + Math.abs(next - e.x) + e.wallProbe);
         const floor = this.host.physics.raycast({ x: front + e.dir * e.wallProbe, y: y + 0.1 }, { x: 0, y: -1 }, e.ledgeProbe);
         if (wall !== null || floor === null) {
           e.dir = e.dir === 1 ? -1 : 1;
@@ -1174,8 +1216,25 @@ export class GameplayBlocks {
       }
       e.x = next;
       this.writeTransform(e.id, [e.x, e.start[1], e.start[2]]);
-      this.host.animator(e.id)?.set('speed', e.speed);
     }
+  }
+
+  /**
+   * Phase 24.0: can the enemy see the player? A ray from its eye to the player's
+   * middle: a wall or a platform edge between them blocks it (the player's own
+   * collider is never hit by a raycast, so a clear ray is a clear view).
+   */
+  private enemySight(e: Enemy, player: Vec2): boolean {
+    const physics = this.host.physics;
+    if (physics?.raycast === undefined) return true;
+    const from = { x: e.x, y: e.start[1] + e.half.y };
+    const to = { x: player.x + this.pc.ox, y: player.y + this.pc.oy };
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.hypot(dx, dy);
+    if (!(distance > 0.05)) return true;
+    const hit = physics.raycast(from, { x: dx, y: dy }, distance);
+    return hit === null || hit.distance >= distance - 1e-6;
   }
 
   /** Damage the player (from `fromX`: a knockback pushes away from it); without a health component any damage kills. */

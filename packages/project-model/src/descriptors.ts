@@ -1149,7 +1149,7 @@ const pickup: ComponentDescriptor = {
 const enemy: ComponentDescriptor = {
   name: 'enemy',
   label: 'Enemy',
-  tooltip: 'Walks back and forth, hurts on contact, can be stomped; can chase the player nearby.',
+  tooltip: 'Walks back and forth, hurts on contact, can be stomped; can chase a player it sees nearby.',
   category: 'Gameplay',
   value: obj('enemy', 'Enemy', 'A walking enemy.', [
     enm('patrol', 'Patrol', 'Between two points, or until a ledge or a wall.', ENEMY_PATROLS, { required: true, default: 'edges', labels: { points: 'Between points', edges: 'Edge to edge' } }),
@@ -1162,6 +1162,12 @@ const enemy: ComponentDescriptor = {
     num('chase', 'Chase distance', 'Walks toward the player within this distance (0: never).', { min: 0, max: 50, step: 0.5, unit: 'm', default: 0, handle: 'radius' }),
     // Phase 15.3: the combat and walking tuning.
     num('chaseHeight', 'Chase height', 'Notices a player within this height of its feet.', { group: 'Chase', ...BL.chaseHeight, step: 0.1, unit: 'm', default: BD.chaseHeight }),
+    // Phase 24.0: how it runs the player down once it has noticed them.
+    num('chaseSpeed', 'Chase speed', 'How fast it runs while chasing (0: its walking speed).', { group: 'Chase', ...BL.chaseSpeed, step: 0.1, unit: 'm/s', default: BD.chaseSpeed }),
+    bool('chaseSight', 'Needs sight', 'Only notices a player it can see (nothing solid between them).', { group: 'Chase', default: false }),
+    bool('chaseFacing', 'In front only', 'Only notices a player in the direction it is walking.', { group: 'Chase', default: false }),
+    num('chaseMemory', 'Chase memory', 'Keeps chasing this long after it last noticed the player.', { group: 'Chase', ...BL.chaseMemory, step: 0.1, unit: 's', default: BD.chaseMemory }),
+    bool('chaseBeyondPatrol', 'Leaves its post', 'May leave its patrol range while chasing (it walks back when it gives up).', { group: 'Chase', default: false }),
     num('stompBounce', 'Stomp bounce', 'A stomp throws the player up at this speed.', { group: 'Stomp', ...BL.stompBounce, step: 0.5, unit: 'm/s', default: BD.stompBounce }),
     num('stompTolerance', 'Stomp tolerance', 'A stomp counts when the player\'s feet were at most this far below its top.', { group: 'Stomp', ...BL.stompTolerance, step: 0.05, unit: 'm', default: BD.stompTolerance }),
     enm('defeat', 'Defeat effect', 'How it leaves when defeated: at once, squashed flat, or fading out.', DEFEAT_EFFECTS, { group: 'Defeat', default: BD.defeat }),
