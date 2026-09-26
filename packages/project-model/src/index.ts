@@ -441,6 +441,24 @@ export {
 } from './behavior-graph';
 export { BEHAVIOR_API_SKIPPED } from './behavior-api.generated';
 export type { BehaviorApiArg, BehaviorApiNodeSpec, BehaviorApiOutput, BehaviorApiStep, BehaviorApiValue, BehaviorDataType } from './behavior-api';
+// Phase 23.7: shared script libraries (content.scriptLibraries) and behavior library pins.
+export {
+  SCRIPT_LIBRARY_ENTRY,
+  SCRIPT_LIBRARY_IMPORT_PREFIX,
+  SCRIPT_LIBRARY_LIMITS,
+  applyScriptLibraryPatch,
+  canonicalScriptLibraries,
+  canonicalScriptLibrary,
+  scriptLibraryContainerText,
+  scriptLibraryDependents,
+  scriptLibraryDigest,
+  scriptLibraryPathProblem,
+  scriptLibrarySetKey,
+  validateLibraryPins,
+  validateScriptLibraries,
+  validateScriptLibrary,
+} from './script-libraries';
+export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
 // Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,

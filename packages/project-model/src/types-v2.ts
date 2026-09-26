@@ -336,6 +336,13 @@ export interface BehaviorSourceRecord {
    * TypeScript source (older records stay byte-identical).
    */
   kind?: 'graph';
+  /**
+   * Phase 23.7: the script library versions (`@lib/<id>` imports, direct and
+   * through other libraries) the output was compiled against, ascending by
+   * libraryId; absent when the source imports none (older records stay
+   * byte-identical).
+   */
+  libraries?: import('./script-libraries').BehaviorLibraryPin[];
   publishedRevision: number;
 }
 

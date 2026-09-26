@@ -87,7 +87,7 @@ import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLayerLike, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, GameFlow, InputConfig, LevelEnvironment, LightingBake, MaterialDef, ScriptLibrary } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -118,6 +118,9 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
+import { LibrariesPanel } from './script/LibrariesPanel';
+import type { LibraryDraft, LibrarySaveOutcome } from './script/LibraryDocument';
+import { newLibraryFiles } from '../session/script-sources';
 import { effectPortContext, shownSystem, type EffectDocumentProps } from './effect/EffectDocument';
 import { newEffect, uniqueId } from '../session/effect-edit';
 import type { VisualScriptCheckResult, VisualScriptProblem } from './script/VisualScriptDocument';
@@ -559,6 +562,9 @@ function EditorApp(): JSX.Element {
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
   const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
   const [effectError, setEffectError] = useState<string | null>(null);
+  // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
+  const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   // Phase 15.1: the component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
   /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
@@ -812,6 +818,7 @@ function EditorApp(): JSX.Element {
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
+    setScriptLibraries(c.getScriptLibraries());
     setGraphs(c.getGraphs());
     setGraphKinds(c.getGraphKinds());
     // The graphs arrive with the game block (the same full-state query).
@@ -3076,6 +3083,57 @@ function EditorApp(): JSX.Element {
     [behaviorViews, refreshEntities],
   );
 
+  // ---- phase 23.7: shared script libraries --------------------------------------
+
+  /** Unsaved library edits per library (survive tab switches; not project data). */
+  const libraryDrafts = useRef(new Map<string, LibraryDraft>()).current;
+  /** The published scripts that import a library (their source pins it). */
+  const libraryDependents = useCallback((libraryId: string): string[] => behaviorViews.filter((b) => b.source?.libraries?.some((p) => p.libraryId === libraryId) === true).map((b) => b.behaviorId), [behaviorViews]);
+  const libraryCommand = useCallback(async (op: 'setScriptLibrary' | 'deleteScriptLibrary', args: Record<string, unknown>): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    const err = refusal(await c.command(op, args, c.projection.revision));
+    setLibraryError(err);
+    return err === null;
+  }, []);
+  /**
+   * Save a library's changed files: one setScriptLibrary command (the backend
+   * recompiles the scripts that import it in the same command). A library
+   * digest those scripts would link that is not acknowledged yet asks first
+   * (`needs-ack`) or is acknowledged (the ordinary acknowledgeBehaviorTrust
+   * command) and the save retried.
+   */
+  const saveLibrary = useCallback(
+    async (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean): Promise<LibrarySaveOutcome> => {
+      const c = clientRef.current;
+      if (!c) return { kind: 'failed', message: 'not connected' };
+      const recompiled = libraryDependents(libraryId);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = await c.command('setScriptLibrary', { libraryId, files }, c.projection.revision);
+        if (res.ok) {
+          refreshEntities();
+          return { kind: 'saved', revision: res.revision, recompiled };
+        }
+        const r = res.response;
+        if (r.ok) return { kind: 'failed', message: 'the library was not saved' };
+        if (r.code === 'behavior_trust_unacknowledged' && r.sourceDigest !== undefined) {
+          if (!acknowledge) return { kind: 'needs-ack', digest: r.sourceDigest };
+          const digest = r.sourceDigest;
+          const ack = await c.acknowledgeBehaviorTrust(digest, c.projection.revision);
+          if (!ack.ok) {
+            const a = ack.response;
+            return { kind: 'failed', message: a.ok ? 'the acknowledgment was not recorded' : `${a.code}: ${a.message ?? a.code}` };
+          }
+          setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: ack.revision }]));
+          continue;
+        }
+        return { kind: 'failed', message: `${r.code}: ${r.message ?? r.code}`, ...(r.diagnostics !== undefined ? { diagnostics: r.diagnostics } : {}) };
+      }
+      return { kind: 'failed', message: 'the library was not saved (trust acknowledgments kept changing)' };
+    },
+    [libraryDependents, refreshEntities],
+  );
+
   /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
   const saveDeclaration = useCallback(
     async (save: DeclarationSave): Promise<boolean> => {
@@ -3292,6 +3350,13 @@ function EditorApp(): JSX.Element {
       loadSource: async (behaviorId) => clientRef.current?.behaviorSource(behaviorId) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
       check: checkScript,
       publish: publishScript,
+    },
+    library: {
+      libraries: scriptLibraries,
+      drafts: libraryDrafts,
+      activePlay: behaviorProps.activePlay,
+      check: async (libraryId, files) => clientRef.current?.checkScriptLibrary(libraryId, files) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
+      save: saveLibrary,
     },
     graph: {
       graphs,
@@ -3832,6 +3897,28 @@ function EditorApp(): JSX.Element {
               onDelete={(effectId) => {
                 void effectCommand('deleteEffect', { effectId }).then((ok) => {
                   if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'effect', id: effectId }) });
+                });
+              }}
+            />
+          )}
+          {bottomTab === 'libraries' && (
+            <LibrariesPanel
+              libraries={scriptLibraries}
+              dependents={libraryDependents}
+              openId={(() => {
+                const d = activeDoc(workspace);
+                return d !== null && d.kind === 'script-library' ? d.id : null;
+              })()}
+              error={libraryError}
+              onOpen={(id) => openDocument('script-library', id)}
+              onCreate={(name) => {
+                const libraryId = uniqueId(name, scriptLibraries.map((l) => l.libraryId), 'library');
+                void libraryCommand('setScriptLibrary', { libraryId, name: name.slice(0, 64), files: newLibraryFiles(libraryId) }).then((ok) => ok && openDocument('script-library', libraryId));
+              }}
+              onRename={(libraryId, name) => void libraryCommand('setScriptLibrary', { libraryId, name })}
+              onDelete={(libraryId) => {
+                void libraryCommand('deleteScriptLibrary', { libraryId }).then((ok) => {
+                  if (ok) workspaceDispatch({ type: 'close', key: docKey({ kind: 'script-library', id: libraryId }) });
                 });
               }}
             />
@@ -4457,7 +4544,7 @@ function EditorApp(): JSX.Element {
   );
 }
 
-type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'problems';
+type BottomTab = 'assets' | 'materials' | 'environment' | 'lighting' | 'animator' | 'input' | 'game' | 'prefabs' | 'behaviors' | 'gameplay' | 'tags' | 'media' | 'graphs' | 'effects' | 'libraries' | 'problems';
 
 const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'assets', label: 'Assets' },
@@ -4475,6 +4562,8 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'graphs', label: 'Graphs' },
   // Phase 20.0: visual effects.
   { id: 'effects', label: 'Effects' },
+  // Phase 23.7: shared script libraries.
+  { id: 'libraries', label: 'Libraries' },
   { id: 'problems', label: 'Problems' },
 ];
 

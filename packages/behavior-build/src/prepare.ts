@@ -37,6 +37,7 @@ export function preparedSourceFrom(result: BehaviorCompileSuccess): PreparedBeha
     declaration: { properties: m.declaration.properties.map((p) => ({ ...p })) },
     ...(m.declaredInCode === true ? { declaredInCode: true as const } : {}),
     ...(m.sourceKind === 'graph' ? { sourceKind: 'graph' as const } : {}),
+    ...(m.libraries !== undefined && m.libraries.length > 0 ? { libraries: m.libraries.map((p) => ({ ...p })) } : {}),
     declarationDigest: result.declarationDigest,
     recipeDigest: result.recipeDigest,
     compiler: { ...m.compiler },

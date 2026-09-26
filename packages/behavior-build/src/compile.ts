@@ -33,8 +33,9 @@ import {
   esbuildPinMatches,
 } from './limits';
 import { canonicalJsonText, sha256Hex, sha256HexOfText, utf8Encode } from './canonical';
-import { containerFailure, parseSourceGraphContainer } from './container';
-import { analyzeSourceGraph, posixResolve, withLimits } from './scan';
+import { canonicalContainerText, containerFailure, parseSourceGraphContainer } from './container';
+import { analyzeSourceGraph, LIBRARY_SPECIFIER_RE, resolveRelativeTarget, withLimits } from './scan';
+import { createLibraryCache, resolveLibraries, type CompiledLibrary } from './libraries';
 import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
 import { GRAPH_SOURCE_BANNER } from './graph-banner';
 import type {
@@ -46,7 +47,10 @@ import type {
   BehaviorCompilerLimits,
   BehaviorManifest,
   CompileDiagnostic,
+  LibraryPin,
   PinnedModuleRef,
+  ScriptLibraryCheckInput,
+  ScriptLibraryCheckResult,
 } from './types';
 
 /** The canonical manifest bytes: 2-space JSON in the §5.2 field order + `\n`. */
@@ -64,6 +68,7 @@ export function compileRecipe(
   declaration: { properties: readonly DeclaredProperty[] },
   pinnedModules: readonly PinnedModuleRef[],
   limits: BehaviorCompilerLimits,
+  libraries: readonly LibraryPin[] = [],
 ): Record<string, unknown> {
   return {
     compilerId: COMPILER_ID,
@@ -74,6 +79,8 @@ export function compileRecipe(
     limits,
     pinnedModules,
     declarationDigest: declarationDigestOf(declaration),
+    // Phase 23.7: the linked library versions (only when there are any: older recipes keep their digest).
+    ...(libraries.length > 0 ? { libraries } : {}),
   };
 }
 
@@ -82,8 +89,9 @@ export function compileRecipeDigest(
   declaration: { properties: readonly DeclaredProperty[] },
   pinnedModules: readonly PinnedModuleRef[],
   limits: BehaviorCompilerLimits,
+  libraries: readonly LibraryPin[] = [],
 ): string {
-  return sha256HexOfText(canonicalJsonText(compileRecipe(declaration, pinnedModules, limits)));
+  return sha256HexOfText(canonicalJsonText(compileRecipe(declaration, pinnedModules, limits, libraries)));
 }
 
 function diag(d: CompileDiagnostic, limits: BehaviorCompilerLimits): CompileDiagnostic[] {
@@ -123,35 +131,67 @@ export function scanOutput(
   return { letter: hits[0]?.letter as string, letters: letters.slice(0, 4) };
 }
 
-/** The in-memory resolver over the accepted container's file map. */
+/** Phase 23.7: the namespace library modules load from (`<libraryId>/<stored path>`). */
+const LIBRARY_NAMESPACE = 'tl-lib';
+
+/** The in-memory resolver over the accepted container's file map (and the linked libraries). */
 function memoryPlugin(
   files: ReadonlyMap<string, string>,
   overDeadline: () => boolean,
+  libraries: ReadonlyMap<string, CompiledLibrary> = new Map(),
 ): Plugin {
   return {
     name: 'thirdlight-behavior-graph',
     setup(api) {
       api.onResolve({ filter: /^\.{1,2}\// }, (args) => {
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
+        // Phase 23.7: a relative import inside a library resolves in that library.
+        if (args.namespace === LIBRARY_NAMESPACE) {
+          const slash = args.importer.indexOf('/');
+          const libraryId = args.importer.slice(0, slash);
+          const lib = libraries.get(libraryId);
+          const target = resolveRelativeTarget(args.importer.slice(slash + 1), args.path);
+          if (lib === undefined || !lib.modules.has(target)) {
+            return { errors: [{ text: `unresolved relative import "${args.path}" from "@lib/${args.importer}"` }] };
+          }
+          return { path: `${libraryId}/${target}`, namespace: LIBRARY_NAMESPACE };
+        }
         const importer = args.importer.replace(/^\//, '');
         const from = files.has(importer) ? importer : ENTRY_PATH;
-        let target = posixResolve(from, args.path);
-        if (!target.endsWith('.ts')) target += '.ts';
+        const target = resolveRelativeTarget(from, args.path);
         if (!files.has(target)) {
           return { errors: [{ text: `unresolved relative import "${args.path}" from "${from}"` }] };
         }
         return { path: target, namespace: 'tl-behavior-memory' };
+      });
+      // Phase 23.7: `@lib/<id>` -> the library's entry module (resolved and checked before the build).
+      api.onResolve({ filter: /^@lib\// }, (args) => {
+        if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
+        const m = LIBRARY_SPECIFIER_RE.exec(args.path);
+        const id = m?.[1];
+        if (id === undefined || !libraries.has(id)) {
+          return { errors: [{ text: `internal: esbuild resolved a forbidden specifier "${args.path}"` }] };
+        }
+        return { path: `${id}/src/index.ts`, namespace: LIBRARY_NAMESPACE };
+      });
+      api.onLoad({ filter: /.*/, namespace: LIBRARY_NAMESPACE }, (args) => {
+        if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
+        const slash = args.path.indexOf('/');
+        const mod = libraries.get(args.path.slice(0, slash))?.modules.get(args.path.slice(slash + 1));
+        if (mod === undefined) throw new Error(`internal: missing library module "${args.path}"`);
+        return { contents: mod.contents, loader: mod.loader };
       });
       // No other specifier form can reach the bundler: the static scan
       // rejected every non-relative, non-type-only specifier before this call.
       api.onResolve({ filter: /.*/ }, (args) => ({
         errors: [{ text: `internal: esbuild resolved a forbidden specifier "${args.path}"` }],
       }));
-      const load = (args: { path: string }): { contents: string; loader: 'ts' } => {
+      const load = (args: { path: string }): { contents: string; loader: 'ts' | 'json' } => {
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
         const key = args.path.replace(/^\//, '');
         const text = files.get(key) ?? files.get(ENTRY_PATH);
-        return { contents: text as string, loader: 'ts' };
+        // Phase 23.7: a `.json` file is a data module (its parsed value is the default export).
+        return { contents: text as string, loader: key.endsWith('.json') && files.has(key) ? 'json' : 'ts' };
       };
       api.onLoad({ filter: /.*/, namespace: 'tl-behavior-memory' }, load);
     },
@@ -258,6 +298,18 @@ export async function compileBehavior(
   if (!analyzed.ok) {
     return { ...analyzed.failure, diagnostics: diag(analyzed.failure.diagnostics[0] as CompileDiagnostic, limits) };
   }
+  // Phase 23.7: the script libraries the source reaches (checked, transpiled once, pinned).
+  let linked: ReadonlyMap<string, CompiledLibrary> = new Map();
+  let pins: LibraryPin[] = [];
+  const libraryImports = analyzed.analysis.libraryImports ?? [];
+  if (libraryImports.length > 0) {
+    const resolved = await resolveLibraries(libraryImports, `behavior ${input.behaviorId}`, input.libraries ?? [], input.pinnedModules, limits, options.libraryCache);
+    if (!resolved.ok) {
+      return { ...resolved.failure, diagnostics: resolved.failure.diagnostics.slice(0, limits.diagnostics) };
+    }
+    linked = resolved.libraries;
+    pins = resolved.pins;
+  }
   // Step 13: parse/transform by the pinned compiler.
   if (overDeadline()) {
     return fail('behavior_compile_timeout', 'timeout', { message: 'the compile wall-clock bound is exceeded before the build call' });
@@ -273,7 +325,7 @@ export async function compileBehavior(
     const result = await buildImpl({
       stdin: { contents: entryFile, resolveDir: '/', sourcefile: container.entryPath, loader: 'ts' },
       ...COMPILER_OPTIONS,
-      plugins: [memoryPlugin(files, overDeadline)],
+      plugins: [memoryPlugin(files, overDeadline, linked)],
     });
     const out = result.outputFiles?.[0]?.contents;
     if (out === undefined) throw new Error('the pinned compiler produced no output');
@@ -359,6 +411,8 @@ export async function compileBehavior(
     ...(declaredInCode ? { declaredInCode: true as const } : {}),
     // Phase 19.0: generated from a visual-script graph (the generator's first line).
     ...(entryText !== undefined && entryText.startsWith(`${GRAPH_SOURCE_BANNER}\n`) ? { sourceKind: 'graph' as const } : {}),
+    // Phase 23.7: the linked script library versions (absent when none: older manifests stay byte-identical).
+    ...(pins.length > 0 ? { libraries: pins.map((p) => ({ ...p })) } : {}),
     apiVersion: BEHAVIOR_API_VERSION,
     compiler: { id: toolchain.id, version: toolchain.version, esbuild: toolchain.esbuild, typescript: toolchain.typescript },
     outputDigest,
@@ -372,7 +426,7 @@ export async function compileBehavior(
     manifestDigest: sha256Hex(manifestBytes),
     outputBytes: out,
     outputDigest,
-    recipeDigest: compileRecipeDigest(declaration, input.pinnedModules, limits),
+    recipeDigest: compileRecipeDigest(declaration, input.pinnedModules, limits, pins),
     declarationDigest: declarationDigestOf(declaration),
     diagnostics: [],
   };
@@ -392,9 +446,17 @@ function syntaxDiagnostics(errors: unknown[], limits: BehaviorCompilerLimits): C
     const d: CompileDiagnostic = { code: 'behavior_source_invalid', reason: 'syntax', message: text.slice(0, 256) };
     const loc = e.location;
     if (loc !== null && loc !== undefined) {
-      if (typeof loc.file === 'string') {
+      if (typeof loc.file === 'string' && loc.file.startsWith(`${LIBRARY_NAMESPACE}:`)) {
+        // Phase 23.7: a library module (`tl-lib:<libraryId>/<path>`).
+        const rest = loc.file.slice(LIBRARY_NAMESPACE.length + 1);
+        const slash = rest.indexOf('/');
+        if (slash > 0) {
+          d.library = rest.slice(0, slash);
+          d.path = rest.slice(slash + 1);
+        }
+      } else if (typeof loc.file === 'string') {
         const path = loc.file.replace(/^[a-z-]+:/, '');
-        if (/^[a-z0-9][a-z0-9._/-]*\.ts$/.test(path)) d.path = path;
+        if (/^[a-z0-9][a-z0-9._/-]*\.(ts|json)$/.test(path)) d.path = path;
       }
       if (typeof loc.line === 'number') d.line = loc.line;
       if (typeof loc.column === 'number') d.column = loc.column + 1;
@@ -430,7 +492,8 @@ export function createBehaviorCompiler(
   } = {},
 ): BehaviorCompiler {
   const pinnedModules = options.pinnedModules ?? M2_PINNED_MODULES;
-  const compileOptions: BehaviorCompileOptions = {};
+  // Phase 23.7: one compiled-library cache per instance (a library compiles once per build).
+  const compileOptions: BehaviorCompileOptions = { libraryCache: createLibraryCache() };
   if (options.now !== undefined) compileOptions.now = options.now;
   if (options.build !== undefined) compileOptions.build = options.build;
   return {
@@ -438,5 +501,40 @@ export function createBehaviorCompiler(
     compile(input: BehaviorCompileInput): Promise<BehaviorCompileResult> {
       return compileBehavior({ ...input, pinnedModules }, compileOptions);
     },
+    checkLibrary(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult> {
+      return checkScriptLibrary({ ...input, pinnedModules }, compileOptions);
+    },
+  };
+}
+
+/**
+ * Phase 23.7: check one script library on its own - its container rules,
+ * imports (missing libraries, cycles), syntax and output bounds - by
+ * compiling a one-line module that re-exports it (`export * from
+ * '@lib/<id>'`) against the given library set. Nothing is kept; the result
+ * carries the library's digest and the other libraries it reaches.
+ */
+export async function checkScriptLibrary(input: ScriptLibraryCheckInput, options: BehaviorCompileOptions = {}): Promise<ScriptLibraryCheckResult> {
+  const pinnedModules = input.pinnedModules ?? M2_PINNED_MODULES;
+  const own = input.libraries.find((l) => l.libraryId === input.libraryId);
+  if (own === undefined) {
+    return containerFailure('behavior_library_missing', input.libraryId, { detail: `@lib/${input.libraryId}`, message: `"@lib/${input.libraryId}" is not a script library of this project` }).failure;
+  }
+  const containerBytes = utf8Encode(
+    canonicalContainerText({ graphVersion: 1, entryPath: ENTRY_PATH, requiredModules: [], ownedTransforms: [], files: [{ path: ENTRY_PATH, text: `export * from '@lib/${input.libraryId}';\n` }] }),
+  );
+  const result = await compileBehavior(
+    { behaviorId: input.libraryId, declaration: { properties: [] }, containerBytes, pinnedModules, libraries: input.libraries, ...(input.limits !== undefined ? { limits: input.limits } : {}) },
+    options,
+  );
+  if (!result.ok) return result;
+  const pins = result.manifest.libraries ?? [];
+  return {
+    ok: true,
+    libraryId: input.libraryId,
+    sourceDigest: sha256Hex(own.containerBytes),
+    imports: pins.map((p) => p.libraryId).filter((id) => id !== input.libraryId),
+    outputByteLength: result.manifest.outputByteLength,
+    diagnostics: [],
   };
 }

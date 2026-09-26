@@ -28,6 +28,7 @@ import {
   type GameConfig,
   type GameZoneRole,
   type PrefabDefinition,
+  type Quat,
 } from '@thirdlight/project-model';
 import {
   NEUTRAL_ACTION_SOURCE,
@@ -44,6 +45,8 @@ import { byEntityId, capsuleInZone, offsetEntities, playerCapsuleOf, sceneContri
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
+  facingQuaternion,
+  normalizedQuaternion,
   quantizeIntentMove,
   validateIntentPhase,
   validateIntentShape,
@@ -792,6 +795,7 @@ export function instantiateRuntime(
     const components = e.components;
     const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
     if (e.name !== undefined) data.name = e.name;
+    data.componentKinds = Object.freeze(Object.keys(components));
     const box = components.box;
     if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
     const cam = components.camera;
@@ -1105,6 +1109,19 @@ export function instantiateRuntime(
     modelBounds: snap.modelBounds,
   });
   return { ok: true, runtime: rt };
+}
+
+/**
+ * Phase 23.7: write an intent's quaternion (normalized) or facing rotation
+ * (validated before: finite, not all zero, up not parallel) into `rotation`.
+ */
+function writeRotationForm(rotation: Quat, intent: { quaternion?: readonly number[]; facing?: readonly number[]; up?: readonly number[] }): void {
+  const q = intent.quaternion !== undefined ? normalizedQuaternion(intent.quaternion) : facingQuaternion(intent.facing!, intent.up);
+  if (q === null) return;
+  rotation[0] = q[0];
+  rotation[1] = q[1];
+  rotation[2] = q[2];
+  rotation[3] = q[3];
 }
 
 function resolveSettings(input: unknown): { settings: GameplaySettings } | { error: RuntimeError } {
@@ -3117,6 +3134,7 @@ class RuntimeInstance implements Runtime {
       const t = e.components.transform;
       const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
       if (e.name !== undefined) data.name = e.name;
+      data.componentKinds = Object.freeze(Object.keys(e.components));
       const box = e.components.box;
       if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
       if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
@@ -3711,8 +3729,10 @@ class RuntimeInstance implements Runtime {
     const tag = this.intents.axesTag * 64;
     const stored = axes.get(intent.entityId);
     const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
+    // Phase 23.7: a quaternion or a facing is a rotation write too (one form per intent).
+    const turns = intent.quaternion !== undefined || intent.facing !== undefined;
     if (intent.kind === 'pose') {
-      if (intent.rotation !== undefined && (have & 8) !== 0) {
+      if ((intent.rotation !== undefined || turns) && (have & 8) !== 0) {
         throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
       }
       if (intent.scale !== undefined && (have & 16) !== 0) {
@@ -3742,6 +3762,9 @@ class RuntimeInstance implements Runtime {
         transform.rotation[2] = qw * sz + qz * cz;
         transform.rotation[3] = qw * cz - qz * sz;
         bits |= 8;
+      } else if (turns) {
+        writeRotationForm(transform.rotation, intent);
+        bits |= 8;
       }
       if (intent.scale !== undefined) {
         const sc = intent.scale;
@@ -3769,10 +3792,17 @@ class RuntimeInstance implements Runtime {
       }
       bits |= bit;
     }
+    if (turns) {
+      if ((have & 8) !== 0) {
+        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
+      }
+      bits |= 8;
+    }
     this.bumpIntentCount();
     if ((bits & 1) !== 0) transform.position[0] = position.x as number;
     if ((bits & 2) !== 0) transform.position[1] = position.y as number;
     if ((bits & 4) !== 0) transform.position[2] = position.z as number;
+    if (turns) writeRotationForm(transform.rotation, intent);
     axes.set(intent.entityId, tag + (have | bits));
     // Frozen once here; every `ctx.intents` view shares it.
     this.intents.transformWrites.push(Object.freeze({

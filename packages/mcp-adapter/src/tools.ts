@@ -51,7 +51,7 @@ const M2_MUTATION_OPS = [
   'instantiatePrefab',
 ] as const;
 /** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
-const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect'] as const;
+const M3_MUTATION_OPS = ['applySurfacePreset', 'setGameConfig', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setFlow', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /** The closed §20 control command set (sessions.md §20.1). */
@@ -132,7 +132,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
       'Prefabs: ' +
       'instantiatePrefab (a prefab keeps the source\'s collider, surface, materials, animator, mover, trigger, switch, pickup, enemy, ' +
-      'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 1|2|3 (1: auto = WebGPU else WebGL 2, the default; 2: WebGPU; 3: WebGL 2; an old 0 means auto; a page URL flag ?renderer=auto|webgpu|webgl2 overrides it), sim_thread 1|2 (1: the simulation runs in a worker, the default; 2: on the main thread of the page; ?threads=off|on overrides it), physics_dimension 2|3 (2: the 2D plane, the default; 3: 3D physics — every box collider then needs hz, its half depth, colliders may rotate on any axis, polygons are 2D-only). Scenes: createScene {name, sceneId?}, ' +
+      'audioSource and faceMovement; a collider only on its root; never the player controller or scene wiring). Game ops: applySurfacePreset, setGameConfig (v4: optional respawnDelay 0-10 s (0.25), dropThroughTime 0.01-2 s (0.125), settleTime 0-1 s (0.1); null resets one). setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 1|2|3 (1: auto = WebGPU else WebGL 2, the default; 2: WebGPU; 3: WebGL 2; an old 0 means auto; a page URL flag ?renderer=auto|webgpu|webgl2 overrides it), sim_thread 1|2 (1: the simulation runs in a worker, the default; 2: on the main thread of the page; ?threads=off|on overrides it), physics_dimension 2|3 (2: the 2D plane, the default; 3: 3D physics — every box collider then needs hz, its half depth, colliders may rotate on any axis, polygons are 2D-only), random_seed 0-4294967295 (0: the seed of ctx.random in scripts; the same seed gives the same numbers in every run and replay). Scenes: createScene {name, sceneId?}, ' +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
       'scenes the game starts with; the camera, player, lights and start spawn live only in start scenes). ' +
       'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
@@ -227,6 +227,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'gameZone.effect (a checkpoint or goal reached); scripts call ctx.effects.play(effectId, {position?, entityId?, params?}) → handle and ctx.effects.stop(handle | entityId). ' +
       'Play and exports draw them (WebGPU compute on WebGPU, the CPU executor on WebGL 2 with lower caps; see tl_diagnostics renderer.effects). The effects are in ' +
       'tl_content_query target="game" (effects). ' +
+      'Script libraries (shared TypeScript/JSON modules any script imports as @lib/<libraryId>, e.g. import { rules } from "@lib/combat"): setScriptLibrary {libraryId, name? (required for a new one), ' +
+      'files?: [{path, text|null}]} creates a library or patches one (listed files are added or replaced, text null removes one, other files are kept; src/index.ts is what an import names; ' +
+      'paths end in .ts or .json; up to 16 files, 64 KiB each); a changed library recompiles every published script that imports it in the same command (refused with the compile error ' +
+      'naming the script if one no longer compiles, or behavior_trust_unacknowledged {sourceDigest} until acknowledgeBehaviorTrust acknowledges the library\'s new digest); ' +
+      'deleteScriptLibrary {libraryId} (refused while a published script imports it). A script may also import .json files of its own source (import data from "./data.json"). ' +
+      'The libraries are in tl_content_query target="game" (scriptLibraries). ' +
       'Returns the new revision on success, ' +
       'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
       'tl_inspect/tl_content_query, not this tool.',

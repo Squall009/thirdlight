@@ -1494,6 +1494,42 @@ level wiring (camera, lights, zones, spawn markers) never go into a prefab.
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
 
+### Random numbers, finding objects and facing (phase 23.7)
+
+- `ctx.random` gives each object's script its own seeded random numbers:
+  `next()` (0 up to 1), `range(min, max)`, `int(min, max)` (both ends
+  included), `chance(p)` and `pick(list)` (`undefined` for an empty list).
+  `ctx.random.stream(name)` is an independent stream of that object (same
+  API, without `stream`; names like timer names, at most 64 per object):
+  draws from one never shift another, so adding a loot roll does not change
+  how an enemy moves. The numbers come from the project setting **Random
+  seed** (Project settings → Engine, `random_seed`, 0–4294967295, default 0)
+  mixed with the script, the object and the stream name, so every run,
+  replay, Play in the worker or on the main thread, and the export draw the
+  same numbers; change the seed to reshuffle every choice of the game at
+  once. A new run (start, replay) starts every stream over. Never use
+  `Math.random` in a script — a replay could not repeat it. Visual scripts
+  have the same numbers as the **Seeded random / range / integer / chance**
+  nodes (with a "(stream)" variant taking a stream name); the older Random
+  nodes keep their per-object numbers unchanged.
+- `ctx.world.find(name)` is the id of the first loaded object with exactly
+  that name (or `undefined`), `ctx.world.findAll(name)` all of them and
+  `ctx.world.withComponent(kind)` every object carrying a component of that
+  kind (`"light"`, `"collider"`, `"behavior"`, …) — in load order (the start
+  scene as authored, then loaded scenes and spawned copies as they came).
+  Nodes: Find object by name, Find objects by name, Find objects with
+  component.
+- Transform and pose intents take a rotation as a quaternion or a direction
+  besides angles: `{ kind: "pose", entityId, quaternion: [x, y, z, w] }`
+  (normalized for you), or `facing: [x, y, z]` — the object's forward (+Z,
+  the glTF forward) points that way, its top towards `up` (default
+  `[0, 1, 0]`; straight up or down leans the top away from / towards +Z).
+  A `transform` intent may carry the same `quaternion` or `facing`/`up`
+  after its `position` to move and turn in one intent. One rotation form per
+  intent (angles, quaternion or facing); an all-zero vector or an `up`
+  parallel to `facing` stops the game with the script error. These fields
+  are for code scripts; the Pose object and Move object nodes are unchanged.
+
 ### Script properties: public and private
 
 A script declares the properties objects give it (`ctx.properties.<key>`):

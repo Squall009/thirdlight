@@ -25,6 +25,8 @@ import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/Animat
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
 import { VisualScriptDocument, type VisualScriptDocumentProps } from '../script/VisualScriptDocument';
+import { LibraryDocument, type LibraryDocumentProps } from '../script/LibraryDocument';
+import type { ScriptLibrary } from '@thirdlight/project-model';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -36,6 +38,8 @@ export interface WorkspaceHost {
   behavior: BehaviorPanelProps;
   /** Phase 16.3: the script editor's data and actions (all behaviors share them). */
   script: Omit<ScriptDocumentProps, 'behaviorId' | 'behavior'>;
+  /** Phase 23.7: the shared script libraries and the library editor's actions. */
+  library: Omit<LibraryDocumentProps, 'libraryId' | 'library'> & { libraries: readonly ScriptLibrary[] };
   /** Phase 16.1: standalone graph documents, their kinds and the graph edit path. */
   graph: {
     graphs: readonly GraphDocument[];
@@ -180,8 +184,20 @@ const effectKind: DocumentKind = {
   render: (id, host) => <EffectDocument key={id} {...host.effect} effectId={id} />,
 };
 
+/** Phase 23.7: a shared script library's files in the code editor ("Library: <name>"). */
+const libraryKind: DocumentKind = {
+  kind: 'script-library',
+  label: 'Library',
+  icon: './icons/script.png',
+  name: (id, host) => host.library.libraries.find((l) => l.libraryId === id)?.name ?? id,
+  render: (id, host) => {
+    const { libraries, ...rest } = host.library;
+    return <LibraryDocument key={id} {...rest} libraryId={id} library={libraries.find((l) => l.libraryId === id) ?? null} />;
+  },
+};
+
 /** Every document kind the centre workspace can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

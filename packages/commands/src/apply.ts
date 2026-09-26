@@ -52,6 +52,7 @@ import type { AnimatorController, EffectDef, EnvironmentConfig, GameFlow, InputC
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
+import { applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
   ApplyOutcome,
@@ -363,6 +364,17 @@ export function applyMutation<S extends SceneDocument>(
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
+    case 'setScriptLibrary':
+    case 'deleteScriptLibrary': {
+      // Phase 23.7: shared script libraries (a change republishes the dependents from prepared facts).
+      const a = va.validated.args as Record<string, unknown>;
+      const r =
+        va.validated.op === 'setScriptLibrary'
+          ? applySetScriptLibrary(input, a as unknown as import('@thirdlight/project-model').ScriptLibraryPatch)
+          : applyDeleteScriptLibrary(input, a as { libraryId: string });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
     case 'setLighting': {
       const r = applySetLighting(input, va.validated.args as { sceneId: string; lighting: LightingBake | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
@@ -524,7 +536,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary',
         }),
       };
     }

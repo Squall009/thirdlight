@@ -388,3 +388,60 @@ for editor items, commit/push/restart, decision log).
   decision 0005 §5. (npm's hidden lockfile `node_modules/.package-lock.json`
   of the main checkout was rewritten through the worktree's hardlinked copy
   by the install; `npm ci` after the merge regenerates it.)
+- 2026-09-26 (23.7): **`ctx.random`.** Per script instance a main stream
+  and named sub-streams (`stream(name)`, 1–64 timer-name characters, at most
+  64 per instance — an engine limit), each seeded by cyrb128 of
+  `random_seed`, behavior id, entity id and stream name, drawn with sfc32
+  (32-bit integer maths only, so the page, the worker and Node agree; 12
+  warm-up draws). Members `next`, `range`, `int` (inclusive, bounds rounded
+  inward), `chance`, `pick`; a bad argument is a script error
+  (`behavior_random_invalid` / `behavior_random_limit`) and never advances a
+  stream. Streams are made on first use and reseeded in place at every new
+  run (start, replay — when the host re-instantiates the state), so a replay
+  draws the same numbers and a handle a script kept stays valid. The runtime
+  has no mid-run checkpoint of script state (worker handoff, rewind or save
+  of behavior state), so there is no RNG state to round-trip; the numbers
+  are pinned by a unit test so the generator never drifts.
+- 2026-09-26 (23.7): **seed setting.** `random_seed` is an optional engine
+  setting (0–4294967295 integer, absent = 0, group Engine, label "Random
+  seed") appended after `sim_thread` in the registry and in
+  `M3_OPTIONAL_SETTINGS_KEYS`, so unset projects keep their settings bytes,
+  manifests and digests; read with `randomSeedOf` from the resolved
+  settings the behavior host already receives (no new plumbing to the
+  worker or the export). Not added to the `GameplaySettings` interface
+  (like `physics_dimension`).
+- 2026-09-26 (23.7): **entity queries.** `ctx.world.find(name)`,
+  `findAll(name)` and `withComponent(kind)` read the runtime's live entity
+  list (`state.order`: the start scenes in document order, then loaded
+  scenes and spawned copies as attached) — exact, case-sensitive names;
+  component kinds as stored (`Object.keys(components)`, kept on the entity
+  data as `componentKinds` when it is attached). Results are frozen and
+  cached per entity list (the runtime replaces `order` on every change),
+  at most 256 remembered queries per kind; a non-text argument is a script
+  error (`behavior_query_invalid`).
+- 2026-09-26 (23.7): **rotation forms.** New optional fields `quaternion`
+  ([x, y, z, w], normalized when applied) and `facing` (+Z forward, the
+  glTF forward; optional `up`, default +Y; a vertical facing without `up`
+  leans the top away from/towards +Z, as pitching would) on the `pose`
+  intent (order kind, entityId, rotation, quaternion, facing, up, scale) and
+  on the `transform` intent after `position` — separate fields rather than a
+  union on `rotation`, so the existing declarations, their graph nodes and
+  the public `.d.ts` stay as they were. Exactly one rotation form per
+  intent (shape error), all-zero vectors and an `up` parallel to `facing`
+  are value errors; a quaternion/facing writes the rotation channel (bit 8),
+  so a pose rotation and a transform facing in one step conflict. The old
+  shapes take the exact old code paths (a legacy transform still parses
+  through the strict three-key check; the Euler maths is untouched).
+  `facingQuaternion` / `normalizedQuaternion` are exported pure helpers.
+- 2026-09-26 (23.7): **graph nodes.** The generated node table gains
+  Seeded random / range / integer / chance (main stream, category Random),
+  their "(stream)" variants (a handle inside a namespace now keeps the
+  namespace's category and names its factory in the label — no existing
+  node is a nested handle) and Find object(s) by name / with component.
+  `pick` is skipped (Seeded random integer + Get item does it). The
+  rotation fields are skipped per field (new generator rule: an optional
+  union-member field tagged `@graphNode skip` is not an input), because a
+  new input would add a local to every existing Pose/Move object node's
+  code and move pinned output digests. The older Random nodes keep their
+  per-object seed. Sprout's pinned outputs and the catalogue suite are
+  unchanged/green.

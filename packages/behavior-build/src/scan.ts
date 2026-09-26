@@ -84,9 +84,21 @@ function scanText(text: string): ScanHit[] {
 type Classified =
   | { kind: 'relative' }
   | { kind: 'type_only_engine' }
+  | { kind: 'library'; libraryId: string }
   | { kind: 'forbidden'; reason: string; specifier: string };
 
+/** Phase 23.7: `@lib/<libraryId>` names a project script library's `src/index.ts`. */
+export const LIBRARY_SPECIFIER_RE = /^@lib\/([a-z0-9][a-z0-9_-]{0,63})$/;
+
+/** Phase 23.7: a relative specifier's stored path (`.json` kept; otherwise `.ts` appended when missing). */
+export function resolveRelativeTarget(from: string, spec: string): string {
+  const target = posixResolve(from, spec);
+  return target.endsWith('.ts') || target.endsWith('.json') ? target : `${target}.ts`;
+}
+
 function classify(spec: string, typeOnly: boolean, pinned: readonly string[]): Classified {
+  const lib = LIBRARY_SPECIFIER_RE.exec(spec);
+  if (lib !== null) return { kind: 'library', libraryId: lib[1] as string };
   if (/^[a-z][a-z0-9+.-]*:/i.test(spec)) {
     if (spec.startsWith('node:')) return { kind: 'forbidden', reason: 'node_builtin', specifier: spec };
     return { kind: 'forbidden', reason: 'network', specifier: spec };
@@ -112,6 +124,7 @@ export function analyzeSourceGraph(
   container: SourceGraphContainer,
   pinnedModules: readonly PinnedModuleRef[],
   limits: Limits,
+  options: { library?: boolean } = {},
 ): AnalyzeResult {
   const pinnedIds = pinnedModules.map((p) => p.id);
   const paths = container.files.map((f) => f.path);
@@ -128,7 +141,21 @@ export function analyzeSourceGraph(
   const edges: [string, string][] = [];
   let typeOnlyImports = 0;
   let acceptedImports = 0;
+  const libraryImports = new Set<string>();
   for (const f of container.files) {
+    // Phase 23.7: a `.json` file is data — it has no imports; it must parse.
+    if (f.path.endsWith('.json')) {
+      try {
+        JSON.parse(f.text);
+      } catch (e) {
+        return containerFailure('behavior_source_invalid', 'json', {
+          path: f.path,
+          detail: f.path,
+          message: `file "${f.path}" is not valid JSON: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`,
+        });
+      }
+      continue;
+    }
     const hits = scanText(f.text);
     const importCount = hits.filter((h) => h.kind === 'specifier').length;
     if (importCount > limits.importsPerFile) {
@@ -149,10 +176,16 @@ export function analyzeSourceGraph(
         });
       }
       const cls = classify(h.spec as string, h.typeOnly === true, pinnedIds);
+      if (cls.kind === 'library') {
+        acceptedImports += 1;
+        libraryImports.add(cls.libraryId);
+        continue;
+      }
       if (cls.kind === 'type_only_engine') {
         // §22.3.1 rule 3: a type-only engine import must name a module from
         // `requiredModules` (it is erased and contributes no output bytes).
-        if (!container.requiredModules.includes(h.spec as string)) {
+        // Phase 23.7: a script library lists none (any pinned module's types).
+        if (options.library !== true && !container.requiredModules.includes(h.spec as string)) {
           return containerFailure('behavior_import_unpinned', h.spec as string, {
             path: f.path,
             detail: h.spec,
@@ -177,8 +210,7 @@ export function analyzeSourceGraph(
   // Step 10: relative resolution against `files`.
   const relEdges: [string, string][] = [];
   for (const [from, spec] of edges) {
-    let target = posixResolve(from, spec);
-    if (!target.endsWith('.ts')) target += '.ts';
+    const target = resolveRelativeTarget(from, spec);
     if (target === '..' || target.startsWith('../')) {
       return containerFailure('behavior_source_escape', target, {
         path: from,
@@ -255,6 +287,7 @@ export function analyzeSourceGraph(
       importDepth,
       typeOnlyImports,
       acceptedImports,
+      ...(libraryImports.size > 0 ? { libraryImports: [...libraryImports].sort() } : {}),
     },
   };
 }

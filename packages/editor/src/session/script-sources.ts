@@ -111,7 +111,8 @@ export function newScript(hasDeclaration: boolean): ScriptContainer {
 /** Why a file name is refused (`null` = acceptable). */
 export function pathProblem(path: string, container: ScriptContainer, except?: string): string | null {
   if (path.length === 0) return 'a file needs a name';
-  if (!path.endsWith('.ts')) return 'a script file ends in .ts';
+  // Phase 23.7: `.json` files are data modules (`import data from './data.json'`).
+  if (!path.endsWith('.ts') && !path.endsWith('.json')) return 'a script file ends in .ts (or .json for data)';
   if (!PATH_RE.test(path)) return 'use lower-case letters, digits, "-", "_", "." and "/" folders (e.g. src/util.ts)';
   if (path.length > 128) return 'the name is too long';
   if (container.files.some((f) => f.path === path && f.path !== except)) return `${path} already exists`;
@@ -211,4 +212,33 @@ export function memberCompletion(
 /** The type names the typings export (`export interface X` / `type X` / `const X`). */
 export function exportedTypeNames(dts: string): string[] {
   return [...new Set([...dts.matchAll(/\bexport\s+(?:interface|type|const|enum)\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1] as string))].sort();
+}
+
+// ---- phase 23.7: script libraries ---------------------------------------------
+
+/** The import prefix of a script library (`import { x } from '@lib/<id>'`). */
+export const LIBRARY_IMPORT_PREFIX = '@lib/';
+
+/** A new library's starting files: an entry that exports one example. */
+export function newLibraryFiles(libraryId: string): ScriptFile[] {
+  return [
+    {
+      path: ENTRY_PATH,
+      text: ['// Shared code: any script imports it with', `// import { clamp } from '@lib/${libraryId}';`, '', 'export function clamp(value: number, min: number, max: number): number {', '  return Math.min(max, Math.max(min, value));', '}', ''].join('\n'),
+    },
+  ];
+}
+
+/**
+ * The `setScriptLibrary` file patch that turns the stored files into the
+ * draft: changed and new files with their text, removed ones with `null`
+ * (unchanged files are not sent, so an edit stays small).
+ */
+export function libraryFilePatch(stored: readonly ScriptFile[], draft: readonly ScriptFile[]): { path: string; text: string | null }[] {
+  const before = new Map(stored.map((f) => [f.path, f.text] as const));
+  const out: { path: string; text: string | null }[] = [];
+  for (const f of [...draft].sort(byPath)) if (before.get(f.path) !== f.text) out.push({ path: f.path, text: f.text });
+  const kept = new Set(draft.map((f) => f.path));
+  for (const f of [...stored].sort(byPath)) if (!kept.has(f.path)) out.push({ path: f.path, text: null });
+  return out;
 }

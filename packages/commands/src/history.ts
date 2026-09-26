@@ -27,6 +27,7 @@ import type { AnimatorController, EnvironmentConfig, GameFlow, InputConfig, Ligh
 import { withAnimators, withEnvironment, withFlow, withInput, withLighting, withMaterials } from './material-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
+import { scriptLibrariesOf, withBehaviorRecords, withScriptLibrary } from './script-library-ops';
 import type { GraphDocument } from '@thirdlight/project-model';
 import type {
   BehaviorComponent,
@@ -537,6 +538,14 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withGraphDocument(content, inv.graphId, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setScriptLibrary') {
+    // Phase 23.7: the library and the dependents recompiled with it move back together.
+    const before = scriptLibrariesOf(content).find((l) => l.libraryId === inv.libraryId) ?? null;
+    const behaviors = inv.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.restore), next: deepClone(b.restore) }));
+    const change: ChangeData = { type: 'setScriptLibrary', libraryId: inv.libraryId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore), behaviors };
+    return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, inv.libraryId, inv.restore), inv.behaviors.map((b) => b.restore)), change, entry.requestId);
+  }
+
   if (inv.kind === 'setEffect') {
     const before = effectsOf(content).find((e) => e.effectId === inv.effectId) ?? null;
     const change: ChangeData = { type: 'setEffect', effectId: inv.effectId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -940,6 +949,13 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = ((content as { graphs?: GraphDocument[] }).graphs ?? []).find((g) => g.graphId === f.graphId) ?? null;
     const change: ChangeData = { type: 'setGraph', graphId: f.graphId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withGraphDocument(content, f.graphId, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setScriptLibrary') {
+    const before = scriptLibrariesOf(content).find((l) => l.libraryId === f.libraryId) ?? null;
+    const behaviors = f.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.previous), next: deepClone(b.next) }));
+    const change: ChangeData = { type: 'setScriptLibrary', libraryId: f.libraryId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next), behaviors };
+    return finish(state, bumped(scene), withBehaviorRecords(withScriptLibrary(content, f.libraryId, f.next), f.behaviors.map((b) => b.next)), change, entry.requestId);
   }
 
   if (f.type === 'setEffect') {

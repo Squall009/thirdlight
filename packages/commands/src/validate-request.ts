@@ -149,6 +149,9 @@ const OPS: readonly MutationOp[] = [
   'setEffect',
   'deleteEffect',
   'renameEffect',
+  // phase 23.7: shared script libraries
+  'setScriptLibrary',
+  'deleteScriptLibrary',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -190,7 +193,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, setGameConfig, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setFlow, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1184,7 +1187,9 @@ export type ValidatedOpArgs =
   | { op: 'graphEdit'; args: { owner: { kind: string; id: string }; ops: GraphOp[] } }
   | { op: 'setEffect'; args: { effect: EffectDef } }
   | { op: 'deleteEffect'; args: { effectId: string } }
-  | { op: 'renameEffect'; args: { effectId: string; name: string } };
+  | { op: 'renameEffect'; args: { effectId: string; name: string } }
+  | { op: 'setScriptLibrary'; args: import('@thirdlight/project-model').ScriptLibraryPatch }
+  | { op: 'deleteScriptLibrary'; args: { libraryId: string } };
 
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
@@ -1286,6 +1291,29 @@ export function validateOpArgs(
         if (args[k] === undefined) return { ok: false, error: fieldMissing(`/args/${k}`, k) };
         if (k === 'effect' ? !isPlainObject(args[k]) : typeof args[k] !== 'string') {
           return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
+        }
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setScriptLibrary':
+    case 'deleteScriptLibrary': {
+      // Phase 23.7: setScriptLibrary {libraryId, name?, files?: [{path, text: string|null}]}; deleteScriptLibrary {libraryId}.
+      const keys = op === 'setScriptLibrary' ? ['libraryId', 'name', 'files'] : ['libraryId'];
+      for (const k of Object.keys(args)) if (!keys.includes(k)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, keys.join(', ')) };
+      if (args['libraryId'] === undefined) return { ok: false, error: fieldMissing('/args/libraryId', 'libraryId') };
+      if (typeof args['libraryId'] !== 'string' || !ID_RE.test(args['libraryId'])) return { ok: false, error: fieldType('/args/libraryId', args['libraryId'], 'string (a library id: [a-z0-9][a-z0-9_-]{0,63})') };
+      if (op === 'setScriptLibrary') {
+        if (args['name'] === undefined && args['files'] === undefined) return { ok: false, error: fieldMissing('/args/files', 'files (or name)') };
+        if (args['name'] !== undefined && typeof args['name'] !== 'string') return { ok: false, error: fieldType('/args/name', args['name'], 'string (1-64 characters)') };
+        const files = args['files'];
+        if (files !== undefined) {
+          if (!Array.isArray(files) || files.length > 32) return { ok: false, error: fieldType('/args/files', files, 'array of up to 32 { path, text: string | null }') };
+          for (let i = 0; i < files.length; i++) {
+            const f = files[i] as unknown;
+            if (!isPlainObject(f) || typeof f['path'] !== 'string' || !(typeof f['text'] === 'string' || f['text'] === null) || Object.keys(f).some((k) => k !== 'path' && k !== 'text')) {
+              return { ok: false, error: fieldType(`/args/files/${i}`, f, '{ path, text: string | null } (null removes the file)') };
+            }
+          }
         }
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
