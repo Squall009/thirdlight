@@ -38,6 +38,7 @@ import type { ActionFrame } from './actions';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
+import { DebugCallError } from './debug-commands';
 import { LiveTagIndex } from './scene-set';
 import { InstanceTimers, TimerCallError } from './timers';
 import {
@@ -56,6 +57,7 @@ import type {
   AnimatorEventRecord,
   BehaviorAnimatorHandle,
   BehaviorAudio,
+  BehaviorDebug,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorMessages,
@@ -75,7 +77,31 @@ import type {
   SimulationPhaseModule,
   StepContext,
   TriggerEventRecord,
+  DebugCommandArgs,
+  DebugCommandOptions,
 } from './types';
+
+/**
+ * Phase 23.8: `ctx.debug` over the runtime's per-phase control — the same
+ * object for the same control (made once), with the optional handler run once
+ * per call returned.
+ */
+const debugViews = new WeakMap<NonNullable<StepContext['debug']>, BehaviorDebug>();
+function debugFor(control: NonNullable<StepContext['debug']>): BehaviorDebug {
+  let view = debugViews.get(control);
+  if (view === undefined) {
+    view = Object.freeze({
+      command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[] {
+        if (handler !== undefined && typeof handler !== 'function') throw new DebugCallError('behavior_debug_invalid', `debug command "${String(name)}": the handler must be a function`);
+        const calls = control.command(name, options);
+        if (handler !== undefined) for (const args of calls) handler(args);
+        return calls;
+      },
+    });
+    debugViews.set(control, view);
+  }
+  return view;
+}
 
 /** The declared-property value map fed to one behavior instance (§14.3). */
 export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
@@ -146,6 +172,8 @@ export interface BehaviorContext {
   readonly effects?: BehaviorEffects;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
+  /** Phase 23.8: project debug commands (run by tools and the in-game console, recorded with the input). */
+  readonly debug?: BehaviorDebug;
   /**
    * Copy a project prefab into the running game; returns the new root id (or null at an engine limit).
    * @graphNode Spawn prefab
@@ -872,6 +900,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
         // Phase 9.11: values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
+        // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
+        if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
@@ -905,7 +935,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             if (nodeId !== undefined) err.nodeId = nodeId;
             return err;
           };
-          if (e instanceof TimerCallError || e instanceof RandomCallError) {
+          if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError) {
             throw withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
           }
           if (e instanceof FrozenPreparedError) {

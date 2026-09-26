@@ -451,7 +451,24 @@ export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelop
  * `unloadScene` (with `sceneId`), the same request a script's `ctx.scenes` makes.
  * Phase 19.2 adds the visual-script debugger's `debugPause` / `debugResume` / `debugStep` (Play only).
  */
-export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep'] as const;
+export const GAME_CONTROL_COMMANDS = ['start', 'replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
+
+/**
+ * Phase 23.8: a project debug command call (`debugCommand`): its name and
+ * arguments — at most 8, each a finite number, text of at most 256
+ * characters or a boolean (the runtime's input-frame rules).
+ */
+export const DEBUG_COMMAND_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,31}$/;
+export function debugCommandCallProblem(name: unknown, args: unknown): { path: string; problem: string } | null {
+  if (typeof name !== 'string' || !DEBUG_COMMAND_NAME_RE.test(name)) return { path: '/name', problem: 'name must be a debug command name (a letter or _, then up to 31 letters, digits, _ . : -)' };
+  if (args === undefined) return null;
+  if (!isPlainObject(args) || Object.keys(args).length > 8) return { path: '/args', problem: 'args maps at most 8 argument names to values' };
+  for (const [k, v] of Object.entries(args)) {
+    if (!DEBUG_COMMAND_NAME_RE.test(k)) return { path: `/args/${k.slice(0, 32)}`, problem: 'an argument name is a letter or _, then up to 31 letters, digits, _ . : -' };
+    if (!((typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 256) || typeof v === 'boolean')) return { path: `/args/${k}`, problem: 'an argument is a finite number, text of at most 256 characters, or true/false' };
+  }
+  return null;
+}
 export type GameControlCommand = (typeof GAME_CONTROL_COMMANDS)[number];
 
 /** §20.1 bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */
@@ -514,12 +531,17 @@ export interface GameControlRequest {
   expectedRunId?: string;
   /** Phase 12 (c): loadScene / unloadScene only. */
   sceneId?: string;
+  /** Phase 23.8: debugCommand only — the command and its arguments. */
+  name?: string;
+  args?: Record<string, number | string | boolean>;
 }
 
 const GAME_CONTROL_REQUEST_FIELDS = new Map([
   ['command', `one of: ${GAME_CONTROL_COMMANDS.join(', ')}`],
   ['expectedRunId', '<snapshotId>#<replayEpoch> (optional optimistic guard)'],
   ['sceneId', 'the scene (loadScene / unloadScene)'],
+  ['name', 'the debug command (debugCommand)'],
+  ['args', 'the debug command\'s arguments (debugCommand)'],
 ]);
 const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -545,6 +567,15 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
     if (!sid.ok) return { ok: false, error: sid.error };
     sceneId = sid.value as string;
   }
+  // Phase 23.8: a debug command carries its name and arguments (and only it does).
+  const debugCommand = cmd.value === 'debugCommand';
+  if (!debugCommand && (shape.value.name !== undefined || shape.value.args !== undefined)) {
+    return { ok: false, error: sessionError('field_value', 'validation', 'name and args go with debugCommand only', { path: shape.value.name !== undefined ? '/name' : '/args' }) };
+  }
+  if (debugCommand) {
+    const p = debugCommandCallProblem(shape.value.name, shape.value.args);
+    if (p !== null) return { ok: false, error: sessionError('field_value', 'validation', p.problem, { path: p.path }) };
+  }
   let expectedRunId: string | undefined;
   if (shape.value.expectedRunId !== undefined) {
     const rid = checkField(shape.value, 'expectedRunId', '', '<snapshotId>#<replayEpoch>', (v) =>
@@ -559,6 +590,7 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
       command: cmd.value as GameControlCommand,
       ...(expectedRunId !== undefined ? { expectedRunId } : {}),
       ...(sceneId !== undefined ? { sceneId } : {}),
+      ...(debugCommand ? { name: shape.value.name as string, args: (shape.value.args ?? {}) as Record<string, number | string | boolean> } : {}),
     },
   };
 }

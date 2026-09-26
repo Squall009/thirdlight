@@ -87,13 +87,87 @@ export interface PlayStartRequest {
   demo: boolean;
   /** Optional: the authoring session (browser) the play must run in. */
   sessionId?: string;
+  /** Phase 23.8: a test/debug start (absent: the game starts as it always does). */
+  start?: PlayStartOptions;
 }
 
+/**
+ * Phase 23.8: where Play starts and with what — a scene, a game mode, script
+ * variables (what the scripts' `ctx.save` holds from step 0) and/or a save
+ * (a save document, or one of the Play page's save slots). The backend
+ * resolves them against the project (`RuntimeSnapshotDoc.start`).
+ */
+export interface PlayStartOptions {
+  sceneId?: string;
+  mode?: string;
+  variables?: Record<string, unknown>;
+  save?: Record<string, unknown>;
+  saveSlot?: 'auto' | '1' | '2' | '3';
+}
+
+/** Phase 23.8: the bounds of the start options (the script save's own: 64 keys, 4 KB per value; a save ≤ 64 KB). */
+export const PLAY_START_VARIABLES_MAX = 64;
+export const PLAY_START_VARIABLE_MAX_CHARS = 4096;
+export const PLAY_START_SAVE_MAX_BYTES = 65_536;
+const PLAY_VARIABLE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+const PLAY_SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PLAY_MODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
+export const PLAY_START_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
+
 const PLAY_START_FIELDS = new Map([
-  ['options', '{ demo?: boolean }'],
+  ['options', '{ demo?: boolean, sceneId?, mode?, variables?, save?, saveSlot? }'],
   ['sessionId', 'sess- + 32 hex (optional: the browser session to play in)'],
 ]);
-const PLAY_OPTIONS_FIELDS = new Map([['demo', 'boolean (default true)']]);
+const PLAY_OPTIONS_FIELDS = new Map([
+  ['demo', 'boolean (default true)'],
+  ['sceneId', 'a scene id: Play starts there (phase 23.8)'],
+  ['mode', 'a game mode id (phase 23.8; checked once the project has game modes)'],
+  ['variables', `{ key: JSON value } (at most ${PLAY_START_VARIABLES_MAX}; what the scripts' ctx.save holds from step 0)`],
+  ['save', `a save document (at most ${PLAY_START_SAVE_MAX_BYTES} bytes)`],
+  ['saveSlot', 'auto | 1 | 2 | 3 (a save slot of the Play page)'],
+]);
+
+/** Phase 23.8: validate the start fields of the play-start options (pure). */
+function parsePlayStartOptions(o: Record<string, unknown>): { ok: true; start: PlayStartOptions | undefined } | { ok: false; error: import('./errors').SessionError } {
+  const bad = (path: string, message: string) => ({ ok: false as const, error: sessionError('field_value', 'validation', message, { path }) });
+  const start: PlayStartOptions = {};
+  if (o.sceneId !== undefined) {
+    if (typeof o.sceneId !== 'string' || !PLAY_SCENE_ID_RE.test(o.sceneId)) return bad('/options/sceneId', 'options.sceneId must be a scene id');
+    start.sceneId = o.sceneId;
+  }
+  if (o.mode !== undefined) {
+    if (typeof o.mode !== 'string' || !PLAY_MODE_ID_RE.test(o.mode)) return bad('/options/mode', 'options.mode must be a game mode id (1-64 of A-Z a-z 0-9 _ . : -)');
+    start.mode = o.mode;
+  }
+  if (o.variables !== undefined) {
+    const v = o.variables;
+    if (!isPlainObject(v) || Object.keys(v).length > PLAY_START_VARIABLES_MAX) return bad('/options/variables', `options.variables must map at most ${PLAY_START_VARIABLES_MAX} keys to JSON values`);
+    for (const [k, value] of Object.entries(v)) {
+      let text: string | undefined;
+      try {
+        text = JSON.stringify(value);
+      } catch {
+        text = undefined;
+      }
+      if (!PLAY_VARIABLE_KEY_RE.test(k)) return bad(`/options/variables/${k.slice(0, 64)}`, 'a variable key is 1-64 of A-Z a-z 0-9 _ . : -');
+      if (text === undefined || text.length > PLAY_START_VARIABLE_MAX_CHARS) return bad(`/options/variables/${k}`, `a variable value is JSON of at most ${PLAY_START_VARIABLE_MAX_CHARS} characters`);
+    }
+    start.variables = v;
+  }
+  if (o.save !== undefined) {
+    const s = o.save;
+    if (!isPlainObject(s) || typeof s.levelId !== 'string' || !isPlainObject(s.run) || typeof s.version !== 'number') return bad('/options/save', 'options.save must be a save document { version, levelId, run, ... }');
+    if (new TextEncoder().encode(JSON.stringify(s)).length > PLAY_START_SAVE_MAX_BYTES) return bad('/options/save', `options.save is larger than ${PLAY_START_SAVE_MAX_BYTES} bytes`);
+    start.save = s;
+  }
+  if (o.saveSlot !== undefined) {
+    if (typeof o.saveSlot !== 'string' || !(PLAY_START_SAVE_SLOTS as readonly string[]).includes(o.saveSlot)) return bad('/options/saveSlot', 'options.saveSlot must be one of auto, 1, 2, 3');
+    start.saveSlot = o.saveSlot as PlayStartOptions['saveSlot'];
+  }
+  if (start.save !== undefined && start.saveSlot !== undefined) return bad('/options/saveSlot', 'give options.save or options.saveSlot, not both');
+  if (start.sceneId !== undefined && (start.save !== undefined || start.saveSlot !== undefined)) return bad('/options/sceneId', 'a save decides where the game continues: give options.sceneId or a save, not both');
+  return { ok: true, start: Object.keys(start).length > 0 ? start : undefined };
+}
 
 export function parsePlayStartRequest(value: unknown):
   | { ok: true; request: PlayStartRequest }
@@ -112,11 +186,13 @@ export function parsePlayStartRequest(value: unknown):
     if (!dv.ok) return { ok: false, error: dv.error };
     demo = dv.value as boolean;
   }
+  const started = parsePlayStartOptions(options.value);
+  if (!started.ok) return started;
   const sid = shape.value.sessionId;
   if (sid !== undefined && !isSessionId(sid)) {
     return { ok: false, error: sessionError('invalid_request', 'validation', 'sessionId must be sess- + 32 hex', { path: '/sessionId' }) };
   }
-  return { ok: true, request: typeof sid === 'string' ? { demo, sessionId: sid } : { demo } };
+  return { ok: true, request: { demo, ...(typeof sid === 'string' ? { sessionId: sid } : {}), ...(started.start !== undefined ? { start: started.start } : {}) } };
 }
 
 // ---- POST …/play/:playSessionId/screenshot (sessions.md §12) -----------------

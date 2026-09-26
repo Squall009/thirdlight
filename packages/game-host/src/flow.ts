@@ -180,6 +180,14 @@ export interface FlowController {
   newGame(): boolean;
   /** `control('replay')`: restart the current level. */
   restartLevel(): boolean;
+  /** Phase 23.8 (a test/debug start): a new game that begins at the level with index `index`, skipping the title. */
+  startLevelAt(index: number): boolean;
+  /**
+   * Phase 23.8 (a test/debug start): continue from a save document, or from
+   * the save in one of this game's slots, skipping the title — the same path
+   * as the title's Continue / Load game.
+   */
+  loadSave(source: SaveDocument | SaveSlot): { ok: true } | { ok: false; reason: string };
   observe(): FlowObservation;
   /** The HUD line (level, lives, counters, health, timer) while playing. */
   hudLine(): string;
@@ -822,6 +830,25 @@ export function createFlowController(deps: FlowDeps): FlowController {
     },
     newGame,
     restartLevel: () => beginLevel(levelIndex),
+    startLevelAt(index: number): boolean {
+      if (!Number.isInteger(index) || index < 0 || index >= flow.levels.length) return false;
+      lives = flow.lives?.start ?? null;
+      for (const k of Object.keys(totals)) delete totals[k];
+      levelsMemory = {};
+      gameScore = 0;
+      return beginLevel(index);
+    },
+    loadSave(source: SaveDocument | SaveSlot): { ok: true } | { ok: false; reason: string } {
+      let doc: SaveDocument;
+      if (typeof source === 'string') {
+        const st = deps.save?.read(source) ?? { state: 'empty' as const };
+        if (st.state !== 'ok') return { ok: false, reason: st.state === 'empty' ? `${slotName(source)} is empty` : `${slotName(source)} is damaged (${st.reason})` };
+        doc = st.doc;
+      } else doc = source;
+      if (!flow.levels.some((l) => l.id === doc.levelId)) return { ok: false, reason: `the save is for level "${String(doc.levelId).slice(0, 64)}", which this game does not have` };
+      loadDoc(doc);
+      return { ok: true };
+    },
     observe(): FlowObservation {
       const m = deps.audio.musicStatus?.() ?? { assetId: null, playing: false, gain: volumes.music };
       const slots = slotStates();

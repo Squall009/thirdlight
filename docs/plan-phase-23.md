@@ -506,3 +506,59 @@ for editor items, commit/push/restart, decision log).
   the project's other libraries, nothing written; answers the scripts that
   import it) and Save (one patch command; the trust prompt when a dependent
   will link the new digest; "Recompiled …" on success).
+- 2026-09-26 (23.8): **one start path.** "Play from…" and `tl_play_start`
+  send the same play-start body (`options.sceneId / mode / variables / save /
+  saveSlot`); the backend resolves it against the captured project
+  (`backend/src/play-start.ts`) and puts the result on the play's snapshot as
+  `start` (the bridge accepts it; the preview strips it before the runtime
+  snapshot, which stays strict), so the browser, MCP and the headless editor
+  share one path and the preview only applies what was already checked.
+- 2026-09-26 (23.8): **what "start at a scene" means.** A game with levels
+  starts a new game at the first level that loads the scene (the title is
+  skipped; a scene no level loads is refused) — the flow's own start path; a
+  game without levels runs `startLevel` with its start scenes plus the scene
+  (the start set holds the camera, player and lights, so the scene alone
+  could not play) at the scene's first player spawn, else the game's; a
+  scene-only project loads it through `requestScene`. The runtime snapshot,
+  manifest and buildId stay those of an ordinary Play.
+- 2026-09-26 (23.8): **variables are `ctx.save`.** Injected variables are the
+  scripts' saved values from step 0 (`InstantiateConfig.variables`, the
+  worker's init, ctx.save's rules: 64 keys, 4 KB JSON each); no second store.
+  With a save start they are merged over the save's `run.values` (the save's
+  restore replaces the store). A save start needs a game with levels (the
+  save document is the flow's; 23.19 brings project save documents); a scene
+  and a save together are refused (the save decides where).
+- 2026-09-26 (23.8): **mode before modes exist.** `mode` is an optional id
+  string: checked against `content.modes` (`modeId`/`id`) when a project has
+  them, otherwise ignored, logged by the backend and returned in
+  `start.notes`; the host notes it in `start.applied` — 23.10 applies it.
+- 2026-09-26 (23.8): **debug commands are declared in code, received per
+  step.** `ctx.debug.command(name, {description, args: [{name, type:
+  number|string|boolean, optional}]}, handler?)` both declares (first
+  declaration wins, a different one is a script error; 32 per game) and
+  returns this step's calls in the intent phase, running the optional
+  handler once per call there — poll-shaped like `ctx.messages`, so no
+  callback ever runs outside a step, and declarative enough for the console
+  and tools to list and type-check. Every declaring instance receives each
+  call. No graph node (a typed spec and a handler are code; skipped in the
+  catalogue, like `random.pick`).
+- 2026-09-26 (23.8): **commands are input.** A call is an entry of the
+  step's `ActionFrame.commands` (≤ 8 per frame, ≤ 8 typed args, text ≤ 256;
+  absent keeps every older frame and recording byte-identical). The host
+  queues calls in the runtime (`queueDebugCommand`, ≤ 16 waiting); the
+  runtime attaches them to the next sampled frame, so the frame it records
+  and replays (`createRecordedActionSource`) carries them; in the worker the
+  mirror checks the call against the mirrored registry and the worker's
+  runtime queues it (same step as single-thread, pinned by a digest test).
+  A recorded call no script declared is dropped with a diagnostic entry.
+  The applied log (last 16 `{stepIndex, name, args}`) is what a playtest
+  needs to rebuild the recording.
+- 2026-09-26 (23.8): **console.** A game-host overlay (plain DOM,
+  constructed stylesheet) toggled with the backquote key — the common PC
+  console key, bound by no engine default; lines are `name a b` (declared
+  order) or `name k=v`, quoted text keeps spaces. Play always passes
+  `debugConsole: true`; an export only with the new optional engine setting
+  `debug_console` (values 0/1, absent = off, after `sim_thread` in the
+  optional-settings order) so a release build never ships it by accident;
+  the setting is not added to the `GameplaySettings` interface (the public
+  script `.d.ts` stays as it was apart from `ctx.debug`).

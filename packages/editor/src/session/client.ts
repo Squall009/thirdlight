@@ -999,9 +999,13 @@ export class SessionClient {
     }
   }
 
-  /** Start an isolated play (sessions.md §10.1). */
-  async playStart(demo = false): Promise<PlayStartResult> {
-    const r = await this.api<PlayStartResult>('/projects/' + this.cfg.projectId + '/play', { options: { demo } });
+  /**
+   * Start an isolated play (sessions.md §10.1). Phase 23.8: `start` — Play
+   * from a scene, with script variables or a save (the same body
+   * `tl_play_start` sends; the backend resolves it).
+   */
+  async playStart(demo = false, start?: { sceneId?: string; mode?: string; variables?: Record<string, unknown>; save?: Record<string, unknown>; saveSlot?: 'auto' | '1' | '2' | '3' }): Promise<PlayStartResult> {
+    const r = await this.api<PlayStartResult>('/projects/' + this.cfg.projectId + '/play', { options: { demo, ...(start ?? {}) } });
     this.activePlay = { ...r, snapshot: null };
     this.playReadySentFor = null; // a new play session: the ready send resets
     return r;

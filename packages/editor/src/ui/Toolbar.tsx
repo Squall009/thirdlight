@@ -26,6 +26,8 @@ interface Props {
   levelLook?: { on: boolean; levelName: string };
   onToggleLevelLook?: () => void;
   onPlay: () => void;
+  /** Phase 23.8: open the "Play from…" dialog (a scene, variables, a save slot). */
+  onPlayFrom?: () => void;
   onStop: () => void;
 }
 
@@ -82,9 +84,16 @@ export function Toolbar(p: Props): JSX.Element {
             ■ stop
           </button>
         ) : (
-          <button className="tl-btn tl-btn--play" onClick={p.onPlay} title="Start an isolated play preview">
-            ▶ play
-          </button>
+          <>
+            <button className="tl-btn tl-btn--play" onClick={p.onPlay} title="Start an isolated play preview">
+              ▶ play
+            </button>
+            {p.onPlayFrom !== undefined && (
+              <button className="tl-btn" onClick={p.onPlayFrom} title="Play from a scene, with script variables or from a save slot">
+                play from…
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="tl-toolbar__spacer" />

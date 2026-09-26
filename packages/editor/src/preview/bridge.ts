@@ -157,9 +157,10 @@ export class Bridge {
   }
 
   /** Forward a game control command (editor side, §20.1). */
-  requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string): void {
+  requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string, debug?: { name: string; args: Record<string, unknown> }): void {
     if (this.direction !== 'editor') throw new Error('requestGameControl is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}) });
+    // Phase 23.8: a debug command carries its name and arguments.
+    this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}), ...(debug !== undefined ? { name: debug.name, args: debug.args } : {}) });
   }
 
   /** Request a game observation (editor side, §20.1). */

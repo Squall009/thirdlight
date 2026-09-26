@@ -18,10 +18,13 @@
  * (the runtime's bounded catch-up applies as in the page). With
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
+import { debugCallProblem, validateDebugCommandCall } from '@thirdlight/runtime';
 import type {
   ActionFrame,
   AnimatorPose,
   CameraInfo,
+  DebugCommandCall,
+  DebugCommandState,
   GameView,
   InterpolatedState,
   InterpolatedTransform,
@@ -70,6 +73,7 @@ export interface RemoteSimulation {
 }
 
 const RUN_STATES_REPLAY = new Set(['playing', 'respawning', 'won']);
+const NO_DEBUG_STATE: DebugCommandState = Object.freeze({ registered: Object.freeze([]), applied: Object.freeze([]), revision: 0 });
 
 function rtError(code: string, message: string, extra: Partial<RuntimeError> = {}): RuntimeError {
   return { code, message, ...extra } as RuntimeError;
@@ -374,6 +378,19 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       const valid = typeof width === 'number' && typeof height === 'number' && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384;
       if (!valid) return { ok: false, error: rtError('camera_viewport_invalid', `viewport dimensions must be finite, positive and ≤ 16384 (got ${width}×${height}); the previous record is retained`, { width, height } as Partial<RuntimeError>) };
       command({ op: 'setViewport', width, height });
+      return { ok: true };
+    },
+    // Phase 23.8: debug commands — the worker's registry (mirrored), a call checked here and queued there.
+    debugCommandState: (): DebugCommandState => mirror.debugCommands ?? NO_DEBUG_STATE,
+    queueDebugCommand: (call: DebugCommandCall) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateDebugCommandCall(call);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `debug command: ${checked.message}`, { reason: 'debug_command' }) };
+      const spec = mirror.debugCommands?.registered.find((c) => c.name === checked.call.name);
+      if (spec === undefined) return { ok: false, error: rtError('game_command_invalid', `no script declared the debug command "${checked.call.name}"`, { reason: 'debug_command' }) };
+      const problem = debugCallProblem(spec, checked.call.args);
+      if (problem !== null) return { ok: false, error: rtError('game_command_invalid', problem, { reason: 'debug_command' }) };
+      command({ op: 'debugCommand', call: checked.call });
       return { ok: true };
     },
     sceneSet: () => mirror.sceneSet ?? emptySet,

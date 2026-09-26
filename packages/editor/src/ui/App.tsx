@@ -398,7 +398,9 @@ function EditorApp(): JSX.Element {
   /** A dismissible message over the viewport (e.g. why Play failed). */
   const [notice, setNotice] = useState<string | null>(null);
   /** The open modal (File → Export…, Help → Shortcuts / About). */
-  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | null>(null);
+  const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'exit' | 'playFrom' | null>(null);
+  /** Phase 23.8: the "Play from…" form (a scene, script variables as JSON, a save slot). */
+  const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', busy: false, error: null as string | null });
   /** Phase 12 (c): the exit-zone dialog (a new exit, or the zone being edited). */
   const [exitForm, setExitForm] = useState<{ entityId: string | null; load: string[]; unload: string[]; spawnId: string; error: string | null }>({ entityId: null, load: [], unload: [], spawnId: '', error: null });
   /**
@@ -432,7 +434,7 @@ function EditorApp(): JSX.Element {
       if (type === 'screenshot.request') b.requestScreenshot(psid, String(req.relayId), typeof req.maxWidth === 'number' ? req.maxWidth : undefined);
       else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId));
       else if (type === 'input.request') b.requestInput(psid, String(req.requestId), req.frames as never);
-      else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command), typeof req.sceneId === 'string' ? req.sceneId : undefined);
+      else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command), typeof req.sceneId === 'string' ? req.sceneId : undefined, typeof req.name === 'string' ? { name: req.name, args: (req.args ?? {}) as Record<string, unknown> } : undefined);
       else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId), typeof req.entityId === 'string' ? req.entityId : undefined);
     };
   }, [playInfo]);
@@ -1875,10 +1877,10 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     await c.command('redo', {}, c.projection.revision);
   }, []);
-  const play = useCallback(async () => {
+  const play = useCallback(async (start?: Parameters<SessionClient['playStart']>[1]) => {
     const c = clientRef.current;
     if (!c) return;
-    const r = await c.playStart(false);
+    const r = await c.playStart(false, start);
     // The snapshot arrives via the retained play.started WS event; the iframe
     // is created once both playBase (HTTP) and snapshot (WS) are present.
     setPlayInfo((p) => ({
@@ -1892,6 +1894,39 @@ function EditorApp(): JSX.Element {
       contentPath: r.playContent?.path ?? null,
     }));
   }, []);
+  /**
+   * Phase 23.8: "Play from…" — the same play start as the Play button with
+   * start options (the backend resolves them; `tl_play_start` sends the same).
+   */
+  const playFrom = useCallback(async () => {
+    const f = playFromForm;
+    let variables: Record<string, unknown> | undefined;
+    if (f.variables.trim() !== '') {
+      try {
+        const v = JSON.parse(f.variables) as unknown;
+        if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error('not an object');
+        variables = v as Record<string, unknown>;
+      } catch {
+        setPlayFromForm((x) => ({ ...x, error: 'Variables must be a JSON object, e.g. {"gold": 100}' }));
+        return;
+      }
+    }
+    const start = {
+      ...(f.sceneId !== '' ? { sceneId: f.sceneId } : {}),
+      ...(variables !== undefined ? { variables } : {}),
+      ...(f.saveSlot !== '' ? { saveSlot: f.saveSlot as 'auto' | '1' | '2' | '3' } : {}),
+    };
+    setPlayFromForm((x) => ({ ...x, busy: true, error: null }));
+    try {
+      await play(start);
+      setPlayFromForm((x) => ({ ...x, busy: false }));
+      setDialog(null);
+    } catch (e) {
+      const body = (e as { body?: { error?: { message?: unknown } } }).body;
+      const message = typeof body?.error?.message === 'string' ? body.error.message : e instanceof Error ? e.message : 'Play could not start';
+      setPlayFromForm((x) => ({ ...x, busy: false, error: message }));
+    }
+  }, [playFromForm, play]);
   const stop = useCallback(async () => {
     const c = clientRef.current;
     const b = bridgeRef.current;
@@ -3726,6 +3761,10 @@ function EditorApp(): JSX.Element {
         {...(lookLevel !== null ? { levelLook: { on: levelLookOn, levelName: lookLevel.name } } : {})}
         onToggleLevelLook={() => setLevelLookOn((v) => !v)}
         onPlay={() => void play()}
+        onPlayFrom={() => {
+          setPlayFromForm((f) => ({ ...f, busy: false, error: null }));
+          setDialog('playFrom');
+        }}
         onStop={() => void stop()}
       />
       <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`}>
@@ -4422,6 +4461,42 @@ function EditorApp(): JSX.Element {
             </div>
           )}
           {exportState.error ? <p className="tl-connect__message">{exportState.error}</p> : null}
+        </Dialog>
+      )}
+      {dialog === 'playFrom' && (
+        <Dialog title="Play from…" onClose={() => setDialog(null)}>
+          <p>Start Play somewhere other than the game's start: at a scene (a game with levels starts the level that loads it), with script variables (the values the scripts read with ctx.save from the first step), or from a save in one of Play's save slots. MCP's tl_play_start takes the same options.</p>
+          <div className="tl-exit">
+            <label className="tl-field">
+              <span className="tl-field__label">Scene</span>
+              <select className="tl-input" aria-label="play from scene" value={playFromForm.sceneId} onChange={(e) => setPlayFromForm((f) => ({ ...f, sceneId: e.target.value, error: null }))}>
+                <option value="">— the game's start —</option>
+                {[...(sceneHeaders ?? []), ...closedScenes].map((sc) => (
+                  <option key={sc.sceneId} value={sc.sceneId}>
+                    {sc.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">Variables (JSON object)</span>
+              <textarea className="tl-input" aria-label="play from variables" rows={4} placeholder='{"gold": 100, "chapter": 2}' value={playFromForm.variables} onChange={(e) => setPlayFromForm((f) => ({ ...f, variables: e.target.value, error: null }))} />
+            </label>
+            <label className="tl-field">
+              <span className="tl-field__label">Save slot</span>
+              <select className="tl-input" aria-label="play from save slot" value={playFromForm.saveSlot} onChange={(e) => setPlayFromForm((f) => ({ ...f, saveSlot: e.target.value, error: null }))}>
+                <option value="">— none —</option>
+                <option value="auto">Autosave</option>
+                <option value="1">Slot 1</option>
+                <option value="2">Slot 2</option>
+                <option value="3">Slot 3</option>
+              </select>
+            </label>
+          </div>
+          {playFromForm.error !== null && <p className="tl-dialog__error" role="alert">{playFromForm.error}</p>}
+          <button className="tl-btn" disabled={playFromForm.busy || playing} onClick={() => void playFrom()}>
+            {playFromForm.busy ? 'Starting…' : playing ? 'Stop Play first' : '▶ Play'}
+          </button>
         </Dialog>
       )}
       {dialog === 'shortcuts' && (

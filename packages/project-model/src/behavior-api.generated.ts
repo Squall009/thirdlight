@@ -99,10 +99,12 @@ export const BEHAVIOR_API_NODES: readonly BehaviorApiNodeSpec[] = [
 
 /** `ctx` members that are not nodes, and why (their `@graphNode skip` reason). */
 export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] = [
+  {"path":"action.commands","reason":"a script receives its debug commands with ctx.debug.command"},
   {"path":"physics.stageCharacterMove","reason":"scripts never run in the controller phase"},
   {"path":"events","reason":"the event nodes (On trigger, On animator event) read them one by one"},
   {"path":"random.stream().pick","reason":"a list's random item is Seeded random integer with the list's Get item"},
   {"path":"random.pick","reason":"a list's random item is Seeded random integer with the list's Get item"},
+  {"path":"debug.command","reason":"a debug command is declared in code (typed arguments, an optional handler)"},
   {"path":"emit(transform).quaternion","reason":"a quaternion is set by scripts; the node takes angles"},
   {"path":"emit(transform).facing","reason":"a facing is set by scripts; the node takes angles"},
   {"path":"emit(transform).up","reason":"a facing is set by scripts; the node takes angles"},

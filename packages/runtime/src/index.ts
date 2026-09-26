@@ -49,6 +49,15 @@ export {
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
+  // Phase 23.8: debug commands on input frames.
+  validateDebugCommands,
+  validateDebugCommandCall,
+  DEBUG_COMMAND_NAME_RE,
+  MAX_FRAME_COMMANDS,
+  MAX_COMMAND_ARGS,
+  MAX_COMMAND_TEXT,
+  type DebugCommandArg,
+  type DebugCommandCall,
 } from './actions';
 export {
   validateCharacterMoveResult,
@@ -210,3 +219,5 @@ export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random'
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
 export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest, RunRestore, RunSaveState } from './types';
+export { debugCallProblem } from './debug-commands';
+export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';

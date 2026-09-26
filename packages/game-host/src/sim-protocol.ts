@@ -12,6 +12,8 @@
 import type {
   ActionFrame,
   AnimatorPose,
+  DebugCommandCall,
+  DebugCommandState,
   EffectRequest,
   LoadedSceneBatch,
   GameView,
@@ -66,6 +68,8 @@ export interface SimInitMessage {
   /** Transforms through shared memory (only when the page is cross-origin isolated). */
   readonly shared?: boolean;
   readonly memoryCapBytes?: number;
+  /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
+  readonly variables?: Readonly<Record<string, unknown>>;
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -84,6 +88,8 @@ export type SimCommand =
   | { readonly op: 'setPaused'; readonly paused: boolean }
   | { readonly op: 'requestScene'; readonly sceneOp: 'load' | 'unload'; readonly sceneId: string }
   | { readonly op: 'setViewport'; readonly width: number; readonly height: number }
+  // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
+  | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   | { readonly op: 'stop' };
 
 export type SimQuery =
@@ -150,6 +156,8 @@ export interface FrameState {
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };
   readonly memoryBytes?: number;
+  /** Phase 23.8: the debug commands (registered, applied) when they changed. */
+  readonly debugCommands?: DebugCommandState;
 }
 
 export type WorkerToMain =

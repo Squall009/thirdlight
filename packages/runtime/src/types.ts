@@ -27,7 +27,7 @@ import type {
 
 /** The gameplay-zone role set (project-model §23.3.1) — canonical home here per gameplay.md §11. */
 export type { GameZoneRole };
-import type { ActionFrame, ActionSource } from './actions';
+import type { ActionFrame, ActionSource, DebugCommandArg, DebugCommandCall } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
 import type { PhysicsPort, PhysicsPort3D, PhysicsStepClient, Vec2 } from './ports';
@@ -273,6 +273,13 @@ export interface InstantiateConfig {
   fixedStepHz?: number;
   /** Called once per frame after the step update (runtime.md §6 frame ordering). */
   onFrame?: () => void;
+  /**
+   * Phase 23.8: values the scripts see in `ctx.save` from step 0 (a test or
+   * debug start: "Play from…", `tl_play_start` variables). Same rules as
+   * `ctx.save.set` (≤ 64 keys, each ≤ 4 KB as JSON); a value that breaks
+   * them is `config_invalid`.
+   */
+  variables?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -670,6 +677,8 @@ export interface StepContext {
   readonly triggerEvents?: readonly TriggerEventRecord[];
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
+  /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
+  readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -828,6 +837,67 @@ export interface BehaviorSave {
    * @graphNode Saved keys
    */
   keys(): string[];
+}
+
+/** Phase 23.8: the type of a debug command argument. */
+export type DebugCommandArgType = 'number' | 'string' | 'boolean';
+
+/** Phase 23.8: one declared argument of a debug command. */
+export interface DebugCommandArgSpec {
+  /** The argument's name (a letter or _, then letters, digits, _ . : -). */
+  readonly name: string;
+  readonly type: DebugCommandArgType;
+  /** May be left out of a call (a call without it has no such key). */
+  readonly optional?: boolean;
+}
+
+/** Phase 23.8: how a script declares a debug command (`ctx.debug.command(name, options)`). */
+export interface DebugCommandOptions {
+  /** One line the console and tools show (at most 120 characters). */
+  readonly description?: string;
+  /** The arguments in order (at most 8; the console also takes them by position). */
+  readonly args?: readonly DebugCommandArgSpec[];
+}
+
+/** Phase 23.8: a registered debug command, as the console and tools list it. */
+export interface DebugCommandSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly args: readonly DebugCommandArgSpec[];
+}
+
+/** Phase 23.8: the arguments of one debug command call. */
+export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
+
+/**
+ * Phase 23.8: the registered debug commands and the calls the game ran (the
+ * newest last, at most 16): what a playtest needs to reproduce a run (each
+ * call is an input-frame entry at its step).
+ */
+export interface DebugCommandState {
+  readonly registered: readonly DebugCommandSpec[];
+  readonly applied: readonly { readonly stepIndex: number; readonly name: string; readonly args: DebugCommandArgs }[];
+  /** Bumped whenever `registered` or `applied` changes. */
+  readonly revision: number;
+}
+
+/**
+ * Phase 23.8: `ctx.debug` — project debug commands (a test or debug tool, the
+ * in-game console and `tl_game_control` run them). A command runs inside the
+ * simulation step as part of the step's input, so a recording replays it.
+ */
+export interface BehaviorDebug {
+  /**
+   * Declare the debug command `name` (the first declaration fixes its
+   * arguments; calling it again every step is how a script listens) and get
+   * the calls made to it in this step — in the `intent` phase; the other
+   * phases see none. With `handler`, it also runs once per call, right here.
+   * Every script instance that declares the command receives each call.
+   * Engine limits: 32 commands per game; a second declaration with other
+   * arguments throws.
+   * @graphNode skip a debug command is declared in code (typed arguments, an optional handler)
+   */
+  command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[];
 }
 
 /** Phase 9.10: `ctx.audio`. */
@@ -1137,6 +1207,17 @@ export interface Runtime {
   requestScene?(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError };
   /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: accepted); changes nothing. */
   sceneRequestProblem?(op: 'load' | 'unload', sceneId: string): string | null;
+
+  // ---- Phase 23.8 debug commands -------------------------------------------
+  /** The registered debug commands and the calls the game ran (newest last, at most 16). */
+  debugCommandState?(): DebugCommandState;
+  /**
+   * Queue one debug command call for the next executed step (it rides on that
+   * step's input frame, so a recording of the run replays it). Refused when
+   * no script registered the command, the arguments do not match its
+   * declaration, or 16 calls are already waiting.
+   */
+  queueDebugCommand?(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError };
 }
 
 /** One interpolated transform (runtime.md §6). */

@@ -217,7 +217,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     }
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
+    // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
+      'action.commands',
+      'debug.command',
       'emit(pose).facing',
       'emit(pose).quaternion',
       'emit(pose).up',

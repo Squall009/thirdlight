@@ -181,6 +181,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         ...(m.modules !== undefined ? { modules: m.modules } : {}),
         actions: relay,
         driver: { kind: 'manual' },
+        ...(m.variables !== undefined ? { variables: m.variables } : {}),
       });
       if (!composed.ok) {
         port?.dispose?.();
@@ -224,6 +225,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         break;
       case 'setViewport':
         r = rt.setViewport(c.width, c.height);
+        break;
+      case 'debugCommand':
+        r = rt.queueDebugCommand?.(c.call) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no debug commands' } };
         break;
       case 'stop':
         rt.stop();
