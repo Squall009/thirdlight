@@ -85,6 +85,12 @@ export {
   type EstablishRequest,
   type PlayStartRequest,
   type ScreenshotRequest,
+  // Phase 23.8: test/debug start options.
+  type PlayStartOptions,
+  PLAY_START_SAVE_MAX_BYTES,
+  PLAY_START_SAVE_SLOTS,
+  PLAY_START_VARIABLES_MAX,
+  PLAY_START_VARIABLE_MAX_CHARS,
 } from './http';
 
 // M2 content transport wire shapes + strict validators (packet 25:
@@ -156,6 +162,7 @@ export {
   type PlayStopRequestReason,
   type PlaySnapshotRef,
   type RuntimeSnapshotDoc,
+  type PlayStartResolved,
   type ServerEventType,
   type ClientEventType,
 } from './ws-events';
@@ -218,6 +225,7 @@ export {
   CHANGE_TYPES,
   GAME_CONTROL_BODY_MAX_BYTES,
   GAME_CONTROL_COMMANDS,
+  debugCommandCallProblem,
   GAME_CONTROL_RESULT_MAX_BYTES,
   GAME_EVENT_KINDS,
   GAME_GESTURES,

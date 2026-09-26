@@ -36,11 +36,16 @@ import {
   neutralFrame,
   validateActionFrame,
   InputFrameError,
+  validateDebugCommandCall,
+  DEBUG_COMMAND_NAME_RE,
+  MAX_FRAME_COMMANDS,
   type ActionFrame,
   type ActionSource,
+  type DebugCommandCall,
   type JumpPhase,
 } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
+import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView } from './behavior';
 import { byEntityId, capsuleInZone, character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
@@ -62,6 +67,7 @@ import { lerpVec3, lerpVec3Into, quatEqual, slerpQuat, slerpQuatInto, vec3Equal 
 import { isSimulationRegistry, validatePhaseList } from './registry';
 import { deepFreeze, validateRuntimeSnapshot } from './snapshot';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { GameplayBlocks } from './blocks';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { MotionSegments, TransformMirror } from './step-buffers';
@@ -138,6 +144,10 @@ import {
   type ViewportInfo,
   type RunRestore,
   type RunSaveState,
+  type DebugCommandArgs,
+  type DebugCommandOptions,
+  type DebugCommandSpec,
+  type DebugCommandState,
 } from './types';
 
 /** runtime.md §3.1 default (the M1 constant). */
@@ -468,6 +478,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     'driver',
     'fixedStepHz',
     'onFrame',
+    'variables',
   ]);
   for (const key of Object.keys(config)) {
     if (!allowed.has(key)) {
@@ -575,6 +586,22 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     }
     onFrame = config.onFrame as () => void;
   }
+  // Phase 23.8: injected script variables (ctx.save from step 0), under ctx.save's own rules.
+  let variables: Record<string, unknown> | undefined;
+  if (config.variables !== undefined) {
+    const v = config.variables;
+    if (!isPlainObject(v) || Object.keys(v).length > SAVE_MAX_KEYS) {
+      return { error: fail('config_invalid', `config field "variables" must map at most ${SAVE_MAX_KEYS} keys to JSON values`, { reason: 'shape', path: '/variables' }) };
+    }
+    variables = {};
+    for (const [k, value] of Object.entries(v)) {
+      const text = saveValueText(value);
+      if (!SAVE_KEY_RE.test(k) || text === null) {
+        return { error: fail('config_invalid', `variable ${JSON.stringify(k.slice(0, 64))}: a key is 1-64 of A-Z a-z 0-9 _ . : - and a value JSON of at most ${SAVE_MAX_VALUE_CHARS} characters`, { reason: 'shape', path: `/variables/${k.slice(0, 64)}` }) };
+      }
+      variables[k] = JSON.parse(text) as unknown;
+    }
+  }
   return {
     cfg: {
       snapshot: config.snapshot,
@@ -589,8 +616,24 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       driverKind,
       hz,
       onFrame,
+      ...(variables !== undefined ? { variables } : {}),
     },
   };
+}
+
+/** Phase 9.11: `ctx.save` rules (shared by the Phase 23.8 injected variables). */
+const SAVE_MAX_KEYS = 64;
+const SAVE_MAX_VALUE_CHARS = 4096;
+const SAVE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** A value's JSON text when it fits a save value, else null. */
+function saveValueText(value: unknown): string | null {
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    return null;
+  }
+  return text === undefined || text.length > SAVE_MAX_VALUE_CHARS ? null : text;
 }
 
 interface ParsedConfig {
@@ -607,6 +650,7 @@ interface ParsedConfig {
   driverKind: 'raf' | 'manual';
   hz: number;
   onFrame?: () => void;
+  variables?: Record<string, unknown>;
 }
 
 /**
@@ -622,7 +666,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -1151,6 +1195,7 @@ export function instantiateRuntime(
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,
     modelBounds: snap.modelBounds,
+    ...(variables !== undefined ? { variables } : {}),
   });
   return { ok: true, runtime: rt };
 }
@@ -1223,6 +1268,8 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Phase 15.3: model assetId -> its recorded bounds (pickups without a size). */
   modelBounds: Readonly<Record<string, ModelBounds>>;
+  /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
+  variables?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
@@ -1427,6 +1474,9 @@ class RuntimeInstance implements Runtime {
   private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
   private animatorWasGrounded = true;
   private readonly animatorControl: BehaviorAnimatorControl;
+  // ---- Phase 23.4: the camera brain (virtual cameras; inert without one) ----
+  private readonly cameras: CameraBrain;
+  private readonly cameraControl: import('./types').BehaviorCamera;
   // ---- Phase 9.9: gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
   private stepBounce: number | null = null;
@@ -1491,6 +1541,31 @@ class RuntimeInstance implements Runtime {
       this.saveStore.delete(String(key));
     },
     keys: (): string[] => [...this.saveStore.keys()].sort(),
+  });
+  // ---- Phase 23.8: debug commands -------------------------------------------
+  /** The commands scripts declared (first declaration wins; kept across runs). */
+  private readonly debugRegistry = new Map<string, DebugCommandSpec>();
+  /** Calls queued by the host for the next sampled step. */
+  private debugQueue: DebugCommandCall[] = [];
+  /** This step's calls by command (from its input frame); null: none. */
+  private stepDebugCalls: Map<string, DebugCommandArgs[]> | null = null;
+  private debugApplied: { stepIndex: number; name: string; args: DebugCommandArgs }[] = [];
+  private debugRevision = 0;
+  private debugStateCache: DebugCommandState | null = null;
+  private readonly debugControl = Object.freeze({
+    command: (name: string, options: DebugCommandOptions | undefined, phase: SimulationPhase): readonly DebugCommandArgs[] => {
+      if (typeof name !== 'string' || !DEBUG_COMMAND_NAME_RE.test(name)) throw new DebugCallError('behavior_debug_invalid', 'a debug command name is a letter or _, then up to 31 letters, digits, _ . : -');
+      const known = this.debugRegistry.get(name);
+      if (known === undefined) {
+        if (this.debugRegistry.size >= MAX_DEBUG_COMMANDS) throw new DebugCallError('behavior_debug_limit', `at most ${MAX_DEBUG_COMMANDS} debug commands per game`);
+        this.debugRegistry.set(name, debugSpecOf(name, options));
+        this.debugTouched();
+      } else if (options !== undefined && JSON.stringify(debugSpecOf(name, options)) !== JSON.stringify(known)) {
+        throw new DebugCallError('behavior_debug_invalid', `debug command "${name}" is already declared with other options`);
+      }
+      if (phase !== 'intent') return NO_DEBUG_CALLS;
+      return this.stepDebugCalls?.get(name) ?? NO_DEBUG_CALLS;
+    },
   });
   private readonly audioControl = Object.freeze({
     play: (assetId: string, options?: { volume?: number }): void => {
@@ -1605,6 +1680,8 @@ class RuntimeInstance implements Runtime {
       this.playerEntityId = '';
     }
     this.actions = args.actions;
+    // Phase 23.8: injected variables are the scripts' saved values from step 0.
+    if (args.variables !== undefined) for (const [k, v] of Object.entries(args.variables)) this.saveControl.set(k, v);
     this.physics = args.physics;
     if (args.physics3d !== undefined) {
       this.physics3d = args.physics3d;
@@ -1660,6 +1737,10 @@ class RuntimeInstance implements Runtime {
     this.spawnControl = this.buildSpawnControl();
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
+    // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
+    this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
+    this.cameras.add(args.initialEntities);
+    this.cameraControl = this.buildCameraControl();
     // Phase 9.9: movers, triggers, switches, pickups, enemies, health.
     const rt = this;
     this.blocks = new GameplayBlocks(
@@ -2106,6 +2187,125 @@ class RuntimeInstance implements Runtime {
   private readonly interpRotation: number[] = [0, 0, 0, 1];
   private readonly interpScale: number[] = [1, 1, 1];
 
+  // ---- Phase 23.4: the resolved camera (virtual cameras) ------------------------
+
+  /**
+   * The view the camera brain resolved, interpolated like the transforms
+   * (`position`, `rotation` written; its lens returned), or null when the
+   * game has no virtual camera (the renderer then draws the camera entity
+   * as before) or the brain has not stepped yet.
+   */
+  readCameraView(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null {
+    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
+    return this.cameras.readInterpolated(this.stateName === 'failed' ? 1 : this.lastAlpha, position, rotation);
+  }
+
+  /** The committed camera view (the live camera, a blend in progress, the pose and lens), or null without a virtual camera. */
+  cameraView(): CameraViewInfo | null {
+    if (this.stateName === 'disposed' || !this.cameras.active || !this.cameras.hasView()) return null;
+    return this.cameras.view();
+  }
+
+  /**
+   * The viewport the view is drawn in (the renderer reports it): screen↔world
+   * projection (`ctx.camera`) uses its aspect (16:9 until reported). Unlike
+   * `setViewport` it never feeds the platformer follow camera, so games
+   * without virtual cameras keep their exact framing.
+   */
+  setCameraViewport(width: number, height: number): boolean {
+    if (this.stateName === 'disposed') return false;
+    return this.cameras.setViewport(width, height);
+  }
+
+  /** Phase 23.4: one camera-brain step on the step's committed transforms. */
+  private stepCameras(action: ActionFrame | null): void {
+    if (!this.cameras.active) return;
+    const base = this.curr.get(this.cameraInfo.id);
+    const pos = this.cameraWorldPos;
+    const rot = this.cameraWorldRot;
+    if (base === undefined || !this.worldTransformOf(this.cameraInfo.id, pos, rot)) {
+      pos[0] = 0;
+      pos[1] = 0;
+      pos[2] = 0;
+      rot[0] = 0;
+      rot[1] = 0;
+      rot[2] = 0;
+      rot[3] = 1;
+    }
+    this.cameras.step({ position: pos, rotation: rot }, action, this.cameraWorld);
+  }
+
+  private readonly cameraWorldPos: number[] = [0, 0, 0];
+  private readonly cameraWorldRot: number[] = [0, 0, 0, 1];
+  private readonly cameraWorld = {
+    worldOf: (id: string, position: number[], rotation: number[]): boolean => this.worldTransformOf(id, position, rotation),
+    raycast: (origin: [number, number, number], direction: [number, number, number], maxDistance: number): { distance: number } | null => {
+      // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
+      const port = this.physics3d;
+      if (port === undefined || typeof port.raycast !== 'function') return null;
+      const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
+      return hit === null ? null : { distance: hit.distance };
+    },
+  };
+
+  /** An entity's world position and rotation, composed up its parents from the step's transforms (false: not loaded). */
+  private worldTransformOf(id: string, position: number[], rotation: number[]): boolean {
+    const t = this.curr.get(id);
+    if (t === undefined) return false;
+    let px = t.position[0], py = t.position[1], pz = t.position[2];
+    let qx = t.rotation[0], qy = t.rotation[1], qz = t.rotation[2], qw = t.rotation[3];
+    let parent = this.entities.get(id)?.parentId ?? null;
+    for (let depth = 0; parent !== null && depth < 64; depth += 1) {
+      const pt = this.curr.get(parent);
+      if (pt === undefined) break;
+      // p := parentPos + parentRot · (parentScale ⊙ p); q := parentRot · q
+      const sx = px * pt.scale[0], sy = py * pt.scale[1], sz = pz * pt.scale[2];
+      const [ax, ay, az, aw] = pt.rotation;
+      const tx = 2 * (ay * sz - az * sy), ty = 2 * (az * sx - ax * sz), tz = 2 * (ax * sy - ay * sx);
+      px = pt.position[0] + sx + aw * tx + (ay * tz - az * ty);
+      py = pt.position[1] + sy + aw * ty + (az * tx - ax * tz);
+      pz = pt.position[2] + sz + aw * tz + (ax * ty - ay * tx);
+      const nx = aw * qx + ax * qw + ay * qz - az * qy;
+      const ny = aw * qy - ax * qz + ay * qw + az * qx;
+      const nz = aw * qz + ax * qy - ay * qx + az * qw;
+      const nw = aw * qw - ax * qx - ay * qy - az * qz;
+      qx = nx;
+      qy = ny;
+      qz = nz;
+      qw = nw;
+      parent = this.entities.get(parent)?.parentId ?? null;
+    }
+    position[0] = px;
+    position[1] = py;
+    position[2] = pz;
+    const len = Math.hypot(qx, qy, qz, qw) || 1;
+    rotation[0] = qx / len;
+    rotation[1] = qy / len;
+    rotation[2] = qz / len;
+    rotation[3] = qw / len;
+    return true;
+  }
+
+  /** Phase 23.4: `ctx.camera` (arguments checked here; the brain applies them in order). */
+  private buildCameraControl(): import('./types').BehaviorCamera {
+    const brain = this.cameras;
+    const blendOf = (o: unknown): unknown => (typeof o === 'object' && o !== null ? o : undefined);
+    return Object.freeze({
+      activate: (cameraId: string, options?: unknown): boolean => brain.activate(String(cameraId), blendOf(options)),
+      deactivate: (cameraId: string, options?: unknown): boolean => brain.deactivate(String(cameraId), blendOf(options)),
+      setPriority: (cameraId: string, priority: number): boolean => brain.setPriority(String(cameraId), Number(priority)),
+      setTarget: (cameraId: string, entityId: string): boolean => brain.setTarget(String(cameraId), typeof entityId === 'string' ? entityId : null),
+      set: (cameraId: string, params: unknown): boolean => brain.set(String(cameraId), params),
+      turn: (cameraId: string, steps: number): boolean => brain.turn(String(cameraId), Number(steps)),
+      shake: (amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void => brain.shake(Number(amplitude), Number(seconds), frequency, rotation, seed),
+      live: (): string | null => brain.live(),
+      blending: (): boolean => brain.blending(),
+      get: (cameraId: string) => brain.get(String(cameraId)),
+      worldToScreen: (position: readonly number[]) => brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]),
+      screenToRay: (x: number, y: number) => brain.screenToRay(Number(x), Number(y)),
+    }) as import('./types').BehaviorCamera;
+  }
+
   /** The §6 rule for one entity into the reused arrays (see `getInterpolatedState`). */
   private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
     const p = prev.get(id);
@@ -2523,6 +2723,8 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
+    // Phase 23.4: the camera brain resolves the view on the step's transforms.
+    this.stepCameras(null);
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz; // single division (§4)
@@ -2564,6 +2766,7 @@ class RuntimeInstance implements Runtime {
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
+      this.stepDebugCalls = null;
     } else {
       try {
         action = this.sampleAction(stepIndex);
@@ -2631,6 +2834,9 @@ class RuntimeInstance implements Runtime {
       this.failStopFromError(e, stepIndex);
       return false;
     }
+    // Phase 23.4: the camera brain, after every phase (the camera phase included):
+    // the view is resolved in the step, so replays and the worker resolve it alike.
+    this.stepCameras(action);
     // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
     // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
     // `state.prev` during step n at the end of step n−2): `prev := backup`
@@ -2667,12 +2873,79 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
+    // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
+    if (this.debugQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+      const have = (raw as ActionFrame).commands ?? [];
+      const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
+      if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugQueue.splice(0, room)] };
+    }
     // Phase 21.2: equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
+    this.deliverDebugCommands(check.frame);
     return check.frame;
+  }
+
+  /**
+   * Phase 23.8: this step's debug command calls from its frame, by command
+   * (in frame order). A call no script declared, or whose arguments do not
+   * match the declaration, is dropped with a diagnostic entry.
+   */
+  private deliverDebugCommands(frame: ActionFrame): void {
+    const commands = frame.commands;
+    if (commands === undefined || commands.length === 0) {
+      this.stepDebugCalls = null;
+      return;
+    }
+    const byName = new Map<string, DebugCommandArgs[]>();
+    for (const c of commands) {
+      const spec = this.debugRegistry.get(c.name);
+      const problem = spec === undefined ? `no script declared the debug command "${c.name}"` : debugCallProblem(spec, c.args);
+      if (problem !== null) {
+        this.recordError({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex: frame.stepIndex, reason: 'debug_command_invalid' });
+        continue;
+      }
+      let list = byName.get(c.name);
+      if (list === undefined) byName.set(c.name, (list = []));
+      list.push(c.args);
+      this.debugApplied.push({ stepIndex: frame.stepIndex, name: c.name, args: c.args });
+    }
+    if (this.debugApplied.length > MAX_DEBUG_APPLIED) this.debugApplied.splice(0, this.debugApplied.length - MAX_DEBUG_APPLIED);
+    this.debugTouched();
+    this.stepDebugCalls = byName.size > 0 ? byName : null;
+  }
+
+  private debugTouched(): void {
+    this.debugRevision += 1;
+    this.debugStateCache = null;
+  }
+
+  /** Phase 23.8: the registered debug commands and the calls run (newest last). */
+  debugCommandState(): DebugCommandState {
+    if (this.debugStateCache === null) {
+      this.debugStateCache = Object.freeze({
+        registered: Object.freeze([...this.debugRegistry.values()]),
+        applied: Object.freeze(this.debugApplied.map((a) => Object.freeze({ ...a }))),
+        revision: this.debugRevision,
+      });
+    }
+    return this.debugStateCache;
+  }
+
+  /** Phase 23.8: queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
+  queueDebugCommand(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    const checked = validateDebugCommandCall(call);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `debug command: ${checked.message}`, { reason: 'debug_command', path: `/${checked.field}` }) };
+    const spec = this.debugRegistry.get(checked.call.name);
+    if (spec === undefined) return { ok: false, error: fail('game_command_invalid', `no script declared the debug command "${checked.call.name}"`, { reason: 'debug_command' }) };
+    const problem = debugCallProblem(spec, checked.call.args);
+    if (problem !== null) return { ok: false, error: fail('game_command_invalid', problem, { reason: 'debug_command' }) };
+    if (this.debugQueue.length >= MAX_DEBUG_QUEUE) return { ok: false, error: fail('game_command_invalid', `at most ${MAX_DEBUG_QUEUE} debug command calls may wait for the next step`, { reason: 'pending' }) };
+    this.debugQueue.push(checked.call);
+    return { ok: true };
   }
 
   // -------------------------------------------------------------------------
@@ -2703,6 +2976,8 @@ class RuntimeInstance implements Runtime {
     const outcome = session.boundary(ordinal);
     // Phase 14.1: a new run starts without spawned entities.
     if (outcome.reset === 'replay' || outcome.reset === 'start') this.clearSpawned();
+    // Phase 23.4: and with its cameras as authored.
+    if (outcome.reset === 'replay' || outcome.reset === 'start') this.cameras.reset();
     // Phase 12 (c): a replay starts from the start scenes again.
     if (outcome.reset === 'replay' && !this.restoreStartSet()) return false;
     if (outcome.reset !== null) {
@@ -3246,6 +3521,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
+    this.cameras.add(frozen);
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -3347,6 +3623,7 @@ class RuntimeInstance implements Runtime {
     this.liveTags?.remove(ids);
     this.removeAnimators(ids);
     this.blocks?.remove(ids);
+    this.cameras.remove(ids);
   }
 
   /** Remove one scene and release what belongs to it. */
@@ -3751,6 +4028,11 @@ class RuntimeInstance implements Runtime {
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
+      // Phase 23.4: the virtual cameras (ctx.camera).
+      fields['camera'] = { value: this.cameraControl, enumerable: true };
+      // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
+      const debugControl = this.debugControl;
+      fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
       // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
@@ -4134,16 +4416,31 @@ class RuntimeInstance implements Runtime {
 
   /**
    * Phase 23.2: the active camera's yaw for the 3D character's move input —
-   * radians about +Y (0 looking along −Z) — or undefined (world axes). The
-   * camera framework (phase 23.4) resolves the active camera in the
-   * simulation and provides it here; until then the character moves along
-   * world axes.
+   * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
+   * the camera brain's committed view (phase 23.4: resolved in the
+   * simulation at the end of the previous step, so a replay reads the same
+   * yaw); without virtual cameras the character moves along world axes. An
+   * injected source (`cameraYawSource`) takes precedence.
    */
   private cameraYaw3D(): number | undefined {
     const source = this.cameraYawSource;
-    if (source === null) return undefined;
-    const v = source();
-    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    if (source !== null) {
+      const v = source();
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    }
+    if (!this.cameras.active || !this.cameras.hasView()) return undefined;
+    const q = this.cameras.view().rotation;
+    // The view's forward (−Z turned by the rotation), flattened onto the ground.
+    const [x, y, z, w] = [q[0]!, q[1]!, q[2]!, q[3]!];
+    let fx = -2 * (x * z + w * y);
+    let fz = -(1 - 2 * (x * x + y * y));
+    if (!(Math.hypot(fx, fz) > 1e-3)) {
+      // Looking straight down (or up): the screen's up is the way forward on the ground.
+      fx = 2 * (x * y - w * z);
+      fz = 2 * (y * z + w * x);
+      if (!(Math.hypot(fx, fz) > 1e-9)) return undefined;
+    }
+    return Math.atan2(-fx, -fz);
   }
 
   /**

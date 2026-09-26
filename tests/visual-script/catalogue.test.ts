@@ -107,6 +107,21 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     destroy: rec('destroy', true),
     emit: rec('emit'),
     log: rec('log'),
+    // Phase 23.4: the virtual cameras.
+    camera: {
+      activate: rec('camera.activate', true),
+      deactivate: rec('camera.deactivate', true),
+      setPriority: rec('camera.setPriority', true),
+      setTarget: rec('camera.setTarget', true),
+      set: rec('camera.set', true),
+      turn: rec('camera.turn', true),
+      shake: rec('camera.shake'),
+      live: rec('camera.live', 'cam-1'),
+      blending: rec('camera.blending', false),
+      get: rec('camera.get', () => ({ rig: 'follow', enabled: true, priority: 0, live: true, target: 'box-1', distance: 5, yaw: 0, pitch: 20, progress: 0, railSpeed: 0, fovY: 60, letterbox: 0 })),
+      worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
+      screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
+    },
   };
 }
 
@@ -219,7 +234,10 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     }
     // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
+    // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
+      'action.commands',
+      'debug.command',
       // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
       'emit(pose).facing',

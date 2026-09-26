@@ -49,6 +49,15 @@ export {
   type ActionSource,
   type ActionSourceDiagnostics,
   type JumpPhase,
+  // Phase 23.8: debug commands on input frames.
+  validateDebugCommands,
+  validateDebugCommandCall,
+  DEBUG_COMMAND_NAME_RE,
+  MAX_FRAME_COMMANDS,
+  MAX_COMMAND_ARGS,
+  MAX_COMMAND_TEXT,
+  type DebugCommandArg,
+  type DebugCommandCall,
 } from './actions';
 export {
   validateCharacterMoveResult,
@@ -223,3 +232,9 @@ export type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHand
 // Phase 23.2: the 3D kinematic character controller module.
 export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
 export { character3DPhysicsOf } from './scene-set';
+// Phase 23.4: the camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).
+export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './types';
+export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
+export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
+export { debugCallProblem } from './debug-commands';
+export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';

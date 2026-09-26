@@ -131,6 +131,8 @@ export interface SceneAdapterOptions {
   renderer?: {
     readonly preference: RendererPreference;
     readonly source: RendererPreferenceSource;
+    /** Phase 23.4: the depth buffer (the project's `depth_buffer` setting; absent: standard). */
+    readonly depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
     /** Tests only: stubbed renderer constructors and WebGPU probe. */
     readonly deps?: Partial<RendererFactoryDeps>;
   };
@@ -493,6 +495,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (obj) applyTransformToObject3D(obj, position as AdapterVec3, rotation as AdapterQuat, scale as AdapterVec3);
   };
   const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
+  const reportedViewport: [number, number] = [0, 0];
   let camera: THREE.PerspectiveCamera | null = null;
 
   // --- M3 (presentation.md §§41.1/41.2, packet 52): v3 detection, the
@@ -904,6 +907,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         clearAlpha: 1,
         // The game canvas is not drawn to again after dispose: free its WebGL context.
         loseContextOnDispose: true,
+        ...(opts.renderer?.depthBuffer !== undefined ? { depthBuffer: opts.renderer.depthBuffer } : {}),
         ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
       });
       owned.renderer = handle;
@@ -938,6 +942,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     effects?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     if (shadowState.shadows === 'on') shadowProbeDone = false;
+    // Phase 23.4: the depth buffer the renderer draws with (reversed Z falls back to standard without support).
+    const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
+    if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard');
   }
 
   // The active checkpoint shows its authored activation look
@@ -1051,6 +1058,48 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
 
+  /**
+   * Phase 23.4: the camera brain's resolved view (virtual cameras) replaces the
+   * camera entity's pose and lens after the transform sync; without virtual
+   * cameras the runtime returns null and the camera entity is drawn as before
+   * (its lens restored if a view had changed it). Presentation only: the pose
+   * is the simulation's, interpolated by the runtime.
+   */
+  const viewPos: number[] = [0, 0, 0];
+  const viewRot: number[] = [0, 0, 0, 1];
+  const viewMatrix = new THREE.Matrix4();
+  const viewParentInverse = new THREE.Matrix4();
+  const viewScale = new THREE.Vector3();
+  let authoredLens: { fov: number; near: number; far: number } | null = null;
+  function applyResolvedCamera(): void {
+    if (camera === null) return;
+    const lens = (opts.runtime as { readCameraView?: (p: number[], r: number[]) => { fovY: number; near: number; far: number } | null }).readCameraView?.(viewPos, viewRot) ?? null;
+    if (lens === null) {
+      if (authoredLens !== null) {
+        camera.fov = authoredLens.fov;
+        camera.near = authoredLens.near;
+        camera.far = authoredLens.far;
+        authoredLens = null;
+      }
+      return;
+    }
+    authoredLens ??= { fov: camera.fov, near: camera.near, far: camera.far };
+    const parent = camera.parent;
+    if (parent !== null && parent !== scene) {
+      // The view is in world space: into the camera entity's parent space.
+      parent.updateMatrixWorld();
+      viewMatrix.compose(new THREE.Vector3(viewPos[0], viewPos[1], viewPos[2]), new THREE.Quaternion(viewRot[0], viewRot[1], viewRot[2], viewRot[3]), new THREE.Vector3(1, 1, 1));
+      viewMatrix.premultiply(viewParentInverse.copy(parent.matrixWorld).invert());
+      viewMatrix.decompose(camera.position, camera.quaternion, viewScale);
+    } else {
+      camera.position.set(viewPos[0]!, viewPos[1]!, viewPos[2]!);
+      camera.quaternion.set(viewRot[0]!, viewRot[1]!, viewRot[2]!, viewRot[3]!);
+    }
+    camera.fov = lens.fovY;
+    camera.near = lens.near;
+    camera.far = lens.far;
+  }
+
   /** Phase 14.5: after the transform sync, move the drawn camera by the offset. */
   function applyCameraOffset(): void {
     if (camera === null) return;
@@ -1120,6 +1169,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
       }
     }
+    applyResolvedCamera();
     applyCameraOffset();
     syncCheckpointLook();
     // Phase 9.9: collected pickups and defeated enemies disappear (and come back on a replay).
@@ -1205,6 +1255,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
+    // Phase 23.4: the viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
+    if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
+      reportedViewport[0] = w;
+      reportedViewport[1] = h;
+      (opts.runtime as { setCameraViewport?: (w: number, h: number) => boolean }).setCameraViewport?.(w, h);
+    }
     // §41.1.4 shadow capability probe (packet 52): once per realized
     // scene, before the first successful v3 frame. The probe render is the
     // allocation check (`maxTextureSize ≥ SHADOW_MAP_SIZE` + the actual

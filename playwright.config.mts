@@ -50,6 +50,8 @@ export default defineConfig({
       name: 'webgpu',
       testMatch: [
         '**/renderer.e2e.ts',
+        // Phase 23.4: a virtual camera's far plane and the depth precision setting on WebGPU.
+        '**/camera-depth.e2e.ts',
         '**/shader-parity.e2e.ts',
         '**/env-parity.e2e.ts',
         '**/materials.e2e.ts',

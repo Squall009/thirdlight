@@ -47,6 +47,7 @@ import {
   registerSimulationModule,
   type ActionFrame,
   type ActionSource,
+  type CameraViewInfo,
   type SimulationModuleSpec,
   type GameEvent,
   type GameView,
@@ -69,7 +70,8 @@ import type { GameAudioOwner, GameCueEvent, CueKind } from './audio';
 import { createHud, type HostDom, type HostDomNode, type Hud, type HudState } from './hud';
 import { DEFAULT_PROMPT_INPUT, hudPrompts, withSavedBindings, type InputConfigLike } from './bindings';
 import { createFlowController, PAD_REBINDABLE, REBINDABLE, type FlowConfigLike, type FlowController, type FlowObservation, type FlowUiEdges, type LevelEnvironmentLike } from './flow';
-import { createSaveStore, type SaveStorage } from './save';
+import { createSaveStore, SAVE_SLOTS, type SaveDocument, type SaveSlot, type SaveStorage } from './save';
+import { createDebugConsole, type DebugConsole } from './debug-console';
 
 /** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
@@ -154,6 +156,8 @@ export interface GameHostObservation {
    * follows the player (the title scene's framing plus the pan).
    */
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
+  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
+  readonly camera?: CameraViewInfo;
 }
 
 /**
@@ -170,6 +174,8 @@ export interface GameHostSceneObservation {
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
   readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
+  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras. */
+  readonly camera?: CameraViewInfo;
 }
 
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
@@ -180,6 +186,28 @@ export type GameControlError =
 export type GameControlResult =
   | { readonly ok: true; readonly state: RunState; readonly acceptedAtStep: number }
   | { readonly ok: false; readonly error: GameControlError };
+
+/**
+ * Phase 23.8: where a test or debug start begins (Play from…, `tl_play_start`)
+ * — resolved by the backend against the project, applied by the host at mount.
+ */
+export interface GameStartOptions {
+  /** A game with levels: start a new game at this level (the title is skipped). */
+  readonly levelId?: string;
+  /** A game without levels: the scenes it starts with (the start scenes plus the chosen one). */
+  readonly scenes?: readonly string[];
+  /** ...and the player spawn it starts at (absent: the game's own). */
+  readonly spawnId?: string;
+  /** A game with levels: continue from this save document (the title's Continue). */
+  readonly save?: SaveDocument;
+  /** ...or from the save in one of this game's slots. */
+  readonly saveSlot?: SaveSlot;
+  /** A game mode id (validated by the backend; applied once the project has game modes). */
+  readonly mode?: string;
+}
+
+/** Phase 23.8: what became of the start options (`GameHost.startOutcome`). */
+export type GameStartOutcome = { readonly ok: true; readonly applied: readonly string[] } | { readonly ok: false; readonly reason: string };
 
 /** delivery.md §3.1 `GameHostConfig` (+ the additive CC-55-1/CC-55-2 fields). */
 export interface GameHostConfig {
@@ -259,6 +287,21 @@ export interface GameHostConfig {
    * saves, the adapter — stays in this page either way.
    */
   readonly runtimeFactory?: (onFrame: () => void) => { readonly ok: true; readonly runtime: Runtime } | { readonly ok: false; readonly error: GameControlError };
+  /**
+   * Phase 23.8: script variables the scripts see in `ctx.save` from step 0
+   * (used when the host composes the runtime; a worker gets them in its init).
+   */
+  readonly variables?: Readonly<Record<string, unknown>>;
+  /** Phase 23.8: a test/debug start (see `GameStartOptions`). */
+  readonly start?: GameStartOptions;
+  /**
+   * Phase 23.8: show the in-game debug console (the backquote key). Play
+   * always passes true; an export only with the project's `debug_console`
+   * setting on. Absent: no console.
+   */
+  readonly debugConsole?: boolean;
+  /** Phase 23.8: give the keyboard back to the game (the console closed). */
+  readonly focusGame?: () => void;
 }
 
 /** delivery.md §3.1 `GameHost`. */
@@ -281,6 +324,17 @@ export interface GameHost {
   observeScene?():
     | { readonly ok: true; readonly observation: GameHostSceneObservation }
     | { readonly ok: false; readonly error: GameControlError };
+  /**
+   * Phase 23.8, additive: run a project debug command — queued into the next
+   * simulation step's input (so a recording of the run replays it). The
+   * result carries the step it was accepted at; refused when no script
+   * declared the command or the arguments do not match.
+   */
+  debugCommand?(name: string, args?: Readonly<Record<string, number | string | boolean>>): GameControlResult;
+  /** Phase 23.8, additive: the in-game debug console (null: this game has none). */
+  readonly debugConsole?: DebugConsole | null;
+  /** Phase 23.8, additive: what became of `config.start` (null: no start options). */
+  readonly startOutcome?: GameStartOutcome | null;
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -476,6 +530,8 @@ export interface GameRuntimeArgs {
   readonly onFrame?: () => void;
   /** The frame driver (absent: rAF where the environment has it, else manual). A worker passes manual: the main thread drives it. */
   readonly driver?: { readonly kind: 'raf' | 'manual' };
+  /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
+  readonly variables?: Readonly<Record<string, unknown>>;
 }
 
 /** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
@@ -530,6 +586,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     ...(args.settings.fixed_step_hz !== undefined ? { fixedStepHz: args.settings.fixed_step_hz } : {}),
     ...(args.onFrame !== undefined ? { onFrame: args.onFrame } : {}),
     ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
+    ...(args.variables !== undefined ? { variables: args.variables } : {}),
   });
   if (res.ok === false) {
     return { ok: false, error: toControlError(res.error) };
@@ -567,6 +624,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
   let flowCtl: FlowController | null = null;
   let adapter: HostRenderAdapter | null = null;
+  /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
+  let debugConsole: DebugConsole | null = null;
+  let startOutcome: GameStartOutcome | null = null;
   /** The last committed `playerMotion.grounded` (the jump-cue transition).
    * Reset to `true` at every reset boundary (the committed view publishes
    * `{ speed: 0, grounded: true }` there, so the derived cue can never fire
@@ -642,6 +702,43 @@ export function createGameHost(config: GameHostConfig): GameHost {
     for (let k = 0; k < 4; k += 1) out.rotation[k] = t.rotation[k]!;
     for (let k = 0; k < 3; k += 1) out.scale[k] = t.scale[k]!;
     return true;
+  };
+
+  /**
+   * Phase 23.4: the letterbox bars — two black bars over the top and bottom of
+   * the view, each the live camera's share of the view height (interpolated
+   * like the camera; blended between cameras). Made the first time a camera
+   * asks for one; a game without virtual cameras never has them.
+   */
+  let letterbox: { readonly top: HostDomNode; readonly bottom: HostDomNode; shown: string } | null = null;
+  let hostDom: HostDom | null = null;
+  const lbPos: number[] = [0, 0, 0];
+  const lbRot: number[] = [0, 0, 0, 1];
+  const serviceLetterbox = (rt: Runtime): void => {
+    const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
+    const amount = lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox));
+    if (letterbox === null) {
+      if (amount <= 0 || hostDom === null) return;
+      const top = hostDom.createElement('div');
+      const bottom = hostDom.createElement('div');
+      top.setAttribute?.('data-tl-letterbox', 'top');
+      bottom.setAttribute?.('data-tl-letterbox', 'bottom');
+      config.container.appendChild(top);
+      config.container.appendChild(bottom);
+      letterbox = { top, bottom, shown: '' };
+    }
+    const pct = String(Math.round(amount * 10000) / 100);
+    if (letterbox.shown === pct) return;
+    letterbox.shown = pct;
+    const bar = (edge: 'top' | 'bottom'): string => `position:fixed;left:0;right:0;${edge}:0;height:${pct}%;background:#000;pointer-events:none;z-index:4;${amount > 0 ? '' : 'display:none;'}`;
+    // Through the CSSOM (a page's content security policy may refuse style attributes).
+    const apply = (node: HostDomNode, css: string): void => {
+      const styled = node as HostDomNode & { style?: { cssText?: string } };
+      if (styled.style !== undefined) styled.style.cssText = css;
+      else node.setAttribute?.('style', css);
+    };
+    apply(letterbox.top, bar('top'));
+    apply(letterbox.bottom, bar('bottom'));
   };
 
   /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
@@ -771,6 +868,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const hostFrame = (): void => {
     if (disposed || !mounted || runtime === null) return;
     serviceSceneRequests(runtime);
+    debugConsole?.frame();
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
     // tick (delivery.md §4.5). The run commands queue in the runtime and
     // apply at the next step boundary; at awaitingStart/won that boundary
@@ -826,6 +924,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // (2) The committed view → cues, HUD, adapter. Committed-view-only:
     // no runtime internals, no scene-graph mutation (C41-1). Scene mode has
     // no game view: it only renders.
+    // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
+    serviceLetterbox(runtime);
     // Phase 21.2: the committed view is deep-frozen; read it without a per-frame copy when the runtime allows.
     const view = gameViewOf(runtime);
     if (view === null) {
@@ -900,6 +1000,68 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
+  /**
+   * Phase 23.8: apply the start options — a save (the title's Continue path),
+   * a level, or (without levels) the start scenes plus the chosen one and a
+   * spawn; a scene-mode game loads the chosen scene. Injected variables go
+   * into a save document's values too (the save's values would replace them).
+   */
+  const applyStart = (rt: Runtime, start: GameStartOptions, flow: FlowController | null): GameStartOutcome => {
+    const applied: string[] = [];
+    const variables = config.variables;
+    const withVariables = (doc: SaveDocument): SaveDocument => (variables === undefined ? doc : { ...doc, run: { ...doc.run, values: { ...(doc.run.values ?? {}), ...variables } } });
+    if (start.save !== undefined || start.saveSlot !== undefined) {
+      if (flow === null) return { ok: false, reason: 'a save starts a game with levels; this game has none' };
+      let doc: SaveDocument;
+      if (start.save !== undefined) doc = start.save;
+      else {
+        const slot = start.saveSlot!;
+        if (!SAVE_SLOTS.includes(slot) || config.saveStorage === undefined || config.saveNamespace === undefined) return { ok: false, reason: `this page has no save slot "${String(slot)}"` };
+        const st = createSaveStore(config.saveStorage, config.saveNamespace).read(slot);
+        if (st.state !== 'ok') return { ok: false, reason: st.state === 'empty' ? `save slot ${slot} is empty` : `save slot ${slot} is damaged (${st.reason})` };
+        doc = st.doc;
+      }
+      const r = flow.loadSave(withVariables(doc));
+      if (!r.ok) return { ok: false, reason: r.reason };
+      applied.push(start.save !== undefined ? 'save' : `saveSlot ${start.saveSlot!}`);
+    } else if (start.levelId !== undefined) {
+      if (flow === null || config.flow === undefined) return { ok: false, reason: 'a level start needs a game with levels' };
+      const index = config.flow.levels.findIndex((l) => l.id === start.levelId);
+      if (index < 0 || !flow.startLevelAt(index)) return { ok: false, reason: `level "${start.levelId}" could not start` };
+      applied.push(`level ${start.levelId}`);
+    } else if (start.scenes !== undefined && start.scenes.length > 0) {
+      const game = config.snapshot.game;
+      if (game !== null && game !== undefined) {
+        if (typeof rt.startLevel !== 'function') return { ok: false, reason: 'this game cannot switch scenes' };
+        const r = rt.startLevel({ scenes: start.scenes, spawnId: start.spawnId ?? game.spawnId });
+        if (!r.ok) return { ok: false, reason: r.error.message };
+      } else {
+        const loaded = new Set(rt.sceneSet?.().batches.map((b) => b.sceneId) ?? []);
+        for (const id of start.scenes) {
+          if (loaded.has(id)) continue;
+          const r = rt.requestScene?.('load', id);
+          if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game has no scenes to load' : r.error.message };
+        }
+      }
+      applied.push(`scenes ${start.scenes.join(', ')}`);
+    }
+    // 23.10 applies a mode; until then the backend logs it as ignored.
+    if (start.mode !== undefined) applied.push(`mode ${start.mode} (noted)`);
+    return { ok: true, applied };
+  };
+
+  /** Phase 23.8: queue one debug command call into the next step's input. */
+  const debugCommand = (name: string, args: Readonly<Record<string, number | string | boolean>> = {}): GameControlResult => {
+    if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
+    if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
+    if (typeof runtime.queueDebugCommand !== 'function') return { ok: false, error: { code: 'game_command_invalid', reason: 'debug_command', message: 'this game has no debug commands' } };
+    const r = runtime.queueDebugCommand({ name, args });
+    if (!r.ok) return { ok: false, error: toControlError(r.error) };
+    const view = gameViewOf(runtime);
+    const d = view === null ? runtime.getDiagnostics() : null;
+    return { ok: true, state: view !== null ? view.state : 'awaitingStart', acceptedAtStep: view !== null ? view.stepIndex : d !== null && d.ok ? d.diagnostics.stepIndex : 0 };
+  };
+
   const mount = (): { ok: true } | { ok: false; error: GameControlError } => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (mounted) return { ok: false, error: { code: 'host_already_mounted', message: 'the host is already mounted (dispose before remounting)' } };
@@ -923,6 +1085,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.modules !== undefined ? { modules: config.modules } : {}),
         actions: config.input,
         onFrame: hostFrame,
+        ...(config.variables !== undefined ? { variables: config.variables } : {}),
       });
     }
     if (!composed.ok) return composed;
@@ -935,12 +1098,29 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
     }
 
+    // Phase 23.4: the document the letterbox bars are made in (a scene-mode game has them too).
+    hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
+    const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };
+    if (config.debugConsole === true) {
+      const rt0 = res.runtime;
+      debugConsole = createDebugConsole({
+        dom,
+        container: config.container,
+        state: () => rt0.debugCommandState?.() ?? null,
+        run: (name, args) => {
+          const r = debugCommand(name, args);
+          return r.ok ? { ok: true } : { ok: false, message: r.error.message };
+        },
+        ...(config.focusGame !== undefined ? { focusGame: config.focusGame } : {}),
+      });
+    }
+
     if (sceneMode) {
       mounted = true;
+      if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, null);
       return { ok: true };
     }
 
-    const dom: HostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? { createElement: () => { throw new Error('no document available for the HUD'); } };
     const flow = config.flow !== undefined && typeof res.runtime.startLevel === 'function' && config.flow.levels.length > 0 ? config.flow : undefined;
     if (flow === undefined && config.inputConfig !== undefined && config.saveStorage !== undefined && config.saveNamespace !== undefined) {
       // Phase 15.5: the player's saved rebinding holds in a game without a flow too (the flow applies it through its settings).
@@ -1040,6 +1220,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     mounted = true;
+    // Phase 23.8: a test/debug start (a level, a scene, a save) instead of the title.
+    if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start, flowCtl);
 
     // The authored content is static: the HUD shows it immediately at mount
     // (the per-frame updates follow from the committed view).
@@ -1111,8 +1293,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(flowCtl !== null ? { flow: flowCtl.observe() } : {}),
         ...((liveLoops.size > 0 || liveAmbience.size > 0) && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...(titleOffset !== null ? { titleView: { scene: flowCtl?.titleView()?.scene ?? null, cameraOffset: [titleOffset[0], titleOffset[1], titleOffset[2]] as const } } : {}),
+        ...cameraObservation(runtime),
       },
     };
+  };
+
+  /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
+  const cameraObservation = (rt: Runtime): { camera?: CameraViewInfo } => {
+    const c = rt.cameraView?.() ?? null;
+    return c === null ? {} : { camera: c };
   };
 
   const observeScene = ():
@@ -1137,6 +1326,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime),
+        ...cameraObservation(runtime),
       },
     };
   };
@@ -1189,6 +1379,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     liveLoops.clear();
     liveAmbience.clear();
+    debugConsole?.dispose();
+    debugConsole = null;
     if (flowCtl !== null) {
       try {
         config.audio.playMusic?.(null, 0);
@@ -1205,6 +1397,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
       flowCtl = null;
       hud.dispose(); // the host-owned HUD DOM + listeners
       hud = null;
+    }
+    if (letterbox !== null) {
+      letterbox.top.remove();
+      letterbox.bottom.remove();
+      letterbox = null;
     }
     if (adapter !== null) {
       try {
@@ -1229,6 +1426,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     setViewport,
     dispose,
     scene,
+    debugCommand,
+    get debugConsole(): DebugConsole | null {
+      return debugConsole;
+    },
+    get startOutcome(): GameStartOutcome | null {
+      return startOutcome;
+    },
     get runtime(): Runtime {
       if (runtime === null) {
         throw new Error('the host has no runtime (mount first; after dispose the seam is gone)');

@@ -27,7 +27,7 @@ import type {
 
 /** The gameplay-zone role set (project-model §23.3.1) — canonical home here per gameplay.md §11. */
 export type { GameZoneRole };
-import type { ActionFrame, ActionSource } from './actions';
+import type { ActionFrame, ActionSource, DebugCommandArg, DebugCommandCall } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode, RuntimeError } from './errors';
 import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
@@ -273,6 +273,13 @@ export interface InstantiateConfig {
   fixedStepHz?: number;
   /** Called once per frame after the step update (runtime.md §6 frame ordering). */
   onFrame?: () => void;
+  /**
+   * Phase 23.8: values the scripts see in `ctx.save` from step 0 (a test or
+   * debug start: "Play from…", `tl_play_start` variables). Same rules as
+   * `ctx.save.set` (≤ 64 keys, each ≤ 4 KB as JSON); a value that breaks
+   * them is `config_invalid`.
+   */
+  variables?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -692,6 +699,10 @@ export interface StepContext {
    * Absent: world axes (the input's y pushes along −Z, its x along +X).
    */
   readonly cameraYaw?: number;
+  /** Phase 23.4: the virtual cameras (`ctx.camera`; a scene without one answers false/null). */
+  readonly camera?: BehaviorCamera;
+  /** Phase 23.8: the project's debug commands (declared and received per phase; the behavior host adds the handler). */
+  readonly debug?: { command(name: string, options?: DebugCommandOptions): readonly DebugCommandArgs[] };
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -852,6 +863,67 @@ export interface BehaviorSave {
   keys(): string[];
 }
 
+/** Phase 23.8: the type of a debug command argument. */
+export type DebugCommandArgType = 'number' | 'string' | 'boolean';
+
+/** Phase 23.8: one declared argument of a debug command. */
+export interface DebugCommandArgSpec {
+  /** The argument's name (a letter or _, then letters, digits, _ . : -). */
+  readonly name: string;
+  readonly type: DebugCommandArgType;
+  /** May be left out of a call (a call without it has no such key). */
+  readonly optional?: boolean;
+}
+
+/** Phase 23.8: how a script declares a debug command (`ctx.debug.command(name, options)`). */
+export interface DebugCommandOptions {
+  /** One line the console and tools show (at most 120 characters). */
+  readonly description?: string;
+  /** The arguments in order (at most 8; the console also takes them by position). */
+  readonly args?: readonly DebugCommandArgSpec[];
+}
+
+/** Phase 23.8: a registered debug command, as the console and tools list it. */
+export interface DebugCommandSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly args: readonly DebugCommandArgSpec[];
+}
+
+/** Phase 23.8: the arguments of one debug command call. */
+export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
+
+/**
+ * Phase 23.8: the registered debug commands and the calls the game ran (the
+ * newest last, at most 16): what a playtest needs to reproduce a run (each
+ * call is an input-frame entry at its step).
+ */
+export interface DebugCommandState {
+  readonly registered: readonly DebugCommandSpec[];
+  readonly applied: readonly { readonly stepIndex: number; readonly name: string; readonly args: DebugCommandArgs }[];
+  /** Bumped whenever `registered` or `applied` changes. */
+  readonly revision: number;
+}
+
+/**
+ * Phase 23.8: `ctx.debug` — project debug commands (a test or debug tool, the
+ * in-game console and `tl_game_control` run them). A command runs inside the
+ * simulation step as part of the step's input, so a recording replays it.
+ */
+export interface BehaviorDebug {
+  /**
+   * Declare the debug command `name` (the first declaration fixes its
+   * arguments; calling it again every step is how a script listens) and get
+   * the calls made to it in this step — in the `intent` phase; the other
+   * phases see none. With `handler`, it also runs once per call, right here.
+   * Every script instance that declares the command receives each call.
+   * Engine limits: 32 commands per game; a second declaration with other
+   * arguments throws.
+   * @graphNode skip a debug command is declared in code (typed arguments, an optional handler)
+   */
+  command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[];
+}
+
 /** Phase 9.10: `ctx.audio`. */
 export interface BehaviorAudio {
   /**
@@ -901,6 +973,141 @@ export interface BehaviorEffects {
    * @graphNode Stop effect
    */
   stop(target: number | string): void;
+}
+
+/** Phase 23.4: a blend a script names for the camera change it makes (absent: the camera's own). */
+export interface CameraBlendOptions {
+  /** `cut`, `linear` or `eased`. */
+  blend?: 'cut' | 'linear' | 'eased';
+  /** Seconds (0–30). */
+  time?: number;
+}
+
+/** Phase 23.4: a virtual camera's live rig values (`ctx.camera.get`). */
+export interface BehaviorCameraState {
+  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
+  readonly enabled: boolean;
+  readonly priority: number;
+  /** It is the live camera. */
+  readonly live: boolean;
+  /** The target entity ('' for none). */
+  readonly target: string;
+  readonly distance: number;
+  /** Degrees (a snapped rig: the step it turns to). */
+  readonly yaw: number;
+  readonly pitch: number;
+  /** A rail camera's place along its path (0–1). */
+  readonly progress: number;
+  readonly railSpeed: number;
+  readonly fovY: number;
+  readonly letterbox: number;
+}
+
+/**
+ * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
+ * component): which is live, their rig values, shake and screen↔world
+ * projection. Changes take effect at the end of the step (the camera brain
+ * resolves the live camera after every script has run); reads and the
+ * projection use the camera as resolved at the end of the previous step.
+ * The projection uses normalized screen coordinates — x 0 (left) to 1
+ * (right), y 0 (top) to 1 (bottom) — and the viewport aspect the host
+ * reports.
+ */
+export interface BehaviorCamera {
+  /**
+   * Enable a virtual camera and bring it in front of the cameras of its priority (it goes live unless a higher priority is enabled). `false` when there is no such camera.
+   * @graphNode Activate camera
+   * @graphLabel cameraId camera
+   */
+  activate(cameraId: string, options?: CameraBlendOptions): boolean;
+  /**
+   * Disable a virtual camera (the view blends to the next one, or back to the scene camera).
+   * @graphNode Deactivate camera
+   * @graphLabel cameraId camera
+   */
+  deactivate(cameraId: string, options?: CameraBlendOptions): boolean;
+  /**
+   * Set a camera's priority (−1000–1000; the enabled camera with the highest is live).
+   * @graphNode Set camera priority
+   * @graphLabel cameraId camera
+   */
+  setPriority(cameraId: string, priority: number): boolean;
+  /**
+   * Point a camera at another target entity ('' for none).
+   * @graphNode Set camera target
+   * @graphLabel cameraId camera
+   * @graphLabel entityId target
+   */
+  setTarget(cameraId: string, entityId: string): boolean;
+  /**
+   * Set a camera's rig values (each optional): distance, yaw, pitch (kept within its pitch limits), progress and railSpeed of a rail camera, field of view, letterbox, the orbit point, the target offset.
+   * @graphNode Set camera rig
+   * @graphLabel cameraId camera
+   */
+  set(
+    cameraId: string,
+    params: {
+      distance?: number;
+      yaw?: number;
+      pitch?: number;
+      progress?: number;
+      railSpeed?: number;
+      fovY?: number;
+      letterbox?: number;
+      point?: readonly number[];
+      targetOffset?: readonly number[];
+    },
+  ): boolean;
+  /**
+   * Turn a camera by whole steps (an orbit-a-point camera: its turn step; positive turns left).
+   * @graphNode Turn camera
+   * @graphLabel cameraId camera
+   * @graphDefault steps 1
+   */
+  turn(cameraId: string, steps: number): boolean;
+  /**
+   * Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern).
+   * @graphNode Shake camera
+   * @graphDefault amplitude 0.2
+   * @graphDefault seconds 0.5
+   * @graphDefault frequency 8
+   * @graphDefault rotation 0
+   * @graphDefault seed 0
+   */
+  shake(amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void;
+  /**
+   * The live virtual camera, or null while the scene camera shows its own view.
+   * @graphPure
+   * @graphNode Live camera
+   */
+  live(): string | null;
+  /**
+   * A blend between two cameras is in progress.
+   * @graphPure
+   * @graphNode Camera blending
+   */
+  blending(): boolean;
+  /**
+   * A virtual camera's live rig values, or null when there is no such camera.
+   * @graphPure
+   * @graphNode Camera state
+   * @graphLabel cameraId camera
+   */
+  get(cameraId: string): BehaviorCameraState | null;
+  /**
+   * Where a world point appears on screen (x, y 0–1 from the top left), how far in front of the camera it is, and whether it is in view.
+   * @graphPure
+   * @graphNode World to screen
+   */
+  worldToScreen(position: readonly number[]): { x: number; y: number; depth: number; onScreen: boolean };
+  /**
+   * The ray from the camera through a screen point (x, y 0–1 from the top left): its origin and unit direction.
+   * @graphPure
+   * @graphNode Screen to ray
+   * @graphDefault x 0.5
+   * @graphDefault y 0.5
+   */
+  screenToRay(x: number, y: number): { origin: readonly [number, number, number]; direction: readonly [number, number, number] };
 }
 
 /** Phase 9.9: `ctx.signals`. */
@@ -1113,6 +1320,15 @@ export interface Runtime {
   forEachInterpolated?(visit: InterpolatedVisitor): boolean;
   /** Phase 21.2: one entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
   readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
+  /**
+   * Phase 23.4: the view the camera brain resolved (virtual cameras), interpolated like the transforms —
+   * `position`/`rotation` written, its lens returned; null without a virtual camera (draw the camera entity).
+   */
+  readCameraView?(position: number[], rotation: number[]): { fovY: number; near: number; far: number; letterbox: number } | null;
+  /** Phase 23.4: the committed camera view (live camera, blend, pose, lens), or null without a virtual camera. */
+  cameraView?(): import('./camera-brain').CameraViewInfo | null;
+  /** Phase 23.4: the viewport the view is drawn in (screen↔world projection uses its aspect). */
+  setCameraViewport?(width: number, height: number): boolean;
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError };
   /** Idempotent: second call ⇒ `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError };
@@ -1159,6 +1375,17 @@ export interface Runtime {
   requestScene?(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError };
   /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: accepted); changes nothing. */
   sceneRequestProblem?(op: 'load' | 'unload', sceneId: string): string | null;
+
+  // ---- Phase 23.8 debug commands -------------------------------------------
+  /** The registered debug commands and the calls the game ran (newest last, at most 16). */
+  debugCommandState?(): DebugCommandState;
+  /**
+   * Queue one debug command call for the next executed step (it rides on that
+   * step's input frame, so a recording of the run replays it). Refused when
+   * no script registered the command, the arguments do not match its
+   * declaration, or 16 calls are already waiting.
+   */
+  queueDebugCommand?(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError };
 }
 
 /** One interpolated transform (runtime.md §6). */

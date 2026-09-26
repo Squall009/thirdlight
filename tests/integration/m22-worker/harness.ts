@@ -109,6 +109,8 @@ export interface HarnessConfig {
   readonly modules?: readonly string[];
   /** Extra host config (flow, audio, …). */
   readonly host?: Record<string, unknown>;
+  /** Phase 23.8: script variables injected at the start (ctx.save from step 0), in both modes. */
+  readonly variables?: Record<string, unknown>;
 }
 
 export interface Harness {
@@ -154,6 +156,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     document: { createElement: () => new FakeNode() },
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
     ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
+    ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     ...(cfg.host ?? {}),
   };
   if (mode === 'single') {
@@ -199,6 +202,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
       ...(cfg.replay !== undefined ? { replay: cfg.replay } : {}),
       ...(cfg.digestSteps === true ? { digestSteps: true } : {}),
       ...(cfg.modules !== undefined ? { modules: cfg.modules } : {}),
+      ...(cfg.variables !== undefined ? { variables: cfg.variables } : {}),
     },
     input: recorded !== null ? null : liveInput,
     ...(cfg.loadScene !== undefined ? { loadScene: cfg.loadScene } : {}),
