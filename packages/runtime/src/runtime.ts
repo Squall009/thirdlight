@@ -2361,8 +2361,13 @@ class RuntimeInstance implements Runtime {
     // Phase 12 (c): scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
     // §5.1: copy curr before the step; restore it if any module throws
-    // (no partial module application).
-    const backup = cloneCurr(this.curr);
+    // (no partial module application). Phase 23.0: into the reused step
+    // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
+    // 3D scene plays on this path, and a fresh copy per step was ~0.5 KiB of
+    // garbage per entity per step.
+    const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
+    backupMirror.copyFrom(this.curr, this.currShape);
+    const backup = backupMirror.map;
     let failed = false;
     // The module receives the 1-based ordinal of the step being executed:
     // per §5.3 the step completes the stepIndex it is called with

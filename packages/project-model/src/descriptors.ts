@@ -393,7 +393,7 @@ const NAME = { format: 'name' as const, minLength: 1, maxLength: 128 };
 const POSITION_LIMIT = 1e6; // the §10.1 length bound
 const V3_LIMIT = 1e6; // the §23.10 number bound
 
-const PHYSICS_RULES = ['A physics body (collider or controller) is a root object at unit scale [1, 1, 1], rotated about Z only; the player controller stands upright.'];
+const PHYSICS_RULES = ['A physics body (collider or controller) is a root object at unit scale [1, 1, 1], rotated about Z only in a 2D-plane project (any axis in a 3D one); the player controller stands upright.'];
 const MARKER_RULES = ['A zone or player spawn is a root object at unit scale with no rotation.'];
 
 const transform: ComponentDescriptor = {

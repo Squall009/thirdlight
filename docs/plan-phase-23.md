@@ -351,3 +351,40 @@ for editor items, commit/push/restart, decision log).
   `box2`, a new role set `halfX/halfY/halfZ`); the capsule offset descriptor
   is a `vec3` with the new `optionalLast` flag (`[x, y]` stays valid and
   shows z = 0; a capsule drag keeps a stored z).
+- 2026-09-26 (23.0): **port and adapter.** `PhysicsPort3D` (runtime
+  `ports.ts`) carries `dimension: 3` as the discriminant; its vector types are
+  named `PhysicsVec3` / `PhysicsQuat` (project-model already exports
+  tuple-typed `Vec3`/`Quat`). The 3D character phase lives in the runtime
+  (gravity along −Y from `gravity_y`, capped at `max_fall_speed`, zeroed on
+  landing or a head bump; a module-staged move replaces the fall) because no
+  controller module drives a 3D character before 23.2. The adapter mirrors
+  the 2D pattern (parentless capsule, `computeColliderMovement`, the double
+  kept as the authoritative position) and runs one pipeline update at
+  creation and after collider adds/removes so the first sweep and rays see
+  the colliders. Kinematic movers, overlap queries and clearance/respawn are
+  not in the 3D port yet (23.1–23.3).
+- 2026-09-26 (23.0): **scene mode steps 3D physics.** A 3D scene plays
+  without a game block (the platformer game set is refused in 3D until
+  23.10), i.e. on the runtime's plain step path, which never stepped physics;
+  it now runs the 3D phase there when the port is 3D (the 2D scene mode is
+  unchanged). Measuring it showed that path cloning every transform per step
+  (~0.5 KB/entity/step, 515 KB/step at 1,000 entities); it now reuses the
+  phase 21.2 step buffers (≈8 KB/step, flat).
+- 2026-09-26 (23.0): **observing a scene.** `tl_game_observe` answered only
+  for a game (it needs the game view), so a 3D scene could not be observed:
+  the host gained `observeScene()` and the relay reports a scene play as
+  `state: "scene"` (added to the closed run-state set) with its step and
+  `player {x, y, z}` (every observation's player now carries `z`). The
+  static export has no relay; it exposes the same host observation as
+  `window.__thirdlightObserve()` (the e2e reads it with the backend stopped).
+- 2026-09-26 (23.0): **distribution.** The play/export bundles are IIFE
+  (no code splitting), so the 3D backend is its own script (`physics-3d.js`)
+  that registers on the global object through game-host's dependency-free
+  `./physics-3d-global` subpath; `loadPhysics3D` loads it with a script
+  element in the page or `importScripts` in the worker (next to the worker's
+  own script). The export builds, gates and ships it — and the rapier3d
+  license row and probe — only when the resolved modules contain
+  `thirdlight.physics-rapier:3d`. Measured sizes and step costs are in
+  decision 0005 §5. (npm's hidden lockfile `node_modules/.package-lock.json`
+  of the main checkout was rewritten through the worktree's hardlinked copy
+  by the install; `npm ci` after the merge regenerates it.)

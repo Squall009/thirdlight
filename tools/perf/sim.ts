@@ -25,8 +25,9 @@ import v8 from 'node:v8';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { createGameHost, linkBehaviorModules } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
-import { playerCapsuleOf, playerPhysicsOf, staticColliderOf } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
+import { M2_SETTINGS_KEYS, physicsDimensionOf } from '@thirdlight/project-model';
+import { physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, staticColliderOf } from '@thirdlight/runtime';
 
 import { cpuCalibration } from './stats';
 
@@ -128,7 +129,9 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   }
   if (character === null) throw new Error('the project has no player (controller)');
   const hz = settings.fixed_step_hz ?? 120;
-  const physics = await createPhysicsPort({
+  // Phase 23.0: a 3D project (physics_dimension 3) runs on the 3D backend.
+  const config3d = physicsDimensionOf(content.settings) === 3 ? physics3DConfigOf(entities, settings) : null;
+  const physics = config3d !== null ? await createPhysicsPort3D(config3d) : await createPhysicsPort({
     character,
     statics,
     solver: { hz, gravityY: settings.gravity_y },
@@ -191,7 +194,8 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     }
   };
   tick();
-  const started = rt.gameCommand('start');
+  // A scene without a game block (a 3D scene, phase 23.0) plays from the first step: nothing to start.
+  const started = content.game !== null && content.game !== undefined ? rt.gameCommand('start') : { ok: true };
   if (!started.ok) throw new Error(`${JSON.stringify(started.error)} ${JSON.stringify(rt.getDiagnostics?.()?.diagnostics ?? null).slice(0, 1500)}`);
   const bootMs = performance.now() - t0;
 
@@ -244,7 +248,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   return {
     ok: true,
     entities: entities.length,
-    colliders: statics.length,
+    colliders: config3d !== null ? config3d.statics.length : statics.length,
     scriptInstances: entities.filter((e: Any) => e.components?.behavior !== undefined).length,
     bootMs: round(bootMs),
     stepMs: { p50: round(percentile(times, 0.5)), p95: round(percentile(times, 0.95)), p99: round(percentile(times, 0.99)), max: round(times[times.length - 1] ?? 0), mean: round(mean) },

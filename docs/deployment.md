@@ -2040,6 +2040,38 @@ drew no more frames, and it showed unexplained stalls on WebGPU (numbers in
 `docs/plan-phase-22.md` §5; the spike is kept in
 `archive/spike-22-render-worker/`). Real-GPU measurements are pending.
 
+## 3D physics (physics dimension)
+
+Since phase 23.0 a project chooses its simulation's dimension in the project
+settings: **Engine → Physics** (`physics_dimension`): **2D plane** (the
+default, and what every earlier project keeps — movement and collision in X
+and Y on the Rapier 2D backend, exactly as before) or **3D** (the Rapier 3D
+backend, `@dimforge/rapier3d-compat` 0.20.0; decision 0005).
+
+In a 3D project:
+
+- every box collider needs a **depth**: the collider's **Half depth** field
+  (`hz`, metres; its Scene handle becomes a 3-axis box that turns with the
+  object once the depth is set). Switching a project to 3D is refused while a
+  box has none; polygon colliders are 2D-plane shapes and are refused too
+  (more 3D shapes come with phase 23.1);
+- colliders may be rotated about any axis; the player controller stays
+  upright; the capsule's **Offset** may have a z component;
+- in Play and the export the player capsule falls under the project's
+  gravity (`gravity_y`, capped at the max fall speed) and rests on what it
+  lands on. Walking, jumping and the 3D character settings are phase 23.2;
+  cameras 23.4. A 3D project plays its scenes without a game block for now
+  (the platformer game set is 2D-plane only until 3D game modes, 23.10);
+- `tl_game_observe` reports such a scene play with `state: "scene"`, its
+  step and `player: { x, y, z }`; an exported page has the same observation
+  in `window.__thirdlightObserve()`.
+
+**Files.** The 3D backend is a separate script so 2D games never download
+it: Play loads `/physics-3d.js` from the preview origin, a 3D export ships
+`js/physics-3d.js` (about 2.9 MB, 1.1 MB gzipped, the WebAssembly inside —
+no fetch, no URL) and lists the `@dimforge/rapier3d-compat` license. It loads
+in the simulation worker or, single-threaded, in the page.
+
 ## Performance
 
 Phase 21 measures the engine against written budgets with generated
