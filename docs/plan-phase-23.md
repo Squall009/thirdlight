@@ -390,6 +390,97 @@ for editor items, commit/push/restart, decision log).
   decision 0005 §5. (npm's hidden lockfile `node_modules/.package-lock.json`
   of the main checkout was rewritten through the worktree's hardlinked copy
   by the install; `npm ci` after the merge regenerates it.)
+- 2026-09-26 (23.1): **3D collider shapes.** `collider.shape` gains
+  `sphere {radius}`, `capsule {radius, height}` (total height, end caps
+  included, along the object's Y — the controller capsule's convention),
+  `convex {points}` (4–64 `[x, y, z]`, must span a volume) and
+  `mesh {vertices, triangles}` (≤ 1,024 / ≤ 2,048, three distinct in-range
+  indices), all coordinates within the 64 m collider extent; a scene holds at
+  most 32,768 hull points and mesh vertices (`COLLIDER_3D_LIMITS`). Limits
+  keep one collider inside a 64 KiB command request. They are 3D-only (a 2D
+  plane refuses them in the project composition, as 3D refuses polygons); a
+  mesh is static (refused on a mover or controller), a one-way collider is a
+  2D-plane platform (refused in 3D). The runtime resolves a shape for the
+  port (`colliderShape3DOf`: scale applied, capsule height → centre-segment
+  half height, flat point lists); the port keeps its own validation.
+- 2026-09-26 (23.1): **colliders from model geometry are baked data**, like
+  the 2D plane's `_COL` outline polygon: the editor computes a mesh or hull
+  from the model's `_COL` node(s) (else its LOD0 geometry, `pieceCollider3D`
+  in three-adapter; 1 mm grid, merged vertices, a hull reduced to the six
+  axis extremes plus 58 evenly spread directions) and stores it in the
+  collider. Why: the runtime never loads models (worker, export), the
+  collider stays editable data, one mutation path, replays hold. A drop in a
+  3D project makes a mesh from `_COL` (a hull when too big); "Box / Convex
+  hull / Mesh from model" in the Inspector, the add menu, the palette and the
+  context menu make one on demand (a box from the bounds, an 8-corner hull
+  when the model is off-centre). The asset importer is unchanged.
+- 2026-09-26 (23.1): **scale.** In 3D the unit-scale rule moved to the
+  project composition (`physicsScaleErrors`, like 23.0's rotation rule): a
+  box, hull or mesh collider takes any positive scale per axis, a sphere or
+  capsule a positive uniform one (a non-uniformly scaled sphere is no
+  sphere); controllers and every 2D-plane body keep unit scale with the same
+  error as before. Physics bodies stay roots. A pose intent's scale stays
+  visual (as documented).
+- 2026-09-26 (23.1): **3D triggers** feed the existing trigger/signal system
+  in `GameplayBlocks`: `shape` gains `sphere` and `capsule` (`radius`,
+  `height`), a box's `size` an optional depth (`[w, h, d]`, required in 3D; a
+  2D plane ignores it; `circle` is refused in 3D). The player's capsule
+  (a segment swept by its radius) is tested exactly: segment–point for a
+  sphere, segment–segment for a capsule, segment–box in the box's frame for a
+  box (a fixed 80-round golden-section search of the convex distance:
+  deterministic). A trigger turns with its entity's own rotation and sits at
+  its world position (parents' offsets summed, as in 2D); scale is ignored
+  (sizes are world metres, as in 2D). Signals, exit signals, `stay`, `once`
+  and `ctx.triggerEvents` are the 2D code path (`updateTrigger`). A 3D scene
+  plays without a game session, so triggers always run there. `gameZone`
+  (checkpoint, goal, hazard, exit) needs the game session — it stays 2D
+  until game modes (23.10); switches, pickups and enemies test on the plane
+  only, so a 3D project refuses them (`blockDimensionErrors`) rather than
+  ignoring depth.
+- 2026-09-26 (23.1): **3D movers.** Movers advance in the runtime as before;
+  in 3D they are kinematic bodies on the 3D port (`setKinematicPoses`,
+  position and the entity's fixed rotation, applied after the character's
+  sweep like the 2D port's), the player standing on one is carried
+  (`carryDelta3`, added to a staged move and to the runtime's fall), and a
+  mover moving into the player pushes it out along the axis of least overlap
+  of the boxes (the 2D rule in 3D, including "a rising mover pushes a player
+  beside it sideways, never up"). The port reports `kinematicSlack` (the
+  3D validator accepts it, as in 2D). Measured: Rapier's 3D sweep sometimes
+  takes a kinematic support's numerically tilted normal inside its skin for
+  a block (a character riding a sliding lift stalled — no motion, 20
+  iterations — about one step in three); the port then re-sweeps only the
+  horizontal part without that one support body (walls still block), and
+  keeps every kinematic body at rest during the sweep (the runtime carries
+  and pushes). Static worlds never take that path.
+- 2026-09-26 (23.1): **port methods for 23.3 and 23.10**: `overlap(shape,
+  center, rotation?)` (box, sphere, capsule; sorted, ≤ 64, character
+  excluded), `characterClearance` / `placeCharacter` (the 2D probe's rules:
+  blocked by the deepest overlap, else supported straight below, else
+  `no_support`) and the existing `raycast`. Scripts' queries are wired in
+  23.3; respawn/spawn clearance in 3D needs the game session (23.10).
+- 2026-09-26 (23.1): **the behavior ownership rule is lifted in 3D only.**
+  A script (any transform-phase module) may own a collider no mover moves;
+  the runtime re-adds it to the 3D port as a kinematic body at the first
+  step boundary after it is owned and poses it every step from its
+  committed transform (one step behind the transform intent, like a mover's
+  pose), and a player standing on it rides along. The controller and movers
+  stay off limits. The 2D plane keeps the rule exactly: lifting it there
+  would need the host-built 2D init config to know script owners and a
+  change in the untouched rapier2d adapter path, so no existing 2D result
+  could move only by keeping it. `ModuleConfig.physicsDimension` (3, else
+  absent) tells the behavior host.
+- 2026-09-26 (23.1): **editor.** Collider and trigger descriptors carry the
+  new fields (hull and mesh lists read-only: they come from a model); the
+  radius handle edits a sphere, the capsule handle (new role set without an
+  offset: a centred capsule grows both ways) a capsule; a trigger box with a
+  depth is a 3-axis box turning with its object; a collider box with `hz`
+  now follows the object's whole transform (it scales in 3D). The Scene
+  view draws 3D colliders (box, sphere, capsule, hull edges, mesh edges) in
+  the merged collider outlines and 3D trigger areas as dashed wires. Presets
+  carry an optional `dimension`, so "+ Add component" offers the project's
+  (`addEntries(..., { dimension })`, absent = 2 — the 2D lists are
+  unchanged). A vec3 field with `optionalLast` no longer writes a made-up
+  last component when x or y of a two-component value is edited.
 - 2026-09-26 (23.7): **`ctx.random`.** Per script instance a main stream
   and named sub-streams (`stream(name)`, 1–64 timer-name characters, at most
   64 per instance — an engine limit), each seeded by cyrb128 of

@@ -45,6 +45,8 @@ export interface FieldContext extends PickerData {
   readonly animatorParameters?: Readonly<Record<string, readonly { name: string; type: string; default?: number | boolean }[]>>;
   /** Phase 20.0: each effect's public parameters (an object's overrides are edited from this list). */
   readonly effectParameters?: Readonly<Record<string, readonly { key: string; type: string; default: number | number[] | string; label?: string }[]>>;
+  /** Phase 23.1: the project's physics dimension (absent: the 2D plane) — which presets "+ Add component" offers. */
+  readonly physicsDimension?: 2 | 3;
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -157,7 +159,7 @@ function NumberWidget(p: RowProps & { shown: number | undefined; aria: string })
   );
 }
 
-function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; labels: readonly string[]; euler?: boolean }): JSX.Element {
+function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; labels: readonly string[]; euler?: boolean; leaveLast?: boolean }): JSX.Element {
   const f = p.f as { min?: number; max?: number; label: string };
   return (
     <span className="tl-vec__nums">
@@ -174,7 +176,10 @@ function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; la
             if (p.euler !== true && ((f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max))) return p.onFail(`${p.f.label} ${l}: ${f.min ?? '…'} to ${f.max ?? '…'}`);
             const next = [...p.shown];
             next[i] = n;
-            p.onEdit(p.path, p.euler === true ? quatOf(next) : next);
+            // Phase 23.1: an optional last component left out (a 2D value of a 3D-capable field) stays out
+            // unless it is the one edited, so editing x or y never writes a made-up z or depth.
+            const out = p.leaveLast === true && i < next.length - 1 ? next.slice(0, -1) : next;
+            p.onEdit(p.path, p.euler === true ? quatOf(out) : out);
           }}
         />
       ))}
@@ -256,9 +261,10 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       const labels = f.type === 'vec2' || f.type === 'vec3' ? f.labels : [];
       // Phase 23.0: a left-out last component (an optional z) shows as 0; editing stores all of them.
       const arr = Array.isArray(shown) ? labels.map((_, i) => (shown as number[])[i] ?? 0) : labels.map(() => 0);
+      const leaveLast = f.type === 'vec3' && f.optionalLast === true && Array.isArray(shown) && shown.length === 2;
       return (
         <Row f={f} label={p.label} isDefault={isDefault} className="tl-vec">
-          <VectorWidget {...p} aria={aria} shown={arr} labels={labels} />
+          <VectorWidget {...p} aria={aria} shown={arr} labels={labels} leaveLast={leaveLast} />
         </Row>
       );
     }

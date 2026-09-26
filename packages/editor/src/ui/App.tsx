@@ -69,7 +69,7 @@ import { Gesture, type Transform } from '../session/gesture';
 import { ZoneGesture, type ZoneCommit } from '../session/zone-gesture';
 import { fitCapsule } from '../session/size-handles';
 import { maxPolygonCorners } from '../session/handles';
-import { boxFromOutline, polygonFromOutline } from '../session/outline';
+import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../session/outline';
 import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
 import {
   DEFAULT_ZONE_SIZE,
@@ -2548,13 +2548,24 @@ function EditorApp(): JSX.Element {
         const b = resource.bounds(piece);
         return b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] };
       };
-      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? resource.collider2D(pc.name) : null, skinned: pc.skinned }));
+      // Phase 23.1: in a 3D project a `_COL` node becomes a triangle-mesh collider (exact static geometry),
+      // or a convex hull when it is too big for a mesh; the 2D plane keeps its outline polygon.
+      const threeD = (clientRef.current?.getSettings() ?? {})['physics_dimension'] === 3;
+      const collider3D = (piece: string | null): PieceFacts['collider'] => {
+        for (const kind of ['mesh', 'convex'] as const) {
+          const made = resource.collider3D(piece, kind);
+          if (made.ok && made.source === 'collision') return { shape: made.shape };
+          if (made.ok) return null;
+        }
+        return null;
+      };
+      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? (threeD ? collider3D(pc.name) : resource.collider2D(pc.name)) : null, skinned: pc.skinned }));
       const { args } = planModelDrop({
         assetId: payload.assetId,
         displayName: asset.displayName,
         ...(payload.piece !== undefined ? { piece: payload.piece } : {}),
         pieces,
-        wholeCollider: pieces.length === 1 ? resource.collider2D(null) : null,
+        wholeCollider: pieces.length === 1 ? (threeD ? collider3D(null) : resource.collider2D(null)) : null,
         position,
         parentId,
       });
@@ -2963,6 +2974,44 @@ function EditorApp(): JSX.Element {
       await editComponent(entityId, 'controller', { capsule: fit });
     },
     [editComponent],
+  );
+
+  /**
+   * Phase 23.1 (a 3D project): a collider from the object's own model — a
+   * box from its bounds (a convex hull of the corners when off-centre), a
+   * convex hull or a triangle mesh from its `_COL` node(s), else its LOD0
+   * geometry — in the object's frame (its scale applies in physics).
+   */
+  const colliderFromModel3D = useCallback(
+    async (entityId: string, kind: 'box' | 'convex' | 'mesh') => {
+      const model = clientRef.current?.projection.getEntity(entityId)?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
+      const assetId = model?.asset?.assetId;
+      const resource = assetId !== undefined ? await modelInstancesRef.current?.prepared(assetId) : null;
+      if (resource === null || resource === undefined) {
+        setComponentError({ code: 'no_model', message: 'A 3D collider from the model needs a loaded model on this object.' });
+        return;
+      }
+      const piece = model?.piece ?? null;
+      let shape: Record<string, unknown>;
+      let note: string | undefined;
+      if (kind === 'box') {
+        const b = resource.bounds(piece);
+        const made = boxFromBounds3D(b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] });
+        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
+        shape = made.shape;
+        note = made.note;
+      } else {
+        const made = resource.collider3D(piece, kind);
+        if (!made.ok) return setComponentError({ code: 'no_outline', message: made.message });
+        shape = made.shape;
+        note = made.source === 'collision' ? `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's collision node` : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's geometry (no _COL node)`;
+      }
+      if (note !== undefined) setNotice(`Collider: ${note}`);
+      const has = clientRef.current?.projection.getEntity(entityId)?.components['collider'] !== undefined;
+      if (has) await editComponent(entityId, 'collider', { shape });
+      else await addComponentTo(entityId, 'collider', { shape });
+    },
+    [editComponent, addComponentTo],
   );
 
   /** Phase 15.2: a collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
@@ -3535,8 +3584,10 @@ function EditorApp(): JSX.Element {
       signals: registry === null ? [] : collectSignals(registry, allEntitiesMemo.map((e) => e.components)),
       // Phase 15.2: an animator's starting values are edited from its controller's parameters.
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
+      // Phase 23.1: the "+ Add component" presets follow the project's physics dimension.
+      physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry],
+    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings],
   );
   const selectedSceneId = selectedEntity?.sceneId;
   const fieldContextMemo: FieldContext = useMemo(
@@ -3675,7 +3726,7 @@ function EditorApp(): JSX.Element {
       // one item per component, presets as a submenu, and why an item cannot be added.
       items: (() => {
         if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
-        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder' });
+        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder', dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 });
         const out: MenuEntry[] = [];
         let category: string | null = null;
         for (const c of registry.components) {
@@ -3694,7 +3745,9 @@ function EditorApp(): JSX.Element {
             // Phase 15.2: a collider from the model's outline.
             if (c.name === 'collider' && selectedId !== null) {
               const id = selectedId;
-              items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
+              // Phase 23.1: a 3D project makes 3D colliders from the model.
+              if (settings?.['physics_dimension'] === 3) items.push({ label: 'Box from model', onSelect: () => void colliderFromModel3D(id, 'box') }, { label: 'Convex hull from model', onSelect: () => void colliderFromModel3D(id, 'convex') }, { label: 'Mesh from model', onSelect: () => void colliderFromModel3D(id, 'mesh') });
+              else items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
             }
             out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items });
           } else {
@@ -4328,12 +4381,21 @@ function EditorApp(): JSX.Element {
           addExtras={(() => {
             // Phase 15.2: "Add collider → box / polygon from model outline" (where a collider may be added).
             if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
-            const entry = addEntries(registry, new Set(Object.keys(selected.components))).find((x) => x.component === 'collider');
+            const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 }).find((x) => x.component === 'collider');
             const enabled = entry?.enabled === true;
             const reason = entry?.reason ?? null;
             return [
-              { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
-              { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
+              ...(settings?.['physics_dimension'] === 3
+                ? [
+                    // Phase 23.1: a 3D project's colliders from the model.
+                    { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
+                    { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
+                    { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
+                  ]
+                : [
+                    { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
+                    { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
+                  ]),
             ];
           })()}
           bodies={
@@ -4393,6 +4455,20 @@ function EditorApp(): JSX.Element {
                   // Phase 15.2: a collider from the model's outline; how to edit a polygon in the Scene view.
                   collider: (
                     <>
+                      {settings?.['physics_dimension'] === 3 ? (
+                        // Phase 23.1: a 3D project's colliders from the model (its _COL node, else its geometry).
+                        <div className="tl-inspector__modes">
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'box')}>
+                            Box from model
+                          </button>
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'convex')}>
+                            Convex hull from model
+                          </button>
+                          <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'mesh')}>
+                            Mesh from model
+                          </button>
+                        </div>
+                      ) : (
                       <div className="tl-inspector__modes">
                         <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'box')}>
                           Box from model
@@ -4401,6 +4477,7 @@ function EditorApp(): JSX.Element {
                           Polygon from model outline
                         </button>
                       </div>
+                      )}
                       {(selected.components['collider'] as { shape?: { type?: string } } | undefined)?.shape?.type === 'polygon' && (
                         <p className="tl-inspector__hint">Scene view: drag a corner; drag a small grey point to add a corner there; Alt+click a corner to delete it.</p>
                       )}

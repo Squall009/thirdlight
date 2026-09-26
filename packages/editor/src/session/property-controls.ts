@@ -624,6 +624,23 @@ function colliderFields(collider: ColliderComponent): ComponentFieldView[] {
       { path: 'collider.shape.hy', label: 'hy', type: 'number (0, 1e6]', value: numberText(shape.hy) },
     ];
   }
+  // Phase 23.1: the 3D shapes (a 3D project).
+  if (shape.type === 'sphere') return [{ path: 'collider.shape.type', label: 'shape', type: '"sphere"', value: 'sphere' }, { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) }];
+  if (shape.type === 'capsule') {
+    return [
+      { path: 'collider.shape.type', label: 'shape', type: '"capsule"', value: 'capsule' },
+      { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) },
+      { path: 'collider.shape.height', label: 'height', type: 'number >= 2 radius', value: numberText(shape.height) },
+    ];
+  }
+  if (shape.type === 'convex') return [{ path: 'collider.shape.type', label: 'shape', type: '"convex"', value: 'convex' }, { path: 'collider.shape.points', label: 'points', type: '4–64 [x, y, z]', value: String(shape.points.length) }];
+  if (shape.type === 'mesh') {
+    return [
+      { path: 'collider.shape.type', label: 'shape', type: '"mesh"', value: 'mesh' },
+      { path: 'collider.shape.vertices', label: 'vertices', type: '3–1024 [x, y, z]', value: String(shape.vertices.length) },
+      { path: 'collider.shape.triangles', label: 'triangles', type: '1–2048 [a, b, c]', value: String(shape.triangles.length) },
+    ];
+  }
   const fields: ComponentFieldView[] = [
     { path: 'collider.shape.type', label: 'shape', type: '"polygon"', value: 'polygon' },
     { path: 'collider.shape.vertices', label: 'vertices', type: '3–8 strict-convex', value: String(shape.vertices.length) },

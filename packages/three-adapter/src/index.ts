@@ -150,6 +150,9 @@ export {
   pieceBaseName,
   pieceBounds,
   pieceCollider2D,
+  pieceCollider3D,
+  COLLIDER_3D_FROM_MODEL,
+  type ModelCollider3D,
   type ModelPiece,
   type VertexColorMode,
 } from './pieces';

@@ -309,6 +309,17 @@ export class ZoneOverlay {
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
       if (shape === undefined) continue;
+      // Phase 23.1: a 3D shape (a box with its depth, a sphere, a capsule, a hull, a mesh) as a wire outline
+      // with the object's whole transform (a 3D collider turns and scales with it), in the same merged lines.
+      const local = colliderSegments3D(shape);
+      if (local !== null) {
+        const target = (e.collider as { oneWay?: boolean }).oneWay === true ? merged.oneWay : merged.solid;
+        const start = target.points.length / 3;
+        pushTransformed(target.points, local, e.position, e.rotation, e.scale);
+        target.ranges[e.id] = { start, count: target.points.length / 3 - start };
+        this.colliderOutlines += 1;
+        continue;
+      }
       const corners = shape.type === 'box' ? [[-N(shape.hx), -N(shape.hy)], [N(shape.hx), -N(shape.hy)], [N(shape.hx), N(shape.hy)], [-N(shape.hx), N(shape.hy)]] : (shape.vertices ?? []);
       if (corners.length < 2) continue;
       const q = e.rotation;
@@ -375,6 +386,17 @@ export class ZoneOverlay {
           this.blocks.add(dot);
         }
       }
+      // Phase 23.1: a 3D trigger area (a box with its depth, a sphere, a capsule), turned with its object.
+      const trig3 = triggerSegments3D(b.trigger);
+      if (trig3 !== null) {
+        const pts: number[] = [];
+        pushTransformed(pts, trig3, e.position, e.rotation, [1, 1, 1]);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+        const wire = new THREE.LineSegments(geometry, new THREE.LineDashedMaterial({ color: BLOCK_COLORS.trigger, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
+        wire.name = `trigger-3d:${e.id}`;
+        this.blocks.add(wire);
+      }
       // Phase 14.2: a circle trigger's outline (dashed, in the trigger colour).
       const trig = b.trigger as { shape?: string; radius?: number } | undefined;
       if (trig?.shape === 'circle' && typeof trig.radius === 'number') {
@@ -385,6 +407,7 @@ export class ZoneOverlay {
       }
       for (const k of ['trigger', 'switch', 'enemy', 'pickup'] as const) {
         const size = (b[k] as { size?: number[] } | undefined)?.size;
+        if (k === 'trigger' && trig3 !== null) continue;
         // An enemy's box stands on its position (its feet), as the runtime tests it (phase 14.0 fix).
         if (size !== undefined) this.blocks.add(rect(x, k === 'enemy' ? y + N(size[1]) / 2 : y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
       }
@@ -836,5 +859,149 @@ export class ZoneOverlay {
       this.previewMesh = null;
     }
     this.root.removeFromParent();
+  }
+}
+// ---- phase 23.1: 3D wire outlines (local segments as flat [x, y, z, x, y, z, ...] pairs) ----
+
+const ringXZ = (out: number[], r: number, y: number, n = 32): void => {
+  for (let i = 0; i < n; i += 1) {
+    const a = (i / n) * Math.PI * 2;
+    const b = ((i + 1) / n) * Math.PI * 2;
+    out.push(r * Math.cos(a), y, r * Math.sin(a), r * Math.cos(b), y, r * Math.sin(b));
+  }
+};
+
+/** A capsule standing along Y (radius, centre-segment half length): two rings and its outline in the XY and ZY planes. */
+function capsuleSegments(out: number[], r: number, seg: number): void {
+  ringXZ(out, r, seg);
+  ringXZ(out, r, -seg);
+  for (const plane of [0, 1]) {
+    const P = (u: number, y: number): [number, number, number] => (plane === 0 ? [u, y, 0] : [0, y, u]);
+    const n = 16;
+    for (let i = 0; i < n; i += 1) {
+      const a = (i / n) * Math.PI;
+      const b = ((i + 1) / n) * Math.PI;
+      out.push(...P(r * Math.cos(a), seg + r * Math.sin(a)), ...P(r * Math.cos(b), seg + r * Math.sin(b)));
+      out.push(...P(r * Math.cos(a), -seg - r * Math.sin(a)), ...P(r * Math.cos(b), -seg - r * Math.sin(b)));
+    }
+    out.push(...P(r, -seg), ...P(r, seg), ...P(-r, -seg), ...P(-r, seg));
+  }
+}
+
+function boxSegments(out: number[], hx: number, hy: number, hz: number): void {
+  const c = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+  for (const [a, b] of edges) out.push(c[a!]![0]! * hx, c[a!]![1]! * hy, c[a!]![2]! * hz, c[b!]![0]! * hx, c[b!]![1]! * hy, c[b!]![2]! * hz);
+}
+
+const hullCache = new Map<string, number[]>();
+
+/** The edges of the convex hull of at most 64 points (faces found by the all-on-one-side test; cached per point list). */
+function hullSegments(points: readonly (readonly number[])[]): number[] {
+  const key = JSON.stringify(points);
+  const cached = hullCache.get(key);
+  if (cached !== undefined) return cached;
+  const P = points.map((p) => [N(p[0]), N(p[1]), N(p[2])] as [number, number, number]);
+  const n = Math.min(P.length, 64);
+  const edges = new Set<string>();
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      for (let k = j + 1; k < n; k += 1) {
+        const a = P[i]!;
+        const u = [P[j]![0] - a[0], P[j]![1] - a[1], P[j]![2] - a[2]];
+        const v = [P[k]![0] - a[0], P[k]![1] - a[1], P[k]![2] - a[2]];
+        const nx = u[1]! * v[2]! - u[2]! * v[1]!;
+        const ny = u[2]! * v[0]! - u[0]! * v[2]!;
+        const nz = u[0]! * v[1]! - u[1]! * v[0]!;
+        if (Math.hypot(nx, ny, nz) < 1e-9) continue;
+        let pos = false;
+        let neg = false;
+        for (let m = 0; m < n && !(pos && neg); m += 1) {
+          const d = nx * (P[m]![0] - a[0]) + ny * (P[m]![1] - a[1]) + nz * (P[m]![2] - a[2]);
+          if (d > 1e-9) pos = true;
+          else if (d < -1e-9) neg = true;
+        }
+        if (pos && neg) continue;
+        edges.add(`${i},${j}`).add(`${j},${k}`).add(`${i},${k}`);
+      }
+    }
+  }
+  const out: number[] = [];
+  for (const e of edges) {
+    const [a, b] = e.split(',').map(Number);
+    out.push(...P[a!]!, ...P[b!]!);
+  }
+  if (hullCache.size > 256) hullCache.clear();
+  hullCache.set(key, out);
+  return out;
+}
+
+/** Phase 23.1: a 3D collider shape's wire outline in its object's frame, or null for a 2D-plane shape. */
+export function colliderSegments3D(shape: { type: string; [k: string]: unknown }): number[] | null {
+  const out: number[] = [];
+  switch (shape.type) {
+    case 'box':
+      if (shape['hz'] === undefined) return null;
+      boxSegments(out, N(shape['hx'] as number), N(shape['hy'] as number), N(shape['hz'] as number));
+      return out;
+    case 'sphere': {
+      const r = N(shape['radius'] as number);
+      ringXZ(out, r, 0);
+      capsuleSegments(out, r, 0);
+      return out;
+    }
+    case 'capsule': {
+      const r = N(shape['radius'] as number);
+      capsuleSegments(out, r, Math.max(0, N(shape['height'] as number) / 2 - r));
+      return out;
+    }
+    case 'convex':
+      return hullSegments((shape['points'] as number[][] | undefined) ?? []);
+    case 'mesh': {
+      const v = (shape['vertices'] as number[][] | undefined) ?? [];
+      const seen = new Set<string>();
+      for (const t of (shape['triangles'] as number[][] | undefined) ?? []) {
+        for (const [a, b] of [[t[0]!, t[1]!], [t[1]!, t[2]!], [t[2]!, t[0]!]] as const) {
+          const k = a < b ? `${a},${b}` : `${b},${a}`;
+          if (seen.has(k) || v[a] === undefined || v[b] === undefined) continue;
+          seen.add(k);
+          out.push(N(v[a]![0]), N(v[a]![1]), N(v[a]![2]), N(v[b]![0]), N(v[b]![1]), N(v[b]![2]));
+        }
+      }
+      return out;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Phase 23.1: a 3D trigger area's wire outline (box with a depth, sphere, capsule), or null for a 2D-plane one. */
+function triggerSegments3D(trigger: unknown): number[] | null {
+  if (typeof trigger !== 'object' || trigger === null) return null;
+  const t = trigger as { shape?: string; size?: number[]; radius?: number; height?: number };
+  const out: number[] = [];
+  if (t.shape === 'sphere') {
+    ringXZ(out, N(t.radius), 0);
+    capsuleSegments(out, N(t.radius), 0);
+    return out;
+  }
+  if (t.shape === 'capsule') {
+    capsuleSegments(out, N(t.radius), Math.max(0, N(t.height) / 2 - N(t.radius)));
+    return out;
+  }
+  if ((t.shape === undefined || t.shape === 'box') && Array.isArray(t.size) && t.size.length === 3) {
+    boxSegments(out, N(t.size[0]) / 2, N(t.size[1]) / 2, N(t.size[2]) / 2);
+    return out;
+  }
+  return null;
+}
+
+/** Append local segments moved into the world by a position, rotation and scale. */
+function pushTransformed(out: number[], local: readonly number[], position: readonly number[], rotation: readonly number[], scale: readonly number[]): void {
+  const m = new THREE.Matrix4().compose(new THREE.Vector3(N(position[0]), N(position[1]), N(position[2])), new THREE.Quaternion(N(rotation[0]), N(rotation[1]), N(rotation[2]), rotation[3] ?? 1), new THREE.Vector3(scale[0] ?? 1, scale[1] ?? 1, scale[2] ?? 1));
+  const v = new THREE.Vector3();
+  for (let i = 0; i + 2 < local.length; i += 3) {
+    v.set(local[i]!, local[i + 1]!, local[i + 2]!).applyMatrix4(m);
+    out.push(v.x, v.y, v.z);
   }
 }

@@ -37,8 +37,8 @@
  */
 
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
-import { CAPSULE_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_POLYGON_VERTICES } from './components';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, DEFEAT_EFFECTS, ENEMY_PATROLS, MOVER_EASINGS, MOVER_MODES, PICKUP_KINDS, PICKUP_RESPAWN, SWITCH_MODES, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES } from './components';
 import { GAME_TIMING_DEFAULTS, GAME_TIMING_LIMITS, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { HUD_PRESETS, MAX_FLOW_LEVELS, MAX_LEVEL_AMBIENCE, MAX_LEVEL_SCENES, MAX_SCORE_COUNTERS, MAX_SCORE_POINTS, MAX_TITLE_PAN_DISTANCE, UI_FONTS } from './flow';
 import { DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
@@ -73,7 +73,8 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
   box2: [['size'], ['halfX', 'halfY'], ['halfX', 'halfY', 'halfZ'], ['minX', 'maxX', 'minY', 'maxY']],
   box3: [['size']],
   radius: [['radius']],
-  capsule: [['radius', 'height', 'offset']],
+  // Phase 23.1: a centred capsule (a collider or trigger) has no offset.
+  capsule: [['radius', 'height', 'offset'], ['radius', 'height']],
   segment1d: [['range']],
   cone: [['direction', 'angle', 'range']],
   direction: [['direction']],
@@ -319,7 +320,8 @@ export interface ComponentDescriptor {
   readonly value: FieldDescriptor;
   readonly add: ComponentAdd;
   /** Ready-made values (a light per type, a zone per role). */
-  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson }[];
+  /** Phase 23.1: `dimension` — the project physics dimension a preset fits (absent: both; the "+ Add component" list shows the project's). */
+  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly dimension?: 2 | 3 }[];
   readonly handles: readonly HandleDescriptor[];
   /** Needs one of these on the same entity. */
   readonly requiresAnyOf?: { readonly components: readonly string[]; readonly reason: string };
@@ -512,11 +514,11 @@ const prefab: ComponentDescriptor = {
 const collider: ComponentDescriptor = {
   name: 'collider',
   label: 'Collider',
-  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth).',
+  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh).',
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
-    obj('shape', 'Shape', 'A box (half extents) or a convex polygon.', [
-      enm('type', 'Shape', 'Box or convex polygon.', ['box', 'polygon'], { required: true, default: 'box' }),
+    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a convex hull or a triangle mesh.', [
+      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'], { required: true, default: 'box' }),
       num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
       num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
       // Phase 23.0: the depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
@@ -528,17 +530,52 @@ const collider: ComponentDescriptor = {
         maxItems: MAX_POLYGON_VERTICES,
         handle: 'polygon',
       }),
-    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.'] }),
+      // Phase 23.1: the 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
+      num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
+      num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
+      num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
+      // Generated from a model (its _COL node, else its geometry) and stored as data; shown read-only.
+      list('points', 'Hull points', `4–${COLLIDER_3D_LIMITS.convexPoints} points [x, y, z] whose convex hull is the shape (made from a model).`, vec3('*', 'Point', 'A point [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
+        required: true,
+        when: when('type', 'convex'),
+        minItems: 4,
+        maxItems: COLLIDER_3D_LIMITS.convexPoints,
+        readOnly: true,
+      }),
+      list('vertices', 'Mesh vertices', `3–${COLLIDER_3D_LIMITS.meshVertices} vertices [x, y, z] (made from a model).`, vec3('*', 'Vertex', 'A vertex [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
+        required: true,
+        when: when('type', 'mesh'),
+        minItems: 3,
+        maxItems: COLLIDER_3D_LIMITS.meshVertices,
+        readOnly: true,
+      }),
+      list('triangles', 'Mesh triangles', `1–${COLLIDER_3D_LIMITS.meshTriangles} triangles [a, b, c] (vertex indices; made from a model).`, vec3('*', 'Triangle', 'Three different vertex indices [a, b, c].'), {
+        required: true,
+        when: when('type', 'mesh'),
+        minItems: 1,
+        maxItems: COLLIDER_3D_LIMITS.meshTriangles,
+        readOnly: true,
+      }),
+    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).'] }),
     bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform).', { default: false, omitDefault: true }),
   ]),
   add: { kind: 'menu', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
   presets: [
-    { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
-    { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } } },
+    { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, dimension: 2 },
+    { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } }, dimension: 2 },
+    // Phase 23.1 (3D projects): a 1 m box, a 0.5 m sphere, a 2 m capsule, a 1 m cube's hull and a 1 m floor quad as starting shapes.
+    { label: 'Box (3D)', value: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } }, dimension: 3 },
+    { label: 'Sphere', value: { shape: { type: 'sphere', radius: 0.5 } }, dimension: 3 },
+    { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } }, dimension: 3 },
+    { label: 'Convex hull', value: { shape: { type: 'convex', points: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] } }, dimension: 3 },
+    { label: 'Mesh', value: { shape: { type: 'mesh', vertices: [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], triangles: [[0, 2, 1], [0, 3, 2]] } }, dimension: 3 },
   ],
   handles: [
     { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy', halfZ: 'shape/hz' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },
     { kind: 'polygon', label: 'Polygon', bind: { vertices: 'shape/vertices' }, space: 'local', when: when('shape/type', 'polygon'), follows: 'rotationZ' },
+    // Phase 23.1: the 3D shapes turn and scale with the object (a 3D collider takes its whole transform).
+    { kind: 'radius', label: 'Sphere radius', bind: { radius: 'shape/radius' }, space: 'local', when: when('shape/type', 'sphere'), follows: 'transform' },
+    { kind: 'capsule', label: 'Capsule', bind: { radius: 'shape/radius', height: 'shape/height' }, space: 'local', when: when('shape/type', 'capsule'), follows: 'transform' },
   ],
   excludes: [
     { component: 'controller', reason: 'the player controller has its own capsule' },
@@ -930,12 +967,15 @@ const mover: ComponentDescriptor = {
 const trigger: ComponentDescriptor = {
   name: 'trigger',
   label: 'Trigger',
-  tooltip: 'Sends a signal when the player enters an area (a box or a circle).',
+  tooltip: 'Sends a signal when the player enters an area (a box or a circle; in a 3D project a box with a depth, a sphere or a capsule).',
   category: 'Gameplay',
   value: obj('trigger', 'Trigger', 'An area that emits signals.', [
-    enm('shape', 'Shape', 'Box or circle.', TRIGGER_SHAPES, { default: 'box' }),
-    vec2('size', 'Size', 'Width and height of the box.', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h'], handle: 'box2' }),
-    num('radius', 'Radius', 'Radius of the circle.', { required: true, when: when('shape', 'circle'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 1, handle: 'radius' }),
+    enm('shape', 'Shape', 'Box or circle (2D plane); box, sphere or capsule (3D project).', TRIGGER_SHAPES, { default: 'box' }),
+    // Phase 23.1: the depth (d) is the third component, needed in a 3D project (a 2D plane ignores it).
+    vec3('size', 'Size', 'Width and height of the box (and its depth in a 3D project).', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    num('radius', 'Radius', 'Radius of the circle or sphere.', { required: true, when: when('shape', 'circle', 'sphere'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 1, handle: 'radius' }),
+    num('radius', 'Radius', 'Radius of the capsule.', { required: true, when: when('shape', 'capsule'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
+    num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('shape', 'capsule'), min: TRIGGER_HEIGHT.min, max: TRIGGER_HEIGHT.max, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
     signal('signal', 'Signal', 'Sent when the player enters.', { required: true, default: 'trigger' }),
     signal('exitSignal', 'Exit signal', 'Sent when the player leaves (absent: none).'),
     enm('mode', 'Mode', 'Enter: once per entry. Stay: every step while inside.', TRIGGER_MODES, { default: 'enter' }),
@@ -943,9 +983,18 @@ const trigger: ComponentDescriptor = {
   ]),
   // Phase 15.5: a 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
   add: { kind: 'menu', value: { size: [2, 2], signal: 'trigger' } },
+  // Phase 23.1 (3D projects; a 2D plane keeps the single entry above): a 2 m cube, a 1 m sphere and a 2 m capsule — the default 1.8 m character fits in each.
+  presets: [
+    { label: 'Box (3D)', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
+    { label: 'Sphere', value: { shape: 'sphere', radius: 1, signal: 'trigger' }, dimension: 3 },
+    { label: 'Capsule', value: { shape: 'capsule', radius: 0.5, height: 2, signal: 'trigger' }, dimension: 3 },
+  ],
   handles: [
     { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', when: when('shape', 'box') },
     { kind: 'radius', label: 'Radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'circle') },
+    // Phase 23.1: the 3D areas turn with the object (its own rotation; a trigger ignores scale).
+    { kind: 'radius', label: 'Sphere radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'sphere'), follows: 'rotation' },
+    { kind: 'capsule', label: 'Capsule', bind: { radius: 'radius', height: 'height' }, space: 'local', when: when('shape', 'capsule'), follows: 'rotation' },
   ],
   excludes: [],
   prefab: true,

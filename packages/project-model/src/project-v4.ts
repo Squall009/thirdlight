@@ -27,7 +27,7 @@ import { composeV3 } from './project-v3';
 import { validateContentV4, MAX_SCENES, physicsDimensionOf } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
-import { ID_RE_V2, physicsRotationErrors } from './components';
+import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
@@ -363,16 +363,63 @@ export function composeV4(
  * 2D-plane shape (3D shapes and mesh colliders are phase 23.1).
  */
 export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path): void {
+  blockDimensionErrors(comps, path, dimension, errors);
   const collider = comps['collider'] as { shape?: { type?: string; hz?: number } } | undefined;
   const hasController = comps['controller'] !== undefined;
   if (collider === undefined && !hasController) return;
+  // Phase 23.1: the scale rule follows the dimension too (a 3D collider may be scaled).
+  physicsScaleErrors(comps, rotationBase, hasController, dimension, errors);
   physicsRotationErrors(comps, rotationBase, hasController, dimension, errors);
-  if (dimension !== 3 || collider === undefined) return;
+  if (collider === undefined) return;
   const shape = collider.shape;
-  if (shape?.type === 'box' && shape.hz === undefined) {
+  const type = shape?.type;
+  if (dimension !== 3) {
+    // Phase 23.1: the 3D shapes need a 3D project.
+    if (type === 'sphere' || type === 'capsule' || type === 'convex' || type === 'mesh') {
+      errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: `a ${type} collider is a 3D shape; a 2D-plane project uses box or polygon colliders (or set physics_dimension to 3)`, expected: '"box" | "polygon"' } as ModelErrorV3, type));
+    }
+    return;
+  }
+  if (type === 'box' && shape?.hz === undefined) {
     errors.push({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/hz`, message: 'a box collider in a 3D project needs its half depth hz (m)', expected: 'hz > 0' } as ModelErrorV3);
-  } else if (shape?.type === 'polygon') {
-    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a polygon collider is a 2D-plane shape; a 3D project uses box colliders (more 3D shapes come with phase 23.1)', expected: '"box" with hz' } as ModelErrorV3, 'polygon'));
+  } else if (type === 'polygon') {
+    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a polygon collider is a 2D-plane shape; a 3D project uses box (with hz), sphere, capsule, convex or mesh colliders', expected: '"box" | "sphere" | "capsule" | "convex" | "mesh"' } as ModelErrorV3, 'polygon'));
+  } else if (type === 'mesh' && (comps['mover'] !== undefined || comps['controller'] !== undefined)) {
+    // A triangle mesh has no inside: it is level geometry that never moves.
+    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: 'a mesh collider is static level geometry; a moving collider (a mover) uses box, sphere, capsule or convex', expected: '"box" | "sphere" | "capsule" | "convex"' } as ModelErrorV3, 'mesh'));
+  }
+  if ((collider as { oneWay?: unknown }).oneWay === true) {
+    errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/oneWay`, message: 'a one-way collider is a 2D-plane platform (passed from below); a 3D project has none', expected: 'absent' } as ModelErrorV3, true));
+  }
+}
+
+/**
+ * Phase 23.1: the gameplay blocks' rules that follow the project's physics
+ * dimension. A trigger's `sphere` and `capsule` are 3D areas (a 2D plane has
+ * `box` and `circle`); in 3D a box trigger needs its depth (`size` [w, h, d])
+ * and a circle is a sphere. Switches, pickups and enemies test the player on
+ * the 2D plane only (their 3D forms belong to the game modes, phase 23.10), so
+ * a 3D project refuses them rather than ignoring depth.
+ */
+export function blockDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[]): void {
+  const trigger = comps['trigger'] as { shape?: unknown; size?: unknown } | undefined;
+  if (trigger !== undefined && typeof trigger === 'object' && trigger !== null) {
+    const shape = trigger.shape ?? 'box';
+    if (dimension !== 3 && (shape === 'sphere' || shape === 'capsule')) {
+      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/shape`, message: `a ${String(shape)} trigger is a 3D area; a 2D-plane project uses box or circle (or set physics_dimension to 3)`, expected: '"box" | "circle"' } as ModelErrorV3, shape));
+    }
+    if (dimension === 3 && shape === 'circle') {
+      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/shape`, message: 'a circle trigger is a 2D-plane area; a 3D project uses box (with a depth), sphere or capsule', expected: '"box" | "sphere" | "capsule"' } as ModelErrorV3, shape));
+    }
+    if (dimension === 3 && shape === 'box' && !(Array.isArray(trigger.size) && trigger.size.length === 3)) {
+      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/size`, message: 'a box trigger in a 3D project needs its depth: size [w, h, d] (m)', expected: '[w, h, d]' } as ModelErrorV3, trigger.size));
+    }
+  }
+  if (dimension === 3) {
+    for (const block of ['switch', 'pickup', 'enemy'] as const) {
+      if (comps[block] === undefined) continue;
+      errors.push({ code: 'component_conflict', path: `${path}/components/${block}`, message: `the ${block} block works on the 2D plane only; a 3D project uses triggers (3D forms of the platformer blocks come with game modes)`, expected: 'trigger' } as ModelErrorV3);
+    }
   }
 }
 

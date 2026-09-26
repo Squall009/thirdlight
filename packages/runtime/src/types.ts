@@ -346,6 +346,8 @@ export interface ModuleConfig {
   behaviorLog?: (level: BehaviorLogLevel, message: string) => void;
   /** Phase 12 (c): the runtime's live tag index (follows scene loads/unloads). */
   tags?: BehaviorTagQuery;
+  /** Phase 23.1: 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
+  physicsDimension?: 3;
 }
 
 /**

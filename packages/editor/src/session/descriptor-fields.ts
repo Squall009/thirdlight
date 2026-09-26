@@ -481,7 +481,9 @@ export interface AddEntry {
  * The "+ Add component" list for an object carrying `present` (component
  * names). Every component but the transform is listed; one entry per preset.
  */
-export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>, opts: { folder?: boolean } = {}): AddEntry[] {
+export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>, opts: { folder?: boolean; dimension?: 2 | 3 } = {}): AddEntry[] {
+  // Phase 23.1: only the presets that fit the project's physics dimension (absent: the 2D plane).
+  const dimension = opts.dimension ?? 2;
   const out: AddEntry[] = [];
   const labelOf = (name: string): string => reg.components.find((c) => c.name === name)?.label ?? name;
   for (const c of reg.components) {
@@ -498,8 +500,9 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
     }
     const pick = c.add.kind === 'pick' ? c.add.pick : [];
     const base = c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : null;
-    if (c.presets !== undefined && c.presets.length > 0 && c.add.kind === 'menu') {
-      c.presets.forEach((p, i) => out.push({ id: `${c.name}:${i}`, component: c.name, label: `${c.label}: ${p.label}`, category: c.category, value: p.value, pick: [], enabled: reason === null, reason }));
+    const fitting = (c.presets ?? []).map((p, i) => ({ p, i })).filter(({ p }) => p.dimension === undefined || p.dimension === dimension);
+    if (fitting.length > 0 && c.add.kind === 'menu') {
+      fitting.forEach(({ p, i }) => out.push({ id: `${c.name}:${i}`, component: c.name, label: `${c.label}: ${p.label}`, category: c.category, value: p.value, pick: [], enabled: reason === null, reason }));
     } else {
       out.push({ id: c.name, component: c.name, label: c.label, category: c.category, value: base, pick, enabled: reason === null, reason });
     }
