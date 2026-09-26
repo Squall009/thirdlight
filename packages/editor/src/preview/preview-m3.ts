@@ -1092,10 +1092,16 @@ interface ControlBody {
 function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<string, unknown>; start?: Record<string, unknown> } {
   const st = h.host.runtime.debugCommandState?.();
   const outcome = h.host.startOutcome ?? null;
+  let debugCommands: Record<string, unknown> | undefined;
+  if (st !== undefined && (st.registered.length > 0 || st.applied.length > 0)) {
+    const applied = st.applied.slice(-16).map((a) => ({ stepIndex: a.stepIndex, name: a.name, args: { ...a.args } }));
+    const registered = st.registered.slice(0, 32).map((c) => ({ name: c.name, description: c.description, args: c.args.map((a) => ({ ...a })) }));
+    debugCommands = { registered, applied };
+    // The observation's 16 KiB bound: long descriptions go first, then the oldest calls.
+    if (JSON.stringify(debugCommands).length > 6000) debugCommands = { registered: registered.map((c) => ({ ...c, description: c.description.slice(0, 24) })), applied: applied.slice(-8), truncated: true };
+  }
   return {
-    ...(st !== undefined && (st.registered.length > 0 || st.applied.length > 0)
-      ? { debugCommands: { registered: st.registered.slice(0, 32).map((c) => ({ name: c.name, description: c.description, args: c.args.map((a) => ({ ...a })) })), applied: st.applied.slice(-16).map((a) => ({ stepIndex: a.stepIndex, name: a.name, args: { ...a.args } })) } }
-      : {}),
+    ...(debugCommands !== undefined ? { debugCommands } : {}),
     ...(outcome !== null ? { start: outcome.ok ? { ok: true, applied: [...outcome.applied] } : { ok: false, reason: outcome.reason } } : {}),
   };
 }
