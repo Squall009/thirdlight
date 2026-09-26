@@ -55,4 +55,4 @@ export {
 // The declared-dependency module resolver (D17), re-exported for the
 // backend (whose project-model edge is types-only): templates resolve their
 // declared modules at creation through the same function the closure uses.
-export { resolveRequiredModules, type ResolveModulesResult, type UnresolvedModule } from '@thirdlight/project-model';
+export { physicsDimensionOf, resolveRequiredModules, type ResolveModulesResult, type UnresolvedModule } from '@thirdlight/project-model';

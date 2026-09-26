@@ -39,7 +39,7 @@
  * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
  * container (no browser/GPU/audio device — packet-38 baseline §1).
  */
-import { sha256HexAsync } from '@thirdlight/project-model';
+import { physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
@@ -58,6 +58,7 @@ import {
   browserSaveStorage,
   browserWorkerAvailable,
   createBrowserSimWorker,
+  loadPhysics3D,
   resolveThreadingMode,
   resolveTransport,
   startRemoteSimulation,
@@ -67,11 +68,13 @@ import {
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLayerLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
-import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
 
 /** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
+/** Phase 23.0: the 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
+const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
 
 interface ExportManifestV2 {
   manifestVersion: number;
@@ -289,7 +292,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   }
 
   // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
-  const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
+  // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings) : physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && snapshot.game !== null) throw new Error('the game requires a player controller entity');
   // (no game block and no controller: scene mode — the scene plays as authored)
 
@@ -357,8 +361,14 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
 
   // The injected physics port in single-thread mode (in worker mode the worker has its own).
   let physics;
-  if (remote === null && physicsConfig !== null) {
-    const init = await createPhysicsPort(physicsConfig);
+  if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
+    // Phase 23.0: the 3D backend (js/physics-3d.js, shipped only in a 3D project's export).
+    const backend = await loadPhysics3D(new URL(EXPORT_PHYSICS_3D_PATH, location.href).href);
+    const init = await backend.createPhysicsPort3D(physicsConfig as never);
+    if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
+    physics = init.port as PhysicsPort3D;
+  } else if (remote === null && physicsConfig !== null) {
+    const init = await createPhysicsPort(physicsConfig as RapierPhysicsInitConfig);
     if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
     physics = init.port;
   }
@@ -510,6 +520,21 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   };
   window.addEventListener('pointerdown', unlockOnce, { once: true });
   window.addEventListener('keydown', unlockOnce, { once: true });
+
+  // Phase 23.0: the game-observe path of the static export (there is no backend
+  // relay here) — the host's own observation (a game's run state, or a scene's
+  // step), with the player's position; read by tooling and the e2e suite.
+  const playerId = snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id;
+  (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve = () => {
+    const game = host.observe();
+    if (game.ok) {
+      const st = playerId !== undefined ? host.runtime.getInterpolatedState() : null;
+      const tr = st !== null && st.ok ? st.state.transforms.find((t) => t.id === playerId) : undefined;
+      return { ...game.observation, ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}) };
+    }
+    const scene = host.observeScene?.();
+    return scene !== undefined && scene.ok ? { state: 'scene', ...scene.observation } : null;
+  };
 
   const refresh = (): void => {
     const res = host.observe();

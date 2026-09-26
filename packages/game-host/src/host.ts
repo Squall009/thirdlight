@@ -51,6 +51,7 @@ import {
   type GameView,
   type GameplaySettings,
   type PhysicsPort,
+  type PhysicsPort3D,
   type RuntimeError,
   type RunState,
   type Runtime,
@@ -154,6 +155,22 @@ export interface GameHostObservation {
   readonly titleView?: { readonly scene: string | null; readonly cameraOffset: readonly [number, number, number] };
 }
 
+/**
+ * Phase 23.0, additive: what a scene-mode game (no game block, so no run
+ * state: no deaths, goal or checkpoints) reports — its step and time, the
+ * sound status and where its player (the controller entity) is, in 3D.
+ */
+export interface GameHostSceneObservation {
+  readonly snapshotId: string;
+  readonly buildId: string;
+  readonly stepIndex: number;
+  readonly simTime: number;
+  readonly sound: GameHostSound;
+  readonly inputMode: 'physical' | 'test';
+  readonly player?: { readonly x: number; readonly y: number; readonly z: number };
+  readonly scenes?: { readonly loaded: readonly string[]; readonly loading: readonly string[] };
+}
+
 /** delivery.md §3.1 `GameControlResult` (accepted submissions; the
  * runtime's own rejection rule passes through its structured error). */
 export type GameControlError =
@@ -172,7 +189,7 @@ export interface GameHostConfig {
   readonly settings: GameplaySettings;
   /** The injected physics port (physics-rapier in the preview; a fake in
    * tests). Absent for a scene without a game block (scene mode). */
-  readonly physics?: PhysicsPort;
+  readonly physics?: PhysicsPort | PhysicsPort3D;
   /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   /**
@@ -259,6 +276,10 @@ export interface GameHost {
   readonly runtime: Runtime;
   /** Phase 12 (c), additive: request a scene load/unload (the same rules as a script's `ctx.scenes`). */
   scene(op: 'load' | 'unload', sceneId: string): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
+  /** Phase 23.0, additive: a scene-mode game's observation (`observe` needs a game session; a scene has none). */
+  observeScene?():
+    | { readonly ok: true; readonly observation: GameHostSceneObservation }
+    | { readonly ok: false; readonly error: GameControlError };
 }
 
 // --- the committed-view → cue mapping (delivery.md §4.1, B13) -------------
@@ -400,7 +421,7 @@ const SIMULATION_SPECS: Readonly<Record<string, SimulationModuleSpec>> = {
   [platformerGameCameraSpec.id]: platformerGameCameraSpec,
 };
 /** The port modules the delivery wrapper injects (checked, not registered). */
-const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
+const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
 
 /**
  * Select the simulation modules from the manifest's module list (the build's
@@ -423,7 +444,7 @@ function selectModules(
     }
     if (id === 'thirdlight.demo:box-motion') continue; // a runtime built-in (already registered)
     if (PORT_MODULES.has(id)) {
-      if (id === 'thirdlight.physics-rapier:2d' && !hasPhysics) {
+      if ((id === 'thirdlight.physics-rapier:2d' || id === 'thirdlight.physics-rapier:3d') && !hasPhysics) {
         return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
       }
       continue;
@@ -445,7 +466,7 @@ function selectModules(
 export interface GameRuntimeArgs {
   readonly snapshot: RuntimeSnapshot;
   readonly settings: GameplaySettings;
-  readonly physics?: PhysicsPort;
+  readonly physics?: PhysicsPort | PhysicsPort3D;
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   readonly modules?: readonly string[];
   readonly actions: ActionSource;
@@ -1091,6 +1112,32 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
+  const observeScene = ():
+    | { ok: true; observation: GameHostSceneObservation }
+    | { ok: false; error: GameControlError } => {
+    if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
+    if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
+    const snap = config.snapshot;
+    if (snap.game !== null && snap.game !== undefined) return { ok: false, error: { code: 'game_session_present', message: 'this host plays a game: observe() reports it' } };
+    const d = runtime.getDiagnostics();
+    const player = snap.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined);
+    const st = player !== undefined ? runtime.getInterpolatedState() : null;
+    const tr = st !== null && st.ok ? st.state.transforms.find((t) => t.id === player!.id) : undefined;
+    return {
+      ok: true,
+      observation: {
+        snapshotId: snap.snapshotId,
+        buildId: config.buildId,
+        stepIndex: d.ok ? d.diagnostics.stepIndex : 0,
+        simTime: d.ok ? d.diagnostics.simTime : 0,
+        sound: mapSoundStatus(config.audio),
+        inputMode: 'physical',
+        ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
+        ...scenesObservation(runtime),
+      },
+    };
+  };
+
   const scene = (op: 'load' | 'unload', sceneId: string): { ok: true } | { ok: false; error: GameControlError } => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
@@ -1175,6 +1222,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     mount,
     control,
     observe,
+    observeScene,
     setViewport,
     dispose,
     scene,

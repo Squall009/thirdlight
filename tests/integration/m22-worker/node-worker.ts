@@ -20,5 +20,10 @@ runSimWorker(
     createPhysicsPort: (config) => createPhysicsPort(config as never),
     importModule: (url) => import(/* @vite-ignore */ url),
     physicsMemoryBytes,
+    // Phase 23.0: the 3D backend (bundled in here; a browser worker loads physics-3d.js instead).
+    loadPhysics3D: async () => {
+      const m = await import('@thirdlight/physics-rapier/3d');
+      return { createPhysicsPort3D: (config) => m.createPhysicsPort3D(config), physicsMemoryBytes3D: m.physicsMemoryBytes3D };
+    },
   },
 );

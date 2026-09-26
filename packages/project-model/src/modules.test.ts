@@ -60,6 +60,15 @@ describe('resolveRequiredModules', () => {
     expect(r).toEqual({ ok: true, moduleIds: [...ENGINE_MODULE_IDS] });
   });
 
+  it('phase 23.0: a 3D project\'s controller needs the 3D backend; a game block stays on the 2D plane', () => {
+    const scene = { entities: [entity({ controller: {} })] };
+    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    expect(resolveRequiredModules({ scene, game: null, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene, game: null }));
+    expect(resolveRequiredModules({ scene, game: null, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
+    const game = resolveRequiredModules({ scene, game: { configVersion: 2 }, physicsDimension: 3 });
+    expect(game).toMatchObject({ ok: false, unresolved: [{ id: 'thirdlight.platformer-game:session', requiredBy: 'game' }] });
+  });
+
   it('the M2 heuristic entry is the resolver over the scene', () => {
     expect(requiredModuleIds({ entities: [entity({ controller: {} })] }, true, false)).toEqual([
       'thirdlight.demo:box-motion',

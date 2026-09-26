@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { resolveRequiredModules } from '@thirdlight/exporter';
+import { physicsDimensionOf, resolveRequiredModules } from '@thirdlight/exporter';
 
 export interface TemplateInfo {
   id: string;
@@ -106,7 +106,7 @@ export function loadTemplate(engineRoot: string, id: string): { ok: true; source
  * module set, or what nobody provides (creation refuses).
  */
 export function resolveTemplateModules(source: TemplateSource): ReturnType<typeof resolveRequiredModules> {
-  const content = (source.content ?? {}) as { game?: unknown; behaviors?: Array<Record<string, unknown>> };
+  const content = (source.content ?? {}) as { game?: unknown; behaviors?: Array<Record<string, unknown>>; settings?: unknown };
   const behaviors = (Array.isArray(content.behaviors) ? content.behaviors : [])
     .filter((b) => b['source'] !== null && b['source'] !== undefined)
     .map((b) => ({
@@ -118,5 +118,7 @@ export function resolveTemplateModules(source: TemplateSource): ReturnType<typeo
     game: content.game ?? null,
     behaviors,
     declared: source.requiredModules,
+    // Phase 23.0: a 3D template needs the 3D backend.
+    physicsDimension: physicsDimensionOf(content.settings),
   });
 }

@@ -32,6 +32,7 @@ import {
   type SimWorkerHandle,
 } from '@thirdlight/game-host';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
 import { createRecordedActionSource, type ActionFrame, type Runtime } from '@thirdlight/runtime';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,7 +156,8 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   if (mode === 'single') {
     let physics: Any;
     if (cfg.physics !== null) {
-      const made = await createPhysicsPort(cfg.physics);
+      // Phase 23.0: a 3D config (dimension 3) makes the 3D port.
+      const made = cfg.physics.dimension === 3 ? await createPhysicsPort3D(cfg.physics) : await createPhysicsPort(cfg.physics);
       if (!made.ok) throw new Error(JSON.stringify(made.error));
       physics = made.port;
     }

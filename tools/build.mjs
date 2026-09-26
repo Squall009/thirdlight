@@ -125,6 +125,14 @@ const BUNDLES = [
     entry: 'packages/editor/src/preview/sim-worker.ts',
     out: 'dist/preview/sim-worker.js',
   },
+  // Phase 23.0: the 3D physics backend (rapier3d, its WASM inlined), served on
+  // the preview origin as /physics-3d.js and loaded — by the page or the
+  // simulation worker — only for a project whose physics_dimension is 3.
+  {
+    name: 'physics-3d',
+    entry: 'packages/editor/src/preview/physics-3d.ts',
+    out: 'dist/preview/physics-3d.js',
+  },
 ];
 
 /**

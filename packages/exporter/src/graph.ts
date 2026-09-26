@@ -6,8 +6,9 @@
  * only), the shared production composition `game-host` and its packages —
  * `runtime`, `platformer`, `platformer-game`, `three-adapter` (with its phase-20.2 `effects`),
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
- * `@dimforge/rapier2d-compat`, and the per-snapshot virtual module the export
- * build generates in memory (`thirdlight:export-artifacts`).
+ * `@dimforge/rapier2d-compat` (phase 23.0: and `@dimforge/rapier3d-compat`,
+ * the 3D backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
+ * virtual module the export build generates in memory (`thirdlight:export-artifacts`).
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,
  * `mcp-adapter`, `protocol`, `exporter` beyond the bootstrap, `behavior-build`,
@@ -41,8 +42,8 @@ const ALLOWED_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model'
 function allowed(p: string): boolean {
   if (ALLOWED_PACKAGES.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
-  // The approved physics pin (dependencies.md §7): the compat build and its inlined WASM module.
-  return p.includes('node_modules/@dimforge/rapier2d-compat/');
+  // The approved physics pins (dependencies.md §7; decision 0005 for 3D): the compat builds and their inlined WASM modules.
+  return p.includes('node_modules/@dimforge/rapier2d-compat/') || p.includes('node_modules/@dimforge/rapier3d-compat/');
 }
 
 /** Check every module in the export bundle's metafile input graph. */

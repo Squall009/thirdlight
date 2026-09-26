@@ -33,6 +33,8 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
   { id: 'thirdlight.physics-rapier:2d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
+  // Phase 23.0: the 3D backend (a project whose physics_dimension is 3).
+  { id: 'thirdlight.physics-rapier:3d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   { id: 'thirdlight.platformer:controller', package: '@thirdlight/platformer', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'] },
   { id: 'thirdlight.platformer-game:session', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer:controller'] },
   { id: 'thirdlight.platformer-game:camera', package: '@thirdlight/platformer-game', kind: 'simulation', requires: ['thirdlight.platformer-game:session'] },
@@ -69,6 +71,13 @@ export interface ResolveModulesInput {
   declared?: readonly string[];
   /** The M2 demo module (box motion) is selected. */
   demo?: boolean;
+  /**
+   * Phase 23.0: the project's physics dimension (absent: 2, the 2D plane). In
+   * 3D a `controller` needs the 3D backend (`thirdlight.physics-rapier:3d`),
+   * not the 2D platformer controller; the platformer game set (a game block)
+   * is 2D-plane only until 3D game modes exist (phase 23.10).
+   */
+  physicsDimension?: 2 | 3;
 }
 
 export interface UnresolvedModule {
@@ -91,13 +100,21 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
   };
 
   if (input.demo === true) want('thirdlight.demo:box-motion', 'declared');
+  const threeD = input.physicsDimension === 3;
+  if (threeD && input.game !== null && input.game !== undefined) {
+    return {
+      ok: false,
+      unresolved: [{ id: 'thirdlight.platformer-game:session', requiredBy: 'game' }],
+      message: 'the platformer game block runs on the 2D plane (physics_dimension 2); a 3D project plays its scenes without one until 3D game modes exist',
+    };
+  }
   if (input.game !== null && input.game !== undefined) {
     want('thirdlight.platformer-game:session', 'game');
     want('thirdlight.platformer-game:camera', 'game');
   }
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
-    if (c['controller'] !== undefined) want('thirdlight.platformer:controller', 'scene');
+    if (c['controller'] !== undefined) want(threeD ? 'thirdlight.physics-rapier:3d' : 'thirdlight.platformer:controller', 'scene');
     if (c['model'] !== undefined) want('thirdlight.three-adapter:gltf-loader', 'scene');
   }
   for (const b of input.behaviors ?? []) {
@@ -107,7 +124,8 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
         unresolved.push({ id: pkg, requiredBy: `behavior:${b.behaviorId}` });
         continue;
       }
-      for (const id of ids) want(id, `behavior:${b.behaviorId}`);
+      // Phase 23.0: a 3D project's physics is the 3D backend.
+      for (const id of ids) want(threeD && id === 'thirdlight.physics-rapier:2d' ? 'thirdlight.physics-rapier:3d' : id, `behavior:${b.behaviorId}`);
     }
   }
   for (const id of input.declared ?? []) want(id, 'declared');

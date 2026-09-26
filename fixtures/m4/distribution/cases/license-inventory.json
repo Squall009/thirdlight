@@ -51,6 +51,15 @@
       ]
     },
     {
+      "name": "@dimforge/rapier3d-compat",
+      "version": "0.20.0",
+      "license": null,
+      "class": "runtime-browser",
+      "bundles": [
+        "physics-3d"
+      ]
+    },
+    {
       "name": "@modelcontextprotocol/sdk",
       "version": "1.30.0",
       "license": null,

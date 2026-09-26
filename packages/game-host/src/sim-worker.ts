@@ -18,7 +18,7 @@
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
-import { createRecordedActionSource, type ActionSource, type PhysicsPort, type Runtime } from '@thirdlight/runtime';
+import { createRecordedActionSource, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime } from '@thirdlight/runtime';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -35,6 +35,15 @@ export interface SimWorkerDeps {
   importModule(url: string): Promise<unknown>;
   /** The physics engine's WebAssembly memory in bytes (null: unknown). */
   physicsMemoryBytes?(): number | null;
+  /**
+   * Phase 23.0: the 3D backend (physics-rapier/3d) for a project whose
+   * `physics_dimension` is 3 — loaded on first use (a browser worker entry
+   * loads the separate `physics-3d.js`, so a 2D game never carries it).
+   */
+  loadPhysics3D?(): Promise<{
+    createPhysicsPort3D(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
+    physicsMemoryBytes3D?(): number | null;
+  }>;
 }
 
 interface PhysicsQueries {
@@ -53,6 +62,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let debug: PlayDebugger | null = null;
   let stepHz = 120;
   let memoryCap = PHYSICS_MEMORY_CAP_BYTES;
+  /** Phase 23.0: the loaded 3D backend's memory probe (a 3D game), else the 2D one's. */
+  let memoryProbe: (() => number | null) | undefined = deps.physicsMemoryBytes;
   let memoryStopped = false;
   let digestOn = false;
   let digests: string[] = [];
@@ -99,7 +110,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
 
   const memoryNow = (): number | null => {
     try {
-      return deps.physicsMemoryBytes?.() ?? null;
+      return memoryProbe?.() ?? null;
     } catch {
       return null;
     }
@@ -126,8 +137,25 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     stepHz = m.settings.fixed_step_hz ?? 120;
     memoryCap = typeof m.memoryCapBytes === 'number' && m.memoryCapBytes > 0 ? m.memoryCapBytes : PHYSICS_MEMORY_CAP_BYTES;
     try {
-      let port: PhysicsPort | undefined;
-      if (m.physics !== null && m.physics !== undefined) {
+      let port: PhysicsPort | PhysicsPort3D | undefined;
+      if (m.physics !== null && m.physics !== undefined && (m.physics as { dimension?: unknown }).dimension === 3) {
+        // Phase 23.0: a 3D game's backend (loaded now, only for it).
+        if (deps.loadPhysics3D === undefined) {
+          post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no 3D physics backend' } });
+          phase = 'idle';
+          return;
+        }
+        const backend = await deps.loadPhysics3D();
+        memoryProbe = backend.physicsMemoryBytes3D;
+        const made = await backend.createPhysicsPort3D(m.physics as never);
+        if (!made.ok) {
+          post({ t: 'failed', error: { code: 'physics_init_failed', message: `physics init failed: ${made.error.code}${made.error.message !== undefined ? ` (${made.error.message})` : ''}` } });
+          phase = 'idle';
+          return;
+        }
+        port = made.port as PhysicsPort3D;
+        physics = made.port as PhysicsPort & PhysicsQueries;
+      } else if (m.physics !== null && m.physics !== undefined) {
         const made = await deps.createPhysicsPort(m.physics as never);
         if (!made.ok) {
           post({ t: 'failed', error: { code: 'physics_init_failed', message: `physics init failed: ${made.error.code}${made.error.message !== undefined ? ` (${made.error.message})` : ''}` } });

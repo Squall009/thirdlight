@@ -50,6 +50,10 @@ const ENGINE_VERSION = '0.1.0';
 const BUNDLE_NAME = 'js/main.js';
 /** Phase 22.0: the simulation worker (runtime + physics + scripts off the page's main thread). */
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
+/** Phase 23.0: the 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
+const PHYSICS_3D_BUNDLE_NAME = 'js/physics-3d.js';
+/** Phase 23.0: the module that marks a 3D project's physics. */
+const PHYSICS_3D_MODULE = 'thirdlight.physics-rapier:3d';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
@@ -131,6 +135,18 @@ const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu'; import * as TSL
 
 /** The pinned Rapier compat probe entry (re-measures the physics row). */
 const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort);";
+/** Phase 23.0: the pinned Rapier 3D compat probe entry (a 3D project's physics row). */
+const RAPIER_3D_PROBE_ENTRY = "import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d'; console.log(typeof createPhysicsPort3D);";
+
+/** Phase 23.0: the installed rapier3d-compat package.json the 3D bundle linked (from its metafile: the physics-rapier package's own pin). */
+function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: string): string | null {
+  for (const key of Object.keys(metafile.inputs ?? {})) {
+    const p = key.replace(/\\/g, '/');
+    const i = p.lastIndexOf(`node_modules/${pkg}/`);
+    if (i >= 0) return `${p.slice(0, i)}node_modules/${pkg}/package.json`;
+  }
+  return null;
+}
 
 /** Build one probe bundle (stdin entry, pinned §5.3 options). */
 async function probeBundle(ctx: ExportContext, contents: string, sourcefile: string): Promise<Uint8Array | null> {
@@ -204,6 +220,20 @@ export async function exportProjectM3(
     });
   }
 
+  // Phase 23.0: a 3D project's physics backend (next to the bootstrap: same directory, same rules).
+  const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
+  const physics3dEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-physics-3d.ts');
+  const physics3d = threeD ? await buildSimWorkerBundle(physics3dEntry) : null;
+  if (physics3d !== null && !physics3d.ok) {
+    return fail('export_bundle_graph_forbidden', 'internal', 'the 3D physics bundle build failed (resolution/boundary defect)', {
+      modules: physics3d.modules.slice(0, 8),
+    });
+  }
+  const rapier3dBytes = threeD ? await probeBundle(ctx, RAPIER_3D_PROBE_ENTRY, 'rapier3d-compat-probe.ts') : null;
+  if (threeD && rapier3dBytes === null) {
+    return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier 3D compat probe could not be built (the 3D physics row fails closed)');
+  }
+
   // The §5.4.1 binding 3 reference build + the pinned Rapier compat probe.
   const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
   const rapierBytes = await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier-compat-probe.ts');
@@ -252,6 +282,10 @@ export async function exportProjectM3(
     return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the simulation worker bundle graph', {
       modules: workerGraph.forbidden.slice(0, 8),
     });
+  }
+  if (physics3d !== null && physics3d.ok) {
+    const g3 = checkBundleGraphM3(physics3d.metafile, physics3dEntry);
+    if (!g3.ok) return fail('export_bundle_graph_forbidden', 'internal', 'forbidden modules in the 3D physics bundle graph', { modules: g3.forbidden.slice(0, 8) });
   }
 
   // ---- step 5a: the manifest self-identity + the closure rule ------------------
@@ -331,6 +365,13 @@ export async function exportProjectM3(
       { reason: `counts=${JSON.stringify(workerCounts)}` },
     );
   }
+  // Phase 23.0: the 3D physics bundle carries the same gate (its WASM is inlined: no URL).
+  if (physics3d !== null && physics3d.ok) {
+    const c3 = textPatternCounts(new TextDecoder().decode(physics3d.bytes), patterns);
+    if (c3.a + c3.b + c3.c + c3.e + c3.g + c3.i !== 0) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in the 3D physics bundle (a=${c3.a} b=${c3.b} c=${c3.c} e=${c3.e} g=${c3.g} i=${c3.i})`, { reason: `counts=${JSON.stringify(c3)}` });
+    }
+  }
   const textFiles = [
     { name: 'index.html', text: INDEX_HTML },
     { name: MANIFEST_NAME, text: new TextDecoder().decode(manifestBytes) },
@@ -361,6 +402,7 @@ export async function exportProjectM3(
     { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
     { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },
     { path: WORKER_BUNDLE_NAME, digest: digestBytes(worker.bytes), byteLength: worker.bytes.length },
+    ...(physics3d !== null && physics3d.ok ? [{ path: PHYSICS_3D_BUNDLE_NAME, digest: digestBytes(physics3d.bytes), byteLength: physics3d.bytes.length }] : []),
     { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
     { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
@@ -373,6 +415,8 @@ export async function exportProjectM3(
     installedPackage(ctx, ctx.typescriptPackageJson, 'typescript'),
     { id: 'esbuild', version: esbuildVersion, license: 'MIT', source: 'npm' },
     { id: '@dimforge/rapier2d-compat', version: readJsonStringField(ctx, ctx.fs.join(ctx.repoRoot, 'node_modules/@dimforge/rapier2d-compat/package.json'), 'version'), license: 'Apache-2.0', source: 'npm' },
+    // Phase 23.0: a 3D project's backend (the version the 3D bundle linked).
+    ...(physics3d !== null && physics3d.ok ? [{ id: '@dimforge/rapier3d-compat', version: rapier3dVersion(ctx, physics3d.metafile), license: 'Apache-2.0', source: 'npm' }] : []),
     ...decoders.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
   ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
@@ -425,6 +469,7 @@ export async function exportProjectM3(
     { name: 'index.html', bytes: indexBytes },
     { name: BUNDLE_NAME, bytes: built.bytes },
     { name: WORKER_BUNDLE_NAME, bytes: worker.bytes },
+    ...(physics3d !== null && physics3d.ok ? [{ name: PHYSICS_3D_BUNDLE_NAME, bytes: physics3d.bytes }] : []),
     { name: MANIFEST_NAME, bytes: manifestBytes },
     { name: SCENE_NAME, bytes: closure.sceneBytes },
     ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
@@ -449,6 +494,14 @@ export async function exportProjectM3(
     contentDigest: parsedManifest.contentDigest,
     outputDigest,
   };
+}
+
+/** Phase 23.0: the rapier3d-compat version the 3D bundle linked ('' when unknown). */
+function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, unknown> }): string {
+  const rel = linkedPackageJson(metafile, '@dimforge/rapier3d-compat');
+  if (rel === null) return '';
+  const path = rel.startsWith('/') ? rel : ctx.fs.join(ctx.repoRoot, rel);
+  return readJsonStringField(ctx, path, 'version');
 }
 
 /** The manifest document without `buildId` (the `buildId` preimage object). */

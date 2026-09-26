@@ -61,6 +61,7 @@ export {
   type GameHost,
   type GameHostConfig,
   type GameHostObservation,
+  type GameHostSceneObservation,
   type GameHostSound,
   type HostInputOwner,
   type HostRenderAdapter,
@@ -108,7 +109,9 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
 export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions } from './sim-remote';
 export { createLocalSimAccess, type SimAccess, type SimRay } from './sim-access';
-export { browserWorkerAvailable, createBrowserSimWorker, workerGlobalEndpoint } from './sim-browser';
+export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';
+// Phase 23.0: the 3D physics backend's hand-over (a separate script; see physics-3d-global.ts).
+export { PHYSICS_3D_GLOBAL, registerPhysics3D, type Physics3DModule } from './physics-3d-global';
 export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
 export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';

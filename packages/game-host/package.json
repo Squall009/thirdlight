@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Thirdlight M3 browser game host (dependencies.md §2/§4.1 row). Packet 54 part: the injected browser audio owner of presentation.md §41.4.7 (GameAudioOwner: registerCue/submit/unlock/setMuted/setHidden/status/dispose — bytes-in cue registration, committed-cue submission with run/event-identity dedupe, local-gesture unlock, the AUDIO_MAX_VOICES = 8 bounded voice cap (drop, never queue), stale-decode/stale-cue cancellation, exactly-one context close). Packet 55 part (delivery.md §§3–5): the local (in-page) composition — createGameHost: the single production module set (runtime built-ins + platformer controller + platformer-game session/camera via the accepted instantiateRuntime/registry values), the host-owned text-node HUD (never project-supplied HTML), the menu/control channel consumed between frames (gameCommand start/replay; the input owner's sampleMenu/markConfirmConsumed seam), the injected audio lifecycle (mute state, committed-view cue submission), the viewport pass-through, and idempotent disposal of the host-owned runtime/HUD/adapter. Browser-safe by construction: no editor/exporter/backend/workspace/commands/protocol/mcp/asset/behavior/physics-rapier/three import, no fetch, no credential; every concrete dependency (physics port, canvas adapter, input owner, audio owner, artifact reader) is injected.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./physics-3d-global": "./src/physics-3d-global.ts"
   },
   "dependencies": {
     "@thirdlight/input": "0.1.0",

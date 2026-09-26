@@ -61,8 +61,8 @@
  * §1: UNVERIFIED for audio/gamepad/physical display in this container).
  */
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { modelBoundsFromAssetRows, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { sha256HexAsync } from '@thirdlight/project-model';
+import { modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
+import { physicsDimensionOf, sha256HexAsync } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
@@ -81,6 +81,7 @@ import {
   browserWorkerAvailable,
   createBrowserSimWorker,
   createLocalSimAccess,
+  loadPhysics3D,
   resolveThreadingMode,
   resolveTransport,
   RelayActionSource,
@@ -100,6 +101,13 @@ import { Bridge } from './bridge';
  * file next to the decoders, built from `./sim-worker.ts`).
  */
 const PREVIEW_SIM_WORKER_PATH = '/sim-worker.js';
+
+/**
+ * Phase 23.0: the 3D physics backend's script on the preview origin (built
+ * from `./physics-3d.ts`), loaded only by a project whose physics_dimension
+ * is 3 — in the page (single thread) or by the worker (next to its script).
+ */
+const PREVIEW_PHYSICS_3D_PATH = '/physics-3d.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
@@ -420,7 +428,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const settings = manifest.settings;
   // Physics runs only for a game (a player controller); a plain scene plays
   // without it.
-  const physicsConfig = physicsConfigFromSnapshot(snapshot, settings);
+  // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings) : physicsConfigFromSnapshot(snapshot, settings);
   if (physicsConfig === null && (snapshot.game ?? null) !== null) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the game requires a player controller entity');
   }
@@ -509,9 +518,17 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Until the host owns it (its runtime is the mirror, disposed with the host): released on failure.
       releases.push(() => void r.dispose());
     }
-    let physics: RapierPhysicsPort | undefined;
-    if (remote === null && physicsConfig !== null) {
-      const init = await createPhysicsPort(physicsConfig);
+    let physics: RapierPhysicsPort | PhysicsPort3D | undefined;
+    if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
+      // Phase 23.0: the 3D backend (a separate script, loaded only for a 3D project).
+      const backend = await loadPhysics3D(new URL(PREVIEW_PHYSICS_3D_PATH, location.href).href);
+      const init = await backend.createPhysicsPort3D(physicsConfig as never);
+      if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
+      const p = init.port as PhysicsPort3D;
+      physics = p;
+      releases.push(() => p.dispose());
+    } else if (remote === null && physicsConfig !== null) {
+      const init = await createPhysicsPort(physicsConfig as RapierPhysicsInitConfig);
       if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
       physics = init.port;
       const p = init.port;
@@ -848,7 +865,41 @@ export function bootstrapPreviewM3(): void {
     const debug = await h.access.debugObservation();
     const gv = h.host.runtime.getGameView();
     const obs = h.host.observe();
-    if (!gv.ok || !obs.ok) return null;
+    if (!gv.ok || !obs.ok) {
+      // Phase 23.0: a scene-mode play (no game block) reports its step, sound and player
+      // (state "scene": no run, so no deaths, goal or checkpoints).
+      const sc = h.host.observeScene?.();
+      if (sc === undefined || !sc.ok) return null;
+      const o = sc.observation;
+      return {
+        ok: true,
+        playSessionId: playId,
+        snapshotId: o.snapshotId,
+        buildId: h.identity.buildId,
+        runId: `${o.snapshotId}#0`,
+        revision: h.identity.revision,
+        observedAt: new Date().toISOString(),
+        stepIndex: o.stepIndex,
+        simTime: o.simTime,
+        state: 'scene',
+        checkpointId: null,
+        checkpointActive: false,
+        goalReached: false,
+        failed: false,
+        deathCount: 0,
+        eventCount: 0,
+        eventDropped: 0,
+        inputMode: h.access.inputTestActive ? 'test' : 'physical',
+        sound: o.sound,
+        simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
+        events: [],
+        ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),
+        ...(o.scenes !== undefined ? { scenes: { loaded: [...o.scenes.loaded], loading: [...o.scenes.loading] } } : {}),
+        ...rendererObservation(h),
+        ...(behaviors !== null ? { behaviors } : {}),
+        ...(debug !== null && debug !== undefined ? { debug } : {}),
+      };
+    }
     const v = gv.view;
     const st = h.host.runtime.getInterpolatedState();
     const tr = st.ok && h.playerId !== null ? st.state.transforms.find((t) => t.id === h.playerId) : undefined;
@@ -875,7 +926,8 @@ export function bootstrapPreviewM3(): void {
       // Phase 22.0: where the simulation runs (worker | single) and how its frames reach the page.
       simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
       events: v.events.slice(-32).map((e) => ({ id: e.id, kind: e.kind, stepIndex: e.stepIndex, boundary: e.boundary, deathCount: e.deathCount })),
-      ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1] } } : {}),
+      // Phase 23.0: z too (a 3D game moves in depth).
+      ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
       // Phase 12 (c): the loaded scenes and the ones on their way.
       ...(obs.observation.scenes !== undefined ? { scenes: { loaded: [...obs.observation.scenes.loaded], loading: [...obs.observation.scenes.loading] } } : {}),
       // Phase 9.7: each animator's current state (entity id → state name).

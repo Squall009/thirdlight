@@ -464,7 +464,8 @@ export const GAME_OBSERVE_TIMEOUT_DEFAULT_MS = 5_000;
 export const GAME_OBSERVATION_EVENT_MAX = 32;
 
 /** The closed §20 run-state set (gameplay.md §2). */
-export const GAME_RUN_STATES = ['awaitingStart', 'playing', 'respawning', 'won'] as const;
+/** Phase 23.0: `scene` — a scene-mode play (no game block: no run to be in). */
+export const GAME_RUN_STATES = ['awaitingStart', 'playing', 'respawning', 'won', 'scene'] as const;
 export type GameRunState = (typeof GAME_RUN_STATES)[number];
 
 /** The closed sound-status set (§20.1/delivery.md §5.2). */
