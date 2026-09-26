@@ -60,6 +60,55 @@ in Thirdlight's tests. Thirdlight tests use neutral fixtures.
 - Done when: the decision is logged, `physics.dimension` exists as data,
   the 3D backend steps a trivial scene deterministically in Play and export,
   and every existing 2D replay/test is green.
+- **Design (main session, 2026-09-26, from the 2D-seam survey):**
+  - **Two backends, not one constrained world.** A rapier3d world locked
+    to a plane cannot reproduce rapier2d's f32 results (different
+    narrow-phase, capsule maths, character-controller internals), so
+    `plane2d` keeps the existing rapier2d adapter untouched — byte-identical
+    by construction. `3d` is a new adapter on
+    `@dimforge/rapier3d-compat@0.20.0` (same version as the 2D pin), in
+    `physics-rapier` behind its own subpath export (`./3d`) so 2D preview
+    and export bundles never carry the 3D WASM. Module id
+    `thirdlight.physics-rapier:3d`, next to `:2d`.
+  - **A separate 3D port type**, `PhysicsPort3D` (Vec3 + quaternion), in
+    the runtime next to today's `PhysicsPort`; the runtime holds one or the
+    other, chosen by the setting. The 2D port, its fakes, the platformer
+    controller, the graph codegen and the public script `.d.ts` stay as they
+    are (Sprout's pinned behavior output digests must not move). In 3D the
+    runtime commits the full position (not only `[0..1]`) back to the
+    transform.
+  - **Setting:** optional engine setting `physics_dimension`, values
+    `[2, 3]` with labels "2D plane" / "3D", absent = 2 — the same mechanism
+    as `sim_thread` / `render_backend`, so settings, manifest, buildId and
+    replays of every existing project stay byte-identical. Shown in project
+    settings through its descriptor.
+  - **3D collider data (additive):** collider `box` gains optional `hz`;
+    absent keeps today's canonical bytes. In a 3D project a box without `hz`
+    is a validation problem (no silent guessed depth). 3D colliders take the
+    entity's full rotation; the z-only rotation rule stays for `plane2d`.
+    Box Scene handle becomes 3-axis when `hz` is present. Controller capsule
+    `offset` gains an optional third component. Other 3D shapes, mesh
+    colliders and triggers are 23.1.
+  - **3D character in 23.0:** the existing controller capsule as a Rapier
+    kinematic character controller with the existing tuning (slope, snap,
+    autostep, skin) and gravity along −Y, no movement input yet — it falls
+    and rests. Movement, input and the full settings are 23.2.
+  - **Hosts:** preview page, simulation worker and export load the 3D
+    backend only when the setting is 3; exporter allow-list, probe and
+    license rows, `tools/check-deps.mjs`, `tools/check-boundaries.mjs`, and
+    a decision record `docs/decisions/0005-3d-physics.md` for the pin.
+  - **Bug found in the survey, fixed first as its own commit:** 2D
+    colliders collide unrotated while the editor draws them rotated. The
+    collider has no `rotationZ` field; every consumer reads
+    `collider.rotationZ ?? 0`, so physics always gets 0. Fix: pass the
+    entity's z-angle. Only scenes with rotated colliders change; list any
+    fixture or replay that moves in the decision log.
+  - **Tests:** unit tests for the 3D adapter (a capsule falls and rests on
+    a box, rotated box, raycast); an integration test proving a neutral 3D
+    scene gives identical step digests over two runs and page vs worker;
+    every existing 2D suite unchanged and green; e2e: Play and the static
+    export of a neutral 3D fixture where the capsule lands on a box,
+    observed through the game-observe path, on both Playwright projects.
 
 #### 23.1 3D physics world, static colliders, triggers (E1)
 - Static colliders from level geometry, `_COL` nodes and primitive
