@@ -1867,6 +1867,10 @@ class RuntimeInstance implements Runtime {
     const keep = new Set(level.scenes);
     if (!level.begun) {
       level.begun = true;
+      // Phase 24.0: spawned copies belong to the level that made them. A coin a boar
+      // dropped (or anything else `ctx.spawn` made) is not left standing in the next
+      // level's world at the same coordinates.
+      this.clearSpawned();
       for (const b of [...this.batches.values()]) if (!keep.has(b.sceneId)) this.removeBatch(b.sceneId);
       for (const id of level.scenes) {
         this.pendingUnloads.delete(id);

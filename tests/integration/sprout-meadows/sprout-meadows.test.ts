@@ -1,10 +1,10 @@
 /**
- * Phase 9.13: Sprout's two demo levels, played start to finish headlessly —
+ * Phase 9.13: Sprout's ten demo levels, played start to finish headlessly —
  * the real game host, platformer, Rapier and scene loading over the Sprout
  * project's saved scenes (~/projects/sprout/thirdlight; skipped when that
  * repo is absent) — by a small bot that sees what a player sees: the ground
  * and platforms ahead (physics raycasts), boars ahead. It goes through the
- * title screen, both levels and their "level complete" screens to the end
+ * title screen, every level and its "level complete" screen to the end
  * screen, and reports each level's time and deaths.
  *
  * Phase 22.0: the play-through runs in both threading modes — the simulation
@@ -197,11 +197,14 @@ async function playThrough(mode: Mode): Promise<void> {
   const results: { level: string; seconds: number; deaths: number; counters: Record<string, number>; spawned: number; spawnedTaken: number; score: unknown }[] = [];
   let spawnedSeen = new Set<string>();
   let spawnedTaken = new Set<string>();
+  let baseSpawned = new Set<string>();
+  let settled = -1;
+  const leftoverSpawned: number[] = [];
   let lastCounters: Record<string, number> = {};
   let levelStart = 0;
   let lastDeaths = 0;
   let screen = '';
-  let maxSteps = HZ * 60 * 6; // six minutes of game time at most
+  let maxSteps = HZ * 60 * 30; // thirty minutes of game time at most (ten levels)
   ui.submit = true; // New game from the title
   try {
     while (maxSteps-- > 0) {
@@ -221,6 +224,11 @@ async function playThrough(mode: Mode): Promise<void> {
           levelStart = view.simTime;
           spawnedSeen = new Set();
           spawnedTaken = new Set();
+          // Phase 24.0: a level starts with no spawned copy left from the last one (a coin a
+          // boar dropped belongs to the level that dropped it). Sampled once the level switch
+          // has settled (the scene loads run over the next ticks).
+          settled = 0;
+          baseSpawned = new Set();
         }
         if (flow.screen === 'levelComplete') results.push({ level: flow.levelId, seconds: Math.round((view.simTime - levelStart) * 10) / 10, deaths: lastDeaths, counters: lastCounters, spawned: spawnedSeen.size, spawnedTaken: spawnedTaken.size, score: flow.score });
         if (flow.screen === 'levelComplete' || flow.screen === 'gameOver') ui.submit = true;
@@ -238,7 +246,18 @@ async function playThrough(mode: Mode): Promise<void> {
       if (screen === 'playing') {
         lastDeaths = view.deathCount;
         lastCounters = { ...rt.gameCounters().counters };
-        for (const e of rt.sceneSet().spawned) spawnedSeen.add(e.id);
+        // Nothing is counted as this level's until the level switch has settled: the
+        // previous level's copies are cleared as the new scene set loads.
+        if (settled >= 0) {
+          settled += 1;
+          if (settled >= 90) {
+            leftoverSpawned.push(rt.sceneSet().spawned.length);
+            baseSpawned = new Set(rt.sceneSet().spawned.map((e: Any) => e.id));
+            settled = -1;
+          }
+        } else {
+          for (const e of rt.sceneSet().spawned) if (!baseSpawned.has(e.id)) spawnedSeen.add(e.id);
+        }
         for (const id of rt.hiddenEntities()) if (spawnedSeen.has(id)) spawnedTaken.add(id);
         await decide(view);
       } else frame = { moveX: 0, jump: 'none' };
@@ -247,9 +266,11 @@ async function playThrough(mode: Mode): Promise<void> {
     const endAt = rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === content.game.playerId)?.position;
     console.log('end state:', screen, JSON.stringify(endAt), 'deaths', rt.getGameView().view.deathCount, 'frame', JSON.stringify(frame));
     expect(screen).toBe('finished');
-    expect(results.map((r) => r.level)).toEqual(['meadow-1', 'meadow-2']);
+    expect(results.map((r) => r.level)).toEqual(['meadow-1', 'meadow-2', 'autumn-1', 'autumn-2', 'night-1', 'night-2', 'cave-1', 'cave-2', 'summit-1', 'summit-2']);
     // Phase 14.9: every boar the bot stomped dropped a coin (Sprout's script, ctx.spawn).
     for (const r of results) expect(r.spawned).toBe(r.counters['defeated'] ?? 0);
+    // Phase 24.0: nothing spawned in one level is left in the next one.
+    expect(leftoverSpawned).toEqual(results.map(() => 0));
   } finally {
     await h.dispose();
   }
@@ -257,6 +278,6 @@ async function playThrough(mode: Mode): Promise<void> {
 
 describe.skipIf(!existsSync(join(DIR, 'content.json')))('Sprout meadows (headless play-through)', () => {
   for (const mode of MODES) {
-    it(`both levels can be played from the title screen to the end (threading: ${mode})`, () => playThrough(mode), 240_000);
+    it(`both levels can be played from the title screen to the end (threading: ${mode})`, () => playThrough(mode), 2_400_000);
   }
 });
